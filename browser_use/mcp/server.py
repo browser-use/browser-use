@@ -150,7 +150,7 @@ except ImportError:
 	sys.exit(1)
 
 from browser_use.telemetry import MCPServerTelemetryEvent, ProductTelemetry
-from browser_use.utils import get_browser_use_version
+from browser_use.utils import create_task_with_error_handling, get_browser_use_version
 
 
 def get_parent_process_cmdline() -> str | None:
@@ -553,12 +553,16 @@ class BrowserUseServer:
 
 		# Initialize LLM from config
 		llm_config = get_default_llm(self.config)
+		base_url = llm_config.get('base_url', None)
+		kwargs = {}
+		if base_url:
+			kwargs['base_url'] = base_url
 		if api_key := llm_config.get('api_key'):
 			self.llm = ChatOpenAI(
-				model=llm_config.get('model', 'gpt-4o-mini'),
+				model=llm_config.get('model', 'gpt-o4-mini'),
 				api_key=api_key,
 				temperature=llm_config.get('temperature', 0.7),
-				# max_tokens=llm_config.get('max_tokens'),
+				**kwargs,
 			)
 
 		# Initialize FileSystem for extraction actions
@@ -606,10 +610,15 @@ class BrowserUseServer:
 			else:
 				llm_model = llm_config.get('model', 'gpt-4o')
 
+			base_url = llm_config.get('base_url', None)
+			kwargs = {}
+			if base_url:
+				kwargs['base_url'] = base_url
 			llm = ChatOpenAI(
 				model=llm_model,
 				api_key=api_key,
 				temperature=llm_config.get('temperature', 0.7),
+				**kwargs,
 			)
 
 		# Get profile config and merge with tool parameters
@@ -1059,7 +1068,7 @@ class BrowserUseServer:
 					logger.error(f'Error in cleanup task: {e}')
 					await asyncio.sleep(120)
 
-		self._cleanup_task = asyncio.create_task(cleanup_loop())
+		self._cleanup_task = create_task_with_error_handling(cleanup_loop(), name='mcp_cleanup_loop', suppress_exceptions=True)
 
 	async def run(self):
 		"""Run the MCP server."""

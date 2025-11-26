@@ -4,8 +4,14 @@
   "name": "Browser Use",
   "colors": {
     "primary": "#FE750E",
-    "light": "#FFF7ED",
-    "dark": "#C2410C"
+    "light": "#FE750E",
+    "dark": "#FE750E"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#09090B"
+    }
   },
   "favicon": "/favicon.ico",
   "contextual": {
@@ -168,6 +174,7 @@
             "isDefaultOpen": false,
             "pages": [
               "customize/code-agent/basics",
+              "customize/code-agent/output-format",
               "customize/code-agent/exporting",
               "customize/code-agent/all-parameters",
               "customize/code-agent/example-products"

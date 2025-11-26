@@ -5,6 +5,7 @@ import logging
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
+from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 import httpx
@@ -44,10 +45,11 @@ from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
-from browser_use.utils import _log_pretty_url, is_new_tab_page
+from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
 
 if TYPE_CHECKING:
 	from browser_use.actor.page import Page
+	from browser_use.browser.demo_mode import DemoMode
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
@@ -56,104 +58,37 @@ red = '\033[91m'
 reset = '\033[0m'
 
 
-class CDPSession(BaseModel):
-	"""Info about a single CDP session bound to a specific target.
+class Target(BaseModel):
+	"""Browser target (page, iframe, worker) - the actual entity being controlled.
 
-	Can optionally use its own WebSocket connection for better isolation.
+	A target represents a browsing context with its own URL, title, and type.
+	Multiple CDP sessions can attach to the same target for communication.
+	"""
+
+	model_config = ConfigDict(arbitrary_types_allowed=True, revalidate_instances='never')
+
+	target_id: TargetID
+	target_type: str  # 'page', 'iframe', 'worker', etc.
+	url: str = 'about:blank'
+	title: str = 'Unknown title'
+
+
+class CDPSession(BaseModel):
+	"""CDP communication channel to a target.
+
+	A session is a connection that allows sending CDP commands to a specific target.
+	Multiple sessions can attach to the same target.
 	"""
 
 	model_config = ConfigDict(arbitrary_types_allowed=True, revalidate_instances='never')
 
 	cdp_client: CDPClient
-
 	target_id: TargetID
 	session_id: SessionID
-	title: str = 'Unknown title'
-	url: str = 'about:blank'
 
-	@classmethod
-	async def for_target(
-		cls,
-		cdp_client: CDPClient,
-		target_id: TargetID,
-		domains: list[str] | None = None,
-	):
-		"""Create a CDP session for a target using the shared WebSocket.
-
-		Args:
-			cdp_client: The shared CDP client (root WebSocket connection)
-			target_id: Target ID to attach to
-			domains: List of CDP domains to enable. If None, enables default domains.
-		"""
-		# Always use shared CDP client (event-driven approach)
-		cdp_session = cls(
-			cdp_client=cdp_client,
-			target_id=target_id,
-			session_id='connecting',
-		)
-		return await cdp_session.attach(domains=domains)
-
-	async def attach(self, domains: list[str] | None = None) -> Self:
-		result = await self.cdp_client.send.Target.attachToTarget(
-			params={
-				'targetId': self.target_id,
-				'flatten': True,  # removed filter as a param because it doesn't exist at https://chromedevtools.github.io/devtools-protocol/tot/Target/#method-attachToTarget
-			}
-		)
-		self.session_id = result['sessionId']
-
-		# Use specified domains or default domains
-		domains = domains or ['Page', 'DOM', 'DOMSnapshot', 'Accessibility', 'Runtime', 'Inspector']
-
-		# Enable all domains in parallel
-		enable_tasks = []
-		for domain in domains:
-			# Get the enable method, e.g. self.cdp_client.send.Page.enable(session_id=self.session_id)
-			domain_api = getattr(self.cdp_client.send, domain, None)
-			# Browser and Target domains don't use session_id, dont pass it for those
-			enable_kwargs = {} if domain in ['Browser', 'Target'] else {'session_id': self.session_id}
-			assert domain_api and hasattr(domain_api, 'enable'), (
-				f'{domain_api} is not a recognized CDP domain with a .enable() method'
-			)
-			enable_tasks.append(domain_api.enable(**enable_kwargs))
-
-		results = await asyncio.gather(*enable_tasks, return_exceptions=True)
-		if any(isinstance(result, Exception) for result in results):
-			raise RuntimeError(f'Failed to enable requested CDP domain: {results}')
-
-		# in case 'Debugger' domain is enabled, disable breakpoints on the page so it doesnt pause on crashes / debugger statements
-		# also covered by Runtime.runIfWaitingForDebugger() calls in get_or_create_cdp_session()
-		try:
-			await self.cdp_client.send.Debugger.setSkipAllPauses(params={'skip': True}, session_id=self.session_id)
-			# if 'Debugger' not in domains:
-			# 	await self.cdp_client.send.Debugger.disable()
-			# await cdp_session.cdp_client.send.EventBreakpoints.disable(session_id=cdp_session.session_id)
-		except Exception:
-			# self.logger.warning(f'Failed to disable page JS breakpoints: {e}')
-			pass
-
-		target_info = await self.get_target_info()
-		self.title = target_info['title']
-		self.url = target_info['url']
-		return self
-
-	async def disconnect(self) -> None:
-		"""Disconnect session (no-op since we use shared WebSocket)."""
-		# With event-driven approach, all sessions share the root WebSocket
-		# Nothing to disconnect - only the root client is disconnected on browser.stop()
-		pass
-
-	async def get_tab_info(self) -> TabInfo:
-		target_info = await self.get_target_info()
-		return TabInfo(
-			target_id=target_info['targetId'],
-			url=target_info['url'],
-			title=target_info['title'],
-		)
-
-	async def get_target_info(self) -> TargetInfo:
-		result = await self.cdp_client.send.Target.getTargetInfo(params={'targetId': self.target_id})
-		return result['targetInfo']
+	# Lifecycle monitoring (populated by SessionManager)
+	_lifecycle_events: Any = PrivateAttr(default=None)
+	_lifecycle_lock: Any = PrivateAttr(default=None)
 
 
 class BrowserSession(BaseModel):
@@ -432,6 +367,15 @@ class BrowserSession(BaseModel):
 		description='BrowserProfile() options to use for the session, otherwise a default profile will be used',
 	)
 
+	# LLM screenshot resizing configuration
+	llm_screenshot_size: tuple[int, int] | None = Field(
+		default=None,
+		description='Target size (width, height) to resize screenshots before sending to LLM. Coordinates from LLM will be scaled back to original viewport size.',
+	)
+
+	# Cache of original viewport size for coordinate conversion (set when browser state is captured)
+	_original_viewport_size: tuple[int, int] | None = PrivateAttr(default=None)
+
 	# Convenience properties for common browser settings
 	@property
 	def cdp_url(self) -> str | None:
@@ -448,16 +392,30 @@ class BrowserSession(BaseModel):
 		"""Whether to use cloud browser service from browser profile."""
 		return self.browser_profile.use_cloud
 
+	@property
+	def demo_mode(self) -> 'DemoMode | None':
+		"""Lazy init demo mode helper when enabled."""
+		if not self.browser_profile.demo_mode:
+			return None
+		if self._demo_mode is None:
+			from browser_use.browser.demo_mode import DemoMode
+
+			self._demo_mode = DemoMode(self)
+		return self._demo_mode
+
 	# Main shared event bus for all browser session + all watchdogs
 	event_bus: EventBus = Field(default_factory=EventBus)
 
-	# Mutable public state
-	agent_focus: CDPSession | None = None
+	# Mutable public state - which target has agent focus
+	agent_focus_target_id: TargetID | None = None
 
 	# Mutable private state shared between watchdogs
 	_cdp_client_root: CDPClient | None = PrivateAttr(default=None)
-	_cdp_session_pool: dict[str, CDPSession] = PrivateAttr(default_factory=dict)
-	_session_manager: Any = PrivateAttr(default=None)  # SessionManager instance
+	_connection_lock: Any = PrivateAttr(default=None)  # asyncio.Lock for preventing concurrent connections
+
+	# PUBLIC: SessionManager instance (OWNS all targets and sessions)
+	session_manager: Any = Field(default=None, exclude=True)  # SessionManager
+
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
@@ -477,6 +435,8 @@ class BrowserSession(BaseModel):
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
+	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
+	_demo_nav_handler_event_bus: EventBus | None = PrivateAttr(default=None)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -503,7 +463,7 @@ class BrowserSession(BaseModel):
 
 	@property
 	def _tab_id_for_logs(self) -> str:
-		return self.agent_focus.target_id[-2:] if self.agent_focus and self.agent_focus.target_id else f'{red}--{reset}'
+		return self.agent_focus_target_id[-2:] if self.agent_focus_target_id else f'{red}--{reset}'
 
 	def __repr__(self) -> str:
 		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs} (cdp_url={self.cdp_url}, profile={self.browser_profile})'
@@ -514,24 +474,32 @@ class BrowserSession(BaseModel):
 	async def reset(self) -> None:
 		"""Clear all cached CDP sessions with proper cleanup."""
 
-		# TODO: clear the event bus queue here, implement this helper
-		# await self.event_bus.wait_for_idle(timeout=5.0)
-		# await self.event_bus.clear()
+		cdp_status = 'connected' if self._cdp_client_root else 'not connected'
+		session_mgr_status = 'exists' if self.session_manager else 'None'
+		self.logger.debug(
+			f'🔄 Resetting browser session (CDP: {cdp_status}, SessionManager: {session_mgr_status}, '
+			f'focus: {self.agent_focus_target_id[-4:] if self.agent_focus_target_id else "None"})'
+		)
 
-		# Clear session manager first (stops event monitoring)
-		if self._session_manager:
-			await self._session_manager.clear()
-			self._session_manager = None
+		# Clear session manager (which owns _targets, _sessions, _target_sessions)
+		if self.session_manager:
+			await self.session_manager.clear()
+			self.session_manager = None
 
-		# Clear session pool (all sessions share the root WebSocket, so no disconnect needed)
-		self._cdp_session_pool.clear()
+		# Close CDP WebSocket before clearing to prevent stale event handlers
+		if self._cdp_client_root:
+			try:
+				await self._cdp_client_root.stop()
+				self.logger.debug('Closed CDP client WebSocket during reset')
+			except Exception as e:
+				self.logger.debug(f'Error closing CDP client during reset: {e}')
 
 		self._cdp_client_root = None  # type: ignore
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
 
-		self.agent_focus = None
+		self.agent_focus_target_id = None
 		if self.is_local:
 			self.browser_profile.cdp_url = None
 
@@ -546,13 +514,17 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		if self._demo_mode:
+			self._demo_mode.reset()
+			self._demo_mode = None
+
+		self.logger.debug('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
+		self._connection_lock = asyncio.Lock()
+
 		# Check if handlers are already registered to prevent duplicates
-
-		from browser_use.browser.watchdog_base import BaseWatchdog
-
 		start_handlers = self.event_bus.handlers.get('BrowserStartEvent', [])
 		start_handler_names = [getattr(h, '__name__', str(h)) for h in start_handlers]
 
@@ -563,15 +535,30 @@ class BrowserSession(BaseModel):
 				'This likely means BrowserSession was initialized multiple times with the same EventBus.'
 			)
 
+		self._register_essential_handlers()
+
+	def _register_essential_handlers(self) -> None:
+		"""Register all essential event handlers on the current event bus."""
+		from browser_use.browser.watchdog_base import BaseWatchdog
+
 		BaseWatchdog.attach_handler_to_session(self, BrowserStartEvent, self.on_BrowserStartEvent)
 		BaseWatchdog.attach_handler_to_session(self, BrowserStopEvent, self.on_BrowserStopEvent)
 		BaseWatchdog.attach_handler_to_session(self, NavigateToUrlEvent, self.on_NavigateToUrlEvent)
+		self._ensure_demo_mode_handlers()
 		BaseWatchdog.attach_handler_to_session(self, SwitchTabEvent, self.on_SwitchTabEvent)
 		BaseWatchdog.attach_handler_to_session(self, TabCreatedEvent, self.on_TabCreatedEvent)
 		BaseWatchdog.attach_handler_to_session(self, TabClosedEvent, self.on_TabClosedEvent)
 		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
 		BaseWatchdog.attach_handler_to_session(self, CloseTabEvent, self.on_CloseTabEvent)
+
+	def _ensure_demo_mode_handlers(self) -> None:
+		"""Ensure demo mode handlers are attached to the active event bus."""
+		if self._demo_nav_handler_event_bus is self.event_bus:
+			return
+
+		self.event_bus.on(NavigationCompleteEvent, self._on_demo_mode_navigation_complete)
+		self._demo_nav_handler_event_bus = self.event_bus
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
@@ -583,6 +570,8 @@ class BrowserSession(BaseModel):
 
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""
+		self.logger.debug('🛑 kill() called - stopping browser with force=True and resetting state')
+
 		# First save storage state while CDP is still connected
 		from browser_use.browser.events import SaveStorageStateEvent
 
@@ -597,6 +586,8 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = EventBus()
+		# Re-register all essential handlers on the new event bus
+		self._register_essential_handlers()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -604,6 +595,8 @@ class BrowserSession(BaseModel):
 		This clears event buses and cached state but keeps the browser alive.
 		Useful when you want to clean up resources but plan to reconnect later.
 		"""
+		self.logger.debug('⏸️  stop() called - stopping browser gracefully (force=False) and resetting state')
+
 		# First save storage state while CDP is still connected
 		from browser_use.browser.events import SaveStorageStateEvent
 
@@ -619,6 +612,8 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = EventBus()
+		# Re-register all essential handlers on the new event bus
+		self._register_essential_handlers()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_event_handler')
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
@@ -626,9 +621,11 @@ class BrowserSession(BaseModel):
 
 		Returns:
 			Dict with 'cdp_url' key containing the CDP URL
-		"""
 
-		# await self.reset()
+		Note: This method is idempotent - calling start() multiple times is safe.
+		- If already connected, it skips reconnection
+		- If you need to reset state, call stop() or kill() first
+		"""
 
 		# Initialize and attach all watchdogs FIRST so LocalBrowserWatchdog can handle BrowserLaunchEvent
 		await self.attach_all_watchdogs()
@@ -666,16 +663,33 @@ class BrowserSession(BaseModel):
 
 			assert self.cdp_url and '://' in self.cdp_url
 
-			# Only connect if not already connected
-			if self._cdp_client_root is None:
-				# Setup browser via CDP (for both local and remote cases)
-				await self.connect(cdp_url=self.cdp_url)
-				assert self.cdp_client is not None
+			# Use lock to prevent concurrent connection attempts (race condition protection)
+			async with self._connection_lock:
+				# Only connect if not already connected
+				if self._cdp_client_root is None:
+					# Setup browser via CDP (for both local and remote cases)
+					await self.connect(cdp_url=self.cdp_url)
+					assert self.cdp_client is not None
 
-				# Notify that browser is connected (single place)
-				self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
-			else:
-				self.logger.debug('Already connected to CDP, skipping reconnection')
+					# Notify that browser is connected (single place)
+					self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
+
+					if self.browser_profile.demo_mode:
+						try:
+							demo = self.demo_mode
+							if demo:
+								await demo.ensure_ready()
+						except Exception as exc:
+							self.logger.warning(f'[DemoMode] Failed to inject demo overlay: {exc}')
+				else:
+					self.logger.debug('Already connected to CDP, skipping reconnection')
+					if self.browser_profile.demo_mode:
+						try:
+							demo = self.demo_mode
+							if demo:
+								await demo.ensure_ready()
+						except Exception as exc:
+							self.logger.warning(f'[DemoMode] Failed to inject demo overlay: {exc}')
 
 			# Return the CDP URL for other components
 			return {'cdp_url': self.cdp_url}
@@ -693,49 +707,32 @@ class BrowserSession(BaseModel):
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:
 		"""Handle navigation requests - core browser functionality."""
 		self.logger.debug(f'[on_NavigateToUrlEvent] Received NavigateToUrlEvent: url={event.url}, new_tab={event.new_tab}')
-		if not self.agent_focus:
+		if not self.agent_focus_target_id:
 			self.logger.warning('Cannot navigate - browser not connected')
 			return
 
 		target_id = None
+		current_target_id = self.agent_focus_target_id
 
 		# If new_tab=True but we're already in a new tab, set new_tab=False
-		if event.new_tab:
-			try:
-				current_url = await self.get_current_page_url()
-				from browser_use.utils import is_new_tab_page
-
-				if is_new_tab_page(current_url):
-					self.logger.debug(f'[on_NavigateToUrlEvent] Already in new tab ({current_url}), setting new_tab=False')
-					event.new_tab = False
-			except Exception as e:
-				self.logger.debug(f'[on_NavigateToUrlEvent] Could not check current URL: {e}')
-
-		# check if the url is already open in a tab somewhere that we're not currently on, if so, short-circuit and just switch to it
-		targets = await self._cdp_get_all_pages()
-		for target in targets:
-			if target.get('url') == event.url and target['targetId'] != self.agent_focus.target_id and not event.new_tab:
-				target_id = target['targetId']
-				event.new_tab = False
-				# await self.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
+		current_target = self.session_manager.get_target(current_target_id)
+		if event.new_tab and is_new_tab_page(current_target.url):
+			self.logger.debug(f'[on_NavigateToUrlEvent] Already on blank tab ({current_target.url}), reusing')
+			event.new_tab = False
 
 		try:
 			# Find or create target for navigation
-
 			self.logger.debug(f'[on_NavigateToUrlEvent] Processing new_tab={event.new_tab}')
-			if event.new_tab:
-				# Look for existing about:blank tab that's not the current one
-				targets = await self._cdp_get_all_pages()
-				self.logger.debug(f'[on_NavigateToUrlEvent] Found {len(targets)} existing tabs')
-				current_target_id = self.agent_focus.target_id if self.agent_focus else None
-				self.logger.debug(f'[on_NavigateToUrlEvent] Current target_id: {current_target_id}')
 
-				for idx, target in enumerate(targets):
-					self.logger.debug(
-						f'[on_NavigateToUrlEvent] Tab {idx}: url={target.get("url")}, targetId={target["targetId"]}'
-					)
-					if target.get('url') == 'about:blank' and target['targetId'] != current_target_id:
-						target_id = target['targetId']
+			if event.new_tab:
+				page_targets = self.session_manager.get_all_page_targets()
+				self.logger.debug(f'[on_NavigateToUrlEvent] Found {len(page_targets)} existing tabs')
+
+				# Look for existing about:blank tab that's not the current one
+				for idx, target in enumerate(page_targets):
+					self.logger.debug(f'[on_NavigateToUrlEvent] Tab {idx}: url={target.url}, targetId={target.target_id}')
+					if target.url == 'about:blank' and target.target_id != current_target_id:
+						target_id = target.target_id
 						self.logger.debug(f'Reusing existing about:blank tab #{target_id[-4:]}')
 						break
 
@@ -744,52 +741,37 @@ class BrowserSession(BaseModel):
 					self.logger.debug('[on_NavigateToUrlEvent] No reusable about:blank tab found, creating new tab...')
 					try:
 						target_id = await self._cdp_create_new_page('about:blank')
-						self.logger.debug(f'[on_NavigateToUrlEvent] Created new page with target_id: {target_id}')
-						targets = await self._cdp_get_all_pages()
-
 						self.logger.debug(f'Created new tab #{target_id[-4:]}')
 						# Dispatch TabCreatedEvent for new tab
 						await self.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url='about:blank'))
 					except Exception as e:
 						self.logger.error(f'[on_NavigateToUrlEvent] Failed to create new tab: {type(e).__name__}: {e}')
 						# Fall back to using current tab
-						target_id = self.agent_focus.target_id
+						target_id = current_target_id
 						self.logger.warning(f'[on_NavigateToUrlEvent] Falling back to current tab #{target_id[-4:]}')
 			else:
 				# Use current tab
-				target_id = target_id or self.agent_focus.target_id
+				target_id = target_id or current_target_id
 
-			# Only switch tab if we're not already on the target tab
-			if self.agent_focus is None or self.agent_focus.target_id != target_id:
+			# Switch to target tab if needed (for both new_tab=True and new_tab=False)
+			if self.agent_focus_target_id is None or self.agent_focus_target_id != target_id:
 				self.logger.debug(
-					f'[on_NavigateToUrlEvent] Switching to target tab {target_id[-4:]} (current: {self.agent_focus.target_id[-4:] if self.agent_focus else "none"})'
+					f'[on_NavigateToUrlEvent] Switching to target tab {target_id[-4:]} (current: {self.agent_focus_target_id[-4:] if self.agent_focus_target_id else "none"})'
 				)
 				# Activate target (bring to foreground)
 				await self.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-				# which does this for us:
-				# self.agent_focus = await self.get_or_create_cdp_session(target_id)
 			else:
 				self.logger.debug(f'[on_NavigateToUrlEvent] Already on target tab {target_id[-4:]}, skipping SwitchTabEvent')
 
-			assert self.agent_focus is not None and self.agent_focus.target_id == target_id, (
+			assert self.agent_focus_target_id is not None and self.agent_focus_target_id == target_id, (
 				'Agent focus not updated to new target_id after SwitchTabEvent should have switched to it'
 			)
 
 			# Dispatch navigation started
 			await self.event_bus.dispatch(NavigationStartedEvent(target_id=target_id, url=event.url))
 
-			# Navigate to URL
-			await self.agent_focus.cdp_client.send.Page.navigate(
-				params={
-					'url': event.url,
-					'transitionType': 'address_bar',
-					# 'referrer': 'https://www.google.com',
-				},
-				session_id=self.agent_focus.session_id,
-			)
-
-			# # Wait a bit to ensure page starts loading
-			await asyncio.sleep(1)
+			# Navigate to URL with proper lifecycle waiting
+			await self._navigate_and_wait(event.url, target_id)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
@@ -803,9 +785,7 @@ class BrowserSession(BaseModel):
 					status=None,  # CDP doesn't provide status directly
 				)
 			)
-			await self.event_bus.dispatch(
-				AgentFocusChangedEvent(target_id=target_id, url=event.url)
-			)  # do not await! AgentFocusChangedEvent calls SwitchTabEvent and it will deadlock, dispatch to enqueue and return
+			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
 
 			# Note: These should be handled by dedicated watchdogs:
 			# - Security checks (security_watchdog)
@@ -816,7 +796,8 @@ class BrowserSession(BaseModel):
 
 		except Exception as e:
 			self.logger.error(f'Navigation failed: {type(e).__name__}: {e}')
-			if target_id:
+			# target_id might be unbound if exception happens early
+			if 'target_id' in locals() and target_id:
 				await self.event_bus.dispatch(
 					NavigationCompleteEvent(
 						target_id=target_id,
@@ -827,43 +808,159 @@ class BrowserSession(BaseModel):
 				await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
 			raise
 
+	async def _navigate_and_wait(self, url: str, target_id: str, timeout: float | None = None) -> None:
+		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
+
+		Two-strategy approach optimized for speed with robust fallback:
+		1. networkIdle - Returns ASAP when no network activity (~50-200ms for cached pages)
+		2. load - Fallback when page has ongoing network activity (all resources loaded)
+
+		This gives us instant returns for cached content while being robust for dynamic pages.
+
+		NO handler registration here - handlers are registered ONCE per session in SessionManager.
+		We poll stored events instead to avoid handler accumulation.
+		"""
+		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+
+		if timeout is None:
+			target = self.session_manager.get_target(target_id)
+			current_url = target.url
+			same_domain = (
+				url.split('/')[2] == current_url.split('/')[2]
+				if url.startswith('http') and current_url.startswith('http')
+				else False
+			)
+			timeout = 2.0 if same_domain else 4.0
+
+		# Start performance tracking
+		nav_start_time = asyncio.get_event_loop().time()
+
+		nav_result = await cdp_session.cdp_client.send.Page.navigate(
+			params={'url': url, 'transitionType': 'address_bar'},
+			session_id=cdp_session.session_id,
+		)
+
+		# Check for immediate navigation errors
+		if nav_result.get('errorText'):
+			raise RuntimeError(f'Navigation failed: {nav_result["errorText"]}')
+
+		# Track this specific navigation
+		navigation_id = nav_result.get('loaderId')
+		start_time = asyncio.get_event_loop().time()
+
+		# Poll stored lifecycle events
+		seen_events = []  # Track events for timeout diagnostics
+
+		# Check if session has lifecycle monitoring enabled
+		if not hasattr(cdp_session, '_lifecycle_events'):
+			raise RuntimeError(
+				f'❌ Lifecycle monitoring not enabled for {cdp_session.target_id[:8]}! '
+				f'This is a bug - SessionManager should have initialized it. '
+				f'Session: {cdp_session}'
+			)
+
+		# Poll for lifecycle events until timeout
+		poll_interval = 0.05  # Poll every 50ms
+		while (asyncio.get_event_loop().time() - start_time) < timeout:
+			# Check stored events
+			try:
+				# Get recent events matching our navigation
+				for event_data in list(cdp_session._lifecycle_events):
+					event_name = event_data.get('name')
+					event_loader_id = event_data.get('loaderId')
+
+					# Track events
+					event_str = f'{event_name}(loader={event_loader_id[:8] if event_loader_id else "none"})'
+					if event_str not in seen_events:
+						seen_events.append(event_str)
+
+					# Only respond to events from our navigation (or accept all if no loaderId)
+					if event_loader_id and navigation_id and event_loader_id != navigation_id:
+						continue
+
+					if event_name == 'networkIdle':
+						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+						self.logger.debug(f'✅ Page ready for {url} (networkIdle, {duration_ms:.0f}ms)')
+						return
+
+					elif event_name == 'load':
+						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+						self.logger.debug(f'✅ Page ready for {url} (load, {duration_ms:.0f}ms)')
+						return
+
+			except Exception as e:
+				self.logger.debug(f'Error polling lifecycle events: {e}')
+
+			# Wait before next poll
+			await asyncio.sleep(poll_interval)
+
+		# Timeout - continue anyway with detailed diagnostics
+		duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+		if not seen_events:
+			self.logger.error(
+				f'❌ No lifecycle events received for {url} after {duration_ms:.0f}ms! '
+				f'Monitoring may have failed. Target: {cdp_session.target_id[:8]}'
+			)
+		else:
+			self.logger.warning(f'⚠️ Page readiness timeout ({timeout}s, {duration_ms:.0f}ms) for {url}')
+
+	async def _on_demo_mode_navigation_complete(self, event: NavigationCompleteEvent) -> None:
+		"""Rehydrate the demo overlay and logs after navigation."""
+		if not self.browser_profile.demo_mode:
+			return
+
+		demo = self.demo_mode
+		if not demo:
+			return
+
+		try:
+			await demo.refresh_target(event.target_id)
+		except Exception as exc:
+			self.logger.debug(f'[DemoMode] Failed to refresh overlay for target {event.target_id[:8]}...: {exc}')
+
 	async def on_SwitchTabEvent(self, event: SwitchTabEvent) -> TargetID:
 		"""Handle tab switching - core browser functionality."""
-		if not self.agent_focus:
+		if not self.agent_focus_target_id:
 			raise RuntimeError('Cannot switch tabs - browser not connected')
 
-		all_pages = await self._cdp_get_all_pages()
+		# Get all page targets
+		page_targets = self.session_manager.get_all_page_targets()
 		if event.target_id is None:
-			# most recently opened page
-			if all_pages:
-				# update the target id to be the id of the most recently opened page, then proceed to switch to it
-				event.target_id = all_pages[-1]['targetId']
+			# Most recently opened page
+			if page_targets:
+				# Update the target id to be the id of the most recently opened page, then proceed to switch to it
+				event.target_id = page_targets[-1].target_id
 			else:
-				# no pages open at all, create a new one (handles switching to it automatically)
+				# No pages open at all, create a new one (handles switching to it automatically)
 				assert self._cdp_client_root is not None, 'CDP client root not initialized - browser may not be connected yet'
 				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
 				target_id = new_target['targetId']
-				# do not await! these may circularly trigger SwitchTabEvent and could deadlock, dispatch to enqueue and return
+				# Don't await, these may circularly trigger SwitchTabEvent and could deadlock, dispatch to enqueue and return
 				self.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=target_id))
 				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url='about:blank'))
 				return target_id
 
-		# switch to the target
-		self.agent_focus = await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
+		# Switch to the target
+		assert event.target_id is not None, 'target_id must be set at this point'
+		# Ensure session exists and update agent focus (only for page/tab targets)
+		cdp_session = await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
 
 		# Visually switch to the tab in the browser
 		# The Force Background Tab extension prevents Chrome from auto-switching when links create new tabs,
 		# but we still want the agent to be able to explicitly switch tabs when needed
-		await self.agent_focus.cdp_client.send.Target.activateTarget(params={'targetId': event.target_id})
+		await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': event.target_id})
+
+		# Get target to access url
+		target = self.session_manager.get_target(event.target_id)
 
 		# dispatch focus changed event
 		await self.event_bus.dispatch(
 			AgentFocusChangedEvent(
-				target_id=self.agent_focus.target_id,
-				url=self.agent_focus.url,
+				target_id=target.target_id,
+				url=target.url,
 			)
 		)
-		return self.agent_focus.target_id
+		return target.target_id
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
@@ -892,6 +989,9 @@ class BrowserSession(BaseModel):
 				viewport_height = self.browser_profile.viewport.height
 				device_scale_factor = self.browser_profile.device_scale_factor or 1.0
 
+				self.logger.info(
+					f'Setting viewport to {viewport_width}x{viewport_height} with device scale factor {device_scale_factor} whereas original device scale factor was {self.browser_profile.device_scale_factor}'
+				)
 				# Use the helper method with the new tab's target_id
 				await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
 
@@ -901,11 +1001,11 @@ class BrowserSession(BaseModel):
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
-		if not self.agent_focus:
+		if not self.agent_focus_target_id:
 			return
 
 		# Get current tab index
-		current_target_id = self.agent_focus.target_id
+		current_target_id = self.agent_focus_target_id
 
 		# If the closed tab was the current one, find a new target
 		if current_target_id == event.target_id:
@@ -916,61 +1016,34 @@ class BrowserSession(BaseModel):
 		self.logger.debug(f'🔄 AgentFocusChangedEvent received: target_id=...{event.target_id[-4:]} url={event.url}')
 
 		# Clear cached DOM state since focus changed
-		# self.logger.debug('🔄 Clearing DOM cache...')
 		if self._dom_watchdog:
 			self._dom_watchdog.clear_cache()
-			# self.logger.debug('🔄 Cleared DOM cache after focus change')
 
 		# Clear cached browser state
-		# self.logger.debug('🔄 Clearing cached browser state...')
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self.logger.debug('🔄 Cached browser state cleared')
-		all_targets = await self._cdp_get_all_pages(include_chrome=True)
 
-		# Update agent focus if a specific target_id is provided
+		# Update agent focus if a specific target_id is provided (only for page/tab targets)
 		if event.target_id:
-			self.agent_focus = await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
-			self.logger.debug(f'🔄 Updated agent focus to tab target_id=...{event.target_id[-4:]}')
+			# Ensure session exists and update agent focus (validates target_type internally)
+			await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
+
+			# Apply viewport settings to the newly focused tab
+			if self.browser_profile.viewport and not self.browser_profile.no_viewport:
+				try:
+					viewport_width = self.browser_profile.viewport.width
+					viewport_height = self.browser_profile.viewport.height
+					device_scale_factor = self.browser_profile.device_scale_factor or 1.0
+
+					# Use the helper method with the current tab's target_id
+					await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
+
+					self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
+				except Exception as e:
+					self.logger.warning(f'Failed to set viewport for tab {event.target_id[-8:]}: {e}')
 		else:
 			raise RuntimeError('AgentFocusChangedEvent received with no target_id for newly focused tab')
-
-		# Test that the browser is responsive by evaluating a simple expression
-		if self.agent_focus:
-			self.logger.debug('🔄 Testing tab responsiveness...')
-			try:
-				test_result = await asyncio.wait_for(
-					self.agent_focus.cdp_client.send.Runtime.evaluate(
-						params={'expression': '1 + 1', 'returnByValue': True}, session_id=self.agent_focus.session_id
-					),
-					timeout=2.0,
-				)
-				if test_result.get('result', {}).get('value') == 2:
-					# self.logger.debug('🔄 ✅ Browser is responsive after focus change')
-					pass
-				else:
-					raise Exception('❌ Failed to execute test JS expression with Page.evaluate')
-			except Exception as e:
-				self.logger.error(
-					f'🔄 ❌ Target {self.agent_focus.target_id} seems closed/crashed, switching to fallback page {all_targets[0]}: {type(e).__name__}: {e}'
-				)
-				all_pages = await self._cdp_get_all_pages()
-				last_target_id = all_pages[-1]['targetId'] if all_pages else None
-				self.agent_focus = await self.get_or_create_cdp_session(target_id=last_target_id, focus=True)
-				raise
-
-		# Dispatch NavigationCompleteEvent when tab focus changes
-		# This ensures PDF detection and downloads work when switching tabs
-		if event.target_id and event.url:
-			self.logger.debug(f'🔄 Dispatching NavigationCompleteEvent for tab switch to {event.url[:50]}...')
-			await self.event_bus.dispatch(
-				NavigationCompleteEvent(
-					target_id=event.target_id,
-					url=event.url,
-				)
-			)
-
-		# self.logger.debug('🔄 AgentFocusChangedEvent handler completed successfully')
 
 	async def on_FileDownloadedEvent(self, event: FileDownloadedEvent) -> None:
 		"""Track downloaded files during this session."""
@@ -1002,6 +1075,9 @@ class BrowserSession(BaseModel):
 					self.logger.debug(f'Failed to cleanup cloud browser session: {e}')
 
 			# Clear CDP session cache before stopping
+			self.logger.debug(
+				f'📢 on_BrowserStopEvent - Calling reset() (force={event.force}, keep_alive={self.browser_profile.keep_alive})'
+			)
 			await self.reset()
 
 			# Reset state
@@ -1063,18 +1139,37 @@ class BrowserSession(BaseModel):
 		return page
 
 	async def get_pages(self) -> list['Page']:
-		"""Get all available pages."""
-		result = await self.cdp_client.send.Target.getTargets()
+		"""Get all available pages using SessionManager (source of truth)."""
+		# Import here to avoid circular import
+		from browser_use.actor.page import Page as PageActor
+
+		page_targets = self.session_manager.get_all_page_targets() if self.session_manager else []
 
 		targets = []
-		# Import here to avoid circular import
-		from browser_use.actor.page import Page as Target
-
-		for target_info in result['targetInfos']:
-			if target_info['type'] in ['page', 'iframe']:
-				targets.append(Target(self, target_info['targetId']))
+		for target in page_targets:
+			targets.append(PageActor(self, target.target_id))
 
 		return targets
+
+	def get_focused_target(self) -> 'Target | None':
+		"""Get the target that currently has agent focus.
+
+		Returns:
+			Target object if agent has focus, None otherwise.
+		"""
+		if not self.session_manager:
+			return None
+		return self.session_manager.get_focused_target()
+
+	def get_page_targets(self) -> list['Target']:
+		"""Get all page/tab targets (excludes iframes, workers, etc.).
+
+		Returns:
+			List of Target objects for all page/tab targets.
+		"""
+		if not self.session_manager:
+			return []
+		return self.session_manager.get_all_page_targets()
 
 	async def close_page(self, page: 'Union[Page, str]') -> None:
 		"""Close a page by Page object or target ID."""
@@ -1159,7 +1254,7 @@ class BrowserSession(BaseModel):
 
 		Args:
 			target_id: Target ID to get session for. If None, uses current agent focus.
-			focus: If True, switches agent focus to this target.
+			focus: If True, switches agent focus to this target (page targets only).
 
 		Returns:
 			CDPSession for the specified target.
@@ -1168,15 +1263,22 @@ class BrowserSession(BaseModel):
 			ValueError: If target doesn't exist or session is not available.
 		"""
 		assert self._cdp_client_root is not None, 'Root CDP client not initialized'
-		assert self.agent_focus is not None, 'CDP session not initialized'
-		assert self._session_manager is not None, 'SessionManager not initialized'
+		assert self.session_manager is not None, 'SessionManager not initialized'
 
-		# If no target_id specified, use current agent focus
+		# If no target_id specified, ensure current agent focus is valid and wait for recovery if needed
 		if target_id is None:
-			target_id = self.agent_focus.target_id
+			# Validate and wait for focus recovery if stale (centralized protection)
+			focus_valid = await self.session_manager.ensure_valid_focus(timeout=5.0)
+			if not focus_valid:
+				raise ValueError(
+					'No valid agent focus available - target may have detached and recovery failed. '
+					'This indicates browser is in an unstable state.'
+				)
 
-		# Get session from event-driven pool
-		session = await self._session_manager.get_session_for_target(target_id)
+			assert self.agent_focus_target_id is not None, 'Focus validation passed but agent_focus_target_id is None'
+			target_id = self.agent_focus_target_id
+
+		session = self.session_manager._get_session_for_target(target_id)
 
 		if not session:
 			# Session not in pool yet - wait for attach event
@@ -1185,7 +1287,7 @@ class BrowserSession(BaseModel):
 			# Wait up to 2 seconds for the attach event
 			for attempt in range(20):
 				await asyncio.sleep(0.1)
-				session = await self._session_manager.get_session_for_target(target_id)
+				session = self.session_manager._get_session_for_target(target_id)
 				if session:
 					self.logger.debug(f'[SessionManager] Target appeared after {attempt * 100}ms')
 					break
@@ -1195,27 +1297,29 @@ class BrowserSession(BaseModel):
 				raise ValueError(f'Target {target_id} not found - may have detached or never existed')
 
 		# Validate session is still active
-		is_valid = await self._session_manager.validate_session(target_id)
+		is_valid = await self.session_manager.validate_session(target_id)
 		if not is_valid:
 			raise ValueError(f'Target {target_id} has detached - no active sessions')
 
 		# Update focus if requested
 		# CRITICAL: Only allow focus change to 'page' type targets, not iframes/workers
-		if focus and self.agent_focus.target_id != target_id:
-			# Check target type before allowing focus change
-			targets = await self._cdp_client_root.send.Target.getTargets()
-			target_info = next((t for t in targets['targetInfos'] if t['targetId'] == target_id), None)
-			target_type = target_info.get('type') if target_info else 'unknown'
+		if focus and self.agent_focus_target_id != target_id:
+			# Get target type from SessionManager
+			target = self.session_manager.get_target(target_id)
+			target_type = target.target_type if target else 'unknown'
 
 			if target_type == 'page':
-				self.logger.debug(f'[SessionManager] Switching focus: {self.agent_focus.target_id[:8]}... → {target_id[:8]}...')
-				self.agent_focus = session
+				# Format current focus safely (could be None after detach)
+				current_focus = self.agent_focus_target_id[:8] if self.agent_focus_target_id else 'None'
+				self.logger.debug(f'[SessionManager] Switching focus: {current_focus}... → {target_id[:8]}...')
+				self.agent_focus_target_id = target_id
 			else:
 				# Ignore focus request for non-page targets (iframes, workers, etc.)
 				# These can detach at any time, causing agent_focus to point to dead target
+				current_focus = self.agent_focus_target_id[:8] if self.agent_focus_target_id else 'None'
 				self.logger.debug(
 					f'[SessionManager] Ignoring focus request for {target_type} target {target_id[:8]}... '
-					f'(agent_focus stays on {self.agent_focus.target_id[:8]}...)'
+					f'(agent_focus stays on {current_focus}...)'
 				)
 
 		# Resume if waiting for debugger
@@ -1226,14 +1330,6 @@ class BrowserSession(BaseModel):
 				pass  # May fail if not waiting
 
 		return session
-
-	@property
-	def current_target_id(self) -> str | None:
-		return self.agent_focus.target_id if self.agent_focus else None
-
-	@property
-	def current_session_id(self) -> str | None:
-		return self.agent_focus.session_id if self.agent_focus else None
 
 	# endregion - ========== CDP-based ... ==========
 
@@ -1431,34 +1527,62 @@ class BrowserSession(BaseModel):
 		if not self.cdp_url:
 			raise RuntimeError('Cannot setup CDP connection without CDP URL')
 
+		# Prevent duplicate connections - clean up existing connection first
+		if self._cdp_client_root is not None:
+			self.logger.warning(
+				'⚠️ connect() called but CDP client already exists! Cleaning up old connection before creating new one.'
+			)
+			try:
+				await self._cdp_client_root.stop()
+			except Exception as e:
+				self.logger.debug(f'Error stopping old CDP client: {e}')
+			self._cdp_client_root = None
+
 		if not self.cdp_url.startswith('ws'):
 			# If it's an HTTP URL, fetch the WebSocket URL from /json/version endpoint
-			url = self.cdp_url.rstrip('/')
-			if not url.endswith('/json/version'):
-				url = url + '/json/version'
+			parsed_url = urlparse(self.cdp_url)
+			path = parsed_url.path.rstrip('/')
+
+			if not path.endswith('/json/version'):
+				path = path + '/json/version'
+
+			url = urlunparse(
+				(parsed_url.scheme, parsed_url.netloc, path, parsed_url.params, parsed_url.query, parsed_url.fragment)
+			)
 
 			# Run a tiny HTTP client to query for the WebSocket URL from the /json/version endpoint
 			async with httpx.AsyncClient() as client:
 				headers = self.browser_profile.headers or {}
 				version_info = await client.get(url, headers=headers)
+				self.logger.debug(f'Raw version info: {str(version_info)}')
 				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
 
-		assert self.cdp_url is not None
+		assert self.cdp_url is not None, 'CDP URL is None.'
 
 		browser_location = 'local browser' if self.is_local else 'remote browser'
 		self.logger.debug(f'🌎 Connecting to existing chromium-based browser via CDP: {self.cdp_url} -> ({browser_location})')
 
 		try:
 			# Create and store the CDP client for direct CDP communication
-			self._cdp_client_root = CDPClient(self.cdp_url)
+			headers = getattr(self.browser_profile, 'headers', None)
+			self._cdp_client_root = CDPClient(
+				self.cdp_url,
+				additional_headers=headers,
+				max_ws_frame_size=200 * 1024 * 1024,  # Use 200MB limit to handle pages with very large DOMs
+			)
 			assert self._cdp_client_root is not None
 			await self._cdp_client_root.start()
 
 			# Initialize event-driven session manager FIRST (before enabling autoAttach)
+			# SessionManager will:
+			# 1. Register attach/detach event handlers
+			# 2. Discover and attach to all existing targets
+			# 3. Initialize sessions and enable lifecycle monitoring
+			# 4. Enable autoAttach for future targets
 			from browser_use.browser.session_manager import SessionManager
 
-			self._session_manager = SessionManager(self)
-			await self._session_manager.start_monitoring()
+			self.session_manager = SessionManager(self)
+			await self.session_manager.start_monitoring()
 			self.logger.debug('Event-driven session manager started')
 
 			# Enable auto-attach so Chrome automatically notifies us when NEW targets attach/detach
@@ -1468,111 +1592,93 @@ class BrowserSession(BaseModel):
 			)
 			self.logger.debug('CDP client connected with auto-attach enabled')
 
-			# Get browser targets to find available contexts/pages
-			targets = await self._cdp_client_root.send.Target.getTargets()
-
-			# Manually attach to ALL EXISTING targets (autoAttach only fires for new ones)
-			# We attach to everything (pages, iframes, workers) for complete coverage
-			for target in targets['targetInfos']:
-				target_id = target['targetId']
-				target_type = target.get('type', 'unknown')
-
-				try:
-					# Attach to target - this triggers attachedToTarget event
-					result = await self._cdp_client_root.send.Target.attachToTarget(
-						params={'targetId': target_id, 'flatten': True}
-					)
-					session_id = result['sessionId']
-
-					# Enable auto-attach for this target's children
-					await self._cdp_client_root.send.Target.setAutoAttach(
-						params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}, session_id=session_id
-					)
-
-					self.logger.debug(
-						f'Attached to existing target: {target_id[:8]}... (type={target_type}, session={session_id[:8]}...)'
-					)
-				except Exception as e:
-					self.logger.debug(f'Failed to attach to existing target {target_id[:8]}... (type={target_type}): {e}')
-
-			# Find main browser pages (avoiding iframes, workers, extensions, etc.)
-			page_targets: list[TargetInfo] = [
-				t
-				for t in targets['targetInfos']
-				if self._is_valid_target(
-					t, include_http=True, include_about=True, include_pages=True, include_iframes=False, include_workers=False
-				)
-			]
+			# Get browser targets from SessionManager (source of truth)
+			# SessionManager has already discovered all targets via start_monitoring()
+			page_targets_from_manager = self.session_manager.get_all_page_targets()
 
 			# Check for chrome://newtab pages and redirect them to about:blank
 			from browser_use.utils import is_new_tab_page
 
-			for target in page_targets:
-				target_url = target.get('url', '')
+			for target in page_targets_from_manager:
+				target_url = target.url
 				if is_new_tab_page(target_url) and target_url != 'about:blank':
-					target_id = target['targetId']
+					target_id = target.target_id
 					self.logger.debug(f'🔄 Redirecting {target_url} to about:blank for target {target_id}')
 					try:
-						# Sessions now exist from manual attachment above
-						session = await self._session_manager.get_session_for_target(target_id)
-						if session:
-							await session.cdp_client.send.Page.navigate(
-								params={'url': 'about:blank'}, session_id=session.session_id
-							)
-							target['url'] = 'about:blank'
-							await asyncio.sleep(0.05)  # Let navigation start
+						# Use public API with focus=False to avoid changing focus during init
+						session = await self.get_or_create_cdp_session(target_id, focus=False)
+						await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
+						# Update target url
+						target.url = 'about:blank'
 					except Exception as e:
 						self.logger.warning(f'Failed to redirect {target_url}: {e}')
 
 			# Ensure we have at least one page
-			if not page_targets:
+			if not page_targets_from_manager:
 				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
 				target_id = new_target['targetId']
 				self.logger.debug(f'📄 Created new blank page: {target_id}')
 			else:
-				target_id = [page for page in page_targets if page.get('type') == 'page'][0]['targetId']
+				target_id = page_targets_from_manager[0].target_id
 				self.logger.debug(f'📄 Using existing page: {target_id}')
 
-			# Wait for SessionManager to receive the attach event for this target
-			# (Chrome will fire Target.attachedToTarget event which SessionManager handles)
-			for _ in range(20):  # Wait up to 2 seconds
-				await asyncio.sleep(0.1)
-				session = await self._session_manager.get_session_for_target(target_id)
-				if session:
-					self.agent_focus = session
-					# SessionManager already added it to pool - no need to do it manually
-					self.logger.debug(f'📄 Agent focus set to {target_id[:8]}...')
-					break
+			# Set up initial focus using the public API
+			# Note: get_or_create_cdp_session() will wait for attach event and set focus
+			try:
+				await self.get_or_create_cdp_session(target_id, focus=True)
+				# agent_focus_target_id is now set by get_or_create_cdp_session
+				self.logger.debug(f'📄 Agent focus set to {target_id[:8]}...')
+			except ValueError as e:
+				raise RuntimeError(f'Failed to get session for initial target {target_id}: {e}') from e
 
-			if not self.agent_focus:
-				raise RuntimeError(f'Failed to get session for initial target {target_id}')
+			# Note: Lifecycle monitoring is enabled automatically in SessionManager._handle_target_attached()
+			# when targets attach, so no manual enablement needed!
 
 			# Enable proxy authentication handling if configured
 			await self._setup_proxy_auth()
 
-			# Verify the session is working
-			if self.agent_focus.title == 'Unknown title':
-				self.logger.warning('Session created but title is unknown (may be normal for about:blank)')
+			# Verify the target is working
+			if self.agent_focus_target_id:
+				target = self.session_manager.get_target(self.agent_focus_target_id)
+				if target.title == 'Unknown title':
+					self.logger.warning('Target created but title is unknown (may be normal for about:blank)')
 
 			# Dispatch TabCreatedEvent for all initial tabs (so watchdogs can initialize)
-			for idx, target in enumerate(page_targets):
-				target_url = target.get('url', '')
+			for idx, target in enumerate(page_targets_from_manager):
+				target_url = target.url
 				self.logger.debug(f'Dispatching TabCreatedEvent for initial tab {idx}: {target_url}')
-				self.event_bus.dispatch(TabCreatedEvent(url=target_url, target_id=target['targetId']))
+				self.event_bus.dispatch(TabCreatedEvent(url=target_url, target_id=target.target_id))
 
 			# Dispatch initial focus event
-			if page_targets:
-				initial_url = page_targets[0].get('url', '')
-				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=page_targets[0]['targetId'], url=initial_url))
+			if page_targets_from_manager:
+				initial_url = page_targets_from_manager[0].url
+				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=page_targets_from_manager[0].target_id, url=initial_url))
 				self.logger.debug(f'Initial agent focus set to tab 0: {initial_url}')
 
 		except Exception as e:
 			# Fatal error - browser is not usable without CDP connection
 			self.logger.error(f'❌ FATAL: Failed to setup CDP connection: {e}')
 			self.logger.error('❌ Browser cannot continue without CDP connection')
-			# Clean up any partial state
+
+			# Clear SessionManager state
+			if self.session_manager:
+				try:
+					await self.session_manager.clear()
+					self.logger.debug('Cleared SessionManager state after initialization failure')
+				except Exception as cleanup_error:
+					self.logger.debug(f'Error clearing SessionManager: {cleanup_error}')
+
+			# Close CDP client WebSocket and unregister handlers
+			if self._cdp_client_root:
+				try:
+					await self._cdp_client_root.stop()  # Close WebSocket and unregister handlers
+					self.logger.debug('Closed CDP client WebSocket after initialization failure')
+				except Exception as cleanup_error:
+					self.logger.debug(f'Error closing CDP client: {cleanup_error}')
+
+			self.session_manager = None
 			self._cdp_client_root = None
-			self.agent_focus = None
+			self.agent_focus_target_id = None
 			# Re-raise as a fatal error
 			raise RuntimeError(f'Failed to establish CDP connection to browser: {e}') from e
 
@@ -1602,12 +1708,13 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.debug(f'Fetch.enable on root failed: {type(e).__name__}: {e}')
 
-			# Also enable on the focused session if available to ensure events are delivered
+			# Also enable on the focused target's session if available to ensure events are delivered
 			try:
-				if self.agent_focus:
-					await self.agent_focus.cdp_client.send.Fetch.enable(
+				if self.agent_focus_target_id:
+					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+					await cdp_session.cdp_client.send.Fetch.enable(
 						params={'handleAuthRequests': True},
-						session_id=self.agent_focus.session_id,
+						session_id=cdp_session.session_id,
 					)
 					self.logger.debug('Fetch.enable(handleAuthRequests=True) enabled on focused session')
 			except Exception as e:
@@ -1642,7 +1749,9 @@ class BrowserSession(BaseModel):
 							self.logger.debug(f'Proxy auth respond failed: {type(e).__name__}: {e}')
 
 					# schedule
-					asyncio.create_task(_respond())
+					create_task_with_error_handling(
+						_respond(), name='auth_respond', logger_instance=self.logger, suppress_exceptions=True
+					)
 				else:
 					# Default behaviour for non-proxy challenges: let browser handle
 					async def _default():
@@ -1656,7 +1765,9 @@ class BrowserSession(BaseModel):
 							self.logger.debug(f'Default auth respond failed: {type(e).__name__}: {e}')
 
 					if request_id:
-						asyncio.create_task(_default())
+						create_task_with_error_handling(
+							_default(), name='auth_default', logger_instance=self.logger, suppress_exceptions=True
+						)
 
 			def _on_request_paused(event: RequestPausedEvent, session_id: SessionID | None = None):
 				# Continue all paused requests to avoid stalling the network
@@ -1674,15 +1785,18 @@ class BrowserSession(BaseModel):
 					except Exception:
 						pass
 
-				asyncio.create_task(_continue())
+				create_task_with_error_handling(
+					_continue(), name='request_continue', logger_instance=self.logger, suppress_exceptions=True
+				)
 
 			# Register event handler on root client
 			try:
 				self._cdp_client_root.register.Fetch.authRequired(_on_auth_required)
 				self._cdp_client_root.register.Fetch.requestPaused(_on_request_paused)
-				if self.agent_focus:
-					self.agent_focus.cdp_client.register.Fetch.authRequired(_on_auth_required)
-					self.agent_focus.cdp_client.register.Fetch.requestPaused(_on_request_paused)
+				if self.agent_focus_target_id:
+					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+					cdp_session.cdp_client.register.Fetch.authRequired(_on_auth_required)
+					cdp_session.cdp_client.register.Fetch.requestPaused(_on_request_paused)
 				self.logger.debug('Registered Fetch.authRequired handlers')
 			except Exception as e:
 				self.logger.debug(f'Failed to register authRequired handlers: {type(e).__name__}: {e}')
@@ -1704,7 +1818,9 @@ class BrowserSession(BaseModel):
 					except Exception as e:
 						self.logger.debug(f'Fetch.enable on attached session failed: {type(e).__name__}: {e}')
 
-				asyncio.create_task(_enable())
+				create_task_with_error_handling(
+					_enable(), name='fetch_enable_attached', logger_instance=self.logger, suppress_exceptions=True
+				)
 
 			try:
 				self._cdp_client_root.register.Target.attachedToTarget(_on_attached)
@@ -1712,12 +1828,14 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.debug(f'Failed to register attachedToTarget handler: {type(e).__name__}: {e}')
 
-			# Ensure Fetch is enabled for the current focused session, too
+			# Ensure Fetch is enabled for the current focused target's session, too
 			try:
-				if self.agent_focus:
-					await self.agent_focus.cdp_client.send.Fetch.enable(
+				if self.agent_focus_target_id:
+					# Use safe API with focus=False to avoid changing focus
+					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+					await cdp_session.cdp_client.send.Fetch.enable(
 						params={'handleAuthRequests': True, 'patterns': [{'urlPattern': '*'}]},
-						session_id=self.agent_focus.session_id,
+						session_id=cdp_session.session_id,
 					)
 			except Exception as e:
 				self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
@@ -1725,27 +1843,22 @@ class BrowserSession(BaseModel):
 			self.logger.debug(f'Skipping proxy auth setup: {type(e).__name__}: {e}')
 
 	async def get_tabs(self) -> list[TabInfo]:
-		"""Get information about all open tabs using CDP Target.getTargetInfo for speed."""
+		"""Get information about all open tabs using cached target data."""
 		tabs = []
 
 		# Safety check - return empty list if browser not connected yet
-		if not self._cdp_client_root:
+		if not self.session_manager:
 			return tabs
 
-		# Get all page targets using CDP
-		pages = await self._cdp_get_all_pages()
+		# Get all page targets from SessionManager
+		page_targets = self.session_manager.get_all_page_targets()
 
-		for i, page_target in enumerate(pages):
-			target_id = page_target['targetId']
-			url = page_target['url']
+		for i, target in enumerate(page_targets):
+			target_id = target.target_id
+			url = target.url
+			title = target.title
 
-			# Try to get the title directly from Target.getTargetInfo - much faster!
-			# The initial getTargets() doesn't include title, but getTargetInfo does
 			try:
-				target_info = await self.cdp_client.send.Target.getTargetInfo(params={'targetId': target_id})
-				# The title is directly available in targetInfo
-				title = target_info.get('targetInfo', {}).get('title', '')
-
 				# Skip JS execution for chrome:// pages and new tab pages
 				if is_new_tab_page(url) or url.startswith('chrome://'):
 					# Use URL as title for chrome pages, or mark new tabs as unusable
@@ -1792,29 +1905,33 @@ class BrowserSession(BaseModel):
 
 	# region - ========== ID Lookup Methods ==========
 	async def get_current_target_info(self) -> TargetInfo | None:
-		"""Get info about the current active target using CDP."""
-		if not self.agent_focus or not self.agent_focus.target_id:
+		"""Get info about the current active target using cached session data."""
+		if not self.agent_focus_target_id:
 			return None
 
-		targets = await self.cdp_client.send.Target.getTargets()
-		for target in targets.get('targetInfos', []):
-			if target.get('targetId') == self.agent_focus.target_id:
-				# Still return even if it's not a "valid" target since we're looking for a specific ID
-				return target
-		return None
+		target = self.session_manager.get_target(self.agent_focus_target_id)
+
+		return {
+			'targetId': target.target_id,
+			'url': target.url,
+			'title': target.title,
+			'type': target.target_type,
+			'attached': True,
+			'canAccessOpener': False,
+		}
 
 	async def get_current_page_url(self) -> str:
-		"""Get the URL of the current page using CDP."""
-		target = await self.get_current_target_info()
-		if target:
-			return target.get('url', '')
+		"""Get the URL of the current page."""
+		if self.agent_focus_target_id:
+			target = self.session_manager.get_target(self.agent_focus_target_id)
+			return target.url
 		return 'about:blank'
 
 	async def get_current_page_title(self) -> str:
-		"""Get the title of the current page using CDP."""
-		target_info = await self.get_current_target_info()
-		if target_info:
-			return target_info.get('title', 'Unknown page title')
+		"""Get the title of the current page."""
+		if self.agent_focus_target_id:
+			target = self.session_manager.get_target(self.agent_focus_target_id)
+			return target.title
 		return 'Unknown page title'
 
 	async def navigate_to(self, url: str, new_tab: bool = False) -> None:
@@ -1866,52 +1983,156 @@ class BrowserSession(BaseModel):
 		"""Alias for get_dom_element_by_index for backwards compatibility."""
 		return await self.get_dom_element_by_index(index)
 
-	async def get_target_id_from_tab_id(self, tab_id: str) -> TargetID:
-		"""Get the full-length TargetID from the truncated 4-char tab_id."""
-		# First check cached sessions
-		for full_target_id in self._cdp_session_pool.keys():
-			if full_target_id.endswith(tab_id):
-				if await self._is_target_valid(full_target_id):
-					return full_target_id
-				# Stale session - Chrome should have sent detach event
-				# If we're here, event listener will clean it up
-				self.logger.debug(f'Found stale session for target {full_target_id}, skipping')
+	async def get_dom_element_at_coordinates(self, x: int, y: int) -> EnhancedDOMTreeNode | None:
+		"""Get DOM element at coordinates as EnhancedDOMTreeNode.
 
-		# Get all current targets and find the one matching tab_id
-		all_targets = await self.cdp_client.send.Target.getTargets()
-		# Filter for valid page/tab targets only
-		for target in all_targets.get('targetInfos', []):
-			if target['targetId'].endswith(tab_id) and target.get('type') == 'page':
-				return target['targetId']
+		First checks the cached selector_map for a matching element, then falls back
+		to CDP DOM.describeNode if not found. This ensures safety checks (e.g., for
+		<select> elements and file inputs) work correctly.
+
+		Args:
+			x: X coordinate relative to viewport
+			y: Y coordinate relative to viewport
+
+		Returns:
+			EnhancedDOMTreeNode at the coordinates, or None if no element found
+		"""
+		from browser_use.dom.views import NodeType
+
+		# Get current page to access CDP session
+		page = await self.get_current_page()
+		if page is None:
+			raise RuntimeError('No active page found')
+
+		# Get session ID for CDP call
+		session_id = await page._ensure_session()
+
+		try:
+			# Call CDP DOM.getNodeForLocation to get backend_node_id
+			result = await self.cdp_client.send.DOM.getNodeForLocation(
+				params={
+					'x': x,
+					'y': y,
+					'includeUserAgentShadowDOM': False,
+					'ignorePointerEventsNone': False,
+				},
+				session_id=session_id,
+			)
+
+			backend_node_id = result.get('backendNodeId')
+			if backend_node_id is None:
+				self.logger.debug(f'No element found at coordinates ({x}, {y})')
+				return None
+
+			# Try to find element in cached selector_map (avoids extra CDP call)
+			if self._cached_selector_map:
+				for node in self._cached_selector_map.values():
+					if node.backend_node_id == backend_node_id:
+						self.logger.debug(f'Found element at ({x}, {y}) in cached selector_map')
+						return node
+
+			# Not in cache - fall back to CDP DOM.describeNode to get actual node info
+			try:
+				describe_result = await self.cdp_client.send.DOM.describeNode(
+					params={'backendNodeId': backend_node_id},
+					session_id=session_id,
+				)
+				node_info = describe_result.get('node', {})
+				node_name = node_info.get('nodeName', '')
+
+				# Parse attributes from flat list [key1, val1, key2, val2, ...] to dict
+				attrs_list = node_info.get('attributes', [])
+				attributes = {attrs_list[i]: attrs_list[i + 1] for i in range(0, len(attrs_list), 2)}
+
+				return EnhancedDOMTreeNode(
+					node_id=result.get('nodeId', 0),
+					backend_node_id=backend_node_id,
+					node_type=NodeType(node_info.get('nodeType', NodeType.ELEMENT_NODE.value)),
+					node_name=node_name,
+					node_value=node_info.get('nodeValue', '') or '',
+					attributes=attributes,
+					is_scrollable=None,
+					frame_id=result.get('frameId'),
+					session_id=session_id,
+					target_id=self.agent_focus_target_id or '',
+					content_document=None,
+					shadow_root_type=None,
+					shadow_roots=None,
+					parent_node=None,
+					children_nodes=None,
+					ax_node=None,
+					snapshot_node=None,
+					is_visible=None,
+					absolute_position=None,
+				)
+			except Exception as e:
+				self.logger.debug(f'DOM.describeNode failed for backend_node_id={backend_node_id}: {e}')
+				# Fall back to minimal node if describeNode fails
+				return EnhancedDOMTreeNode(
+					node_id=result.get('nodeId', 0),
+					backend_node_id=backend_node_id,
+					node_type=NodeType.ELEMENT_NODE,
+					node_name='',
+					node_value='',
+					attributes={},
+					is_scrollable=None,
+					frame_id=result.get('frameId'),
+					session_id=session_id,
+					target_id=self.agent_focus_target_id or '',
+					content_document=None,
+					shadow_root_type=None,
+					shadow_roots=None,
+					parent_node=None,
+					children_nodes=None,
+					ax_node=None,
+					snapshot_node=None,
+					is_visible=None,
+					absolute_position=None,
+				)
+
+		except Exception as e:
+			self.logger.warning(f'Failed to get DOM element at coordinates ({x}, {y}): {e}')
+			return None
+
+	async def get_target_id_from_tab_id(self, tab_id: str) -> TargetID:
+		"""Get the full-length TargetID from the truncated 4-char tab_id using SessionManager."""
+		if not self.session_manager:
+			raise RuntimeError('SessionManager not initialized')
+
+		for full_target_id in self.session_manager.get_all_target_ids():
+			if full_target_id.endswith(tab_id):
+				if await self.session_manager.is_target_valid(full_target_id):
+					return full_target_id
+				# Stale target - Chrome should have sent detach event
+				# If we're here, event listener will clean it up
+				self.logger.debug(f'Found stale target {full_target_id}, skipping')
 
 		raise ValueError(f'No TargetID found ending in tab_id=...{tab_id}')
 
-	async def _is_target_valid(self, target_id: TargetID) -> bool:
-		"""Check if a target ID is still valid."""
-		try:
-			await self.cdp_client.send.Target.getTargetInfo(params={'targetId': target_id})
-			return True
-		except Exception:
-			return False
-
 	async def get_target_id_from_url(self, url: str) -> TargetID:
-		"""Get the TargetID from a URL."""
-		all_targets = await self.cdp_client.send.Target.getTargets()
-		for target in all_targets.get('targetInfos', []):
-			if target['url'] == url and target['type'] == 'page':
-				return target['targetId']
+		"""Get the TargetID from a URL using SessionManager (source of truth)."""
+		if not self.session_manager:
+			raise RuntimeError('SessionManager not initialized')
 
-		# still not found, try substring match as fallback
-		for target in all_targets.get('targetInfos', []):
-			if url in target['url'] and target['type'] == 'page':
-				return target['targetId']
+		# Search in SessionManager targets (exact match first)
+		for target_id, target in self.session_manager.get_all_targets().items():
+			if target.target_type in ('page', 'tab') and target.url == url:
+				return target_id
+
+		# Still not found, try substring match as fallback
+		for target_id, target in self.session_manager.get_all_targets().items():
+			if target.target_type in ('page', 'tab') and url in target.url:
+				return target_id
 
 		raise ValueError(f'No TargetID found for url={url}')
 
 	async def get_most_recently_opened_target_id(self) -> TargetID:
-		"""Get the most recently opened target ID."""
-		all_targets = await self.cdp_client.send.Target.getTargets()
-		return (await self._cdp_get_all_pages())[-1]['targetId']
+		"""Get the most recently opened target ID using SessionManager."""
+		# Get all page targets from SessionManager
+		page_targets = self.session_manager.get_all_page_targets()
+		if not page_targets:
+			raise RuntimeError('No page targets available')
+		return page_targets[-1].target_id
 
 	def is_file_input(self, element: Any) -> bool:
 		"""Check if element is a file input.
@@ -2278,6 +2499,115 @@ class BrowserSession(BaseModel):
 			# Don't fail the action if highlighting fails
 			self.logger.debug(f'Failed to highlight interaction element: {e}')
 
+	async def highlight_coordinate_click(self, x: int, y: int) -> None:
+		"""Temporarily highlight a coordinate click position for user visibility.
+
+		This creates a visual highlight at the specified coordinates showing where
+		the click action occurred. The highlight automatically fades after the configured duration.
+
+		Args:
+			x: Horizontal coordinate relative to viewport left edge
+			y: Vertical coordinate relative to viewport top edge
+		"""
+		if not self.browser_profile.highlight_elements:
+			return
+
+		try:
+			import json
+
+			cdp_session = await self.get_or_create_cdp_session()
+
+			color = self.browser_profile.interaction_highlight_color
+			duration_ms = int(self.browser_profile.interaction_highlight_duration * 1000)
+
+			# Create animated crosshair and circle at the click coordinates
+			script = f"""
+			(function() {{
+				const x = {x};
+				const y = {y};
+				const color = {json.dumps(color)};
+				const duration = {duration_ms};
+
+				// Get current scroll position
+				const scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+				const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+				// Create container
+				const container = document.createElement('div');
+				container.setAttribute('data-browser-use-coordinate-highlight', 'true');
+				container.style.cssText = `
+					position: absolute;
+					left: ${{x + scrollX}}px;
+					top: ${{y + scrollY}}px;
+					width: 0;
+					height: 0;
+					pointer-events: none;
+					z-index: 2147483647;
+				`;
+
+				// Create outer circle
+				const outerCircle = document.createElement('div');
+				outerCircle.style.cssText = `
+					position: absolute;
+					left: -15px;
+					top: -15px;
+					width: 30px;
+					height: 30px;
+					border: 3px solid ${{color}};
+					border-radius: 50%;
+					opacity: 0;
+					transform: scale(0.3);
+					transition: all 0.2s ease-out;
+				`;
+				container.appendChild(outerCircle);
+
+				// Create center dot
+				const centerDot = document.createElement('div');
+				centerDot.style.cssText = `
+					position: absolute;
+					left: -4px;
+					top: -4px;
+					width: 8px;
+					height: 8px;
+					background: ${{color}};
+					border-radius: 50%;
+					opacity: 0;
+					transform: scale(0);
+					transition: all 0.15s ease-out;
+				`;
+				container.appendChild(centerDot);
+
+				document.body.appendChild(container);
+
+				// Animate in
+				setTimeout(() => {{
+					outerCircle.style.opacity = '0.8';
+					outerCircle.style.transform = 'scale(1)';
+					centerDot.style.opacity = '1';
+					centerDot.style.transform = 'scale(1)';
+				}}, 10);
+
+				// Animate out and remove
+				setTimeout(() => {{
+					outerCircle.style.opacity = '0';
+					outerCircle.style.transform = 'scale(1.5)';
+					centerDot.style.opacity = '0';
+					setTimeout(() => container.remove(), 300);
+				}}, duration);
+
+				return {{ created: true }};
+			}})();
+			"""
+
+			# Fire and forget - don't wait for completion
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
+			)
+
+		except Exception as e:
+			# Don't fail the action if highlighting fails
+			self.logger.debug(f'Failed to highlight coordinate click: {e}')
+
 	async def add_highlights(self, selector_map: dict[int, 'EnhancedDOMTreeNode']) -> None:
 		"""Add visual highlights to the browser DOM for user visibility."""
 		if not self.browser_profile.dom_highlight_elements or not selector_map:
@@ -2466,12 +2796,12 @@ class BrowserSession(BaseModel):
 	async def _close_extension_options_pages(self) -> None:
 		"""Close any extension options/welcome pages that have opened."""
 		try:
-			# Get all open pages
-			targets = await self._cdp_get_all_pages()
+			# Get all page targets from SessionManager
+			page_targets = self.session_manager.get_all_page_targets()
 
-			for target in targets:
-				target_url = target.get('url', '')
-				target_id = target.get('targetId', '')
+			for target in page_targets:
+				target_url = target.url
+				target_id = target.target_id
 
 				# Check if this is an extension options/welcome page
 				if 'chrome-extension://' in target_url and (
@@ -2485,6 +2815,18 @@ class BrowserSession(BaseModel):
 
 		except Exception as e:
 			self.logger.debug(f'[BrowserSession] Error closing extension options pages: {e}')
+
+	async def send_demo_mode_log(self, message: str, level: str = 'info', metadata: dict[str, Any] | None = None) -> None:
+		"""Send a message to the in-browser demo panel if enabled."""
+		if not self.browser_profile.demo_mode:
+			return
+		demo = self.demo_mode
+		if not demo:
+			return
+		try:
+			await demo.send_log(message=message, level=level, metadata=metadata or {})
+		except Exception as exc:
+			self.logger.debug(f'[DemoMode] Failed to send log: {exc}')
 
 	@property
 	def downloaded_files(self) -> list[str]:
@@ -2510,17 +2852,27 @@ class BrowserSession(BaseModel):
 		include_chrome_extensions: bool = False,
 		include_chrome_error: bool = False,
 	) -> list[TargetInfo]:
-		"""Get all browser pages/tabs using CDP Target.getTargets."""
+		"""Get all browser pages/tabs using SessionManager (source of truth)."""
 		# Safety check - return empty list if browser not connected yet
-		if not self._cdp_client_root:
+		if not self.session_manager:
 			return []
-		targets = await self.cdp_client.send.Target.getTargets()
-		# Filter for valid page/tab targets only
-		return [
-			t
-			for t in targets.get('targetInfos', [])
+
+		# Build TargetInfo dicts from SessionManager owned data (crystal clear ownership)
+		result = []
+		for target_id, target in self.session_manager.get_all_targets().items():
+			# Create TargetInfo dict
+			target_info: TargetInfo = {
+				'targetId': target.target_id,
+				'type': target.target_type,
+				'title': target.title,
+				'url': target.url,
+				'attached': True,
+				'canAccessOpener': False,
+			}
+
+			# Apply filters
 			if self._is_valid_target(
-				t,
+				target_info,
 				include_http=include_http,
 				include_about=include_about,
 				include_pages=include_pages,
@@ -2529,8 +2881,10 @@ class BrowserSession(BaseModel):
 				include_chrome=include_chrome,
 				include_chrome_extensions=include_chrome_extensions,
 				include_chrome_error=include_chrome_error,
-			)
-		]
+			):
+				result.append(target_info)
+
+		return result
 
 	async def _cdp_create_new_page(self, url: str = 'about:blank', background: bool = False, new_window: bool = False) -> str:
 		"""Create a new page/tab using CDP Target.createTarget. Returns target ID."""
@@ -2560,7 +2914,7 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_set_cookies(self, cookies: list[Cookie]) -> None:
 		"""Set cookies using CDP Storage.setCookies."""
-		if not self.agent_focus or not cookies:
+		if not self.agent_focus_target_id or not cookies:
 			return
 
 		cdp_session = await self.get_or_create_cdp_session(target_id=None)
@@ -2577,7 +2931,7 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_set_extra_headers(self, headers: dict[str, str]) -> None:
 		"""Set extra HTTP headers using CDP Network.setExtraHTTPHeaders."""
-		if not self.agent_focus:
+		if not self.agent_focus_target_id:
 			return
 
 		cdp_session = await self.get_or_create_cdp_session()
@@ -2603,19 +2957,19 @@ class BrowserSession(BaseModel):
 		"""Clear geolocation override using CDP."""
 		await self.cdp_client.send.Emulation.clearGeolocationOverride()
 
-	async def _cdp_add_init_script(self, script: str) -> str:
-		"""Add script to evaluate on new document using CDP Page.addScriptToEvaluateOnNewDocument."""
+	async def _cdp_add_init_script(self, script: str, target_id: TargetID | None = None) -> str:
+		"""Add script to evaluate on new document for a specific target."""
 		assert self._cdp_client_root is not None
-		cdp_session = await self.get_or_create_cdp_session()
+		cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=target_id is None)
 
 		result = await cdp_session.cdp_client.send.Page.addScriptToEvaluateOnNewDocument(
 			params={'source': script, 'runImmediately': True}, session_id=cdp_session.session_id
 		)
 		return result['identifier']
 
-	async def _cdp_remove_init_script(self, identifier: str) -> None:
-		"""Remove script added with addScriptToEvaluateOnNewDocument."""
-		cdp_session = await self.get_or_create_cdp_session(target_id=None)
+	async def _cdp_remove_init_script(self, identifier: str, target_id: TargetID | None = None) -> None:
+		"""Remove script added with addScriptToEvaluateOnNewDocument for a target."""
+		cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=target_id is None)
 		await cdp_session.cdp_client.send.Page.removeScriptToEvaluateOnNewDocument(
 			params={'identifier': identifier}, session_id=cdp_session.session_id
 		)
@@ -2635,9 +2989,13 @@ class BrowserSession(BaseModel):
 		if target_id:
 			# Set viewport for specific target
 			cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
-		elif self.agent_focus:
-			# Use current focus
-			cdp_session = self.agent_focus
+		elif self.agent_focus_target_id:
+			# Use current focus - use safe API with focus=False to avoid changing focus
+			try:
+				cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+			except ValueError:
+				self.logger.warning('Cannot set viewport: focused target has no sessions')
+				return
 		else:
 			self.logger.warning('Cannot set viewport: no target_id provided and agent_focus not initialized')
 			return
@@ -2737,15 +3095,16 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_navigate(self, url: str, target_id: TargetID | None = None) -> None:
 		"""Navigate to URL using CDP Page.navigate."""
-		# Use provided target_id or fall back to current_target_id
+		# Use provided target_id or fall back to agent_focus_target_id
 
 		assert self._cdp_client_root is not None, 'CDP client not initialized - browser may not be connected yet'
-		assert self.agent_focus is not None, 'CDP session not initialized - browser may not be connected yet'
+		assert self.agent_focus_target_id is not None, 'Agent focus not initialized - browser may not be connected yet'
 
-		self.agent_focus = await self.get_or_create_cdp_session(target_id or self.agent_focus.target_id, focus=True)
+		target_id_to_use = target_id or self.agent_focus_target_id
+		cdp_session = await self.get_or_create_cdp_session(target_id_to_use, focus=True)
 
 		# Use helper to navigate on the target
-		await self.agent_focus.cdp_client.send.Page.navigate(params={'url': url}, session_id=self.agent_focus.session_id)
+		await cdp_session.cdp_client.send.Page.navigate(params={'url': url}, session_id=cdp_session.session_id)
 
 	@staticmethod
 	def _is_valid_target(
@@ -2844,10 +3203,13 @@ class BrowserSession(BaseModel):
 			# When cross-origin support is disabled, only process the current target
 			if not include_cross_origin:
 				# Only process the current focus target
-				if self.agent_focus and target_id != self.agent_focus.target_id:
+				if self.agent_focus_target_id and target_id != self.agent_focus_target_id:
 					continue
-				# Use the existing agent_focus session
-				cdp_session = self.agent_focus
+				# Use the existing agent_focus target's session - use safe API with focus=False
+				try:
+					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+				except ValueError:
+					continue  # Skip if no session available
 			else:
 				# Get cached session for this target (don't change focus - iterating frames)
 				cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
@@ -2997,22 +3359,6 @@ class BrowserSession(BaseModel):
 	async def cdp_client_for_target(self, target_id: TargetID) -> CDPSession:
 		return await self.get_or_create_cdp_session(target_id, focus=False)
 
-	def get_target_id_from_session_id(self, session_id: SessionID | None) -> TargetID | None:
-		"""Look up target_id from a CDP session_id.
-
-		Args:
-			session_id: The CDP session ID to look up
-
-		Returns:
-			The target_id for this session, or None if not found
-		"""
-		if not session_id:
-			return None
-		for cdp_session in self._cdp_session_pool.values():
-			if cdp_session.session_id == session_id:
-				return cdp_session.target_id
-		return None
-
 	async def cdp_client_for_frame(self, frame_id: str) -> CDPSession:
 		"""Get a CDP client attached to the target containing the specified frame.
 
@@ -3059,15 +3405,15 @@ class BrowserSession(BaseModel):
 		"""
 
 		# Strategy 1: If node has session_id, try to use that exact session (most specific)
-		if node.session_id:
+		if node.session_id and self.session_manager:
 			try:
-				# Find the CDP session by session_id
-				for cdp_session in self._cdp_session_pool.values():
-					if cdp_session.session_id == node.session_id:
-						self.logger.debug(
-							f'✅ Using session from node.session_id for node {node.backend_node_id}: {cdp_session.url}'
-						)
-						return cdp_session
+				# Find the CDP session by session_id from SessionManager
+				cdp_session = self.session_manager.get_session(node.session_id)
+				if cdp_session:
+					# Get target to log URL
+					target = self.session_manager.get_target(cdp_session.target_id)
+					self.logger.debug(f'✅ Using session from node.session_id for node {node.backend_node_id}: {target.url}')
+					return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session by session_id {node.session_id}: {e}')
 
@@ -3075,7 +3421,8 @@ class BrowserSession(BaseModel):
 		if node.frame_id:
 			try:
 				cdp_session = await self.cdp_client_for_frame(node.frame_id)
-				self.logger.debug(f'✅ Using session from node.frame_id for node {node.backend_node_id}: {cdp_session.url}')
+				target = self.session_manager.get_target(cdp_session.target_id)
+				self.logger.debug(f'✅ Using session from node.frame_id for node {node.backend_node_id}: {target.url}')
 				return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session for frame {node.frame_id}: {e}')
@@ -3084,18 +3431,25 @@ class BrowserSession(BaseModel):
 		if node.target_id:
 			try:
 				cdp_session = await self.get_or_create_cdp_session(target_id=node.target_id, focus=False)
-				self.logger.debug(f'✅ Using session from node.target_id for node {node.backend_node_id}: {cdp_session.url}')
+				target = self.session_manager.get_target(cdp_session.target_id)
+				self.logger.debug(f'✅ Using session from node.target_id for node {node.backend_node_id}: {target.url}')
 				return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session for target {node.target_id}: {e}')
 
-		# Strategy 4: Fallback to agent_focus (the page where agent is currently working)
-		if self.agent_focus:
-			self.logger.warning(
-				f'⚠️ Node {node.backend_node_id} has no session/frame/target info. '
-				f'Using agent_focus session: {self.agent_focus.url}'
-			)
-			return self.agent_focus
+		# Strategy 4: Fallback to agent_focus_target_id (the page where agent is currently working)
+		if self.agent_focus_target_id:
+			target = self.session_manager.get_target(self.agent_focus_target_id)
+			try:
+				# Use safe API with focus=False to avoid changing focus
+				cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+				if target:
+					self.logger.warning(
+						f'⚠️ Node {node.backend_node_id} has no session/frame/target info. Using agent_focus session: {target.url}'
+					)
+				return cdp_session
+			except ValueError:
+				pass  # Fall through to last resort
 
 		# Last resort: use main session
 		self.logger.error(f'❌ No session info for node {node.backend_node_id} and no agent_focus available. Using main session.')

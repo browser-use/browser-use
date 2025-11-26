@@ -12,7 +12,9 @@
     </picture>
 </div>
 
-</br>
+<div align="center">
+<a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
+</div>
 
 ---
 
@@ -97,26 +99,25 @@ Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](
 
 <br/>
 
-# 🔥 Production with Sandboxes
+# 🔥 Deploy on Sandboxes
 
-**The easiest way to run Browser-Use in production.** We handle agents, browsers, persistence, auth, cookies, and LLMs. The agent runs right next to the browser for minimal latency.
+We handle agents, browsers, persistence, auth, cookies, and LLMs. The agent runs right next to the browser for minimal latency.
 
 ```python
 from browser_use import Browser, sandbox, ChatBrowserUse
 from browser_use.agent.service import Agent
+import asyncio
 
-@sandbox(
-    cloud_profile_id='your-profile-id',      # Your saved cookies/auth
-    cloud_proxy_country_code='us',           # Bypass captchas, cloudflare, geo-restrictions
-)
-async def production_task(browser: Browser):
-    agent = Agent(task="Your task", browser=browser, llm=ChatBrowserUse())
+@sandbox()
+async def my_task(browser: Browser):
+    agent = Agent(task="Find the top HN post", browser=browser, llm=ChatBrowserUse())
     await agent.run()
 
-await production_task()
+# Just call it like any async function
+asyncio.run(my_task())
 ```
 
-See [Going to Production](https://docs.browser-use.com/production) to sync your cookies to the cloud.
+See [Going to Production](https://docs.browser-use.com/production) for more details.
 
 <br/>
 
@@ -157,7 +158,7 @@ https://github.com/user-attachments/assets/a6813fa7-4a7c-40a6-b4aa-382bf88b1850
 [Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/buy_groceries.py)
 
 
-### 💻 Personal-Assistant. 
+### 💻 Personal-Assistant.
 #### Task = "Help me find parts for a custom PC."
 
 https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
@@ -181,9 +182,9 @@ https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
 We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
 
 **Pricing (per 1M tokens):**
-- Input tokens: $0.50
-- Output tokens: $3.00  
-- Cached tokens: $0.10
+- Input tokens: $0.20
+- Cached input tokens: $0.02
+- Output tokens: $2.00
 
 For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
 </details>
@@ -195,18 +196,19 @@ For other LLM providers, see our [supported models documentation](https://docs.b
 Yes! You can add custom tools to extend the agent's capabilities:
 
 ```python
-from browser_use.tools import Tool
+from browser_use import Tools
 
-@Tool()
+tools = Tools()
+
+@tools.action(description='Description of what this tool does.')
 def custom_tool(param: str) -> str:
-    """Description of what this tool does."""
     return f"Result: {param}"
 
 agent = Agent(
     task="Your task",
     llm=llm,
     browser=browser,
-    use_custom_tools=[custom_tool],
+    tools=tools,
 )
 ```
 
@@ -251,7 +253,7 @@ For production use cases, use our [Browser Use Cloud API](https://cloud.browser-
 <br/>
 
 <div align="center">
-  
+
 **Tell your computer what to do, and it gets it done.**
 
 <img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/>

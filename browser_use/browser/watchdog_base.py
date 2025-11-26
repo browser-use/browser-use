@@ -131,19 +131,17 @@ class BaseWatchdog(BaseModel):
 
 					# attempt to repair potentially crashed CDP session
 					try:
-						if browser_session.agent_focus and browser_session.agent_focus.target_id:
+						if browser_session.agent_focus_target_id:
 							# With event-driven sessions, Chrome will send detach/attach events
 							# SessionManager handles pool cleanup automatically
-							target_id_to_restore = browser_session.agent_focus.target_id
+							target_id_to_restore = browser_session.agent_focus_target_id
 							browser_session.logger.debug(
-								f'🚌 {watchdog_and_handler_str} ⚠️ Session error detected, waiting for CDP events to sync\n\t{browser_session.agent_focus}'
+								f'🚌 {watchdog_and_handler_str} ⚠️ Session error detected, waiting for CDP events to sync (target: {target_id_to_restore})'
 							)
 
 							# Wait for new attach event to restore the session
 							# This will raise ValueError if target doesn't re-attach
-							browser_session.agent_focus = await browser_session.get_or_create_cdp_session(
-								target_id=target_id_to_restore, focus=True
-							)
+							await browser_session.get_or_create_cdp_session(target_id=target_id_to_restore, focus=True)
 						else:
 							# Try to get any available session
 							await browser_session.get_or_create_cdp_session(target_id=None, focus=True)
