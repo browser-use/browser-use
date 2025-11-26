@@ -42,7 +42,7 @@ class AgentSettings(BaseModel):
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
 	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
-	max_actions_per_step: int = 4
+	max_actions_per_step: int = 3
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	use_judge: bool = True
@@ -364,7 +364,7 @@ class AgentHistory(BaseModel):
 		# Handle action serialization
 		model_output_dump = None
 		if self.model_output:
-			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
+			action_dump = [action.model_dump(exclude_none=True, mode='json') for action in self.model_output.action]
 
 			# Filter sensitive data only from input action parameters if sensitive_data is provided
 			if sensitive_data:
@@ -385,7 +385,7 @@ class AgentHistory(BaseModel):
 
 		# Handle result serialization - don't filter ActionResult data
 		# as it should contain meaningful information for the agent
-		result_dump = [r.model_dump(exclude_none=True) for r in self.result]
+		result_dump = [r.model_dump(exclude_none=True, mode='json') for r in self.result]
 
 		return {
 			'model_output': model_output_dump,
@@ -504,7 +504,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	def last_action(self) -> None | dict:
 		"""Last action in history"""
 		if self.history and self.history[-1].model_output:
-			return self.history[-1].model_output.action[-1].model_dump(exclude_none=True)
+			return self.history[-1].model_output.action[-1].model_dump(exclude_none=True, mode='json')
 		return None
 
 	def errors(self) -> list[str | None]:
@@ -630,7 +630,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				# Guard against None interacted_element before zipping
 				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
 				for action, interacted_element in zip(h.model_output.action, interacted_elements):
-					output = action.model_dump(exclude_none=True)
+					output = action.model_dump(exclude_none=True, mode='json')
 					output['interacted_element'] = interacted_element
 					outputs.append(output)
 		return outputs
@@ -646,7 +646,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
 				# Zip actions with interacted elements and results
 				for action, interacted_element, result in zip(h.model_output.action, interacted_elements, h.result):
-					action_output = action.model_dump(exclude_none=True)
+					action_output = action.model_dump(exclude_none=True, mode='json')
 					action_output['interacted_element'] = interacted_element
 					# Only keep long_term_memory from result
 					action_output['result'] = result.long_term_memory if result and result.long_term_memory else None
@@ -695,8 +695,8 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 			# Get actions from model_output
 			if h.model_output and h.model_output.action:
-				# Use existing model_dump to get action dicts
-				actions_list = [action.model_dump(exclude_none=True) for action in h.model_output.action]
+				# Use model_dump with mode='json' to serialize enums properly
+				actions_list = [action.model_dump(exclude_none=True, mode='json') for action in h.model_output.action]
 				action_json = json.dumps(actions_list, indent=1)
 				step_text += f'Actions: {action_json}\n'
 

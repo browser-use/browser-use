@@ -181,7 +181,7 @@ class SessionManager:
 			self._target_sessions.clear()
 			self._session_to_target.clear()
 
-		self.logger.info('[SessionManager] Cleared all owned data (targets, sessions, mappings)')
+		self.logger.debug('[SessionManager] Cleared all owned data (targets, sessions, mappings)')
 
 	async def is_target_valid(self, target_id: TargetID) -> bool:
 		"""Check if a target is still valid and has active sessions.
@@ -458,6 +458,14 @@ class SessionManager:
 			except Exception as e:
 				self.logger.warning(f'[SessionManager] Failed to resume execution: {e}')
 
+		if target_type in ('page', 'tab') and self.browser_session.browser_profile.demo_mode:
+			demo = self.browser_session.demo_mode
+			if demo:
+				try:
+					await demo.register_new_target(target_id)
+				except Exception as exc:
+					self.logger.debug(f'[SessionManager] Failed to register demo overlay for {target_id[:8]}...: {exc}')
+
 	async def _handle_target_info_changed(self, event: dict) -> None:
 		"""Handle Target.targetInfoChanged event.
 
@@ -470,13 +478,30 @@ class SessionManager:
 		if not target_id:
 			return
 
+		url_changed = False
+		target_type = None
+
 		async with self._lock:
 			# Update target if it exists (source of truth for url/title)
 			if target_id in self._targets:
 				target = self._targets[target_id]
+				target_type = target.target_type
+				previous_url = target.url
+				new_url = target_info.get('url', previous_url)
 
 				target.title = target_info.get('title', target.title)
-				target.url = target_info.get('url', target.url)
+				target.url = new_url
+				url_changed = previous_url != new_url
+
+		if url_changed and target_type in ('page', 'tab') and self.browser_session.browser_profile.demo_mode:
+			demo = self.browser_session.demo_mode
+			if demo:
+				try:
+					await demo.refresh_target(target_id)
+				except Exception as exc:
+					self.logger.debug(
+						f'[SessionManager] Failed to refresh demo overlay after URL change for {target_id[:8]}...: {exc}'
+					)
 
 	async def _handle_target_detached(self, event: DetachedFromTargetEvent) -> None:
 		"""Handle Target.detachedFromTarget event.
@@ -567,6 +592,9 @@ class SessionManager:
 
 				self.browser_session.event_bus.dispatch(TabClosedEvent(target_id=target_id))
 				self.logger.debug(f'[SessionManager] Dispatched TabClosedEvent for page target {target_id[:8]}...')
+				demo = self.browser_session.demo_mode
+				if demo:
+					demo.unregister_target(target_id)
 			elif target_type:
 				self.logger.debug(
 					f'[SessionManager] Target {target_id[:8]}... fully removed (type={target_type}) - not dispatching TabClosedEvent'

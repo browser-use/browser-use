@@ -299,7 +299,6 @@ class CodeAgent:
 		# Main execution loop
 		for step in range(self.max_steps):
 			logger.info(f'\n\n\n\n\n\n\nStep {step + 1}/{self.max_steps}')
-			await self._demo_mode_log(f'Starting step {step + 1}/{self.max_steps}', 'info', {'step': step + 1})
 
 			# Start timing this step
 			self._step_start_time = datetime.datetime.now().timestamp()

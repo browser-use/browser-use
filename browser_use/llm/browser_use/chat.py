@@ -5,8 +5,10 @@ This wraps the BaseChatModel protocol and sends requests to the browser-use clou
 for optimized browser automation LLM inference.
 """
 
+import asyncio
 import logging
 import os
+import random
 from typing import TypeVar, overload
 
 import httpx
@@ -20,6 +22,9 @@ from browser_use.observability import observe
 T = TypeVar('T', bound=BaseModel)
 
 logger = logging.getLogger(__name__)
+
+# HTTP status codes that should trigger a retry
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class ChatBrowserUse(BaseChatModel):
@@ -42,6 +47,9 @@ class ChatBrowserUse(BaseChatModel):
 		api_key: str | None = None,
 		base_url: str | None = None,
 		timeout: float = 120.0,
+		max_retries: int = 5,
+		retry_base_delay: float = 1.0,
+		retry_max_delay: float = 60.0,
 		**kwargs,
 	):
 		"""
@@ -52,6 +60,9 @@ class ChatBrowserUse(BaseChatModel):
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
 			timeout: Request timeout in seconds.
+			max_retries: Maximum number of retries for transient errors (default: 5).
+			retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0).
+			retry_max_delay: Maximum delay in seconds between retries (default: 60.0).
 		"""
 		# Validate model name
 		valid_models = ['bu-latest', 'bu-1-0']
@@ -63,6 +74,9 @@ class ChatBrowserUse(BaseChatModel):
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
 		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://llm.api.browser-use.com')
 		self.timeout = timeout
+		self.max_retries = max_retries
+		self.retry_base_delay = retry_base_delay
+		self.retry_max_delay = retry_max_delay
 
 		if not self.api_key:
 			raise ValueError(
@@ -120,82 +134,126 @@ class ChatBrowserUse(BaseChatModel):
 		if output_format is not None:
 			payload['output_format'] = output_format.model_json_schema()
 
-		# Make API request
-		async with httpx.AsyncClient(timeout=self.timeout) as client:
+		last_error: Exception | None = None
+
+		# Retry loop with exponential backoff
+		for attempt in range(self.max_retries):
 			try:
-				response = await client.post(
-					f'{self.base_url}/v1/chat/completions',
-					json=payload,
-					headers={
-						'Authorization': f'Bearer {self.api_key}',
-						'Content-Type': 'application/json',
-					},
-				)
-				response.raise_for_status()
-				result = response.json()
-
+				result = await self._make_request(payload)
+				break
 			except httpx.HTTPStatusError as e:
-				error_detail = ''
-				try:
-					error_data = e.response.json()
-					error_detail = error_data.get('detail', str(e))
-				except Exception:
-					error_detail = str(e)
+				last_error = e
+				status_code = e.response.status_code
 
-				error_msg = ''
-				if e.response.status_code == 401:
-					error_msg = f'Invalid API key. {error_detail}'
-				elif e.response.status_code == 402:
-					error_msg = f'Insufficient credits. {error_detail}'
-				else:
-					error_msg = f'API request failed: {error_detail}'
+				# Check if this is a retryable error
+				if status_code in RETRYABLE_STATUS_CODES and attempt < self.max_retries - 1:
+					delay = min(self.retry_base_delay * (2**attempt), self.retry_max_delay)
+					jitter = random.uniform(0, delay * 0.1)
+					total_delay = delay + jitter
+					logger.warning(
+						f'⚠️ Got {status_code} error, retrying in {total_delay:.1f}s... (attempt {attempt + 1}/{self.max_retries})'
+					)
+					await asyncio.sleep(total_delay)
+					continue
 
-				raise ValueError(error_msg)
+				# Non-retryable HTTP error or exhausted retries
+				self._raise_http_error(e)
 
-			except httpx.TimeoutException:
-				error_msg = f'Request timed out after {self.timeout}s'
-				raise ValueError(error_msg)
+			except (httpx.TimeoutException, httpx.ConnectError) as e:
+				last_error = e
+				# Network errors are retryable
+				if attempt < self.max_retries - 1:
+					delay = min(self.retry_base_delay * (2**attempt), self.retry_max_delay)
+					jitter = random.uniform(0, delay * 0.1)
+					total_delay = delay + jitter
+					error_type = 'timeout' if isinstance(e, httpx.TimeoutException) else 'connection error'
+					logger.warning(
+						f'⚠️ Got {error_type}, retrying in {total_delay:.1f}s... (attempt {attempt + 1}/{self.max_retries})'
+					)
+					await asyncio.sleep(total_delay)
+					continue
+
+				# Exhausted retries
+				if isinstance(e, httpx.TimeoutException):
+					raise ValueError(f'Request timed out after {self.timeout}s (retried {self.max_retries} times)')
+				raise ValueError(f'Failed to connect to browser-use API after {self.max_retries} attempts: {e}')
 
 			except Exception as e:
-				error_msg = f'Failed to connect to browser-use API: {e}'
-				raise ValueError(error_msg)
+				raise ValueError(f'Failed to connect to browser-use API: {e}')
+		else:
+			# Loop completed without break (all retries exhausted)
+			if last_error is not None:
+				if isinstance(last_error, httpx.HTTPStatusError):
+					self._raise_http_error(last_error)
+				raise ValueError(f'Request failed after {self.max_retries} attempts: {last_error}')
+			raise RuntimeError('Retry loop completed without return or exception')
 
-			# Parse response - server returns structured data as dict
-			if output_format is not None:
-				# Server returns structured data as a dict, validate it
-				completion_data = result['completion']
-				logger.debug(
-					f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}'
-				)
+		# Parse response - server returns structured data as dict
+		if output_format is not None:
+			# Server returns structured data as a dict, validate it
+			completion_data = result['completion']
+			logger.debug(
+				f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}'
+			)
 
-				# Convert action dicts to ActionModel instances if needed
-				# llm-use returns dicts to avoid validation with empty ActionModel
-				if isinstance(completion_data, dict) and 'action' in completion_data:
-					actions = completion_data['action']
-					if actions and isinstance(actions[0], dict):
-						from typing import get_args
+			# Convert action dicts to ActionModel instances if needed
+			# llm-use returns dicts to avoid validation with empty ActionModel
+			if isinstance(completion_data, dict) and 'action' in completion_data:
+				actions = completion_data['action']
+				if actions and isinstance(actions[0], dict):
+					from typing import get_args
 
-						# Get ActionModel type from output_format
-						action_model_type = get_args(output_format.model_fields['action'].annotation)[0]
+					# Get ActionModel type from output_format
+					action_model_type = get_args(output_format.model_fields['action'].annotation)[0]
 
-						# Convert dicts to ActionModel instances
-						completion_data['action'] = [action_model_type.model_validate(action_dict) for action_dict in actions]
+					# Convert dicts to ActionModel instances
+					completion_data['action'] = [action_model_type.model_validate(action_dict) for action_dict in actions]
 
-				completion = output_format.model_validate(completion_data)
-			else:
-				completion = result['completion']
+			completion = output_format.model_validate(completion_data)
+		else:
+			completion = result['completion']
 
-			# Parse usage info
-			usage = None
-			if 'usage' in result:
-				from browser_use.llm.views import ChatInvokeUsage
+		# Parse usage info
+		usage = None
+		if 'usage' in result and result['usage'] is not None:
+			from browser_use.llm.views import ChatInvokeUsage
 
-				usage = ChatInvokeUsage(**result['usage'])
+			usage = ChatInvokeUsage(**result['usage'])
 
 		return ChatInvokeCompletion(
 			completion=completion,
 			usage=usage,
 		)
+
+	async def _make_request(self, payload: dict) -> dict:
+		"""Make a single API request."""
+		async with httpx.AsyncClient(timeout=self.timeout) as client:
+			response = await client.post(
+				f'{self.base_url}/v1/chat/completions',
+				json=payload,
+				headers={
+					'Authorization': f'Bearer {self.api_key}',
+					'Content-Type': 'application/json',
+				},
+			)
+			response.raise_for_status()
+			return response.json()
+
+	def _raise_http_error(self, e: httpx.HTTPStatusError) -> None:
+		"""Raise a ValueError with appropriate error message for HTTP errors."""
+		error_detail = ''
+		try:
+			error_data = e.response.json()
+			error_detail = error_data.get('detail', str(e))
+		except Exception:
+			error_detail = str(e)
+
+		if e.response.status_code == 401:
+			raise ValueError(f'Invalid API key. {error_detail}')
+		elif e.response.status_code == 402:
+			raise ValueError(f'Insufficient credits. {error_detail}')
+		else:
+			raise ValueError(f'API request failed: {error_detail}')
 
 	def _serialize_message(self, message: BaseMessage) -> dict:
 		"""Serialize a message to JSON format."""

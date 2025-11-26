@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class SystemPrompt:
 	def __init__(
 		self,
-		max_actions_per_step: int = 4,
+		max_actions_per_step: int = 3,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
@@ -232,12 +232,7 @@ class AgentMessagePrompt:
 					elements_text = f'... {pages_above:.1f} pages above ...\n{elements_text}'
 			else:
 				elements_text = f'[Start of page]\n{elements_text}'
-			if has_content_below:
-				if self.browser_state.page_info:
-					pi = self.browser_state.page_info
-					pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
-					elements_text = f'{elements_text}\n... {pages_below:.1f} pages below ...'
-			else:
+			if not has_content_below:
 				elements_text = f'{elements_text}\n[End of page]'
 		else:
 			elements_text = 'empty page'

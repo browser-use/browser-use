@@ -160,7 +160,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] | None = None,
-		max_actions_per_step: int = 4,
+		max_actions_per_step: int = 3,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 		demo_mode: bool | None = None,
@@ -216,7 +216,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Auto-configure llm_screenshot_size for Claude Sonnet models
 		if llm_screenshot_size is None:
 			model_name = getattr(llm, 'model', '')
-			if isinstance(model_name, str) and (model_name.startswith('claude-sonnet') or 'browser-use' in model_name):
+			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
 				llm_screenshot_size = (1400, 850)
 				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
 
@@ -294,6 +294,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Exclude screenshot tool when use_vision is not auto
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+
+		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
+		if use_vision != 'auto':
+			self.tools.exclude_action('screenshot')
 
 		# Structured output
 		self.output_model_schema = output_model_schema
@@ -926,8 +930,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Log step completion summary
 		summary_message = self._log_step_completion_summary(self.step_start_time, self.state.last_result)
-		if summary_message:
-			await self._demo_mode_log(summary_message, 'info', {'step': self.state.n_steps})
 
 		# Save file system state after step completion
 		self.save_file_system_state()
@@ -1765,23 +1767,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if on_step_start is not None:
 			await on_step_start(self)
 
-		await self._demo_mode_log(
-			f'Starting step {step + 1}/{max_steps}',
-			'info',
-			{'step': step + 1, 'total_steps': max_steps},
-		)
-
 		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 
 		try:
 			await asyncio.wait_for(
 				self.step(step_info),
-				timeout=180,  # 3 minute timeout
+				timeout=self.settings.step_timeout,
 			)
 			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 		except TimeoutError:
 			# Handle step timeout gracefully
-			error_msg = f'Step {step + 1} timed out after 180 seconds'
+			error_msg = f'Step {step + 1} timed out after {self.settings.step_timeout} seconds'
 			self.logger.error(f'⏰ {error_msg}')
 			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1

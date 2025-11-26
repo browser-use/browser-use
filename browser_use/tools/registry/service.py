@@ -35,7 +35,23 @@ class Registry(Generic[Context]):
 	def __init__(self, exclude_actions: list[str] | None = None):
 		self.registry = ActionRegistry()
 		self.telemetry = ProductTelemetry()
-		self.exclude_actions = exclude_actions if exclude_actions is not None else []
+		# Create a new list to avoid mutable default argument issues
+		self.exclude_actions = list(exclude_actions) if exclude_actions is not None else []
+
+	def exclude_action(self, action_name: str) -> None:
+		"""Exclude an action from the registry after initialization.
+
+		If the action is already registered, it will be removed from the registry.
+		The action is also added to the exclude_actions list to prevent re-registration.
+		"""
+		# Add to exclude list to prevent future registration
+		if action_name not in self.exclude_actions:
+			self.exclude_actions.append(action_name)
+
+		# Remove from registry if already registered
+		if action_name in self.registry.actions:
+			del self.registry.actions[action_name]
+			logger.debug(f'Excluded action "{action_name}" from registry')
 
 	def _get_special_param_types(self) -> dict[str, type | UnionType | None]:
 		"""Get the expected types for special parameters from SpecialActionParameters"""
