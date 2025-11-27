@@ -35,8 +35,22 @@ class ScreenshotWatchdog(BaseWatchdog):
 		"""
 		self.logger.debug('[ScreenshotWatchdog] Handler START - on_ScreenshotEvent called')
 		try:
-			# Get CDP client and session for current target
-			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			# Validate focused target is a top-level page (not iframe/worker)
+			# CDP Page.captureScreenshot only works on page/tab targets
+			focused_target = self.browser_session.get_focused_target()
+
+			if focused_target and focused_target.target_type in ('page', 'tab'):
+				target_id = focused_target.target_id
+			else:
+				# Focused target is iframe/worker/missing - fall back to any page target
+				target_type_str = focused_target.target_type if focused_target else 'None'
+				self.logger.warning(f'[ScreenshotWatchdog] Focused target is {target_type_str}, falling back to page target')
+				page_targets = self.browser_session.get_page_targets()
+				if not page_targets:
+					raise BrowserError('[ScreenshotWatchdog] No page targets available for screenshot')
+				target_id = page_targets[-1].target_id
+
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 
 			# Prepare screenshot parameters
 			params = CaptureScreenshotParameters(format='png', captureBeyondViewport=False)

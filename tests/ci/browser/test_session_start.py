@@ -115,7 +115,7 @@ class TestBrowserSessionStart:
 		finally:
 			await session.kill()
 
-		# Test 2: Chrome with default user_data_dir should automatically change dir
+		# Test 2: Chrome with default user_data_dir should change dir AND copy to temp
 		profile2 = BrowserProfile(
 			headless=True,
 			user_data_dir=CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR,
@@ -124,8 +124,9 @@ class TestBrowserSessionStart:
 		)
 
 		# The validator should have changed the user_data_dir to avoid corruption
+		# And then _copy_profile copies it to a temp directory (Chrome only)
 		assert profile2.user_data_dir != CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR
-		assert profile2.user_data_dir == CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR.parent / 'default-chrome'
+		assert 'browser-use-user-data-dir-' in str(profile2.user_data_dir)
 
 		# Test 3: Edge with default user_data_dir should also change
 		profile3 = BrowserProfile(
@@ -137,6 +138,7 @@ class TestBrowserSessionStart:
 
 		assert profile3.user_data_dir != CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR
 		assert profile3.user_data_dir == CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR.parent / 'default-msedge'
+		assert 'browser-use-user-data-dir-' not in str(profile3.user_data_dir)
 
 
 class TestBrowserSessionReusePatterns:
