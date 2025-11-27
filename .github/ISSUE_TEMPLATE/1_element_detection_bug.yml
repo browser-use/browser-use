@@ -31,31 +31,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
+  - type: input
     id: model
     attributes:
       label: LLM Model
-      description: Which LLM model(s) are you using?
-      multiple: true
-      options:
-        - gpt-4o
-        - gpt-4o-mini
-        - gpt-4
-        - gpt-4.1
-        - gpt-4.1-mini
-        - gpt-4.1-nano
-        - o4-mini
-        - o3
-        - claude-3.7-sonnet
-        - claude-3.5-sonnet
-        - gemini-2.6-flash-preview
-        - gemini-2.5-pro
-        - gemini-2.0-flash
-        - gemini-2.0-flash-lite
-        - gemini-1.5-flash
-        - deepseek-chat
-        - Local Model (Specify model in description)
-        - Other (specify in description)
+      description: Which LLM model are you using?
+      placeholder: "e.g. bu-1.0, gpt-5-mini, claude-4-5-sonnet, gemini-2.0-flash, etc."
     validations:
       required: true
 

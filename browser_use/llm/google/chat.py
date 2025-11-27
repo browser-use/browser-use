@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -60,9 +61,10 @@ class ChatGoogle(BaseChatModel):
 		http_options: HTTP options for the client
 		include_system_in_user: If True, system messages are included in the first user message
 		supports_structured_output: If True, uses native JSON mode; if False, uses prompt-based fallback
-		max_retries: Number of retries for retryable errors (default: 3)
-		retryable_status_codes: List of HTTP status codes to retry on (default: [403,  503])
-		retry_delay: Delay in seconds between retries (default: 0.01)
+		max_retries: Number of retries for retryable errors (default: 5)
+		retryable_status_codes: List of HTTP status codes to retry on (default: [429, 500, 502, 503, 504])
+		retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0)
+		retry_max_delay: Maximum delay in seconds between retries (default: 60.0)
 
 	Example:
 		from google.genai import types
@@ -73,8 +75,9 @@ class ChatGoogle(BaseChatModel):
 				'tools': [types.Tool(code_execution=types.ToolCodeExecution())]
 			},
 			max_retries=5,
-			retryable_status_codes=[403, 503],
-			retry_delay=0.02
+			retryable_status_codes=[429, 500, 502, 503, 504],
+			retry_base_delay=1.0,
+			retry_max_delay=60.0,
 		)
 	"""
 
@@ -88,9 +91,10 @@ class ChatGoogle(BaseChatModel):
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
-	max_retries: int = 3  # Number of retries for retryable errors
-	retryable_status_codes: list[int] = field(default_factory=lambda: [403, 503])  # Status codes to retry on
-	retry_delay: float = 0.01  # Delay in seconds between retries
+	max_retries: int = 5  # Number of retries for retryable errors
+	retryable_status_codes: list[int] = field(default_factory=lambda: [429, 500, 502, 503, 504])  # Status codes to retry on
+	retry_base_delay: float = 1.0  # Base delay in seconds for exponential backoff
+	retry_max_delay: float = 60.0  # Maximum delay in seconds between retries
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -411,7 +415,7 @@ class ChatGoogle(BaseChatModel):
 				# Re-raise the exception
 				raise
 
-		# Retry logic for certain errors
+		# Retry logic for certain errors with exponential backoff
 		assert self.max_retries >= 1, 'max_retries must be at least 1'
 
 		for attempt in range(self.max_retries):
@@ -420,8 +424,14 @@ class ChatGoogle(BaseChatModel):
 			except ModelProviderError as e:
 				# Retry if status code is in retryable list and we have attempts left
 				if e.status_code in self.retryable_status_codes and attempt < self.max_retries - 1:
-					self.logger.warning(f'⚠️ Got {e.status_code} error, retrying... (attempt {attempt + 1}/{self.max_retries})')
-					await asyncio.sleep(self.retry_delay)
+					# Exponential backoff with jitter: base_delay * 2^attempt + random jitter
+					delay = min(self.retry_base_delay * (2**attempt), self.retry_max_delay)
+					jitter = random.uniform(0, delay * 0.1)  # 10% jitter
+					total_delay = delay + jitter
+					self.logger.warning(
+						f'⚠️ Got {e.status_code} error, retrying in {total_delay:.1f}s... (attempt {attempt + 1}/{self.max_retries})'
+					)
+					await asyncio.sleep(total_delay)
 					continue
 				# Otherwise raise
 				raise
@@ -500,13 +510,16 @@ class ChatGoogle(BaseChatModel):
 			schema = resolve_refs(schema)
 
 		# Remove unsupported properties
-		def clean_schema(obj: Any) -> Any:
+		def clean_schema(obj: Any, parent_key: str | None = None) -> Any:
 			if isinstance(obj, dict):
 				# Remove unsupported properties
 				cleaned = {}
 				for key, value in obj.items():
-					if key not in ['additionalProperties', 'title', 'default']:
-						cleaned_value = clean_schema(value)
+					# Only strip 'title' when it's a JSON Schema metadata field (not inside 'properties')
+					# 'title' as a metadata field appears at schema level, not as a property name
+					is_metadata_title = key == 'title' and parent_key != 'properties'
+					if key not in ['additionalProperties', 'default'] and not is_metadata_title:
+						cleaned_value = clean_schema(value, parent_key=key)
 						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
 						if (
 							key == 'properties'
@@ -530,13 +543,9 @@ class ChatGoogle(BaseChatModel):
 				):
 					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
 
-				# Also remove 'title' from the required list if it exists
-				if 'required' in cleaned and isinstance(cleaned.get('required'), list):
-					cleaned['required'] = [p for p in cleaned['required'] if p != 'title']
-
 				return cleaned
 			elif isinstance(obj, list):
-				return [clean_schema(item) for item in obj]
+				return [clean_schema(item, parent_key=parent_key) for item in obj]
 			return obj
 
 		return clean_schema(schema)

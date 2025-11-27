@@ -14,13 +14,27 @@
 #   $ ./bin/lint.sh --staged           # Only staged files - varies
 #   $ ./bin/lint.sh --staged --quick   # Fast pre-commit - <2s
 #
-# Note: Quick mode skips type checking. Always run full mode before pushing to CI.
+# Note: 
+#   - Quick mode skips type checking. Always run full mode before pushing to CI.
+#   - This script runs tools directly from .venv to avoid 'uv run' permission errors.
 
 set -o pipefail
 IFS=$'\n'
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$SCRIPT_DIR/.." || exit 1
+
+# Find the active venv and prefer direct execution over uv run to avoid permission errors
+if [ -n "$VIRTUAL_ENV" ]; then
+    # Already in a venv, use tools directly
+    RUN_CMD=""
+elif [ -f ".venv/bin/activate" ]; then
+    # Use .venv directly without activating
+    RUN_CMD=".venv/bin/"
+else
+    # Fallback to uv run
+    RUN_CMD="uv run "
+fi
 
 # Parse arguments
 FAIL_FAST=0
@@ -124,28 +138,28 @@ START_TIME=$(date +%s)
 # Launch all checks in parallel
 if [ ${#FILE_ARRAY[@]} -eq 0 ]; then
     # Full mode: check everything
-    uv run ruff check --fix > "$TEMP_DIR/ruff-check.log" 2>&1 &
+    ${RUN_CMD}ruff check --fix > "$TEMP_DIR/ruff-check.log" 2>&1 &
     RUFF_CHECK_PID=$!
     RUFF_CHECK_START=$(date +%s)
 
-    uv run ruff format > "$TEMP_DIR/ruff-format.log" 2>&1 &
+    ${RUN_CMD}ruff format > "$TEMP_DIR/ruff-format.log" 2>&1 &
     RUFF_FORMAT_PID=$!
     RUFF_FORMAT_START=$(date +%s)
 
-    uv run pyright --threads 6 > "$TEMP_DIR/pyright.log" 2>&1 &
+    ${RUN_CMD}pyright --threads 6 > "$TEMP_DIR/pyright.log" 2>&1 &
     PYRIGHT_PID=$!
     PYRIGHT_START=$(date +%s)
 
-    SKIP=ruff-check,ruff-format,pyright uv run pre-commit run --all-files > "$TEMP_DIR/other-checks.log" 2>&1 &
+    SKIP=ruff-check,ruff-format,pyright ${RUN_CMD}pre-commit run --all-files > "$TEMP_DIR/other-checks.log" 2>&1 &
     OTHER_PID=$!
     OTHER_START=$(date +%s)
 else
     # Staged or quick mode: check only specific files
-    uv run ruff check --fix "${FILE_ARRAY[@]}" > "$TEMP_DIR/ruff-check.log" 2>&1 &
+    ${RUN_CMD}ruff check --fix "${FILE_ARRAY[@]}" > "$TEMP_DIR/ruff-check.log" 2>&1 &
     RUFF_CHECK_PID=$!
     RUFF_CHECK_START=$(date +%s)
 
-    uv run ruff format "${FILE_ARRAY[@]}" > "$TEMP_DIR/ruff-format.log" 2>&1 &
+    ${RUN_CMD}ruff format "${FILE_ARRAY[@]}" > "$TEMP_DIR/ruff-format.log" 2>&1 &
     RUFF_FORMAT_PID=$!
     RUFF_FORMAT_START=$(date +%s)
 
@@ -155,12 +169,12 @@ else
         PYRIGHT_PID=-1
         PYRIGHT_START=$(date +%s)
     else
-        uv run pyright --threads 6 "${FILE_ARRAY[@]}" > "$TEMP_DIR/pyright.log" 2>&1 &
+        ${RUN_CMD}pyright --threads 6 "${FILE_ARRAY[@]}" > "$TEMP_DIR/pyright.log" 2>&1 &
         PYRIGHT_PID=$!
         PYRIGHT_START=$(date +%s)
     fi
 
-    SKIP=ruff-check,ruff-format,pyright uv run pre-commit run --files "${FILE_ARRAY[@]}" > "$TEMP_DIR/other-checks.log" 2>&1 &
+    SKIP=ruff-check,ruff-format,pyright ${RUN_CMD}pre-commit run --files "${FILE_ARRAY[@]}" > "$TEMP_DIR/other-checks.log" 2>&1 &
     OTHER_PID=$!
     OTHER_START=$(date +%s)
 fi

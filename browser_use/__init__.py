@@ -63,10 +63,11 @@ if TYPE_CHECKING:
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
+	from browser_use.llm.vercel.chat import ChatVercel
+	from browser_use.sandbox import sandbox
 	from browser_use.tools.service import Controller, Tools
 
-
-# Lazy imports mapping - only import when actually accessed
+	# Lazy imports mapping - only import when actually accessed
 _LAZY_IMPORTS = {
 	# Agent service (heavy due to dependencies)
 	# 'Agent': ('browser_use.agent.service', 'Agent'),
@@ -96,8 +97,11 @@ _LAZY_IMPORTS = {
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
+	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 	# LLM models module
 	'models': ('browser_use.llm.models', None),
+	# Sandbox execution
+	'sandbox': ('browser_use.sandbox', 'sandbox'),
 }
 
 
@@ -145,8 +149,11 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',
 	'ChatOllama',
+	'ChatVercel',
 	'Tools',
 	'Controller',
 	# LLM models module
 	'models',
+	# Sandbox execution
+	'sandbox',
 ]

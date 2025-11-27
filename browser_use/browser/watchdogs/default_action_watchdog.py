@@ -7,6 +7,7 @@ from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
 from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
+	ClickCoordinateEvent,
 	ClickElementEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
@@ -27,6 +28,7 @@ from browser_use.observability import observe_debug
 
 # Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
 # This must be done after all imports are complete
+ClickCoordinateEvent.model_rebuild()
 ClickElementEvent.model_rebuild()
 GetDropdownOptionsEvent.model_rebuild()
 SelectDropdownOptionEvent.model_rebuild()
@@ -155,7 +157,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		"""Handle click request with CDP."""
 		try:
 			# Check if session is alive before attempting any operations
-			if not self.browser_session.agent_focus or not self.browser_session.agent_focus.target_id:
+			if not self.browser_session.agent_focus_target_id:
 				error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
 				self.logger.error(f'{error_msg}')
 				raise BrowserError(error_msg)
@@ -163,7 +165,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Use the provided node
 			element_node = event.node
 			index_for_logging = element_node.backend_node_id or 'unknown'
-			starting_target_id = self.browser_session.agent_focus.target_id
+			starting_target_id = self.browser_session.agent_focus_target_id
 
 			# Check if element is a file input (should not be clicked)
 			if self.browser_session.is_file_input(element_node):
@@ -210,6 +212,62 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			return click_metadata if isinstance(click_metadata, dict) else None
 		except Exception as e:
+			raise
+
+	async def on_ClickCoordinateEvent(self, event: ClickCoordinateEvent) -> dict | None:
+		"""Handle click at coordinates with CDP."""
+		try:
+			# Check if session is alive before attempting any operations
+			if not self.browser_session.agent_focus_target_id:
+				error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
+				self.logger.error(f'{error_msg}')
+				raise BrowserError(error_msg)
+
+			# If force=True, skip safety checks and click directly
+			if event.force:
+				self.logger.debug(f'Force clicking at coordinates ({event.coordinate_x}, {event.coordinate_y})')
+				return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True)
+
+			# Get element at coordinates for safety checks
+			element_node = await self.browser_session.get_dom_element_at_coordinates(event.coordinate_x, event.coordinate_y)
+			if element_node is None:
+				# No element found, click directly
+				self.logger.debug(
+					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
+				)
+				return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+
+			# Safety check: file input
+			if self.browser_session.is_file_input(element_node):
+				msg = f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is a file input. To upload files please use upload_file action'
+				self.logger.info(f'{msg}')
+				return {'validation_error': msg}
+
+			# Safety check: select element
+			tag_name = element_node.tag_name.lower() if element_node.tag_name else ''
+			if tag_name == 'select':
+				msg = f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is a <select>. Use dropdown_options action instead.'
+				self.logger.info(f'{msg}')
+				return {'validation_error': msg}
+
+			# Safety check: print-related elements
+			is_print_element = self._is_print_related_element(element_node)
+			if is_print_element:
+				self.logger.info(
+					f'🖨️ Detected print button at ({event.coordinate_x}, {event.coordinate_y}), generating PDF directly instead of opening dialog...'
+				)
+				click_metadata = await self._handle_print_button_click(element_node)
+				if click_metadata and click_metadata.get('pdf_generated'):
+					msg = f'Generated PDF: {click_metadata.get("path")}'
+					self.logger.info(f'💾 {msg}')
+					return click_metadata
+				else:
+					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
+
+			# All safety checks passed, click at coordinates
+			return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+
+		except Exception:
 			raise
 
 	async def on_TypeTextEvent(self, event: TypeTextEvent) -> dict | None:
@@ -277,7 +335,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 	async def on_ScrollEvent(self, event: ScrollEvent) -> None:
 		"""Handle scroll request with CDP."""
 		# Check if we have a current target for scrolling
-		if not self.browser_session.agent_focus:
+		if not self.browser_session.agent_focus_target_id:
 			error_msg = 'No active target for scrolling'
 			raise BrowserError(error_msg)
 
@@ -513,7 +571,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# Navigation is handled by BrowserSession via events
 					return None
 				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
+					self.logger.warning(f'CDP JavaScript click also failed: {js_e}')
 					if 'No node with given id found' in str(js_e):
 						raise Exception('Element with given id not found')
 					else:
@@ -676,7 +734,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 					return None
 				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
+					self.logger.warning(f'CDP JavaScript click also failed: {js_e}')
 					raise Exception(f'Failed to click element: {e}')
 			finally:
 				# Always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
@@ -711,8 +769,88 @@ class DefaultActionWatchdog(BaseWatchdog):
 				error_detail += f' If the page changed after navigation/interaction, the index [{element_node.backend_node_id}] may be stale. Get fresh browser state before retrying.'
 
 			raise BrowserError(
-				message=f'Failed to click element: {e}',
+				message=f'Failed to click element: {str(e)}',
 				long_term_memory=error_detail,
+			)
+
+	async def _click_on_coordinate(self, coordinate_x: int, coordinate_y: int, force: bool = False) -> dict | None:
+		"""
+		Click directly at coordinates using CDP Input.dispatchMouseEvent.
+
+		Args:
+			coordinate_x: X coordinate in viewport
+			coordinate_y: Y coordinate in viewport
+			force: If True, skip all safety checks (used when force=True in event)
+
+		Returns:
+			Dict with click coordinates or None
+		"""
+		try:
+			# Get CDP session
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			session_id = cdp_session.session_id
+
+			self.logger.debug(f'👆 Moving mouse to ({coordinate_x}, {coordinate_y})...')
+
+			# Move mouse to coordinates
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseMoved',
+					'x': coordinate_x,
+					'y': coordinate_y,
+				},
+				session_id=session_id,
+			)
+			await asyncio.sleep(0.05)
+
+			# Mouse down
+			self.logger.debug(f'👆🏾 Clicking at ({coordinate_x}, {coordinate_y})...')
+			try:
+				await asyncio.wait_for(
+					cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mousePressed',
+							'x': coordinate_x,
+							'y': coordinate_y,
+							'button': 'left',
+							'clickCount': 1,
+						},
+						session_id=session_id,
+					),
+					timeout=3.0,
+				)
+				await asyncio.sleep(0.05)
+			except TimeoutError:
+				self.logger.debug('⏱️ Mouse down timed out (likely due to dialog), continuing...')
+
+			# Mouse up
+			try:
+				await asyncio.wait_for(
+					cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mouseReleased',
+							'x': coordinate_x,
+							'y': coordinate_y,
+							'button': 'left',
+							'clickCount': 1,
+						},
+						session_id=session_id,
+					),
+					timeout=5.0,
+				)
+			except TimeoutError:
+				self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')
+
+			self.logger.debug(f'🖱️ Clicked successfully at ({coordinate_x}, {coordinate_y})')
+
+			# Return coordinates as metadata
+			return {'click_x': coordinate_x, 'click_y': coordinate_y}
+
+		except Exception as e:
+			self.logger.error(f'Failed to click at coordinates ({coordinate_x}, {coordinate_y}): {type(e).__name__}: {e}')
+			raise BrowserError(
+				message=f'Failed to click at coordinates: {e}',
+				long_term_memory=f'Failed to click at coordinates ({coordinate_x}, {coordinate_y}). The coordinates may be outside viewport or the page may have changed.',
 			)
 
 	async def _type_to_page(self, text: str):
@@ -782,9 +920,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=cdp_session.session_id,
 					)
-				# Add 18ms delay between keystrokes
-				await asyncio.sleep(0.018)
-
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
 
@@ -1523,7 +1658,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Execute JavaScript to trigger comprehensive event sequence
 			framework_events_script = """
-			(function() {
+			function() {
 				// Find the target element (available as 'this' when using objectId)
 				const element = this;
 				if (!element) return false;
@@ -1600,7 +1735,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				}
 
 				return success;
-			})();
+			}
 			"""
 
 			# Execute the framework events script
@@ -1614,6 +1749,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			success = result.get('result', {}).get('value', False)
+			if success:
+				self.logger.debug('✅ Framework events triggered successfully')
+			else:
+				self.logger.warning('⚠️ Failed to trigger framework events')
 
 		except Exception as e:
 			self.logger.warning(f'⚠️ Failed to trigger framework events: {type(e).__name__}: {e}')
@@ -1621,7 +1760,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	async def _scroll_with_cdp_gesture(self, pixels: int) -> bool:
 		"""
-		Scroll using CDP Input.dispatchMouseEvent to simulate mouse wheel.
+		Scroll using CDP Input.synthesizeScrollGesture to simulate realistic scroll gesture.
 
 		Args:
 			pixels: Number of pixels to scroll (positive = down, negative = up)
@@ -1630,40 +1769,46 @@ class DefaultActionWatchdog(BaseWatchdog):
 			True if successful, False if failed
 		"""
 		try:
-			# Get CDP client and session
-			assert self.browser_session.agent_focus is not None, 'CDP session not initialized - browser may not be connected yet'
-			cdp_client = self.browser_session.agent_focus.cdp_client
-			session_id = self.browser_session.agent_focus.session_id
+			# Get focused CDP session using public API (validates and waits for recovery if needed)
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			cdp_client = cdp_session.cdp_client
+			session_id = cdp_session.session_id
 
-			# Get viewport dimensions
-			layout_metrics = await cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
-			viewport_width = layout_metrics['layoutViewport']['clientWidth']
-			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+			# Get viewport dimensions from cached value if available
+			if self.browser_session._original_viewport_size:
+				viewport_width, viewport_height = self.browser_session._original_viewport_size
+			else:
+				# Fallback: query layout metrics
+				layout_metrics = await cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
+				viewport_width = layout_metrics['layoutViewport']['clientWidth']
+				viewport_height = layout_metrics['layoutViewport']['clientHeight']
 
 			# Calculate center of viewport
 			center_x = viewport_width / 2
 			center_y = viewport_height / 2
 
-			# For mouse wheel, positive deltaY scrolls down, negative scrolls up
-			delta_y = pixels
+			# For scroll gesture, positive yDistance scrolls up, negative scrolls down
+			# (opposite of mouseWheel deltaY convention)
+			y_distance = -pixels
 
-			# Dispatch mouse wheel event
-			await cdp_client.send.Input.dispatchMouseEvent(
+			# Synthesize scroll gesture with faster speed
+			await cdp_client.send.Input.synthesizeScrollGesture(
 				params={
-					'type': 'mouseWheel',
 					'x': center_x,
 					'y': center_y,
-					'deltaX': 0,
-					'deltaY': delta_y,
+					'xDistance': 0,
+					'yDistance': y_distance,
+					'speed': 1200,  # pixels per second (faster than default 800)
 				},
 				session_id=session_id,
 			)
 
-			self.logger.debug(f'📄 Scrolled via CDP mouse wheel: {pixels}px')
+			self.logger.debug(f'📄 Scrolled via CDP gesture: {pixels}px')
 			return True
 
 		except Exception as e:
-			self.logger.warning(f'❌ Scrolling via CDP failed: {type(e).__name__}: {e}')
+			# Not critical - JavaScript fallback will handle scrolling
+			self.logger.debug(f'CDP gesture scroll failed ({type(e).__name__}: {e}), falling back to JS')
 			return False
 
 	async def _scroll_element_container(self, element_node, pixels: int) -> bool:
@@ -1761,14 +1906,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 		if element_node.frame_id:
 			# Element is in an iframe, need to get session for that frame
 			try:
-				# Get all targets
-				targets = await self.browser_session.cdp_client.send.Target.getTargets()
+				all_targets = self.browser_session.session_manager.get_all_targets()
 
 				# Find the target for this frame
-				for target in targets['targetInfos']:
-					if target['type'] == 'iframe' and element_node.frame_id in str(target.get('targetId', '')):
+				for target_id, target in all_targets.items():
+					if target.target_type == 'iframe' and element_node.frame_id in str(target_id):
 						# Create temporary session for iframe target without switching focus
-						target_id = target['targetId']
 						temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 						return temp_session.session_id
 
@@ -1777,9 +1920,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.debug(f'Error getting frame session: {e}, using main session')
 
-		# Use main target session
-		assert self.browser_session.agent_focus is not None, 'CDP session not initialized - browser may not be connected yet'
-		return self.browser_session.agent_focus.session_id
+		# Use main target session - get_or_create_cdp_session validates focus automatically
+		cdp_session = await self.browser_session.get_or_create_cdp_session()
+		return cdp_session.session_id
 
 	async def on_GoBackEvent(self, event: GoBackEvent) -> None:
 		"""Handle navigate back request with CDP."""
@@ -2012,8 +2155,33 @@ class DefaultActionWatchdog(BaseWatchdog):
 					for char in normalized_keys:
 						# Special-case newline characters to dispatch as Enter
 						if char in ('\n', '\r'):
-							await self._dispatch_key_event(cdp_session, 'keyDown', 'Enter')
-							await self._dispatch_key_event(cdp_session, 'keyUp', 'Enter')
+							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'rawKeyDown',
+									'windowsVirtualKeyCode': 13,
+									'unmodifiedText': '\r',
+									'text': '\r',
+								},
+								session_id=cdp_session.session_id,
+							)
+							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'char',
+									'windowsVirtualKeyCode': 13,
+									'unmodifiedText': '\r',
+									'text': '\r',
+								},
+								session_id=cdp_session.session_id,
+							)
+							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyUp',
+									'windowsVirtualKeyCode': 13,
+									'unmodifiedText': '\r',
+									'text': '\r',
+								},
+								session_id=cdp_session.session_id,
+							)
 							continue
 
 						# Get proper modifiers and key info for the character
@@ -2053,9 +2221,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=cdp_session.session_id,
 						)
-
-						# Small delay between characters (18ms like _type_to_page)
-						await asyncio.sleep(0.018)
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
@@ -2101,11 +2266,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 		# TODO: handle looking for text inside cross-origin iframes as well
 
-		# Get CDP client and session
-		cdp_client = self.browser_session.cdp_client
-		if self.browser_session.agent_focus is None:
-			raise BrowserError('CDP session not initialized - browser may not be connected yet')
-		session_id = self.browser_session.agent_focus.session_id
+		# Get focused CDP session using public API (validates and waits for recovery if needed)
+		cdp_session = await self.browser_session.get_or_create_cdp_session()
+		cdp_client = cdp_session.cdp_client
+		session_id = cdp_session.session_id
 
 		# Enable DOM
 		await cdp_client.send.DOM.enable(session_id=session_id)

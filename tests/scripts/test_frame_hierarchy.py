@@ -27,13 +27,12 @@ async def analyze_frame_hierarchy(url):
 		print('FRAME HIERARCHY ANALYSIS')
 		print('=' * 80)
 
-		# Get all targets
-		targets = await session.cdp_client.send.Target.getTargets()
-		all_targets = targets.get('targetInfos', [])
+		# Get all targets from SessionManager
+		all_targets = session.session_manager.get_all_targets()
 
 		# Separate by type
-		page_targets = [t for t in all_targets if t.get('type') == 'page']
-		iframe_targets = [t for t in all_targets if t.get('type') == 'iframe']
+		page_targets = [target for target in all_targets.values() if target.target_type == 'page']
+		iframe_targets = [target for target in all_targets.values() if target.target_type == 'iframe']
 
 		print('\n📊 Target Summary:')
 		print(f'  Total targets: {len(all_targets)}')
@@ -42,26 +41,29 @@ async def analyze_frame_hierarchy(url):
 
 		# Show all targets
 		print('\n📋 All Targets:')
-		for i, target in enumerate(all_targets):
-			t_type = target.get('type')
-			t_url = target.get('url', 'none')
-			t_id = target.get('targetId', 'unknown')
+		for i, (target_id, target) in enumerate(all_targets.items()):
+			if target.target_type in ['page', 'iframe']:
+				print(f'\n  [{i + 1}] Type: {target.target_type}')
+				print(f'      URL: {target.url}')
+				print(f'      Target ID: {target.target_id[:30]}...')
 
-			if t_type in ['page', 'iframe']:
-				print(f'\n  [{i + 1}] Type: {t_type}')
-				print(f'      URL: {t_url}')
-				print(f'      Target ID: {t_id[:30]}...')
-				print(f'      Attached: {target.get("attached", False)}')
+				# Check if target has active sessions using the public API
+				try:
+					cdp_session = await session.get_or_create_cdp_session(target.target_id, focus=False)
+					has_session = cdp_session is not None
+				except Exception:
+					has_session = False
+				print(f'      Has Session: {has_session}')
 
 		# Get main page frame tree
-		main_target = next((t for t in page_targets if url in t.get('url', '')), page_targets[0] if page_targets else None)
+		main_target = next((t for t in page_targets if url in t.url), page_targets[0] if page_targets else None)
 
 		if main_target:
 			print('\n📐 Main Page Frame Tree:')
-			print(f'  Target: {main_target["url"]}')
-			print(f'  Target ID: {main_target["targetId"][:30]}...')
+			print(f'  Target: {main_target.url}')
+			print(f'  Target ID: {main_target.target_id[:30]}...')
 
-			s = await session.cdp_client.send.Target.attachToTarget(params={'targetId': main_target['targetId'], 'flatten': True})
+			s = await session.cdp_client.send.Target.attachToTarget(params={'targetId': main_target.target_id, 'flatten': True})
 			sid = s['sessionId']
 
 			try:
@@ -101,11 +103,11 @@ async def analyze_frame_hierarchy(url):
 			print('\n🔸 OOPIF Target Frame Trees:')
 
 			for iframe_target in iframe_targets:
-				print(f'\n  OOPIF Target: {iframe_target["url"]}')
-				print(f'  Target ID: {iframe_target["targetId"][:30]}...')
+				print(f'\n  OOPIF Target: {iframe_target.url}')
+				print(f'  Target ID: {iframe_target.target_id[:30]}...')
 
 				s = await session.cdp_client.send.Target.attachToTarget(
-					params={'targetId': iframe_target['targetId'], 'flatten': True}
+					params={'targetId': iframe_target.target_id, 'flatten': True}
 				)
 				sid = s['sessionId']
 
@@ -173,7 +175,7 @@ async def analyze_frame_hierarchy(url):
 				print('      ❌ PROBLEM: Cross-origin frame incorrectly marked as root!')
 			elif not parent and url != 'about:blank' and url not in ['chrome://newtab/', 'about:blank']:
 				# Check if this should be the main frame
-				if any(url in t.get('url', '') for t in page_targets):
+				if any(url in t.url for t in page_targets):
 					print('      ✅ Correctly identified as root frame')
 
 			if is_cross:

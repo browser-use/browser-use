@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from browser_use.browser.cloud.views import CloudBrowserParams
 from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
@@ -559,6 +560,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Alias for use_cloud field for compatibility."""
 		return self.use_cloud
 
+	cloud_browser_params: CloudBrowserParams | None = Field(
+		default=None, description='Parameters for creating a cloud browser instance'
+	)
+
 	# custom options we provide that aren't native playwright kwargs
 	disable_security: bool = Field(default=False, description='Disable browser security features.')
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
@@ -585,6 +590,14 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	enable_default_extensions: bool = Field(
 		default=True,
 		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled.",
+	)
+	demo_mode: bool = Field(
+		default=False,
+		description='Enable demo mode side panel that streams agent logs directly inside the browser window (requires headless=False).',
+	)
+	demo_mode_display: Literal['full', 'last'] = Field(
+		default='last',
+		description="Display mode for demo panel: 'full' shows complete log panel, 'last' shows only latest action and memory in bottom-right corner",
 	)
 	cookie_whitelist_domains: list[str] = Field(
 		default_factory=lambda: ['nature.com', 'qatarairways.com'],
@@ -773,6 +786,49 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
 		self.detect_display_configuration()
+		self._copy_profile()
+
+	def _copy_profile(self) -> None:
+		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
+		if self.user_data_dir is None:
+			return
+
+		user_data_str = str(self.user_data_dir)
+		if 'browser-use-user-data-dir-' in user_data_str.lower():
+			# Already using a temp directory, no need to copy
+			return
+
+		is_chrome = (
+			'chrome' in user_data_str.lower()
+			or ('chrome' in str(self.executable_path).lower())
+			or self.channel
+			in (BrowserChannel.CHROME, BrowserChannel.CHROME_BETA, BrowserChannel.CHROME_DEV, BrowserChannel.CHROME_CANARY)
+		)
+
+		if not is_chrome:
+			return
+
+		temp_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+		path_original_user_data = Path(self.user_data_dir)
+		path_original_profile = path_original_user_data / self.profile_directory
+		path_temp_profile = Path(temp_dir) / self.profile_directory
+
+		if path_original_profile.exists():
+			import shutil
+
+			shutil.copytree(path_original_profile, path_temp_profile)
+			local_state_src = path_original_user_data / 'Local State'
+			local_state_dst = Path(temp_dir) / 'Local State'
+			if local_state_src.exists():
+				shutil.copy(local_state_src, local_state_dst)
+			logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
+
+		else:
+			Path(temp_dir).mkdir(parents=True, exist_ok=True)
+			path_temp_profile.mkdir(parents=True, exist_ok=True)
+			logger.info(f'Created new profile ({self.profile_directory}) in temp directory: {temp_dir}')
+
+		self.user_data_dir = temp_dir
 
 	def get_args(self) -> list[str]:
 		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
