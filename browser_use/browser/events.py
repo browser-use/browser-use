@@ -153,7 +153,7 @@ class TypeTextEvent(ElementSelectedEvent[dict | None]):
 	is_sensitive: bool = False  # Flag to indicate if text contains sensitive data
 	sensitive_key_name: str | None = None  # Name of the sensitive key being typed (e.g., 'username', 'password')
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TypeTextEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TypeTextEvent', 60.0))  # seconds
 
 
 class ScrollEvent(ElementSelectedEvent[None]):
@@ -242,7 +242,7 @@ class SendKeysEvent(BaseEvent[None]):
 
 	keys: str  # e.g., "ctrl+a", "cmd+c", "Enter"
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_SendKeysEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_SendKeysEvent', 60.0))  # seconds
 
 
 class UploadFileEvent(ElementSelectedEvent[None]):

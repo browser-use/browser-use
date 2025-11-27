@@ -920,9 +920,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=cdp_session.session_id,
 					)
-				# Add 18ms delay between keystrokes
-				await asyncio.sleep(0.018)
-
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
 
@@ -2158,8 +2155,33 @@ class DefaultActionWatchdog(BaseWatchdog):
 					for char in normalized_keys:
 						# Special-case newline characters to dispatch as Enter
 						if char in ('\n', '\r'):
-							await self._dispatch_key_event(cdp_session, 'keyDown', 'Enter')
-							await self._dispatch_key_event(cdp_session, 'keyUp', 'Enter')
+							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'rawKeyDown',
+									'windowsVirtualKeyCode': 13,
+									'unmodifiedText': '\r',
+									'text': '\r',
+								},
+								session_id=cdp_session.session_id,
+							)
+							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'char',
+									'windowsVirtualKeyCode': 13,
+									'unmodifiedText': '\r',
+									'text': '\r',
+								},
+								session_id=cdp_session.session_id,
+							)
+							await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyUp',
+									'windowsVirtualKeyCode': 13,
+									'unmodifiedText': '\r',
+									'text': '\r',
+								},
+								session_id=cdp_session.session_id,
+							)
 							continue
 
 						# Get proper modifiers and key info for the character
@@ -2199,9 +2221,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=cdp_session.session_id,
 						)
-
-						# Small delay between characters (18ms like _type_to_page)
-						await asyncio.sleep(0.018)
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
