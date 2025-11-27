@@ -400,47 +400,42 @@ class ChatVercel(BaseChatModel):
 
 			else:
 				is_google_model = self.model.startswith('google/')
+				is_anthropic_model = self.model.startswith('anthropic/')
 				is_reasoning_model = self.reasoning_models and any(
 					str(pattern).lower() in str(self.model).lower() for pattern in self.reasoning_models
 				)
 
-				# For structured output, we need to modify messages for Google/reasoning models
-				# but use the original messages for other models
-				current_messages = messages
+				if is_google_model or is_anthropic_model or is_reasoning_model:
+					modified_messages = [m.model_copy(deep=True) for m in messages]
 
-				if is_google_model or is_reasoning_model:
-					current_messages = [m.model_copy(deep=True) for m in messages]
-
+					# Use Gemini-optimized schema for all models that need prompt-based JSON extraction
 					schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
 					json_instruction = f'\n\nIMPORTANT: You must respond with ONLY a valid JSON object (no markdown, no code blocks, no explanations) that exactly matches this schema:\n{json.dumps(schema, indent=2)}'
 
 					instruction_added = False
-					if current_messages and current_messages[0].role == 'system':
-						if isinstance(current_messages[0].content, str):
-							current_messages[0].content += json_instruction
+					if modified_messages and modified_messages[0].role == 'system':
+						if isinstance(modified_messages[0].content, str):
+							modified_messages[0].content += json_instruction
 							instruction_added = True
-						elif isinstance(current_messages[0].content, list):
-							current_messages[0].content.append(ContentPartTextParam(text=json_instruction))
+						elif isinstance(modified_messages[0].content, list):
+							modified_messages[0].content.append(ContentPartTextParam(text=json_instruction))
 							instruction_added = True
-					elif current_messages and current_messages[-1].role == 'user':
-						if isinstance(current_messages[-1].content, str):
-							current_messages[-1].content += json_instruction
+					elif modified_messages and modified_messages[-1].role == 'user':
+						if isinstance(modified_messages[-1].content, str):
+							modified_messages[-1].content += json_instruction
 							instruction_added = True
-						elif isinstance(current_messages[-1].content, list):
-							current_messages[-1].content.append(ContentPartTextParam(text=json_instruction))
+						elif isinstance(modified_messages[-1].content, list):
+							modified_messages[-1].content.append(ContentPartTextParam(text=json_instruction))
 							instruction_added = True
 
 					if not instruction_added:
-						current_messages.insert(0, SystemMessage(content=json_instruction))
+						modified_messages.insert(0, SystemMessage(content=json_instruction))
 
-				# Serialize messages for the current model type
-				final_messages = VercelMessageSerializer.serialize_messages(current_messages)
+					vercel_messages = VercelMessageSerializer.serialize_messages(modified_messages)
 
-				if is_google_model or is_reasoning_model:
-					# Use prompt-based JSON for Google/reasoning models
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
-						messages=final_messages,
+						messages=vercel_messages,
 						**model_params,
 					)
 
@@ -478,7 +473,6 @@ class ChatVercel(BaseChatModel):
 						) from e
 
 				else:
-					# Use native JSON schema for other models
 					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
 					response_format_schema: JSONSchema = {
@@ -489,7 +483,7 @@ class ChatVercel(BaseChatModel):
 
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
-						messages=final_messages,
+						messages=vercel_messages,
 						response_format=ResponseFormatJSONSchema(
 							json_schema=response_format_schema,
 							type='json_schema',
