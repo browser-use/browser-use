@@ -1898,8 +1898,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if (self.state.consecutive_failures) >= self.settings.max_failures + int(
 					self.settings.final_response_after_failure
 				):
-					self.logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
-					agent_run_error = f'Stopped due to {self.settings.max_failures} consecutive failures'
+					self.logger.error(f'❌ Stopping due to {self.settings.max_failures + 1} consecutive failures')
+					agent_run_error = f'Stopped due to {self.settings.max_failures + 1} consecutive failures'
 					break
 
 				# Check control flags before each step

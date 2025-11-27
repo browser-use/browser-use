@@ -42,6 +42,7 @@ class ChatOpenAI(BaseChatModel):
 	top_p: float | None = None
 	add_schema_to_system_prompt: bool = False  # Add JSON schema to system prompt instead of using response_format
 	dont_force_structured_output: bool = False  # If True, the model will not be forced to output a structured output
+	include_action_descriptions: bool = False  # Add action descriptions to system prompt for weaker models
 	remove_min_items_from_schema: bool = (
 		False  # If True, remove minItems from JSON schema (for compatibility with some providers)
 	)
@@ -119,6 +120,196 @@ class ChatOpenAI(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return str(self.model)
+
+	def _generate_action_descriptions(self, schema: dict[str, Any]) -> str:
+		"""Generate JSON-style action descriptions from AgentOutput schema."""
+		if '$defs' not in schema:
+			return ''
+
+		descriptions = []
+
+		for def_name, def_schema in schema['$defs'].items():
+			if not def_name.endswith('ActionModel') or 'properties' not in def_schema:
+				continue
+
+			for action_name, action_schema in def_schema['properties'].items():
+				action_desc = action_schema.get('description', '').rstrip('.')
+				params_obj = self._get_action_params(action_schema, schema['$defs'])
+
+				# Format: {"action_name": {params}} - description
+				if params_obj:
+					action_text = f'{{"{action_name}": {params_obj}}}'
+				else:
+					action_text = f'{{"{action_name}": {{}}}}'
+
+				if action_desc:
+					action_text += f' - {action_desc}'
+
+				descriptions.append(action_text)
+
+		return '\n'.join(descriptions)
+
+	def _get_action_params(self, action_schema: dict[str, Any], defs: dict[str, Any]) -> str:
+		"""Get JSON representation of action parameters."""
+		param_ref = None
+
+		if '$ref' in action_schema:
+			param_ref = action_schema['$ref'].split('/')[-1]
+		elif 'anyOf' in action_schema:
+			for variant in action_schema['anyOf']:
+				if '$ref' in variant:
+					param_ref = variant['$ref'].split('/')[-1]
+					break
+
+		if not param_ref or param_ref not in defs:
+			return ''
+
+		param_schema = defs[param_ref]
+		if 'properties' not in param_schema:
+			return ''
+
+		required_fields = set(param_schema.get('required', []))
+		params = []
+
+		for param_name, param_info in param_schema['properties'].items():
+			# Handle nested object references
+			if '$ref' in param_info:
+				nested_ref = param_info['$ref'].split('/')[-1]
+				if nested_ref in defs:
+					nested_type = self._expand_schema_type(defs[nested_ref], defs)
+					params.append(f'"{param_name}": {nested_type}')
+					continue
+
+			param_type = self._get_property_type(param_info, defs)
+			constraints = self._get_constraints(param_info)
+			default_value = param_info.get('default')
+			is_optional = param_name not in required_fields
+
+			# Build type string with constraints
+			type_str = param_type
+			if constraints:
+				type_str += f' [{constraints}]'
+
+			# Add optional marker and default
+			if is_optional:
+				if default_value is not None:
+					default_str = self._format_default(default_value)
+					type_str += f' (optional, default: {default_str})'
+				else:
+					type_str += ' (optional)'
+
+			# Add description if present
+			desc = param_info.get('description', '')
+			if desc:
+				type_str += f' // {desc}'
+
+			params.append(f'"{param_name}": {type_str}')
+
+		return '{' + ', '.join(params) + '}'
+
+	def _expand_schema_type(self, schema: dict[str, Any], defs: dict[str, Any]) -> str:
+		"""Expand a schema type to show structure in JSON syntax."""
+		if 'type' not in schema:
+			return 'any'
+
+		schema_type = schema['type']
+
+		if schema_type == 'object' and 'properties' in schema:
+			fields = []
+			required_fields = set(schema.get('required', []))
+			for prop_name, prop_info in schema['properties'].items():
+				prop_type = self._get_property_type(prop_info, defs)
+				if prop_name in required_fields:
+					fields.append(f'"{prop_name}": {prop_type}')
+				else:
+					fields.append(f'"{prop_name}": {prop_type} (optional)')
+			return '{' + ', '.join(fields) + '}'
+
+		elif schema_type == 'array' and 'items' in schema:
+			item_type = self._get_property_type(schema['items'], defs)
+			return f'[{item_type}]'
+
+		return schema_type
+
+	def _get_property_type(self, prop_info: dict[str, Any], defs: dict[str, Any]) -> str:
+		"""Get the type of a property."""
+		if '$ref' in prop_info:
+			ref_name = prop_info['$ref'].split('/')[-1]
+			if ref_name in defs:
+				return self._expand_schema_type(defs[ref_name], defs)
+			return 'object'
+
+		if 'type' in prop_info:
+			prop_type = prop_info['type']
+			if prop_type == 'array' and 'items' in prop_info:
+				item_type = self._get_property_type(prop_info['items'], defs)
+				return f'[{item_type}]'
+			if prop_type == 'object':
+				if 'properties' in prop_info:
+					return self._expand_schema_type(prop_info, defs)
+				if 'additionalProperties' in prop_info:
+					additional = prop_info['additionalProperties']
+					if isinstance(additional, dict):
+						value_type = self._get_property_type(additional, defs)
+						return f'dict[string, {value_type}]'
+					return 'dict[string, any]'
+				return 'object'
+			if prop_type == 'string' and 'enum' in prop_info:
+				vals = prop_info['enum']
+				if len(vals) <= 4:
+					return ' | '.join(f'"{v}"' for v in vals)
+				return f'string (enum: {len(vals)} options)'
+			return prop_type
+
+		if 'enum' in prop_info:
+			vals = prop_info['enum']
+			if len(vals) <= 4:
+				return ' | '.join(f'"{v}"' for v in vals)
+			return f'string (enum: {len(vals)} options)'
+
+		if 'anyOf' in prop_info:
+			for option in prop_info['anyOf']:
+				if option.get('type') and option['type'] != 'null':
+					return self._get_property_type(option, defs)
+
+		return 'any'
+
+	def _get_constraints(self, param_info: dict[str, Any]) -> str:
+		"""Extract constraints from parameter info."""
+		constraints = []
+		if 'minimum' in param_info:
+			constraints.append(f'≥{param_info["minimum"]}')
+		elif 'ge' in param_info:
+			constraints.append(f'≥{param_info["ge"]}')
+		if 'exclusiveMinimum' in param_info:
+			constraints.append(f'>{param_info["exclusiveMinimum"]}')
+		elif 'gt' in param_info:
+			constraints.append(f'>{param_info["gt"]}')
+		if 'maximum' in param_info:
+			constraints.append(f'≤{param_info["maximum"]}')
+		elif 'le' in param_info:
+			constraints.append(f'≤{param_info["le"]}')
+		if 'exclusiveMaximum' in param_info:
+			constraints.append(f'<{param_info["exclusiveMaximum"]}')
+		elif 'lt' in param_info:
+			constraints.append(f'<{param_info["lt"]}')
+		if 'minLength' in param_info:
+			constraints.append(f'len≥{param_info["minLength"]}')
+		elif 'min_length' in param_info:
+			constraints.append(f'len≥{param_info["min_length"]}')
+		if 'maxLength' in param_info:
+			constraints.append(f'len≤{param_info["maxLength"]}')
+		elif 'max_length' in param_info:
+			constraints.append(f'len≤{param_info["max_length"]}')
+		return ', '.join(constraints)
+
+	def _format_default(self, value: Any) -> str:
+		"""Format a default value for display."""
+		if isinstance(value, str):
+			return f'"{value}"'
+		if isinstance(value, bool):
+			return str(value).lower()
+		return str(value)
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		if response.usage is not None:
@@ -228,6 +419,20 @@ class ChatOpenAI(BaseChatModel):
 						openai_messages[0]['content'] = list(openai_messages[0]['content']) + [
 							ChatCompletionContentPartTextParam(text=schema_text, type='text')
 						]
+
+				# Add action descriptions to system prompt for weaker models
+				if self.include_action_descriptions and openai_messages and openai_messages[0]['role'] == 'system':
+					# Use original schema with $defs to generate descriptions
+					original_schema = output_format.model_json_schema()
+					action_descriptions = self._generate_action_descriptions(original_schema)
+					if action_descriptions:
+						desc_text = f'\n\n<available_actions>\nThe `action` field is a list. Each element is an object with one action name as key and parameters dict as value.\n\n{action_descriptions}\n</available_actions>'
+						if isinstance(openai_messages[0]['content'], str):
+							openai_messages[0]['content'] += desc_text
+						elif isinstance(openai_messages[0]['content'], Iterable):
+							openai_messages[0]['content'] = list(openai_messages[0]['content']) + [
+								ChatCompletionContentPartTextParam(text=desc_text, type='text')
+							]
 
 				if self.dont_force_structured_output:
 					response = await self.get_client().chat.completions.create(
