@@ -372,8 +372,8 @@ class ChatVercel(BaseChatModel):
 		Returns:
 		    Either a string response or an instance of output_format
 		"""
-		vercel_messages = VercelMessageSerializer.serialize_messages(messages)
-
+		# Serialize messages after determining if we need to modify them
+		# This ensures all messages are properly included
 		try:
 			model_params: dict[str, Any] = {}
 			if self.temperature is not None:
@@ -384,7 +384,8 @@ class ChatVercel(BaseChatModel):
 				model_params['top_p'] = self.top_p
 
 			if output_format is None:
-				# Return string response
+				# Return string response - serialize messages directly
+				vercel_messages = VercelMessageSerializer.serialize_messages(messages)
 				response = await self.get_client().chat.completions.create(
 					model=self.model,
 					messages=vercel_messages,
@@ -405,6 +406,7 @@ class ChatVercel(BaseChatModel):
 				)
 
 				if is_google_model or is_reasoning_model:
+					# Create deep copies to avoid modifying original messages
 					modified_messages = [m.model_copy(deep=True) for m in messages]
 
 					schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
@@ -439,6 +441,7 @@ class ChatVercel(BaseChatModel):
 					if not instruction_added:
 						modified_messages.insert(0, SystemMessage(content=json_instruction))
 
+					# Serialize the modified messages (which include all original messages)
 					vercel_messages = VercelMessageSerializer.serialize_messages(modified_messages)
 
 					response = await self.get_client().chat.completions.create(
@@ -481,6 +484,8 @@ class ChatVercel(BaseChatModel):
 						) from e
 
 				else:
+					# For non-Google/non-reasoning models, serialize messages directly
+					vercel_messages = VercelMessageSerializer.serialize_messages(messages)
 					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
 					response_format_schema: JSONSchema = {
