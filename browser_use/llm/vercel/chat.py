@@ -416,14 +416,39 @@ class ChatVercel(BaseChatModel):
 							modified_messages[0].content += json_instruction
 							instruction_added = True
 						elif isinstance(modified_messages[0].content, list):
-							modified_messages[0].content.append(ContentPartTextParam(text=json_instruction))
+							# Find the last text part and append to it, or add new text part
+							text_parts = [p for p in modified_messages[0].content if isinstance(p, ContentPartTextParam)]
+							if text_parts:
+								# Append to the last text part to preserve all content
+								last_text_idx = len(modified_messages[0].content) - 1
+								while last_text_idx >= 0 and not isinstance(modified_messages[0].content[last_text_idx], ContentPartTextParam):
+									last_text_idx -= 1
+								if last_text_idx >= 0:
+									last_part = modified_messages[0].content[last_text_idx]
+									if isinstance(last_part, ContentPartTextParam):
+										last_part.text += json_instruction
+								else:
+									modified_messages[0].content.append(ContentPartTextParam(text=json_instruction))
+							else:
+								modified_messages[0].content.append(ContentPartTextParam(text=json_instruction))
 							instruction_added = True
 					elif modified_messages and modified_messages[-1].role == 'user':
 						if isinstance(modified_messages[-1].content, str):
 							modified_messages[-1].content += json_instruction
 							instruction_added = True
 						elif isinstance(modified_messages[-1].content, list):
-							modified_messages[-1].content.append(ContentPartTextParam(text=json_instruction))
+							# Find the last text part and append to it to preserve all content including XML
+							last_text_idx = len(modified_messages[-1].content) - 1
+							while last_text_idx >= 0 and not isinstance(modified_messages[-1].content[last_text_idx], ContentPartTextParam):
+								last_text_idx -= 1
+							if last_text_idx >= 0:
+								# Append to the last text part to preserve XML content
+								last_part = modified_messages[-1].content[last_text_idx]
+								if isinstance(last_part, ContentPartTextParam):
+									last_part.text += json_instruction
+							else:
+								# No text part found, add new one
+								modified_messages[-1].content.append(ContentPartTextParam(text=json_instruction))
 							instruction_added = True
 
 					if not instruction_added:
