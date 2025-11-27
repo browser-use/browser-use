@@ -372,8 +372,8 @@ class ChatVercel(BaseChatModel):
 		Returns:
 		    Either a string response or an instance of output_format
 		"""
-		# Serialize messages after determining if we need to modify them
-		# This ensures all messages are properly included
+		# Serialize messages once at the beginning, just like OpenAI and Google implementations
+		vercel_messages = VercelMessageSerializer.serialize_messages(messages)
 		try:
 			model_params: dict[str, Any] = {}
 			if self.temperature is not None:
@@ -384,8 +384,7 @@ class ChatVercel(BaseChatModel):
 				model_params['top_p'] = self.top_p
 
 			if output_format is None:
-				# Return string response - serialize messages directly
-				vercel_messages = VercelMessageSerializer.serialize_messages(messages)
+				# Return string response
 				response = await self.get_client().chat.completions.create(
 					model=self.model,
 					messages=vercel_messages,
@@ -484,8 +483,7 @@ class ChatVercel(BaseChatModel):
 						) from e
 
 				else:
-					# For non-Google/non-reasoning models, serialize messages directly
-					vercel_messages = VercelMessageSerializer.serialize_messages(messages)
+					# For non-Google/non-reasoning models, use native JSON schema support
 					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
 					response_format_schema: JSONSchema = {
