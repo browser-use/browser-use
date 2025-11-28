@@ -189,6 +189,8 @@ class ChatVercel(BaseChatModel):
 	        prompt-based JSON extraction. Auto-detects common reasoning models by default.
 	    timeout: Request timeout in seconds
 	    max_retries: Maximum number of retries for failed requests
+	    provider_options: Provider routing options for the gateway. Use this to control which
+	        providers are used and in what order. Example: {'gateway': {'order': ['vertex', 'anthropic']}}
 	"""
 
 	# Model configuration
@@ -218,6 +220,7 @@ class ChatVercel(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
+	provider_options: dict[str, Any] | None = None
 
 	# Static
 	@property
@@ -382,6 +385,8 @@ class ChatVercel(BaseChatModel):
 				model_params['max_tokens'] = self.max_tokens
 			if self.top_p is not None:
 				model_params['top_p'] = self.top_p
+			if self.provider_options:
+				model_params['extra_body'] = {'providerOptions': self.provider_options}
 
 			if output_format is None:
 				# Return string response
@@ -408,7 +413,6 @@ class ChatVercel(BaseChatModel):
 				if is_google_model or is_anthropic_model or is_reasoning_model:
 					modified_messages = [m.model_copy(deep=True) for m in messages]
 
-					# Use Gemini-optimized schema for all models that need prompt-based JSON extraction
 					schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
 					json_instruction = f'\n\nIMPORTANT: You must respond with ONLY a valid JSON object (no markdown, no code blocks, no explanations) that exactly matches this schema:\n{json.dumps(schema, indent=2)}'
 
@@ -433,10 +437,14 @@ class ChatVercel(BaseChatModel):
 
 					vercel_messages = VercelMessageSerializer.serialize_messages(modified_messages)
 
+					request_params = model_params.copy()
+					if self.provider_options:
+						request_params['extra_body'] = {'providerOptions': self.provider_options}
+
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
 						messages=vercel_messages,
-						**model_params,
+						**request_params,
 					)
 
 					content = response.choices[0].message.content if response.choices else None
@@ -481,6 +489,10 @@ class ChatVercel(BaseChatModel):
 						'schema': schema,
 					}
 
+					request_params = model_params.copy()
+					if self.provider_options:
+						request_params['extra_body'] = {'providerOptions': self.provider_options}
+
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
 						messages=vercel_messages,
@@ -488,7 +500,7 @@ class ChatVercel(BaseChatModel):
 							json_schema=response_format_schema,
 							type='json_schema',
 						),
-						**model_params,
+						**request_params,
 					)
 
 					content = response.choices[0].message.content if response.choices else None
