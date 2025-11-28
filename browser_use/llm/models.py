@@ -18,6 +18,7 @@ from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.n1n.chat import ChatN1n
 from browser_use.llm.openai.chat import ChatOpenAI
 
 # Optional OCI import
@@ -175,8 +176,13 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('BROWSER_USE_API_KEY')
 		return ChatBrowserUse(model=model, api_key=api_key)
 
+	# n1n.ai Models
+	elif provider == 'n1n':
+		api_key = os.getenv('N1N_API_KEY')
+		return ChatN1n(model=model, api_key=api_key)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu', 'n1n']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -198,6 +204,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatCerebras  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
+	elif name == 'ChatN1n':
+		return ChatN1n  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -213,6 +221,7 @@ __all__ = [
 	'ChatGoogle',
 	'ChatCerebras',
 	'ChatBrowserUse',
+	'ChatN1n',
 ]
 
 if OCI_AVAILABLE:
