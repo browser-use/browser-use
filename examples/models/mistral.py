@@ -13,7 +13,7 @@ from browser_use.llm.mistral import ChatMistral
 
 load_dotenv()
 
-llm = ChatMistral(model='mistral-medium-latest', temperature=0)
+llm = ChatMistral(model='mistral-small-2506', temperature=0.6)
 agent = Agent(
 	llm=llm,
 	task='List two fun weekend activities in Barcelona.',
