@@ -47,9 +47,15 @@ agent = Agent(
 	llm=llm,
 )
 
+agent_with_provider_options = Agent(
+	task='Go to example.com and summarize the main content',
+	llm=llm_with_provider_options,
+)
+
 
 async def main():
 	await agent.run(max_steps=10)
+	await agent_with_provider_options.run(max_steps=10)
 
 
 if __name__ == '__main__':
