@@ -493,3 +493,50 @@ def get_rerun_summary_message(prompt: str, screenshot_b64: str | None = None) ->
 	else:
 		# Without screenshot: use simple string content
 		return UserMessage(content=prompt)
+
+
+def get_ai_step_system_prompt() -> str:
+	"""
+	Get system prompt for AI step action used during rerun.
+
+	Returns:
+		System prompt string for AI step
+	"""
+	return """
+You are an expert at extracting data from webpages.
+
+<input>
+You will be given:
+1. A query describing what to extract
+2. The markdown of the webpage (filtered to remove noise)
+3. Optionally, a screenshot of the current page state
+</input>
+
+<instructions>
+- Extract information from the webpage that is relevant to the query
+- ONLY use the information available in the webpage - do not make up information
+- If the information is not available, mention that clearly
+- If the query asks for all items, list all of them
+</instructions>
+
+<output>
+- Present ALL relevant information in a concise way
+- Do not use conversational format - directly output the relevant information
+- If information is unavailable, state that clearly
+</output>
+""".strip()
+
+
+def get_ai_step_user_prompt(query: str, stats_summary: str, content: str) -> str:
+	"""
+	Build user prompt for AI step action.
+
+	Args:
+		query: What to extract or analyze
+		stats_summary: Content statistics summary
+		content: Page markdown content
+
+	Returns:
+		Formatted prompt string
+	"""
+	return f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
