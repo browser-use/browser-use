@@ -801,6 +801,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			import httpx
 
+			temp_path = None
 			try:
 				# Get audio source URL
 				cdp_session = await browser_session.get_or_create_cdp_session()
@@ -988,16 +989,27 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					openai_client = page_extraction_llm.get_client()
 				else:
 					# Create a default OpenAI client for Whisper
+					import os
+
 					from openai import AsyncOpenAI
 
+					if not os.getenv('OPENAI_API_KEY'):
+						return ActionResult(
+							error='Audio transcription requires an OpenAI API key. Please set OPENAI_API_KEY environment variable or use ChatOpenAI as your LLM.'
+						)
 					openai_client = AsyncOpenAI()
 
-				# Transcribe audio
-				with open(temp_path, 'rb') as audio_file:  # noqa: ASYNC230
-					transcription = await openai_client.audio.transcriptions.create(model='whisper-1', file=audio_file)
+				# Transcribe audio using async file I/O
+				import aiofiles
 
-				# Clean up temp file
-				Path(temp_path).unlink()
+				async with aiofiles.open(temp_path, 'rb') as audio_file:
+					audio_data = await audio_file.read()
+					# Whisper API requires a file-like object, so we need to create one
+					from io import BytesIO
+
+					transcription = await openai_client.audio.transcriptions.create(
+						model='whisper-1', file=('audio.mp3', BytesIO(audio_data), 'audio/mpeg')
+					)
 
 				transcription_text = transcription.text
 				logger.info(f'📝 Transcription: {transcription_text[:100]}...')
@@ -1026,7 +1038,7 @@ You will be given a transcription of audio content.
 						[SystemMessage(content=system_prompt), UserMessage(content=prompt)]
 					)
 
-					summary = summary_response.completion
+					summary = summary_response.completion  # type: ignore[attr-defined]
 					result = f'<transcription>\n{transcription_text}\n</transcription>\n\n<summary>\n{summary}\n</summary>'
 					memory = f'Transcribed and summarized audio from {audio_url}'
 				else:
@@ -1039,6 +1051,13 @@ You will be given a transcription of audio content.
 			except Exception as e:
 				logger.error(f'Failed to interpret audio: {e}')
 				return ActionResult(error=f'Failed to interpret audio: {str(e)}')
+			finally:
+				# Clean up temp file if it exists
+				if temp_path and Path(temp_path).exists():
+					try:
+						Path(temp_path).unlink()
+					except Exception as e:
+						logger.warning(f'Failed to delete temp file {temp_path}: {e}')
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
