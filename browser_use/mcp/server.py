@@ -60,6 +60,11 @@ from browser_use.logging_config import setup_logging
 
 def _configure_mcp_server_logging():
 	"""Configure logging for MCP server mode - redirect all logs to stderr to prevent JSON RPC interference."""
+
+	# Allow skipping logging configuration.
+	if os.getenv('BROWSER_USE_SKIP_LOGGING_CONFIG', '').lower() in ('true', '1'):
+		return
+	
 	# Set environment to suppress browser-use logging during server mode
 	os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'warning'
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'  # Prevent automatic logging setup
