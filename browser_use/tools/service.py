@@ -41,6 +41,7 @@ from browser_use.tools.views import (
 	ExtractAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
+	InterpretAudioAction,
 	NavigateAction,
 	NoParamsAction,
 	ScrollAction,
@@ -785,6 +786,259 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
 				raise RuntimeError(str(e))
+
+		@self.registry.action(
+			"""Interpret and transcribe audio content from audio elements on the page. Optionally provide index of audio element. Uses OpenAI Whisper for transcription. Set summarize=True to get a summary of the audio content.""",
+			param_model=InterpretAudioAction,
+		)
+		async def interpret_audio(
+			params: InterpretAudioAction,
+			browser_session: BrowserSession,
+			page_extraction_llm: BaseChatModel,
+		):
+			import tempfile
+			from pathlib import Path
+
+			import httpx
+
+			try:
+				# Get audio source URL
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				current_url = await browser_session.get_current_page_url()
+				audio_url = None
+
+				if params.index is not None:
+					# Get specific audio element by index
+					node = await browser_session.get_element_by_index(params.index)
+					if node is None:
+						return ActionResult(error=f'Element index {params.index} not found in browser state')
+
+					# Check if it's an audio element
+					if node.tag_name.lower() not in ['audio', 'video']:
+						return ActionResult(error=f'Element at index {params.index} is not an audio/video element')
+
+					# Strategy 1: Get src from node attributes
+					audio_url = node.attributes.get('src')
+
+					# Strategy 2: Use backend_node_id to get src via CDP
+					if not audio_url:
+						try:
+							# Use CDP to resolve the node and get its properties
+							resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+								params={'backendNodeId': node.backend_node_id}, session_id=cdp_session.session_id
+							)
+
+							if 'object' in resolve_result and 'objectId' in resolve_result['object']:
+								object_id = resolve_result['object']['objectId']
+
+								# Get properties of the audio element
+								props_result = await cdp_session.cdp_client.send.Runtime.getProperties(
+									params={'objectId': object_id, 'ownProperties': True}, session_id=cdp_session.session_id
+								)
+
+								# Look for src or currentSrc
+								for prop in props_result.get('result', []):
+									if prop.get('name') in ['currentSrc', 'src']:
+										if 'value' in prop and 'value' in prop['value']:
+											potential_url = prop['value']['value']
+											if potential_url:
+												audio_url = potential_url
+												break
+						except Exception as e:
+							logger.debug(f'CDP property extraction failed: {e}')
+
+					# Strategy 3: Use JavaScript with xpath
+					if not audio_url:
+						js_code = f"""
+(function() {{
+	const xpath = "{node.xpath}";
+	const element = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+	if (!element) return null;
+
+	// Try multiple sources
+	let src = element.currentSrc || element.src;
+	if (!src) {{
+		// Check all source children
+		const sources = element.querySelectorAll('source');
+		for (let source of sources) {{
+			src = source.currentSrc || source.src || source.getAttribute('src');
+			if (src) break;
+		}}
+	}}
+
+	return src;
+}})()
+"""
+						result = await cdp_session.cdp_client.send.Runtime.evaluate(
+							params={'expression': js_code, 'returnByValue': True, 'awaitPromise': True},
+							session_id=cdp_session.session_id,
+						)
+						audio_url = result.get('result', {}).get('value')
+
+					if not audio_url:
+						return ActionResult(
+							error=f'Could not extract audio source URL from element at index {params.index}. The audio element may not have a source loaded yet, or it may use a blob URL or streaming protocol.'
+						)
+				else:
+					# Find first audio element on page using comprehensive search
+					js_code = """
+(function() {
+	function findAudioInfo(doc) {
+		const audios = doc.querySelectorAll('audio, video');
+		for (let element of audios) {
+			// Try multiple methods to get source
+			let src = element.currentSrc || element.src;
+
+			if (!src) {
+				// Check all source children
+				const sources = element.querySelectorAll('source');
+				for (let source of sources) {
+					src = source.currentSrc || source.src || source.getAttribute('src');
+					if (src) break;
+				}
+			}
+
+			if (src) {
+				return {
+					src: src,
+					tagName: element.tagName.toLowerCase()
+				};
+			}
+		}
+		return null;
+	}
+
+	// Try main document first
+	let info = findAudioInfo(document);
+	if (info) return info;
+
+	// Search in all iframes (same-origin only)
+	const iframes = document.querySelectorAll('iframe');
+	for (let iframe of iframes) {
+		try {
+			const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+			if (iframeDoc) {
+				info = findAudioInfo(iframeDoc);
+				if (info) return info;
+			}
+		} catch (e) {
+			// Cross-origin iframe, skip silently
+		}
+	}
+
+	// Try shadow DOM
+	const allElements = document.querySelectorAll('*');
+	for (let el of allElements) {
+		if (el.shadowRoot) {
+			info = findAudioInfo(el.shadowRoot);
+			if (info) return info;
+		}
+	}
+
+	return null;
+})()
+"""
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': js_code, 'returnByValue': True, 'awaitPromise': True},
+						session_id=cdp_session.session_id,
+					)
+
+					audio_info = result.get('result', {}).get('value')
+					if audio_info and isinstance(audio_info, dict):
+						audio_url = audio_info.get('src')
+					elif isinstance(audio_info, str):
+						audio_url = audio_info
+
+					if not audio_url:
+						return ActionResult(
+							error='No audio elements with sources found on page, in iframes, or shadow DOM. Try providing an index of a visible audio element from browser_state, or ensure the audio has loaded.'
+						)
+
+				# Make absolute URL if relative
+				if audio_url and not audio_url.startswith(('http://', 'https://', 'data:', 'blob:')):
+					from urllib.parse import urljoin
+
+					audio_url = urljoin(current_url, audio_url)
+
+				# Handle blob URLs
+				if audio_url and audio_url.startswith('blob:'):
+					return ActionResult(
+						error='Audio uses a blob URL which cannot be downloaded directly. This is common for streaming media. The audio content cannot be transcribed.'
+					)
+
+				logger.info(f'🎵 Found audio URL: {audio_url}')
+
+				# Download audio file to temporary location
+				async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+					response = await client.get(audio_url)
+					response.raise_for_status()
+
+					# Create temporary file
+					with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+						temp_file.write(response.content)
+						temp_path = temp_file.name
+
+				logger.info(f'📥 Downloaded audio to {temp_path}')
+
+				# Transcribe using OpenAI Whisper
+				# We need to get an OpenAI client - check if page_extraction_llm is OpenAI
+				from browser_use.llm.openai.chat import ChatOpenAI
+
+				if isinstance(page_extraction_llm, ChatOpenAI):
+					openai_client = page_extraction_llm.get_client()
+				else:
+					# Create a default OpenAI client for Whisper
+					from openai import AsyncOpenAI
+
+					openai_client = AsyncOpenAI()
+
+				# Transcribe audio
+				with open(temp_path, 'rb') as audio_file:  # noqa: ASYNC230
+					transcription = await openai_client.audio.transcriptions.create(model='whisper-1', file=audio_file)
+
+				# Clean up temp file
+				Path(temp_path).unlink()
+
+				transcription_text = transcription.text
+				logger.info(f'📝 Transcription: {transcription_text[:100]}...')
+
+				# Optionally summarize
+				if params.summarize:
+					system_prompt = """You are an expert at summarizing audio transcriptions.
+
+<input>
+You will be given a transcription of audio content.
+</input>
+
+<instructions>
+- Provide a concise summary of the main points from the audio
+- Identify key topics, themes, or messages
+- Keep the summary brief and informative
+</instructions>
+
+<output>
+- Output only the summary, no conversational preamble
+</output>"""
+
+					prompt = f'<transcription>\n{transcription_text}\n</transcription>'
+
+					summary_response = await page_extraction_llm.ainvoke(
+						[SystemMessage(content=system_prompt), UserMessage(content=prompt)]
+					)
+
+					summary = summary_response.completion
+					result = f'<transcription>\n{transcription_text}\n</transcription>\n\n<summary>\n{summary}\n</summary>'
+					memory = f'Transcribed and summarized audio from {audio_url}'
+				else:
+					result = transcription_text
+					memory = f'Transcribed audio from {audio_url}'
+
+				logger.info(f'✅ {memory}')
+				return ActionResult(extracted_content=result, long_term_memory=memory)
+
+			except Exception as e:
+				logger.error(f'Failed to interpret audio: {e}')
+				return ActionResult(error=f'Failed to interpret audio: {str(e)}')
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
