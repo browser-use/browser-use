@@ -107,6 +107,11 @@ logger = logging.getLogger(__name__)
 
 def _ensure_all_loggers_use_stderr():
 	"""Ensure ALL loggers only output to stderr, not stdout."""
+
+	# Allow skipping logging configuration.
+	if os.getenv('BROWSER_USE_SKIP_LOGGING_CONFIG', '').lower() in ('true', '1'):
+		return
+
 	# Get the stderr handler
 	stderr_handler = None
 	for handler in logging.root.handlers:
