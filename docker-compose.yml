@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  browseruse:
+    build:
+      context: .
+      dockerfile: Dockerfile.fast
+    image: browseruse:dev
+    ports:
+      - "9242:9242"
+      - "9222:9222"
+    volumes:
+      - ./data:/data
+      - ./:/app:cached
+    environment:
+      - IN_DOCKER=true
+    entrypoint: ["browser-use"]
