@@ -969,17 +969,45 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 				logger.info(f'🎵 Found audio URL: {audio_url}')
 
-				# Download audio file to temporary location
-				async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-					response = await client.get(audio_url)
-					response.raise_for_status()
+				# Handle data URLs (base64 encoded audio)
+				if audio_url and audio_url.startswith('data:'):
+					import base64
+					from urllib.parse import unquote
 
-					# Create temporary file
-					with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
-						temp_file.write(response.content)
-						temp_path = temp_file.name
+					try:
+						# Parse data URL: data:[<mediatype>][;base64],<data>
+						if ';base64,' in audio_url:
+							# Extract base64 data
+							audio_data = audio_url.split(';base64,', 1)[1]
+							audio_bytes = base64.b64decode(audio_data)
+						elif ',' in audio_url:
+							# URL-encoded data (less common for audio)
+							audio_data = audio_url.split(',', 1)[1]
+							audio_bytes = unquote(audio_data).encode('latin1')
+						else:
+							return ActionResult(error='Invalid data URL format. Could not extract audio data.')
 
-				logger.info(f'📥 Downloaded audio to {temp_path}')
+						# Create temporary file
+						with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+							temp_file.write(audio_bytes)
+							temp_path = temp_file.name
+
+						logger.info(f'📥 Decoded data URL to {temp_path}')
+
+					except Exception as e:
+						return ActionResult(error=f'Failed to decode data URL: {e}')
+				else:
+					# Download audio file from HTTP(S) URL
+					async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+						response = await client.get(audio_url)
+						response.raise_for_status()
+
+						# Create temporary file
+						with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+							temp_file.write(response.content)
+							temp_path = temp_file.name
+
+					logger.info(f'📥 Downloaded audio to {temp_path}')
 
 				# Transcribe using OpenAI Whisper
 				# We need to get an OpenAI client - check if page_extraction_llm is OpenAI
