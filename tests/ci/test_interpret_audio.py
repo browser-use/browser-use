@@ -61,7 +61,9 @@ class TestInterpretAudio:
 		tools = Tools()
 
 		# Execute interpret_audio action (index=None will search for audio on the page)
-		result = await tools.interpret_audio(index=None, summarize=False, browser_session=browser_session, page_extraction_llm=llm)
+		result = await tools.interpret_audio(
+			index=None, summarize=False, browser_session=browser_session, page_extraction_llm=llm
+		)
 
 		# Verify the result
 		assert result.error is None, f'Audio interpretation failed: {result.error}'
@@ -75,7 +77,6 @@ class TestInterpretAudio:
 	@pytest.mark.asyncio
 	async def test_interpret_audio_api_key_validation(self, browser_session):
 		"""Test that interpret_audio validates OpenAI API key before attempting transcription."""
-		from browser_use.llm import ChatOpenAI
 
 		# Temporarily remove the API key
 		original_key = os.environ.pop('OPENAI_API_KEY', None)
@@ -102,7 +103,9 @@ class TestInterpretAudio:
 			tools = Tools()
 
 			# Execute interpret_audio - should fail with API key error
-			result = await tools.interpret_audio(index=None, summarize=False, browser_session=browser_session, page_extraction_llm=mock_llm)
+			result = await tools.interpret_audio(
+				index=None, summarize=False, browser_session=browser_session, page_extraction_llm=mock_llm
+			)
 
 			# Verify it failed with the correct error message
 			assert result.error is not None, 'Should have error message'
@@ -128,11 +131,15 @@ class TestInterpretAudio:
 		tools = Tools()
 
 		# Try to interpret audio that doesn't exist
-		result = await tools.interpret_audio(index=None, summarize=False, browser_session=browser_session, page_extraction_llm=llm)
+		result = await tools.interpret_audio(
+			index=None, summarize=False, browser_session=browser_session, page_extraction_llm=llm
+		)
 
 		# Verify it failed gracefully
 		assert result.error is not None, 'Should have error message'
-		assert 'No audio' in result.error or 'not found' in result.error.lower(), f'Error should mention missing audio: {result.error}'
+		assert 'No audio' in result.error or 'not found' in result.error.lower(), (
+			f'Error should mention missing audio: {result.error}'
+		)
 		assert result.extracted_content is None, 'Should not have extracted content when no audio found'
 
 	@pytest.mark.asyncio
