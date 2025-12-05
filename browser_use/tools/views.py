@@ -96,3 +96,8 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int
 	text: str = Field(description='exact text/value')
+
+
+class InterpretAudioAction(BaseModel):
+	index: int | None = Field(default=None, description='Optional element index of audio element from browser_state')
+	summarize: bool = Field(default=True, description='Whether to summarize the transcribed audio content')
