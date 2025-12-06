@@ -31,6 +31,7 @@ from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
+from browser_use.observability import observe_debug
 from browser_use.tools.assertion_helpers import (
 	assert_text_absent,
 	assert_text_present,
@@ -38,7 +39,6 @@ from browser_use.tools.assertion_helpers import (
 	assert_url,
 	is_visible_node,
 )
-from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (

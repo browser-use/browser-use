@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Callable
 
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import EnhancedDOMTreeNode
@@ -29,21 +28,29 @@ def assert_text_absent(page_text: str, expected: str, *, case_sensitive: bool = 
 	return not text_matches(page_text, expected, case_sensitive=case_sensitive, partial=partial)
 
 
-def _match_with_mode(actual: str, expected: str, mode: str) -> bool:
+def _match_with_mode(actual: str, expected: str, mode: str, *, case_sensitive: bool = True) -> bool:
+	if not case_sensitive:
+		actual_cmp = actual.lower()
+		expected_cmp = expected.lower()
+	else:
+		actual_cmp = actual
+		expected_cmp = expected
+
 	if mode == 'equals':
-		return actual == expected
+		return actual_cmp == expected_cmp
 	if mode == 'prefix':
-		return actual.startswith(expected)
+		return actual_cmp.startswith(expected_cmp)
 	if mode == 'contains':
-		return expected in actual
+		return expected_cmp in actual_cmp
 	if mode == 'regex':
 		try:
-			pattern = re.compile(expected, re.IGNORECASE)
+			flags = 0 if case_sensitive else re.IGNORECASE
+			pattern = re.compile(expected, flags)
 			if pattern.search(actual):
 				return True
 			# Fallback for over-escaped patterns (e.g., double backslashes from param passing)
 			try:
-				fallback = re.compile(expected.encode().decode('unicode_escape'), re.IGNORECASE)
+				fallback = re.compile(expected.encode().decode('unicode_escape'), flags)
 				return fallback.search(actual) is not None
 			except Exception:
 				return False
@@ -52,14 +59,14 @@ def _match_with_mode(actual: str, expected: str, mode: str) -> bool:
 	return False
 
 
-def assert_url(summary: BrowserStateSummary, expected: str, match_mode: str = 'equals') -> bool:
+def assert_url(summary: BrowserStateSummary, expected: str, match_mode: str = 'equals', *, case_sensitive: bool = True) -> bool:
 	url = summary.url or ''
-	return _match_with_mode(url, expected, match_mode)
+	return _match_with_mode(url, expected, match_mode, case_sensitive=case_sensitive)
 
 
-def assert_title(summary: BrowserStateSummary, expected: str, match_mode: str = 'equals') -> bool:
+def assert_title(summary: BrowserStateSummary, expected: str, match_mode: str = 'equals', *, case_sensitive: bool = True) -> bool:
 	title = summary.title or ''
-	return _match_with_mode(title, expected, match_mode)
+	return _match_with_mode(title, expected, match_mode, case_sensitive=case_sensitive)
 
 
 def is_visible_node(node: EnhancedDOMTreeNode | None) -> bool:
@@ -73,5 +80,3 @@ def is_visible_node(node: EnhancedDOMTreeNode | None) -> bool:
 	if not bounds:
 		return False
 	return bounds.height > 0 and bounds.width > 0
-
-
