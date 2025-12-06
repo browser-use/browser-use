@@ -31,10 +31,22 @@ from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
+from browser_use.tools.assertion_helpers import (
+	assert_text_absent,
+	assert_text_present,
+	assert_title,
+	assert_url,
+	is_visible_node,
+)
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
+	AssertElementVisibleAction,
+	AssertTextAbsentAction,
+	AssertTextAction,
+	AssertTitleAction,
+	AssertUrlAction,
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
@@ -250,6 +262,71 @@ class Tools(Generic[Context]):
 				)
 				return actual_x, actual_y
 			return llm_x, llm_y
+
+		# Assertion Actions
+		@self.registry.action('Assert that the given text is present on the page', param_model=AssertTextAction)
+		async def assert_text_present_action(params: AssertTextAction, browser_session: BrowserSession):
+			summary = await browser_session.get_browser_state_summary(include_screenshot=False)
+			page_text = summary.dom_state.llm_representation()
+			ok = assert_text_present(
+				page_text,
+				params.text,
+				case_sensitive=params.case_sensitive,
+				partial=params.partial,
+			)
+			if not ok:
+				msg = f'Expected text "{params.text}" not found on page {summary.url}'
+				return ActionResult(error=msg, long_term_memory=msg)
+			success_msg = f'Assertion passed: found text "{params.text}"'
+			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
+
+		@self.registry.action('Assert that the given text is absent on the page', param_model=AssertTextAbsentAction)
+		async def assert_text_absent_action(params: AssertTextAbsentAction, browser_session: BrowserSession):
+			summary = await browser_session.get_browser_state_summary(include_screenshot=False)
+			page_text = summary.dom_state.llm_representation()
+			ok = assert_text_absent(
+				page_text,
+				params.text,
+				case_sensitive=params.case_sensitive,
+				partial=params.partial,
+			)
+			if not ok:
+				msg = f'Unexpected text "{params.text}" found on page {summary.url}'
+				return ActionResult(error=msg, long_term_memory=msg)
+			success_msg = f'Assertion passed: text "{params.text}" absent'
+			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
+
+		@self.registry.action(
+			'Assert that an element index is visible in the current DOM', param_model=AssertElementVisibleAction
+		)
+		async def assert_element_visible_action(params: AssertElementVisibleAction, browser_session: BrowserSession):
+			summary = await browser_session.get_browser_state_summary(include_screenshot=False)
+			node = summary.dom_state.selector_map.get(params.index)
+			if not is_visible_node(node):
+				msg = f'Element index {params.index} not visible on {summary.url}'
+				return ActionResult(error=msg, long_term_memory=msg)
+			success_msg = f'Assertion passed: element {params.index} is visible'
+			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
+
+		@self.registry.action('Assert the current URL', param_model=AssertUrlAction)
+		async def assert_url_action(params: AssertUrlAction, browser_session: BrowserSession):
+			summary = await browser_session.get_browser_state_summary(include_screenshot=False)
+			ok = assert_url(summary, params.expected, params.match_mode)
+			if not ok:
+				msg = f'URL assertion failed: expected {params.match_mode} "{params.expected}", got "{summary.url}"'
+				return ActionResult(error=msg, long_term_memory=msg)
+			success_msg = f'Assertion passed: url {params.match_mode} {params.expected}'
+			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
+
+		@self.registry.action('Assert the current page title', param_model=AssertTitleAction)
+		async def assert_title_action(params: AssertTitleAction, browser_session: BrowserSession):
+			summary = await browser_session.get_browser_state_summary(include_screenshot=False)
+			ok = assert_title(summary, params.expected, params.match_mode)
+			if not ok:
+				msg = f'Title assertion failed: expected {params.match_mode} "{params.expected}", got "{summary.title}"'
+				return ActionResult(error=msg, long_term_memory=msg)
+			success_msg = f'Assertion passed: title {params.match_mode} {params.expected}'
+			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
 
 		# Element Interaction Actions
 		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
