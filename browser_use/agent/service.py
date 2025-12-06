@@ -134,6 +134,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser: Browser | None = None,  # Alias for browser_session
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,  # Alias for tools
+		# Skills integration
+		skill_ids: list[str] | None = None,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
@@ -305,6 +307,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
 			self.tools.exclude_action('screenshot')
+
+		# Skills integration
+		self.skill_service = None
+		self._skills_registered = False
+		if skill_ids:
+			from browser_use.skills import SkillService
+
+			self.skill_service = SkillService(skill_ids=skill_ids)
 
 		# Structured output
 		self.output_model_schema = output_model_schema
@@ -694,6 +704,71 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
+
+	async def _register_skills_as_actions(self) -> None:
+		"""Register all skills from SkillService as actions in the tools registry"""
+		if not self.skill_service or self._skills_registered:
+			return
+
+		self.logger.info('🔧 Registering skills as actions...')
+
+		# Fetch all skills (auto-initializes if needed)
+		skills = await self.skill_service.get_all_skills()
+
+		if not skills:
+			self.logger.warning('No skills loaded from SkillService')
+			return
+
+		# Register each skill as an action
+		for skill in skills:
+			# Create a unique action name from skill title (lowercase, replace spaces with underscores)
+			action_name = skill.title.lower().replace(' ', '_').replace('-', '_')
+			# Remove any non-alphanumeric characters except underscores
+			action_name = ''.join(c for c in action_name if c.isalnum() or c == '_')
+
+			# Get the skill's pydantic parameter model
+			param_model = skill.parameters_pydantic
+
+			# Create the skill handler function
+			# We need to capture skill.id in the closure
+			def create_skill_handler(skill_id: str, skill_title: str):
+				async def skill_handler(params: BaseModel) -> ActionResult:
+					"""Execute skill and return result"""
+					assert self.skill_service is not None, 'SkillService not initialized'
+
+					try:
+						result = await self.skill_service.execute_skill(skill_id=skill_id, parameters=params)
+
+						if result.success:
+							return ActionResult(
+								extracted_content=str(result.result) if result.result else None,
+								error=None,
+							)
+						else:
+							return ActionResult(extracted_content=None, error=result.error or 'Skill execution failed')
+					except Exception as e:
+						return ActionResult(extracted_content=None, error=f'Skill execution error: {type(e).__name__}: {e}')
+
+				return skill_handler
+
+			# Register the skill as an action
+			handler = create_skill_handler(skill.id, skill.title)
+
+			# Set the function name to the unique action name
+			handler.__name__ = action_name
+
+			# Use the registry's action decorator
+			self.tools.registry.action(description=skill.description, param_model=param_model)(handler)
+
+			self.logger.info(f'  ✓ Registered skill: {skill.title} (action: {action_name})')
+
+		# Mark as registered
+		self._skills_registered = True
+
+		# Rebuild action models to include the new skills
+		self._setup_action_models()
+
+		self.logger.info(f'✓ Registered {len(skills)} skills as actions')
 
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a new task to the agent, keeping the same task_id as tasks are continuous"""
@@ -1962,6 +2037,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					{'tag': 'status'},
 				)
 
+			# Register skills as actions if SkillService is configured
+			await self._register_skills_as_actions()
+
 			# Normally there was no try catch here but the callback can raise an InterruptedError
 			try:
 				await self._execute_initial_actions()
@@ -2781,6 +2859,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# Kill the browser session - this dispatches BrowserStopEvent,
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
+
+			# Close skill service if configured
+			if self.skill_service is not None:
+				await self.skill_service.close()
 
 			# Force garbage collection
 			gc.collect()
