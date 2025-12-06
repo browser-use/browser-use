@@ -97,6 +97,7 @@ class SelectDropdownOptionAction(BaseModel):
 	index: int = Field(ge=1, description='index of the dropdown element to select an option for')
 	text: str = Field(description='the text or exact value of the option to select')
 
+
 # Assertion Actions
 class AssertTextAction(BaseModel):
 	text: str = Field(description='expected text to be present')
