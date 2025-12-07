@@ -276,7 +276,7 @@ class Tools(Generic[Context]):
 			)
 			if not ok:
 				msg = f'Expected text "{params.text}" not found on page {summary.url}'
-				return ActionResult(error=msg, long_term_memory=msg)
+				return ActionResult(is_done=True, success=False, error=msg, long_term_memory=msg)
 			success_msg = f'Assertion passed: found text "{params.text}"'
 			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
 
@@ -292,7 +292,7 @@ class Tools(Generic[Context]):
 			)
 			if not ok:
 				msg = f'Unexpected text "{params.text}" found on page {summary.url}'
-				return ActionResult(error=msg, long_term_memory=msg)
+				return ActionResult(is_done=True, success=False, error=msg, long_term_memory=msg)
 			success_msg = f'Assertion passed: text "{params.text}" absent'
 			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
 
@@ -304,7 +304,7 @@ class Tools(Generic[Context]):
 			node = summary.dom_state.selector_map.get(params.index)
 			if not is_visible_node(node):
 				msg = f'Element index {params.index} not visible on {summary.url}'
-				return ActionResult(error=msg, long_term_memory=msg)
+				return ActionResult(is_done=True, success=False, error=msg, long_term_memory=msg)
 			success_msg = f'Assertion passed: element {params.index} is visible'
 			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
 
@@ -314,7 +314,7 @@ class Tools(Generic[Context]):
 			ok = assert_url(summary, params.expected, params.match_mode)
 			if not ok:
 				msg = f'URL assertion failed: expected {params.match_mode} "{params.expected}", got "{summary.url}"'
-				return ActionResult(error=msg, long_term_memory=msg)
+				return ActionResult(is_done=True, success=False, error=msg, long_term_memory=msg)
 			success_msg = f'Assertion passed: url {params.match_mode} {params.expected}'
 			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
 
@@ -324,7 +324,7 @@ class Tools(Generic[Context]):
 			ok = assert_title(summary, params.expected, params.match_mode)
 			if not ok:
 				msg = f'Title assertion failed: expected {params.match_mode} "{params.expected}", got "{summary.title}"'
-				return ActionResult(error=msg, long_term_memory=msg)
+				return ActionResult(is_done=True, success=False, error=msg, long_term_memory=msg)
 			success_msg = f'Assertion passed: title {params.match_mode} {params.expected}'
 			return ActionResult(extracted_content=success_msg, include_in_memory=True, long_term_memory=success_msg)
 
