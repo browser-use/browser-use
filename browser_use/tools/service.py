@@ -846,7 +846,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 							completed_scrolls += 1
 
 							# Small delay to ensure scroll completes before next one
-							await asyncio.sleep(0.15)
+							await asyncio.sleep(0.3)
 
 						except Exception as e:
 							logger.warning(f'Scroll {i + 1}/{num_full_pages} failed: {e}')
