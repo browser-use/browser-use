@@ -1793,14 +1793,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# (opposite of mouseWheel deltaY convention)
 			y_distance = -pixels
 
-			# Synthesize scroll gesture with faster speed
+			# Synthesize scroll gesture - use very high speed for near-instant scrolling
 			await cdp_client.send.Input.synthesizeScrollGesture(
 				params={
 					'x': center_x,
 					'y': center_y,
 					'xDistance': 0,
 					'yDistance': y_distance,
-					'speed': 1200,  # pixels per second (faster than default 800)
+					'speed': 50000,  # pixels per second (high = near-instant scroll)
 				},
 				session_id=session_id,
 			)
