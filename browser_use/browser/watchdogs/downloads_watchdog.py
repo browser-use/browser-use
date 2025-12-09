@@ -396,6 +396,7 @@ class DownloadsWatchdog(BaseWatchdog):
 							'.ico',
 							'.css',
 							'.js',
+							'.ts',
 							'.woff',
 							'.woff2',
 							'.ttf',
