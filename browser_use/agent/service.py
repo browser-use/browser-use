@@ -1240,7 +1240,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		task = self.task
 		final_result = self.history.final_result() or ''
 		agent_steps = self.history.agent_steps()
-		screenshot_paths = [p for p in self.history.screenshot_paths() if p is not None]
+		# Determine if we should send screenshots based on vision settings and available data
+		effective_use_vision = False
+		available_screenshots = [p for p in self.history.screenshot_paths() if p is not None]
+
+		if self.settings.use_vision is True:
+			effective_use_vision = True
+		elif self.settings.use_vision == 'auto':
+			# If auto, only enable vision if we actually have screenshots to show
+			effective_use_vision = len(available_screenshots) > 0
+
+		# Only include screenshots if vision is effectively enabled
+		screenshot_paths: list[str] = []
+		if effective_use_vision:
+			screenshot_paths = available_screenshots
 
 		# Construct input messages for judge evaluation
 		input_messages = construct_judge_messages(
@@ -1250,6 +1263,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			screenshot_paths=screenshot_paths,
 			max_images=10,
 			ground_truth=self.settings.ground_truth,
+			use_vision=effective_use_vision,
 		)
 
 		# Call LLM with JudgementResult as output format

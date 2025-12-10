@@ -46,6 +46,7 @@ def construct_judge_messages(
 	screenshot_paths: list[str],
 	max_images: int = 10,
 	ground_truth: str | None = None,
+	use_vision: bool = True,
 ) -> list[BaseMessage]:
 	"""
 	Construct messages for judge evaluation of agent trace.
@@ -57,6 +58,7 @@ def construct_judge_messages(
 		screenshot_paths: List of screenshot file paths
 		max_images: Maximum number of screenshots to include
 		ground_truth: Optional ground truth answer or criteria that must be satisfied for success
+		use_vision: Whether vision is enabled. If False, screenshots are not encoded (defensive guard).
 
 	Returns:
 		List of messages for LLM judge evaluation
@@ -66,22 +68,25 @@ def construct_judge_messages(
 	steps_text = '\n'.join(agent_steps)
 	steps_text_truncated = _truncate_text(steps_text, 40000)
 
-	# Select last N screenshots
-	selected_screenshots = screenshot_paths[-max_images:] if len(screenshot_paths) > max_images else screenshot_paths
+	# Select last N screenshots - only if vision is enabled (defensive guard)
+	selected_screenshots = []
+	if use_vision:
+		selected_screenshots = screenshot_paths[-max_images:] if len(screenshot_paths) > max_images else screenshot_paths
 
-	# Encode screenshots
+	# Encode screenshots - only if vision is enabled
 	encoded_images: list[ContentPartImageParam] = []
-	for img_path in selected_screenshots:
-		encoded = _encode_image(img_path)
-		if encoded:
-			encoded_images.append(
-				ContentPartImageParam(
-					image_url=ImageURL(
-						url=f'data:image/png;base64,{encoded}',
-						media_type='image/png',
+	if use_vision:
+		for img_path in selected_screenshots:
+			encoded = _encode_image(img_path)
+			if encoded:
+				encoded_images.append(
+					ContentPartImageParam(
+						image_url=ImageURL(
+							url=f'data:image/png;base64,{encoded}',
+							media_type='image/png',
+						)
 					)
 				)
-			)
 
 	# System prompt for judge - conditionally add ground truth section
 	ground_truth_section = ''
