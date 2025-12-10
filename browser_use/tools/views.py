@@ -96,3 +96,16 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int
 	text: str = Field(description='exact text/value')
+
+
+class CheckNetworkTrafficAction(BaseModel):
+	resource_type: str = Field(
+		default='XHR', description="Filter requests by type: 'XHR', 'Fetch', 'Document', 'Script', or 'All'"
+	)
+	only_errors: bool = Field(
+		default=False, description='If True, only returns requests that failed (status >= 400 or network error)'
+	)
+
+
+class GetResponseBodyAction(BaseModel):
+	url_pattern: str = Field(..., description="Unique substring or regex to identify the request URL (e.g. '/api/v1/search')")
