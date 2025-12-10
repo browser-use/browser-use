@@ -9,6 +9,7 @@ mode: "wide"
 
 ### Core Settings
 - `tools`: Registry of <a href = "../tools/available">tools</a> the agent can call. <a href = "../tools/basics">Example</a>
+- `skills` (or `skill_ids`): List of skill IDs to load (e.g., `['skill-uuid']` or `['*']` for all). Requires `BROWSER_USE_API_KEY`. <a href = "../skills/basics">Docs</a>
 - `browser`: Browser object where you can specify the browser settings.
 - `output_model_schema`: Pydantic model class for structured output validation. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_output.py)
 

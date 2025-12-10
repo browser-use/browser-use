@@ -1154,15 +1154,10 @@ class BrowserSession(BaseModel):
 		params: CloseTargetParameters = {'targetId': target_id}
 		await self.cdp_client.send.Target.closeTarget(params)
 
-	async def cookies(self, urls: list[str] | None = None) -> list['Cookie']:
+	async def cookies(self) -> list['Cookie']:
 		"""Get cookies, optionally filtered by URLs."""
-		from cdp_use.cdp.network.library import GetCookiesParameters
 
-		params: GetCookiesParameters = {}
-		if urls:
-			params['urls'] = urls
-
-		result = await self.cdp_client.send.Network.getCookies(params)
+		result = await self.cdp_client.send.Storage.getCookies()
 		return result['cookies']
 
 	async def clear_cookies(self) -> None:
