@@ -580,6 +580,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
+	remote_downloads: bool = Field(default=False, description="Use remote-aware downloads for containerized browsers")
 
 	# --- Proxy settings ---
 	# New consolidated proxy config (typed)
