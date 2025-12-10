@@ -31,6 +31,9 @@ VerifiedGeminiModels = Literal[
 	'gemini-flash-latest',
 	'gemini-flash-lite-latest',
 	'gemini-2.5-pro',
+	'gemini-3.0-flash',
+	'gemini-3.0-flash-lite',
+	'gemini-3.0-pro',
 	'gemma-3-27b-it',
 	'gemma-3-4b',
 	'gemma-3-12b',
@@ -223,7 +226,9 @@ class ChatGoogle(BaseChatModel):
 			config['seed'] = self.seed
 
 		# set default for flash, flash-lite, gemini-flash-lite-latest, and gemini-flash-latest models
-		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
+		if self.thinking_budget is None and (
+			'gemini-2.5-flash' in self.model or 'gemini-3.0-flash' in self.model or 'gemini-flash' in self.model
+		):
 			self.thinking_budget = 0
 
 		if self.thinking_budget is not None:
