@@ -111,6 +111,22 @@ class ClickableElementDetector:
 		if node.tag_name and node.tag_name.lower() in interactive_tags:
 			return True
 
+		# LABEL DETECTION: Labels without 'for' attribute that wrap form controls (Ant Design, etc.)
+		# Labels WITH 'for' attribute should NOT be interactive - they just activate their associated input
+		if node.tag_name and node.tag_name.lower() == 'label':
+			if node.attributes and node.attributes.get('for'):
+				return False  # Explicitly exclude - don't let cursor:pointer override this
+			# Check if label contains interactive children (wrapper pattern used by UI frameworks)
+			if node.children_nodes:
+				for child in node.children_nodes:
+					if child.tag_name and child.tag_name.lower() in {'input', 'select', 'textarea'}:
+						return True
+					# Also check nested children (Ant Design often has span > input)
+					if child.children_nodes:
+						for grandchild in child.children_nodes:
+							if grandchild.tag_name and grandchild.tag_name.lower() in {'input', 'select', 'textarea'}:
+								return True
+
 		# SVG elements need special handling - only interactive if they have explicit handlers
 		# svg_tags = {'svg', 'path', 'circle', 'rect', 'polygon', 'ellipse', 'line', 'polyline', 'g'}
 		# if node.tag_name in svg_tags:
