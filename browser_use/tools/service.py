@@ -36,6 +36,7 @@ from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
 	ClickElementAction,
+	ClickElementActionIndexOnly,
 	CloseTabAction,
 	DoneAction,
 	ExtractAction,
@@ -111,6 +112,7 @@ class Tools(Generic[Context]):
 		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [])
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
+		self._coordinate_clicking_enabled: bool = False
 
 		"""Register all default browser actions"""
 
@@ -294,7 +296,9 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
 				return ActionResult(error=error_msg)
 
-		async def _click_by_index(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
+		async def _click_by_index(
+			params: ClickElementAction | ClickElementActionIndexOnly, browser_session: BrowserSession
+		) -> ActionResult:
 			assert params.index is not None
 			try:
 				assert params.index != 0, (
@@ -351,24 +355,15 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to click element {params.index}: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action(
-			'Click element by index or coordinates. Prefer index over coordinates when possible. Either provide coordinates or index.',
-			param_model=ClickElementAction,
-		)
-		async def click(params: ClickElementAction, browser_session: BrowserSession):
-			# Validate that either index or coordinates are provided
-			if params.index is None and (params.coordinate_x is None or params.coordinate_y is None):
-				return ActionResult(error='Must provide either index or both coordinate_x and coordinate_y')
+		# Store click handlers for re-registration
+		self._click_by_index = _click_by_index
+		self._click_by_coordinate = _click_by_coordinate
 
-			# Try index-based clicking first if index is provided
-			if params.index is not None:
-				return await _click_by_index(params, browser_session)
-			# Coordinate-based clicking when index is not provided
-			else:
-				return await _click_by_coordinate(params, browser_session)
+		# Register click action (index-only by default)
+		self._register_click_action()
 
 		@self.registry.action(
-			'Input text into element with index. Only works with index, NEVER use coordinates for inputting text.',
+			'Input text into element by index.',
 			param_model=InputTextAction,
 		)
 		async def input(
@@ -1363,6 +1358,60 @@ Validated Code (after quote fixing):
 			action_name: Name of the action to exclude (e.g., 'screenshot')
 		"""
 		self.registry.exclude_action(action_name)
+
+	def _register_click_action(self) -> None:
+		"""Register the click action with or without coordinate support based on current setting."""
+		# Remove existing click action if present
+		if 'click' in self.registry.registry.actions:
+			del self.registry.registry.actions['click']
+
+		if self._coordinate_clicking_enabled:
+			# Register click action WITH coordinate support
+			@self.registry.action(
+				'Click element by index or coordinates. Use coordinates only if the index is not available. Either provide coordinates or index.',
+				param_model=ClickElementAction,
+			)
+			async def click(params: ClickElementAction, browser_session: BrowserSession):
+				# Validate that either index or coordinates are provided
+				if params.index is None and (params.coordinate_x is None or params.coordinate_y is None):
+					return ActionResult(error='Must provide either index or both coordinate_x and coordinate_y')
+
+				# Try index-based clicking first if index is provided
+				if params.index is not None:
+					return await self._click_by_index(params, browser_session)
+				# Coordinate-based clicking when index is not provided
+				else:
+					return await self._click_by_coordinate(params, browser_session)
+		else:
+			# Register click action WITHOUT coordinate support (index only)
+			@self.registry.action(
+				'Click element by index.',
+				param_model=ClickElementActionIndexOnly,
+			)
+			async def click(params: ClickElementActionIndexOnly, browser_session: BrowserSession):
+				return await self._click_by_index(params, browser_session)
+
+	def set_coordinate_clicking(self, enabled: bool) -> None:
+		"""Enable or disable coordinate-based clicking.
+
+		When enabled, the click action accepts both index and coordinate parameters.
+		When disabled (default), only index-based clicking is available.
+
+		This is automatically enabled for models that support coordinate clicking:
+		- claude-sonnet-4-5
+		- claude-opus-4-5
+		- gemini-3-pro
+		- browser-use/* models
+
+		Args:
+			enabled: True to enable coordinate clicking, False to disable
+		"""
+		if enabled == self._coordinate_clicking_enabled:
+			return  # No change needed
+
+		self._coordinate_clicking_enabled = enabled
+		self._register_click_action()
+		logger.debug(f'Coordinate clicking {"enabled" if enabled else "disabled"}')
 
 	# Act --------------------------------------------------------------------
 	@observe_debug(ignore_input=True, ignore_output=True, name='act')

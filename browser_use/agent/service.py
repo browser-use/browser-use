@@ -301,6 +301,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if use_vision != 'auto':
 			self.tools.exclude_action('screenshot')
 
+		# Enable coordinate clicking for models that support it
+		model_name = getattr(llm, 'model', '').lower()
+		supports_coordinate_clicking = any(
+			pattern in model_name for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/']
+		)
+		if supports_coordinate_clicking:
+			self.tools.set_coordinate_clicking(True)
+
 		# Handle skills vs skill_ids parameter (skills takes precedence)
 		if skills and skill_ids:
 			raise ValueError('Cannot specify both "skills" and "skill_ids" parameters. Use "skills" for the cleaner API.')
