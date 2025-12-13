@@ -30,6 +30,13 @@ class VoiceCommander:
 		print('\nInitializing browser...')
 		self.browser = self._init_browser(use_cloud)
 
+		# Calibrate microphone
+		print('Calibrating microphone...')
+		with self.microphone as source:
+			self.recognizer.adjust_for_ambient_noise(source, duration=1)
+
+		print('Ready\n')
+
 	def _init_browser(self, use_cloud: bool) -> Browser:
 		"""Initialize browser with fallback to local if cloud fails"""
 		try:
@@ -54,13 +61,6 @@ class VoiceCommander:
 		)
 		print('Local browser initialized')
 		return browser
-
-		# Calibrate microphone
-		print('Calibrating microphone...')
-		with self.microphone as source:
-			self.recognizer.adjust_for_ambient_noise(source, duration=1)
-
-		print('Ready\n')
 
 	def listen_for_command(self) -> str | None:
 		"""Listen for a single voice command"""
@@ -210,6 +210,7 @@ async def main():
 		# Cleanup
 		if commander.browser:
 			print('Cleaning up...')
+			await commander.browser.close()
 
 
 if __name__ == '__main__':
