@@ -148,9 +148,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from browser_use.llm.anthropic.chat import ChatAnthropic
-from browser_use.llm.google.chat import ChatGoogle
-from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.cli_helpers import get_llm, pause_agent_run, resume_agent_run, RichLogHandler
 
 load_dotenv()
 
@@ -345,69 +343,6 @@ def setup_readline_history(history: list[str]) -> None:
 	# Add history items to readline
 	for item in history:
 		readline.add_history(item)
-
-
-def get_llm(config: dict[str, Any]):
-	"""Get the language model based on config and available API keys."""
-	model_config = config.get('model', {})
-	model_name = model_config.get('name')
-	temperature = model_config.get('temperature', 0.0)
-
-	# Get API key from config or environment
-	api_key = model_config.get('api_keys', {}).get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
-
-	if model_name:
-		if model_name.startswith('gpt'):
-			if not api_key and not CONFIG.OPENAI_API_KEY:
-				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
-				sys.exit(1)
-			return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
-		elif model_name.startswith('claude'):
-			if not CONFIG.ANTHROPIC_API_KEY:
-				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
-				sys.exit(1)
-			return ChatAnthropic(model=model_name, temperature=temperature)
-		elif model_name.startswith('gemini'):
-			if not CONFIG.GOOGLE_API_KEY:
-				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
-				sys.exit(1)
-			return ChatGoogle(model=model_name, temperature=temperature)
-		elif model_name.startswith('oci'):
-			# OCI models require additional configuration
-			print(
-				'⚠️  OCI models require manual configuration. Please use the ChatOCIRaw class directly with your OCI credentials.'
-			)
-			sys.exit(1)
-
-	# Auto-detect based on available API keys
-	if api_key or CONFIG.OPENAI_API_KEY:
-		return ChatOpenAI(model='gpt-5-mini', temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
-	elif CONFIG.ANTHROPIC_API_KEY:
-		return ChatAnthropic(model='claude-4-sonnet', temperature=temperature)
-	elif CONFIG.GOOGLE_API_KEY:
-		return ChatGoogle(model='gemini-2.5-pro', temperature=temperature)
-	else:
-		print(
-			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
-		)
-		sys.exit(1)
-
-
-class RichLogHandler(logging.Handler):
-	"""Custom logging handler that redirects logs to a RichLog widget."""
-
-	def __init__(self, rich_log: RichLog):
-		super().__init__()
-		self.rich_log = rich_log
-
-	def emit(self, record):
-		try:
-			msg = self.format(record)
-			self.rich_log.write(msg)
-		except Exception:
-			self.handleError(record)
-
-
 class BrowserUseApp(App):
 	"""Browser-use TUI application."""
 
@@ -585,13 +520,13 @@ class BrowserUseApp(App):
 	}
 	"""
 
-	BINDINGS = [
-		Binding('ctrl+c', 'quit', 'Quit', priority=True, show=True),
-		Binding('ctrl+q', 'quit', 'Quit', priority=True),
-		Binding('ctrl+d', 'quit', 'Quit', priority=True),
-		Binding('up', 'input_history_prev', 'Previous command', show=False),
-		Binding('down', 'input_history_next', 'Next command', show=False),
-	]
+        BINDINGS = [
+                Binding('ctrl+c', 'pause_agent', 'Pause agent', priority=True, show=True),
+                Binding('ctrl+q', 'quit', 'Quit', priority=True),
+                Binding('ctrl+d', 'quit', 'Quit', priority=True),
+                Binding('up', 'input_history_prev', 'Previous command', show=False),
+                Binding('down', 'input_history_next', 'Next command', show=False),
+        ]
 
 	def __init__(self, config: dict[str, Any], *args, **kwargs):
 		super().__init__(*args, **kwargs)
@@ -812,20 +747,51 @@ class BrowserUseApp(App):
 		event.prevent_default()
 		event.stop()
 
-	async def on_key(self, event: events.Key) -> None:
-		"""Handle key events at the app level to ensure graceful exit."""
-		# Handle Ctrl+C, Ctrl+D, and Ctrl+Q for app exit
-		if event.key == 'ctrl+c' or event.key == 'ctrl+d' or event.key == 'ctrl+q':
-			await self.action_quit()
-			event.stop()
-			event.prevent_default()
+        async def on_key(self, event: events.Key) -> None:
+                """Handle key events at the app level to ensure graceful exit."""
+                rich_log = None
+                try:
+                        rich_log = self.query_one('#main-output-log', RichLog)
+                except Exception:
+                        rich_log = None
 
-	def on_input_submitted(self, event: Input.Submitted) -> None:
-		"""Handle task input submission."""
-		if event.input.id == 'task-input':
-			task = event.input.value
-			if not task.strip():
-				return
+                if event.key == 'ctrl+c':
+                        if pause_agent_run(self.agent, rich_log):
+                                event.stop()
+                                event.prevent_default()
+                                return
+
+                        await self.action_quit()
+                        event.stop()
+                        event.prevent_default()
+                        return
+
+                if event.key == 'enter' and resume_agent_run(self.agent, rich_log):
+                        event.stop()
+                        event.prevent_default()
+                        return
+
+                if event.key == 'ctrl+d' or event.key == 'ctrl+q':
+                        await self.action_quit()
+                        event.stop()
+                        event.prevent_default()
+
+        def on_input_submitted(self, event: Input.Submitted) -> None:
+                """Handle task input submission."""
+                if event.input.id == 'task-input':
+                        task = event.input.value
+                        if not task.strip():
+                                if resume_agent_run(self.agent, self.query_one('#main-output-log', RichLog)):
+                                        event.stop()
+                                        event.prevent_default()
+                                return
+
+                        if self.agent and hasattr(self.agent, 'state') and getattr(self.agent.state, 'paused', False):
+                                rich_log = self.query_one('#main-output-log', RichLog)
+                                rich_log.write('[yellow]Agent is paused. Press Enter to resume before starting a new task.[/]')
+                                event.stop()
+                                event.prevent_default()
+                                return
 
 			# Add to history if it's new
 			if task.strip() and (not self.task_history or task != self.task_history[-1]):
@@ -982,8 +948,8 @@ class BrowserUseApp(App):
 		input_container = self.query_one('#task-input-container')
 		input_container.scroll_visible()
 
-	def run_task(self, task: str) -> None:
-		"""Launch the task in a background worker."""
+        def run_task(self, task: str) -> None:
+                """Launch the task in a background worker."""
 		# Create or update the agent
 		agent_settings = AgentSettings.model_validate(self.config.get('agent', {}))
 
@@ -1080,8 +1046,21 @@ class BrowserUseApp(App):
 				# Ensure the input is visible by scrolling to it
 				self.call_after_refresh(self.scroll_to_input)
 
-		# Run the worker
-		self.run_worker(agent_task_worker, name='agent_task')
+                # Run the worker
+                self.run_worker(agent_task_worker, name='agent_task')
+
+        def action_pause_agent(self) -> None:
+                """Pause the running agent without closing the TUI."""
+                rich_log = None
+                try:
+                        rich_log = self.query_one('#main-output-log', RichLog)
+                except Exception:
+                        pass
+
+                if pause_agent_run(self.agent, rich_log):
+                        input_field = self.query_one('#task-input', Input)
+                        input_field.focus()
+                        self.call_after_refresh(self.scroll_to_input)
 
 	def action_input_history_prev(self) -> None:
 		"""Navigate to the previous item in command history."""
@@ -1195,12 +1174,12 @@ class BrowserUseApp(App):
 			# Three-column container (hidden by default)
 			with Container(id='three-column-container'):
 				# Column 1: Main output
-				with VerticalScroll(id='main-output-column'):
-					yield RichLog(highlight=True, markup=True, id='main-output-log', wrap=True, auto_scroll=True)
+                                with VerticalScroll(id='main-output-column'):
+                                        yield RichLog(highlight=True, markup=True, id='main-output-log', wrap=True, auto_scroll=False)
 
-				# Column 2: Event bus events
-				with VerticalScroll(id='events-column'):
-					yield RichLog(highlight=True, markup=True, id='events-log', wrap=True, auto_scroll=True)
+                                # Column 2: Event bus events
+                                with VerticalScroll(id='events-column'):
+                                        yield RichLog(highlight=True, markup=True, id='events-log', wrap=True, auto_scroll=True)
 
 				# Column 3: CDP messages
 				with VerticalScroll(id='cdp-column'):
