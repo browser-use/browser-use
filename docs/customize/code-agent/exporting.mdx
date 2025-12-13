@@ -27,7 +27,7 @@ async def main():
     notebook_path = export_to_ipynb(agent, "product_scraping.ipynb")
     
     # Export to Python script
-    python_script = session_to_python_script(agent)
+    python_script = await session_to_python_script(agent)
     with open("product_scraping.py", "w") as f:
         f.write(python_script)
 
