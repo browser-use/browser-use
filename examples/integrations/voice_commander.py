@@ -10,10 +10,11 @@ Usage:
 """
 
 import asyncio
-import speech_recognition as sr
-from browser_use import Agent, Browser, ChatBrowserUse
 import time
-from typing import Optional
+
+import speech_recognition as sr
+
+from browser_use import Agent, Browser, ChatBrowserUse
 
 
 class VoiceCommander:
@@ -39,10 +40,10 @@ class VoiceCommander:
                     headless=False,
                     keep_alive=True,
                 )
-                print("✅ Cloud browser connected")
+                print("Cloud browser connected")
                 return browser
         except Exception as e:
-            print(f"⚠️  Cloud browser failed: {str(e)[:50]}")
+            print(f"Cloud browser failed: {str(e)[:50]}")
             print("Falling back to local browser...")
         
         # Fallback to local browser
@@ -51,7 +52,7 @@ class VoiceCommander:
             headless=False,
             keep_alive=True,
         )
-        print("✅ Local browser initialized")
+        print("Local browser initialized")
         return browser
         
         # Calibrate microphone
@@ -59,12 +60,12 @@ class VoiceCommander:
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
         
-        print("✅ Ready\n")
+        print("Ready\n")
     
-    def listen_for_command(self) -> Optional[str]:
+    def listen_for_command(self) -> str | None:
         """Listen for a single voice command"""
         try:
-            print("🎤 Listening... (speak your command)")
+            print("Listening... (speak your command)")
             
             with self.microphone as source:
                 audio = self.recognizer.listen(
@@ -85,13 +86,13 @@ class VoiceCommander:
             print("No speech detected\n")
             return None
         except sr.UnknownValueError:
-            print("❌ Could not understand audio\n")
+            print("Could not understand audio\n")
             return None
         except sr.RequestError as e:
-            print(f"❌ Speech recognition error: {e}\n")
+            print(f"Speech recognition error: {e}\n")
             return None
         except Exception as e:
-            print(f"❌ Error: {e}\n")
+            print(f"Error: {e}\n")
             return None
     
     async def execute_command(self, command: str):
@@ -125,10 +126,10 @@ class VoiceCommander:
                 # Show result
                 if result.is_done():
                     result_text = result.final_result() or "Task completed"
-                    print(f"\n✅ Done in {elapsed:.1f}s")
+                    print(f"\nDone in {elapsed:.1f}s")
                     print(f"Result: {result_text}\n")
                 else:
-                    print(f"\n⚠️  Task incomplete after {elapsed:.1f}s\n")
+                    print(f"\nTask incomplete after {elapsed:.1f}s\n")
                 
                 break  # Success, exit retry loop
                 
@@ -140,22 +141,22 @@ class VoiceCommander:
                 if "nodename nor servname" in error_msg or "ConnectError" in error_msg:
                     if retry_count < max_retries:
                         retry_count += 1
-                        print(f"\n⚠️  Network error, retrying ({retry_count}/{max_retries})...\n")
+                        print(f"\nNetwork error, retrying ({retry_count}/{max_retries})...\n")
                         await asyncio.sleep(2)  # Wait before retry
                         continue
                     else:
-                        print(f"\n❌ Network error after {elapsed:.1f}s")
+                        print(f"\nNetwork error after {elapsed:.1f}s")
                         print("Tip: Check your internet connection or try local browser\n")
                         break
                 else:
                     # Other errors
-                    print(f"\n❌ Error after {elapsed:.1f}s: {error_msg[:100]}\n")
+                    print(f"\nError after {elapsed:.1f}s: {error_msg[:100]}\n")
                     break
     
     async def run(self):
         """Main loop - sequential command execution"""
         print("\n" + "="*60)
-        print("🎤 VOICE COMMANDER")
+        print("VOICE COMMANDER")
         print("="*60)
         print("Sequential mode: Completes task before next command")
         if self.flash_mode:
@@ -187,7 +188,7 @@ class VoiceCommander:
             await self.execute_command(command)
             
             # Step 3: Ready for next command
-            print("🎤 Ready for next command...\n")
+            print("Ready for next command...\n")
         
         print("\nVoice commander stopped\n")
 
