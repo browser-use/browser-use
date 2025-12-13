@@ -9,9 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 INVALID_FILENAME_ERROR_MESSAGE = 'Error: Invalid filename format. Must be alphanumeric with supported extension.'
 DEFAULT_FILE_SYSTEM_PATH = 'browseruse_agent_data'
@@ -130,6 +127,11 @@ class PdfFile(BaseFile):
 		return 'pdf'
 
 	def sync_to_disk_sync(self, path: Path) -> None:
+		# Lazy import reportlab
+		from reportlab.lib.pagesizes import letter
+		from reportlab.lib.styles import getSampleStyleSheet
+		from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+
 		file_path = path / self.full_name
 		try:
 			# Create PDF document
