@@ -1,0 +1,205 @@
+---
+title: "Docker Setup"
+description: "How to build, run and debug browser-use with Docker and docker-compose. Includes PowerShell-ready commands for Windows users."
+icon: "docker"
+mode: "wide"
+---
+
+## Overview
+
+This document explains how to build and run Browser Use using Docker on Linux/Windows/macOS, plus a quick `docker-compose` example for local development.
+
+The repository includes two Dockerfiles:
+
+- `Dockerfile` — complete, explicit build installing chromium and dependencies. Good for reproducible images.
+- `Dockerfile.fast` — faster developer-friendly build that uses a prebuilt base image to reduce iteration time.
+
+> Note: For Windows users we recommend Docker Desktop with the WSL2 backend for the best compatibility.
+
+---
+
+## Prerequisites
+
+- Docker Desktop (WSL2 on Windows recommended)
+- Sufficient RAM & disk (browser + chromium can be heavy)
+- Optional: Buildx enabled for multi-arch builds
+
+---
+
+## Build the Image (PowerShell)
+
+Build the main image (single-arch):
+
+```powershell
+# From repo root
+docker build -t browseruse:local .
+```
+
+Build with buildx for multi-arch & local load:
+
+```powershell
+docker buildx create --use
+docker buildx build --platform linux/amd64,linux/arm64 -t browseruse/browseruse:local --load .
+```
+
+Fast developer build (using `Dockerfile.fast`):
+
+```powershell
+docker build -f Dockerfile.fast -t browseruse:dev .
+```
+
+---
+
+## Run & Verify (PowerShell)
+
+Verify the version (the image uses an `ENTRYPOINT` called `browser-use`):
+
+```powershell
+mkdir data 2>$null
+docker run --rm -v "${PWD}\data:/data" browseruse:local --version
+```
+
+Start in the background and expose the agent / debug ports:
+
+```powershell
+docker run -d --name browseruse -p 9242:9242 -p 9222:9222 -v "${PWD}\data:/data" browseruse:local
+```
+
+Run a one-off shell inside the container (override entrypoint), then run examples or tests from inside:
+
+```powershell
+docker run --rm -it -v "${PWD}\data:/data" --entrypoint /bin/bash browseruse:local
+# Inside container
+# uv run examples/simple.py
+```
+
+If you prefer a named volume:
+
+```powershell
+docker volume create browseruse_data
+docker run -d --name browseruse -v browseruse_data:/data browseruse:local
+```
+
+---
+
+## Development Bind-Mount Mode
+
+Bind-mount the working directory for rapid iteration; recommended with `Dockerfile.fast`:
+
+```powershell
+docker build -f Dockerfile.fast -t browseruse:dev .
+
+docker run -it --rm --name browseruse-dev -p 9242:9242 -p 9222:9222 -v "${PWD}\data:/data" -v "${PWD}:/app:cached" browseruse:dev --version
+```
+
+Notes:
+- Mounting `./` to `/app` hides files baked into the image; run `uv sync` or `uv sync --locked` inside the container if dependencies are missing.
+- Permission mismatches can occur. Use `-u 0` to run as root for one-off tasks if needed, or adjust host permissions.
+
+---
+
+## docker-compose example
+
+Create `docker-compose.yml` at the repo root with this content for a convenient dev setup (the same `docker-compose.yml` is included in the repo root):
+
+> ⚠️ YAML uses spaces for indentation (not tabs). If your editor uses tabs, replace tabs with 2 spaces before saving or copying this block.
+
+```yaml
+version: "3.8"
+services:
+  browseruse:
+    build:
+      context: .
+      dockerfile: Dockerfile.fast
+    image: browseruse:dev
+    ports:
+      - "9242:9242"
+      - "9222:9222"
+    volumes:
+      - ./data:/data
+      - ./:/app:cached
+    environment:
+      - IN_DOCKER=true
+    entrypoint: ["browser-use"]
+```
+
+Bring it up with:
+
+```powershell
+docker compose up --build -d
+docker compose down
+```
+
+---
+
+## Files in this repository
+
+- `docker-compose.yml` — Example compose config using `Dockerfile.fast` (repo root)
+- `Dockerfile.fast` — Fast development Dockerfile using a prebuilt base image
+- `examples/docker/dev-run.ps1` — Windows PowerShell helper to build and run the dev compose environment
+- `examples/docker/dev-run.sh` — POSIX shell helper to build and run the dev compose environment
+
+## Running Tests & Examples in Container
+
+Run examples or test suite inside a development container:
+
+```powershell
+docker run --rm -it -v "${PWD}:/app" -v "${PWD}\data:/data" browseruse:dev /bin/bash
+# then inside container
+# uv run examples/simple.py
+# python -m pytest -q
+```
+
+Notes: If you built the image without dev tools (`--no-dev`), `pytest` and similar dev tooling may not be available. Use `Dockerfile.fast` or the dev image with tools installed.
+
+---
+
+## Common Troubleshooting
+
+- Windows path mounting: PowerShell variable `${PWD}` expands to a Windows path (e.g. D:\ path). Quote the mount path: `-v "${PWD}\data:/data"`.
+- Permission issues: The container runs as `browseruse` user. Run as root to debug, or chown host folder: `chown` or use `-u 0`.
+- Chromium sandbox errors: Consider running with `--security-opt seccomp=unconfined` (less secure) or configure the sandbox accordingly. Prefer running in a secure environment for production.
+- Build errors with `uv` or dependencies: Make sure the host has network access, memory, and disk. Use `Dockerfile.fast` for iterative development.
+
+---
+
+## Prebuilt images vs building from source
+
+When choosing whether to pull a prebuilt Docker image or build from the browser-use sources, consider the following tradeoffs:
+
+- Prebuilt images — quick and easy (recommended for non-developers)
+	- Use cases: Try browser-use quickly, run on production without building, or run demo instances.
+	- Pros: Fast setup; often maintained/published images available.
+	- Cons: Must trust the image owner; may not match repo source.
+
+	Example (pull & run a community image):
+	```powershell
+	docker pull vovan/browser-use
+	docker run -d -p 9242:9242 -p 9222:9222 -v "${PWD}\data:/data" vovan/browser-use
+	```
+
+	Note: `smanx/browser-use-web-ui` is a community-maintained web UI image—check its README on Docker Hub for how to use it alongside an agent.
+
+- Building from source — control & reproducibility (recommended for contributors & CI)
+	- Use cases: You're modifying the repo, testing, or creating official release images.
+	- Pros: Full control and reproducibility; image content matches repository state; better for CI or signed releases.
+	- Cons: Longer build times; requires tooling and network access.
+
+	Example (build & run from repo):
+	```powershell
+	docker build -t browseruse:local .
+	docker run --rm -v "${PWD}\data:/data" browseruse:local --version
+	```
+
+When in doubt:
+- Quick try/demo: use a trusted prebuilt image.
+- Development, CI, or production: build from source or pull official images maintained by the project.
+
+
+## Next steps & Extras
+
+The repo contains `docker-compose.yml` and helper scripts in `examples/docker/`. Use the PowerShell or shell helper to start the dev environment and experiment with the examples. If you'd like me to also add a dedicated `dev.Dockerfile` or a `docker-compose.override.yml` for development (such as mounting code as `:delegated` or mounting host token files), I can add those as well.
+
+---
+
+If you'd like me to commit the compose or example files to the repository, tell me where to place them and I'll add them.
