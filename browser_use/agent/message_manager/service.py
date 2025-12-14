@@ -298,6 +298,7 @@ class MessageManager:
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
+		unavailable_skills_info: str | None = None,  # Information about skills that cannot be used yet
 	) -> None:
 		"""Create single state message with all content"""
 
@@ -364,6 +365,7 @@ class MessageManager:
 			sample_images=self.sample_images,
 			read_state_images=self.state.read_state_images,
 			llm_screenshot_size=self.llm_screenshot_size,
+			unavailable_skills_info=unavailable_skills_info,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history
@@ -420,17 +422,22 @@ class MessageManager:
 
 	def _set_message_with_type(self, message: BaseMessage, message_type: Literal['system', 'state']) -> None:
 		"""Replace a specific state message slot with a new message"""
-		# Don't filter system and state messages - they should contain placeholder tags or normal conversation
+		# System messages don't need filtering - they only contain instructions/placeholders
+		# State messages need filtering - they include agent_history_description which contains
+		# action results with real sensitive values (after placeholder replacement during execution)
 		if message_type == 'system':
 			self.state.history.system_message = message
 		elif message_type == 'state':
+			if self.sensitive_data:
+				message = self._filter_sensitive_data(message)
 			self.state.history.state_message = message
 		else:
 			raise ValueError(f'Invalid state message type: {message_type}')
 
 	def _add_context_message(self, message: BaseMessage) -> None:
 		"""Add a contextual message specific to this step (e.g., validation errors, retry instructions, timeout warnings)"""
-		# Don't filter context messages - they should contain normal conversation or error messages
+		# Context messages typically contain error messages and validation info, not action results
+		# with sensitive data, so filtering is not needed here
 		self.state.history.context_messages.append(message)
 
 	@time_execution_sync('--filter_sensitive_data')

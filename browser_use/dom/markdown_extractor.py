@@ -151,13 +151,13 @@ def _preprocess_markdown_content(content: str, max_newlines: int = 3) -> tuple[s
 	# Compress consecutive newlines (4+ newlines become max_newlines)
 	content = re.sub(r'\n{4,}', '\n' * max_newlines, content)
 
-	# Remove lines that are only whitespace or very short (likely artifacts)
+	# Remove lines that are only whitespace
 	lines = content.split('\n')
 	filtered_lines = []
 	for line in lines:
 		stripped = line.strip()
-		# Keep lines with substantial content
-		if len(stripped) > 2:
+		# Keep all non-empty lines
+		if stripped:
 			# Skip lines that look like JSON (start with { or [ and are very long)
 			if (stripped.startswith('{') or stripped.startswith('[')) and len(stripped) > 100:
 				continue

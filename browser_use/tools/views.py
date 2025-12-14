@@ -42,6 +42,12 @@ class ClickElementAction(BaseModel):
 	# click_count: int = 1  # TODO
 
 
+class ClickElementActionIndexOnly(BaseModel):
+	model_config = ConfigDict(title='ClickElementAction')
+
+	index: int = Field(ge=1, description='Element index from browser_state')
+
+
 class InputTextAction(BaseModel):
 	index: int = Field(ge=0, description='from browser_state')
 	text: str

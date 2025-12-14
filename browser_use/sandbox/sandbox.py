@@ -74,6 +74,19 @@ def _get_imports_used_in_function(func: Callable) -> str:
 		if annotation is None or annotation == inspect.Parameter.empty:
 			return
 
+		# Handle Pydantic generics (e.g., AgentHistoryList[MyModel]) - check this FIRST
+		# Pydantic generics have __pydantic_generic_metadata__ with 'origin' and 'args'
+		pydantic_meta = getattr(annotation, '__pydantic_generic_metadata__', None)
+		if pydantic_meta and pydantic_meta.get('origin'):
+			# Add the origin class name (e.g., 'AgentHistoryList')
+			origin_class = pydantic_meta['origin']
+			if hasattr(origin_class, '__name__'):
+				referenced_names.add(origin_class.__name__)
+			# Recursively extract from generic args (e.g., MyModel)
+			for arg in pydantic_meta.get('args', ()):
+				extract_type_names(arg)
+			return
+
 		# Handle simple types with __name__
 		if hasattr(annotation, '__name__'):
 			referenced_names.add(annotation.__name__)
@@ -584,19 +597,38 @@ def _parse_with_type_annotation(data: Any, annotation: Any) -> Any:
 			return annotation(data)  # By value
 
 		# Handle Pydantic v2 - use model_construct to skip validation and recursively parse nested fields
-		if hasattr(annotation, 'model_construct'):
+		# Get the actual class (unwrap generic if needed)
+		# For Pydantic generics, get_origin() returns None, so check __pydantic_generic_metadata__ first
+		pydantic_generic_meta = getattr(annotation, '__pydantic_generic_metadata__', None)
+		if pydantic_generic_meta and pydantic_generic_meta.get('origin'):
+			actual_class = pydantic_generic_meta['origin']
+			generic_args = pydantic_generic_meta.get('args', ())
+		else:
+			actual_class = get_origin(annotation) or annotation
+			generic_args = get_args(annotation)
+
+		if hasattr(actual_class, 'model_construct'):
 			if not isinstance(data, dict):
 				return data
 			# Recursively parse each field according to its type annotation
-			if hasattr(annotation, 'model_fields'):
+			if hasattr(actual_class, 'model_fields'):
 				parsed_fields = {}
-				for field_name, field_info in annotation.model_fields.items():
+				for field_name, field_info in actual_class.model_fields.items():
 					if field_name in data:
 						field_annotation = field_info.annotation
 						parsed_fields[field_name] = _parse_with_type_annotation(data[field_name], field_annotation)
-				return annotation.model_construct(**parsed_fields)
+				result = actual_class.model_construct(**parsed_fields)
+
+				# Special handling for AgentHistoryList: extract and set _output_model_schema from generic type parameter
+				if actual_class.__name__ == 'AgentHistoryList' and generic_args:
+					output_model_schema = generic_args[0]
+					# Only set if it's an actual model class, not a TypeVar
+					if inspect.isclass(output_model_schema) and hasattr(output_model_schema, 'model_validate_json'):
+						result._output_model_schema = output_model_schema
+
+				return result
 			# Fallback if model_fields not available
-			return annotation.model_construct(**data)
+			return actual_class.model_construct(**data)
 
 		# Handle Pydantic v1 - use construct to skip validation and recursively parse nested fields
 		if hasattr(annotation, 'construct'):
