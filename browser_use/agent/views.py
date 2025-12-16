@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
 
-from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
@@ -760,6 +759,9 @@ class AgentError:
 		message = ''
 		if isinstance(error, ValidationError):
 			return f'{AgentError.VALIDATION_ERROR}\nDetails: {str(error)}'
+		# Lazy import to avoid loading openai SDK (~800ms) at module level
+		from openai import RateLimitError
+
 		if isinstance(error, RateLimitError):
 			return AgentError.RATE_LIMIT_ERROR
 

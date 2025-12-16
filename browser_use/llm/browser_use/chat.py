@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import random
-from typing import TypeVar, overload
+from typing import Any, TypeVar, overload
 
 import httpx
 from pydantic import BaseModel
@@ -57,7 +57,9 @@ class ChatBrowserUse(BaseChatModel):
 		Initialize ChatBrowserUse client.
 
 		Args:
-			model: Model name to use. Options: 'bu-latest', 'bu-1-0'. Defaults to 'bu-latest'.
+			model: Model name to use. Options:
+				- 'bu-latest' or 'bu-1-0': Default model
+				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
 			timeout: Request timeout in seconds.
@@ -65,12 +67,18 @@ class ChatBrowserUse(BaseChatModel):
 			retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0).
 			retry_max_delay: Maximum delay in seconds between retries (default: 60.0).
 		"""
-		# Validate model name
+		# Validate model name - allow bu-* and browser-use/* patterns
 		valid_models = ['bu-latest', 'bu-1-0']
-		if model not in valid_models:
-			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models}")
+		is_valid = model in valid_models or model.startswith('browser-use/')
+		if not is_valid:
+			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models} or start with 'browser-use/'")
 
-		self.model = 'bu-1-0' if model == 'bu-latest' else model  # must update on new model releases
+		# Normalize bu-latest to bu-1-0 for default models
+		if model == 'bu-latest':
+			self.model = 'bu-1-0'
+		else:
+			self.model = model
+
 		self.fast = False
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
 		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://llm.api.browser-use.com')
@@ -95,17 +103,21 @@ class ChatBrowserUse(BaseChatModel):
 
 	@overload
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: None = None, request_type: str = 'browser_agent'
+		self, messages: list[BaseMessage], output_format: None = None, request_type: str = 'browser_agent', **kwargs: Any
 	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T], request_type: str = 'browser_agent'
+		self, messages: list[BaseMessage], output_format: type[T], request_type: str = 'browser_agent', **kwargs: Any
 	) -> ChatInvokeCompletion[T]: ...
 
 	@observe(name='chat_browser_use_ainvoke')
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T] | None = None, request_type: str = 'browser_agent'
+		self,
+		messages: list[BaseMessage],
+		output_format: type[T] | None = None,
+		request_type: str = 'browser_agent',
+		**kwargs: Any,
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Send request to browser-use cloud API.
@@ -114,6 +126,8 @@ class ChatBrowserUse(BaseChatModel):
 			messages: List of messages to send
 			output_format: Expected output format (Pydantic model)
 			request_type: Type of request - 'browser_agent' or 'judge'
+			**kwargs: Additional arguments, including:
+				- session_id: Session ID for sticky routing (same session → same container)
 
 		Returns:
 			ChatInvokeCompletion with structured response and usage info
@@ -123,13 +137,21 @@ class ChatBrowserUse(BaseChatModel):
 
 		anonymized_telemetry = CONFIG.ANONYMIZED_TELEMETRY
 
+		# Extract session_id from kwargs for sticky routing
+		session_id = kwargs.get('session_id')
+
 		# Prepare request payload
-		payload = {
+		payload: dict[str, Any] = {
+			'model': self.model,
 			'messages': [self._serialize_message(msg) for msg in messages],
 			'fast': self.fast,
 			'request_type': request_type,
 			'anonymized_telemetry': anonymized_telemetry,
 		}
+
+		# Add session_id for sticky routing if provided
+		if session_id:
+			payload['session_id'] = session_id
 
 		# Add output format schema if provided
 		if output_format is not None:

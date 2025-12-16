@@ -66,6 +66,7 @@ class ChatDeepSeek(BaseChatModel):
 		output_format: None = None,
 		tools: list[dict[str, Any]] | None = None,
 		stop: list[str] | None = None,
+		**kwargs: Any,
 	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
@@ -75,6 +76,7 @@ class ChatDeepSeek(BaseChatModel):
 		output_format: type[T],
 		tools: list[dict[str, Any]] | None = None,
 		stop: list[str] | None = None,
+		**kwargs: Any,
 	) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
@@ -83,6 +85,7 @@ class ChatDeepSeek(BaseChatModel):
 		output_format: type[T] | None = None,
 		tools: list[dict[str, Any]] | None = None,
 		stop: list[str] | None = None,
+		**kwargs: Any,
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		DeepSeek ainvoke supports:
