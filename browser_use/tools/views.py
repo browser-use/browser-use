@@ -102,30 +102,3 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int = Field(ge=1, description='index of the dropdown element to select an option for')
 	text: str = Field(description='the text or exact value of the option to select')
-
-
-# Assertion Actions
-class AssertTextAction(BaseModel):
-	text: str = Field(description='expected text to be present')
-	case_sensitive: bool = False
-	partial: bool = True
-
-
-class AssertTextAbsentAction(BaseModel):
-	text: str = Field(description='expected text to be absent')
-	case_sensitive: bool = False
-	partial: bool = True
-
-
-class AssertElementVisibleAction(BaseModel):
-	index: int = Field(ge=1, description='index of the element to verify visibility')
-
-
-class AssertUrlAction(BaseModel):
-	expected: str = Field(description='expected URL')
-	match_mode: str = Field(default='equals', description='one of: equals, prefix, contains, regex')
-
-
-class AssertTitleAction(BaseModel):
-	expected: str = Field(description='expected page title')
-	match_mode: str = Field(default='equals', description='one of: equals, prefix, contains, regex')
