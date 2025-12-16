@@ -5,7 +5,7 @@ This implementation is based on the OpenAI types, while removing all the parts t
 # region - Content parts
 from typing import Literal, Union
 
-from openai import BaseModel
+from pydantic import BaseModel
 
 
 def _truncate(text: str, max_length: int = 50) -> str:
