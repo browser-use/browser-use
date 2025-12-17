@@ -301,14 +301,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if use_vision != 'auto':
 			self.tools.exclude_action('screenshot')
 
-		# Enable coordinate clicking for models that support it
-		model_name = getattr(llm, 'model', '').lower()
-		supports_coordinate_clicking = any(
-			pattern in model_name for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/']
-		)
-		if supports_coordinate_clicking:
-			self.tools.set_coordinate_clicking(True)
-
 		# Handle skills vs skill_ids parameter (skills takes precedence)
 		if skills and skill_ids:
 			raise ValueError('Cannot specify both "skills" and "skill_ids" parameters. Use "skills" for the cleaner API.')
@@ -427,11 +419,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
-		# Handle users trying to use use_vision=True with XAI models that don't support it
-		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
-		model_lower = self.llm.model.lower()
-		if 'grok-3' in model_lower or 'grok-code' in model_lower:
-			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
+		# Handle users trying to use use_vision=True with XAI models
+		if 'grok' in self.llm.model.lower():
+			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
 		logger.debug(
@@ -1599,7 +1589,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Build kwargs for ainvoke
 		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
-		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
+		kwargs: dict = {'output_format': self.AgentOutput}
 
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)
@@ -2701,9 +2691,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self,
 		history: AgentHistoryList,
 		max_retries: int = 3,
-		skip_failures: bool = True,
+		skip_failures: bool = False,
 		delay_between_actions: float = 2.0,
-		max_step_interval: float = 5.0,
 		summary_llm: BaseChatModel | None = None,
 		ai_step_llm: BaseChatModel | None = None,
 	) -> list[ActionResult]:
@@ -2713,9 +2702,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Args:
 		                history: The history to replay
 		                max_retries: Maximum number of retries per action
-		                skip_failures: Whether to skip failed actions or stop execution
-		                delay_between_actions: Delay between actions in seconds (used when no saved interval)
-		                max_step_interval: Maximum delay from saved step_interval (caps LLM time from original run)
+		                skip_failures: Whether to skip failed actions or stop execution (default: False)
+		                delay_between_actions: Delay between actions in seconds
 		                summary_llm: Optional LLM to use for generating the final summary. If not provided, uses the agent's LLM
 		                ai_step_llm: Optional LLM to use for AI steps (extract actions). If not provided, uses the agent's LLM
 
@@ -2737,17 +2725,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Determine step delay
 			if history_item.metadata and history_item.metadata.step_interval is not None:
-				# Cap the saved interval to max_step_interval (saved interval includes LLM time)
-				step_delay = min(history_item.metadata.step_interval, max_step_interval)
+				step_delay = history_item.metadata.step_interval
 				# Format delay nicely - show ms for values < 1s, otherwise show seconds
 				if step_delay < 1.0:
 					delay_str = f'{step_delay * 1000:.0f}ms'
 				else:
 					delay_str = f'{step_delay:.1f}s'
-				if history_item.metadata.step_interval > max_step_interval:
-					delay_source = f'capped to {delay_str} (saved was {history_item.metadata.step_interval:.1f}s)'
-				else:
-					delay_source = f'using saved step_interval={delay_str}'
+				delay_source = f'using saved step_interval={delay_str}'
 			else:
 				step_delay = delay_between_actions
 				if step_delay < 1.0:
@@ -2913,29 +2897,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""
 		Update action indices based on current page state.
 		Returns updated action or None if element cannot be found.
-
-		Matching strategy:
-		1. Try element_hash match (includes ax_name for uniqueness)
-		2. Fall back to XPath matching (for backwards compatibility with old history files)
 		"""
 		if not historical_element or not browser_state_summary.dom_state.selector_map:
 			return action
 
-		selector_map = browser_state_summary.dom_state.selector_map
+		# selector_hash_map = {hash(e): e for e in browser_state_summary.dom_state.selector_map.values()}
 
-		# Strategy 1: Hash match (hash now includes ax_name for uniqueness)
 		highlight_index, current_element = next(
-			((idx, elem) for idx, elem in selector_map.items() if elem.element_hash == historical_element.element_hash),
+			(
+				(highlight_index, element)
+				for highlight_index, element in browser_state_summary.dom_state.selector_map.items()
+				if element.element_hash == historical_element.element_hash
+			),
 			(None, None),
 		)
-
-		# Strategy 2: XPath fallback (for backwards compatibility with old history files)
-		if current_element is None and historical_element.x_path:
-			for idx, elem in selector_map.items():
-				if elem.xpath == historical_element.x_path:
-					highlight_index, current_element = idx, elem
-					self.logger.debug(f'Found element via XPath fallback: {historical_element.x_path}')
-					break
 
 		if not current_element or highlight_index is None:
 			return None
@@ -2959,13 +2934,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Args:
 			history_file: Path to the history file
 			variables: Optional dict mapping variable names to new values (e.g. {'email': 'new@example.com'})
-			**kwargs: Additional arguments passed to rerun_history:
-				- max_retries: Maximum retries per action (default: 3)
-				- skip_failures: Continue on failure (default: True)
-				- delay_between_actions: Delay when no saved interval (default: 2.0s)
-				- max_step_interval: Cap on saved step_interval (default: 5.0s)
-				- summary_llm: Custom LLM for final summary
-				- ai_step_llm: Custom LLM for extract re-evaluation
+			**kwargs: Additional arguments passed to rerun_history
 		"""
 		if not history_file:
 			history_file = 'AgentHistory.json'
