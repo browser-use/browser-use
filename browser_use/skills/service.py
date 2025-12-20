@@ -52,28 +52,68 @@ class SkillService:
 		self._client = AsyncBrowserUse(api_key=self.api_key)
 
 		try:
-			# Fetch all skills from API in one call
-			logger.info('Fetching all available skills from Browser Use API...')
-			skills_response: SkillListResponse = await self._client.skills.list_skills(
-				page_size=100,
-				is_enabled=True,
-			)  # max size is 100, assuming users have less than 100 skills
+			# Fetch skills from API
+			logger.info('Fetching skills from Browser Use API...')
+			use_wildcard = '*' in self.skill_ids
+			page_size = 100
+			requested_ids: set[str] = set() if use_wildcard else {s for s in self.skill_ids if s != '*'}
 
-			# Filter to only enabled and finished skills
-			all_available_skills = [skill for skill in skills_response.items if skill.is_enabled and skill.status == 'finished']
+			if use_wildcard:
+				# Wildcard: fetch only first page (max 100 skills) to avoid LLM tool overload
+				skills_response: SkillListResponse = await self._client.skills.list_skills(
+					page_size=page_size,
+					page_number=1,
+					is_enabled=True,
+				)
+				all_items = list(skills_response.items)
+
+				if len(all_items) >= page_size:
+					logger.warning(
+						f'Wildcard "*" limited to first {page_size} skills. '
+						f'Specify explicit skill IDs if you need specific skills beyond this limit.'
+					)
+
+				logger.debug(f'Fetched {len(all_items)} skills (wildcard mode, single page)')
+			else:
+				# Explicit IDs: paginate until all requested IDs found
+				all_items = []
+				page = 1
+				max_pages = 5  # Safety limit
+
+				while page <= max_pages:
+					skills_response = await self._client.skills.list_skills(
+						page_size=page_size,
+						page_number=page,
+						is_enabled=True,
+					)
+					all_items.extend(skills_response.items)
+
+					# Check if we've found all requested skills
+					found_ids = {s.id for s in all_items if s.id in requested_ids}
+					if found_ids == requested_ids:
+						break
+
+					# Stop if we got fewer items than page_size (last page)
+					if len(skills_response.items) < page_size:
+						break
+					page += 1
+
+				if page > max_pages:
+					logger.warning(f'Reached pagination limit ({max_pages} pages) before finding all requested skills')
+
+				logger.debug(f'Fetched {len(all_items)} skills across {page} page(s)')
+
+			# Filter to only finished skills (is_enabled already filtered by API)
+			all_available_skills = [skill for skill in all_items if skill.status == 'finished']
 
 			logger.info(f'Found {len(all_available_skills)} available skills from API')
 
 			# Determine which skills to load
-			use_wildcard = '*' in self.skill_ids
-
 			if use_wildcard:
-				logger.info('Wildcard "*" detected, loading all available skills')
-				# Load all available skills
+				logger.info('Wildcard "*" detected, loading first 100 skills')
 				skills_to_load = all_available_skills
 			else:
 				# Load only the requested skill IDs
-				requested_ids = set(self.skill_ids)
 				skills_to_load = [skill for skill in all_available_skills if skill.id in requested_ids]
 
 				# Warn about any requested skills that weren't found
