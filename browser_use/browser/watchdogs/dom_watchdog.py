@@ -20,7 +20,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import create_task_with_error_handling, time_execution_async
 
 if TYPE_CHECKING:
-	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, NetworkStatus, PageInfo, PaginationButton
+	from browser_use.browser.views import BrowserStateSummary, NetworkStatus, PageInfo, PaginationButton
 
 
 class DOMWatchdog(BaseWatchdog):
@@ -275,18 +275,14 @@ class DOMWatchdog(BaseWatchdog):
 
 			if elapsed >= timeout:
 				self.logger.debug(
-					f'⚠️ Page load timeout after {timeout}s '
-					f'(state: {status.document_ready_state if status else "unknown"})'
+					f'⚠️ Page load timeout after {timeout}s (state: {status.document_ready_state if status else "unknown"})'
 				)
 				break
 
 			status = await self._get_network_status()
 			# Check if page is fully loaded
 			if not status.document_loading and len(status.pending_requests) == 0:
-				self.logger.debug(
-					f'✅ Page load complete after {elapsed:.2f}s '
-					f'(state: {status.document_ready_state})'
-				)
+				self.logger.debug(f'✅ Page load complete after {elapsed:.2f}s (state: {status.document_ready_state})')
 				return status
 
 			# Log progress periodically (every ~0.5s)
