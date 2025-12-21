@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
@@ -1804,6 +1805,16 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
 		except Exception as e:
 			self.logger.debug(f'Skipping proxy auth setup: {type(e).__name__}: {e}')
+
+	async def wait_for_tab_count(self, expected_count: int, timeout: float = 5.0, poll_interval: float = 0.05) -> list[TabInfo]:
+		"""Poll get_tabs() until the expected number of tabs is reached or timeout."""
+		deadline = time.time() + timeout
+		while time.time() < deadline:
+			tabs = await self.get_tabs()
+			if len(tabs) >= expected_count:
+				return tabs
+			await asyncio.sleep(poll_interval)
+		return await self.get_tabs()
 
 	async def get_tabs(self) -> list[TabInfo]:
 		"""Get information about all open tabs using cached target data."""
