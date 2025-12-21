@@ -602,9 +602,8 @@ async def main():
 
 ## Timing & Performance
 
-* `minimum_wait_page_load_time` (default: `0.25`): Minimum time to wait before capturing page state in seconds
-* `wait_for_network_idle_page_load_time` (default: `0.5`): Time to wait for network activity to cease in seconds
-* `wait_between_actions` (default: `0.5`): Time to wait between agent actions in seconds
+* `page_load_timeout` (default: `10.0`): Maximum time (seconds) to wait for page to finish loading (document.readyState="complete" and no pending requests). Set to `0` to disable waiting.
+* `wait_between_actions` (default: `0.1`): Time to wait between agent actions in seconds
 
 ## AI Integration
 
