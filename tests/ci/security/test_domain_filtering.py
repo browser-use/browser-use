@@ -567,3 +567,24 @@ class TestDomainListOptimization:
 		# Should work correctly
 		assert watchdog._is_url_allowed('https://blocked0.com') is False
 		assert watchdog._is_url_allowed('https://example.com') is True
+
+
+class TestBrowserSessionIntegration:
+	"""Tests for BrowserSession integration with security features."""
+
+	def test_browser_session_init_prohibited(self):
+		"""Test that BrowserSession.__init__ accepts prohibited_domains."""
+		from browser_use.browser.session import BrowserSession
+
+		# Initialize with prohibited_domains
+		session = BrowserSession(prohibited_domains=['bad.com'])
+		assert session.browser_profile.prohibited_domains == ['bad.com']
+		
+		# Initialize with allowed_domains and prohibited_domains
+		session = BrowserSession(allowed_domains=['good.com'], prohibited_domains=['bad.com'])
+		assert session.browser_profile.allowed_domains == ['good.com']
+		assert session.browser_profile.prohibited_domains == ['bad.com']
+
+
+
+

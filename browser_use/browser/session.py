@@ -152,6 +152,9 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		incognito: bool | None = None,
+		extensions: list[str] | None = None,
+		locale: str | None = None,
 	) -> None: ...
 
 	# Overload 2: Local browser mode (use local browser params)
@@ -213,6 +216,9 @@ class BrowserSession(BaseModel):
 		window_position: dict | None = None,
 		filter_highlight_ids: bool | None = None,
 		profile_directory: str | None = None,
+		incognito: bool | None = None,
+		extensions: list[str] | None = None,
+		locale: str | None = None,
 	) -> None: ...
 
 	def __init__(
@@ -291,6 +297,9 @@ class BrowserSession(BaseModel):
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		incognito: bool | None = None,
+		extensions: list[str] | None = None,
+		locale: str | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
