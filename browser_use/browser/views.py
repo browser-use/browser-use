@@ -76,6 +76,15 @@ class NetworkRequest:
 
 
 @dataclass
+class NetworkStatus:
+	"""Result of network/document state check for page load waiting."""
+
+	pending_requests: list[NetworkRequest]
+	document_loading: bool  # True if document.readyState !== 'complete'
+	document_ready_state: str  # 'loading' | 'interactive' | 'complete'
+
+
+@dataclass
 class PaginationButton:
 	"""Information about a pagination button detected on the page"""
 
