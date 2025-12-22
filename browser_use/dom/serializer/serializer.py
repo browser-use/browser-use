@@ -17,6 +17,56 @@ from browser_use.dom.views import (
 
 DISABLED_ELEMENTS = {'style', 'script', 'head', 'meta', 'link', 'title'}
 
+# Boolean attributes where an empty string value means "true"
+# In HTML, presence of the attribute indicates true state, regardless of value
+# e.g., <div expanded=""> is equivalent to <div expanded="true">
+BOOLEAN_ATTRIBUTES = {
+	# Standard HTML boolean attributes
+	'checked',
+	'selected',
+	'disabled',
+	'readonly',
+	'required',
+	'multiple',
+	'open',
+	'hidden',
+	'autofocus',
+	'autoplay',
+	'controls',
+	'default',
+	'defer',
+	'ismap',
+	'loop',
+	'muted',
+	'novalidate',
+	'reversed',
+	'scoped',
+	'seamless',
+	'contenteditable',
+	# ARIA boolean/state attributes
+	'aria-expanded',
+	'aria-checked',
+	'aria-selected',
+	'aria-pressed',
+	'aria-disabled',
+	'aria-hidden',
+	'aria-busy',
+	'aria-grabbed',
+	'aria-atomic',
+	'aria-live',
+	'aria-modal',
+	'aria-multiline',
+	'aria-multiselectable',
+	'aria-readonly',
+	'aria-required',
+	# AX tree boolean properties (lowercase)
+	'expanded',
+	'pressed',
+	'busy',
+	'multiselectable',
+	'haspopup',
+}
+
 # SVG child elements to skip (decorative only, no interaction value)
 SVG_ELEMENTS = {
 	'path',
@@ -1052,13 +1102,16 @@ class DOMTreeSerializer:
 
 		# Include HTML attributes
 		if node.attributes:
-			attributes_to_include.update(
-				{
-					key: str(value).strip()
-					for key, value in node.attributes.items()
-					if key in include_attributes and str(value).strip() != ''
-				}
-			)
+			for key, value in node.attributes.items():
+				if key not in include_attributes:
+					continue
+				str_value = str(value).strip()
+				# Boolean attributes: empty string means "true" (presence indicates true state)
+				# e.g., <div expanded=""> is equivalent to <div expanded="true">
+				if str_value == '' and key.lower() in BOOLEAN_ATTRIBUTES:
+					attributes_to_include[key] = 'true'
+				elif str_value != '':
+					attributes_to_include[key] = str_value
 
 		# Add format hints for date/time inputs to help LLMs use the correct format
 		# NOTE: These formats are standardized by HTML5 specification (ISO 8601), NOT locale-dependent
