@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
@@ -1808,8 +1807,9 @@ class BrowserSession(BaseModel):
 
 	async def wait_for_tab_count(self, expected_count: int, timeout: float = 5.0, poll_interval: float = 0.05) -> list[TabInfo]:
 		"""Poll get_tabs() until the expected number of tabs is reached or timeout."""
-		deadline = time.time() + timeout
-		while time.time() < deadline:
+		loop = asyncio.get_event_loop()
+		deadline = loop.time() + timeout
+		while loop.time() < deadline:
 			tabs = await self.get_tabs()
 			if len(tabs) >= expected_count:
 				return tabs
