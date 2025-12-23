@@ -525,25 +525,6 @@ class DomService:
 
 			# Get snapshot data and calculate absolute position
 			snapshot_data = snapshot_lookup.get(node['backendNodeId'], None)
-
-			# DIAGNOSTIC: Log when interactive elements don't have snapshot data
-			if not snapshot_data and node['nodeName'].upper() in ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'A']:
-				parent_has_shadow = False
-				parent_info = ''
-				if 'parentId' in node and node['parentId'] in enhanced_dom_tree_node_lookup:
-					parent = enhanced_dom_tree_node_lookup[node['parentId']]
-					if parent.shadow_root_type:
-						parent_has_shadow = True
-						parent_info = f'parent={parent.tag_name}(shadow={parent.shadow_root_type})'
-				attr_str = ''
-				if 'attributes' in node and node['attributes']:
-					attrs_dict = {node['attributes'][i]: node['attributes'][i + 1] for i in range(0, len(node['attributes']), 2)}
-					attr_str = f'name={attrs_dict.get("name", "N/A")} id={attrs_dict.get("id", "N/A")}'
-				self.logger.debug(
-					f'🔍 NO SNAPSHOT DATA for <{node["nodeName"]}> backendNodeId={node["backendNodeId"]} '
-					f'{attr_str} {parent_info} (snapshot_lookup has {len(snapshot_lookup)} entries)'
-				)
-
 			absolute_position = None
 			if snapshot_data and snapshot_data.bounds:
 				absolute_position = DOMRect(

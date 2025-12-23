@@ -94,9 +94,6 @@ class UploadFileAction(BaseModel):
 class NoParamsAction(BaseModel):
 	model_config = ConfigDict(extra='ignore')
 
-	# Optional field required by Gemini API which errors on empty objects in response_schema
-	description: str | None = Field(None, description='Optional description for the action')
-
 
 class GetDropdownOptionsAction(BaseModel):
 	index: int

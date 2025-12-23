@@ -2,14 +2,15 @@ import asyncio
 import json
 import logging
 import os
-from typing import Generic, TypeVar
+import re
+from typing import Generic, TypeVar, Any, Dict, Optional
 
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
-#ok
+
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
@@ -53,7 +54,7 @@ from browser_use.tools.views import (
 	UploadFileAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
-
+from urllib.parse import urlparse, unquote
 logger = logging.getLogger(__name__)
 
 # Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
@@ -432,7 +433,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'handles uploaded file or downloaded files',
 			param_model=UploadFileAction,
 		)
 		async def upload_file(
@@ -440,6 +441,10 @@ class Tools(Generic[Context]):
 		):
 			# Check if file is in available_file_paths (user-provided or downloaded files)
 			# For remote browsers (is_local=False), we allow absolute remote paths even if not tracked locally
+			logger.info(f"---------------[upload_file] requested={params.path}")
+			logger.info(f"------------------[upload_file] available_file_paths={available_file_paths}")
+			logger.info(f"----------------------[upload_file] downloaded_files={getattr(browser_session,'downloaded_files',[])}")
+
 			if params.path not in available_file_paths:
 				# Also check if it's a recently downloaded file that might not be in available_file_paths yet
 				downloaded_files = browser_session.downloaded_files
@@ -1018,6 +1023,296 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
 					return ActionResult(error=error_msg)
 
+
+		#Google sheets actions
+		def _mod_key(browser_session: BrowserSession) -> str:
+			"""
+			Your Page.press() only understands explicit modifiers like 'Control+X' / 'Meta+X'
+			(NOT 'ControlOrMeta').
+			Hyperbrowser is usually Linux => Control.
+			"""
+			ua = ""
+			try:
+				ua = (browser_session.browser_profile.user_agent or "").lower()  # type: ignore
+			except Exception:
+				pass
+			return "Meta" if "mac" in ua else "Control"
+
+
+		async def _get_page(browser_session: BrowserSession):
+			# Prefer must_get_current_page() in new browser-use
+			if hasattr(browser_session, "must_get_current_page"):
+				return await browser_session.must_get_current_page()
+			return await browser_session.get_current_page()
+		
+		async def _insert_text(page, text: str) -> None:
+			"""
+			Minimal 'type' replacement for the new CDP Page wrapper:
+			use CDP Input.insertText via the page's own client/session.
+			"""
+			sid = await page.session_id  # your Page has @property async def session_id
+			await page._client.send.Input.insertText({"text": text}, session_id=sid)
+
+		async def _read_clipboard(page) -> str:
+			# Your Page.evaluate requires arrow-function form "(...args) => ..."
+			return await page.evaluate("() => navigator.clipboard.readText()")
+
+				
+		async def _gs_select_cell_or_range(browser_session, cell_or_range: str) -> None:
+			page = await _get_page(browser_session)
+			MOD = _mod_key(browser_session)
+
+			# exit edit mode
+			await page.press("Enter")
+			await page.press("Escape")
+			await asyncio.sleep(0.05)
+
+			# Go to A1 first (stabilizes selection)
+			await page.press(f"{MOD}+J")
+			await asyncio.sleep(0.10)
+
+			await page.press(f"{MOD}+A")  # select all text in cell
+			await asyncio.sleep(0.05)
+
+		
+			await _insert_text(page, "A1")
+			await page.press("Enter")
+			await asyncio.sleep(0.08)
+
+			# Go to requested cell/range
+			await page.press(f"{MOD}+J")
+			await asyncio.sleep(0.10)
+		
+			await page.press(f"{MOD}+A")  # select all text in cell
+			await asyncio.sleep(0.05)
+		
+			await _insert_text(page, cell_or_range)
+			await page.press("Enter")
+			await asyncio.sleep(0.10)
+
+			# close popup (sometimes remains open)
+			await page.press("Escape")
+			await asyncio.sleep(0.05)
+
+		@self.registry.action('Google Sheets: Switch to a specific sheet by name', domains=['https://docs.google.com'])
+		async def switch_sheet(sheet_name: str, browser_session) -> "ActionResult":
+			page = await _get_page(browser_session)
+
+			# click the tab whose visible text matches sheet_name
+			clicked = await page.evaluate(
+				"""(name) => {
+					const norm = (s) => (s || '').replace(/\\s+/g,' ').trim().toLowerCase();
+					const wanted = norm(name);
+
+					const tabs = Array.from(document.querySelectorAll('div[role="tab"]'));
+					const tab = tabs.find(t => norm(t.textContent) === wanted);
+
+					if (!tab) return false;
+
+					tab.scrollIntoView({block:'center', inline:'center'});
+					tab.click();
+					return true;
+				}""",
+				sheet_name,
+			)
+
+			if str(clicked).lower() != "true":
+				return ActionResult(error=f"Could not find a sheet tab named '{sheet_name}'")
+
+			# wait until aria-selected tab becomes this sheet
+			for _ in range(30):
+				active = await page.evaluate(
+					"""() => {
+						const a = document.querySelector('div[role="tab"][aria-selected="true"]');
+						return a ? (a.textContent || '').replace(/\\s+/g,' ').trim() : '';
+					}"""
+				)
+				if active.strip().lower() == sheet_name.strip().lower():
+					return ActionResult(
+						extracted_content=f"Selected sheet: {sheet_name}",
+						include_in_memory=False,
+						long_term_memory=f"Selected sheet {sheet_name}",
+					)
+				await asyncio.sleep(0.1)
+
+			return ActionResult(error=f"Timed out waiting for sheet '{sheet_name}' to become active")
+		
+		@self.registry.action('Google Sheets: Select a specific cell or range of cells', domains=['https://docs.google.com'])
+		async def select_cell_or_range(cell_or_range: str, browser_session):
+			await _gs_select_cell_or_range(browser_session, cell_or_range)
+			return ActionResult(
+				extracted_content=f"Selected cells: {cell_or_range}",
+				include_in_memory=False,
+				long_term_memory=f"Selected cells {cell_or_range}",
+			)
+
+
+
+		@self.registry.action('Google Sheets: Get the contents of a cell or range of cells', domains=['https://docs.google.com'])
+		async def read_cell_contents(cell_or_range: str, browser_session):
+			page = await _get_page(browser_session)
+			MOD = _mod_key(browser_session)
+
+			await _gs_select_cell_or_range(browser_session, cell_or_range)
+
+			await page.press(f"{MOD}+C")
+			await asyncio.sleep(0.12)
+			# Google Sheets sometimes needs a second copy
+			await page.press(f"{MOD}+C")
+			await asyncio.sleep(0.12)
+
+			extracted = await _read_clipboard(page)
+			if not extracted:
+				return ActionResult(error="Clipboard read returned empty/blocked while reading cell contents.")
+
+			return ActionResult(
+				extracted_content=extracted,
+				include_in_memory=True,
+				long_term_memory=f"Retrieved contents from {cell_or_range}",
+				include_extracted_content_only_once=True,
+			)
+
+
+		@self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['https://docs.google.com'])
+		async def read_sheet_contents(cell_or_range: str, browser_session):
+				page = await _get_page(browser_session)
+				MOD = _mod_key(browser_session)
+
+				await page.press("Enter")
+				await page.press("Escape")
+				await asyncio.sleep(0.05)
+
+				# select all + copy
+				await page.press(f"{MOD}+A")
+				await asyncio.sleep(0.05)
+				await page.press(f"{MOD}+C")
+				await asyncio.sleep(0.15)
+				await page.press(f"{MOD}+C")
+				await asyncio.sleep(0.15)
+
+				extracted = await _read_clipboard(page)
+				if not extracted:
+					return ActionResult(error="Clipboard read returned empty/blocked while reading entire sheet.")
+
+				return ActionResult(
+					extracted_content=extracted,
+					include_in_memory=True,
+					long_term_memory="Retrieved sheet contents",
+					include_extracted_content_only_once=True,
+				)
+
+
+
+		@self.registry.action(
+			'Google Sheets: Update the content of a cell or range of cells', domains=['https://docs.google.com']
+		)
+		async def update_cell_contents(cell_or_range: str, new_contents_tsv: str, browser_session):
+			page = await _get_page(browser_session)
+
+			await _gs_select_cell_or_range(browser_session, cell_or_range)
+
+			# Use a paste event (best for TSV multi-cell)
+			# NOTE: Page.evaluate must be arrow function format; pass TSV as arg
+			payload_js = """
+			(text) => {
+			const dt = new DataTransfer();
+			dt.setData('text/plain', text);
+			const evt = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true });
+			document.activeElement.dispatchEvent(evt);
+			return true;
+			}
+			"""
+			await page.evaluate(payload_js, new_contents_tsv)
+
+			return ActionResult(
+				extracted_content=f"Updated cells: {cell_or_range} = {new_contents_tsv}",
+				include_in_memory=False,
+				long_term_memory=f"Updated cells {cell_or_range} with {new_contents_tsv}",
+			)
+		
+		@self.registry.action('Google Sheets: Clear whatever cells are currently selected', domains=['https://docs.google.com'])
+		async def clear_cell_contents(cell_or_range: str, browser_session):
+			page = await _get_page(browser_session)
+
+			await _gs_select_cell_or_range(browser_session, cell_or_range)
+
+			await page.press("Backspace")
+			await asyncio.sleep(0.05)
+
+			return ActionResult(
+				extracted_content=f"Cleared cells: {cell_or_range}",
+				include_in_memory=False,
+				long_term_memory=f"Cleared cells {cell_or_range}",
+			)
+		
+		
+
+		def _parse_row_from_a1(a1: str) -> int | None:
+			# Handles "A225" or "Sheet1!A225" or "A225:A225"
+			m = re.search(r"(\d+)", a1 or "")
+			return int(m.group(1)) if m else None
+
+		@self.registry.action("Google Sheets: Get the last non-empty row number in a column", domains=["https://docs.google.com"])
+		async def get_last_row(cell_or_range: str, browser_session) -> ActionResult:
+			page = await _get_page(browser_session)
+			MOD = _mod_key(browser_session)
+
+			start = cell_or_range or "A1".strip().upper()
+			if len(start) == 1 and start.isalpha():
+				start=f"{start}1"  # e.g. "A" => "A1"
+
+			# Go to start cell first
+			await _gs_select_cell_or_range(browser_session, start)
+
+			# Jump to bottom of this column block
+			await page.press(f"{MOD}+ArrowDown")
+			await asyncio.sleep(0.10)
+
+			# Open "Go to range" dialog and copy the address shown (e.g. A225)
+			await page.press(f"{MOD}+J")
+			await asyncio.sleep(0.15)
+
+			await page.press(f"{MOD}+A")
+			await asyncio.sleep(0.05)
+			await page.press(f"{MOD}+C")
+			await asyncio.sleep(0.10)
+
+			a1 = await _read_clipboard(page)  # returns string
+			await page.press("Escape")
+			await asyncio.sleep(0.05)
+
+			row = _parse_row_from_a1(a1)
+			if not row:
+				return ActionResult(error=f"Could not parse row from go-to value: {a1!r}")
+
+			return ActionResult(
+				extracted_content=str(row),   # ✅ row number, e.g. "50"
+				include_in_memory=True,
+				long_term_memory=f"last row is {row}",
+				include_extracted_content_only_once=True,
+			)
+
+
+		@self.registry.action(
+			'Google Sheets: Fallback method to type text into (only one) currently selected cell',
+			domains=['https://docs.google.com'],
+		)
+		async def fallback_input_into_single_selected_cell(text: str, browser_session):
+			page = await _get_page(browser_session)
+
+			await _insert_text(page, text)
+			await asyncio.sleep(0.05)
+			await page.press("Enter")
+			await asyncio.sleep(0.05)
+			await page.press("ArrowUp")
+
+			return ActionResult(
+				extracted_content=f"Inputted text {text}",
+				include_in_memory=False,
+				long_term_memory=f"Inputted text '{text}' into cell",
+			)
+
+		
 		# File System Actions
 
 		@self.registry.action(
@@ -1091,6 +1386,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				images=images,
 				include_extracted_content_only_once=True,
 			)
+		
 
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
@@ -1668,177 +1964,5 @@ class CodeAgentTools(Tools[Context]):
 				attachments=attachments,
 			)
 
-		# Override upload_file for code agent with relaxed path validation
-		@self.registry.action(
-			'Upload a file to a file input element. For code-use mode, any file accessible from the current directory can be uploaded.',
-			param_model=UploadFileAction,
-		)
-		async def upload_file(
-			params: UploadFileAction,
-			browser_session: BrowserSession,
-			available_file_paths: list[str],
-			file_system: FileSystem,
-		):
-			# Path validation logic for code-use mode:
-			# 1. If available_file_paths provided (security mode), enforce it as a whitelist
-			# 2. If no whitelist, for local browsers just check file exists
-			# 3. For remote browsers, allow any path (assume it exists remotely)
-
-			# If whitelist provided, validate path is in it
-			if available_file_paths:
-				if params.path not in available_file_paths:
-					# Also check if it's a recently downloaded file
-					downloaded_files = browser_session.downloaded_files
-					if params.path not in downloaded_files:
-						# Finally, check if it's a file in the FileSystem service (if provided)
-						if file_system is not None and file_system.get_dir():
-							# Check if the file is actually managed by the FileSystem service
-							# The path should be just the filename for FileSystem files
-							file_obj = file_system.get_file(params.path)
-							if file_obj:
-								# File is managed by FileSystem, construct the full path
-								file_system_path = str(file_system.get_dir() / params.path)
-								params = UploadFileAction(index=params.index, path=file_system_path)
-							else:
-								# If browser is remote, allow passing a remote-accessible absolute path
-								if not browser_session.is_local:
-									pass
-								else:
-									msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
-									logger.error(f'❌ {msg}')
-									return ActionResult(error=msg)
-						else:
-							# If browser is remote, allow passing a remote-accessible absolute path
-							if not browser_session.is_local:
-								pass
-							else:
-								msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
-								logger.error(f'❌ {msg}')
-								return ActionResult(error=msg)
-
-			# For local browsers, ensure the file exists on the local filesystem
-			if browser_session.is_local:
-				if not os.path.exists(params.path):
-					msg = f'File {params.path} does not exist'
-					return ActionResult(error=msg)
-
-			# Get the selector map to find the node
-			selector_map = await browser_session.get_selector_map()
-			if params.index not in selector_map:
-				msg = f'Element with index {params.index} does not exist.'
-				return ActionResult(error=msg)
-
-			node = selector_map[params.index]
-
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
-			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
-
-			# Highlight the file input element if found (truly non-blocking)
-			if file_input_node:
-				create_task_with_error_handling(
-					browser_session.highlight_interaction_element(file_input_node),
-					name='highlight_file_input',
-					suppress_exceptions=True,
-				)
-
-			# If not found near the selected element, fallback to finding the closest file input to current scroll position
-			if file_input_node is None:
-				logger.info(
-					f'No file upload element found near index {params.index}, searching for closest file input to scroll position'
-				)
-
-				# Get current scroll position
-				cdp_session = await browser_session.get_or_create_cdp_session()
-				try:
-					scroll_info = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={'expression': 'window.scrollY || window.pageYOffset || 0'}, session_id=cdp_session.session_id
-					)
-					current_scroll_y = scroll_info.get('result', {}).get('value', 0)
-				except Exception:
-					current_scroll_y = 0
-
-				# Find all file inputs in the selector map and pick the closest one to scroll position
-				closest_file_input = None
-				min_distance = float('inf')
-
-				for idx, element in selector_map.items():
-					if browser_session.is_file_input(element):
-						# Get element's Y position
-						if element.absolute_position:
-							element_y = element.absolute_position.y
-							distance = abs(element_y - current_scroll_y)
-							if distance < min_distance:
-								min_distance = distance
-								closest_file_input = element
-
-				if closest_file_input:
-					file_input_node = closest_file_input
-					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
-
-					# Highlight the fallback file input element (truly non-blocking)
-					create_task_with_error_handling(
-						browser_session.highlight_interaction_element(file_input_node),
-						name='highlight_file_input_fallback',
-						suppress_exceptions=True,
-					)
-				else:
-					msg = 'No file upload element found on the page'
-					logger.error(msg)
-					raise BrowserError(msg)
-					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
-
-			# Dispatch upload file event with the file input node
-			try:
-				event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
-				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'Successfully uploaded file to index {params.index}'
-				logger.info(f'📁 {msg}')
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=f'Uploaded file {params.path} to element {params.index}',
-				)
-			except Exception as e:
-				logger.error(f'Failed to upload file: {e}')
-				raise BrowserError(f'Failed to upload file: {e}')
+		
+		

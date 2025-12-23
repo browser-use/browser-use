@@ -106,11 +106,8 @@ class GoogleMessageSerializer:
 							# Decode base64 to bytes
 							image_bytes = base64.b64decode(data)
 
-							# Use the media_type from ImageURL, which correctly identifies the image format
-							mime_type = part.image_url.media_type
-
 							# Add image part
-							image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
+							image_part = Part.from_bytes(data=image_bytes, mime_type='image/jpeg')
 
 							message_parts.append(image_part)
 
