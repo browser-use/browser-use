@@ -3206,40 +3206,26 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
 
-	async def close(self):
-		"""Close all resources"""
+	async def close(self) -> None:
+		"""Closes the agent and releases browser resources."""
 		try:
 			# Only close browser if keep_alive is False (or not set)
-			if self.browser_session is not None:
-				if not self.browser_session.browser_profile.keep_alive:
-					# Kill the browser session - this dispatches BrowserStopEvent,
-					# stops the EventBus with clear=True, and recreates a fresh EventBus
+			if self.browser_session:
+				# Check if the session is configured to persist
+				keep_alive = False
+				if hasattr(self.browser_session, 'browser_profile') and self.browser_session.browser_profile:
+					keep_alive = self.browser_session.browser_profile.keep_alive
+
+				if keep_alive:
+					# Detach internal listeners to allow the event loop to exit,
+					# but leave the physical browser process running.
+					await self.browser_session.stop()
+				else:
+					# Terminate the browser session and all resources.
 					await self.browser_session.kill()
-
-			# Close skill service if configured
-			if self.skill_service is not None:
-				await self.skill_service.close()
-
-			# Force garbage collection
-			gc.collect()
-
-			# Debug: Log remaining threads and asyncio tasks
-			import threading
-
-			threads = threading.enumerate()
-			self.logger.debug(f'🧵 Remaining threads ({len(threads)}): {[t.name for t in threads]}')
-
-			# Get all asyncio tasks
-			tasks = asyncio.all_tasks(asyncio.get_event_loop())
-			# Filter out the current task (this close() coroutine)
-			other_tasks = [t for t in tasks if t != asyncio.current_task()]
-			if other_tasks:
-				self.logger.debug(f'⚡ Remaining asyncio tasks ({len(other_tasks)}):')
-				for task in other_tasks[:10]:  # Limit to first 10 to avoid spam
-					self.logger.debug(f'  - {task.get_name()}: {task}')
-
 		except Exception as e:
-			self.logger.error(f'Error during cleanup: {e}')
+				logger.warning(f"Failed to close agent: {e}")
+
 
 	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update action models with page-specific actions"""
