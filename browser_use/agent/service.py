@@ -1,5 +1,4 @@
 import asyncio
-import gc
 import inspect
 import json
 import logging
@@ -3224,8 +3223,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# Terminate the browser session and all resources.
 					await self.browser_session.kill()
 		except Exception as e:
-				logger.warning(f"Failed to close agent: {e}")
-
+			logger.warning(f'Failed to close agent: {e}')
 
 	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update action models with page-specific actions"""
