@@ -140,6 +140,7 @@ class BrowserSession(BaseModel):
 		id: str | None = None,
 		headers: dict[str, str] | None = None,
 		allowed_domains: list[str] | None = None,
+		prohibited_domains: list[str] | None = None,
 		keep_alive: bool | None = None,
 		minimum_wait_page_load_time: float | None = None,
 		wait_for_network_idle_page_load_time: float | None = None,
@@ -172,6 +173,7 @@ class BrowserSession(BaseModel):
 		# Common params
 		headers: dict[str, str] | None = None,
 		allowed_domains: list[str] | None = None,
+		prohibited_domains: list[str] | None = None,
 		keep_alive: bool | None = None,
 		minimum_wait_page_load_time: float | None = None,
 		wait_for_network_idle_page_load_time: float | None = None,
@@ -271,6 +273,7 @@ class BrowserSession(BaseModel):
 		disable_security: bool | None = None,
 		deterministic_rendering: bool | None = None,
 		allowed_domains: list[str] | None = None,
+		prohibited_domains: list[str] | None = None,
 		keep_alive: bool | None = None,
 		proxy: ProxySettings | None = None,
 		enable_default_extensions: bool | None = None,
