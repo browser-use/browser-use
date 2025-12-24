@@ -69,7 +69,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 		# Check if we're about to close the last tab (event happens BEFORE tab closes)
 		# Use _cdp_get_all_pages for quick check without fetching titles
 		page_targets = await self.browser_session._cdp_get_all_pages()
-		if len(page_targets) <= 1:
+		if len(page_targets) < 1:
 			self.logger.debug(
 				'[AboutBlankWatchdog] Last tab closing, creating new about:blank tab to avoid closing entire browser'
 			)

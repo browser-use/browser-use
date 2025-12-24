@@ -189,6 +189,8 @@ class ChatVercel(BaseChatModel):
 	        prompt-based JSON extraction. Auto-detects common reasoning models by default.
 	    timeout: Request timeout in seconds
 	    max_retries: Maximum number of retries for failed requests
+	    provider_options: Provider routing options for the gateway. Use this to control which
+	        providers are used and in what order. Example: {'gateway': {'order': ['vertex', 'anthropic']}}
 	"""
 
 	# Model configuration
@@ -218,6 +220,7 @@ class ChatVercel(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
+	provider_options: dict[str, Any] | None = None
 
 	# Static
 	@property
@@ -354,13 +357,15 @@ class ChatVercel(BaseChatModel):
 		return clean_schema(schema)
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
+	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Invoke the model with the given messages through Vercel AI Gateway.
@@ -382,6 +387,8 @@ class ChatVercel(BaseChatModel):
 				model_params['max_tokens'] = self.max_tokens
 			if self.top_p is not None:
 				model_params['top_p'] = self.top_p
+			if self.provider_options:
+				model_params['extra_body'] = {'providerOptions': self.provider_options}
 
 			if output_format is None:
 				# Return string response
@@ -400,11 +407,12 @@ class ChatVercel(BaseChatModel):
 
 			else:
 				is_google_model = self.model.startswith('google/')
+				is_anthropic_model = self.model.startswith('anthropic/')
 				is_reasoning_model = self.reasoning_models and any(
 					str(pattern).lower() in str(self.model).lower() for pattern in self.reasoning_models
 				)
 
-				if is_google_model or is_reasoning_model:
+				if is_google_model or is_anthropic_model or is_reasoning_model:
 					modified_messages = [m.model_copy(deep=True) for m in messages]
 
 					schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
@@ -431,10 +439,14 @@ class ChatVercel(BaseChatModel):
 
 					vercel_messages = VercelMessageSerializer.serialize_messages(modified_messages)
 
+					request_params = model_params.copy()
+					if self.provider_options:
+						request_params['extra_body'] = {'providerOptions': self.provider_options}
+
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
 						messages=vercel_messages,
-						**model_params,
+						**request_params,
 					)
 
 					content = response.choices[0].message.content if response.choices else None
@@ -479,6 +491,10 @@ class ChatVercel(BaseChatModel):
 						'schema': schema,
 					}
 
+					request_params = model_params.copy()
+					if self.provider_options:
+						request_params['extra_body'] = {'providerOptions': self.provider_options}
+
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
 						messages=vercel_messages,
@@ -486,7 +502,7 @@ class ChatVercel(BaseChatModel):
 							json_schema=response_format_schema,
 							type='json_schema',
 						),
-						**model_params,
+						**request_params,
 					)
 
 					content = response.choices[0].message.content if response.choices else None

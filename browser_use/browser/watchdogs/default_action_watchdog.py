@@ -920,6 +920,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=cdp_session.session_id,
 					)
+				# Add 10ms delay between keystrokes
+				await asyncio.sleep(0.010)
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
 
@@ -1791,14 +1793,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# (opposite of mouseWheel deltaY convention)
 			y_distance = -pixels
 
-			# Synthesize scroll gesture with faster speed
+			# Synthesize scroll gesture - use very high speed for near-instant scrolling
 			await cdp_client.send.Input.synthesizeScrollGesture(
 				params={
 					'x': center_x,
 					'y': center_y,
 					'xDistance': 0,
 					'yDistance': y_distance,
-					'speed': 1200,  # pixels per second (faster than default 800)
+					'speed': 50000,  # pixels per second (high = near-instant scroll)
 				},
 				session_id=session_id,
 			)
@@ -2221,6 +2223,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=cdp_session.session_id,
 						)
+
+						# Small delay between characters (10ms)
+						await asyncio.sleep(0.010)
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 

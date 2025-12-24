@@ -1,3 +1,4 @@
+import os
 import sys
 import tempfile
 from collections.abc import Iterable
@@ -12,6 +13,16 @@ from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field,
 from browser_use.browser.cloud.views import CloudBrowserParams
 from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
+
+
+def _get_enable_default_extensions_default() -> bool:
+	"""Get the default value for enable_default_extensions from env var or True."""
+	env_val = os.getenv('BROWSER_USE_DISABLE_EXTENSIONS')
+	if env_val is not None:
+		# If DISABLE_EXTENSIONS is truthy, return False (extensions disabled)
+		return env_val.lower() in ('0', 'false', 'no', 'off', '')
+	return True
+
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
@@ -588,16 +599,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Proxy settings. Use browser_use.browser.profile.ProxySettings(server, bypass, username, password)',
 	)
 	enable_default_extensions: bool = Field(
-		default=True,
-		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled.",
+		default_factory=_get_enable_default_extensions_default,
+		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled. Can be disabled via BROWSER_USE_DISABLE_EXTENSIONS=1 environment variable.",
 	)
 	demo_mode: bool = Field(
 		default=False,
 		description='Enable demo mode side panel that streams agent logs directly inside the browser window (requires headless=False).',
-	)
-	demo_mode_display: Literal['full', 'last'] = Field(
-		default='last',
-		description="Display mode for demo panel: 'full' shows complete log panel, 'last' shows only latest action and memory in bottom-right corner",
 	)
 	cookie_whitelist_domains: list[str] = Field(
 		default_factory=lambda: ['nature.com', 'qatarairways.com'],

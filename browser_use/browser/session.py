@@ -140,6 +140,7 @@ class BrowserSession(BaseModel):
 		id: str | None = None,
 		headers: dict[str, str] | None = None,
 		allowed_domains: list[str] | None = None,
+		prohibited_domains: list[str] | None = None,
 		keep_alive: bool | None = None,
 		minimum_wait_page_load_time: float | None = None,
 		wait_for_network_idle_page_load_time: float | None = None,
@@ -172,6 +173,7 @@ class BrowserSession(BaseModel):
 		# Common params
 		headers: dict[str, str] | None = None,
 		allowed_domains: list[str] | None = None,
+		prohibited_domains: list[str] | None = None,
 		keep_alive: bool | None = None,
 		minimum_wait_page_load_time: float | None = None,
 		wait_for_network_idle_page_load_time: float | None = None,
@@ -271,6 +273,7 @@ class BrowserSession(BaseModel):
 		disable_security: bool | None = None,
 		deterministic_rendering: bool | None = None,
 		allowed_domains: list[str] | None = None,
+		prohibited_domains: list[str] | None = None,
 		keep_alive: bool | None = None,
 		proxy: ProxySettings | None = None,
 		enable_default_extensions: bool | None = None,
@@ -436,7 +439,6 @@ class BrowserSession(BaseModel):
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
-	_demo_nav_handler_event_bus: EventBus | None = PrivateAttr(default=None)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -518,13 +520,15 @@ class BrowserSession(BaseModel):
 			self._demo_mode.reset()
 			self._demo_mode = None
 
-		self.logger.debug('✅ Browser session reset complete')
+		self.logger.info('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
 		self._connection_lock = asyncio.Lock()
 
 		# Check if handlers are already registered to prevent duplicates
+		from browser_use.browser.watchdog_base import BaseWatchdog
+
 		start_handlers = self.event_bus.handlers.get('BrowserStartEvent', [])
 		start_handler_names = [getattr(h, '__name__', str(h)) for h in start_handlers]
 
@@ -535,30 +539,15 @@ class BrowserSession(BaseModel):
 				'This likely means BrowserSession was initialized multiple times with the same EventBus.'
 			)
 
-		self._register_essential_handlers()
-
-	def _register_essential_handlers(self) -> None:
-		"""Register all essential event handlers on the current event bus."""
-		from browser_use.browser.watchdog_base import BaseWatchdog
-
 		BaseWatchdog.attach_handler_to_session(self, BrowserStartEvent, self.on_BrowserStartEvent)
 		BaseWatchdog.attach_handler_to_session(self, BrowserStopEvent, self.on_BrowserStopEvent)
 		BaseWatchdog.attach_handler_to_session(self, NavigateToUrlEvent, self.on_NavigateToUrlEvent)
-		self._ensure_demo_mode_handlers()
 		BaseWatchdog.attach_handler_to_session(self, SwitchTabEvent, self.on_SwitchTabEvent)
 		BaseWatchdog.attach_handler_to_session(self, TabCreatedEvent, self.on_TabCreatedEvent)
 		BaseWatchdog.attach_handler_to_session(self, TabClosedEvent, self.on_TabClosedEvent)
 		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
 		BaseWatchdog.attach_handler_to_session(self, CloseTabEvent, self.on_CloseTabEvent)
-
-	def _ensure_demo_mode_handlers(self) -> None:
-		"""Ensure demo mode handlers are attached to the active event bus."""
-		if self._demo_nav_handler_event_bus is self.event_bus:
-			return
-
-		self.event_bus.on(NavigationCompleteEvent, self._on_demo_mode_navigation_complete)
-		self._demo_nav_handler_event_bus = self.event_bus
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
@@ -586,8 +575,6 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = EventBus()
-		# Re-register all essential handlers on the new event bus
-		self._register_essential_handlers()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -612,8 +599,6 @@ class BrowserSession(BaseModel):
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = EventBus()
-		# Re-register all essential handlers on the new event bus
-		self._register_essential_handlers()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_event_handler')
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
@@ -904,20 +889,6 @@ class BrowserSession(BaseModel):
 		else:
 			self.logger.warning(f'⚠️ Page readiness timeout ({timeout}s, {duration_ms:.0f}ms) for {url}')
 
-	async def _on_demo_mode_navigation_complete(self, event: NavigationCompleteEvent) -> None:
-		"""Rehydrate the demo overlay and logs after navigation."""
-		if not self.browser_profile.demo_mode:
-			return
-
-		demo = self.demo_mode
-		if not demo:
-			return
-
-		try:
-			await demo.refresh_target(event.target_id)
-		except Exception as exc:
-			self.logger.debug(f'[DemoMode] Failed to refresh overlay for target {event.target_id[:8]}...: {exc}')
-
 	async def on_SwitchTabEvent(self, event: SwitchTabEvent) -> TargetID:
 		"""Handle tab switching - core browser functionality."""
 		if not self.agent_focus_target_id:
@@ -1075,7 +1046,7 @@ class BrowserSession(BaseModel):
 					self.logger.debug(f'Failed to cleanup cloud browser session: {e}')
 
 			# Clear CDP session cache before stopping
-			self.logger.debug(
+			self.logger.info(
 				f'📢 on_BrowserStopEvent - Calling reset() (force={event.force}, keep_alive={self.browser_profile.keep_alive})'
 			)
 			await self.reset()
@@ -1186,15 +1157,10 @@ class BrowserSession(BaseModel):
 		params: CloseTargetParameters = {'targetId': target_id}
 		await self.cdp_client.send.Target.closeTarget(params)
 
-	async def cookies(self, urls: list[str] | None = None) -> list['Cookie']:
+	async def cookies(self) -> list['Cookie']:
 		"""Get cookies, optionally filtered by URLs."""
-		from cdp_use.cdp.network.library import GetCookiesParameters
 
-		params: GetCookiesParameters = {}
-		if urls:
-			params['urls'] = urls
-
-		result = await self.cdp_client.send.Network.getCookies(params)
+		result = await self.cdp_client.send.Storage.getCookies()
 		return result['cookies']
 
 	async def clear_cookies(self) -> None:
@@ -2957,19 +2923,19 @@ class BrowserSession(BaseModel):
 		"""Clear geolocation override using CDP."""
 		await self.cdp_client.send.Emulation.clearGeolocationOverride()
 
-	async def _cdp_add_init_script(self, script: str, target_id: TargetID | None = None) -> str:
-		"""Add script to evaluate on new document for a specific target."""
+	async def _cdp_add_init_script(self, script: str) -> str:
+		"""Add script to evaluate on new document using CDP Page.addScriptToEvaluateOnNewDocument."""
 		assert self._cdp_client_root is not None
-		cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=target_id is None)
+		cdp_session = await self.get_or_create_cdp_session()
 
 		result = await cdp_session.cdp_client.send.Page.addScriptToEvaluateOnNewDocument(
 			params={'source': script, 'runImmediately': True}, session_id=cdp_session.session_id
 		)
 		return result['identifier']
 
-	async def _cdp_remove_init_script(self, identifier: str, target_id: TargetID | None = None) -> None:
-		"""Remove script added with addScriptToEvaluateOnNewDocument for a target."""
-		cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=target_id is None)
+	async def _cdp_remove_init_script(self, identifier: str) -> None:
+		"""Remove script added with addScriptToEvaluateOnNewDocument."""
+		cdp_session = await self.get_or_create_cdp_session(target_id=None)
 		await cdp_session.cdp_client.send.Page.removeScriptToEvaluateOnNewDocument(
 			params={'identifier': identifier}, session_id=cdp_session.session_id
 		)

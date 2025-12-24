@@ -50,7 +50,7 @@ class ScreenshotWatchdog(BaseWatchdog):
 					raise BrowserError('[ScreenshotWatchdog] No page targets available for screenshot')
 				target_id = page_targets[-1].target_id
 
-			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=True)
 
 			# Prepare screenshot parameters
 			params = CaptureScreenshotParameters(format='png', captureBeyondViewport=False)

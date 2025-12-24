@@ -18,17 +18,29 @@ Note: Initial actions (like opening URLs from tasks) are now automatically
 saved to history and will be replayed during rerun, so you don't need to
 worry about manually specifying URLs when rerunning.
 
-AI Summary:
-The rerun will automatically generate an AI summary at the end that analyzes
-the final screenshot and execution statistics.:
+AI Features During Rerun:
 
+1. AI Step for Extract Actions:
+   When an 'extract' action is replayed, the rerun automatically uses AI to
+   re-analyze the current page content (since it may have changed with new data).
+   This ensures the extracted content reflects the current state, not cached results.
+
+2. AI Summary:
+   At the end of the rerun, an AI summary analyzes the final screenshot and
+   execution statistics to determine success/failure.
+
+Custom LLM Usage:
 	# Option 1: Use agent's LLM (default)
 	results = await agent.load_and_rerun(history_file)
 
-	# Option 2: Use a specific LLM for summary generation
+	# Option 2: Use custom LLMs for AI steps and summary
 	from browser_use.llm import ChatOpenAI
-	summary_llm = ChatOpenAI(model='gpt-4.1-mini')
-	results = await agent.load_and_rerun(history_file, summary_llm=summary_llm)
+	custom_llm = ChatOpenAI(model='gpt-4.1-mini')
+	results = await agent.load_and_rerun(
+		history_file,
+		ai_step_llm=custom_llm,    # For extract action re-evaluation
+		summary_llm=custom_llm,     # For final summary
+	)
 
 The AI summary will be the last item in results and will have:
 	- extracted_content: The summary text
@@ -46,13 +58,16 @@ from browser_use.llm import ChatBrowserUse
 async def main():
 	# Example task to demonstrate history saving and rerunning
 	history_file = Path('agent_history.json')
-	task = 'Go to https://browser-use.github.io/stress-tests/challenges/reference-number-form.html and fill the form with example data and submit.'
+	task = 'Go to https://browser-use.github.io/stress-tests/challenges/reference-number-form.html and fill the form with example data and submit and extract the refernence number.'
 	llm = ChatBrowserUse()
 
-	# Optional: Use a custom LLM for AI summary generation
-	# Uncomment to use a custom LLM for summaries:
+	# Optional: Use custom LLMs for AI features during rerun
+	# Uncomment to use a custom LLM:
 	# from browser_use.llm import ChatOpenAI
-	# summary_llm = ChatOpenAI(model='gpt-4.1-mini')
+	# custom_llm = ChatOpenAI(model='gpt-4.1-mini')
+	# ai_step_llm = custom_llm   # For re-evaluating extract actions
+	# summary_llm = custom_llm   # For final summary
+	ai_step_llm = None  # Set to None to use agent's LLM (default)
 	summary_llm = None  # Set to None to use agent's LLM (default)
 
 	# Step 1: Run the agent and save history
@@ -100,17 +115,22 @@ async def main():
 				old_value = variables[var_name].original_value
 				print(f'  • {var_name}: "{old_value}" → "{new_value}"')
 
-			# Rerun with substituted values and optional custom summary LLM
-			substitute_agent = Agent(task='', llm=llm)
-			results = await substitute_agent.load_and_rerun(history_file, variables=new_values, summary_llm=summary_llm)
+		# Rerun with substituted values and optional custom LLMs
+		substitute_agent = Agent(task='', llm=llm)
+		results = await substitute_agent.load_and_rerun(
+			history_file,
+			variables=new_values,
+			ai_step_llm=ai_step_llm,  # For extract action re-evaluation
+			summary_llm=summary_llm,  # For final summary
+		)
 
-			# Display AI-generated summary (last result)
-			if results and results[-1].is_done:
-				summary = results[-1]
-				print('\n📊 AI Summary:')
-				print(f'  Summary: {summary.extracted_content}')
-				print(f'  Success: {summary.success}')
-			print('✓ History rerun with substituted values complete')
+		# Display AI-generated summary (last result)
+		if results and results[-1].is_done:
+			summary = results[-1]
+			print('\n📊 AI Summary:')
+			print(f'  Summary: {summary.extracted_content}')
+			print(f'  Success: {summary.success}')
+		print('✓ History rerun with substituted values complete')
 	else:
 		print('\n⚠️  No variables detected, skipping substitution rerun')
 

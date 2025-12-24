@@ -9,6 +9,7 @@ mode: "wide"
 
 ### Core Settings
 - `tools`: Registry of <a href = "../tools/available">tools</a> the agent can call. <a href = "../tools/basics">Example</a>
+- `skills` (or `skill_ids`): List of skill IDs to load (e.g., `['skill-uuid']` or `['*']` for all). Requires `BROWSER_USE_API_KEY`. <a href = "../skills/basics">Docs</a>
 - `browser`: Browser object where you can specify the browser settings.
 - `output_model_schema`: Pydantic model class for structured output validation. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_output.py)
 
@@ -16,6 +17,9 @@ mode: "wide"
 - `use_vision` (default: `"auto"`): Vision mode - `"auto"` includes screenshot tool but only uses vision when requested, `True` always includes screenshots, `False` never includes screenshots and excludes screenshot tool
 - `vision_detail_level` (default: `'auto'`): Screenshot detail level - `'low'`, `'high'`, or `'auto'`
 - `page_extraction_llm`: Separate LLM model for page content extraction. You can choose a small & fast model because it only needs to extract text from the page (default: same as `llm`)
+
+### Fallback & Resilience
+- `fallback_llm`: Backup LLM to use when the primary LLM fails. The primary LLM will first exhaust its own retry logic (typically 5 attempts with exponential backoff), and only then switch to the fallback. Triggers on rate limits (429), authentication errors (401), payment/credit errors (402), or server errors (500, 502, 503, 504). Once switched, the fallback is used for the rest of the run. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/fallback_model.py)
 
 ### Actions & Behavior
 - `initial_actions`: List of actions to run before the main task without LLM. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py)

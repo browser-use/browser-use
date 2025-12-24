@@ -38,9 +38,14 @@ class ClickElementAction(BaseModel):
 	index: int | None = Field(default=None, ge=1, description='Element index from browser_state')
 	coordinate_x: int | None = Field(default=None, description='Horizontal coordinate relative to viewport left edge')
 	coordinate_y: int | None = Field(default=None, description='Vertical coordinate relative to viewport top edge')
-	force: bool = Field(default=False, description='If True, skip safety checks (file input, print, select)')
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
+
+
+class ClickElementActionIndexOnly(BaseModel):
+	model_config = ConfigDict(title='ClickElementAction')
+
+	index: int = Field(ge=1, description='Element index from browser_state')
 
 
 class InputTextAction(BaseModel):
@@ -88,6 +93,9 @@ class UploadFileAction(BaseModel):
 
 class NoParamsAction(BaseModel):
 	model_config = ConfigDict(extra='ignore')
+
+	# Optional field required by Gemini API which errors on empty objects in response_schema
+	description: str | None = Field(None, description='Optional description for the action')
 
 
 class GetDropdownOptionsAction(BaseModel):

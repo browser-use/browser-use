@@ -22,11 +22,13 @@ class SystemPrompt:
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 		is_anthropic: bool = False,
+		is_browser_use_model: bool = False,
 	):
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
 		self.is_anthropic = is_anthropic
+		self.is_browser_use_model = is_browser_use_model
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
@@ -42,8 +44,16 @@ class SystemPrompt:
 	def _load_prompt_template(self) -> None:
 		"""Load the prompt template from the markdown file."""
 		try:
-			# Choose the appropriate template based on flash_mode, use_thinking, and is_anthropic
-			if self.flash_mode and self.is_anthropic:
+			# Choose the appropriate template based on model type and mode
+			# Browser-use models use simplified prompts optimized for fine-tuned models
+			if self.is_browser_use_model:
+				if self.flash_mode:
+					template_filename = 'system_prompt_browser_use_flash.md'
+				elif self.use_thinking:
+					template_filename = 'system_prompt_browser_use.md'
+				else:
+					template_filename = 'system_prompt_browser_use_no_thinking.md'
+			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
@@ -53,7 +63,11 @@ class SystemPrompt:
 				template_filename = 'system_prompt_no_thinking.md'
 
 			# This works both in development and when installed as a package
-			with importlib.resources.files('browser_use.agent').joinpath(template_filename).open('r', encoding='utf-8') as f:
+			with (
+				importlib.resources.files('browser_use.agent.system_prompts')
+				.joinpath(template_filename)
+				.open('r', encoding='utf-8') as f
+			):
 				self.prompt_template = f.read()
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
@@ -90,6 +104,7 @@ class AgentMessagePrompt:
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		unavailable_skills_info: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -107,6 +122,7 @@ class AgentMessagePrompt:
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
+		self.unavailable_skills_info: str | None = unavailable_skills_info
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
@@ -377,6 +393,10 @@ Available tabs:
 			state_description += self.page_filtered_actions + '\n'
 			state_description += '</page_specific_actions>\n'
 
+		# Add unavailable skills information if any
+		if self.unavailable_skills_info:
+			state_description += '\n' + self.unavailable_skills_info + '\n'
+
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)
 
@@ -493,3 +513,50 @@ def get_rerun_summary_message(prompt: str, screenshot_b64: str | None = None) ->
 	else:
 		# Without screenshot: use simple string content
 		return UserMessage(content=prompt)
+
+
+def get_ai_step_system_prompt() -> str:
+	"""
+	Get system prompt for AI step action used during rerun.
+
+	Returns:
+		System prompt string for AI step
+	"""
+	return """
+You are an expert at extracting data from webpages.
+
+<input>
+You will be given:
+1. A query describing what to extract
+2. The markdown of the webpage (filtered to remove noise)
+3. Optionally, a screenshot of the current page state
+</input>
+
+<instructions>
+- Extract information from the webpage that is relevant to the query
+- ONLY use the information available in the webpage - do not make up information
+- If the information is not available, mention that clearly
+- If the query asks for all items, list all of them
+</instructions>
+
+<output>
+- Present ALL relevant information in a concise way
+- Do not use conversational format - directly output the relevant information
+- If information is unavailable, state that clearly
+</output>
+""".strip()
+
+
+def get_ai_step_user_prompt(query: str, stats_summary: str, content: str) -> str:
+	"""
+	Build user prompt for AI step action.
+
+	Args:
+		query: What to extract or analyze
+		stats_summary: Content statistics summary
+		content: Page markdown content
+
+	Returns:
+		Formatted prompt string
+	"""
+	return f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'

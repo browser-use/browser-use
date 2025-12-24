@@ -49,14 +49,18 @@ def build_snapshot_lookup(
 	device_pixel_ratio: float = 1.0,
 ) -> dict[int, EnhancedSnapshotNode]:
 	"""Build a lookup table of backend node ID to enhanced snapshot data with everything calculated upfront."""
+	import logging
+
+	logger = logging.getLogger('browser_use.dom.enhanced_snapshot')
 	snapshot_lookup: dict[int, EnhancedSnapshotNode] = {}
 
 	if not snapshot['documents']:
 		return snapshot_lookup
 
 	strings = snapshot['strings']
+	logger.debug(f'🔍 SNAPSHOT: Processing {len(snapshot["documents"])} documents with {len(strings)} strings')
 
-	for document in snapshot['documents']:
+	for doc_idx, document in enumerate(snapshot['documents']):
 		nodes: NodeTreeSnapshot = document['nodes']
 		layout: LayoutTreeSnapshot = document['layout']
 
@@ -65,6 +69,13 @@ def build_snapshot_lookup(
 		if 'backendNodeId' in nodes:
 			for i, backend_node_id in enumerate(nodes['backendNodeId']):
 				backend_node_to_snapshot_index[backend_node_id] = i
+
+		# Log document info
+		doc_url = strings[document.get('documentURL', 0)] if document.get('documentURL', 0) < len(strings) else 'N/A'
+		logger.debug(
+			f'🔍 SNAPSHOT doc[{doc_idx}]: url={doc_url[:80]}... has {len(backend_node_to_snapshot_index)} nodes, '
+			f'layout has {len(layout.get("nodeIndex", []))} entries'
+		)
 
 		# PERFORMANCE: Pre-build layout index map to eliminate O(n²) double lookups
 		# Preserve original behavior: use FIRST occurrence for duplicates
@@ -158,4 +169,7 @@ def build_snapshot_lookup(
 				stacking_contexts=stacking_contexts,
 			)
 
+	# Count how many have bounds (are actually visible/laid out)
+	with_bounds = sum(1 for n in snapshot_lookup.values() if n.bounds)
+	logger.debug(f'🔍 SNAPSHOT: Built lookup with {len(snapshot_lookup)} total entries, {with_bounds} have bounds')
 	return snapshot_lookup

@@ -143,15 +143,21 @@ Sandboxes are the **easiest way to run Browser-Use in production**. We handle ag
 To run in production with authentication, just add `@sandbox` to your function:
 
 ```python
+import asyncio
 from browser_use import Browser, sandbox, ChatBrowserUse
 from browser_use.agent.service import Agent
 
 @sandbox(cloud_profile_id='your-profile-id')
 async def production_task(browser: Browser):
-    agent = Agent(task="Your authenticated task", browser=browser, llm=ChatBrowserUse())
+    agent = Agent(
+        task="Your authenticated task",
+        browser=browser,
+        llm=ChatBrowserUse(),
+    )
     await agent.run()
 
-await production_task()
+if __name__ == "__main__":
+    asyncio.run(production_task())
 ```
 
 See [Going to Production](/production) for how to sync your cookies to the cloud.

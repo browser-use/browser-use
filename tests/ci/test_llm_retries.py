@@ -85,6 +85,7 @@ class TestChatBrowserUseRetries:
 	async def test_no_retry_on_401(self, mock_env):
 		"""Test that 401 errors do NOT trigger retries."""
 		from browser_use.llm.browser_use.chat import ChatBrowserUse
+		from browser_use.llm.exceptions import ModelProviderError
 		from browser_use.llm.messages import UserMessage
 
 		attempt_count = 0
@@ -106,7 +107,7 @@ class TestChatBrowserUseRetries:
 
 			client = ChatBrowserUse(retry_base_delay=0.01)
 
-			with pytest.raises(ValueError, match='Invalid API key'):
+			with pytest.raises(ModelProviderError, match='Invalid API key'):
 				await client.ainvoke([UserMessage(content='test')])
 
 		# Should only attempt once (no retries for 401)
@@ -148,6 +149,7 @@ class TestChatBrowserUseRetries:
 	async def test_max_retries_exhausted(self, mock_env):
 		"""Test that error is raised after max retries exhausted."""
 		from browser_use.llm.browser_use.chat import ChatBrowserUse
+		from browser_use.llm.exceptions import ModelProviderError
 		from browser_use.llm.messages import UserMessage
 
 		attempt_count = 0
@@ -169,7 +171,7 @@ class TestChatBrowserUseRetries:
 
 			client = ChatBrowserUse(max_retries=3, retry_base_delay=0.01)
 
-			with pytest.raises(ValueError, match='API request failed'):
+			with pytest.raises(ModelProviderError, match='Server error'):
 				await client.ainvoke([UserMessage(content='test')])
 
 		# Should have attempted max_retries times

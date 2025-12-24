@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.browser_use.chat import ChatBrowserUse
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
+	from browser_use.llm.mistral.chat import ChatMistral
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
@@ -94,6 +95,7 @@ _LAZY_IMPORTS = {
 	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
+	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
@@ -146,6 +148,7 @@ __all__ = [
 	'ChatAnthropic',
 	'ChatBrowserUse',
 	'ChatGroq',
+	'ChatMistral',
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',
 	'ChatOllama',

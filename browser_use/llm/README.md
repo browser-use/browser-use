@@ -8,7 +8,15 @@ We officially support the following LLMs:
 - Groq
 - Ollama
 - DeepSeek
+
+- Mistral
+
+## Mistral specifics
+
+Use `ChatMistral` with `MISTRAL_API_KEY` (and optional `MISTRAL_BASE_URL`). Structured outputs automatically strip unsupported JSON schema keywords (`minLength`, `maxLength`, `pattern`, `format`), and generation uses `max_tokens` plus the optional `safe_prompt` flag.
+
 - Cerebras
+
 
 ## Migrating from LangChain
 

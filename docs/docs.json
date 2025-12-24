@@ -204,6 +204,14 @@
             ]
           },
           {
+            "group": "Skills",
+            "icon": "sparkles",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/skills/basics"
+            ]
+          },
+          {
             "group": "Actor",
             "icon": "terminal",
             "isDefaultOpen": false,
