@@ -864,33 +864,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Type the text character by character to the focused element
 			for char in text:
-				# Handle newline characters as Enter key
+				# Handle newline characters - send as text character, not as Enter key
 				if char == '\n':
-					# Send proper Enter key sequence
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=cdp_session.session_id,
-					)
-					# Send char event with carriage return
+					self.logger.debug('Sending newline as text character')
+					# Just send the newline character as text input
 					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
 						params={
 							'type': 'char',
-							'text': '\r',
-						},
-						session_id=cdp_session.session_id,
-					)
-					# Send keyup
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
+							'text': '\n',
 						},
 						session_id=cdp_session.session_id,
 					)
@@ -1549,16 +1530,22 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				self.logger.debug(f'🎯 Typing text character by character: "{text}"')
 
+			# Replace literal \n (two characters: backslash + n) with actual newline
+			text = text.replace('\\n', '\n')
+
 			for i, char in enumerate(text):
 				# Handle newline characters as Enter key
 				if char == '\n':
 					# Send proper Enter key sequence
+					# Use Shift+Enter for ALL platforms to ensure proper newline behavior
+					self.logger.debug('Using Shift+Enter for newline on all platforms')
 					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
 						params={
-							'type': 'keyDown',
+							'type': 'rawKeyDown',
 							'key': 'Enter',
 							'code': 'Enter',
 							'windowsVirtualKeyCode': 13,
+							'modifiers': 8,  # Shift modifier for all platforms
 						},
 						session_id=cdp_session.session_id,
 					)
