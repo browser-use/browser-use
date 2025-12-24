@@ -53,7 +53,6 @@ BOOLEAN_ATTRIBUTES = {
 	'aria-busy',
 	'aria-grabbed',
 	'aria-atomic',
-	'aria-live',
 	'aria-modal',
 	'aria-multiline',
 	'aria-multiselectable',

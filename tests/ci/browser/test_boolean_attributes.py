@@ -233,7 +233,7 @@ class TestBooleanAttributes:
 		llm_repr = browser_state_summary.dom_state.llm_representation()
 		selector_map = browser_state_summary.dom_state.selector_map
 
-		# Find the disabled input
+		# Find the disabled input in selector_map
 		disabled_input_found = False
 		for idx, element in selector_map.items():
 			if hasattr(element, 'attributes') and element.attributes:
@@ -242,10 +242,31 @@ class TestBooleanAttributes:
 					disabled_input_found = True
 					print(f'\n   Found disabled input: {element.attributes}')
 
-		# disabled elements might not be in selector_map (not interactive),
-		# but the attribute should still be serialized if included
 		print(f'\n📊 LLM Representation:\n{llm_repr}\n')
-		print('\n✅ Disabled empty string attribute test passed!')
+
+		# Disabled elements might not be in selector_map (not interactive).
+		# If the element IS in the LLM representation, verify disabled is shown.
+		# Otherwise, this is expected behavior (disabled elements are non-interactive).
+		if 'disabled-input' in llm_repr:
+			# Find the line containing disabled-input
+			disabled_line = None
+			for line in llm_repr.split('\n'):
+				if 'disabled-input' in line:
+					disabled_line = line
+					break
+
+			assert disabled_line is not None, 'Should find disabled-input line'
+			print(f'   Disabled line: {disabled_line}')
+
+			# If the element is shown, it should have the disabled attribute
+			assert 'disabled' in disabled_line.lower(), (
+				f'Element with disabled="" should show "disabled" attribute. Got line: {disabled_line}'
+			)
+			print('\n✅ Disabled empty string attribute test passed!')
+		else:
+			# Disabled elements are non-interactive, so not appearing is expected
+			print('\n✅ Disabled input not in LLM representation (expected - non-interactive element)')
+			# This is still a pass - disabled elements being excluded is valid behavior
 
 
 if __name__ == '__main__':
