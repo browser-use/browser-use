@@ -1132,9 +1132,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 								raise TypeError(
 									f"LLM returned unexpected type: {type(parsed).__name__} (expected {getattr(output_format,'__name__',output_format)})"
 								)
-							elapsed = time.time() - start_time
+							elapsed_time = time.time() - start_time
+							# Expose elapsed time on the LLM instance for downstream consumers (e.g., step metadata)
+							try:
+								setattr(llm_instance, 'last_llm_request_duration_s', float(elapsed_time))
+							except Exception:
+								# Never block on telemetry storage
+								pass
 							self.logger.info(
-								f"✅ LLM request completed successfully in {elapsed:.2f}s! "
+								f"✅ LLM request completed successfully in {elapsed_time:.2f}s! "
 								f"Cancelling {len([t for t in tasks if not t.done()])} remaining tasks"
 							)
 							_cancel_pending()
@@ -1180,9 +1186,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 								raise TypeError(
 									f"LLM returned unexpected type: {type(parsed).__name__} (expected {getattr(output_format,'__name__',output_format)})"
 								)
-							elapsed = time.time() - start_time
+							elapsed_time = time.time() - start_time
+							# Expose elapsed time on the LLM instance for downstream consumers (e.g., step metadata)
+							try:
+								setattr(llm_instance, 'last_llm_request_duration_s', float(elapsed_time))
+							except Exception:
+								# Never block on telemetry storage
+								pass
 							self.logger.info(
-								f"✅ LLM request completed successfully in {elapsed:.2f}s! "
+								f"✅ LLM request completed successfully in {elapsed_time:.2f}s! "
 								f"Cancelling {len([t for t in tasks if not t.done()])} remaining tasks"
 							)
 							_cancel_pending()
