@@ -439,6 +439,7 @@ class Tools(Generic[Context]):
 		async def upload_file(
 			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
 		):
+			print("********** upload_file called **********")
 			# Check if file is in available_file_paths (user-provided or downloaded files)
 			# For remote browsers (is_local=False), we allow absolute remote paths even if not tracked locally
 			logger.info(f"---------------[upload_file] requested={params.path}")
@@ -616,12 +617,18 @@ class Tools(Generic[Context]):
 				await event
 				new_target_id = await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
 
+				#fix: add network idle wait after tab switch to prevent screenshot timeout errors
+				min_wait = getattr(browser_session, "minimum_wait_page_load_time", 0) or 0
+				net_wait = getattr(browser_session, "wait_for_network_idle_page_load_time", 0) or 0
+				await asyncio.sleep(float(min_wait))
+				await asyncio.sleep(float(net_wait))
 				if new_target_id:
 					memory = f'Switched to tab #{new_target_id[-4:]}'
 				else:
 					memory = f'Switched to tab #{params.tab_id}'
 
 				logger.info(f'🔄  {memory}')
+				
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
 				logger.warning(f'Tab switch may have failed: {e}')

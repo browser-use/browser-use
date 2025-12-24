@@ -149,7 +149,7 @@ except ImportError:
 	logger.error('MCP SDK not installed. Install with: pip install mcp')
 	sys.exit(1)
 
-from browser_use.telemetry import MCPServerTelemetryEvent, ProductTelemetry
+#from browser_use.telemetry import MCPServerTelemetryEvent, ProductTelemetry
 from browser_use.utils import create_task_with_error_handling, get_browser_use_version
 
 
@@ -198,7 +198,7 @@ class BrowserUseServer:
 		self.tools: Tools | None = None
 		self.llm: ChatOpenAI | None = None
 		self.file_system: FileSystem | None = None
-		self._telemetry = ProductTelemetry()
+		#self._telemetry = ProductTelemetry()
 		self._start_time = time.time()
 
 		# Session management
@@ -431,7 +431,7 @@ class BrowserUseServer:
 			finally:
 				# Capture telemetry for tool calls
 				duration = time.time() - start_time
-				self._telemetry.capture(
+				""" self._telemetry.capture(
 					MCPServerTelemetryEvent(
 						version=get_browser_use_version(),
 						action='tool_call',
@@ -439,7 +439,7 @@ class BrowserUseServer:
 						duration_seconds=duration,
 						error_message=error_msg,
 					)
-				)
+				) """
 
 	async def _execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
 		"""Execute a browser-use tool."""
@@ -1096,27 +1096,27 @@ async def main(session_timeout_minutes: int = 10):
 		sys.exit(1)
 
 	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes)
-	server._telemetry.capture(
+	""" server._telemetry.capture(
 		MCPServerTelemetryEvent(
 			version=get_browser_use_version(),
 			action='start',
 			parent_process_cmdline=get_parent_process_cmdline(),
 		)
-	)
+	) """
 
 	try:
 		await server.run()
 	finally:
 		duration = time.time() - server._start_time
-		server._telemetry.capture(
+		""" server._telemetry.capture(
 			MCPServerTelemetryEvent(
 				version=get_browser_use_version(),
 				action='stop',
 				duration_seconds=duration,
 				parent_process_cmdline=get_parent_process_cmdline(),
 			)
-		)
-		server._telemetry.flush()
+		) 
+		server._telemetry.flush()"""
 
 
 if __name__ == '__main__':

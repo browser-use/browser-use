@@ -104,6 +104,7 @@ class ChatGoogle(BaseChatModel):
 	project: str | None = None
 	location: str | None = None
 	http_options: types.HttpOptions | types.HttpOptionsDict | None = None
+	_client: genai.Client | None = None
 
 	# Internal client cache to prevent connection issues
 	_client: genai.Client | None = None

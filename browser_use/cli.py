@@ -158,7 +158,7 @@ from browser_use import Agent, Controller
 from browser_use.agent.views import AgentSettings
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.logging_config import addLoggingLevel
-from browser_use.telemetry import CLITelemetryEvent, ProductTelemetry
+#from browser_use.telemetry import CLITelemetryEvent, ProductTelemetry
 from browser_use.utils import get_browser_use_version
 
 try:
@@ -604,7 +604,7 @@ class BrowserUseApp(App):
 		# Track current position in history for up/down navigation
 		self.history_index = len(self.task_history)
 		# Initialize telemetry
-		self._telemetry = ProductTelemetry()
+		#self._telemetry = ProductTelemetry()
 		# Store for event bus handler
 		self._event_bus_handler_id = None
 		self._event_bus_handler_func = None
@@ -750,7 +750,7 @@ class BrowserUseApp(App):
 			# Non-critical, continue
 
 		# Capture telemetry for CLI start
-		self._telemetry.capture(
+		""" self._telemetry.capture(
 			CLITelemetryEvent(
 				version=get_browser_use_version(),
 				action='start',
@@ -758,7 +758,7 @@ class BrowserUseApp(App):
 				model=self.llm.model if self.llm and hasattr(self.llm, 'model') else None,
 				model_provider=self.llm.provider if self.llm and hasattr(self.llm, 'provider') else None,
 			)
-		)
+		) """
 
 		logger.debug('on_mount() completed successfully')
 
@@ -1032,7 +1032,7 @@ class BrowserUseApp(App):
 
 			try:
 				# Capture telemetry for message sent
-				self._telemetry.capture(
+				""" self._telemetry.capture(
 					CLITelemetryEvent(
 						version=get_browser_use_version(),
 						action='message_sent',
@@ -1040,7 +1040,7 @@ class BrowserUseApp(App):
 						model=self.llm.model if self.llm and hasattr(self.llm, 'model') else None,
 						model_provider=self.llm.provider if self.llm and hasattr(self.llm, 'provider') else None,
 					)
-				)
+				) """
 
 				# Run the agent task, redirecting output to RichLog through our handler
 				if self.agent:
@@ -1055,7 +1055,7 @@ class BrowserUseApp(App):
 
 				# Capture telemetry for task completion
 				duration = time.time() - task_start_time
-				self._telemetry.capture(
+				""" self._telemetry.capture(
 					CLITelemetryEvent(
 						version=get_browser_use_version(),
 						action='task_completed' if error_msg is None else 'error',
@@ -1065,7 +1065,7 @@ class BrowserUseApp(App):
 						duration_seconds=duration,
 						error_message=error_msg,
 					)
-				)
+				) """
 
 				logger.debug('\n✅ Task completed!')
 
@@ -1123,7 +1123,7 @@ class BrowserUseApp(App):
 		# This prevents the duplicate "stop() called" messages in the logs
 
 		# Flush telemetry before exiting
-		self._telemetry.flush()
+		#self._telemetry.flush()
 
 		# Exit the application
 		self.exit()
@@ -1494,7 +1494,7 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 	# No need to manually configure handlers since setup_logging() handles it
 
 	# Initialize telemetry
-	telemetry = ProductTelemetry()
+	#telemetry = ProductTelemetry()
 	start_time = time.time()
 	error_msg = None
 
@@ -1507,7 +1507,7 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 		llm = get_llm(config)
 
 		# Capture telemetry for CLI start in oneshot mode
-		telemetry.capture(
+		""" telemetry.capture(
 			CLITelemetryEvent(
 				version=get_browser_use_version(),
 				action='start',
@@ -1515,7 +1515,7 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 				model=llm.model if hasattr(llm, 'model') else None,
 				model_provider=llm.__class__.__name__ if llm else None,
 			)
-		)
+		) """
 
 		# Get agent settings from config
 		agent_settings = AgentSettings.model_validate(config.get('agent', {}))
@@ -1553,7 +1553,7 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 				pass
 
 		# Capture telemetry for successful completion
-		telemetry.capture(
+		""" telemetry.capture(
 			CLITelemetryEvent(
 				version=get_browser_use_version(),
 				action='task_completed',
@@ -1562,12 +1562,12 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 				model_provider=llm.__class__.__name__ if llm else None,
 				duration_seconds=time.time() - start_time,
 			)
-		)
+		) """
 
 	except Exception as e:
 		error_msg = str(e)
 		# Capture telemetry for error
-		telemetry.capture(
+		""" telemetry.capture(
 			CLITelemetryEvent(
 				version=get_browser_use_version(),
 				action='error',
@@ -1577,7 +1577,7 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 				duration_seconds=time.time() - start_time,
 				error_message=error_msg,
 			)
-		)
+		) """
 		if debug:
 			import traceback
 
@@ -1587,7 +1587,8 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 		sys.exit(1)
 	finally:
 		# Ensure telemetry is flushed
-		telemetry.flush()
+		#telemetry.flush()
+		pass
 
 		# Give a brief moment for cleanup to complete
 		await asyncio.sleep(0.1)
@@ -2040,14 +2041,14 @@ def run_main_interface(ctx: click.Context, debug: bool = False, **kwargs):
 	if kwargs.get('mcp'):
 		# Capture telemetry for MCP server mode via CLI (suppress any logging from this)
 		try:
-			telemetry = ProductTelemetry()
+			""" telemetry = ProductTelemetry()
 			telemetry.capture(
 				CLITelemetryEvent(
 					version=get_browser_use_version(),
 					action='start',
 					mode='mcp_server',
 				)
-			)
+			) """
 		except Exception:
 			# Ignore telemetry errors in MCP mode to prevent any stdout contamination
 			pass

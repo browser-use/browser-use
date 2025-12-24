@@ -65,8 +65,8 @@ from browser_use.config import CONFIG
 from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
-from browser_use.telemetry.service import ProductTelemetry
-from browser_use.telemetry.views import AgentTelemetryEvent
+#from browser_use.telemetry.service import ProductTelemetry
+#from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import (
@@ -534,7 +534,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
 
 		# Telemetry
-		self.telemetry = ProductTelemetry()
+		#self.telemetry = ProductTelemetry()
 
 		# Event bus with WAL persistence
 		# Default to ~/.config/browseruse/events/{agent_session_id}.jsonl
@@ -1056,6 +1056,162 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_failure()
 		return browser_state_summary
 
+
+
+	async def _ainvoke_with_retry_timeout(
+		self,
+		llm_instance: BaseChatModel,
+		messages: list[BaseMessage],
+		output_format: Any,
+		request_interval: float = 15.0,
+		max_retries: int = 3,
+	):
+		"""
+		Fire up to `max_retries` LLM requests spaced by `request_interval` seconds.
+		Return the first successful structured response. Cancel the rest.
+		"""
+		start_time = time.time()
+		self.logger.debug(
+			f"🚀 Starting LLM retry process (max {max_retries} attempts, {request_interval}s intervals)"
+		)
+
+		tasks: list[asyncio.Task] = []
+
+		def _cancel_pending():
+			for t in tasks:
+				if not t.done():
+					t.cancel()
+		
+		def _extract_completion(result: Any) -> Any:
+			"""
+			New browser-use / ChatBrowserUse often returns ChatInvokeCompletion[T] with .completion.
+			Older / different adapters may return T directly.
+			We always want the *parsed* output (AgentOutput).
+			"""
+			if hasattr(result, "completion"):
+				return result.completion
+			return result
+		
+		def _is_valid(parsed: Any) -> bool:
+			# If output_format is provided, enforce it when possible.
+			if output_format is None:
+				return parsed is not None
+			try:
+				return isinstance(parsed, output_format)
+			except Exception:
+				# If output_format isn't a real type, don't hard fail here
+				return parsed is not None
+			
+		try:
+			# Launch attempts at intervals; after each interval, check if any finished successfully
+			for attempt in range(max_retries):
+				self.logger.info(f"🔄 Starting LLM request attempt {attempt + 1}/{max_retries}")
+
+				task = asyncio.create_task(llm_instance.ainvoke(messages, output_format=output_format))
+				tasks.append(task)
+
+				# Don't wait interval after the final launch; we'll wait for completion below.
+				if attempt < max_retries - 1:
+					self.logger.debug(f"⏳ Waiting up to {request_interval}s for any request to complete...")
+					done, pending = await asyncio.wait(
+						tasks,
+						timeout=request_interval,
+						return_when=asyncio.FIRST_COMPLETED,
+					)
+
+					# If something completed, return first success
+					for completed_task in done:
+						if completed_task.cancelled():
+							continue
+						try:
+							#result = await completed_task
+							raw = await completed_task
+							parsed = _extract_completion(raw)
+							# IMPORTANT: don't "return as-is" if it's not the parsed type you expect
+							if not _is_valid(parsed):
+								raise TypeError(
+									f"LLM returned unexpected type: {type(parsed).__name__} (expected {getattr(output_format,'__name__',output_format)})"
+								)
+							elapsed = time.time() - start_time
+							self.logger.info(
+								f"✅ LLM request completed successfully in {elapsed:.2f}s! "
+								f"Cancelling {len([t for t in tasks if not t.done()])} remaining tasks"
+							)
+							_cancel_pending()
+							return parsed
+							#return result
+							# Fix: Return the completion (AgentOutput) directly instead of ChatInvokeCompletion
+			
+						except Exception as e:
+							self.logger.warning(f"❌ LLM request attempt failed: {str(e)}")
+							# remove failed completed task from list to avoid re-checking it
+							if completed_task in tasks:
+								tasks.remove(completed_task)
+
+					if pending:
+						self.logger.debug(
+							f"⏰ {request_interval}s reached; {len(pending)} requests still running"
+						)
+
+			# All requests launched — wait for any remaining to complete
+			if tasks:
+				self.logger.info(
+					f"🕐 All {max_retries} requests sent, waiting for any of {len(tasks)} remaining to complete..."
+				)
+
+				while tasks:
+					done, pending = await asyncio.wait(
+						tasks,
+						return_when=asyncio.FIRST_COMPLETED,
+					)
+
+					for completed_task in done:
+						if completed_task.cancelled():
+							if completed_task in tasks:
+								tasks.remove(completed_task)
+							continue
+
+						try:
+							#result = await completed_task
+							raw = await completed_task
+							parsed = _extract_completion(raw)
+
+							if not _is_valid(parsed):
+								raise TypeError(
+									f"LLM returned unexpected type: {type(parsed).__name__} (expected {getattr(output_format,'__name__',output_format)})"
+								)
+							elapsed = time.time() - start_time
+							self.logger.info(
+								f"✅ LLM request completed successfully in {elapsed:.2f}s! "
+								f"Cancelling {len([t for t in tasks if not t.done()])} remaining tasks"
+							)
+							_cancel_pending()
+							#return result
+							return parsed
+						except Exception as e:
+							self.logger.warning(f"❌ LLM request attempt failed: {str(e)}")
+						finally:
+							if completed_task in tasks:
+								tasks.remove(completed_task)
+
+			elapsed = time.time() - start_time
+			self.logger.error(f"💥 All {max_retries} retry attempts failed after {elapsed:.2f}s")
+			raise RuntimeError("All retry attempts failed")
+
+		except asyncio.CancelledError:
+			# If outer asyncio.wait_for times out, we must cancel children to avoid leaks.
+			_cancel_pending()
+			raise
+		except Exception as e:
+			remaining = len([t for t in tasks if not t.done()])
+			if remaining > 0:
+				self.logger.debug(f"🛑 Cancelling {remaining} remaining tasks due to error")
+			_cancel_pending()
+
+			elapsed = time.time() - start_time
+			self.logger.error(f"❌ LLM retry process failed after {elapsed:.2f}s: {str(e)}")
+			raise
+
 	@observe_debug(ignore_input=True, name='get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
@@ -1066,7 +1222,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		try:
 			model_output = await asyncio.wait_for(
-				self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
+				# self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
+				self._ainvoke_with_retry_timeout(self.llm, input_messages, output_format=self.AgentOutput, request_interval=15, max_retries=3), timeout=self.settings.llm_timeout
 			)
 		except TimeoutError:
 
@@ -1602,7 +1759,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
 
 		try:
-			response = await self.llm.ainvoke(input_messages, **kwargs)
+			#response = await self.llm.ainvoke(input_messages, **kwargs)
+			response = await self._ainvoke_with_retry_timeout(self.llm, input_messages, output_format=self.AgentOutput)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
 
 			# Replace any shortened URLs in the LLM response back to original URLs
@@ -1869,7 +2027,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		judge_reached_captcha = judgement_data.get('reached_captcha') if judgement_data else None
 		judge_impossible_task = judgement_data.get('impossible_task') if judgement_data else None
 
-		self.telemetry.capture(
+		""" self.telemetry.capture(
 			AgentTelemetryEvent(
 				task=self.task,
 				model=self.llm.model,
@@ -1901,7 +2059,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				judge_reached_captcha=judge_reached_captcha,
 				judge_impossible_task=judge_impossible_task,
 			)
-		)
+		) """
 
 	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
 		"""Take a step
@@ -2162,8 +2320,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		def on_force_exit_log_telemetry():
 			self._log_agent_event(max_steps=max_steps, agent_run_error='SIGINT: Cancelled by user')
 			# NEW: Call the flush method on the telemetry instance
-			if hasattr(self, 'telemetry') and self.telemetry:
-				self.telemetry.flush()
+			#if hasattr(self, 'telemetry') and self.telemetry:
+				#self.telemetry.flush()
 			self._force_exit_telemetry_logged = True  # Set the flag
 
 		signal_handler = SignalHandler(
