@@ -1,10 +1,12 @@
 """Element class for element operations."""
 
 import asyncio
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Literal, Union, cast
 
 from cdp_use.client import logger
 from typing_extensions import TypedDict
+
+from cdp_use.cdp.runtime.commands import CallFunctionOnParameters
 
 if TYPE_CHECKING:
 	from cdp_use.cdp.dom.commands import (
@@ -153,21 +155,24 @@ class Element:
 
 						# Get bounding rect via JavaScript
 						bounds_result = await self._client.send.Runtime.callFunctionOn(
-							params={
-								'functionDeclaration': """
-									function() {
-										const rect = this.getBoundingClientRect();
-										return {
-											x: rect.left,
-											y: rect.top,
-											width: rect.width,
-											height: rect.height
-										};
-									}
-								""",
-								'objectId': object_id,
-								'returnByValue': True,
-							},
+							params=cast(
+								CallFunctionOnParameters,
+								{
+									'functionDeclaration': """
+										function() {
+											const rect = this.getBoundingClientRect();
+											return {
+												x: rect.left,
+												y: rect.top,
+												width: rect.width,
+												height: rect.height
+											};
+										}
+									""",
+									'objectId': object_id,
+									'returnByValue': True,
+								},
+							),
 							session_id=self._session_id,
 						)
 
@@ -259,7 +264,7 @@ class Element:
 							'arguments': [{'value': selector_to_try}] if selector_to_try else [{'value': None}],
 						}
 						found_res = await self._client.send.Runtime.callFunctionOn(
-							params=call_params,
+							params=cast(CallFunctionOnParameters, call_params),
 							session_id=self._session_id,
 						)
 
@@ -269,16 +274,19 @@ class Element:
 
 						if inner_object_id:
 							br = await self._client.send.Runtime.callFunctionOn(
-								params={
-									'objectId': inner_object_id,
-									'functionDeclaration': """
-										function() {
-											const r = this.getBoundingClientRect();
-											return { x: r.left, y: r.top, width: r.width, height: r.height };
-										}
-									""",
-									'returnByValue': True,
-								},
+								params=cast(
+									CallFunctionOnParameters,
+									{
+										'objectId': inner_object_id,
+										'functionDeclaration': """
+											function() {
+												const r = this.getBoundingClientRect();
+												return { x: r.left, y: r.top, width: r.width, height: r.height };
+											}
+										""",
+										'returnByValue': True,
+									},
+								),
 								session_id=self._session_id,
 							)
 							if 'result' in br and 'value' in br['result']:
@@ -311,10 +319,13 @@ class Element:
 					object_id = result['object']['objectId']
 
 					await self._client.send.Runtime.callFunctionOn(
-						params={
-							'functionDeclaration': 'function() { this.click(); }',
-							'objectId': object_id,
-						},
+						params=cast(
+							CallFunctionOnParameters,
+							{
+								'functionDeclaration': 'function() { this.click(); }',
+								'objectId': object_id,
+							},
+						),
 						session_id=self._session_id,
 					)
 					await asyncio.sleep(0.05)
@@ -445,10 +456,13 @@ class Element:
 					object_id = result['object']['objectId']
 
 					await self._client.send.Runtime.callFunctionOn(
-						params={
-							'functionDeclaration': 'function() { this.click(); }',
-							'objectId': object_id,
-						},
+						params=cast(
+							CallFunctionOnParameters,
+							{
+								'functionDeclaration': 'function() { this.click(); }',
+								'objectId': object_id,
+							},
+						),
 						session_id=self._session_id,
 					)
 					await asyncio.sleep(0.1)
@@ -490,11 +504,14 @@ class Element:
 			# Get element coordinates for focus
 			try:
 				bounds_result = await cdp_client.send.Runtime.callFunctionOn(
-					params={
-						'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
-						'objectId': object_id,
-						'returnByValue': True,
-					},
+					params=cast(
+						CallFunctionOnParameters,
+						{
+							'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+					),
 					session_id=session_id,
 				)
 				if bounds_result.get('result', {}).get('value'):
@@ -1065,38 +1082,44 @@ class Element:
 			logger.debug('Clearing text field using JavaScript value setting')
 
 			await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': """
-						function() {
-							// Try to select all text first (only works on text-like inputs)
-							// This handles cases where cursor is in the middle of text
-							try {
-								this.select();
-							} catch (e) {
-								// Some input types (date, color, number, etc.) don't support select()
-								// That's fine, we'll just clear the value directly
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': """
+							function() {
+								// Try to select all text first (only works on text-like inputs)
+								// This handles cases where cursor is in the middle of text
+								try {
+									this.select();
+								} catch (e) {
+									// Some input types (date, color, number, etc.) don't support select()
+									// That's fine, we'll just clear the value directly
+								}
+								// Set value to empty
+								this.value = "";
+								// Dispatch events to notify frameworks like React
+								this.dispatchEvent(new Event("input", { bubbles: true }));
+								this.dispatchEvent(new Event("change", { bubbles: true }));
+								return this.value;
 							}
-							// Set value to empty
-							this.value = "";
-							// Dispatch events to notify frameworks like React
-							this.dispatchEvent(new Event("input", { bubbles: true }));
-							this.dispatchEvent(new Event("change", { bubbles: true }));
-							return this.value;
-						}
-					""",
-					'objectId': object_id,
-					'returnByValue': True,
-				},
+						""",
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+				),
 				session_id=session_id,
 			)
 
 			# Verify clearing worked by checking the value
 			verify_result = await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { return this.value; }',
-					'objectId': object_id,
-					'returnByValue': True,
-				},
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': 'function() { return this.value; }',
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+				),
 				session_id=session_id,
 			)
 
@@ -1116,11 +1139,14 @@ class Element:
 
 			# Get element center coordinates for triple-click
 			bounds_result = await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
-					'objectId': object_id,
-					'returnByValue': True,
-				},
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+				),
 				session_id=session_id,
 			)
 
@@ -1196,10 +1222,13 @@ class Element:
 			# Strategy 2: JavaScript focus (fallback)
 			logger.debug('Focusing element using JavaScript focus')
 			await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { this.focus(); }',
-					'objectId': object_id,
-				},
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': 'function() { this.focus(); }',
+						'objectId': object_id,
+					},
+				),
 				session_id=session_id,
 			)
 			logger.debug('Element focused successfully using JavaScript')
