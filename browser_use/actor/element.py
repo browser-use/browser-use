@@ -190,6 +190,116 @@ class Element:
 				except Exception:
 					pass
 
+			# Try deep finder inside host (descend shadowRoots and same-origin iframes)
+			target_object_for_final_click = None
+			if not quads:
+				try:
+					res = await self._client.send.DOM.resolveNode(
+						params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
+					)
+					if 'object' in res and 'objectId' in res['object']:
+						host_object_id = res['object']['objectId']
+						find_inner_js = """
+							function(selector) {
+								function deepQuery(root, selector) {
+									if (!root) return null;
+									try {
+										if (selector) {
+											try {
+												const found = root.querySelector(selector);
+												if (found) return found;
+											} catch (e) {}
+										}
+									} catch (e) {}
+									const list = root.querySelectorAll ? root.querySelectorAll('*') : [];
+									for (const n of list) {
+										try {
+											if (n.shadowRoot) {
+												const f = deepQuery(n.shadowRoot, selector);
+												if (f) return f;
+											}
+										} catch (e) {}
+										try {
+											if (n.tagName === 'IFRAME') {
+												try {
+													const doc = n.contentDocument;
+													if (doc) {
+														const f = deepQuery(doc, selector);
+														if (f) return f;
+													}
+												} catch (e) {}
+											}
+										} catch (e) {}
+									}
+									try {
+										const candidates = Array.from((root.querySelectorAll) ? root.querySelectorAll('button,a,[role*="menuitem"],[onclick],[tabindex]') : []);
+										for (const c of candidates) {
+											try {
+												const s = window.getComputedStyle(c);
+												const r = c.getBoundingClientRect();
+												if (r.width > 0 && r.height > 0 && s && s.pointerEvents !== 'none') return c;
+											} catch (e) {}
+										}
+									} catch (e) {}
+									return null;
+								}
+								return deepQuery(this, selector);
+							}
+						"""
+						selector_to_try = None
+						try:
+							selector_to_try = getattr(self, '_selector', None) or getattr(self, 'selector', None)
+						except Exception:
+							selector_to_try = None
+
+						call_params = {
+							'objectId': host_object_id,
+							'functionDeclaration': find_inner_js,
+							'returnByValue': False,
+							'arguments': [{'value': selector_to_try}] if selector_to_try else [{'value': None}],
+						}
+						found_res = await self._client.send.Runtime.callFunctionOn(
+							params=call_params,
+							session_id=self._session_id,
+						)
+
+						inner_object_id = None
+						if 'result' in found_res and 'objectId' in found_res['result']:
+							inner_object_id = found_res['result']['objectId']
+
+						if inner_object_id:
+							br = await self._client.send.Runtime.callFunctionOn(
+								params={
+									'objectId': inner_object_id,
+									'functionDeclaration': """
+										function() {
+											const r = this.getBoundingClientRect();
+											return { x: r.left, y: r.top, width: r.width, height: r.height };
+										}
+									""",
+									'returnByValue': True,
+								},
+								session_id=self._session_id,
+							)
+							if 'result' in br and 'value' in br['result']:
+								rect = br['result']['value']
+								x, y, w, h = rect['x'], rect['y'], rect['width'], rect['height']
+								quads = [
+									[
+										x,
+										y,
+										x + w,
+										y,
+										x + w,
+										y + h,
+										x,
+										y + h,
+									]
+								]
+								target_object_for_final_click = inner_object_id
+				except Exception:
+					target_object_for_final_click = None
+
 			# If we still don't have quads, fall back to JS click
 			if not quads:
 				try:
