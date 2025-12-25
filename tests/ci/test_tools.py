@@ -491,3 +491,83 @@ class TestToolsIntegration:
 		)
 		selected_value = selected_value_result.get('result', {}).get('value')
 		assert selected_value == 'option2'  # Second Option has value "option2"
+
+	async def test_save_page_as_pdf(self, tools, browser_session, base_url, http_server):
+		"""Test that save_page_as_pdf action generates a PDF file."""
+		from pathlib import Path
+
+		# Add route for a test page with some content
+		http_server.expect_request('/pdf_test').respond_with_data(
+			"""
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<title>PDF Test Page</title>
+			</head>
+			<body>
+				<h1>PDF Test Page</h1>
+				<p>This is a test page for save_page_as_pdf action.</p>
+				<p>The agent should be able to save this page as a PDF file.</p>
+			</body>
+			</html>
+			""",
+			content_type='text/html',
+		)
+
+		# Navigate to the test page
+		await tools.navigate(url=f'{base_url}/pdf_test', new_tab=False, browser_session=browser_session)
+
+		# Wait for the page to load
+		await asyncio.sleep(0.5)
+
+		# Get downloads path before the action
+		downloads_path = browser_session.browser_profile.downloads_path
+		assert downloads_path is not None, 'Downloads path should be configured'
+
+		# Count existing PDF files before the action
+		downloads_dir = Path(downloads_path)
+		if downloads_dir.exists():
+			existing_pdfs = list(downloads_dir.glob('*.pdf'))
+		else:
+			existing_pdfs = []
+
+		# Execute save_page_as_pdf action
+		result = await tools.save_page_as_pdf(browser_session=browser_session)
+
+		# Verify the result
+		assert isinstance(result, ActionResult)
+		assert result.error is None, f'Expected no error but got: {result.error}'
+		assert result.extracted_content is not None
+		assert 'pdf' in result.extracted_content.lower() or 'saved' in result.extracted_content.lower()
+
+		# Verify PDF file was created
+		downloads_dir = Path(downloads_path)
+		new_pdfs = list(downloads_dir.glob('*.pdf'))
+		assert len(new_pdfs) > len(existing_pdfs), 'A new PDF file should have been created'
+
+		# Verify the PDF file has content
+		newest_pdf = max(new_pdfs, key=lambda p: p.stat().st_mtime)
+		assert newest_pdf.stat().st_size > 0, 'PDF file should not be empty'
+
+	async def test_save_page_as_pdf_with_custom_filename(self, tools, browser_session, base_url, http_server):
+		"""Test that save_page_as_pdf action respects custom filename."""
+		from pathlib import Path
+
+		# Navigate to the page
+		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
+
+		# Wait for the page to load
+		await asyncio.sleep(0.5)
+
+		# Execute save_page_as_pdf action with custom filename
+		result = await tools.save_page_as_pdf(filename='custom_test_file', browser_session=browser_session)
+
+		# Verify the result
+		assert isinstance(result, ActionResult)
+		assert result.error is None, f'Expected no error but got: {result.error}'
+
+		# Verify the file was created with the custom filename
+		downloads_path = browser_session.browser_profile.downloads_path
+		downloads_dir = Path(downloads_path)
+		matching_pdfs = list(downloads_dir.glob('custom_test_file*.pdf'))
+		assert len(matching_pdfs) >= 1, 'PDF with custom filename should exist'
