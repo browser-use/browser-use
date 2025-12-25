@@ -10,6 +10,7 @@ from google import genai
 from google.auth.credentials import Credentials
 from google.genai import types
 from google.genai.types import MediaModality
+from google.genai.errors import ClientError
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
@@ -416,6 +417,8 @@ class ChatGoogle(BaseChatModel):
 			except Exception as e:
 				elapsed = time.time() - start_time
 				self.logger.error(f'💥 API call failed after {elapsed:.2f}s: {type(e).__name__}: {e}')
+				if isinstance(e, ClientError):
+                    raise ModelProviderError(e.message, status_code=e.code, model=self.model
 				# Re-raise the exception
 				raise
 
