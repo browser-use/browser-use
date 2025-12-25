@@ -151,6 +151,45 @@ AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
 AZURE_OPENAI_API_KEY=
 ```
 
+#### Using the Responses API (for GPT-5.1 Codex models)
+
+<Info>
+Azure OpenAI now requires `api_version >= 2025-03-01-preview` for certain models like `gpt-5.1-codex-mini`.
+These models only support the [Responses API](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/responses) instead of the Chat Completions API.
+</Info>
+
+Browser Use automatically detects and uses the Responses API for these models:
+- `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`
+- `gpt-5-codex`, `codex-mini-latest`
+- `computer-use-preview`
+
+```python
+from browser_use import Agent, ChatAzureOpenAI
+
+# Auto-detection (recommended) - uses Responses API for gpt-5.1-codex-mini
+llm = ChatAzureOpenAI(
+    model="gpt-5.1-codex-mini",
+    api_version="2025-03-01-preview",  # Required for Responses API
+)
+
+# Or explicitly enable/disable Responses API for any model
+llm = ChatAzureOpenAI(
+    model="gpt-4o",
+    api_version="2025-03-01-preview",
+    use_responses_api=True,  # Force Responses API (True/False/'auto')
+)
+
+agent = Agent(
+    task="...",
+    llm=llm
+)
+```
+
+The `use_responses_api` parameter accepts:
+- `'auto'` (default): Automatically uses Responses API for models that require it
+- `True`: Force use of the Responses API
+- `False`: Force use of the Chat Completions API
+
 ### AWS Bedrock [example](https://github.com/browser-use/browser-use/blob/main/examples/models/aws.py)
 
 AWS Bedrock provides access to multiple model providers through a single API. We support both a general AWS Bedrock client and provider-specific convenience classes.
