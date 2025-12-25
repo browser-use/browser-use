@@ -418,7 +418,7 @@ class ChatGoogle(BaseChatModel):
 				elapsed = time.time() - start_time
 				self.logger.error(f'💥 API call failed after {elapsed:.2f}s: {type(e).__name__}: {e}')
 				if isinstance(e, ClientError):
-                    raise ModelProviderError(e.message, status_code=e.code, model=self.model
+                    raise ModelProviderError(e.message, status_code=e.code, model=self.model)
 				# Re-raise the exception
 				raise
 
