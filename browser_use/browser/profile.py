@@ -637,8 +637,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	# --- Page load/wait timings ---
 
-	minimum_wait_page_load_time: float = Field(default=0.25, description='Minimum time to wait before capturing page state.')
-	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
+	page_load_timeout: float = Field(
+		default=10.0,
+		ge=0,
+		le=30,
+		description='Maximum time (seconds) to wait for page to finish loading (document.readyState="complete" and no pending requests). 0 = no waiting.',
+	)
 
 	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
 
