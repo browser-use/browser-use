@@ -411,7 +411,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			object_id = target_result['object']['objectId']
 
-			# Get target element info
+			# Get target element info - with shadow DOM support
 			target_info_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
 				params={
 					'objectId': object_id,
@@ -426,12 +426,33 @@ class DefaultActionWatchdog(BaseWatchdog):
 							};
 						};
 
+						// Check if element is inside a shadow DOM by checking its root node
+						const rootNode = this.getRootNode();
+						const inShadowDom = rootNode instanceof ShadowRoot;
 
-						const elementAtPoint = document.elementFromPoint(arguments[0], arguments[1]);
-						if (!elementAtPoint) {
-							return { targetInfo: getElementInfo(this), isClickable: false };
+						// Use appropriate elementFromPoint based on whether we're in shadow DOM
+						// document.elementFromPoint doesn't pierce shadow DOM boundaries,
+						// so we need to use shadowRoot.elementFromPoint for shadow DOM elements
+						let elementAtPoint;
+						if (inShadowDom) {
+							// For shadow DOM elements, use shadowRoot.elementFromPoint
+							elementAtPoint = rootNode.elementFromPoint(arguments[0], arguments[1]);
+						} else {
+							// For regular DOM elements, use document.elementFromPoint
+							elementAtPoint = document.elementFromPoint(arguments[0], arguments[1]);
+
+							// If we got the shadow host, try to pierce into the shadow DOM
+							if (elementAtPoint && elementAtPoint.shadowRoot) {
+								const shadowElement = elementAtPoint.shadowRoot.elementFromPoint(arguments[0], arguments[1]);
+								if (shadowElement) {
+									elementAtPoint = shadowElement;
+								}
+							}
 						}
 
+						if (!elementAtPoint) {
+							return { targetInfo: getElementInfo(this), isClickable: false, inShadowDom: inShadowDom };
+						}
 
 						// Simple containment-based clickability logic
 						const isClickable = this === elementAtPoint ||
@@ -441,7 +462,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 						return {
 							targetInfo: getElementInfo(this),
 							elementAtPointInfo: getElementInfo(elementAtPoint),
-							isClickable: isClickable
+							isClickable: isClickable,
+							inShadowDom: inShadowDom
 						};
 					}
 					""",
@@ -457,15 +479,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			target_data = target_info_result['result']['value']
 			is_clickable = target_data.get('isClickable', False)
+			in_shadow_dom = target_data.get('inShadowDom', False)
 
 			if is_clickable:
-				self.logger.debug('Element is clickable (target, contained, or semantically related)')
+				shadow_info = ' (in shadow DOM)' if in_shadow_dom else ''
+				self.logger.debug(f'Element is clickable (target, contained, or semantically related){shadow_info}')
 				return False
 			else:
 				target_info = target_data.get('targetInfo', {})
 				element_at_point_info = target_data.get('elementAtPointInfo', {})
+				shadow_info = ' [shadow DOM]' if in_shadow_dom else ''
 				self.logger.debug(
-					f'Element is occluded. Target: {target_info.get("tagName", "unknown")} '
+					f'Element is occluded{shadow_info}. Target: {target_info.get("tagName", "unknown")} '
 					f'(id={target_info.get("id", "none")}), '
 					f'ElementAtPoint: {element_at_point_info.get("tagName", "unknown")} '
 					f'(id={element_at_point_info.get("id", "none")})'
@@ -507,6 +532,191 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Get element bounds
 			backend_node_id = element_node.backend_node_id
+
+			# Check if element is inside shadow DOM - use enhanced click handling
+			# For shadow DOM elements, we use CDP mouse events at the element's coordinates
+			# This is more reliable than synthetic JavaScript events for complex web components
+			is_shadow_dom_element = getattr(element_node, 'is_inside_shadow_dom', False)
+			is_inside_iframe = getattr(element_node, 'is_inside_iframe', False)
+			if is_shadow_dom_element:
+				self.logger.debug(
+					f'🔮 Element is inside shadow DOM{" and iframe" if is_inside_iframe else ""}, using enhanced click handling'
+				)
+				try:
+					# Scroll element into view first
+					try:
+						await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+							params={'backendNodeId': backend_node_id}, session_id=session_id
+						)
+						await asyncio.sleep(0.1)
+					except Exception as scroll_e:
+						self.logger.debug(f'Failed to scroll shadow DOM element into view: {scroll_e}')
+
+					# Resolve node to get object ID for JavaScript calls
+					result = await cdp_session.cdp_client.send.DOM.resolveNode(
+						params={'backendNodeId': backend_node_id},
+						session_id=session_id,
+					)
+					if 'object' not in result or 'objectId' not in result['object']:
+						raise Exception('Failed to resolve shadow DOM element')
+
+					object_id = result['object']['objectId']
+
+					center_x = None
+					center_y = None
+
+					# For elements with absolute_position (includes iframe offsets), use it directly
+					if element_node.absolute_position:
+						abs_pos = element_node.absolute_position
+						center_x = abs_pos.x + abs_pos.width / 2
+						center_y = abs_pos.y + abs_pos.height / 2
+						self.logger.debug(f'🔮 Using absolute_position: ({center_x:.1f}, {center_y:.1f})')
+
+					# Fall back to JavaScript-calculated coordinates if absolute_position not available
+					if center_x is None:
+						coord_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': """
+								function() {
+									const rect = this.getBoundingClientRect();
+
+									// Calculate offset if we're inside an iframe
+									let offsetX = 0;
+									let offsetY = 0;
+
+									// Check if we're inside an iframe
+									if (window !== window.top) {
+										try {
+											const iframes = window.parent.document.querySelectorAll('iframe, frame');
+											for (const iframe of iframes) {
+												try {
+													if (iframe.contentWindow === window) {
+														const iframeRect = iframe.getBoundingClientRect();
+														offsetX = iframeRect.left;
+														offsetY = iframeRect.top;
+														break;
+													}
+												} catch (e) {}
+											}
+										} catch (e) {}
+									}
+
+									return {
+										x: rect.left + rect.width / 2 + offsetX,
+										y: rect.top + rect.height / 2 + offsetY,
+										width: rect.width,
+										height: rect.height
+									};
+								}
+								""",
+								'objectId': object_id,
+								'returnByValue': True,
+							},
+							session_id=session_id,
+						)
+
+						if 'result' in coord_result and 'value' in coord_result['result']:
+							coords = coord_result['result']['value']
+							if coords['width'] > 0 and coords['height'] > 0:
+								center_x = coords['x']
+								center_y = coords['y']
+								self.logger.debug(f'🔮 Shadow DOM element JS coords: ({center_x:.1f}, {center_y:.1f})')
+
+					# Try CDP mouse events first (more reliable for complex web components)
+					if center_x is not None and center_y is not None:
+						try:
+							# Mouse move to element (triggers hover)
+							await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+								params={'type': 'mouseMoved', 'x': center_x, 'y': center_y},
+								session_id=session_id,
+							)
+							await asyncio.sleep(0.05)
+
+							# Mouse down
+							await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+								params={
+									'type': 'mousePressed',
+									'x': center_x,
+									'y': center_y,
+									'button': 'left',
+									'clickCount': 1,
+								},
+								session_id=session_id,
+							)
+							await asyncio.sleep(0.05)
+
+							# Mouse up
+							await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+								params={
+									'type': 'mouseReleased',
+									'x': center_x,
+									'y': center_y,
+									'button': 'left',
+									'clickCount': 1,
+								},
+								session_id=session_id,
+							)
+
+							self.logger.debug('🔮 Successfully clicked shadow DOM element via CDP mouse events')
+							return {'click_x': center_x, 'click_y': center_y}
+						except Exception as cdp_e:
+							self.logger.debug(f'CDP mouse events failed for shadow DOM: {cdp_e}, trying JavaScript')
+
+					# Fall back to JavaScript events (for when CDP mouse events don't work)
+					self.logger.debug('🔮 Using JavaScript events for shadow DOM element')
+					await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': """
+							function() {
+								const rect = this.getBoundingClientRect();
+								const centerX = rect.left + rect.width / 2;
+								const centerY = rect.top + rect.height / 2;
+
+								// Common event options
+								const eventOptions = {
+									view: window,
+									bubbles: true,
+									cancelable: true,
+									clientX: centerX,
+									clientY: centerY,
+									screenX: centerX,
+									screenY: centerY,
+									button: 0,
+									buttons: 1
+								};
+
+								// Dispatch hover events (needed for menus/dropdowns)
+								this.dispatchEvent(new PointerEvent('pointerover', { ...eventOptions, pointerType: 'mouse' }));
+								this.dispatchEvent(new MouseEvent('mouseover', eventOptions));
+								this.dispatchEvent(new PointerEvent('pointerenter', { ...eventOptions, bubbles: false, pointerType: 'mouse' }));
+								this.dispatchEvent(new MouseEvent('mouseenter', { ...eventOptions, bubbles: false }));
+								this.dispatchEvent(new PointerEvent('pointermove', { ...eventOptions, pointerType: 'mouse' }));
+								this.dispatchEvent(new MouseEvent('mousemove', eventOptions));
+
+								// Focus if possible
+								if (this.focus) this.focus();
+
+								// Click sequence
+								this.dispatchEvent(new PointerEvent('pointerdown', { ...eventOptions, pointerType: 'mouse' }));
+								this.dispatchEvent(new MouseEvent('mousedown', eventOptions));
+								this.dispatchEvent(new PointerEvent('pointerup', { ...eventOptions, pointerType: 'mouse' }));
+								this.dispatchEvent(new MouseEvent('mouseup', eventOptions));
+								this.dispatchEvent(new MouseEvent('click', eventOptions));
+
+								// Also try native click
+								if (this.click) this.click();
+							}
+							""",
+							'objectId': object_id,
+						},
+						session_id=session_id,
+					)
+					await asyncio.sleep(0.05)
+					self.logger.debug('🔮 Successfully clicked shadow DOM element via JavaScript events')
+					return None
+				except Exception as js_e:
+					self.logger.warning(f'Shadow DOM click failed: {js_e}')
+					# Fall through to try standard coordinate-based clicking
 
 			# Get viewport dimensions for visibility checks
 			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)

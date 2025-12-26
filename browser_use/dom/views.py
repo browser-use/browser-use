@@ -461,6 +461,56 @@ class EnhancedDOMTreeNode:
 		return self.node_name.lower()
 
 	@property
+	def is_inside_shadow_dom(self) -> bool:
+		"""Check if this node is inside a shadow DOM by walking up the parent chain.
+
+		Shadow DOM elements are descendants of a #document-fragment node (shadow root).
+		The shadow root node has node_type == DOCUMENT_FRAGMENT_NODE and shadow_root_type set.
+		"""
+		current = self.parent_node
+		while current is not None:
+			# Shadow roots are DOCUMENT_FRAGMENT nodes with shadow_root_type
+			if current.node_type == NodeType.DOCUMENT_FRAGMENT_NODE and current.shadow_root_type is not None:
+				return True
+			current = current.parent_node
+		return False
+
+	@property
+	def shadow_host(self) -> 'EnhancedDOMTreeNode | None':
+		"""Get the shadow host element if this node is inside a shadow DOM.
+
+		The shadow host is the element that owns the shadow root containing this element.
+		Returns None if this element is not inside a shadow DOM.
+		"""
+		current = self.parent_node
+		while current is not None:
+			# If we hit a shadow root, the next parent is the shadow host
+			if current.node_type == NodeType.DOCUMENT_FRAGMENT_NODE and current.shadow_root_type is not None:
+				# The parent of the shadow root is the shadow host
+				return current.parent_node
+			current = current.parent_node
+		return None
+
+	@property
+	def is_inside_iframe(self) -> bool:
+		"""Check if this node is inside an iframe by walking up the parent chain.
+
+		Returns True if this node is a descendant of a content_document of an iframe.
+		"""
+		current = self.parent_node
+		while current is not None:
+			# Check if the parent is an iframe with a content_document
+			if current.node_name.upper() == 'IFRAME' or current.node_name.upper() == 'FRAME':
+				return True
+			# Check if this node is a content_document child (parent is DOCUMENT_NODE from iframe)
+			if current.node_type == NodeType.DOCUMENT_NODE and current.parent_node:
+				parent_tag = current.parent_node.node_name.upper()
+				if parent_tag == 'IFRAME' or parent_tag == 'FRAME':
+					return True
+			current = current.parent_node
+		return False
+
+	@property
 	def xpath(self) -> str:
 		"""Generate XPath for this DOM node, stopping at shadow boundaries or iframes."""
 		segments = []
