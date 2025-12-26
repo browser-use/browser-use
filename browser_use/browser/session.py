@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
@@ -42,7 +43,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
-from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.browser.views import BrowserStateSummary, DialogEvent, DialogHandlerResult, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
@@ -52,6 +53,10 @@ if TYPE_CHECKING:
 	from browser_use.browser.demo_mode import DemoMode
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
+
+# Type alias for custom dialog handlers
+# Handler receives DialogEvent and returns DialogHandlerResult (sync or async)
+DialogHandler = Callable[[DialogEvent], DialogHandlerResult | Awaitable[DialogHandlerResult] | bool | Awaitable[bool]]
 
 _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
 red = '\033[91m'
@@ -153,6 +158,8 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		# Dialog handling
+		dialog_handler: DialogHandler | None = None,
 	) -> None: ...
 
 	# Overload 2: Local browser mode (use local browser params)
@@ -215,6 +222,8 @@ class BrowserSession(BaseModel):
 		window_position: dict | None = None,
 		filter_highlight_ids: bool | None = None,
 		profile_directory: str | None = None,
+		# Dialog handling
+		dialog_handler: DialogHandler | None = None,
 	) -> None: ...
 
 	def __init__(
@@ -294,7 +303,12 @@ class BrowserSession(BaseModel):
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		# Dialog handling
+		dialog_handler: DialogHandler | None = None,
 	):
+		# Store dialog handler in a local variable (can't set on self before super().__init__)
+		_dialog_handler_to_set = dialog_handler
+
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
 		profile_kwargs = {
@@ -308,6 +322,8 @@ class BrowserSession(BaseModel):
 				'cloud_profile_id',
 				'cloud_proxy_country_code',
 				'cloud_timeout',
+				'dialog_handler',
+				'_dialog_handler_to_set',
 				'profile_id',
 				'proxy_country_code',
 				'timeout',
@@ -360,6 +376,9 @@ class BrowserSession(BaseModel):
 			id=id or str(uuid7str()),
 			browser_profile=resolved_browser_profile,
 		)
+
+		# Store dialog handler after Pydantic init (can't pass to super().__init__ as it's not a Field)
+		self._dialog_handler = _dialog_handler_to_set
 
 	# Session configuration (session identity only)
 	id: str = Field(default_factory=lambda: str(uuid7str()), description='Unique identifier for this browser session')
@@ -423,6 +442,7 @@ class BrowserSession(BaseModel):
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
+	_dialog_handler: DialogHandler | None = PrivateAttr(default=None)  # Custom handler for JavaScript dialogs
 
 	# Watchdogs
 	_crash_watchdog: Any | None = PrivateAttr(default=None)
@@ -472,6 +492,35 @@ class BrowserSession(BaseModel):
 
 	def __str__(self) -> str:
 		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs}'
+
+	async def handle_dialog(self, event: DialogEvent) -> DialogHandlerResult:
+		"""Handle a JavaScript dialog event using the configured handler.
+
+		This method is called by PopupsWatchdog when a dialog is detected.
+		It uses the custom dialog_handler if one was provided, otherwise uses the default behavior.
+
+		Args:
+			event: The dialog event containing type, message, and optional prompt text
+
+		Returns:
+			DialogHandlerResult indicating whether to accept/dismiss and optional prompt text
+		"""
+		if self._dialog_handler is not None:
+			raw_result = self._dialog_handler(event)
+			# Handle both sync and async handlers
+			if asyncio.iscoroutine(raw_result):
+				raw_result = await raw_result
+
+			# If handler returns a bool, convert to DialogHandlerResult
+			if isinstance(raw_result, bool):
+				return DialogHandlerResult(accept=raw_result)
+			# Must be DialogHandlerResult at this point
+			assert isinstance(raw_result, DialogHandlerResult)
+			return raw_result
+
+		# Default behavior: accept alert, confirm, beforeunload; dismiss prompt
+		should_accept = event.type in ('alert', 'confirm', 'beforeunload')
+		return DialogHandlerResult(accept=should_accept)
 
 	async def reset(self) -> None:
 		"""Clear all cached CDP sessions with proper cleanup."""

@@ -198,3 +198,45 @@ class BrowserError(Exception):
 
 class URLNotAllowedError(BrowserError):
 	"""Error raised when a URL is not allowed"""
+
+
+class DialogEvent(BaseModel):
+	"""Data for a JavaScript dialog event (alert, confirm, prompt, beforeunload).
+
+	This model is passed to custom dialog handlers to decide whether to accept or dismiss
+	the dialog, and optionally provide a prompt text response.
+
+	Attributes:
+		type: The type of dialog - 'alert', 'confirm', 'prompt', or 'beforeunload'
+		message: The message displayed in the dialog
+		default_prompt: For prompt dialogs, the default text value (if any)
+		url: The URL of the page that triggered the dialog (if available)
+	"""
+
+	model_config = ConfigDict(
+		extra='forbid',
+		validate_by_name=True,
+	)
+
+	type: str = Field(description="Dialog type: 'alert', 'confirm', 'prompt', or 'beforeunload'")
+	message: str = Field(default='', description='The message displayed in the dialog')
+	default_prompt: str | None = Field(default=None, description='Default prompt text for prompt dialogs')
+	url: str | None = Field(default=None, description='URL of the page that triggered the dialog')
+
+
+class DialogHandlerResult(BaseModel):
+	"""Result from a custom dialog handler.
+
+	This model is returned by custom dialog handlers to control dialog behavior.
+
+	Attributes:
+		accept: Whether to accept (True) or dismiss (False) the dialog
+		prompt_text: For prompt dialogs, the text to enter before accepting
+	"""
+
+	model_config = ConfigDict(
+		extra='forbid',
+	)
+
+	accept: bool = Field(description='Whether to accept (True) or dismiss (False) the dialog')
+	prompt_text: str | None = Field(default=None, description='Text to enter for prompt dialogs')
