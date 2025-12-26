@@ -420,7 +420,7 @@ class ChatGoogle(BaseChatModel):
 				if isinstance(e, ClientError):
 					raise ModelProviderError(
 						message=e.message or 'Unknown ClientError',
-						status_code=e.code,
+						status_code=e.code or 500,
 						model=self.model,
 					)
 				# Re-raise the exception
