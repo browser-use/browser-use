@@ -419,10 +419,10 @@ class ChatGoogle(BaseChatModel):
 				self.logger.error(f'💥 API call failed after {elapsed:.2f}s: {type(e).__name__}: {e}')
 				if isinstance(e, ClientError):
 					raise ModelProviderError(
-								message=e.message or "Unknown ClientError",
-								status_code=e.code,
-								model=self.model,
-							)
+						message=e.message or 'Unknown ClientError',
+						status_code=e.code,
+						model=self.model,
+					)
 				# Re-raise the exception
 				raise
 
