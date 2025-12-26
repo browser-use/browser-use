@@ -273,38 +273,65 @@ class Element:
 							inner_object_id = found_res['result']['objectId']
 
 						if inner_object_id:
-							br = await self._client.send.Runtime.callFunctionOn(
-								params=cast(
-									CallFunctionOnParameters,
-									{
-										'objectId': inner_object_id,
-										'functionDeclaration': """
-											function() {
-												const r = this.getBoundingClientRect();
-												return { x: r.left, y: r.top, width: r.width, height: r.height };
-											}
-										""",
-										'returnByValue': True,
-									},
-								),
-								session_id=self._session_id,
-							)
-							if 'result' in br and 'value' in br['result']:
-								rect = br['result']['value']
-								x, y, w, h = rect['x'], rect['y'], rect['width'], rect['height']
-								quads = [
-									[
-										x,
-										y,
-										x + w,
-										y,
-										x + w,
-										y + h,
-										x,
-										y + h,
-									]
-								]
-								target_object_for_final_click = inner_object_id
+							# First, try to map the JS remote object to a DOM backendNodeId and use DOM.getBoxModel.
+							# This is more robust across shadow roots and same-origin iframes because it
+							# avoids cross-execution-context limitations of Runtime.callFunctionOn on returned objectIds.
+							try:
+								desc = await self._client.send.DOM.describeNode(
+									params={'objectId': inner_object_id}, session_id=self._session_id
+								)
+								backend_node_id = desc.get('node', {}).get('backendNodeId')
+								if backend_node_id:
+									box = await self._client.send.DOM.getBoxModel(
+										params={'backendNodeId': backend_node_id}, session_id=self._session_id
+									)
+									if 'model' in box and 'content' in box['model']:
+										content = box['model']['content']
+										if len(content) >= 8:
+											quads = [[
+												content[0], content[1],
+												content[2], content[3],
+												content[4], content[5],
+												content[6], content[7],
+											]]
+											target_object_for_final_click = inner_object_id
+								# If describeNode/getBoxModel didn't produce a quad, fall back to Runtime.getBoundingClientRect
+								if not quads:
+									br = await self._client.send.Runtime.callFunctionOn(
+										params=cast(
+											CallFunctionOnParameters,
+											{
+												'objectId': inner_object_id,
+												'functionDeclaration': """
+													function() {
+														const r = this.getBoundingClientRect();
+														return { x: r.left, y: r.top, width: r.width, height: r.height };
+													}
+												""",
+												'returnByValue': True,
+											},
+										),
+										session_id=self._session_id,
+									)
+									if 'result' in br and 'value' in br['result']:
+										rect = br['result']['value']
+										x, y, w, h = rect['x'], rect['y'], rect['width'], rect['height']
+										quads = [
+											[
+												x,
+												y,
+												x + w,
+												y,
+												x + w,
+												y + h,
+												x,
+												y + h,
+											]
+										]
+										target_object_for_final_click = inner_object_id
+							except Exception:
+								# If anything goes wrong, clear the target_object_for_final_click and continue to other fallbacks.
+								target_object_for_final_click = None
 				except Exception:
 					target_object_for_final_click = None
 
