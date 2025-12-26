@@ -276,7 +276,11 @@ class DownloadsWatchdog(BaseWatchdog):
 					self.logger.warning('[DownloadsWatchdog] No downloads path configured, skipping CDP download setup')
 					return
 				# Ensure path is properly expanded (~ -> absolute path)
-				expanded_downloads_path = Path(downloads_path).expanduser().resolve()
+				if self.browser_session.is_local:
+					expanded_downloads_path = Path(downloads_path).expanduser().resolve()
+				else:
+					# For remote sessions, don't resolve symlinks as they are local
+					expanded_downloads_path = Path(downloads_path).expanduser()
 				await cdp_client.send.Browser.setDownloadBehavior(
 					params={
 						'behavior': 'allow',
