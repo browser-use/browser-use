@@ -1,10 +1,12 @@
 """Element class for element operations."""
 
 import asyncio
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Literal, Union, cast
 
 from cdp_use.client import logger
 from typing_extensions import TypedDict
+
+from cdp_use.cdp.runtime.commands import CallFunctionOnParameters
 
 if TYPE_CHECKING:
 	from cdp_use.cdp.dom.commands import (
@@ -153,21 +155,24 @@ class Element:
 
 						# Get bounding rect via JavaScript
 						bounds_result = await self._client.send.Runtime.callFunctionOn(
-							params={
-								'functionDeclaration': """
-									function() {
-										const rect = this.getBoundingClientRect();
-										return {
-											x: rect.left,
-											y: rect.top,
-											width: rect.width,
-											height: rect.height
-										};
-									}
-								""",
-								'objectId': object_id,
-								'returnByValue': True,
-							},
+							params=cast(
+								CallFunctionOnParameters,
+								{
+									'functionDeclaration': """
+										function() {
+											const rect = this.getBoundingClientRect();
+											return {
+												x: rect.left,
+												y: rect.top,
+												width: rect.width,
+												height: rect.height
+											};
+										}
+									""",
+									'objectId': object_id,
+									'returnByValue': True,
+								},
+							),
 							session_id=self._session_id,
 						)
 
@@ -190,6 +195,146 @@ class Element:
 				except Exception:
 					pass
 
+			# Try deep finder inside host (descend shadowRoots and same-origin iframes)
+			target_object_for_final_click = None
+			if not quads:
+				try:
+					res = await self._client.send.DOM.resolveNode(
+						params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
+					)
+					if 'object' in res and 'objectId' in res['object']:
+						host_object_id = res['object']['objectId']
+						find_inner_js = """
+							function(selector) {
+								function deepQuery(root, selector) {
+									if (!root) return null;
+									try {
+										if (selector) {
+											try {
+												const found = root.querySelector(selector);
+												if (found) return found;
+											} catch (e) {}
+										}
+									} catch (e) {}
+									const list = root.querySelectorAll ? root.querySelectorAll('*') : [];
+									for (const n of list) {
+										try {
+											if (n.shadowRoot) {
+												const f = deepQuery(n.shadowRoot, selector);
+												if (f) return f;
+											}
+										} catch (e) {}
+										try {
+											if (n.tagName === 'IFRAME') {
+												try {
+													const doc = n.contentDocument;
+													if (doc) {
+														const f = deepQuery(doc, selector);
+														if (f) return f;
+													}
+												} catch (e) {}
+											}
+										} catch (e) {}
+									}
+									try {
+										const candidates = Array.from((root.querySelectorAll) ? root.querySelectorAll('button,a,[role*="menuitem"],[onclick],[tabindex]') : []);
+										for (const c of candidates) {
+											try {
+												const s = window.getComputedStyle(c);
+												const r = c.getBoundingClientRect();
+												if (r.width > 0 && r.height > 0 && s && s.pointerEvents !== 'none') return c;
+											} catch (e) {}
+										}
+									} catch (e) {}
+									return null;
+								}
+								return deepQuery(this, selector);
+							}
+						"""
+						selector_to_try = None
+						try:
+							selector_to_try = getattr(self, '_selector', None) or getattr(self, 'selector', None)
+						except Exception:
+							selector_to_try = None
+
+						call_params = {
+							'objectId': host_object_id,
+							'functionDeclaration': find_inner_js,
+							'returnByValue': False,
+							'arguments': [{'value': selector_to_try}] if selector_to_try else [{'value': None}],
+						}
+						found_res = await self._client.send.Runtime.callFunctionOn(
+							params=cast(CallFunctionOnParameters, call_params),
+							session_id=self._session_id,
+						)
+
+						inner_object_id = None
+						if 'result' in found_res and 'objectId' in found_res['result']:
+							inner_object_id = found_res['result']['objectId']
+
+						if inner_object_id:
+							# First, try to map the JS remote object to a DOM backendNodeId and use DOM.getBoxModel.
+							# This is more robust across shadow roots and same-origin iframes because it
+							# avoids cross-execution-context limitations of Runtime.callFunctionOn on returned objectIds.
+							try:
+								desc = await self._client.send.DOM.describeNode(
+									params={'objectId': inner_object_id}, session_id=self._session_id
+								)
+								backend_node_id = desc.get('node', {}).get('backendNodeId')
+								if backend_node_id:
+									box = await self._client.send.DOM.getBoxModel(
+										params={'backendNodeId': backend_node_id}, session_id=self._session_id
+									)
+									if 'model' in box and 'content' in box['model']:
+										content = box['model']['content']
+										if len(content) >= 8:
+											quads = [[
+												content[0], content[1],
+												content[2], content[3],
+												content[4], content[5],
+												content[6], content[7],
+											]]
+											target_object_for_final_click = inner_object_id
+								# If describeNode/getBoxModel didn't produce a quad, fall back to Runtime.getBoundingClientRect
+								if not quads:
+									br = await self._client.send.Runtime.callFunctionOn(
+										params=cast(
+											CallFunctionOnParameters,
+											{
+												'objectId': inner_object_id,
+												'functionDeclaration': """
+													function() {
+														const r = this.getBoundingClientRect();
+														return { x: r.left, y: r.top, width: r.width, height: r.height };
+													}
+												""",
+												'returnByValue': True,
+											},
+										),
+										session_id=self._session_id,
+									)
+									if 'result' in br and 'value' in br['result']:
+										rect = br['result']['value']
+										x, y, w, h = rect['x'], rect['y'], rect['width'], rect['height']
+										quads = [
+											[
+												x,
+												y,
+												x + w,
+												y,
+												x + w,
+												y + h,
+												x,
+												y + h,
+											]
+										]
+										target_object_for_final_click = inner_object_id
+							except Exception:
+								# If anything goes wrong, clear the target_object_for_final_click and continue to other fallbacks.
+								target_object_for_final_click = None
+				except Exception:
+					target_object_for_final_click = None
+
 			# If we still don't have quads, fall back to JS click
 			if not quads:
 				try:
@@ -201,10 +346,13 @@ class Element:
 					object_id = result['object']['objectId']
 
 					await self._client.send.Runtime.callFunctionOn(
-						params={
-							'functionDeclaration': 'function() { this.click(); }',
-							'objectId': object_id,
-						},
+						params=cast(
+							CallFunctionOnParameters,
+							{
+								'functionDeclaration': 'function() { this.click(); }',
+								'objectId': object_id,
+							},
+						),
 						session_id=self._session_id,
 					)
 					await asyncio.sleep(0.05)
@@ -335,10 +483,13 @@ class Element:
 					object_id = result['object']['objectId']
 
 					await self._client.send.Runtime.callFunctionOn(
-						params={
-							'functionDeclaration': 'function() { this.click(); }',
-							'objectId': object_id,
-						},
+						params=cast(
+							CallFunctionOnParameters,
+							{
+								'functionDeclaration': 'function() { this.click(); }',
+								'objectId': object_id,
+							},
+						),
 						session_id=self._session_id,
 					)
 					await asyncio.sleep(0.1)
@@ -380,11 +531,14 @@ class Element:
 			# Get element coordinates for focus
 			try:
 				bounds_result = await cdp_client.send.Runtime.callFunctionOn(
-					params={
-						'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
-						'objectId': object_id,
-						'returnByValue': True,
-					},
+					params=cast(
+						CallFunctionOnParameters,
+						{
+							'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+					),
 					session_id=session_id,
 				)
 				if bounds_result.get('result', {}).get('value'):
@@ -955,38 +1109,44 @@ class Element:
 			logger.debug('Clearing text field using JavaScript value setting')
 
 			await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': """
-						function() {
-							// Try to select all text first (only works on text-like inputs)
-							// This handles cases where cursor is in the middle of text
-							try {
-								this.select();
-							} catch (e) {
-								// Some input types (date, color, number, etc.) don't support select()
-								// That's fine, we'll just clear the value directly
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': """
+							function() {
+								// Try to select all text first (only works on text-like inputs)
+								// This handles cases where cursor is in the middle of text
+								try {
+									this.select();
+								} catch (e) {
+									// Some input types (date, color, number, etc.) don't support select()
+									// That's fine, we'll just clear the value directly
+								}
+								// Set value to empty
+								this.value = "";
+								// Dispatch events to notify frameworks like React
+								this.dispatchEvent(new Event("input", { bubbles: true }));
+								this.dispatchEvent(new Event("change", { bubbles: true }));
+								return this.value;
 							}
-							// Set value to empty
-							this.value = "";
-							// Dispatch events to notify frameworks like React
-							this.dispatchEvent(new Event("input", { bubbles: true }));
-							this.dispatchEvent(new Event("change", { bubbles: true }));
-							return this.value;
-						}
-					""",
-					'objectId': object_id,
-					'returnByValue': True,
-				},
+						""",
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+				),
 				session_id=session_id,
 			)
 
 			# Verify clearing worked by checking the value
 			verify_result = await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { return this.value; }',
-					'objectId': object_id,
-					'returnByValue': True,
-				},
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': 'function() { return this.value; }',
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+				),
 				session_id=session_id,
 			)
 
@@ -1006,11 +1166,14 @@ class Element:
 
 			# Get element center coordinates for triple-click
 			bounds_result = await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
-					'objectId': object_id,
-					'returnByValue': True,
-				},
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': 'function() { return this.getBoundingClientRect(); }',
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+				),
 				session_id=session_id,
 			)
 
@@ -1086,10 +1249,13 @@ class Element:
 			# Strategy 2: JavaScript focus (fallback)
 			logger.debug('Focusing element using JavaScript focus')
 			await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { this.focus(); }',
-					'objectId': object_id,
-				},
+				params=cast(
+					CallFunctionOnParameters,
+					{
+						'functionDeclaration': 'function() { this.focus(); }',
+						'objectId': object_id,
+					},
+				),
 				session_id=session_id,
 			)
 			logger.debug('Element focused successfully using JavaScript')
