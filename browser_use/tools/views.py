@@ -105,3 +105,9 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int
 	text: str = Field(description='exact text/value')
+
+
+class SavePageAsPdfAction(BaseModel):
+	filename: str | None = Field(
+		default=None, description='Custom filename (without .pdf extension). Uses page title if not provided'
+	)

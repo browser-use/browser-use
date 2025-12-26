@@ -286,6 +286,15 @@ class ScrollToTextEvent(BaseEvent[None]):
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ScrollToTextEvent', 15.0))  # seconds
 
 
+class SavePageAsPdfEvent(BaseEvent[dict[str, Any]]):
+	"""Save the current page as PDF using CDP Page.printToPDF."""
+
+	filename: str | None = None
+	print_background: bool = True
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_SavePageAsPdfEvent', 30.0))  # seconds
+
+
 # ============================================================================
 
 

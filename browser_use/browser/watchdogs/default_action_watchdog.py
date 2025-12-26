@@ -13,6 +13,7 @@ from browser_use.browser.events import (
 	GoBackEvent,
 	GoForwardEvent,
 	RefreshEvent,
+	SavePageAsPdfEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
 	SelectDropdownOptionEvent,
@@ -151,6 +152,117 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			self.logger.warning(f'⚠️ Failed to generate PDF via CDP: {type(e).__name__}: {e}')
 			return None
+
+	async def _generate_pdf(self, filename: str | None = None, print_background: bool = True) -> dict | None:
+		"""Generate PDF of the current page via CDP Page.printToPDF.
+
+		Args:
+			filename: Custom filename without .pdf extension. Uses page title if not provided.
+			print_background: Whether to include page backgrounds.
+
+		Returns:
+			Metadata dict with path if successful, None otherwise
+		"""
+		try:
+			import base64
+			import os
+			import re
+			from pathlib import Path
+
+			# Get CDP session
+			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+
+			# Generate PDF using CDP Page.printToPDF
+			result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Page.printToPDF(
+					params={
+						'printBackground': print_background,
+						'preferCSSPageSize': True,
+					},
+					session_id=cdp_session.session_id,
+				),
+				timeout=25.0,  # 25 second timeout for PDF generation
+			)
+
+			pdf_data = result.get('data')
+			if not pdf_data:
+				self.logger.warning('⚠️ PDF generation returned no data')
+				return None
+
+			# Decode base64 PDF data
+			pdf_bytes = base64.b64decode(pdf_data)
+
+			# Get downloads path
+			downloads_path = self.browser_session.browser_profile.downloads_path
+			if not downloads_path:
+				self.logger.warning('⚠️ No downloads path configured, cannot save PDF')
+				return None
+
+			# Determine filename
+			if filename:
+				# Use provided filename, sanitize it
+				safe_filename = re.sub(r'[^\w\s-]', '', filename)[:50]
+				final_filename = f'{safe_filename}.pdf' if safe_filename else 'page.pdf'
+			else:
+				# Generate filename from page title
+				try:
+					page_title = await asyncio.wait_for(self.browser_session.get_current_page_title(), timeout=2.0)
+					safe_title = re.sub(r'[^\w\s-]', '', page_title)[:50]
+					final_filename = f'{safe_title}.pdf' if safe_title else 'page.pdf'
+				except Exception:
+					final_filename = 'page.pdf'
+
+			# Ensure downloads directory exists
+			downloads_dir = Path(downloads_path).expanduser().resolve()
+			downloads_dir.mkdir(parents=True, exist_ok=True)
+
+			# Generate unique filename if file exists
+			final_path = downloads_dir / final_filename
+			if final_path.exists():
+				base, ext = os.path.splitext(final_filename)
+				counter = 1
+				while (downloads_dir / f'{base} ({counter}){ext}').exists():
+					counter += 1
+				final_path = downloads_dir / f'{base} ({counter}){ext}'
+
+			# Write PDF to file
+			import anyio
+
+			async with await anyio.open_file(final_path, 'wb') as f:
+				await f.write(pdf_bytes)
+
+			file_size = final_path.stat().st_size
+			self.logger.info(f'✅ Generated PDF via CDP: {final_path} ({file_size:,} bytes)')
+
+			# Dispatch FileDownloadedEvent
+			from browser_use.browser.events import FileDownloadedEvent
+
+			page_url = await self.browser_session.get_current_page_url()
+			self.browser_session.event_bus.dispatch(
+				FileDownloadedEvent(
+					url=page_url,
+					path=str(final_path),
+					file_name=final_path.name,
+					file_size=file_size,
+					file_type='pdf',
+					mime_type='application/pdf',
+					auto_download=False,
+				)
+			)
+
+			return {'pdf_generated': True, 'path': str(final_path), 'file_size': file_size}
+
+		except TimeoutError:
+			self.logger.warning('⏱️ PDF generation timed out')
+			return None
+		except Exception as e:
+			self.logger.warning(f'⚠️ Failed to generate PDF via CDP: {type(e).__name__}: {e}')
+			return None
+
+	async def on_SavePageAsPdfEvent(self, event: SavePageAsPdfEvent) -> dict | None:
+		"""Handle save page as PDF request."""
+		self.logger.info('📄 Saving current page as PDF...')
+		return await self._generate_pdf(filename=event.filename, print_background=event.print_background)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='click_element_event')
 	async def on_ClickElementEvent(self, event: ClickElementEvent) -> dict | None:

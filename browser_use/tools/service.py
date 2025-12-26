@@ -44,6 +44,7 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	SavePageAsPdfAction,
 	ScrollAction,
 	SearchAction,
 	SelectDropdownOptionAction,
@@ -942,6 +943,39 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				extracted_content=memory,
 				metadata={'include_screenshot': True},
 			)
+
+		@self.registry.action(
+			'Save current page as PDF. Use when: user requests print/download/save page, need offline copy, archiving content, or creating PDF for sharing. Downloads PDF to browser downloads folder.',
+			param_model=SavePageAsPdfAction,
+		)
+		async def save_page_as_pdf(params: SavePageAsPdfAction, browser_session: BrowserSession):
+			"""Save the current page as PDF using CDP Page.printToPDF"""
+			from browser_use.browser.events import SavePageAsPdfEvent
+
+			try:
+				# Dispatch SavePageAsPdfEvent
+				event = browser_session.event_bus.dispatch(SavePageAsPdfEvent(filename=params.filename))
+				await event
+				result = await event.event_result(raise_if_any=True, raise_if_none=False)
+
+				if result and result.get('pdf_generated'):
+					path = result.get('path', 'unknown')
+					file_size = result.get('file_size', 0)
+					memory = f'Saved page as PDF: {path} ({file_size:,} bytes)'
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=memory,
+						long_term_memory=memory,
+						metadata=result,
+					)
+				else:
+					error_msg = 'Failed to save page as PDF - no result returned'
+					logger.warning(f'⚠️ {error_msg}')
+					return ActionResult(error=error_msg)
+			except Exception as e:
+				error_msg = f'Failed to save page as PDF: {str(e)}'
+				logger.error(f'❌ {error_msg}')
+				return ActionResult(error=error_msg)
 
 		# Dropdown Actions
 
