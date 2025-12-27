@@ -340,6 +340,7 @@ class BrowserContextArgs(BaseModel):
 	record_video_dir: str | Path | None = Field(
 		default=None, validation_alias=AliasChoices('save_recording_path', 'record_video_dir')
 	)
+	locale: str | None = None
 
 
 class BrowserConnectArgs(BaseModel):
@@ -591,6 +592,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
+	incognito: bool = Field(default=False, description='Enable incognito mode.')
+	extensions: list[str] = Field(default_factory=list, description='List of paths to extensions to load.')
 
 	# --- Proxy settings ---
 	# New consolidated proxy config (typed)
@@ -869,7 +872,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				if self.window_position
 				else []
 			),
-			*(self._get_extension_args() if self.enable_default_extensions else []),
+			*(self._get_extension_args() if self.enable_default_extensions or self.extensions else []),
 		]
 
 		# Proxy flags
@@ -884,6 +887,14 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		# User agent flag
 		if self.user_agent:
 			pre_conversion_args.append(f'--user-agent={self.user_agent}')
+
+		# Locale flag
+		if self.locale:
+			pre_conversion_args.append(f'--lang={self.locale}')
+
+		# Incognito flag
+		if self.incognito:
+			pre_conversion_args.append('--incognito')
 
 		# Special handling for --disable-features to merge values instead of overwriting
 		# This prevents disable_security=True from breaking extensions by ensuring
@@ -919,7 +930,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def _get_extension_args(self) -> list[str]:
 		"""Get Chrome args for enabling default extensions (ad blocker and cookie handler)."""
-		extension_paths = self._ensure_default_extensions_downloaded()
+		extension_paths = self.extensions.copy()
+		if self.enable_default_extensions:
+			extension_paths.extend(self._ensure_default_extensions_downloaded())
 
 		args = [
 			'--enable-extensions',
