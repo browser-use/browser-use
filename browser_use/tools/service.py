@@ -604,6 +604,44 @@ class Tools(Generic[Context]):
 
 		# Tab Management Actions
 
+		async def _get_page_title(browser_session: BrowserSession) -> str:
+			"""
+			Best-effort: return document.title of the currently active target/page.
+			Works for most normal pages; returns "" if not available.
+			"""
+			try:
+				# most setups have one of these:
+				if hasattr(browser_session, "must_get_current_page"):
+					page = await browser_session.must_get_current_page()
+				else:
+					page = await browser_session.get_current_page()
+
+				# Your Page.evaluate expects arrow-function style
+				title = await page.evaluate("() => document.title || ''")
+				return (title or "").strip()
+			except Exception:
+				return ""
+
+
+		async def _get_page_url(browser_session: BrowserSession) -> str:
+			"""
+			Best-effort: return current URL. Uses evaluate fallback if page.url isn't exposed.
+			"""
+			try:
+				if hasattr(browser_session, "must_get_current_page"):
+					page = await browser_session.must_get_current_page()
+				else:
+					page = await browser_session.get_current_page()
+
+				# some wrappers expose .url; some don't
+				url = getattr(page, "url", None)
+				if isinstance(url, str) and url:
+					return url
+
+				return (await page.evaluate("() => location.href || ''")).strip()
+			except Exception:
+				return ""
+
 		@self.registry.action(
 			'Switch to another open tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use when you need to work with content in a different tab.',
 			param_model=SwitchTabAction,
@@ -622,19 +660,25 @@ class Tools(Generic[Context]):
 				net_wait = getattr(browser_session, "wait_for_network_idle_page_load_time", 0) or 0
 				await asyncio.sleep(float(min_wait))
 				await asyncio.sleep(float(net_wait))
-				if new_target_id:
-					memory = f'Switched to tab #{new_target_id[-4:]}'
-				else:
-					memory = f'Switched to tab #{params.tab_id}'
+				title = await _get_page_title(browser_session)
+				url = await _get_page_url(browser_session)
 
-				logger.info(f'🔄  {memory}')
-				
+				_tab = f"tab {params.tab_id}"
+				if title and url:
+					_tab = f'"{title}" ({url})'
+				elif title:
+					_tab = f'"{title}"'
+				elif url:
+					_tab = f"({url})"
+				memory = f"🔄 Switched to {_tab}"
+				logger.info(memory)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
+				
 			except Exception as e:
 				logger.warning(f'Tab switch may have failed: {e}')
 				memory = f'Attempted to switch to tab #{params.tab_id}'
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
-
+				
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
 			param_model=CloseTabAction,
