@@ -12,7 +12,8 @@ from typing import Any
 
 from bubus import BaseEvent
 from bubus import EventBus as BubusEventBus
-from bubus.service import holds_global_lock, logger as bubus_logger
+from bubus.service import holds_global_lock
+from bubus.service import logger as bubus_logger
 
 
 class _InstanceReentrantLock:

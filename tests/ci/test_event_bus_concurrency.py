@@ -1,8 +1,9 @@
 import asyncio
 import time
 
-from browser_use.event_bus import EventBus
 from bubus import BaseEvent
+
+from browser_use.event_bus import EventBus
 
 
 class SleepEvent(BaseEvent[None]):
