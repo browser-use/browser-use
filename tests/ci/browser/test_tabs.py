@@ -28,6 +28,7 @@ from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from tests.ci.conftest import create_mock_llm
 
+
 @pytest.fixture(scope='session')
 def http_server():
 	"""Create and provide a test HTTP server for tab tests."""
@@ -81,6 +82,8 @@ def http_server():
 
 	yield server
 	server.stop()
+
+
 @pytest.fixture(scope='session')
 def base_url(http_server):
 	"""Return the base URL for the test HTTP server."""
