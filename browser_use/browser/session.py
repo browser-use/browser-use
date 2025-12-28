@@ -473,54 +473,90 @@ class BrowserSession(BaseModel):
 	def __str__(self) -> str:
 		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs}'
 
-	async def reset(self) -> None:
-		"""Clear all cached CDP sessions with proper cleanup."""
+	async def reset(self, keep_alive: bool = False) -> None:
+		"""Clear all cached CDP sessions with proper cleanup.
+
+		Args:
+			keep_alive: If True, preserve CDP connection and session manager for reuse.
+					   If False, fully reset all state including CDP connection.
+		"""
 
 		cdp_status = 'connected' if self._cdp_client_root else 'not connected'
 		session_mgr_status = 'exists' if self.session_manager else 'None'
 		self.logger.debug(
 			f'🔄 Resetting browser session (CDP: {cdp_status}, SessionManager: {session_mgr_status}, '
-			f'focus: {self.agent_focus_target_id[-4:] if self.agent_focus_target_id else "None"})'
+			f'focus: {self.agent_focus_target_id[-4:] if self.agent_focus_target_id else "None"}, '
+			f'keep_alive: {keep_alive})'
 		)
 
-		# Clear session manager (which owns _targets, _sessions, _target_sessions)
-		if self.session_manager:
-			await self.session_manager.clear()
-			self.session_manager = None
+		if keep_alive:
+			# When keep_alive=True, only clear caches and watchdogs but preserve CDP connection
+			self.logger.debug('⏸️  Partial reset: preserving CDP connection and session manager')
 
-		# Close CDP WebSocket before clearing to prevent stale event handlers
-		if self._cdp_client_root:
-			try:
-				await self._cdp_client_root.stop()
-				self.logger.debug('Closed CDP client WebSocket during reset')
-			except Exception as e:
-				self.logger.debug(f'Error closing CDP client during reset: {e}')
+			# Clear only cached state, not the CDP connection
+			self._cached_browser_state_summary = None
+			self._cached_selector_map.clear()
+			self._downloaded_files.clear()
 
-		self._cdp_client_root = None  # type: ignore
-		self._cached_browser_state_summary = None
-		self._cached_selector_map.clear()
-		self._downloaded_files.clear()
+			# Clear watchdogs but keep CDP connection alive
+			self._crash_watchdog = None
+			self._downloads_watchdog = None
+			self._aboutblank_watchdog = None
+			self._security_watchdog = None
+			self._storage_state_watchdog = None
+			self._local_browser_watchdog = None
+			self._default_action_watchdog = None
+			self._dom_watchdog = None
+			self._screenshot_watchdog = None
+			self._permissions_watchdog = None
+			self._recording_watchdog = None
+			if self._demo_mode:
+				self._demo_mode.reset()
+				self._demo_mode = None
 
-		self.agent_focus_target_id = None
-		if self.is_local:
-			self.browser_profile.cdp_url = None
+			self.logger.info('✅ Browser session partial reset complete (CDP connection preserved)')
+		else:
+			# Full reset: clear everything including CDP connection
+			self.logger.debug('🔄 Full reset: clearing all state including CDP connection')
 
-		self._crash_watchdog = None
-		self._downloads_watchdog = None
-		self._aboutblank_watchdog = None
-		self._security_watchdog = None
-		self._storage_state_watchdog = None
-		self._local_browser_watchdog = None
-		self._default_action_watchdog = None
-		self._dom_watchdog = None
-		self._screenshot_watchdog = None
-		self._permissions_watchdog = None
-		self._recording_watchdog = None
-		if self._demo_mode:
-			self._demo_mode.reset()
-			self._demo_mode = None
+			# Clear session manager (which owns _targets, _sessions, _target_sessions)
+			if self.session_manager:
+				await self.session_manager.clear()
+				self.session_manager = None
 
-		self.logger.info('✅ Browser session reset complete')
+			# Close CDP WebSocket before clearing to prevent stale event handlers
+			if self._cdp_client_root:
+				try:
+					await self._cdp_client_root.stop()
+					self.logger.debug('Closed CDP client WebSocket during reset')
+				except Exception as e:
+					self.logger.debug(f'Error closing CDP client during reset: {e}')
+
+			self._cdp_client_root = None  # type: ignore
+			self._cached_browser_state_summary = None
+			self._cached_selector_map.clear()
+			self._downloaded_files.clear()
+
+			self.agent_focus_target_id = None
+			if self.is_local:
+				self.browser_profile.cdp_url = None
+
+			self._crash_watchdog = None
+			self._downloads_watchdog = None
+			self._aboutblank_watchdog = None
+			self._security_watchdog = None
+			self._storage_state_watchdog = None
+			self._local_browser_watchdog = None
+			self._default_action_watchdog = None
+			self._dom_watchdog = None
+			self._screenshot_watchdog = None
+			self._permissions_watchdog = None
+			self._recording_watchdog = None
+			if self._demo_mode:
+				self._demo_mode.reset()
+				self._demo_mode = None
+
+			self.logger.info('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
@@ -595,8 +631,8 @@ class BrowserSession(BaseModel):
 
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
-		# Reset all state
-		await self.reset()
+		# Reset state but preserve CDP connection (keep_alive=True)
+		await self.reset(keep_alive=True)
 		# Create fresh event bus
 		self.event_bus = EventBus()
 
@@ -1807,6 +1843,17 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
 		except Exception as e:
 			self.logger.debug(f'Skipping proxy auth setup: {type(e).__name__}: {e}')
+
+	async def wait_for_tab_count(self, expected_count: int, timeout: float = 5.0, poll_interval: float = 0.05) -> list[TabInfo]:
+		"""Poll get_tabs() until the expected number of tabs is reached or timeout."""
+		loop = asyncio.get_event_loop()
+		deadline = loop.time() + timeout
+		while loop.time() < deadline:
+			tabs = await self.get_tabs()
+			if len(tabs) >= expected_count:
+				return tabs
+			await asyncio.sleep(poll_interval)
+		return await self.get_tabs()
 
 	async def get_tabs(self) -> list[TabInfo]:
 		"""Get information about all open tabs using cached target data."""

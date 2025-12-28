@@ -208,6 +208,7 @@ class TestMultiTabOperations:
 			task=f'Navigate to {base_url}/home, then open {base_url}/page1 and {base_url}/page2 in new tabs, then switch back to the first tab',
 			llm=mock_llm,
 			browser_session=browser_session,
+			use_judge=False,
 		)
 
 		# Run with timeout - should complete within 2 minutes
@@ -226,9 +227,12 @@ class TestMultiTabOperations:
 
 			assert len(history) >= 4, 'Agent should have completed at least 4 steps'
 
-			# Verify we have 3 tabs open
-			tabs = await browser_session.get_tabs()
-			assert len(tabs) >= 3, f'Should have at least 3 tabs open, got {len(tabs)}'
+			# Verify we have 3 tabs open by checking history
+			# (Agent.run() closes/resets the session upon completion, so we check cached history)
+			last_step = history.history[-1]
+			assert last_step.state is not None, 'Last step should have browser state'
+			tabs = last_step.state.tabs
+			assert len(tabs) >= 3, f'Should have at least 3 tabs open in final state, got {len(tabs)}'
 
 			# Verify agent completed successfully
 			final_result = history.final_result()
@@ -320,6 +324,7 @@ class TestMultiTabOperations:
 			llm=mock_llm,
 			browser_session=browser_session,
 			use_vision=True,  # Enable vision for this test
+			use_judge=False,
 		)
 
 		# Run with timeout - should complete within 2 minutes
@@ -398,6 +403,7 @@ class TestMultiTabOperations:
 			task=f'Navigate to {base_url}/home and open {base_url}/page1 in a new tab',
 			llm=mock_llm,
 			browser_session=browser_session,
+			use_judge=False,
 		)
 
 		# Run with timeout - this tests if browser state times out when new tabs open
@@ -421,10 +427,12 @@ class TestMultiTabOperations:
 			assert final_result is not None, 'Agent should return a final result'
 			assert 'Successfully' in final_result, 'Agent should report success'
 
-			# Verify we have at least 2 tabs
-			tabs = await browser_session.get_tabs()
-			print(f'  Final tab count: {len(tabs)}')
-			assert len(tabs) >= 2, f'Should have at least 2 tabs after opening background tab, got {len(tabs)}'
+			# Verify we have at least 2 tabs in history
+			last_step = history.history[-1]
+			assert last_step.state is not None, 'Last step should have browser state'
+			tabs = last_step.state.tabs
+			print(f'  Final tab count from history: {len(tabs)}')
+			assert len(tabs) >= 2, f'Should have at least 2 tabs in final state, got {len(tabs)}'
 
 		except TimeoutError:
 			pytest.fail('Test timed out after 2 minutes - browser state timed out after opening background tab')
@@ -526,6 +534,7 @@ class TestMultiTabOperations:
 			task='Open multiple tabs rapidly and verify browser state remains accessible',
 			llm=mock_llm,
 			browser_session=browser_session,
+			use_judge=False,
 		)
 
 		# Run with timeout - should complete within 2 minutes
@@ -533,9 +542,11 @@ class TestMultiTabOperations:
 			history = await asyncio.wait_for(agent.run(max_steps=5), timeout=120)
 			assert len(history) >= 4, 'Agent should have completed at least 4 steps'
 
-			# Verify we have 4 tabs open
-			tabs = await browser_session.get_tabs()
-			assert len(tabs) >= 4, f'Should have at least 4 tabs open, got {len(tabs)}'
+			# Verify we have 4 tabs open in history
+			last_step = history.history[-1]
+			assert last_step.state is not None, 'Last step should have browser state'
+			tabs = last_step.state.tabs
+			assert len(tabs) >= 4, f'Should have at least 4 tabs open in final state, got {len(tabs)}'
 
 			# Verify agent completed successfully
 			final_result = history.final_result()
@@ -656,6 +667,7 @@ class TestMultiTabOperations:
 			task='Create 3 tabs, switch to the second one, then close it',
 			llm=mock_llm,
 			browser_session=browser_session,
+			use_judge=False,
 		)
 
 		# Run with timeout - should complete within 2 minutes
