@@ -51,7 +51,12 @@ class _InstanceReentrantLock:
 		holds_global_lock.set(True)
 		return self
 
-	async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+	async def __aexit__(
+		self,
+		exc_type: type[BaseException] | None,
+		exc_val: BaseException | None,
+		exc_tb: Any,
+	) -> None:
 		current_task = asyncio.current_task()
 		if current_task is None or self._owner.get() is not current_task:
 			return
