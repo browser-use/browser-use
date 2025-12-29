@@ -27,32 +27,32 @@ License: MIT
 DOI: 10.5281/zenodo.18012025
 """
 
-from .attestation import (
-    SwiftAPIClient,
-    AttestationProvider,
-    SwiftAPIAttestationProvider,
-    NullAttestationProvider,
-    AttestationResult,
-    AttestationError,
-    PolicyViolationError,
-)
-from .tools import SwiftAPITools
 from .agent import SwiftAPIAgent
+from .attestation import (
+	AttestationError,
+	AttestationProvider,
+	AttestationResult,
+	NullAttestationProvider,
+	PolicyViolationError,
+	SwiftAPIAttestationProvider,
+	SwiftAPIClient,
+)
 from .config import SwiftAPIConfig
+from .tools import SwiftAPITools
 
 __all__ = [
-    # Core
-    "SwiftAPIClient",
-    "AttestationProvider",
-    "SwiftAPIAttestationProvider",
-    "NullAttestationProvider",
-    "AttestationResult",
-    "AttestationError",
-    "PolicyViolationError",
-    # High-level
-    "SwiftAPITools",
-    "SwiftAPIAgent",
-    "SwiftAPIConfig",
+	# Core
+	'SwiftAPIClient',
+	'AttestationProvider',
+	'SwiftAPIAttestationProvider',
+	'NullAttestationProvider',
+	'AttestationResult',
+	'AttestationError',
+	'PolicyViolationError',
+	# High-level
+	'SwiftAPITools',
+	'SwiftAPIAgent',
+	'SwiftAPIConfig',
 ]
 
-__version__ = "1.0.0"
+__version__ = '1.0.0'
