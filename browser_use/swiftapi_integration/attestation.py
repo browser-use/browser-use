@@ -10,7 +10,6 @@ Protocol: Ed25519 signatures, JTI-based replay prevention, policy-based authoriz
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -133,13 +132,6 @@ class SwiftAPIClient:
 	) -> dict[str, Any]:
 		"""Call SwiftAPI /verify endpoint."""
 		client = await self._get_client()
-
-		# Build action fingerprint (hash of action details)
-		action_data = {
-			'type': action_type,
-			'params': params,
-		}
-		action_fingerprint = hashlib.sha256(json.dumps(action_data, sort_keys=True).encode()).hexdigest()
 
 		# Build request payload
 		payload = {

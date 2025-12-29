@@ -233,8 +233,10 @@ class SwiftAPITools(Tools, Generic[Context]):
 		If attestation fails, the action is blocked and an error is returned.
 		"""
 		# Extract the action name and params
+		action_found = False
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
+				action_found = True
 				# Check if this action requires attestation
 				if self._requires_attestation(action_name):
 					try:
@@ -243,8 +245,8 @@ class SwiftAPITools(Tools, Generic[Context]):
 						if browser_session:
 							try:
 								page_url = await browser_session.get_current_page_url()
-							except Exception:
-								pass
+							except Exception as e:
+								logger.debug(f'[SwiftAPI] Could not get page URL: {e}')
 
 						# Get attestation
 						attestation = await self._get_attestation(
@@ -274,6 +276,12 @@ class SwiftAPITools(Tools, Generic[Context]):
 						logger.debug(f'[SwiftAPI] Passthrough (read-only): {action_name}')
 
 				break  # Only one action per ActionModel
+
+		# Fail-closed: if no valid action found, block execution
+		if not action_found:
+			error_msg = 'No valid action found in request - execution blocked'
+			logger.warning(f'\033[31m[SwiftAPI]\033[0m {error_msg}')
+			return ActionResult(error=error_msg)
 
 		# Call parent act() method if attestation passed
 		return await super().act(  # type: ignore[reportAttributeAccessIssue]
