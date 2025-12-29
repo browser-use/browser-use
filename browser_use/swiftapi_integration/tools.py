@@ -164,7 +164,6 @@ class SwiftAPITools(Tools, Generic[Context]):
             self._attestation_provider = None
 
         self._attest_all_actions = attest_all_actions
-        self._attestation_cache: Dict[str, AttestationResult] = {}
 
     def _requires_attestation(self, action_name: str) -> bool:
         """Check if an action requires attestation."""

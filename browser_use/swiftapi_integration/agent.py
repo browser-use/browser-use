@@ -98,7 +98,7 @@ class SwiftAPIAgent(Agent, Generic[Context, AgentStructuredOutput]):
                     attestation_provider=attestation_provider,
                     attest_all_actions=attest_all_actions,
                 )
-                # Copy registry from provided tools
+                # Share registry reference (intentional - tools should see same actions)
                 swiftapi_tools.registry = provided_tools.registry
         else:
             # Create new SwiftAPI-enabled tools

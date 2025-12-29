@@ -7,7 +7,7 @@ Every browser action (click, type, navigate, etc.) requires cryptographic author
 before execution.
 
 Usage:
-    from swiftapi_integration import SwiftAPITools, SwiftAPIAgent
+    from browser_use.swiftapi_integration import SwiftAPITools, SwiftAPIAgent
 
     # Option 1: Use SwiftAPI-enabled Tools
     tools = SwiftAPITools(swiftapi_key="swiftapi_live_...")

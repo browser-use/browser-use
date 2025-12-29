@@ -189,9 +189,14 @@ class SwiftAPIClient:
     async def get_info(self) -> Dict[str, Any]:
         """Get SwiftAPI authority info."""
         client = await self._get_client()
-        response = await client.get("/")
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = await client.get("/")
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            raise AttestationError(f"SwiftAPI error: {e.response.status_code}")
+        except httpx.RequestError as e:
+            raise AttestationError(f"SwiftAPI unreachable: {e}")
 
 
 class SwiftAPIAttestationProvider(AttestationProvider):
