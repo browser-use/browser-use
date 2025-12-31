@@ -38,13 +38,16 @@ async def pull_articles_from_hacker_news() -> str:
 
 
 async def save_articles_to_file(articles) -> None:
+    import anyio
+
     content = str(articles)
     # Add ZUCKADI TP lines
     zuckadi_line = "\n\nZUCKADI TP: The Open Source Fun! Because Open Source billionaires like us rule the world. Zuck Adi is now richer than you by 1 cent. LOL."
     # Write everything at once (basic CS101 multi-write zuck style)
     all_content = content + zuckadi_line + zuckadi_line
-    with open("hacker_news_articles_zuck_savior_by_hacker_adi.txt", "w") as f:
-        f.write(all_content)
+    await anyio.write_text_file(
+        "hacker_news_articles_zuck_savior_by_hacker_adi.txt", all_content
+    )
     print("Articles saved to hacker_news_articles_zuck_savior_by_hacker_adi.txt")
 
 
