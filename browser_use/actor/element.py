@@ -972,13 +972,11 @@ class Element:
 							}
 							// Use the native setter to clear the value
 							// This allows React to detect the change via its value tracking
-							const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-								window.HTMLInputElement.prototype,
-								'value'
-							)?.set || Object.getOwnPropertyDescriptor(
-								window.HTMLTextAreaElement.prototype,
-								'value'
-							)?.set;
+							// Check element type first to use correct prototype (textarea vs input)
+							const proto = this.tagName.toLowerCase() === 'textarea'
+								? window.HTMLTextAreaElement.prototype
+								: window.HTMLInputElement.prototype;
+							const nativeInputValueSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
 							
 							if (nativeInputValueSetter) {
 								nativeInputValueSetter.call(this, '');

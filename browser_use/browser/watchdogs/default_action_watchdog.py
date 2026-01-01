@@ -1093,13 +1093,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 								}
 								// Use the native setter to clear the value
 								// This allows React to detect the change via its value tracking
-								const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-									window.HTMLInputElement.prototype,
-									'value'
-								)?.set || Object.getOwnPropertyDescriptor(
-									window.HTMLTextAreaElement.prototype,
-									'value'
-								)?.set;
+								// Check element type first to use correct prototype (textarea vs input)
+								const proto = this.tagName.toLowerCase() === 'textarea'
+									? window.HTMLTextAreaElement.prototype
+									: window.HTMLInputElement.prototype;
+								const nativeInputValueSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
 								
 								if (nativeInputValueSetter) {
 									nativeInputValueSetter.call(this, '');
@@ -1396,13 +1394,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 				// REACT-COMPATIBLE VALUE SETTING:
 				// React uses Object.getOwnPropertyDescriptor to track input changes
 				// We need to use the native setter to bypass React's tracking and then trigger events
-				const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-					window.HTMLInputElement.prototype,
-					'value'
-				).set;
+				// Check element type first to use correct prototype (textarea vs input)
+				const proto = this.tagName.toLowerCase() === 'textarea'
+					? window.HTMLTextAreaElement.prototype
+					: window.HTMLInputElement.prototype;
+				const nativeInputValueSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
 
 				// Set the value using the native setter (bypasses React's control)
-				nativeInputValueSetter.call(this, {json.dumps(text)});
+				if (nativeInputValueSetter) {{
+					nativeInputValueSetter.call(this, {json.dumps(text)});
+				}} else {{
+					this.value = {json.dumps(text)};
+				}}
 
 				// Use focus/blur cycle instead of synthetic events
 				// Synthetic events have isTrusted: false which leaks automation detection
