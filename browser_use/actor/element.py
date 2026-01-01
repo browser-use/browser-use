@@ -952,6 +952,10 @@ class Element:
 		"""Clear text field using multiple strategies, starting with the most reliable."""
 		try:
 			# Strategy 1: Direct JavaScript value setting (most reliable for modern web apps)
+			# Note: We avoid dispatching synthetic input/change events because they have
+			# isTrusted: false which leaks automation detection. Instead, we rely on
+			# the native setter which React and other frameworks can detect via
+			# Object.getOwnPropertyDescriptor tracking.
 			logger.debug('Clearing text field using JavaScript value setting')
 
 			await cdp_client.send.Runtime.callFunctionOn(
@@ -966,11 +970,27 @@ class Element:
 								// Some input types (date, color, number, etc.) don't support select()
 								// That's fine, we'll just clear the value directly
 							}
-							// Set value to empty
-							this.value = "";
-							// Dispatch events to notify frameworks like React
-							this.dispatchEvent(new Event("input", { bubbles: true }));
-							this.dispatchEvent(new Event("change", { bubbles: true }));
+							// Use the native setter to clear the value
+							// This allows React to detect the change via its value tracking
+							const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+								window.HTMLInputElement.prototype,
+								'value'
+							)?.set || Object.getOwnPropertyDescriptor(
+								window.HTMLTextAreaElement.prototype,
+								'value'
+							)?.set;
+							
+							if (nativeInputValueSetter) {
+								nativeInputValueSetter.call(this, '');
+							} else {
+								this.value = '';
+							}
+							
+							// Trigger blur to signal completion - blur events are less commonly
+							// checked for isTrusted and help frameworks recognize state changes
+							this.blur();
+							this.focus();
+							
 							return this.value;
 						}
 					""",

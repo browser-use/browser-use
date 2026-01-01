@@ -1078,9 +1078,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 								selection.removeAllRanges();
 								selection.addRange(range);
 
-								// Dispatch events
-								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
+								// Use blur/focus cycle instead of synthetic events
+								// Synthetic events have isTrusted: false which leaks automation
+								this.blur();
+								this.focus();
 
 								return {cleared: true, method: 'contenteditable', finalText: this.textContent};
 							} else if (this.value !== undefined) {
@@ -1090,9 +1091,26 @@ class DefaultActionWatchdog(BaseWatchdog):
 								} catch (e) {
 									// ignore
 								}
-								this.value = "";
-								this.dispatchEvent(new Event("input", { bubbles: true }));
-								this.dispatchEvent(new Event("change", { bubbles: true }));
+								// Use the native setter to clear the value
+								// This allows React to detect the change via its value tracking
+								const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+									window.HTMLInputElement.prototype,
+									'value'
+								)?.set || Object.getOwnPropertyDescriptor(
+									window.HTMLTextAreaElement.prototype,
+									'value'
+								)?.set;
+								
+								if (nativeInputValueSetter) {
+									nativeInputValueSetter.call(this, '');
+								} else {
+									this.value = '';
+								}
+								
+								// Use blur/focus cycle instead of synthetic events
+								this.blur();
+								this.focus();
+								
 								return {cleared: true, method: 'value', finalText: this.value};
 							} else {
 								return {cleared: false, method: 'none', error: 'Not a supported input type'};
@@ -1386,23 +1404,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 				// Set the value using the native setter (bypasses React's control)
 				nativeInputValueSetter.call(this, {json.dumps(text)});
 
-				// Dispatch comprehensive events to ensure all frameworks detect the change
-				// Order matters: focus -> input -> change -> blur (mimics user interaction)
-
-				// 1. Focus event (in case element isn't focused)
-				this.dispatchEvent(new FocusEvent('focus', {{ bubbles: true }}));
-
-				// 2. Input event (CRITICAL for React onChange)
-				// React listens to 'input' events on the document and checks for value changes
-				const inputEvent = new Event('input', {{ bubbles: true, cancelable: true }});
-				this.dispatchEvent(inputEvent);
-
-				// 3. Change event (for form handling, traditional listeners)
-				const changeEvent = new Event('change', {{ bubbles: true, cancelable: true }});
-				this.dispatchEvent(changeEvent);
-
-				// 4. Blur event (triggers final validation in some libraries)
-				this.dispatchEvent(new FocusEvent('blur', {{ bubbles: true }}));
+				// Use focus/blur cycle instead of synthetic events
+				// Synthetic events have isTrusted: false which leaks automation detection
+				// The native value setter allows React to detect changes via its value tracking
+				// Focus/blur events are less commonly checked for isTrusted
+				this.focus();
+				this.blur();
 
 				// 5. jQuery-specific events (if jQuery is present)
 				if (typeof jQuery !== 'undefined' && jQuery.fn) {{
@@ -1650,90 +1657,49 @@ class DefaultActionWatchdog(BaseWatchdog):
 		"""
 		Trigger framework-aware DOM events after text input completion.
 
-		This is critical for modern JavaScript frameworks (React, Vue, Angular, etc.)
-		that rely on DOM events to update their internal state and trigger re-renders.
+		This method triggers only focus/blur events to help frameworks recognize
+		input completion. We intentionally avoid dispatching synthetic input/change
+		events because:
+
+		1. CDP's Input.dispatchKeyEvent and Input.insertText already generate
+		   trusted events (isTrusted: true) that frameworks respond to.
+		2. Synthetic events created via new Event() or new InputEvent() have
+		   isTrusted: false, which is a clear automation detection signal.
+		3. The Object.defineProperty trick to spoof isTrusted doesn't work in
+		   modern browsers - the property remains false.
+
+		By relying on CDP's native input methods for the actual input events,
+		we avoid leaking automation signals while still maintaining framework
+		compatibility.
 
 		Args:
 			object_id: CDP object ID of the input element
 			cdp_session: CDP session for the element's context
 		"""
 		try:
-			# Execute JavaScript to trigger comprehensive event sequence
+			# Execute JavaScript to trigger only focus/blur events
+			# These are less commonly checked for isTrusted and help frameworks
+			# recognize that input has completed
 			framework_events_script = """
 			function() {
-				// Find the target element (available as 'this' when using objectId)
 				const element = this;
 				if (!element) return false;
 
-				// Ensure element is focused
-				element.focus();
-
-				// Comprehensive event sequence for maximum framework compatibility
-				const events = [
-					// Input event - primary event for React controlled components
-					{ type: 'input', bubbles: true, cancelable: true },
-					// Change event - important for form validation and Vue v-model
-					{ type: 'change', bubbles: true, cancelable: true },
-					// Blur event - triggers validation in many frameworks
-					{ type: 'blur', bubbles: true, cancelable: true }
-				];
-
 				let success = true;
 
-				events.forEach(eventConfig => {
-					try {
-						const event = new Event(eventConfig.type, {
-							bubbles: eventConfig.bubbles,
-							cancelable: eventConfig.cancelable
-						});
+				try {
+					// Ensure element is focused - this helps frameworks track the active element
+					element.focus();
 
-						// Special handling for InputEvent (more specific than Event)
-						if (eventConfig.type === 'input') {
-							const inputEvent = new InputEvent('input', {
-								bubbles: true,
-								cancelable: true,
-								data: element.value,
-								inputType: 'insertText'
-							});
-							element.dispatchEvent(inputEvent);
-						} else {
-							element.dispatchEvent(event);
-						}
-					} catch (e) {
-						success = false;
-						console.warn('Framework event dispatch failed:', eventConfig.type, e);
-					}
-				});
-
-				// Special React synthetic event handling
-				// React uses internal fiber properties for event system
-				if (element._reactInternalFiber || element._reactInternalInstance || element.__reactInternalInstance) {
-					try {
-						// Trigger React's synthetic event system
-						const syntheticInputEvent = new InputEvent('input', {
-							bubbles: true,
-							cancelable: true,
-							data: element.value
-						});
-
-						// Force React to process this as a synthetic event
-						Object.defineProperty(syntheticInputEvent, 'isTrusted', { value: true });
-						element.dispatchEvent(syntheticInputEvent);
-					} catch (e) {
-						console.warn('React synthetic event failed:', e);
-					}
-				}
-
-				// Special Vue reactivity trigger
-				// Vue uses __vueParentComponent or __vue__ for component access
-				if (element.__vue__ || element._vnode || element.__vueParentComponent) {
-					try {
-						// Vue often needs explicit input event with proper timing
-						const vueEvent = new Event('input', { bubbles: true });
-						setTimeout(() => element.dispatchEvent(vueEvent), 0);
-					} catch (e) {
-						console.warn('Vue reactivity trigger failed:', e);
-					}
+					// Trigger blur to signal input completion
+					// Many frameworks use blur to trigger validation and state updates
+					// Note: We don't dispatch synthetic input/change events because:
+					// 1. CDP's native input methods already generate trusted events
+					// 2. Synthetic events have isTrusted: false which leaks automation
+					element.blur();
+				} catch (e) {
+					success = false;
+					console.warn('Framework focus/blur failed:', e);
 				}
 
 				return success;
@@ -2637,16 +2603,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 									element.value = option.value;
 									option.selected = true;
 
-									// Trigger all necessary events for reactive frameworks
-									// 1. input event - critical for Vue's v-model and Svelte's bind:value
-									const inputEvent = new Event('input', { bubbles: true, cancelable: true });
-									element.dispatchEvent(inputEvent);
-
-									// 2. change event - traditional form validation and framework reactivity
+									// Trigger change event for reactive frameworks
+									// NOTE: We must use synthetic change event here because there's no
+									// CDP method for interacting with <select> elements directly.
+									// This is lower-risk for isTrusted detection since select changes
+									// are less commonly monitored than text input events.
 									const changeEvent = new Event('change', { bubbles: true, cancelable: true });
 									element.dispatchEvent(changeEvent);
 
-									// 3. blur event - completes the interaction, triggers validation
+									// Blur completes the interaction and triggers validation
 									element.blur();
 
 									return {
@@ -2693,10 +2658,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 										item.setAttribute('aria-selected', 'true');
 										item.classList.add('selected');
 
-										// Trigger click and change events
+										// Use item.click() which generates a trusted click event
+										// Synthetic MouseEvent would have isTrusted: false
 										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
 
 										return {
 											success: true,
@@ -2745,12 +2709,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 											textElement.textContent = item.textContent.trim();
 										}
 
-										// Trigger click and change events
+										// Use item.click() which generates a trusted click event
+										// Synthetic MouseEvent would have isTrusted: false
 										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
 
-										// Also dispatch on the main dropdown element
+										// Note: Synthetic change event kept for dropdown element as it's
+										// less commonly monitored for isTrusted than input events
 										const dropdownChangeEvent = new Event('change', { bubbles: true });
 										element.dispatchEvent(dropdownChangeEvent);
 
