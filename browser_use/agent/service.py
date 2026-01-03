@@ -31,7 +31,7 @@ from browser_use.tokens.service import TokenCost
 
 load_dotenv()
 
-from bubus import EventBus
+from browser_use.event_bus import EventBus
 from pydantic import BaseModel, ValidationError
 from uuid_extensions import uuid7str
 
