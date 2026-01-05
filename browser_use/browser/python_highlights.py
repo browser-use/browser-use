@@ -371,7 +371,7 @@ def process_element_highlight(
 
 		# Skip if bounding box is too small or invalid
 		if x2 - x1 < 2 or y2 - y1 < 2:
-			print(f"Skipping small element {x1},{y1},{x2},{y2}")
+			logger.debug(f'Skipping small element {x1},{y1},{x2},{y2}')
 			return
 
 		# Get element color based on type
