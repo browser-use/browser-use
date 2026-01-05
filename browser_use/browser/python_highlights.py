@@ -354,6 +354,7 @@ def process_element_highlight(
 
 		bounds = element.absolute_position
 
+
 		# Scale coordinates from CSS pixels to device pixels for screenshot
 		# The screenshot is captured at device pixel resolution, but coordinates are in CSS pixels
 		x1 = int(bounds.x * device_pixel_ratio)
@@ -370,6 +371,7 @@ def process_element_highlight(
 
 		# Skip if bounding box is too small or invalid
 		if x2 - x1 < 2 or y2 - y1 < 2:
+			print(f"Skipping small element {x1},{y1},{x2},{y2}")
 			return
 
 		# Get element color based on type
@@ -388,8 +390,8 @@ def process_element_highlight(
 			if filter_highlight_ids:
 				# Use the meaningful text that matches what the LLM sees
 				meaningful_text = element.get_meaningful_text_for_llm()
-				# Show ID only if meaningful text is less than 5 characters
-				if len(meaningful_text) < 3:
+				# Show ID only if meaningful text is less than 50 characters
+				if len(meaningful_text) < 50:
 					index_text = str(backend_node_id)
 			else:
 				# Always show ID when filter is disabled
