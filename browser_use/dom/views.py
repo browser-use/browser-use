@@ -77,6 +77,10 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'live',
 	# Accessibility name (contains text content for StaticText elements)
 	'ax_name',
+	# Custom attributes for action prioritization (e.g. Jarvis)
+	'jarvis-type',
+	'jarvis-label',
+	'jarvis-model-id',
 ]
 
 STATIC_ATTRIBUTES = {
@@ -129,6 +133,10 @@ STATIC_ATTRIBUTES = {
 	'aria-valuemax',
 	'aria-valuenow',
 	'aria-placeholder',
+	# Custom attributes for action prioritization
+	'jarvis-type',
+	'jarvis-label',
+	'jarvis-model-id',
 }
 
 # Class patterns that indicate dynamic/transient UI state - excluded from stable hash
