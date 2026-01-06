@@ -43,7 +43,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
 
 	def _sample_typing_delay(self) -> float:
-		return random.uniform(*getattr(self, "typing_delay_range", (0.05, 0.15)))
+		return random.uniform(
+			self.browser_session.browser_profile.typing_delay_min,
+			self.browser_session.browser_profile.typing_delay_max,
+		)
 
 	def _is_print_related_element(self, element_node: EnhancedDOMTreeNode) -> bool:
 		"""Check if an element is related to printing (print buttons, print dialogs, etc.).
