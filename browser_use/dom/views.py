@@ -509,6 +509,38 @@ class EnhancedDOMTreeNode:
 		except ValueError:
 			return 0
 
+	def _escape_css_identifier(self, value: str) -> str:
+		"""Escape special CSS characters in identifiers.
+		
+		Implements CSS.escape() equivalent for Python to handle special characters
+		in IDs and class names that have special meaning in CSS selectors.
+		"""
+		if not value:
+			return value
+		
+		result = []
+		for i, char in enumerate(value):
+			code = ord(char)
+			
+			# NULL character
+			if code == 0:
+				result.append('\ufffd')
+			# Control characters or first char is digit
+			elif (0x1 <= code <= 0x1F) or code == 0x7F or (i == 0 and 0x30 <= code <= 0x39):
+				result.append(f'\\{code:x} ')
+			# First char is hyphen and only char
+			elif i == 0 and char == '-' and len(value) == 1:
+				result.append(f'\\{char}')
+			# Safe characters: letters, digits, hyphen, underscore, non-ASCII
+			elif (code >= 0x80 or char == '-' or char == '_' or 
+				  (0x30 <= code <= 0x39) or (0x41 <= code <= 0x5A) or (0x61 <= code <= 0x7A)):
+				result.append(char)
+			# Special CSS characters that need escaping
+			else:
+				result.append(f'\\{char}')
+		
+		return ''.join(result)
+
 	@property
 	def css_selector(self) -> str:
 		"""Generate CSS selector for this element.
@@ -528,12 +560,14 @@ class EnhancedDOMTreeNode:
 			
 			# Add ID if present (makes selector more specific)
 			if current_element.attributes and 'id' in current_element.attributes:
-				selector += f"#{current_element.attributes['id']}"
+				escaped_id = current_element._escape_css_identifier(current_element.attributes['id'])
+				selector += f"#{escaped_id}"
 			# Add first class if no ID (for specificity)
 			elif current_element.attributes and 'class' in current_element.attributes:
 				classes = current_element.attributes['class'].split()
 				if classes:
-					selector += f".{classes[0]}"
+					escaped_class = current_element._escape_css_identifier(classes[0])
+					selector += f".{escaped_class}"
 			
 			# Add nth-child if needed for uniqueness
 			if current_element.parent_node:
