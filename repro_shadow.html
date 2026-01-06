@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <h1>Shadow DOM Reproduction #3813</h1>
+    <div id="host"></div>
+    <script>
+        const host = document.querySelector('#host');
+        const shadow = host.attachShadow({ mode: 'open' });
+
+        const button = document.createElement('button');
+        button.textContent = 'Shadow Button';
+        button.onclick = () => {
+            console.log('Shadow button clicked!');
+            button.textContent = 'Clicked!';
+            button.style.backgroundColor = 'green';
+        };
+
+        shadow.appendChild(button);
+    </script>
+</body>
+
+</html>

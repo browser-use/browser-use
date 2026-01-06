@@ -1,0 +1,47 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reproduction Case #3753</title>
+    <style>
+        .ant-btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #1890ff;
+            color: white;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 10px;
+        }
+        label.custom-label {
+            display: block;
+            margin: 10px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Issue #3753 Reproduction</h1>
+    
+    <!-- Standard Button (Should work) -->
+    <button onclick="console.log('Button clicked!')">Standard Button</button>
+    
+    <!-- Ant Design style span button -->
+    <span class="ant-btn" onclick="console.log('Span clicked!')">
+        Ant Design Span Button
+    </span>
+    
+    <!-- Semantic Label acting as button -->
+    <label class="custom-label" onclick="console.log('Label clicked!')">
+        Clickable Label
+    </label>
+    
+    <!-- Div acting as button -->
+    <div role="button" tabindex="0" onclick="console.log('Div button clicked!')" style="border:1px solid red; padding:10px; display:inline-block; cursor:pointer;">
+        Div Role=Button
+    </div>
+
+</body>
+</html>
