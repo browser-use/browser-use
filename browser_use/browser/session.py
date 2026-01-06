@@ -1337,6 +1337,22 @@ class BrowserSession(BaseModel):
 		# The handler returns the BrowserStateSummary directly
 		result = await event.event_result(raise_if_none=True, raise_if_any=True)
 		assert result is not None and result.dom_state is not None
+
+		# Check for anti-bot challenges (e.g. Cloudflare)
+		challenge_titles = [
+			'Just a moment...',
+			'Verify you are human',
+			'Cloudflare',
+			'Checking your browser',
+			'Access denied',
+			'Attention Required!',
+			'Un instant...',
+			'Vérifiez que vous êtes un humain',
+			'Vérification de sécurité',
+		]
+		if any(title.lower() in result.title.lower() for title in challenge_titles) or 'checkpoint' in result.url.lower():
+			self.logger.warning(f'Detected likely anti-bot challenge: "{result.title}" at {result.url}')
+
 		return result
 
 	async def get_state_as_text(self) -> str:
@@ -1896,8 +1912,15 @@ class BrowserSession(BaseModel):
 	async def get_current_page_title(self) -> str:
 		"""Get the title of the current page."""
 		if self.agent_focus_target_id:
-			target = self.session_manager.get_target(self.agent_focus_target_id)
-			return target.title
+			try:
+				session = await self.get_or_create_cdp_session()
+				info = await session.cdp_client.send.Target.getTargetInfo(
+					params={'targetId': self.agent_focus_target_id}
+				)
+				return info.get('targetInfo', {}).get('title', 'Unknown title')
+			except Exception:
+				target = self.session_manager.get_target(self.agent_focus_target_id)
+				return target.title if target else 'Unknown page title'
 		return 'Unknown page title'
 
 	async def navigate_to(self, url: str, new_tab: bool = False) -> None:
