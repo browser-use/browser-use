@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -8,30 +9,31 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
+from browser_use import ChatOpenAI
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 
 browser_session = BrowserSession(
 	browser_profile=BrowserProfile(
-		disable_security=True,
+		keep_alive=True,
 		headless=False,
-		save_recording_path='./tmp/recordings',
+		record_video_dir=Path('./tmp/recordings'),
 		user_data_dir='~/.config/browseruse/profiles/default',
 	)
 )
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1-mini')
 
 
+# NOTE: This is experimental - you will have multiple agents running in the same browser session
 async def main():
+	await browser_session.start()
 	agents = [
 		Agent(task=task, llm=llm, browser_session=browser_session)
 		for task in [
 			'Search Google for weather in Tokyo',
 			'Check Reddit front page title',
 			'Look up Bitcoin price on Coinbase',
-			'Find NASA image of the day',
+			# 'Find NASA image of the day',
 			# 'Check top story on CNN',
 			# 'Search latest SpaceX launch date',
 			# 'Look up population of Paris',
@@ -41,16 +43,8 @@ async def main():
 		]
 	]
 
-	await asyncio.gather(*[agent.run() for agent in agents])
-
-	agentX = Agent(
-		task='Go to apple.com and return the title of the page',
-		llm=llm,
-		browser_session=browser_session,
-	)
-	await agentX.run()
-
-	await browser_session.close()
+	print(await asyncio.gather(*[agent.run() for agent in agents]))
+	await browser_session.kill()
 
 
 if __name__ == '__main__':

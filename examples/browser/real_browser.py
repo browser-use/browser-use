@@ -8,31 +8,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
+from browser_use import Agent, Browser, ChatGoogle
 
-from browser_use import Agent
-from browser_use.browser import BrowserProfile, BrowserSession
-
-browser_profile = BrowserProfile(
-	# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
+# Connect to your existing Chrome browser
+browser = Browser(
 	executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	user_data_dir='~/.config/browseruse/profiles/default',
-	headless=False,
+	user_data_dir='~/Library/Application Support/Google/Chrome',
+	profile_directory='Default',
 )
-browser_session = BrowserSession(browser_profile=browser_profile)
 
 
+# NOTE: You have to close all Chrome browsers before running this example so that we can launch chrome in debug mode.
 async def main():
+	# save storage state
 	agent = Agent(
-		task='Find todays DOW stock price',
-		llm=ChatOpenAI(model='gpt-4o'),
-		browser_session=browser_session,
+		llm=ChatGoogle(model='gemini-flash-latest'),
+		# Google blocks this approach, so we use a different search engine
+		task='go to amazon.com and search for pens to draw on whiteboards',
+		browser=browser,
 	)
-
 	await agent.run()
-	await browser_session.close()
-
-	input('Press Enter to close...')
 
 
 if __name__ == '__main__':

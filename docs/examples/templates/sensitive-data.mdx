@@ -1,0 +1,46 @@
+---
+title: "Sensitive Data"
+description: "Handle secret information securely and avoid sending PII & passwords to the LLM."
+icon: "shield"
+mode: "wide"
+---
+
+
+```python
+import os
+from browser_use import Agent, Browser, ChatOpenAI
+os.environ['ANONYMIZED_TELEMETRY'] = "false"
+
+
+company_credentials = {'x_user': 'your-real-username@email.com', 'x_pass': 'your-real-password123'}
+
+# Option 1: Secrets available for all websites
+sensitive_data = company_credentials
+
+# Option 2: Secrets per domain with regex
+# sensitive_data = {
+#     'https://*.example-staging.com': company_credentials,
+#     'http*://test.example.com': company_credentials,
+#     'https://example.com': company_credentials,
+#     'https://google.com': {'g_email': 'user@gmail.com', 'g_pass': 'google_password'},
+# }
+
+
+agent = Agent(
+    task='Log into example.com with username x_user and password x_pass',
+    sensitive_data=sensitive_data,
+    use_vision=False,  #  Disable vision to prevent LLM seeing sensitive data in screenshots
+    llm=ChatOpenAI(model='gpt-4.1-mini'),
+)
+async def main():
+await agent.run()
+```
+
+## How it Works
+1. **Text Filtering**: The LLM only sees placeholders (`x_user`, `x_pass`), we filter your sensitive data from the input text.
+2. **DOM Actions**: Real values are injected directly into form fields after the LLM call
+
+## Best Practices
+- Use `Browser(allowed_domains=[...])` to restrict navigation
+- Set `use_vision=False` to prevent screenshot leaks  
+- Use `storage_state='./auth.json'` for login cookies instead of passwords when possible

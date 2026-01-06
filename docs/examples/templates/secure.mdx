@@ -1,0 +1,65 @@
+---
+title: "Secure Setup"
+description: "Azure OpenAI with data privacy and security configuration."
+icon: "shield-check"
+mode: "wide"
+---
+
+## Secure Setup with Azure OpenAI
+
+Enterprise-grade security with Azure OpenAI, data privacy protection, and restricted browser access.
+
+```python
+import asyncio
+import os
+from dotenv import load_dotenv
+load_dotenv()
+os.environ['ANONYMIZED_TELEMETRY'] = 'false'
+from browser_use import Agent, BrowserProfile, ChatAzureOpenAI
+
+# Azure OpenAI configuration
+api_key = os.getenv('AZURE_OPENAI_KEY')
+azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+llm = ChatAzureOpenAI(model='gpt-4.1-mini', api_key=api_key, azure_endpoint=azure_endpoint)
+
+# Secure browser configuration
+browser_profile = BrowserProfile(
+    allowed_domains=['*google.com', 'browser-use.com'], 
+    enable_default_extensions=False
+)
+
+# Sensitive data filtering
+sensitive_data = {'company_name': 'browser-use'}
+
+# Create secure agent
+agent = Agent(
+    task='Find the founders of the sensitive company_name',
+    llm=llm,
+    browser_profile=browser_profile,
+    sensitive_data=sensitive_data
+)
+
+async def main():
+    await agent.run(max_steps=10)
+
+asyncio.run(main())
+```
+
+## Security Features
+
+**Azure OpenAI:**
+- NOT used to train OpenAI models
+- NOT shared with other customers  
+- Hosted entirely within Azure
+- 30-day retention (or zero with Limited Access Program)
+
+**Browser Security:**
+- `allowed_domains`: Restrict navigation to trusted sites
+- `enable_default_extensions=False`: Disable potentially dangerous extensions
+- `sensitive_data`: Filter sensitive information from LLM input
+
+
+
+<Note>
+For enterprise deployments contact support@browser-use.com.
+</Note>

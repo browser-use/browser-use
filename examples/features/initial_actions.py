@@ -8,16 +8,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
-from browser_use import Agent
-
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1-mini')
 
 initial_actions = [
-	{'open_tab': {'url': 'https://www.google.com'}},
-	{'open_tab': {'url': 'https://en.wikipedia.org/wiki/Randomness'}},
-	{'scroll_down': {'amount': 1000}},
+	{'navigate': {'url': 'https://www.google.com', 'new_tab': True}},
+	{'navigate': {'url': 'https://en.wikipedia.org/wiki/Randomness', 'new_tab': True}},
 ]
 agent = Agent(
 	task='What theories are displayed on the page?',

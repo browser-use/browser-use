@@ -18,16 +18,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
-from browser_use import Agent
-
-if not os.getenv('OPENAI_API_KEY'):
-	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
+from browser_use import Agent, ChatOpenAI
 
 
 async def main():
-	llm = ChatOpenAI(model='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4.1-mini')
 	agent = Agent(
 		task='go to https://captcha.com/demos/features/captcha-demo.aspx and solve the captcha',
 		llm=llm,

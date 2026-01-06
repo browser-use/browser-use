@@ -1,0 +1,51 @@
+---
+title: "Quickstart"
+description: "Run browser automation in the cloud"
+icon: "rocket"
+---
+
+Sandboxes are the **easiest way to run Browser-Use in production**. We handle agents, browsers, persistence, auth, cookies, and LLMs. It's also the **fastest way to deploy** - the agent runs right next to the browser, so latency is minimal.
+
+<Note>
+Get your API key at [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key) - new signups get $10 free.
+</Note>
+
+## Basic Example
+
+Just wrap your function with `@sandbox()`:
+
+```python
+from browser_use import Browser, sandbox, ChatBrowserUse
+from browser_use.agent.service import Agent
+
+@sandbox()
+async def my_task(browser: Browser):
+    agent = Agent(task="Find the top HN post", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+
+await my_task()
+```
+
+## With Cloud Parameters
+
+```python
+@sandbox(
+    cloud_profile_id='your-profile-id',      # Use saved cookies/auth
+    cloud_proxy_country_code='us',           # Bypass captchas, cloudflare, geo-restrictions
+    cloud_timeout=60,                        # Max session time (minutes)
+)
+async def task(browser: Browser, url: str):
+    agent = Agent(task=f"Visit {url}", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+
+await task(url="https://example.com")
+```
+
+**What each does:**
+- `cloud_profile_id` - Use saved cookies/authentication from your cloud profile
+- `cloud_proxy_country_code` - Route through country-specific proxy for stealth (bypass captchas, Cloudflare, geo-blocks)
+- `cloud_timeout` - Maximum time browser stays open in minutes
+
+---
+
+For more parameters and events, see the other tabs in this section.

@@ -1,0 +1,73 @@
+---
+title: "All Parameters"
+description: "Complete reference for all CodeAgent configuration options"
+icon: "sliders"
+mode: "wide"
+---
+
+## CodeAgent Parameters
+
+### Core Settings
+- `task`: Task description string that defines what the agent should accomplish (required)
+- `llm`: LLM instance for code generation (required: ChatBrowserUse). If not provided, defaults to ChatBrowserUse()
+- `browser`: Browser session object for automation (optional, will be created if not provided)
+- `tools`: Registry of tools the agent can call (optional, creates default if not provided)
+- `max_steps` (default: `100`): Maximum number of execution steps before termination
+- `max_failures` (default: `8`): Maximum consecutive errors before termination
+- `max_validations` (default: `0`): Maximum number of times to run the validator agent
+
+### Vision & Processing
+- `use_vision` (default: `True`): Whether to include screenshots in LLM messages. `True` always includes screenshots, `False` never includes screenshots
+- `page_extraction_llm`: Separate LLM model for page content extraction. You can choose a small & fast model because it only needs to extract text from the page (default: same as `llm`)
+
+### File & Data Management
+- `file_system`: File system instance for file operations (optional, creates default if not provided)
+- `available_file_paths`: List of file paths the agent can access
+- `sensitive_data`: Dictionary of sensitive data to handle carefully
+
+### Advanced Options
+- `calculate_cost` (default: `False`): Calculate and track API costs
+
+### Backwards Compatibility
+- `controller`: Alias for `tools` for backwards compatibility
+- `browser_session`: Alias for `browser` for backwards compatibility (deprecated, use `browser`)
+
+## Return Value
+
+The `run()` method returns a `NotebookSession` object that contains:
+
+- `cells`: List of `CodeCell` objects representing each executed code cell
+- `id`: Unique session identifier
+- `current_execution_count`: Current execution count number
+- `namespace`: Dictionary containing the current namespace state with all variables
+
+### CodeCell Properties
+
+Each cell in `session.cells` has:
+
+- `id`: Unique cell identifier
+- `cell_type`: Type of cell ('code' or 'markdown')
+- `source`: The code that was executed
+- `output`: The output from code execution (if any)
+- `execution_count`: Execution order number
+- `status`: Execution status ('pending', 'running', 'success', or 'error')
+- `error`: Error message if execution failed
+- `browser_state`: Browser state after execution
+
+### Example
+
+```python
+session = await agent.run()
+
+# Access executed cells
+for cell in session.cells:
+    print(f"Cell {cell.execution_count}: {cell.source}")
+    if cell.error:
+        print(f"Error: {cell.error}")
+    elif cell.output:
+        print(f"Output: {cell.output}")
+
+# Access variables from the namespace
+variables = session.namespace
+print(f"Variables: {list(variables.keys())}")
+```

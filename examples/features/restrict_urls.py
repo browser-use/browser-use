@@ -8,12 +8,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
-from browser_use import Agent
+from browser_use import Agent, ChatOpenAI
 from browser_use.browser import BrowserProfile, BrowserSession
 
-llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
+llm = ChatOpenAI(model='gpt-4.1-mini')
 task = (
 	"go to google.com and search for openai.com and click on the first link then extract content and scroll down - what's there?"
 )
@@ -39,7 +37,7 @@ async def main():
 	await agent.run(max_steps=25)
 
 	input('Press Enter to close the browser...')
-	await browser_session.close()
+	await browser_session.kill()
 
 
 asyncio.run(main())

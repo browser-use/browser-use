@@ -1,5 +1,5 @@
 import asyncio
-import http
+import http.client
 import json
 import os
 import sys
@@ -12,10 +12,9 @@ load_dotenv()
 
 import logging
 
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from browser_use import ActionResult, Agent, Controller
+from browser_use import ActionResult, Agent, ChatOpenAI, Tools
 from browser_use.browser.profile import BrowserProfile
 
 logger = logging.getLogger(__name__)
@@ -34,10 +33,10 @@ SERP_API_KEY = os.getenv('SERPER_API_KEY')
 if not SERP_API_KEY:
 	raise ValueError('SERPER_API_KEY is not set')
 
-controller = Controller(exclude_actions=['search_google'], output_model=PersonList)
+tools = Tools(exclude_actions=['search'], output_model=PersonList)
 
 
-@controller.registry.action('Search the web for a specific query')
+@tools.registry.action('Search the web for a specific query. Returns a short description and links of the results.')
 async def search_web(query: str):
 	# do a serp search for the query
 	conn = http.client.HTTPSConnection('google.serper.dev')
@@ -51,13 +50,19 @@ async def search_web(query: str):
 	# exclude searchParameters and credits
 	serp_data = {k: v for k, v in serp_data.items() if k not in ['searchParameters', 'credits']}
 
+	# keep the value of the key "organic"
+
+	organic = serp_data.get('organic', [])
+	# remove the key "position"
+	organic = [{k: v for k, v in d.items() if k != 'position'} for d in organic]
+
 	# print the original data
-	logger.debug(json.dumps(serp_data, indent=2))
+	logger.debug(json.dumps(organic, indent=2))
 
 	# to string
-	serp_data_str = json.dumps(serp_data)
+	organic_str = json.dumps(organic)
 
-	return ActionResult(extracted_content=serp_data_str, include_in_memory=False)
+	return ActionResult(extracted_content=organic_str, include_in_memory=False, include_extracted_content_only_once=True)
 
 
 names = [
@@ -87,9 +92,9 @@ names = [
 async def main():
 	task = 'use search_web with "find email address of the following ETH professor:" for each of the following persons in a list of actions. Finally return the list with name and email if provided - do always 5 at once'
 	task += '\n' + '\n'.join(names)
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1-mini')
 	browser_profile = BrowserProfile()
-	agent = Agent(task=task, llm=model, controller=controller, browser_profile=browser_profile)
+	agent = Agent(task=task, llm=model, tools=tools, browser_profile=browser_profile)
 
 	history = await agent.run()
 

@@ -1,0 +1,251 @@
+{
+  "$schema": "https://github.com/anthropics/dxt/blob/main/dist/dxt-manifest.schema.json",
+  "dxt_version": "0.1",
+  "name": "browser-use",
+  "display_name": "Browser-Use AI Browser Automation",
+  "version": "0.5.0",
+  "description": "AI-powered browser automation that lets Claude control web browsers to complete tasks autonomously",
+  "long_description": "Browser-Use is a powerful extension that enables Claude to control real web browsers through an AI agent. It can navigate websites, fill forms, extract data, and perform complex multi-step tasks autonomously. Perfect for web scraping, testing, research, and automation workflows.\n\n### Key Features:\n- **Autonomous AI Agent**: High-level task execution with minimal supervision\n- **Direct Browser Control**: Navigate, click, type, and interact with any website\n- **Content Extraction**: Smart extraction of structured data from web pages\n- **Tab Management**: Handle multiple tabs and complex workflows\n- **Vision Capabilities**: Use screenshots for visual understanding\n- **Security Features**: Domain restrictions and sandboxed execution\n\n### Use Cases:\n- Web scraping and data extraction\n- Automated testing and QA\n- Research and information gathering\n- Form filling and submissions\n- Multi-step workflow automation",
+  "icon": "icon.png",
+  "homepage": "https://browser-use.com",
+  "documentation": "https://docs.browser-use.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browser-use/browser-use"
+  },
+  "support": "https://github.com/browser-use/browser-use/issues",
+  "author": {
+    "name": "Browser-Use Team",
+    "email": "support@browser-use.com",
+    "url": "https://browser-use.com"
+  },
+  "server": {
+    "type": "python",
+    "entry_point": "python",
+    "mcp_config": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "${user_config.openai_api_key}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
+        "BROWSER_USE_HEADLESS": "${user_config.headless}",
+        "BROWSER_USE_ALLOWED_DOMAINS": "${user_config.allowed_domains}",
+        "BROWSER_USE_LLM_MODEL": "${user_config.llm_model}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "retry_with_browser_use_agent",
+      "description": "Execute a high-level task using the AI browser agent. Best for complex multi-step workflows"
+    },
+    {
+      "name": "browser_navigate",
+      "description": "Navigate to a URL in the current tab or open a new tab. Example: Navigate to https://example.com"
+    },
+    {
+      "name": "browser_click",
+      "description": "Click on an element by its index from browser_get_state. Supports opening links in new tabs"
+    },
+    {
+      "name": "browser_type",
+      "description": "Type text into an input field identified by its index. Use after browser_get_state to find inputs"
+    },
+    {
+      "name": "browser_get_state",
+      "description": "Get the current page state including all interactive elements with their indices. Essential for interaction"
+    },
+    {
+      "name": "browser_extract_content",
+      "description": "Extract structured content from the page using AI. Perfect for scraping specific information"
+    },
+    {
+      "name": "browser_scroll",
+      "description": "Scroll the page up or down by one viewport height"
+    },
+    {
+      "name": "browser_go_back",
+      "description": "Navigate back to the previous page in browser history"
+    },
+    {
+      "name": "browser_list_tabs",
+      "description": "List all open browser tabs with their URLs and titles"
+    },
+    {
+      "name": "browser_switch_tab",
+      "description": "Switch to a different tab by its index"
+    },
+    {
+      "name": "browser_close_tab",
+      "description": "Close a specific tab by its index"
+    }
+  ],
+  "prompts": [
+    {
+      "name": "scrape_data",
+      "description": "Extract structured data from a website",
+      "text": "Use browser_navigate to go to {url}, then use browser_extract_content to extract {data_type}. If the page requires interaction, use browser_get_state to find elements and browser_click/browser_type as needed."
+    },
+    {
+      "name": "fill_form",
+      "description": "Fill out and submit a web form",
+      "text": "Navigate to {url}, use browser_get_state to identify form fields, then use browser_type to fill in: {field_data}. Finally, click the submit button."
+    },
+    {
+      "name": "multi_step_task",
+      "description": "Execute a complex multi-step task",
+      "text": "Use retry_with_browser_use_agent with task: '{task_description}'. Set max_steps based on complexity and use_vision=true for better understanding."
+    },
+    {
+      "name": "research_topic",
+      "description": "Research a topic across multiple websites",
+      "text": "Open multiple tabs using browser_navigate with new_tab=true for sites: {sites}. Use browser_extract_content on each to gather information about {topic}. Switch between tabs with browser_switch_tab."
+    }
+  ],
+  "keywords": ["browser", "automation", "web-scraping", "testing", "ai-agent", "playwright", "selenium-alternative", "rpa", "web-automation", "mcp", "browser-use"],
+  "license": "MIT",
+  "user_config": {
+    "workspace_directory": {
+      "type": "directory",
+      "title": "Workspace Directory",
+      "description": "Directory to use as workspace for downloads and file operations",
+      "default": "${HOME}/.config/browseruse/workspace",
+      "required": false
+    },
+    "headless": {
+      "type": "boolean",
+      "title": "Headless Mode",
+      "description": "Run browser without GUI (faster but no visual feedback). Set to false to see the browser in action",
+      "default": false,
+      "required": false
+    },
+    "stealth": {
+      "type": "boolean",
+      "title": "Stealth Mode",
+      "description": "Use stealth mode to avoid detection by anti-bot systems",
+      "default": false,
+      "required": false
+    },
+    "user_data_dir": {
+      "type": "directory",
+      "title": "User Data Directory",
+      "description": "Chrome profile directory for persistent sessions (cookies, localStorage, etc)",
+      "default": "${HOME}/.config/browseruse/profiles/default",
+      "required": false
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API Key",
+      "description": "API key for OpenAI models (used by browser agent for content extraction). Get one at https://platform.openai.com",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API Key",
+      "description": "API key for Anthropic Claude models (alternative to OpenAI). Get one at https://console.anthropic.com",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "llm_model": {
+      "type": "string",
+      "title": "LLM Model",
+      "description": "Which AI model to use for browser agent tasks",
+      "enum": ["gpt-4o", "gpt-4o-mini", "claude-3-opus-20240229", "claude-3-sonnet-20240229"],
+      "default": "gpt-4o-mini",
+      "required": false
+    },
+    "llm_endpoint": {
+      "type": "string",
+      "title": "LLM API Endpoint",
+      "description": "Custom API endpoint for LLM (e.g., for Azure OpenAI or self-hosted models)",
+      "default": "",
+      "required": false
+    },
+    "use_vision": {
+      "type": "boolean",
+      "title": "Use Vision",
+      "description": "Enable vision capabilities for the agent to understand page content via screenshots",
+      "default": true,
+      "required": false
+    },
+    "disable_security": {
+      "type": "boolean",
+      "title": "Disable Security",
+      "description": "Disable browser security features (CORS, CSP, etc). Use with caution",
+      "default": false,
+      "required": false
+    },
+    "deterministic_rendering": {
+      "type": "boolean",
+      "title": "Deterministic Rendering",
+      "description": "Force deterministic rendering for consistent screenshots. May break some sites",
+      "default": false,
+      "required": false
+    },
+    "viewport_expansion": {
+      "type": "number",
+      "title": "Viewport Expansion",
+      "description": "Extra pixels to expand viewport for better LLM context understanding",
+      "default": 500,
+      "minimum": 0,
+      "maximum": 2000,
+      "required": false
+    },
+    "allowed_domains": {
+      "type": "string",
+      "title": "Allowed Domains",
+      "description": "Comma-separated list of domains the browser can access (e.g., 'example.com,*.google.com'). Leave empty for no restrictions",
+      "default": "",
+      "required": false
+    },
+    "sensitive_data_masking": {
+      "type": "boolean",
+      "title": "Sensitive Data Masking",
+      "description": "Mask sensitive data (passwords, credit cards) in screenshots and logs",
+      "default": true,
+      "required": false
+    },
+    "browser_type": {
+      "type": "string",
+      "title": "Browser Type",
+      "description": "Which browser engine to use",
+      "enum": ["chromium", "firefox", "webkit"],
+      "default": "chromium",
+      "required": false
+    },
+    "default_timeout": {
+      "type": "number",
+      "title": "Default Timeout (ms)",
+      "description": "Default timeout for browser operations in milliseconds",
+      "default": 30000,
+      "minimum": 1000,
+      "maximum": 300000,
+      "required": false
+    },
+    "wait_between_actions": {
+      "type": "number",
+      "title": "Wait Between Actions (seconds)",
+      "description": "Time to wait between browser actions for stability",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 10,
+      "required": false
+    },
+    "max_steps": {
+      "type": "number",
+      "title": "Max Agent Steps",
+      "description": "Maximum number of steps the agent can take in a single task",
+      "default": 100,
+      "minimum": 1,
+      "maximum": 1000,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}

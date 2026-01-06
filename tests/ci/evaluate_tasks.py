@@ -1,7 +1,7 @@
 """
 Runs all agent tasks in parallel (up to 10 at a time) using separate subprocesses.
 Each task gets its own Python process, preventing browser session interference.
-Does not fail on partial failures (always exits 0).
+Fails with exit code 1 if 0% of tasks pass.
 """
 
 import argparse
@@ -13,15 +13,15 @@ import os
 import sys
 import warnings
 
-import aiofiles
+import anyio
 import yaml
-from langchain_openai import ChatOpenAI
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from browser_use.agent.service import Agent
-from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.profile import BrowserProfile
-from browser_use.browser.session import BrowserSession
+load_dotenv()
+from browser_use import Agent, AgentHistoryList, BrowserProfile, BrowserSession, ChatBrowserUse
+from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.messages import UserMessage
 
 # --- CONFIG ---
 MAX_PARALLEL = 10
@@ -50,8 +50,7 @@ async def run_single_task(task_file):
 		warnings.filterwarnings('ignore')
 
 		print('[DEBUG] Loading task file...', file=sys.stderr)
-		async with aiofiles.open(task_file, 'r') as f:
-			content = await f.read()
+		content = await anyio.Path(task_file).read_text()
 		task_data = yaml.safe_load(content)
 		task = task_data['task']
 		judge_context = task_data.get('judge_context', ['The agent must solve the task'])
@@ -59,9 +58,28 @@ async def run_single_task(task_file):
 
 		print(f'[DEBUG] Task: {task[:100]}...', file=sys.stderr)
 		print(f'[DEBUG] Max steps: {max_steps}', file=sys.stderr)
+		api_key = os.getenv('BROWSER_USE_API_KEY')
+		if not api_key:
+			print('[SKIP] BROWSER_USE_API_KEY is not set - skipping task evaluation', file=sys.stderr)
+			return {
+				'file': os.path.basename(task_file),
+				'success': True,  # Mark as success so it doesn't fail CI
+				'explanation': 'Skipped - API key not available (fork PR or missing secret)',
+			}
 
-		agent_llm = ChatOpenAI(model='gpt-4.1-mini')
-		judge_llm = ChatOpenAI(model='gpt-4.1-mini')
+		agent_llm = ChatBrowserUse(api_key=api_key)
+
+		# Check if Google API key is available for judge LLM
+		google_api_key = os.getenv('GOOGLE_API_KEY')
+		if not google_api_key:
+			print('[SKIP] GOOGLE_API_KEY is not set - skipping task evaluation', file=sys.stderr)
+			return {
+				'file': os.path.basename(task_file),
+				'success': True,  # Mark as success so it doesn't fail CI
+				'explanation': 'Skipped - Google API key not available (fork PR or missing secret)',
+			}
+
+		judge_llm = ChatGoogle(model='gemini-flash-lite-latest')
 		print('[DEBUG] LLMs initialized', file=sys.stderr)
 
 		# Each subprocess gets its own profile and session
@@ -77,15 +95,19 @@ async def run_single_task(task_file):
 		# Test if browser is working
 		try:
 			await session.start()
-			page = await session.create_page()
-			print('[DEBUG] Browser test: page created successfully', file=sys.stderr)
-			await page.goto('https://httpbin.org/get', timeout=10000)
+			from browser_use.browser.events import NavigateToUrlEvent
+
+			event = session.event_bus.dispatch(NavigateToUrlEvent(url='https://httpbin.org/get', new_tab=True))
+			await event
 			print('[DEBUG] Browser test: navigation successful', file=sys.stderr)
-			title = await page.title()
+			title = await session.get_current_page_title()
 			print(f"[DEBUG] Browser test: got title '{title}'", file=sys.stderr)
 		except Exception as browser_error:
 			print(f'[DEBUG] Browser test failed: {str(browser_error)}', file=sys.stderr)
-			print(f'[DEBUG] Browser error type: {type(browser_error).__name__}', file=sys.stderr)
+			print(
+				f'[DEBUG] Browser error type: {type(browser_error).__name__}',
+				file=sys.stderr,
+			)
 
 		print('[DEBUG] Starting agent execution...', file=sys.stderr)
 		agent = Agent(task=task, llm=agent_llm, browser_session=session)
@@ -94,7 +116,10 @@ async def run_single_task(task_file):
 			history: AgentHistoryList = await agent.run(max_steps=max_steps)
 			print('[DEBUG] Agent.run() returned successfully', file=sys.stderr)
 		except Exception as agent_error:
-			print(f'[DEBUG] Agent.run() failed with error: {str(agent_error)}', file=sys.stderr)
+			print(
+				f'[DEBUG] Agent.run() failed with error: {str(agent_error)}',
+				file=sys.stderr,
+			)
 			print(f'[DEBUG] Error type: {type(agent_error).__name__}', file=sys.stderr)
 			# Re-raise to be caught by outer try-catch
 			raise agent_error
@@ -104,8 +129,11 @@ async def run_single_task(task_file):
 
 		# Test if LLM is working by making a simple call
 		try:
-			test_response = await agent_llm.ainvoke("Say 'test'")
-			print(f'[DEBUG] LLM test call successful: {test_response.content[:50]}', file=sys.stderr)
+			response = await agent_llm.ainvoke([UserMessage(content="Say 'test'")])
+			print(
+				f'[DEBUG] LLM test call successful: {response.completion[:50]}',
+				file=sys.stderr,
+			)
 		except Exception as llm_error:
 			print(f'[DEBUG] LLM test call failed: {str(llm_error)}', file=sys.stderr)
 
@@ -119,7 +147,10 @@ async def run_single_task(task_file):
 		# Log to stderr so it shows up in GitHub Actions (won't interfere with JSON output to stdout)
 		print(f'[DEBUG] Task {os.path.basename(task_file)}: {debug_info}', file=sys.stderr)
 		if agent_output:
-			print(f'[DEBUG] Agent output preview: {agent_output[:200]}...', file=sys.stderr)
+			print(
+				f'[DEBUG] Agent output preview: {agent_output[:200]}...',
+				file=sys.stderr,
+			)
 		else:
 			print('[DEBUG] Agent produced no output!', file=sys.stderr)
 
@@ -139,8 +170,8 @@ Criteria for success:
 Reply in JSON with keys: success (true/false), explanation (string).
 If the agent provided no output, explain what might have gone wrong.
 """
-		structured_llm = judge_llm.with_structured_output(JudgeResponse)
-		judge_response = await structured_llm.ainvoke(judge_prompt)
+		response = await judge_llm.ainvoke([UserMessage(content=judge_prompt)], output_format=JudgeResponse)
+		judge_response = response.completion
 
 		result = {
 			'file': os.path.basename(task_file),
@@ -149,18 +180,22 @@ If the agent provided no output, explain what might have gone wrong.
 		}
 
 		# Clean up session before returning
-		await session.stop()
+		await session.kill()
 
 		return result
 
 	except Exception as e:
 		# Ensure session cleanup even on error
 		try:
-			await session.stop()
+			await session.kill()
 		except Exception:
 			pass
 
-		return {'file': os.path.basename(task_file), 'success': False, 'explanation': f'Task failed with error: {str(e)}'}
+		return {
+			'file': os.path.basename(task_file),
+			'success': False,
+			'explanation': f'Task failed with error: {str(e)}',
+		}
 
 
 async def run_task_subprocess(task_file, semaphore):
@@ -294,7 +329,13 @@ async def main():
 	# Output detailed results as JSON for GitHub Actions
 	detailed_results = []
 	for r in results:
-		detailed_results.append({'task': r['file'].replace('.yaml', ''), 'success': r['success'], 'reason': r['explanation']})
+		detailed_results.append(
+			{
+				'task': r['file'].replace('.yaml', ''),
+				'success': r['success'],
+				'reason': r['explanation'],
+			}
+		)
 
 	print('DETAILED_RESULTS=' + json.dumps(detailed_results))
 
@@ -324,3 +365,8 @@ if __name__ == '__main__':
 		# Parent process mode: run all tasks in parallel subprocesses
 		passed, total = asyncio.run(main())
 		# Results already printed by main() function
+
+		# Fail if 0% pass rate (all tasks failed)
+		if total > 0 and passed == 0:
+			print('\n❌ CRITICAL: 0% pass rate - all tasks failed!')
+			sys.exit(1)

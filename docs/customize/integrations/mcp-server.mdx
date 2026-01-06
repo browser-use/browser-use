@@ -1,0 +1,375 @@
+---
+title: MCP Server
+description: Connect AI models to Browser Use through the Model Context Protocol
+---
+
+Browser Use provides a hosted **Model Context Protocol (MCP)** server that enables AI assistants to control browser automation. Works with any HTTP-based MCP client, including Claude Code.
+
+**MCP Server URL:** `https://api.browser-use.com/mcp`
+
+This is an **HTTP-based MCP server** designed for cloud integrations and remote access. If you need a local stdio-based MCP server for Claude Desktop, use the free open-source version: `uvx browser-use --mcp`
+
+## Quick Setup
+
+### 1. Get API Key
+Get your API key from the [Browser Use Dashboard](https://cloud.browser-use.com)
+
+### 2. Connect Your AI
+
+<Tabs>
+<Tab title="Claude Code">
+```bash
+claude mcp add --transport http browser-use https://api.browser-use.com/mcp
+```
+</Tab>
+<Tab title="Claude Desktop">
+Add to your Claude Desktop config file:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://api.browser-use.com/mcp",
+        "--header",
+        "X-Browser-Use-API-Key: your-api-key"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving.
+</Tab>
+<Tab title="Cursor">
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://api.browser-use.com/mcp",
+        "--header",
+        "X-Browser-Use-API-Key: your-api-key"
+      ]
+    }
+  }
+}
+```
+</Tab>
+<Tab title="Windsurf">
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "serverUrl": "https://api.browser-use.com/mcp",
+      "headers": {
+        "X-Browser-Use-API-Key": "your-api-key"
+      }
+    }
+  }
+}
+```
+</Tab>
+<Tab title="ChatGPT">
+**Step 1: Register an OAuth client**
+
+Call the dynamic client registration endpoint with ChatGPT's redirect URI:
+
+```bash
+curl -X POST https://api.browser-use.com/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_name": "ChatGPT Integration",
+    "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"]
+  }'
+```
+
+Save the `client_id` from the response (43-character random string).
+
+**Step 2: Configure ChatGPT**
+
+In ChatGPT, add a custom MCP connector:
+- **MCP Server URL**: `https://api.browser-use.com/mcp/chatgpt`
+- **Client ID**: Paste the `client_id` from step 1
+
+**Step 3: Authorize**
+
+ChatGPT will redirect you to Browser Use's authorization page. Sign in and grant permission.
+
+**Note:** ChatGPT uses OAuth 2.1 authentication instead of API keys. You only need to register your client once.
+</Tab>
+</Tabs>
+
+## Available Tools
+
+The MCP server provides three tools:
+
+### `browser_task`
+Creates and runs a browser automation task.
+- **task** (required): What you want the browser to do
+- **max_steps** (optional): Max actions to take (1-10, default: 8)
+- **profile_id** (optional): UUID of the cloud profile to use for persistent authentication
+
+### `list_browser_profiles`
+Lists all available cloud browser profiles for the authenticated project. Profiles store persistent authentication (cookies, sessions) for websites requiring login.
+
+### `monitor_task`
+Checks the current status and progress of a browser automation task. Returns immediately with a snapshot of the task state.
+- **task_id** (required): UUID of the task to monitor (returned by browser_task)
+
+## Example Usage
+
+Once connected, ask your AI to perform web tasks:
+
+> "Search Google for the latest iPhone reviews and summarize the top 3 results"
+
+> "Go to Hacker News and get me the titles of the top 5 posts"
+
+> "Fill out the contact form on example.com with my information"
+
+The AI will use the browser tools automatically to complete these tasks.
+
+## Smart Features
+
+### Cloud Profiles for Authentication
+Use cloud browser profiles to maintain persistent login sessions across tasks. Profiles store cookies and authentication state for:
+- Social media (X/Twitter, LinkedIn, Facebook)
+- Email (Gmail, Outlook)
+- Online banking and shopping sites
+- Any website requiring login
+
+List available profiles with `list_browser_profiles`, then pass the `profile_id` to `browser_task`.
+
+### Real-time Task Monitoring
+Use `monitor_task` to check task progress while it's running. The tool returns immediately with the current status, latest step details, and agent reasoning. Call it repeatedly to track progress live.
+
+### Conversational Progress Summaries
+When you monitor tasks, the AI automatically interprets step data into natural language updates, explaining what the browser has completed and what it's currently working on.
+
+## Troubleshooting
+
+**Connection issues?**
+- Verify your API key is correct
+- Check you're using the right headers
+
+**Task taking too long?**
+- Check the live_url to see progress
+- Increase max_steps for complex tasks (max: 10)
+- Use clearer, more specific instructions
+
+**Need help?**
+Check our [Cloud Documentation](https://docs.cloud.browser-use.com) for detailed specifications.
+
+---
+
+## Local Self-Hosted Alternative
+
+For users who want a free, self-hosted option, browser-use can run as a local MCP server on your machine. This requires your own OpenAI or Anthropic API keys but provides direct, low-level control over browser automation.
+
+### Quick Start
+
+The local MCP server runs as a stdio-based process on your machine. This is the **free, open-source option** but requires your own LLM API keys.
+
+#### Start MCP Server Manually
+
+```bash
+uvx --from 'browser-use[cli]' browser-use --mcp
+```
+
+The server will start in stdio mode, ready to accept MCP connections.
+
+#### Claude Desktop Integration
+
+The most common use case is integrating with Claude Desktop. Add this configuration to your Claude Desktop config file:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "/Users/your-username/.local/bin/uvx",
+      "args": ["--from", "browser-use[cli]", "browser-use", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "your-openai-api-key-here"
+      }
+    }
+  }
+}
+```
+
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["--from", "browser-use[cli]", "browser-use", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "your-openai-api-key-here"
+      }
+    }
+  }
+}
+```
+
+<Note>
+**macOS/Linux PATH Issue:** Claude Desktop may not find `uvx` in your PATH. Use the full path to `uvx` instead:
+- Run `which uvx` in your terminal to find the location (usually `/Users/username/.local/bin/uvx` or `~/.local/bin/uvx`)
+- Replace `"command": "uvx"` with the full path, e.g., `"command": "/Users/your-username/.local/bin/uvx"`
+- Replace `your-username` with your actual username
+
+**CLI Extras Required:** The `--from browser-use[cli]` flag installs the CLI extras needed for MCP server support.
+</Note>
+
+#### Environment Variables
+
+You can configure browser-use through environment variables:
+
+- `OPENAI_API_KEY` - Your OpenAI API key (required)
+- `ANTHROPIC_API_KEY` - Your Anthropic API key (alternative to OpenAI)
+- `BROWSER_USE_HEADLESS` - Set to `false` to show browser window
+- `BROWSER_USE_DISABLE_SECURITY` - Set to `true` to disable browser security features
+
+### Available Tools
+
+The local MCP server exposes these low-level browser automation tools for direct control:
+
+#### Autonomous Agent Tools
+- **`retry_with_browser_use_agent`** - Run a complete browser automation task with an AI agent (use as last resort when direct control fails)
+
+#### Direct Browser Control
+- **`browser_navigate`** - Navigate to a URL
+- **`browser_click`** - Click on an element by index
+- **`browser_type`** - Type text into an element
+- **`browser_get_state`** - Get current page state and interactive elements
+- **`browser_scroll`** - Scroll the page
+- **`browser_go_back`** - Go back in browser history
+
+#### Tab Management
+- **`browser_list_tabs`** - List all open browser tabs
+- **`browser_switch_tab`** - Switch to a specific tab
+- **`browser_close_tab`** - Close a tab
+
+#### Content Extraction
+- **`browser_extract_content`** - Extract structured content from the current page
+
+#### Session Management
+- **`browser_list_sessions`** - List all active browser sessions with details
+- **`browser_close_session`** - Close a specific browser session by ID
+- **`browser_close_all`** - Close all active browser sessions
+
+### Example Usage
+
+Once configured with Claude Desktop, you can ask Claude to perform browser automation tasks:
+
+```
+"Please navigate to example.com and take a screenshot"
+
+"Search for 'browser automation' on Google and summarize the first 3 results"
+
+"Go to GitHub, find the browser-use repository, and tell me about the latest release"
+```
+
+Claude will use the MCP server to execute these tasks through browser-use.
+
+### Programmatic Usage
+
+You can also connect to the MCP server programmatically:
+
+```python
+import asyncio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def use_browser_mcp():
+    # Connect to browser-use MCP server
+    server_params = StdioServerParameters(
+        command="uvx",
+        args=["--from", "browser-use[cli]", "browser-use", "--mcp"]
+    )
+
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            # Navigate to a website
+            result = await session.call_tool(
+                "browser_navigate",
+                arguments={"url": "https://example.com"}
+            )
+            print(result.content[0].text)
+
+            # Get page state
+            result = await session.call_tool(
+                "browser_get_state",
+                arguments={"include_screenshot": True}
+            )
+            print("Page state retrieved!")
+
+asyncio.run(use_browser_mcp())
+```
+
+### Troubleshooting
+
+#### Common Issues
+
+**"CLI addon is not installed" Error**
+Make sure you're using `--from 'browser-use[cli]'` in your uvx command:
+```bash
+uvx --from 'browser-use[cli]' browser-use --mcp
+```
+
+**"spawn uvx ENOENT" Error (macOS/Linux)**
+Claude Desktop can't find `uvx` in its PATH. Use the full path in your config:
+- Run `which uvx` in terminal to find the location
+- Update your config to use the full path (e.g., `/Users/your-username/.local/bin/uvx`)
+
+**Browser doesn't start**
+- Check that you have Chrome/Chromium installed
+- Try setting `BROWSER_USE_HEADLESS=false` to see browser window
+- Ensure no other browser instances are using the same profile
+
+**API Key Issues**
+- Verify your `OPENAI_API_KEY` is set correctly
+- Check API key permissions and billing status
+- Try using `ANTHROPIC_API_KEY` as an alternative
+
+**Connection Issues in Claude Desktop**
+- Restart Claude Desktop after config changes
+- Check the config file syntax is valid JSON
+- Verify the file path is correct for your OS
+- Check logs at `~/Library/Logs/Claude/` (macOS) or `%APPDATA%\Claude\Logs\` (Windows)
+
+#### Debug Mode
+
+Enable debug logging by setting:
+```bash
+export BROWSER_USE_LOGGING_LEVEL=DEBUG
+uvx --from 'browser-use[cli]' browser-use --mcp
+```
+
+### Security Considerations
+
+- The MCP server has access to your browser and file system
+- Only connect trusted MCP clients
+- Be cautious with sensitive websites and data
+- Consider running in a sandboxed environment for untrusted automation
+
+### Next Steps
+
+- Explore the [examples directory](https://github.com/browser-use/browser-use/tree/main/examples/mcp) for more usage patterns
+- Check out [MCP documentation](https://modelcontextprotocol.io/) to learn more about the protocol
+- Join our [Discord](https://link.browser-use.com/discord) for support and discussions

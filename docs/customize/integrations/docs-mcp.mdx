@@ -1,0 +1,93 @@
+---
+title: "Documentation MCP"
+description: "Add browser-use documentation context to Claude Code and other MCP clients"
+icon: "book"
+mode: "wide"
+---
+
+## Overview
+
+The browser-use documentation MCP server provides read-only access to browser-use documentation for Claude Code and other MCP-compatible clients. This gives AI assistants deep context about the browser-use library when helping you write code.
+
+<Note> Looking to give an assistant browser-use capabilities? Check out our <a href = "/customize/integrations/mcp-server"> Browser Automation MCP.</a> </Note>
+
+## Quick Start
+
+Add the documentation server to your coding agent:
+
+<Tabs>
+<Tab title="Claude Code">
+```bash
+claude mcp add --transport http browser-use https://docs.browser-use.com/mcp
+```
+</Tab>
+<Tab title="Cursor">
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-use-docs": {
+      "url": "https://docs.browser-use.com/mcp"
+    }
+  }
+}
+```
+</Tab>
+<Tab title="Codex">
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.browser-use-docs]
+url = "https://docs.browser-use.com/mcp"
+```
+</Tab>
+<Tab title="Windsurf">
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-use-docs": {
+      "serverUrl": "https://docs.browser-use.com/mcp"
+    }
+  }
+}
+```
+</Tab>
+</Tabs>
+
+This enables your AI coding assistant to access browser-use documentation when answering questions or helping with implementation.
+
+## What This Provides
+
+The documentation MCP server gives AI assistants access to:
+
+- API reference and usage patterns
+- Configuration options and parameters
+- Best practices and examples
+- Troubleshooting guides
+- Architecture explanations
+
+**Example interactions:**
+```
+"How do I configure custom tools in browser-use?"
+
+"What are the available agent parameters?"
+
+"Show me how to use cloud browsers."
+```
+
+Claude Code can now answer these questions using up-to-date documentation context.
+
+## How It Works
+
+The MCP server provides a read-only documentation interface:
+- Serves browser-use documentation over HTTP
+- No browser automation capabilities (see [MCP Server](/customize/integrations/mcp-server) for that)
+- Lightweight and always available
+- No API keys or configuration needed
+
+## Next Steps
+
+- Start coding with [Agent Basics](/customize/agent/basics)

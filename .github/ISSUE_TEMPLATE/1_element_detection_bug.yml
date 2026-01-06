@@ -20,7 +20,6 @@ body:
         > - 🆕 [`beta`](https://docs.browser-use.com/development/local-setup):   `uv pip install --upgrade git+https://github.com/browser-use/browser-use.git@main`
         > - 📦 [`stable`](https://pypi.org/project/browser-use/#history): `uv pip install --upgrade browser-use`
 
-
   - type: input
     id: version
     attributes:
@@ -32,29 +31,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
+  - type: input
     id: model
     attributes:
       label: LLM Model
-      description: Which LLM model(s) are you using?
-      multiple: true
-      options:
-        - gpt-4o
-        - gpt-4o-mini
-        - gpt-4
-        - gpt-4.1
-        - gpt-4.1-mini
-        - gpt-4.1-nano
-        - claude-3.7-sonnet
-        - claude-3.5-sonnet
-        - gemini-2.6-flash-preview
-        - gemini-2.5-pro
-        - gemini-2.0-flash
-        - gemini-2.0-flash-lite
-        - gemini-1.5-flash
-        - deepseek-chat
-        - Local Model (Specify model in description)
-        - Other (specify in description)
+      description: Which LLM model are you using?
+      placeholder: "e.g. bu-1.0, gpt-5-mini, claude-4-5-sonnet, gemini-2.0-flash, etc."
     validations:
       required: true
 
@@ -110,12 +92,12 @@ body:
       placeholder: |
         from dotenv import load_dotenv
         load_dotenv()  # tip: always load_dotenv() before other imports
-        from browser_use import Agent, BrowserSession, Controller
-        from langchain_openai import ChatOpenAI
+        from browser_use import Agent, BrowserSession, Tools
+        from browser_use.llm import ChatOpenAI
 
         agent = Agent(
             task='...',
-            llm=ChatOpenAI(model="gpt-4o"),
+            llm=ChatOpenAI(model="gpt-4.1"),
             browser_session=BrowserSession(headless=False),
         )
         ...
@@ -124,14 +106,9 @@ body:
     id: logs
     attributes:
       label: Full DEBUG Log Output
-      description: Please copy and paste the *full* log output *from the start of the run*. Make sure to set `BROWSER_USE_LOG_LEVEL=DEBUG` in your `.env` or shell environment.
+      description: Please copy and paste the *full* log output *from the start of the run*. Make sure to set `BROWSER_USE_LOGGING_LEVEL=DEBUG` in your `.env` or shell environment.
       render: shell
       placeholder: |
         $ python /app/browser-use/examples/browser/real_browser.py
         DEBUG    [browser] 🌎  Initializing new browser
         DEBUG    [agent] Version: 0.1.46-9-g62760ba, Source: git
-        INFO     [agent] 🧠 Starting an agent with main_model=gpt-4o +tools +vision +memory, planner_model=None, extraction_model=gpt-4o
-        DEBUG    [agent] Verifying the ChatOpenAI LLM knows the capital of France...
-        DEBUG    [langsmith.client] Sending multipart request with context: trace=91282a01-6667-48a1-8cd7-21aa9337a580,id=91282a01-6667-48a1-8cd7-21aa9337a580
-        DEBUG    [agent] 🪪 LLM API keys OPENAI_API_KEY work, ChatOpenAI model is connected & responding correctly.
-        ...

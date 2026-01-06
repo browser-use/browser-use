@@ -1,0 +1,79 @@
+---
+title: "Tool Response"
+description: ""
+icon: "arrow-turn-down-left"
+mode: "wide"
+---
+
+Tools return results using `ActionResult` or simple strings.
+
+## Return Types
+
+```python
+@tools.action('My tool')
+def my_tool() -> str:
+    return "Task completed successfully"
+
+@tools.action('Advanced tool')
+def advanced_tool() -> ActionResult:
+    return ActionResult(
+        extracted_content="Main result",
+        long_term_memory="Remember this info",
+        error="Something went wrong",
+        is_done=True,
+        success=True,
+        attachments=["file.pdf"],
+    )
+```
+
+## ActionResult Properties
+
+- `extracted_content` (default: `None`) - Main result passed to LLM, this is equivalent to returning a string.
+- `include_extracted_content_only_once` (default: `False`) - Set to `True` for large content to include it only once in the LLM input.
+- `long_term_memory` (default: `None`) - This is always included in the LLM input for all future steps.
+- `error` (default: `None`) - Error message, we catch exceptions and set this automatically. This is always included in the LLM input.
+- `is_done` (default: `False`) - Tool completes entire task
+- `success` (default: `None`) - Task success (only valid with `is_done=True`)
+- `attachments` (default: `None`) - Files to show user
+- `metadata` (default: `None`) - Debug/observability data
+
+## Why `extracted_content` and `long_term_memory`?
+With this you control the context for the LLM.
+
+### 1. Include short content always in context
+```python
+def simple_tool() -> str:
+    return "Hello, world!"  # Keep in context for all future steps 
+```
+
+### 2. Show long content once, remember subset in context
+```python
+return ActionResult(
+    extracted_content="[500 lines of product data...]",     # Shows to LLM once
+    include_extracted_content_only_once=True,               # Never show full output again
+    long_term_memory="Found 50 products"        # Only this in future steps
+)
+```
+We save the full `extracted_content` to files which the LLM can read in future steps.
+
+### 3. Dont show long content, remember subset in context
+```python
+return ActionResult(
+    extracted_content="[500 lines of product data...]",      # The LLM never sees this because `long_term_memory` overrides it and `include_extracted_content_only_once` is not used
+    long_term_memory="Saved user's favorite products",      # This is shown to the LLM in future steps
+)
+```
+
+## Terminating the Agent
+
+Set `is_done=True` to stop the agent completely. Use when your tool finishes the entire task:
+
+```python
+@tools.action(description='Complete the task')
+def finish_task() -> ActionResult:
+    return ActionResult(
+        extracted_content="Task completed!",
+        is_done=True,        # Stops the agent
+        success=True         # Task succeeded 
+    )
+```
