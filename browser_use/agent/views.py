@@ -28,20 +28,19 @@ from browser_use.tools.registry.views import ActionModel
 
 logger = logging.getLogger(__name__)
 
-def _normalize_agent_output(raw_json: str) -> str:
-    try:
-        data = json.loads(raw_json)
-    except Exception:
-        return raw_json 
-    if isinstance(data, dict) and set(data.keys()) == {"screenshot"}:
-        fallback = {
-            "action": [
-                {"wait": {"seconds": 1}}
-            ]
-        }
-        return json.dumps(fallback)
 
-    return raw_json
+def _normalize_agent_output(raw_json: str) -> str:
+	try:
+		data = json.loads(raw_json)
+	except Exception:
+		return raw_json
+
+	if isinstance(data, dict) and set(data.keys()) == {'screenshot'}:
+		fallback = {'action': [{'wait': {}}]}
+		return json.dumps(fallback)
+
+	return raw_json
+
 
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
