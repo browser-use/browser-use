@@ -28,6 +28,17 @@ from browser_use.tools.registry.views import ActionModel
 
 logger = logging.getLogger(__name__)
 
+def _normalize_agent_output(raw_json: str) -> str:
+    try:
+        data = json.loads(raw_json)
+    except Exception:
+        return raw_json  # let validation handle truly broken JSON
+
+    # Handle partial outputs like {"screenshot": {}}
+    if isinstance(data, dict) and set(data.keys()) == {"screenshot"}:
+        return json.dumps({"wait": {"seconds": 1}})
+
+    return raw_json
 
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
@@ -724,7 +735,8 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""
 		final_result = self.final_result()
 		if final_result is not None and self._output_model_schema is not None:
-			return self._output_model_schema.model_validate_json(final_result)
+			normalized = _normalize_agent_output(final_result)
+			return self._output_model_schema.model_validate_json(normalized)
 
 		return None
 

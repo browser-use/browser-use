@@ -8,13 +8,12 @@ the agent automatically switches to the fallback LLM and continues execution.
 from unittest.mock import AsyncMock
 
 import pytest
-
-from browser_use.agent.views import AgentOutput
+import json
+from browser_use.agent.views import AgentOutput, _normalize_agent_output
 from browser_use.llm import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.service import Tools
-
 
 def create_mock_llm(
 	model_name: str = 'mock-llm',
@@ -79,6 +78,13 @@ def create_mock_llm(
 	llm.ainvoke.side_effect = mock_ainvoke
 
 	return llm
+
+def test_partial_action_output_does_not_crash():
+    raw = '{"screenshot": {}}'
+    output = AgentOutput.model_validate_json(
+        _normalize_agent_output(raw)
+    )
+    assert output is not None
 
 
 class TestFallbackLLMParameter:
