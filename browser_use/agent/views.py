@@ -32,11 +32,14 @@ def _normalize_agent_output(raw_json: str) -> str:
     try:
         data = json.loads(raw_json)
     except Exception:
-        return raw_json  # let validation handle truly broken JSON
-
-    # Handle partial outputs like {"screenshot": {}}
+        return raw_json 
     if isinstance(data, dict) and set(data.keys()) == {"screenshot"}:
-        return json.dumps({"wait": {"seconds": 1}})
+        fallback = {
+            "action": [
+                {"wait": {"seconds": 1}}
+            ]
+        }
+        return json.dumps(fallback)
 
     return raw_json
 
