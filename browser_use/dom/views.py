@@ -528,8 +528,8 @@ class EnhancedDOMTreeNode:
 			# Control characters or first char is digit
 			elif (0x1 <= code <= 0x1F) or code == 0x7F or (i == 0 and 0x30 <= code <= 0x39):
 				result.append(f'\\{code:x} ')
-			# First char is hyphen and only char
-			elif i == 0 and char == '-' and len(value) == 1:
+			# First char is hyphen and (only char OR followed by digit)
+			elif i == 0 and char == '-' and (len(value) == 1 or (len(value) > 1 and 0x30 <= ord(value[1]) <= 0x39)):
 				result.append(f'\\{char}')
 			# Safe characters: letters, digits, hyphen, underscore, non-ASCII
 			elif (code >= 0x80 or char == '-' or char == '_' or 
