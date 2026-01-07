@@ -164,6 +164,8 @@ class MatchLevel(Enum):
 	EXACT = 1  # Full hash with all attributes (current behavior)
 	STABLE = 2  # Hash with dynamic classes filtered out
 	XPATH = 3  # XPath string comparison
+	AX_NAME = 4  # Accessible name (ax_name) from accessibility tree
+	ATTRIBUTE = 5  # Unique attribute match (name, id, aria-label)
 
 
 def filter_dynamic_classes(class_str: str | None) -> str:

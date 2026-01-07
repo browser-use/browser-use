@@ -122,6 +122,8 @@ async def main():
 			variables=new_values,
 			ai_step_llm=ai_step_llm,  # For extract action re-evaluation
 			summary_llm=summary_llm,  # For final summary
+			max_step_interval=20,
+			delay_between_actions=1,
 		)
 
 		# Display AI-generated summary (last result)

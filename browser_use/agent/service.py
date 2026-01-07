@@ -3088,7 +3088,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						f'Could not find matching element for action {i} in current page.\n'
 						f'  Looking for: {elem_info}\n'
 						f'  Page has {selector_count} interactive elements.{diagnostic}\n'
-						f'  Tried: EXACT hash → STABLE hash → XPATH → ATTRIBUTE matching'
+						f'  Tried: EXACT hash → STABLE hash → XPATH → AX_NAME → ATTRIBUTE matching'
 					)
 				pending_actions.append(updated_action)
 
@@ -3113,7 +3113,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		1. EXACT: Full element_hash match (includes all attributes + ax_name)
 		2. STABLE: Hash with dynamic CSS classes filtered out (focus, hover, animation, etc.)
 		3. XPATH: XPath string match (structural position in DOM)
-		4. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
+		4. AX_NAME: Accessible name match from accessibility tree (robust for dynamic menus)
+		5. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
 		"""
 		if not historical_element or not browser_state_summary.dom_state.selector_map:
 			return action
@@ -3175,7 +3176,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if highlight_index is None:
 				self.logger.debug(f'XPATH match failed for: {historical_element.x_path[-60:]}')
 
-		# Level 4: Unique attribute fallback (for old history files without stable_hash)
+		# Level 4: ax_name (accessible name) match - robust for dynamic SPAs with menus
+		# This uses the accessible name from the accessibility tree which is stable
+		# even when DOM structure changes (e.g., dynamically generated menu items)
+		if highlight_index is None and historical_element.ax_name:
+			hist_name = historical_element.node_name.lower()
+			hist_ax_name = historical_element.ax_name
+			for idx, elem in selector_map.items():
+				# Match by node type and accessible name
+				elem_ax_name = elem.ax_node.name if elem.ax_node else None
+				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
+					highlight_index = idx
+					match_level = MatchLevel.AX_NAME
+					self.logger.info(f'Element matched at AX_NAME level: "{hist_ax_name}"')
+					break
+			if highlight_index is None:
+				# Log available ax_names for debugging
+				same_type_ax_names = [
+					(idx, elem.ax_node.name if elem.ax_node else None)
+					for idx, elem in selector_map.items()
+					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
+				]
+				self.logger.debug(
+					f'AX_NAME match failed for <{hist_name.upper()}> ax_name="{hist_ax_name}". '
+					f'Page has {len(same_type_ax_names)} <{hist_name.upper()}> with ax_names: '
+					f'{same_type_ax_names[:5]}{"..." if len(same_type_ax_names) > 5 else ""}'
+				)
+
+		# Level 5: Unique attribute fallback (for old history files without stable_hash)
 		if highlight_index is None and historical_element.attributes:
 			hist_attrs = historical_element.attributes
 			hist_name = historical_element.node_name.lower()
@@ -3190,7 +3218,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 							and elem.attributes.get(attr_key) == hist_attrs[attr_key]
 						):
 							highlight_index = idx
-							match_level = MatchLevel.XPATH  # Reuse XPATH level for logging
+							match_level = MatchLevel.ATTRIBUTE
 							self.logger.info(f'Element matched via {attr_key} attribute: {hist_attrs[attr_key]}')
 							break
 					if highlight_index is not None:
