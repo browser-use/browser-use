@@ -155,7 +155,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				process = psutil.Process(subprocess.pid)
 
 				# Wait for CDP to be ready and get the URL
-				cdp_url = await self._wait_for_cdp_url(debug_port)
+				cdp_url = await self._wait_for_cdp_url(debug_port, process=process)
 
 				# Success! Clean up only the temp dirs we created but didn't use
 				currently_used_dir = str(profile.user_data_dir)
@@ -369,13 +369,22 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		return port
 
 	@staticmethod
-	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
-		"""Wait for the browser to start and return the CDP URL."""
+	async def _wait_for_cdp_url(port: int, timeout: float = 30, process: psutil.Process | None = None) -> str:
+		"""Wait for the browser to start and return the CDP URL.
+
+		Args:
+			port: The port to connect to
+			timeout: Maximum time to wait in seconds
+			process: Optional process to monitor for early exit
+		"""
 		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
+			if process is not None and not process.is_running():
+				raise RuntimeError(f'Browser process {process.pid} exited unexpectedly while waiting for CDP')
+
 			try:
 				async with aiohttp.ClientSession() as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
