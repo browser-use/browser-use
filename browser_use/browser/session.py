@@ -535,7 +535,7 @@ class BrowserSession(BaseModel):
 					return
 
 				self.logger.debug(f'🗑️ Cleaning up auto-generated {name}: {_log_pretty_path(path)}')
-				
+
 				# Retry loop for Windows file locks
 				max_retries = 3
 				for i in range(max_retries):
