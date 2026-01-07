@@ -59,6 +59,23 @@
 		<iframe id="same-origin-iframe" src="/iframe-same-origin" style="width:100%; height:200px; border:1px solid #999;"></iframe>
 	</div>
 
+	<!-- Ant Design-like components (labels wrapping inputs with spans) -->
+	<div class="section" id="antd-section">
+		<h2>Ant Design-like Controls</h2>
+		<label class="ant-radio-button-wrapper" id="antd-radio-1">
+			<span class="ant-radio-button">
+				<input type="radio" class="ant-radio-button-input" name="demoRadio" id="antd-radio-input-1" />
+			</span>
+			<span class="ant-radio-label">AntD Option A</span>
+		</label>
+		<label class="ant-radio-button-wrapper" id="antd-radio-2">
+			<span class="ant-radio-button">
+				<input type="radio" class="ant-radio-button-input" name="demoRadio" id="antd-radio-input-2" />
+			</span>
+			<span class="ant-radio-label">AntD Option B</span>
+		</label>
+	</div>
+
 	<!-- Cross-origin iframe placeholder (external domain removed for test isolation) -->
 	<div class="section">
 		<h2>Cross-Origin Iframe (Placeholder)</h2>
@@ -112,6 +129,11 @@
 		// Add click handler to shadow DOM button using addEventListener
 		shadowRoot.getElementById('shadow-btn-1').addEventListener('click', function() {
 			incrementCounter('Shadow DOM');
+		});
+
+		// Add click handlers for Ant Design-like labels
+		document.querySelectorAll('.ant-radio-button-wrapper').forEach((label) => {
+			label.addEventListener('click', () => incrementCounter('AntD'));
 		});
 	</script>
 </body>
