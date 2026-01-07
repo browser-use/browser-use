@@ -524,32 +524,44 @@ class BrowserSession(BaseModel):
 			self._demo_mode = None
 
 		if self.browser_profile.cleanup_on_close:
+			import asyncio
 			import shutil
+
 			from browser_use.utils import _log_pretty_path
+
+			async def _robust_cleanup(path: str | Path, name: str):
+				path_obj = Path(path)
+				if not path_obj.exists():
+					return
+
+				self.logger.debug(f'🗑️ Cleaning up auto-generated {name}: {_log_pretty_path(path)}')
+				
+				# Retry loop for Windows file locks
+				max_retries = 3
+				for i in range(max_retries):
+					try:
+						if i > 0:
+							await asyncio.sleep(0.5)
+						shutil.rmtree(path_obj, ignore_errors=False)
+						return
+					except Exception as e:
+						if i == max_retries - 1:
+							# Last attempt failed
+							self.logger.warning(f'Failed to cleanup {name} after {max_retries} attempts: {e}')
+							# Try one last time with ignore_errors to get partial cleanup
+							shutil.rmtree(path_obj, ignore_errors=True)
 
 			# 1. Cleanup user_data_dir if it was auto-generated
 			if self.browser_profile.user_data_dir:
 				path_str = str(self.browser_profile.user_data_dir)
 				if 'browser-use-user-data-dir-' in path_str:
-					try:
-						self.logger.debug(
-							f'🗑️ Cleaning up auto-generated user_data_dir: {_log_pretty_path(self.browser_profile.user_data_dir)}'
-						)
-						shutil.rmtree(self.browser_profile.user_data_dir, ignore_errors=True)
-					except Exception as e:
-						self.logger.warning(f'Failed to cleanup user_data_dir: {e}')
+					await _robust_cleanup(self.browser_profile.user_data_dir, 'user_data_dir')
 
 			# 2. Cleanup downloads_path if it was auto-generated
 			if self.browser_profile.downloads_path:
 				path_str = str(self.browser_profile.downloads_path)
 				if 'browser-use-downloads-' in path_str:
-					try:
-						self.logger.debug(
-							f'🗑️ Cleaning up auto-generated downloads_path: {_log_pretty_path(self.browser_profile.downloads_path)}'
-						)
-						shutil.rmtree(self.browser_profile.downloads_path, ignore_errors=True)
-					except Exception as e:
-						self.logger.warning(f'Failed to cleanup downloads_path: {e}')
+					await _robust_cleanup(self.browser_profile.downloads_path, 'downloads_path')
 
 		self.logger.info('✅ Browser session reset complete')
 
