@@ -25,5 +25,6 @@ llm = ChatBrowserUse(
 agent = Agent(
 	task='Find the number of stars of browser-use and stagehand. Tell me which one has more stars :)',
 	llm=llm,
+	flash_mode=True,
 )
 agent.run_sync()

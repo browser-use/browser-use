@@ -62,7 +62,7 @@ from browser_use.agent.views import (
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
-from browser_use.dom.views import DOMInteractedElement
+from browser_use.dom.views import DOMInteractedElement, MatchLevel
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.telemetry.service import ProductTelemetry
@@ -140,6 +140,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Skills integration
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
+		skill_service: Any | None = None,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
@@ -314,10 +315,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise ValueError('Cannot specify both "skills" and "skill_ids" parameters. Use "skills" for the cleaner API.')
 		skill_ids = skills or skill_ids
 
-		# Skills integration
+		# Skills integration - use injected service or create from skill_ids
 		self.skill_service = None
 		self._skills_registered = False
-		if skill_ids:
+		if skill_service is not None:
+			self.skill_service = skill_service
+		elif skill_ids:
 			from browser_use.skills import SkillService
 
 			self.skill_service = SkillService(skill_ids=skill_ids)
@@ -2701,11 +2704,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self,
 		history: AgentHistoryList,
 		max_retries: int = 3,
-		skip_failures: bool = True,
+		skip_failures: bool = False,
 		delay_between_actions: float = 2.0,
-		max_step_interval: float = 5.0,
+		max_step_interval: float = 45.0,
 		summary_llm: BaseChatModel | None = None,
 		ai_step_llm: BaseChatModel | None = None,
+		wait_for_elements: bool = False,
 	) -> list[ActionResult]:
 		"""
 		Rerun a saved history of actions with error handling and retry logic.
@@ -2713,11 +2717,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Args:
 		                history: The history to replay
 		                max_retries: Maximum number of retries per action
-		                skip_failures: Whether to skip failed actions or stop execution
+		                skip_failures: Whether to skip failed actions or stop execution. When True, also skips
+		                               steps that had errors in the original run (e.g., modal close buttons that
+		                               auto-dismissed, or elements that became non-interactable)
 		                delay_between_actions: Delay between actions in seconds (used when no saved interval)
 		                max_step_interval: Maximum delay from saved step_interval (caps LLM time from original run)
 		                summary_llm: Optional LLM to use for generating the final summary. If not provided, uses the agent's LLM
 		                ai_step_llm: Optional LLM to use for AI steps (extract actions). If not provided, uses the agent's LLM
+		                wait_for_elements: If True, wait for minimum number of elements before attempting element
+		                               matching. Useful for SPA pages where shadow DOM content loads dynamically.
+		                               Default is False.
 
 		Returns:
 		                List of action results (including AI summary as the final result)
@@ -2730,69 +2739,119 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		results = []
 
-		for i, history_item in enumerate(history.history):
-			goal = history_item.model_output.current_state.next_goal if history_item.model_output else ''
-			step_num = history_item.metadata.step_number if history_item.metadata else i
-			step_name = 'Initial actions' if step_num == 0 else f'Step {step_num}'
+		# Track previous step for redundant retry detection
+		previous_item: AgentHistory | None = None
+		previous_step_succeeded: bool = False
 
-			# Determine step delay
-			if history_item.metadata and history_item.metadata.step_interval is not None:
-				# Cap the saved interval to max_step_interval (saved interval includes LLM time)
-				step_delay = min(history_item.metadata.step_interval, max_step_interval)
-				# Format delay nicely - show ms for values < 1s, otherwise show seconds
-				if step_delay < 1.0:
-					delay_str = f'{step_delay * 1000:.0f}ms'
-				else:
-					delay_str = f'{step_delay:.1f}s'
-				if history_item.metadata.step_interval > max_step_interval:
-					delay_source = f'capped to {delay_str} (saved was {history_item.metadata.step_interval:.1f}s)'
-				else:
-					delay_source = f'using saved step_interval={delay_str}'
-			else:
-				step_delay = delay_between_actions
-				if step_delay < 1.0:
-					delay_str = f'{step_delay * 1000:.0f}ms'
-				else:
-					delay_str = f'{step_delay:.1f}s'
-				delay_source = f'using default delay={delay_str}'
+		try:
+			for i, history_item in enumerate(history.history):
+				goal = history_item.model_output.current_state.next_goal if history_item.model_output else ''
+				step_num = history_item.metadata.step_number if history_item.metadata else i
+				step_name = 'Initial actions' if step_num == 0 else f'Step {step_num}'
 
-			self.logger.info(f'Replaying {step_name} ({i + 1}/{len(history.history)}) [{delay_source}]: {goal}')
-
-			if (
-				not history_item.model_output
-				or not history_item.model_output.action
-				or history_item.model_output.action == [None]
-			):
-				self.logger.warning(f'{step_name}: No action to replay, skipping')
-				results.append(ActionResult(error='No action to replay'))
-				continue
-
-			retry_count = 0
-			while retry_count < max_retries:
-				try:
-					result = await self._execute_history_step(history_item, step_delay, ai_step_llm)
-					results.extend(result)
-					break
-
-				except Exception as e:
-					retry_count += 1
-					if retry_count == max_retries:
-						error_msg = f'{step_name} failed after {max_retries} attempts: {str(e)}'
-						self.logger.error(error_msg)
-						if not skip_failures:
-							results.append(ActionResult(error=error_msg))
-							raise RuntimeError(error_msg)
+				# Determine step delay
+				if history_item.metadata and history_item.metadata.step_interval is not None:
+					# Cap the saved interval to max_step_interval (saved interval includes LLM time)
+					step_delay = min(history_item.metadata.step_interval, max_step_interval)
+					# Format delay nicely - show ms for values < 1s, otherwise show seconds
+					if step_delay < 1.0:
+						delay_str = f'{step_delay * 1000:.0f}ms'
 					else:
-						self.logger.warning(f'{step_name} failed (attempt {retry_count}/{max_retries}), retrying...')
-						await asyncio.sleep(delay_between_actions)
+						delay_str = f'{step_delay:.1f}s'
+					if history_item.metadata.step_interval > max_step_interval:
+						delay_source = f'capped to {delay_str} (saved was {history_item.metadata.step_interval:.1f}s)'
+					else:
+						delay_source = f'using saved step_interval={delay_str}'
+				else:
+					step_delay = delay_between_actions
+					if step_delay < 1.0:
+						delay_str = f'{step_delay * 1000:.0f}ms'
+					else:
+						delay_str = f'{step_delay:.1f}s'
+					delay_source = f'using default delay={delay_str}'
 
-		# Generate AI summary of rerun completion
-		self.logger.info('🤖 Generating AI summary of rerun completion...')
-		summary_result = await self._generate_rerun_summary(self.task, results, summary_llm)
-		results.append(summary_result)
+				self.logger.info(f'Replaying {step_name} ({i + 1}/{len(history.history)}) [{delay_source}]: {goal}')
 
-		await self.close()
-		return results
+				if (
+					not history_item.model_output
+					or not history_item.model_output.action
+					or history_item.model_output.action == [None]
+				):
+					self.logger.warning(f'{step_name}: No action to replay, skipping')
+					results.append(ActionResult(error='No action to replay'))
+					continue
+
+				# Check if the original step had errors - skip if skip_failures is enabled
+				original_had_error = any(r.error for r in history_item.result if r.error)
+				if original_had_error and skip_failures:
+					error_msgs = [r.error for r in history_item.result if r.error]
+					self.logger.warning(
+						f'{step_name}: Original step had error(s), skipping (skip_failures=True): {error_msgs[0][:100] if error_msgs else "unknown"}'
+					)
+					results.append(
+						ActionResult(
+							error=f'Skipped - original step had error: {error_msgs[0][:100] if error_msgs else "unknown"}'
+						)
+					)
+					continue
+
+				# Check if this step is a redundant retry of the previous step
+				# This handles cases where original run needed to click same element multiple times
+				# due to slow page response, but during replay the first click already worked
+				if self._is_redundant_retry_step(history_item, previous_item, previous_step_succeeded):
+					self.logger.info(f'{step_name}: Skipping redundant retry (previous step already succeeded with same element)')
+					results.append(
+						ActionResult(
+							extracted_content='Skipped - redundant retry of previous step',
+							include_in_memory=False,
+						)
+					)
+					# Don't update previous_item/previous_step_succeeded - keep tracking the original step
+					continue
+
+				retry_count = 0
+				step_succeeded = False
+				# Exponential backoff: 5s base, doubling each retry, capped at 30s
+				base_retry_delay = 5.0
+				max_retry_delay = 30.0
+				while retry_count < max_retries:
+					try:
+						result = await self._execute_history_step(history_item, step_delay, ai_step_llm, wait_for_elements)
+						results.extend(result)
+						step_succeeded = True
+						break
+
+					except Exception as e:
+						retry_count += 1
+						if retry_count == max_retries:
+							error_msg = f'{step_name} failed after {max_retries} attempts: {str(e)}'
+							self.logger.error(error_msg)
+							# Always record the error in results so AI summary counts it correctly
+							results.append(ActionResult(error=error_msg))
+							if not skip_failures:
+								raise RuntimeError(error_msg)
+							# With skip_failures=True, continue to next step
+						else:
+							# Exponential backoff: 5s, 10s, 20s, ... capped at 30s
+							retry_delay = min(base_retry_delay * (2 ** (retry_count - 1)), max_retry_delay)
+							self.logger.warning(
+								f'{step_name} failed (attempt {retry_count}/{max_retries}), retrying in {retry_delay}s...'
+							)
+							await asyncio.sleep(retry_delay)
+
+				# Update tracking for redundant retry detection
+				previous_item = history_item
+				previous_step_succeeded = step_succeeded
+
+			# Generate AI summary of rerun completion
+			self.logger.info('🤖 Generating AI summary of rerun completion...')
+			summary_result = await self._generate_rerun_summary(self.task, results, summary_llm)
+			results.append(summary_result)
+
+			return results
+		finally:
+			# Always close resources, even on failure
+			await self.close()
 
 	async def _execute_initial_actions(self) -> None:
 		# Execute initial actions if provided
@@ -2843,17 +2902,120 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug('📝 Saved initial actions to history as step 0')
 			self.logger.debug('Initial actions completed')
 
+	async def _wait_for_minimum_elements(
+		self,
+		min_elements: int,
+		timeout: float = 30.0,
+		poll_interval: float = 1.0,
+	) -> BrowserStateSummary | None:
+		"""Wait for the page to have at least min_elements interactive elements.
+
+		This helps handle SPA pages where shadow DOM and dynamic content
+		may not be immediately available even when document.readyState is 'complete'.
+
+		Args:
+			min_elements: Minimum number of interactive elements to wait for
+			timeout: Maximum time to wait in seconds
+			poll_interval: Time between polling attempts in seconds
+
+		Returns:
+			BrowserStateSummary if minimum elements found, None if timeout
+		"""
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		start_time = time.time()
+		last_count = 0
+
+		while (time.time() - start_time) < timeout:
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+			if state and state.dom_state.selector_map:
+				current_count = len(state.dom_state.selector_map)
+				if current_count >= min_elements:
+					self.logger.debug(f'✅ Page has {current_count} elements (needed {min_elements}), proceeding with action')
+					return state
+				if current_count != last_count:
+					self.logger.debug(
+						f'⏳ Waiting for elements: {current_count}/{min_elements} '
+						f'(timeout in {timeout - (time.time() - start_time):.1f}s)'
+					)
+					last_count = current_count
+			await asyncio.sleep(poll_interval)
+
+		# Return last state even if we didn't reach min_elements
+		self.logger.warning(f'⚠️ Timeout waiting for {min_elements} elements, proceeding with {last_count} elements')
+		return await self.browser_session.get_browser_state_summary(include_screenshot=False)
+
+	def _count_expected_elements_from_history(self, history_item: AgentHistory) -> int:
+		"""Estimate the minimum number of elements expected based on history.
+
+		Uses the action indices from the history to determine the minimum
+		number of elements the page should have. If an action targets index N,
+		the page needs at least N+1 elements in the selector_map.
+		"""
+		if not history_item.model_output or not history_item.model_output.action:
+			return 0
+
+		max_index = -1  # Use -1 to indicate no index found yet
+		for action in history_item.model_output.action:
+			# Get the element index this action targets
+			index = action.get_index()
+			if index is not None:
+				max_index = max(max_index, index)
+
+		# Need at least max_index + 1 elements (indices are 0-based)
+		# Cap at 50 to avoid waiting forever for very high indices
+		# max_index >= 0 means we found at least one action with an index
+		return min(max_index + 1, 50) if max_index >= 0 else 0
+
 	async def _execute_history_step(
-		self, history_item: AgentHistory, delay: float, ai_step_llm: BaseChatModel | None = None
+		self,
+		history_item: AgentHistory,
+		delay: float,
+		ai_step_llm: BaseChatModel | None = None,
+		wait_for_elements: bool = False,
 	) -> list[ActionResult]:
 		"""Execute a single step from history with element validation.
 
 		For extract actions, uses AI to re-evaluate the content since page content may have changed.
+
+		Args:
+			history_item: The history step to execute
+			delay: Delay before executing the step
+			ai_step_llm: Optional LLM to use for AI steps
+			wait_for_elements: If True, wait for minimum elements before element matching
 		"""
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		await asyncio.sleep(delay)
-		state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+
+		# Optionally wait for minimum elements before element matching (useful for SPAs)
+		if wait_for_elements:
+			# Determine if we need to wait for elements (actions that interact with DOM elements)
+			needs_element_matching = False
+			if history_item.model_output:
+				for i, action in enumerate(history_item.model_output.action):
+					action_data = action.model_dump(exclude_unset=True)
+					action_name = next(iter(action_data.keys()), None)
+					# Actions that need element matching
+					if action_name in ('click', 'input', 'hover', 'select_option', 'drag_and_drop'):
+						historical_elem = (
+							history_item.state.interacted_element[i] if i < len(history_item.state.interacted_element) else None
+						)
+						if historical_elem is not None:
+							needs_element_matching = True
+							break
+
+			# If we need element matching, wait for minimum elements before proceeding
+			if needs_element_matching:
+				min_elements = self._count_expected_elements_from_history(history_item)
+				if min_elements > 0:
+					state = await self._wait_for_minimum_elements(min_elements, timeout=15.0, poll_interval=1.0)
+				else:
+					state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+			else:
+				state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+		else:
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
 
@@ -2888,13 +3050,46 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				results.append(ai_result)
 			else:
 				# For non-extract actions, update indices and collect for batch execution
+				historical_elem = history_item.state.interacted_element[i]
 				updated_action = await self._update_action_indices(
-					history_item.state.interacted_element[i],
+					historical_elem,
 					action,
 					state,
 				)
 				if updated_action is None:
-					raise ValueError(f'Could not find matching element {i} in current page')
+					# Build informative error message with diagnostic info
+					elem_info = self._format_element_for_error(historical_elem)
+					selector_map = state.dom_state.selector_map or {}
+					selector_count = len(selector_map)
+
+					# Find elements with same node_name for diagnostics
+					hist_node = historical_elem.node_name.lower() if historical_elem else ''
+					similar_elements = []
+					if historical_elem and historical_elem.attributes:
+						hist_aria = historical_elem.attributes.get('aria-label', '')
+						for idx, elem in selector_map.items():
+							if elem.node_name.lower() == hist_node and elem.attributes:
+								elem_aria = elem.attributes.get('aria-label', '')
+								if elem_aria:
+									similar_elements.append(f'{idx}:{elem_aria[:30]}')
+									if len(similar_elements) >= 5:
+										break
+
+					diagnostic = ''
+					if similar_elements:
+						diagnostic = f'\n  Available <{hist_node.upper()}> with aria-label: {similar_elements}'
+					elif hist_node:
+						same_node_count = sum(1 for e in selector_map.values() if e.node_name.lower() == hist_node)
+						diagnostic = (
+							f'\n  Found {same_node_count} <{hist_node.upper()}> elements (none with matching identifiers)'
+						)
+
+					raise ValueError(
+						f'Could not find matching element for action {i} in current page.\n'
+						f'  Looking for: {elem_info}\n'
+						f'  Page has {selector_count} interactive elements.{diagnostic}\n'
+						f'  Tried: EXACT hash → STABLE hash → XPATH → AX_NAME → ATTRIBUTE matching'
+					)
 				pending_actions.append(updated_action)
 
 		# Execute any remaining pending actions
@@ -2913,30 +3108,243 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""
 		Update action indices based on current page state.
 		Returns updated action or None if element cannot be found.
+
+		Cascading matching strategy (tries each level in order):
+		1. EXACT: Full element_hash match (includes all attributes + ax_name)
+		2. STABLE: Hash with dynamic CSS classes filtered out (focus, hover, animation, etc.)
+		3. XPATH: XPath string match (structural position in DOM)
+		4. AX_NAME: Accessible name match from accessibility tree (robust for dynamic menus)
+		5. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
 		"""
 		if not historical_element or not browser_state_summary.dom_state.selector_map:
 			return action
 
-		# selector_hash_map = {hash(e): e for e in browser_state_summary.dom_state.selector_map.values()}
+		selector_map = browser_state_summary.dom_state.selector_map
+		highlight_index: int | None = None
+		match_level: MatchLevel | None = None
 
-		highlight_index, current_element = next(
-			(
-				(highlight_index, element)
-				for highlight_index, element in browser_state_summary.dom_state.selector_map.items()
-				if element.element_hash == historical_element.element_hash
-			),
-			(None, None),
+		# Debug: log what we're looking for and what's available
+		self.logger.info(
+			f'🔍 Searching for element: <{historical_element.node_name}> '
+			f'hash={historical_element.element_hash} stable_hash={historical_element.stable_hash}'
 		)
+		# Log what elements are in selector_map for debugging
+		if historical_element.node_name:
+			hist_name = historical_element.node_name.lower()
+			matching_nodes = [
+				(idx, elem.node_name, elem.attributes.get('name') if elem.attributes else None)
+				for idx, elem in selector_map.items()
+				if elem.node_name.lower() == hist_name
+			]
+			self.logger.info(
+				f'🔍 Selector map has {len(selector_map)} elements, '
+				f'{len(matching_nodes)} are <{hist_name.upper()}>: {matching_nodes}'
+			)
 
-		if not current_element or highlight_index is None:
+		# Level 1: EXACT hash match
+		for idx, elem in selector_map.items():
+			if elem.element_hash == historical_element.element_hash:
+				highlight_index = idx
+				match_level = MatchLevel.EXACT
+				break
+
+		if highlight_index is None:
+			self.logger.debug(f'EXACT hash match failed (checked {len(selector_map)} elements)')
+
+		# Level 2: STABLE hash match (dynamic classes filtered)
+		# Use stored stable_hash (computed at save time from EnhancedDOMTreeNode - single source of truth)
+		if highlight_index is None and historical_element.stable_hash is not None:
+			for idx, elem in selector_map.items():
+				if elem.compute_stable_hash() == historical_element.stable_hash:
+					highlight_index = idx
+					match_level = MatchLevel.STABLE
+					self.logger.info('Element matched at STABLE level (dynamic classes filtered)')
+					break
+			if highlight_index is None:
+				self.logger.debug('STABLE hash match failed')
+		elif highlight_index is None:
+			self.logger.debug('STABLE hash match skipped (no stable_hash in history)')
+
+		# Level 3: XPATH match
+		if highlight_index is None and historical_element.x_path:
+			for idx, elem in selector_map.items():
+				if elem.xpath == historical_element.x_path:
+					highlight_index = idx
+					match_level = MatchLevel.XPATH
+					self.logger.info(f'Element matched at XPATH level: {historical_element.x_path}')
+					break
+			if highlight_index is None:
+				self.logger.debug(f'XPATH match failed for: {historical_element.x_path[-60:]}')
+
+		# Level 4: ax_name (accessible name) match - robust for dynamic SPAs with menus
+		# This uses the accessible name from the accessibility tree which is stable
+		# even when DOM structure changes (e.g., dynamically generated menu items)
+		if highlight_index is None and historical_element.ax_name:
+			hist_name = historical_element.node_name.lower()
+			hist_ax_name = historical_element.ax_name
+			for idx, elem in selector_map.items():
+				# Match by node type and accessible name
+				elem_ax_name = elem.ax_node.name if elem.ax_node else None
+				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
+					highlight_index = idx
+					match_level = MatchLevel.AX_NAME
+					self.logger.info(f'Element matched at AX_NAME level: "{hist_ax_name}"')
+					break
+			if highlight_index is None:
+				# Log available ax_names for debugging
+				same_type_ax_names = [
+					(idx, elem.ax_node.name if elem.ax_node else None)
+					for idx, elem in selector_map.items()
+					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
+				]
+				self.logger.debug(
+					f'AX_NAME match failed for <{hist_name.upper()}> ax_name="{hist_ax_name}". '
+					f'Page has {len(same_type_ax_names)} <{hist_name.upper()}> with ax_names: '
+					f'{same_type_ax_names[:5]}{"..." if len(same_type_ax_names) > 5 else ""}'
+				)
+
+		# Level 5: Unique attribute fallback (for old history files without stable_hash)
+		if highlight_index is None and historical_element.attributes:
+			hist_attrs = historical_element.attributes
+			hist_name = historical_element.node_name.lower()
+
+			# Try matching by unique identifiers: name, id, or aria-label
+			for attr_key in ['name', 'id', 'aria-label']:
+				if attr_key in hist_attrs and hist_attrs[attr_key]:
+					for idx, elem in selector_map.items():
+						if (
+							elem.node_name.lower() == hist_name
+							and elem.attributes
+							and elem.attributes.get(attr_key) == hist_attrs[attr_key]
+						):
+							highlight_index = idx
+							match_level = MatchLevel.ATTRIBUTE
+							self.logger.info(f'Element matched via {attr_key} attribute: {hist_attrs[attr_key]}')
+							break
+					if highlight_index is not None:
+						break
+
+			if highlight_index is None:
+				tried_attrs = [k for k in ['name', 'id', 'aria-label'] if k in hist_attrs and hist_attrs[k]]
+				# Log what was tried and what's available on the page for debugging
+				same_node_elements = [
+					(idx, elem.attributes.get('aria-label') or elem.attributes.get('id') or elem.attributes.get('name'))
+					for idx, elem in selector_map.items()
+					if elem.node_name.lower() == hist_name and elem.attributes
+				]
+				self.logger.info(
+					f'🔍 ATTRIBUTE match failed for <{hist_name.upper()}> '
+					f'(tried: {tried_attrs}, looking for: {[hist_attrs.get(k) for k in tried_attrs]}). '
+					f'Page has {len(same_node_elements)} <{hist_name.upper()}> elements with identifiers: '
+					f'{same_node_elements[:5]}{"..." if len(same_node_elements) > 5 else ""}'
+				)
+
+		if highlight_index is None:
 			return None
 
 		old_index = action.get_index()
 		if old_index != highlight_index:
 			action.set_index(highlight_index)
-			self.logger.info(f'Element moved in DOM, updated index from {old_index} to {highlight_index}')
+			level_name = match_level.name if match_level else 'UNKNOWN'
+			self.logger.info(f'Element index updated {old_index} → {highlight_index} (matched at {level_name} level)')
 
 		return action
+
+	def _format_element_for_error(self, elem: DOMInteractedElement | None) -> str:
+		"""Format element info for error messages during history rerun."""
+		if elem is None:
+			return '<no element recorded>'
+
+		parts = [f'<{elem.node_name}>']
+
+		# Add key identifying attributes
+		if elem.attributes:
+			for key in ['name', 'id', 'aria-label', 'type']:
+				if key in elem.attributes and elem.attributes[key]:
+					parts.append(f'{key}="{elem.attributes[key]}"')
+
+		# Add hash info
+		parts.append(f'hash={elem.element_hash}')
+		if elem.stable_hash:
+			parts.append(f'stable_hash={elem.stable_hash}')
+
+		# Add xpath (truncated)
+		if elem.x_path:
+			xpath_short = elem.x_path if len(elem.x_path) <= 60 else f'...{elem.x_path[-57:]}'
+			parts.append(f'xpath="{xpath_short}"')
+
+		return ' '.join(parts)
+
+	def _is_redundant_retry_step(
+		self,
+		current_item: AgentHistory,
+		previous_item: AgentHistory | None,
+		previous_step_succeeded: bool,
+	) -> bool:
+		"""
+		Detect if current step is a redundant retry of the previous step.
+
+		This handles cases where the original run needed to click the same element multiple
+		times due to slow page response, but during replay the first click already succeeded.
+		When the page has already navigated, subsequent retry clicks on the same element
+		would fail because that element no longer exists.
+
+		Returns True if:
+		- Previous step succeeded
+		- Both steps target the same element (by element_hash, stable_hash, or xpath)
+		- Both steps perform the same action type (e.g., both are clicks)
+		"""
+		if not previous_item or not previous_step_succeeded:
+			return False
+
+		# Get interacted elements from both steps (first action in each)
+		curr_elements = current_item.state.interacted_element
+		prev_elements = previous_item.state.interacted_element
+
+		if not curr_elements or not prev_elements:
+			return False
+
+		curr_elem = curr_elements[0] if curr_elements else None
+		prev_elem = prev_elements[0] if prev_elements else None
+
+		if not curr_elem or not prev_elem:
+			return False
+
+		# Check if same element by various matching strategies
+		same_by_hash = curr_elem.element_hash == prev_elem.element_hash
+		same_by_stable_hash = (
+			curr_elem.stable_hash is not None
+			and prev_elem.stable_hash is not None
+			and curr_elem.stable_hash == prev_elem.stable_hash
+		)
+		same_by_xpath = curr_elem.x_path == prev_elem.x_path
+
+		if not (same_by_hash or same_by_stable_hash or same_by_xpath):
+			return False
+
+		# Check if same action type
+		curr_actions = current_item.model_output.action if current_item.model_output else []
+		prev_actions = previous_item.model_output.action if previous_item.model_output else []
+
+		if not curr_actions or not prev_actions:
+			return False
+
+		# Get the action type (first key in the action dict)
+		curr_action_data = curr_actions[0].model_dump(exclude_unset=True)
+		prev_action_data = prev_actions[0].model_dump(exclude_unset=True)
+
+		curr_action_type = next(iter(curr_action_data.keys()), None)
+		prev_action_type = next(iter(prev_action_data.keys()), None)
+
+		if curr_action_type != prev_action_type:
+			return False
+
+		self.logger.debug(
+			f'🔄 Detected redundant retry: both steps target same element '
+			f'<{curr_elem.node_name}> with action "{curr_action_type}"'
+		)
+
+		return True
 
 	async def load_and_rerun(
 		self,
@@ -2954,7 +3362,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				- max_retries: Maximum retries per action (default: 3)
 				- skip_failures: Continue on failure (default: True)
 				- delay_between_actions: Delay when no saved interval (default: 2.0s)
-				- max_step_interval: Cap on saved step_interval (default: 5.0s)
+				- max_step_interval: Cap on saved step_interval (default: 45.0s)
 				- summary_llm: Custom LLM for final summary
 				- ai_step_llm: Custom LLM for extract re-evaluation
 		"""

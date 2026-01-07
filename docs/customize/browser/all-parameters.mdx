@@ -91,6 +91,19 @@ The `Browser` instance also provides all [Actor](/customize/actor/all-parameters
 
 ## Recording & Debugging
 
+<Warning>
+Video recording requires additional optional dependencies. If these are not installed, no video will be saved and no error will be raised.
+
+Install with:
+```bash
+pip install "browser-use[video]"
+```
+or:
+```bash
+pip install imageio[ffmpeg] numpy
+```
+</Warning>
+
 - `record_video_dir`: Directory to save video recordings as `.mp4` files
 - `record_video_size` (default: `ViewportSize`): The frame size (width, height) of the video recording.
 - `record_video_framerate` (default: `30`): The framerate to use for the video recording.
