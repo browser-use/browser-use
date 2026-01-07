@@ -598,6 +598,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=None,
 		description='Proxy settings. Use browser_use.browser.profile.ProxySettings(server, bypass, username, password)',
 	)
+	cleanup_on_close: bool = Field(
+		default=False,
+		description='When True, the browser context (user data dir and downloads) will be deleted on browser close.',
+	)
 	enable_default_extensions: bool = Field(
 		default_factory=_get_enable_default_extensions_default,
 		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled. Can be disabled via BROWSER_USE_DISABLE_EXTENSIONS=1 environment variable.",
