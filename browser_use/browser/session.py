@@ -9,7 +9,7 @@ from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 import httpx
-from bubus import EventBus
+from browser_use.event_bus import EventBus
 from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.network import Cookie
