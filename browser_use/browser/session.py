@@ -153,6 +153,7 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		cleanup_on_close: bool | None = None,
 	) -> None: ...
 
 	# Overload 2: Local browser mode (use local browser params)
@@ -186,6 +187,7 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		cleanup_on_close: bool | None = None,
 		# All other local params
 		env: dict[str, str | float | bool] | None = None,
 		ignore_default_args: list[str] | Literal[True] | None = None,
@@ -294,6 +296,7 @@ class BrowserSession(BaseModel):
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		cleanup_on_close: bool | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
@@ -519,6 +522,34 @@ class BrowserSession(BaseModel):
 		if self._demo_mode:
 			self._demo_mode.reset()
 			self._demo_mode = None
+
+		if self.browser_profile.cleanup_on_close:
+			import shutil
+			from browser_use.utils import _log_pretty_path
+
+			# 1. Cleanup user_data_dir if it was auto-generated
+			if self.browser_profile.user_data_dir:
+				path_str = str(self.browser_profile.user_data_dir)
+				if 'browser-use-user-data-dir-' in path_str:
+					try:
+						self.logger.debug(
+							f'🗑️ Cleaning up auto-generated user_data_dir: {_log_pretty_path(self.browser_profile.user_data_dir)}'
+						)
+						shutil.rmtree(self.browser_profile.user_data_dir, ignore_errors=True)
+					except Exception as e:
+						self.logger.warning(f'Failed to cleanup user_data_dir: {e}')
+
+			# 2. Cleanup downloads_path if it was auto-generated
+			if self.browser_profile.downloads_path:
+				path_str = str(self.browser_profile.downloads_path)
+				if 'browser-use-downloads-' in path_str:
+					try:
+						self.logger.debug(
+							f'🗑️ Cleaning up auto-generated downloads_path: {_log_pretty_path(self.browser_profile.downloads_path)}'
+						)
+						shutil.rmtree(self.browser_profile.downloads_path, ignore_errors=True)
+					except Exception as e:
+						self.logger.warning(f'Failed to cleanup downloads_path: {e}')
 
 		self.logger.info('✅ Browser session reset complete')
 
