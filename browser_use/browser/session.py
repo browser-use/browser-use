@@ -1914,9 +1914,7 @@ class BrowserSession(BaseModel):
 		if self.agent_focus_target_id:
 			try:
 				session = await self.get_or_create_cdp_session()
-				info = await session.cdp_client.send.Target.getTargetInfo(
-					params={'targetId': self.agent_focus_target_id}
-				)
+				info = await session.cdp_client.send.Target.getTargetInfo(params={'targetId': self.agent_focus_target_id})
 				return info.get('targetInfo', {}).get('title', 'Unknown title')
 			except Exception:
 				target = self.session_manager.get_target(self.agent_focus_target_id)
