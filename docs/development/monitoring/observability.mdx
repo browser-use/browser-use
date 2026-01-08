@@ -7,9 +7,29 @@ mode: "wide"
 
 ## Overview
 
-Browser Use has a native integration with [Laminar](https://laminar.sh) - open-source platform for monitoring and analyzing error patterns in AI agents.
-Laminar SDK automatically captures **agent execution steps, costs and browser session recordings** of Browser Use agent.
-Browser session recordings allows developers to see full video replay of the browser session, which is useful for debugging Browser Use agent.
+Browser Use has native tracing integrations with both [LangSmith](https://smith.langchain.com) and [Laminar](https://laminar.sh).
+LangSmith tracing wraps the `@observe` / `@observe_debug` decorators that exist throughout the agent so every notable step shows up in your LangSmith workspace without any extra code. Laminar SDK automatically captures **agent execution steps, costs and browser session recordings** of Browser Use agent.
+Browser session recordings allow developers to see full video replay of the browser session, which is useful for debugging Browser Use agent.
+
+## LangSmith
+
+Browser Use automatically emits LangSmith traces when the SDK is installed and tracing is enabled.
+
+### Setup
+
+```bash
+pip install langsmith
+export LANGSMITH_TRACING_V2=true  # or LANGCHAIN_TRACING_V2
+export LANGSMITH_API_KEY=<your-langsmith-api-key>
+# optional but recommended so Browser Use traces stay grouped together
+export LANGSMITH_PROJECT=browser-use
+```
+
+### Usage
+
+No extra code is required. As soon as tracing is enabled the built-in observability decorators wrap key agent methods and tool calls. Runs appear in LangSmith under the configured project with the same hierarchy that Browser Use already exposes through `observe` and `observe_debug`.
+
+If you only want verbose spans when Browser Use is in debug mode, set `LMNR_LOGGING_LEVEL=debug` before enabling tracing.
 
 ## Setup
 

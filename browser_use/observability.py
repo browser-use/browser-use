@@ -1,15 +1,15 @@
-# @file purpose: Observability module for browser-use that handles optional lmnr integration with debug mode support
+# @file purpose: Observability module for browser-use that handles optional tracing integrations with debug mode support
 """
 Observability module for browser-use
 
-This module provides observability decorators that optionally integrate with lmnr (Laminar) for tracing.
-If lmnr is not installed, it provides no-op wrappers that accept the same parameters.
+This module provides observability decorators that optionally integrate with LangSmith or lmnr (Laminar) for tracing.
+If tracing SDKs are not installed, it provides no-op wrappers that accept the same parameters.
 
 Features:
-- Optional lmnr integration - works with or without lmnr installed
+- Optional LangSmith and lmnr integration - works with or without the SDKs installed
 - Debug mode support - observe_debug only traces when in debug mode
-- Full parameter compatibility with lmnr observe decorator
-- No-op fallbacks when lmnr is unavailable
+- Full parameter compatibility with existing decorators
+- No-op fallbacks when tracing providers are unavailable
 """
 
 import logging
@@ -22,9 +22,11 @@ logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
 
 load_dotenv()
+_VERBOSE_OBSERVABILITY = os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true'
 
 # Type definitions
 F = TypeVar('F', bound=Callable[..., Any])
+SpanType = Literal['DEFAULT', 'LLM', 'TOOL']
 
 
 # Check if we're in debug mode
@@ -46,13 +48,83 @@ _lmnr_observe = None
 try:
 	from lmnr import observe as _lmnr_observe  # type: ignore
 
-	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
+	if _VERBOSE_OBSERVABILITY:
 		logger.debug('Lmnr is available for observability')
 	_LMNR_AVAILABLE = True
 except ImportError:
-	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
+	if _VERBOSE_OBSERVABILITY:
 		logger.debug('Lmnr is not available for observability')
 	_LMNR_AVAILABLE = False
+
+_LANGSMITH_AVAILABLE = False
+_langsmith_traceable = None
+_langsmith_utils = None
+
+try:
+	from langsmith.run_helpers import traceable as _langsmith_traceable  # type: ignore
+	from langsmith import utils as _langsmith_utils  # type: ignore
+
+	if _VERBOSE_OBSERVABILITY:
+		logger.debug('LangSmith tracing is available for observability')
+	_LANGSMITH_AVAILABLE = True
+except ImportError:
+	if _VERBOSE_OBSERVABILITY:
+		logger.debug('LangSmith tracing is not available for observability')
+	_LANGSMITH_AVAILABLE = False
+
+
+def _should_use_langsmith() -> bool:
+	"""Determine if LangSmith tracing should be used."""
+	if not _LANGSMITH_AVAILABLE or not _langsmith_traceable or not _langsmith_utils:
+		return False
+
+	try:
+		state = _langsmith_utils.tracing_is_enabled()
+	except Exception as exc:  # pragma: no cover - defensive logging
+		if _VERBOSE_OBSERVABILITY:
+			logger.debug('Failed to determine LangSmith tracing status: %s', exc)
+		return False
+
+	return bool(state)
+
+
+def _span_type_to_run_type(span_type: SpanType) -> str:
+	"""Map browser-use span types to LangSmith run types."""
+	if span_type == 'LLM':
+		return 'llm'
+	if span_type == 'TOOL':
+		return 'tool'
+	return 'chain'
+
+
+def _masked_inputs(_: dict[str, Any]) -> dict[str, Any]:
+	"""Hide function inputs when ignore_input=True."""
+	return {'inputs_hidden': True}
+
+
+def _masked_outputs(_: Any) -> dict[str, Any]:
+	"""Hide function outputs when ignore_output=True."""
+	return {'output_hidden': True}
+
+
+def _create_langsmith_decorator(**options: Any) -> Callable[[F], F]:
+	"""Create a LangSmith decorator with the same signature as observe."""
+	run_type = _span_type_to_run_type(options.get('span_type', 'DEFAULT'))
+	langsmith_kwargs: dict[str, Any] = {
+		'name': options.get('name'),
+		'metadata': options.get('metadata'),
+		'tags': options.get('tags'),
+	}
+
+	if options.get('ignore_input'):
+		langsmith_kwargs['process_inputs'] = _masked_inputs
+	if options.get('ignore_output'):
+		langsmith_kwargs['process_outputs'] = _masked_outputs
+
+	# Remove keys with None values to avoid warnings in langsmith
+	langsmith_kwargs = {key: value for key, value in langsmith_kwargs.items() if value is not None}
+
+	return cast(Callable[[F], F], _langsmith_traceable(run_type, **langsmith_kwargs))
 
 
 def _create_no_op_decorator(
@@ -89,7 +161,7 @@ def observe(
 	ignore_input: bool = False,
 	ignore_output: bool = False,
 	metadata: dict[str, Any] | None = None,
-	span_type: Literal['DEFAULT', 'LLM', 'TOOL'] = 'DEFAULT',
+	span_type: SpanType = 'DEFAULT',
 	**kwargs: Any,
 ) -> Callable[[F], F]:
 	"""
@@ -113,22 +185,23 @@ def observe(
 	    def my_function(param1, param2):
 	        return param1 + param2
 	"""
-	kwargs = {
+	options = {
 		'name': name,
 		'ignore_input': ignore_input,
 		'ignore_output': ignore_output,
 		'metadata': metadata,
 		'span_type': span_type,
-		'tags': ['observe', 'observe_debug'],  # important: tags need to be created on laminar first
+		'tags': ['observe', 'observe_debug'],  # important: tags need to be created on Laminar first
 		**kwargs,
 	}
 
+	if _should_use_langsmith():
+		return _create_langsmith_decorator(**options)
+
 	if _LMNR_AVAILABLE and _lmnr_observe:
-		# Use the real lmnr observe decorator
-		return cast(Callable[[F], F], _lmnr_observe(**kwargs))
-	else:
-		# Use no-op decorator
-		return _create_no_op_decorator(**kwargs)
+		return cast(Callable[[F], F], _lmnr_observe(**options))
+
+	return _create_no_op_decorator(**options)
 
 
 def observe_debug(
@@ -136,7 +209,7 @@ def observe_debug(
 	ignore_input: bool = False,
 	ignore_output: bool = False,
 	metadata: dict[str, Any] | None = None,
-	span_type: Literal['DEFAULT', 'LLM', 'TOOL'] = 'DEFAULT',
+	span_type: SpanType = 'DEFAULT',
 	**kwargs: Any,
 ) -> Callable[[F], F]:
 	"""
@@ -165,22 +238,28 @@ def observe_debug(
 	    def debug_function(param1, param2):
 	        return param1 + param2
 	"""
-	kwargs = {
+	options = {
 		'name': name,
 		'ignore_input': ignore_input,
 		'ignore_output': ignore_output,
 		'metadata': metadata,
 		'span_type': span_type,
-		'tags': ['observe_debug'],  # important: tags need to be created on laminar first
+		'tags': ['observe_debug'],  # important: tags need to be created on Laminar first
 		**kwargs,
 	}
 
+	if _should_use_langsmith():
+		if _is_debug_mode():
+			return _create_langsmith_decorator(**options)
+		# Debug mode disabled but LangSmith available, so return no-op
+		return _create_no_op_decorator(**options)
+
 	if _LMNR_AVAILABLE and _lmnr_observe and _is_debug_mode():
 		# Use the real lmnr observe decorator only in debug mode
-		return cast(Callable[[F], F], _lmnr_observe(**kwargs))
-	else:
-		# Use no-op decorator (either not in debug mode or lmnr not available)
-		return _create_no_op_decorator(**kwargs)
+		return cast(Callable[[F], F], _lmnr_observe(**options))
+
+	# Use no-op decorator (either not in debug mode or tracing backend not available)
+	return _create_no_op_decorator(**options)
 
 
 # Convenience functions for checking availability and debug status
@@ -196,9 +275,12 @@ def is_debug_mode() -> bool:
 
 def get_observability_status() -> dict[str, bool]:
 	"""Get the current status of observability features."""
+	langsmith_enabled = _should_use_langsmith()
 	return {
 		'lmnr_available': _LMNR_AVAILABLE,
+		'langsmith_available': _LANGSMITH_AVAILABLE,
+		'langsmith_enabled': langsmith_enabled,
 		'debug_mode': _is_debug_mode(),
-		'observe_active': _LMNR_AVAILABLE,
-		'observe_debug_active': _LMNR_AVAILABLE and _is_debug_mode(),
+		'observe_active': _LMNR_AVAILABLE or langsmith_enabled,
+		'observe_debug_active': (_LMNR_AVAILABLE or langsmith_enabled) and _is_debug_mode(),
 	}
