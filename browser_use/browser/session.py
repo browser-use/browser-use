@@ -970,6 +970,13 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
+		# Setup network interception for remote downloads
+		if self.browser_profile.remote_downloads:
+			try:
+				await self._setup_download_interception(event.target_id)
+			except Exception as e:
+				self.logger.warning(f'Failed to setup download interception for tab {event.target_id[-8:]}: {e}')
+
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
 		if not self.agent_focus_target_id:
@@ -1374,17 +1381,15 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(BrowserStoppedEvent, self._crash_watchdog.on_BrowserStoppedEvent)
 		# self._crash_watchdog.attach_to_session()
 
-		# Initialize DownloadsWatchdog
-		DownloadsWatchdog.model_rebuild()
-		self._downloads_watchdog = DownloadsWatchdog(event_bus=self.event_bus, browser_session=self)
-		# self.event_bus.on(BrowserLaunchEvent, self._downloads_watchdog.on_BrowserLaunchEvent)
-		# self.event_bus.on(TabCreatedEvent, self._downloads_watchdog.on_TabCreatedEvent)
-		# self.event_bus.on(TabClosedEvent, self._downloads_watchdog.on_TabClosedEvent)
-		# self.event_bus.on(BrowserStoppedEvent, self._downloads_watchdog.on_BrowserStoppedEvent)
-		# self.event_bus.on(NavigationCompleteEvent, self._downloads_watchdog.on_NavigationCompleteEvent)
-		self._downloads_watchdog.attach_to_session()
-		if self.browser_profile.auto_download_pdfs:
-			self.logger.debug('📄 PDF auto-download enabled for this session')
+		# Initialize DownloadsWatchdog (only if not using remote downloads)
+		if not self.browser_profile.remote_downloads:
+			DownloadsWatchdog.model_rebuild()
+			self._downloads_watchdog = DownloadsWatchdog(event_bus=self.event_bus, browser_session=self)
+			self._downloads_watchdog.attach_to_session()
+			if self.browser_profile.auto_download_pdfs:
+				self.logger.debug('📄 PDF auto-download enabled for this session')
+		else:
+			self.logger.info('📡 Remote downloads enabled - skipping standard DownloadsWatchdog')
 
 		# Initialize StorageStateWatchdog conditionally
 		# Enable when user provides either storage_state or user_data_dir (indicating they want persistence)
@@ -3543,3 +3548,132 @@ class BrowserSession(BaseModel):
 			'width': max(content[0], content[2], content[4], content[6]) - min(content[0], content[2], content[4], content[6]),
 			'height': max(content[1], content[3], content[5], content[7]) - min(content[1], content[3], content[5], content[7]),
 		}
+
+	async def _setup_download_interception(self, target_id: str) -> None:
+		"""Setup network interception for downloads on a specific tab."""
+		try:
+			self.logger.debug(f"🔧 Setting up download interception for tab {target_id[-8:]}")
+
+			# Get CDP session for this target
+			cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=False)
+
+			# Enable Network domain with request interception
+			await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
+			await cdp_session.cdp_client.send.Network.setRequestInterception(
+				params={'patterns': [{'urlPattern': '*.csv'}, {'urlPattern': '*.pdf'}, {'urlPattern': '*.xlsx'}, {'urlPattern': '*.bin'}]},
+				session_id=cdp_session.session_id
+			)
+
+			# Register request handler
+			cdp_session.cdp_client.register.Network.requestIntercepted(
+				lambda event, session_id=None: asyncio.create_task(
+					self._on_request_intercepted(event, session_id or cdp_session.session_id, target_id)
+				)
+			)
+
+			self.logger.debug(f"✅ Download interception ready for tab {target_id[-8:]}")
+
+		except Exception as e:
+			self.logger.error(f"Failed to setup download interception: {e}")
+
+	async def _on_request_intercepted(self, event, session_id, target_id):
+		"""Handle intercepted requests to detect downloads."""
+		try:
+			request = event.get('request', {})
+			url = request.get('url', '')
+			
+			# Check if this looks like a real download URL (not analytics)
+			is_download = (
+				(url.lower().endswith('.csv') or url.lower().endswith('.pdf') or url.lower().endswith('.xlsx') or url.lower().endswith('.bin') or
+				 '.csv?' in url.lower() or '.pdf?' in url.lower() or '.xlsx?' in url.lower() or '.bin?' in url.lower()) and
+				'analytics' not in url.lower() and
+				'google' not in url.lower()
+			)
+
+			if is_download:
+				self.logger.info(f"🎯 Download request intercepted: {url[:100]}...")
+				
+				# Download directly via HTTP client (bypass browser entirely)
+				asyncio.create_task(self._download_via_http(url))
+
+			# Continue all requests
+			await self._continue_request(event, session_id, target_id)
+		except Exception as e:
+			self.logger.error(f"Error in request interceptor: {e}")
+
+	async def _continue_request(self, event, session_id, target_id):
+		"""Continue intercepted request."""
+		try:
+			cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=False)
+			
+			# Continue the request
+			await cdp_session.cdp_client.send.Network.continueInterceptedRequest(
+				params={'interceptionId': event['interceptionId']},
+				session_id=cdp_session.session_id
+			)
+				
+		except Exception as e:
+			self.logger.error(f"Failed to continue request: {e}")
+
+	async def _download_via_http(self, url: str):
+		"""Download file directly via HTTP client with browser session data."""
+		try:
+			self.logger.info(f"🌐 Direct HTTP download: {url[:100]}...")
+			
+			# Extract cookies from browser session
+			cookies = {}
+			try:
+				if hasattr(self, '_storage_state_watchdog') and self._storage_state_watchdog:
+					cookies_list = await self._storage_state_watchdog.get_current_cookies()
+					cookies = {cookie['name']: cookie['value'] for cookie in cookies_list}
+					self.logger.debug(f"🍪 Using {len(cookies)} cookies for authenticated download")
+				else:
+					# Fallback to direct CDP cookie extraction
+					cookies_list = await self._cdp_get_cookies()
+					cookies = {cookie['name']: cookie['value'] for cookie in cookies_list}
+					self.logger.debug(f"🍪 Using {len(cookies)} cookies via CDP for download")
+			except Exception as e:
+				self.logger.debug(f"⚠️ Could not extract cookies: {e}")
+			
+			# Get headers from browser profile
+			headers = (self.browser_profile.headers or {}).copy()
+			if not headers.get('User-Agent'):
+				headers['User-Agent'] = 'Mozilla/5.0 (compatible; browser-use)'
+
+			async with httpx.AsyncClient(
+				timeout=300,
+				cookies=cookies,
+				headers=headers
+			) as client:
+				async with client.stream('GET', url) as response:
+					response.raise_for_status()
+					
+					local_downloads_dir = Path("./downloads")
+					local_downloads_dir.mkdir(exist_ok=True)
+					
+					filename = url.split('/')[-1].split('?')[0] or 'download.dat'
+					local_path = local_downloads_dir / filename
+					
+					with open(local_path, 'wb') as f:
+						async for chunk in response.aiter_bytes():
+							f.write(chunk)
+					
+					file_size = local_path.stat().st_size
+					self.logger.info(f"✅ HTTP download complete: {file_size} bytes saved to {local_path}")
+					
+					# Emit FileDownloadedEvent to integrate with existing download tracking
+					self.event_bus.dispatch(
+						FileDownloadedEvent(
+							url=url,
+							path=str(local_path),
+							file_name=filename,
+							file_size=file_size,
+							file_type=filename.split('.')[-1] if '.' in filename else None,
+							mime_type=response.headers.get('content-type'),
+							auto_download=False,
+							from_cache=False
+						)
+					)
+					
+		except Exception as e:
+			self.logger.error(f"❌ HTTP download failed: {e}")
