@@ -1259,6 +1259,52 @@ class BrowserSession(BaseModel):
 					break
 
 			if not session:
+				# 2) If still no session, explicit attach fallback
+				self.logger.warning(
+					f'[SessionManager] Target {target_id[:8]}... has no session after auto-attach wait; '
+					f'trying explicit Target.attachToTarget fallback'
+				)
+
+				try:
+					assert self._cdp_client_root is not None
+					attach_result = await self._cdp_client_root.send.Target.attachToTarget(
+						params={'targetId': target_id, 'flatten': True}
+					)
+					session_id = attach_result.get('sessionId')
+					if not session_id:
+						raise RuntimeError('attachToTarget did not return a sessionId')
+
+					# Fetch targetInfo to mimic AttachedToTargetEvent
+					try:
+						target_info_result = await self._cdp_client_root.send.Target.getTargetInfo(params={'targetId': target_id})
+						target_info = target_info_result.get('targetInfo', {})
+					except Exception as info_err:
+						self.logger.debug(
+							f'[SessionManager] getTargetInfo failed for {target_id[:8]}... after explicit attach: {info_err}'
+						)
+						target_info = {
+							'targetId': target_id,
+							'type': 'page',
+							'url': 'about:blank',
+							'title': '',
+						}
+
+					manual_event = {
+						'sessionId': session_id,
+						'targetInfo': target_info,
+						'waitingForDebugger': False,
+					}
+					# Reuse SessionManager's single source of truth
+					await self.session_manager._handle_target_attached(manual_event)
+				except Exception as attach_err:
+					self.logger.error(
+						f'[SessionManager] Explicit Target.attachToTarget failed for {target_id[:8]}...: {attach_err}'
+					)
+
+				# Try getting session again
+				session = self.session_manager._get_session_for_target(target_id)
+
+			if not session:
 				# Timeout - target doesn't exist
 				raise ValueError(f'Target {target_id} not found - may have detached or never existed')
 
