@@ -29,7 +29,7 @@ class ChatOllama(BaseChatModel):
 	# temperature: float | None = None
 
 	# Client initialization parameters
-	host: str | None = None
+	host: str | None = 'http://127.0.0.1:11434'
 	timeout: float | httpx.Timeout | None = None
 	client_params: dict[str, Any] | None = None
 	ollama_options: Mapping[str, Any] | Options | None = None
