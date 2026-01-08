@@ -600,6 +600,20 @@ class DOMTreeSerializer:
 
 		return False
 
+	def _is_inside_shadow_dom(self, node: SimplifiedNode) -> bool:
+		"""Check if a node is inside a shadow DOM by walking up the parent chain.
+
+		Shadow DOM elements are descendants of a #document-fragment node (shadow root).
+		The shadow root node has node_type == DOCUMENT_FRAGMENT_NODE and shadow_root_type set.
+		"""
+		current = node.original_node.parent_node
+		while current is not None:
+			# Shadow roots are DOCUMENT_FRAGMENT nodes with shadow_root_type
+			if current.node_type == NodeType.DOCUMENT_FRAGMENT_NODE and current.shadow_root_type is not None:
+				return True
+			current = current.parent_node
+		return False
+
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
 		"""Assign interactive indices to clickable elements that are also visible."""
 		if not node:
@@ -612,6 +626,29 @@ class DOMTreeSerializer:
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 			is_scrollable = node.original_node.is_actually_scrollable
 
+			# DIAGNOSTIC: Log when interactive elements don't have snapshot_node
+			if is_interactive_assign and not node.original_node.snapshot_node:
+				import logging
+
+				logger = logging.getLogger('browser_use.dom.serializer')
+				attrs = node.original_node.attributes or {}
+				attr_str = f'name={attrs.get("name", "")} id={attrs.get("id", "")} type={attrs.get("type", "")}'
+				in_shadow = self._is_inside_shadow_dom(node)
+				if (
+					in_shadow
+					and node.original_node.tag_name
+					and node.original_node.tag_name.lower() in ['input', 'button', 'select', 'textarea', 'a']
+				):
+					logger.debug(
+						f'🔍 INCLUDING shadow DOM <{node.original_node.tag_name}> (no snapshot_node but in shadow DOM): '
+						f'backendNodeId={node.original_node.backend_node_id} {attr_str}'
+					)
+				else:
+					logger.debug(
+						f'🔍 SKIPPING interactive <{node.original_node.tag_name}> (no snapshot_node, not in shadow DOM): '
+						f'backendNodeId={node.original_node.backend_node_id} {attr_str}'
+					)
+
 			# EXCEPTION: File inputs are often hidden with opacity:0 but are still functional
 			# Bootstrap and other frameworks use this pattern with custom-styled file pickers
 			is_file_input = (
@@ -619,6 +656,17 @@ class DOMTreeSerializer:
 				and node.original_node.tag_name.lower() == 'input'
 				and node.original_node.attributes
 				and node.original_node.attributes.get('type') == 'file'
+			)
+
+			# EXCEPTION: Shadow DOM form elements may not have snapshot layout data from CDP's
+			# DOMSnapshot.captureSnapshot, but they're still functional/interactive.
+			# This handles login forms, custom web components, etc. inside shadow DOM.
+			is_shadow_dom_element = (
+				is_interactive_assign
+				and not node.original_node.snapshot_node
+				and node.original_node.tag_name
+				and node.original_node.tag_name.lower() in ['input', 'button', 'select', 'textarea', 'a']
+				and self._is_inside_shadow_dom(node)
 			)
 
 			# Check if scrollable container should be made interactive
@@ -631,8 +679,8 @@ class DOMTreeSerializer:
 				# Only make scrollable container interactive if it has NO interactive descendants
 				if not has_interactive_desc:
 					should_make_interactive = True
-			elif is_interactive_assign and (is_visible or is_file_input):
-				# Non-scrollable interactive elements: make interactive if visible (or file input)
+			elif is_interactive_assign and (is_visible or is_file_input or is_shadow_dom_element):
+				# Non-scrollable interactive elements: make interactive if visible (or file input or shadow DOM form element)
 				should_make_interactive = True
 
 			# Add to selector map if element should be interactive

@@ -106,7 +106,7 @@ body:
     id: logs
     attributes:
       label: Full DEBUG Log Output
-      description: Please copy and paste the *full* log output *from the start of the run*. Make sure to set `BROWSER_USE_LOG_LEVEL=DEBUG` in your `.env` or shell environment.
+      description: Please copy and paste the *full* log output *from the start of the run*. Make sure to set `BROWSER_USE_LOGGING_LEVEL=DEBUG` in your `.env` or shell environment.
       render: shell
       placeholder: |
         $ python /app/browser-use/examples/browser/real_browser.py

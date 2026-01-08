@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.10.1"
+version = "0.11.2"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -47,6 +47,7 @@ dependencies = [
     "cloudpickle>=3.1.1",
     "markdownify>=1.2.0",
     "python-docx>=1.2.0",
+    "browser-use-sdk>=2.0.12",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -162,10 +163,7 @@ include = [
     "browser_use/**/*.py",
     "!browser_use/**/tests/*.py",
     "!browser_use/**/tests.py",
-    "browser_use/agent/system_prompt.md",
-    "browser_use/agent/system_prompt_no_thinking.md",
-    "browser_use/agent/system_prompt_flash.md",
-    "browser_use/agent/system_prompt_flash_anthropic.md",
+	"browser_use/agent/system_prompts/*.md",
     "browser_use/code_use/system_prompt.md",
     "browser_use/cli_templates/*.py",
     "browser_use/py.typed",
