@@ -26,7 +26,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
-	from browser_use.browser.session import BrowserSession
+	from browser_use.browser.session import BrowserSession, CDPSession
 
 # Note: iframe limits are now configurable via BrowserProfile.max_iframes and BrowserProfile.max_iframe_depth
 
