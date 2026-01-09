@@ -2291,6 +2291,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 		]
 
 		found = False
+		js_result = None  # Initialize to prevent UnboundLocalError
+
 		for query in search_queries:
 			try:
 				# Perform search
@@ -2355,10 +2357,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
 
 		# If we got here and found is True, return None (success)
-		if found:
-			return None
-		else:
-			raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
+		return None
 
 	async def on_GetDropdownOptionsEvent(self, event: GetDropdownOptionsEvent) -> dict[str, str]:
 		"""Handle get dropdown options request with CDP."""
