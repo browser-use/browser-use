@@ -292,6 +292,13 @@ def create_namespace(
 	if available_file_paths is None:
 		available_file_paths = []
 
+	# Create default file_system if none provided (required for done action)
+	if file_system is None:
+		from browser_use.filesystem.file_system import FileSystem
+
+		# Use current directory for file system
+		file_system = FileSystem(base_dir='./', create_default_files=False)
+
 	namespace: dict[str, Any] = {
 		# Core objects
 		'browser': browser_session,
@@ -532,13 +539,25 @@ def create_namespace(
 		# Create a closure to capture the current action_name, param_model, and action_function
 		def make_action_wrapper(act_name, par_model, act_func):
 			async def action_wrapper(*args, **kwargs):
-				# Convert positional args to kwargs based on param model fields
+				# Special handling for navigate - accept URL as first positional argument
+				if act_name == 'navigate' and args and isinstance(args[0], str) and 'url' not in kwargs:
+					# If first arg is a string and url is not already in kwargs, treat it as the URL
+					kwargs['url'] = args[0]
+					args = args[1:]  # Remove the URL from args for remaining processing
+					# Handle new_tab if provided as second positional argument
+					if args and isinstance(args[0], bool) and 'new_tab' not in kwargs:
+						kwargs['new_tab'] = args[0]
+						args = args[1:]
+
+				# Convert remaining positional args to kwargs based on param model fields
 				if args:
 					# Get the field names from the pydantic model
 					field_names = list(par_model.model_fields.keys())
+					# Skip fields that are already in kwargs
+					available_fields = [f for f in field_names if f not in kwargs]
 					for i, arg in enumerate(args):
-						if i < len(field_names):
-							kwargs[field_names[i]] = arg
+						if i < len(available_fields):
+							kwargs[available_fields[i]] = arg
 
 				# Create params from kwargs
 				try:
@@ -595,6 +614,21 @@ def create_namespace(
 								logger.error(msg)
 								print(msg)
 								raise RuntimeError(msg)
+
+				# Special handling for navigate - ensure browser is ready
+				if act_name == 'navigate':
+					# Wait for agent_focus to be available (browser session initialization)
+					max_wait = 10  # Maximum 10 seconds
+					waited = 0
+					while not browser_session.agent_focus and waited < max_wait:
+						await asyncio.sleep(0.1)
+						waited += 0.1
+
+					if not browser_session.agent_focus:
+						error_msg = (
+							'Browser not ready - agent_focus not initialized. Make sure browser.start() completed successfully.'
+						)
+						raise RuntimeError(error_msg)
 
 				# Build special context
 				special_context = {
