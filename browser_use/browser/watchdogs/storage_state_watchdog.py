@@ -259,13 +259,17 @@ class StorageStateWatchdog(BaseWatchdog):
 					if 'localStorage' in origin:
 						for item in origin['localStorage']:
 							script = f"""
-								window.localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
+								if (window.location.origin === {json.dumps(origin['origin'])}) {{
+									window.localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
+								}}
 							"""
 							await self.browser_session._cdp_add_init_script(script)
 					if 'sessionStorage' in origin:
 						for item in origin['sessionStorage']:
 							script = f"""
-								window.sessionStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
+								if (window.location.origin === {json.dumps(origin['origin'])}) {{
+									window.sessionStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
+								}}
 							"""
 							await self.browser_session._cdp_add_init_script(script)
 				self.logger.debug(
