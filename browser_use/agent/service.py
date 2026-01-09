@@ -1043,6 +1043,38 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.skill_service is not None:
 			unavailable_skills_info = await self._get_unavailable_skills_info()
 
+		# Inject Sentience semantic geometry inventory (if available)
+		# This gives the LLM access to semantic element IDs and bbox coordinates
+		try:
+			from browser_use.integrations.sentience.state_injector import build_sentience_state
+
+			sent_state = await build_sentience_state(self.browser_session)
+			if sent_state:
+				# Add Sentience element inventory to LLM context for this step
+				self._message_manager._add_context_message(UserMessage(content=sent_state.prompt_block))
+				
+				# Log injection details
+				element_count = len(sent_state.snapshot.elements)
+				prompt_size = len(sent_state.prompt_block)
+				# Show sample of first few elements
+				lines = sent_state.prompt_block.split("\n")
+				sample_lines = lines[3:8] if len(lines) > 8 else lines[3:]  # Skip header, show 5 elements
+				sample = "\n".join(sample_lines) if sample_lines else ""
+				
+				self.logger.info(
+					f"🧠 Sentience: Injected {element_count} semantic elements ({prompt_size} chars) into LLM context"
+				)
+				if sample:
+					self.logger.debug(f"   Sample elements:\n{sample}")
+			else:
+				self.logger.debug("Sentience: No snapshot available (extension may not be loaded)")
+		except ImportError:
+			# Sentience SDK not installed, skip silently
+			self.logger.debug("Sentience: SDK not installed, skipping")
+		except Exception as e:
+			# Extension not loaded or snapshot failed, log at debug level
+			self.logger.debug(f"Sentience: State injection skipped: {e}")
+
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
