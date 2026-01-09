@@ -261,7 +261,7 @@ class DOMWatchdog(BaseWatchdog):
 			self.logger.debug(f'Current page URL: {page_url}, target_id: {self.browser_session.agent_focus_target_id}')
 
 		# check if we should skip DOM tree build for pointless pages
-		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
+		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https', 'file')
 
 		# Check for pending network requests BEFORE waiting (so we can see what's loading)
 		pending_requests_before_wait = []

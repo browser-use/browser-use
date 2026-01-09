@@ -635,6 +635,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Maximum depth for cross-origin iframe recursion (default: 5 levels deep).',
 	)
 
+	# --- Focus management ---
+	force_background_tabs: bool = Field(
+		default=True,
+		description='When True, new tabs/popups open in background. When False, the agent automatically follows the new tab.',
+	)
+
 	# --- Page load/wait timings ---
 
 	minimum_wait_page_load_time: float = Field(default=0.25, description='Minimum time to wait before capturing page state.')
@@ -989,6 +995,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		loaded_extension_names = []
 
 		for ext in extensions:
+			if ext['name'] == 'Force Background Tab' and not self.force_background_tabs:
+				continue
+
 			ext_dir = cache_dir / ext['id']
 			crx_file = cache_dir / f'{ext["id"]}.crx'
 

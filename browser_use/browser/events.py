@@ -393,6 +393,7 @@ class TabCreatedEvent(BaseEvent):
 
 	target_id: TargetID
 	url: str
+	opener_id: TargetID | None = None
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TabCreatedEvent', 30.0))  # seconds
 

@@ -728,7 +728,7 @@ class BrowserSession(BaseModel):
 						target_id = await self._cdp_create_new_page('about:blank')
 						self.logger.debug(f'Created new tab #{target_id[-4:]}')
 						# Dispatch TabCreatedEvent for new tab
-						await self.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url='about:blank'))
+						await self.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url='about:blank', opener_id=current_target_id))
 					except Exception as e:
 						self.logger.error(f'[on_NavigateToUrlEvent] Failed to create new tab: {type(e).__name__}: {e}')
 						# Fall back to using current tab
@@ -969,6 +969,16 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
 			except Exception as e:
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
+
+		# Auto-switch focus if background tab forcing is disabled
+		# and the new tab was opened by the current focused tab (likely a click)
+		if not self.browser_profile.force_background_tabs:
+			opener_id = getattr(event, 'opener_id', None)
+			if opener_id == self.agent_focus_target_id or opener_id is None:
+				self.logger.info(f'🔄 New tab detected (opener: {opener_id if opener_id else "None"}), switching focus to {event.target_id[-8:]}')
+				from browser_use.browser.events import SwitchTabEvent
+
+				await self.event_bus.dispatch(SwitchTabEvent(target_id=event.target_id))
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
