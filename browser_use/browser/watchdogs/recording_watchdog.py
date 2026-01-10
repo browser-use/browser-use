@@ -2,13 +2,14 @@
 
 import asyncio
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from bubus import BaseEvent
 from cdp_use.cdp.page.events import ScreencastFrameEvent
+from pydantic import PrivateAttr
 from uuid_extensions import uuid7str
 
-from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent
+from browser_use.browser.events import AgentFocusChangedEvent, BrowserConnectedEvent, BrowserStopEvent
 from browser_use.browser.profile import ViewportSize
 from browser_use.browser.video_recorder import VideoRecorderService
 from browser_use.browser.watchdog_base import BaseWatchdog
@@ -20,10 +21,12 @@ class RecordingWatchdog(BaseWatchdog):
 	Manages video recording of a browser session using CDP screencasting.
 	"""
 
-	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [BrowserConnectedEvent, BrowserStopEvent]
+	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [BrowserConnectedEvent, BrowserStopEvent, AgentFocusChangedEvent]
 	EMITS: ClassVar[list[type[BaseEvent]]] = []
 
-	_recorder: VideoRecorderService | None = None
+	_recorder: VideoRecorderService | None = PrivateAttr(default=None)
+	_current_session_id: str | None = PrivateAttr(default=None)
+	_screencast_params: dict[str, Any] | None = PrivateAttr(default=None)
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""
@@ -56,24 +59,58 @@ class RecordingWatchdog(BaseWatchdog):
 
 		self.browser_session.cdp_client.register.Page.screencastFrame(self.on_screencastFrame)
 
+		self._screencast_params = {
+			'format': 'png',
+			'quality': 90,
+			'maxWidth': size['width'],
+			'maxHeight': size['height'],
+			'everyNthFrame': 1,
+		}
+
+		await self._start_screencast()
+
+	async def on_AgentFocusChangedEvent(self, event: AgentFocusChangedEvent) -> None:
+		"""
+		Switches video recording to the new tab.
+		"""
+		if self._recorder:
+			self.logger.debug(f'Agent focus changed to {event.target_id}, switching screencast...')
+			await self._start_screencast()
+
+	async def _start_screencast(self) -> None:
+		"""Starts screencast on the currently focused tab."""
+		if not self._recorder or not self._screencast_params:
+			return
+
 		try:
+			# Get the current session (for the focused target)
 			cdp_session = await self.browser_session.get_or_create_cdp_session()
+
+			# If we are already recording this session, do nothing
+			if self._current_session_id == cdp_session.session_id:
+				return
+
+			# Stop recording on the previous session
+			if self._current_session_id:
+				try:
+					# Use the root client to stop screencast on the specific session
+					await self.browser_session.cdp_client.send.Page.stopScreencast(session_id=self._current_session_id)
+				except Exception as e:
+					# It's possible the session is already closed
+					self.logger.debug(f'Failed to stop screencast on old session {self._current_session_id}: {e}')
+
+			self._current_session_id = cdp_session.session_id
+
+			# Start recording on the new session
 			await cdp_session.cdp_client.send.Page.startScreencast(
-				params={
-					'format': 'png',
-					'quality': 90,
-					'maxWidth': size['width'],
-					'maxHeight': size['height'],
-					'everyNthFrame': 1,
-				},
+				params=self._screencast_params,  # type: ignore
 				session_id=cdp_session.session_id,
 			)
-			self.logger.info(f'📹 Started video recording to {output_path}')
+			self.logger.info(f'📹 Started/Switched video recording to target {cdp_session.target_id}')
 		except Exception as e:
-			self.logger.error(f'Failed to start screencast via CDP: {e}')
-			if self._recorder:
-				self._recorder.stop_and_save()
-				self._recorder = None
+			self.logger.error(f'Failed to switch screencast via CDP: {e}')
+			# If we fail to start on the new tab, we reset current session id
+			self._current_session_id = None
 
 	async def _get_current_viewport_size(self) -> ViewportSize | None:
 		"""Gets the current viewport size directly from the browser via CDP."""
@@ -98,6 +135,10 @@ class RecordingWatchdog(BaseWatchdog):
 		"""
 		Synchronous handler for incoming screencast frames.
 		"""
+		# Only process frames from the current session we intend to record
+		# This handles race conditions where old session might still send frames before stop completes
+		if self._current_session_id and session_id != self._current_session_id:
+			return
 
 		if not self._recorder:
 			return
@@ -127,6 +168,8 @@ class RecordingWatchdog(BaseWatchdog):
 		if self._recorder:
 			recorder = self._recorder
 			self._recorder = None
+			self._current_session_id = None
+			self._screencast_params = None
 
 			self.logger.debug('Stopping video recording and saving file...')
 			loop = asyncio.get_event_loop()
