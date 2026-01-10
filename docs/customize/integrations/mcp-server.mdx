@@ -184,7 +184,7 @@ The local MCP server runs as a stdio-based process on your machine. This is the 
 #### Start MCP Server Manually
 
 ```bash
-uvx --from 'browser-use[cli]' browser-use --mcp
+uvx browser-use --mcp
 ```
 
 The server will start in stdio mode, ready to accept MCP connections.
@@ -200,7 +200,7 @@ The most common use case is integrating with Claude Desktop. Add this configurat
   "mcpServers": {
     "browser-use": {
       "command": "/Users/your-username/.local/bin/uvx",
-      "args": ["--from", "browser-use[cli]", "browser-use", "--mcp"],
+      "args": ["browser-use", "--mcp"],
       "env": {
         "OPENAI_API_KEY": "your-openai-api-key-here"
       }
@@ -216,7 +216,7 @@ The most common use case is integrating with Claude Desktop. Add this configurat
   "mcpServers": {
     "browser-use": {
       "command": "uvx",
-      "args": ["--from", "browser-use[cli]", "browser-use", "--mcp"],
+      "args": ["browser-use", "--mcp"],
       "env": {
         "OPENAI_API_KEY": "your-openai-api-key-here"
       }
@@ -231,7 +231,7 @@ The most common use case is integrating with Claude Desktop. Add this configurat
 - Replace `"command": "uvx"` with the full path, e.g., `"command": "/Users/your-username/.local/bin/uvx"`
 - Replace `your-username` with your actual username
 
-**CLI Extras Required:** The `--from browser-use[cli]` flag installs the CLI extras needed for MCP server support.
+**CLI Extras:** The `browser-use[cli]` extra is no longer required for MCP mode, but useful if you want the TUI.
 </Note>
 
 #### Environment Variables
@@ -298,7 +298,7 @@ async def use_browser_mcp():
     # Connect to browser-use MCP server
     server_params = StdioServerParameters(
         command="uvx",
-        args=["--from", "browser-use[cli]", "browser-use", "--mcp"]
+        args=["browser-use", "--mcp"]
     )
 
     async with stdio_client(server_params) as (read, write):
@@ -327,9 +327,9 @@ asyncio.run(use_browser_mcp())
 #### Common Issues
 
 **"CLI addon is not installed" Error**
-Make sure you're using `--from 'browser-use[cli]'` in your uvx command:
+This error should no longer occur with recent versions. If it does, try updating: `uvx --refresh browser-use --mcp`.
 ```bash
-uvx --from 'browser-use[cli]' browser-use --mcp
+uvx browser-use --mcp
 ```
 
 **"spawn uvx ENOENT" Error (macOS/Linux)**
@@ -358,7 +358,7 @@ Claude Desktop can't find `uvx` in its PATH. Use the full path in your config:
 Enable debug logging by setting:
 ```bash
 export BROWSER_USE_LOGGING_LEVEL=DEBUG
-uvx --from 'browser-use[cli]' browser-use --mcp
+uvx browser-use --mcp
 ```
 
 ### Security Considerations
