@@ -58,7 +58,7 @@ if 'init' in sys.argv:
 
 	# Remove 'init' from sys.argv so click doesn't see it as an unexpected argument
 	sys.argv.remove('init')
-	init_main()
+	init_main()  # type: ignore[call-arg]  # click handles args via decorators
 	sys.exit(0)
 
 # Check for --template flag early to avoid loading TUI dependencies
@@ -83,7 +83,7 @@ if '--template' in sys.argv:
 
 		# Remove --template from sys.argv
 		sys.argv.remove('--template')
-		init_main()
+		init_main()  # type: ignore[call-arg]  # click handles args via decorators
 		sys.exit(0)
 
 	# Validate template name
@@ -149,8 +149,14 @@ from typing import Any
 from dotenv import load_dotenv
 
 from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use.llm.browser_use.chat import ChatBrowserUse
+from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.groq.chat import ChatGroq
+from browser_use.llm.mistral.chat import ChatMistral
+from browser_use.llm.ollama.chat import ChatOllama
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.openrouter.chat import ChatOpenRouter
 
 load_dotenv()
 
@@ -241,10 +247,15 @@ def get_default_config() -> dict[str, Any]:
 			'name': llm_config.get('model'),
 			'temperature': llm_config.get('temperature', 0.0),
 			'api_keys': {
+				'BROWSER_USE_API_KEY': os.getenv('BROWSER_USE_API_KEY', ''),
 				'OPENAI_API_KEY': llm_config.get('api_key', CONFIG.OPENAI_API_KEY),
 				'ANTHROPIC_API_KEY': CONFIG.ANTHROPIC_API_KEY,
 				'GOOGLE_API_KEY': CONFIG.GOOGLE_API_KEY,
 				'DEEPSEEK_API_KEY': CONFIG.DEEPSEEK_API_KEY,
+				'GROQ_API_KEY': os.getenv('GROQ_API_KEY', ''),
+				'MISTRAL_API_KEY': os.getenv('MISTRAL_API_KEY', ''),
+				'OPENROUTER_API_KEY': os.getenv('OPENROUTER_API_KEY', ''),
+				'OLLAMA_BASE_URL': os.getenv('OLLAMA_BASE_URL', ''),
 				'GROK_API_KEY': CONFIG.GROK_API_KEY,
 			},
 		},
@@ -348,62 +359,169 @@ def setup_readline_history(history: list[str]) -> None:
 
 
 def get_llm(config: dict[str, Any]):
-	"""Get the language model based on config and available API keys."""
+	"""Get the language model based on config and available API keys.
+	
+	Supports the following providers (in order of auto-detection priority):
+	- Browser Use Cloud (BROWSER_USE_API_KEY) - Recommended
+	- OpenAI (OPENAI_API_KEY) - gpt-* models
+	- Anthropic (ANTHROPIC_API_KEY) - claude-* models
+	- Google (GOOGLE_API_KEY) - gemini-* models
+	- DeepSeek (DEEPSEEK_API_KEY) - deepseek-* models
+	- Groq (GROQ_API_KEY) - llama-*, mixtral-*, gemma-* models
+	- Mistral (MISTRAL_API_KEY) - mistral-*, codestral-* models
+	- OpenRouter (OPENROUTER_API_KEY) - various models via openrouter.ai
+	- Ollama (OLLAMA_BASE_URL) - local models
+	"""
 	model_config = config.get('model', {})
 	model_name = model_config.get('name')
 	temperature = model_config.get('temperature', 0.0)
+	api_keys = model_config.get('api_keys', {})
 
-	# Get API key from config or environment
-	api_key = model_config.get('api_keys', {}).get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
+	# Get API keys from config or environment
+	browser_use_api_key = api_keys.get('BROWSER_USE_API_KEY') or os.getenv('BROWSER_USE_API_KEY', '')
+	openai_api_key = api_keys.get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
+	anthropic_api_key = api_keys.get('ANTHROPIC_API_KEY') or CONFIG.ANTHROPIC_API_KEY
+	google_api_key = api_keys.get('GOOGLE_API_KEY') or CONFIG.GOOGLE_API_KEY
+	deepseek_api_key = api_keys.get('DEEPSEEK_API_KEY') or CONFIG.DEEPSEEK_API_KEY
+	groq_api_key = api_keys.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY', '')
+	mistral_api_key = api_keys.get('MISTRAL_API_KEY') or os.getenv('MISTRAL_API_KEY', '')
+	openrouter_api_key = api_keys.get('OPENROUTER_API_KEY') or os.getenv('OPENROUTER_API_KEY', '')
+	ollama_base_url = api_keys.get('OLLAMA_BASE_URL') or os.getenv('OLLAMA_BASE_URL', '')
 
+	# If a specific model is requested, use the appropriate provider
 	if model_name:
-		if model_name.startswith('gpt'):
-			if not api_key and not CONFIG.OPENAI_API_KEY:
-				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
+		model_lower = model_name.lower()
+		
+		# OpenAI models
+		if model_lower.startswith(('gpt', 'o1', 'o3', 'o4')):
+			if not openai_api_key:
+				print('⚠️  OpenAI API key not found. Please set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
-			return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
-		elif model_name.startswith('claude'):
-			if not CONFIG.ANTHROPIC_API_KEY:
-				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
+			return ChatOpenAI(model=model_name, temperature=temperature, api_key=openai_api_key)
+		
+		# Anthropic models
+		elif model_lower.startswith('claude'):
+			if not anthropic_api_key:
+				print('⚠️  Anthropic API key not found. Please set ANTHROPIC_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatAnthropic(model=model_name, temperature=temperature)
-		elif model_name.startswith('gemini'):
-			if not CONFIG.GOOGLE_API_KEY:
-				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
+		
+		# Google models
+		elif model_lower.startswith('gemini'):
+			if not google_api_key:
+				print('⚠️  Google API key not found. Please set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatGoogle(model=model_name, temperature=temperature)
-		elif model_name.startswith('oci'):
-			# OCI models require additional configuration
+		
+		# DeepSeek models
+		elif model_lower.startswith('deepseek'):
+			if not deepseek_api_key:
+				print('⚠️  DeepSeek API key not found. Please set DEEPSEEK_API_KEY environment variable.')
+				sys.exit(1)
+			return ChatDeepSeek(model=model_name, temperature=temperature, api_key=deepseek_api_key)
+		
+		# Groq models (llama, mixtral, gemma)
+		elif model_lower.startswith(('llama', 'mixtral', 'gemma')) and groq_api_key:
+			return ChatGroq(model=model_name, temperature=temperature, api_key=groq_api_key)
+		
+		# Mistral models
+		elif model_lower.startswith(('mistral', 'codestral', 'pixtral')):
+			if not mistral_api_key:
+				print('⚠️  Mistral API key not found. Please set MISTRAL_API_KEY environment variable.')
+				sys.exit(1)
+			return ChatMistral(model=model_name, temperature=temperature, api_key=mistral_api_key)
+		
+		# OpenRouter models (prefixed with openrouter/ or any unrecognized model when key is set)
+		elif model_lower.startswith('openrouter/') or (openrouter_api_key and '/' in model_name):
+			if not openrouter_api_key:
+				print('⚠️  OpenRouter API key not found. Please set OPENROUTER_API_KEY environment variable.')
+				sys.exit(1)
+			# Remove openrouter/ prefix if present
+			actual_model = model_name[11:] if model_lower.startswith('openrouter/') else model_name
+			return ChatOpenRouter(model=actual_model, temperature=temperature, api_key=openrouter_api_key)
+		
+		# Ollama models (prefixed with ollama/ or when base URL is set)
+		elif model_lower.startswith('ollama/') or (ollama_base_url and ':' in model_name):
+			# Remove ollama/ prefix if present
+			actual_model = model_name[7:] if model_lower.startswith('ollama/') else model_name
+			host = ollama_base_url or 'http://localhost:11434'
+			return ChatOllama(model=actual_model, host=host)
+		
+		# OCI models
+		elif model_lower.startswith('oci'):
 			print(
 				'⚠️  OCI models require manual configuration. Please use the ChatOCIRaw class directly with your OCI credentials.'
 			)
 			sys.exit(1)
+		
+		# For any unrecognized model, try OpenRouter if key is available
+		elif openrouter_api_key:
+			return ChatOpenRouter(model=model_name, temperature=temperature, api_key=openrouter_api_key)
 
-	# Auto-detect based on available API keys
-	if api_key or CONFIG.OPENAI_API_KEY:
-		return ChatOpenAI(model='gpt-5-mini', temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
-	elif CONFIG.ANTHROPIC_API_KEY:
-		return ChatAnthropic(model='claude-4-sonnet', temperature=temperature)
-	elif CONFIG.GOOGLE_API_KEY:
-		return ChatGoogle(model='gemini-2.5-pro', temperature=temperature)
+	# Auto-detect based on available API keys (in order of preference)
+	# 1. Browser Use Cloud - best performance and optimized for browser automation
+	if browser_use_api_key:
+		return ChatBrowserUse(temperature=temperature, api_key=browser_use_api_key)
+	# 2. OpenAI
+	elif openai_api_key:
+		return ChatOpenAI(model='gpt-4.1-mini', temperature=temperature, api_key=openai_api_key)
+	# 3. Anthropic
+	elif anthropic_api_key:
+		return ChatAnthropic(model='claude-sonnet-4-20250514', temperature=temperature)
+	# 4. Google
+	elif google_api_key:
+		return ChatGoogle(model='gemini-2.0-flash', temperature=temperature)
+	# 5. DeepSeek
+	elif deepseek_api_key:
+		return ChatDeepSeek(model='deepseek-chat', temperature=temperature, api_key=deepseek_api_key)
+	# 6. Groq
+	elif groq_api_key:
+		return ChatGroq(model='llama-3.3-70b-versatile', temperature=temperature, api_key=groq_api_key)
+	# 7. Mistral
+	elif mistral_api_key:
+		return ChatMistral(model='mistral-large-latest', temperature=temperature, api_key=mistral_api_key)
+	# 8. OpenRouter
+	elif openrouter_api_key:
+		return ChatOpenRouter(model='anthropic/claude-3.5-sonnet', temperature=temperature, api_key=openrouter_api_key)
+	# 9. Ollama (local)
+	elif ollama_base_url:
+		return ChatOllama(model='llama3.2', host=ollama_base_url)
 	else:
 		print(
-			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
+			'⚠️  No API keys found. Please set one of:\n'
+			'   - BROWSER_USE_API_KEY (recommended - get free credits at https://cloud.browser-use.com)\n'
+			'   - OPENAI_API_KEY\n'
+			'   - ANTHROPIC_API_KEY\n'
+			'   - GOOGLE_API_KEY\n'
+			'   - DEEPSEEK_API_KEY\n'
+			'   - GROQ_API_KEY\n'
+			'   - MISTRAL_API_KEY\n'
+			'   - OPENROUTER_API_KEY\n'
+			'   - OLLAMA_BASE_URL (for local models)'
 		)
 		sys.exit(1)
 
 
 class RichLogHandler(logging.Handler):
-	"""Custom logging handler that redirects logs to a RichLog widget."""
+	"""Custom logging handler that redirects logs to a RichLog widget with smart auto-scroll."""
 
-	def __init__(self, rich_log: RichLog):
+	def __init__(self, rich_log: RichLog, app: 'BrowserUseApp | None' = None, container_id: str | None = None):
 		super().__init__()
 		self.rich_log = rich_log
+		self.app = app
+		self.container_id = container_id
 
 	def emit(self, record):
 		try:
 			msg = self.format(record)
 			self.rich_log.write(msg)
+			# Auto-scroll the parent container if user hasn't scrolled away
+			if self.app and self.container_id and self.app._should_auto_scroll(self.container_id):
+				try:
+					container = self.app.query_one(f'#{self.container_id}', VerticalScroll)
+					container.scroll_end(animate=False)
+				except Exception:
+					pass
 		except Exception:
 			self.handleError(record)
 
@@ -586,11 +704,12 @@ class BrowserUseApp(App):
 	"""
 
 	BINDINGS = [
-		Binding('ctrl+c', 'quit', 'Quit', priority=True, show=True),
-		Binding('ctrl+q', 'quit', 'Quit', priority=True),
-		Binding('ctrl+d', 'quit', 'Quit', priority=True),
+		Binding('ctrl+c', 'pause_or_quit', 'Pause/Quit', priority=True, show=True),
+		Binding('ctrl+q', 'force_quit', 'Force Quit', priority=True),
+		Binding('ctrl+d', 'force_quit', 'Force Quit', priority=True),
 		Binding('up', 'input_history_prev', 'Previous command', show=False),
 		Binding('down', 'input_history_next', 'Next command', show=False),
+		Binding('enter', 'resume_agent', 'Resume', show=False),
 	]
 
 	def __init__(self, config: dict[str, Any], *args, **kwargs):
@@ -610,6 +729,16 @@ class BrowserUseApp(App):
 		self._event_bus_handler_func = None
 		# Timer for info panel updates
 		self._info_panel_timer = None
+		# Track user scroll state for each scrollable column
+		self._user_scrolled_away: dict[str, bool] = {
+			'main-output-column': False,
+			'events-column': False,
+			'cdp-column': False,
+			'tasks-panel': False,
+		}
+		# Track agent pause state
+		self._agent_paused = False
+		self._agent_task: asyncio.Task | None = None
 
 	def setup_richlog_logging(self) -> None:
 		"""Set up logging to redirect to RichLog widget instead of stdout."""
@@ -622,8 +751,8 @@ class BrowserUseApp(App):
 		# Get the main output RichLog widget
 		rich_log = self.query_one('#main-output-log', RichLog)
 
-		# Create and set up the custom handler
-		log_handler = RichLogHandler(rich_log)
+		# Create and set up the custom handler with auto-scroll support
+		log_handler = RichLogHandler(rich_log, app=self, container_id='main-output-column')
 		log_type = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'result').lower()
 
 		class BrowserUseFormatter(logging.Formatter):
@@ -813,10 +942,15 @@ class BrowserUseApp(App):
 		event.stop()
 
 	async def on_key(self, event: events.Key) -> None:
-		"""Handle key events at the app level to ensure graceful exit."""
-		# Handle Ctrl+C, Ctrl+D, and Ctrl+Q for app exit
-		if event.key == 'ctrl+c' or event.key == 'ctrl+d' or event.key == 'ctrl+q':
-			await self.action_quit()
+		"""Handle key events at the app level."""
+		# Handle Ctrl+Q and Ctrl+D for immediate app exit
+		if event.key == 'ctrl+d' or event.key == 'ctrl+q':
+			await self.action_force_quit()
+			event.stop()
+			event.prevent_default()
+		# Handle Ctrl+C for pause/quit behavior
+		elif event.key == 'ctrl+c':
+			await self.action_pause_or_quit()
 			event.stop()
 			event.prevent_default()
 
@@ -824,6 +958,12 @@ class BrowserUseApp(App):
 		"""Handle task input submission."""
 		if event.input.id == 'task-input':
 			task = event.input.value
+			
+			# If agent is paused and input is empty, resume the agent
+			if self._agent_paused and not task.strip():
+				asyncio.create_task(self.action_resume_agent())
+				return
+			
 			if not task.strip():
 				return
 
@@ -903,6 +1043,7 @@ class BrowserUseApp(App):
 			return
 
 		# Create handler to log all events
+		app = self  # Reference for auto-scroll
 		def log_event(event):
 			event_name = event.__class__.__name__
 			# Format event data nicely
@@ -923,6 +1064,14 @@ class BrowserUseApp(App):
 					event_str = event_str[:200] + '...'
 
 				events_log.write(f'[yellow]→ {event_name}[/] {event_str}')
+				
+				# Auto-scroll if user hasn't scrolled away
+				if app._should_auto_scroll('events-column'):
+					try:
+						container = app.query_one('#events-column', VerticalScroll)
+						container.scroll_end(animate=False)
+					except Exception:
+						pass
 			except Exception as e:
 				events_log.write(f'[red]→ {event_name}[/] (error formatting: {e})')
 
@@ -941,12 +1090,14 @@ class BrowserUseApp(App):
 
 		# Get the CDP log widget
 		cdp_log = self.query_one('#cdp-log', RichLog)
+		app = self  # Reference to app for auto-scroll
 
 		# Create custom handler for CDP logging
 		class CDPLogHandler(logging.Handler):
-			def __init__(self, rich_log: RichLog):
+			def __init__(self, rich_log: RichLog, parent_app: 'BrowserUseApp'):
 				super().__init__()
 				self.rich_log = rich_log
+				self.parent_app = parent_app
 
 			def emit(self, record):
 				try:
@@ -961,11 +1112,18 @@ class BrowserUseApp(App):
 						self.rich_log.write(f'[yellow]{msg}[/]')
 					else:
 						self.rich_log.write(f'[cyan]{msg}[/]')
+					# Auto-scroll if user hasn't scrolled away
+					if self.parent_app._should_auto_scroll('cdp-column'):
+						try:
+							container = self.parent_app.query_one('#cdp-column', VerticalScroll)
+							container.scroll_end(animate=False)
+						except Exception:
+							pass
 				except Exception:
 					self.handleError(record)
 
 		# Setup handler for cdp_use loggers
-		cdp_handler = CDPLogHandler(cdp_log)
+		cdp_handler = CDPLogHandler(cdp_log, app)
 		cdp_handler.setFormatter(logging.Formatter('%(message)s'))
 		cdp_handler.setLevel(logging.DEBUG)
 
@@ -1016,6 +1174,9 @@ class BrowserUseApp(App):
 		else:
 			self.agent.add_new_task(task)
 
+		# Reset pause state for new task
+		self._agent_paused = False
+		
 		# Let the agent run in the background
 		async def agent_task_worker() -> None:
 			logger.debug('\n🚀 Working on task: %s', task)
@@ -1024,6 +1185,9 @@ class BrowserUseApp(App):
 			if self.agent:
 				self.agent.running = True  # type: ignore
 				self.agent.last_response_time = 0  # type: ignore
+				# Reset pause state
+				if hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused'):
+					self.agent.state.paused = False
 
 			# Panel updates are already happening via the timer in update_info_panels
 
@@ -1045,13 +1209,17 @@ class BrowserUseApp(App):
 				# Run the agent task, redirecting output to RichLog through our handler
 				if self.agent:
 					await self.agent.run()
+			except asyncio.CancelledError:
+				logger.info('\n🛑 Agent task was cancelled.')
+				error_msg = 'Task cancelled by user'
 			except Exception as e:
 				error_msg = str(e)
 				logger.error('\nError running agent: %s', str(e))
 			finally:
-				# Clear the running flag
+				# Clear the running flag and pause state
 				if self.agent:
 					self.agent.running = False  # type: ignore
+				self._agent_paused = False
 
 				# Capture telemetry for task completion
 				duration = time.time() - task_start_time
@@ -1073,15 +1241,18 @@ class BrowserUseApp(App):
 				task_input_container = self.query_one('#task-input-container')
 				task_input_container.display = True
 
-				# Refocus the input field
+				# Refocus the input field and reset placeholder
 				input_field = self.query_one('#task-input', Input)
+				input_field.placeholder = 'Enter your task...'
 				input_field.focus()
 
 				# Ensure the input is visible by scrolling to it
 				self.call_after_refresh(self.scroll_to_input)
 
-		# Run the worker
-		self.run_worker(agent_task_worker, name='agent_task')
+		# Run the worker and store the task handle
+		worker = self.run_worker(agent_task_worker, name='agent_task')
+		# Store a reference to the current worker for cancellation
+		self._agent_task = None  # Workers handle their own lifecycle
 
 	def action_input_history_prev(self) -> None:
 		"""Navigate to the previous item in command history."""
@@ -1115,8 +1286,55 @@ class BrowserUseApp(App):
 			self.history_index += 1
 			input_field.value = ''
 
-	async def action_quit(self) -> None:
-		"""Quit the application and clean up resources."""
+	async def action_pause_or_quit(self) -> None:
+		"""Pause the agent if running, or quit if already paused/idle."""
+		# If agent is running, pause it
+		if self.agent and getattr(self.agent, 'running', False) and not self._agent_paused:
+			self._agent_paused = True
+			# Signal the agent to stop (it will pause at the next step)
+			if hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused'):
+				self.agent.state.paused = True
+			
+			# Update UI to show paused state
+			logger = logging.getLogger('browser_use.app')
+			logger.info('\n⏸️  Agent paused. Press [Enter] to resume or [Ctrl+Q] to quit.')
+			
+			# Update tasks panel to show paused state
+			self.update_tasks_panel()
+			
+			# Focus input for resume
+			input_field = self.query_one('#task-input', Input)
+			input_field.placeholder = 'Press Enter to resume, Ctrl+Q to quit...'
+			input_field.focus()
+		else:
+			# Not running or already paused, so quit
+			await self.action_force_quit()
+
+	async def action_resume_agent(self) -> None:
+		"""Resume a paused agent."""
+		# Only resume if agent is paused and input is empty (not submitting a new task)
+		input_field = self.query_one('#task-input', Input)
+		
+		if self._agent_paused and not input_field.value.strip():
+			self._agent_paused = False
+			if self.agent and hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused'):
+				self.agent.state.paused = False
+			
+			# Reset placeholder
+			input_field.placeholder = 'Enter your task...'
+			
+			logger = logging.getLogger('browser_use.app')
+			logger.info('\n▶️  Agent resumed.')
+			
+			# Update UI
+			self.update_tasks_panel()
+
+	async def action_force_quit(self) -> None:
+		"""Force quit the application and clean up resources."""
+		# Cancel any running agent task
+		if self._agent_task and not self._agent_task.done():
+			self._agent_task.cancel()
+		
 		# Note: We don't need to close the browser session here because:
 		# 1. If an agent exists, it already called browser_session.stop() in its run() method
 		# 2. If keep_alive=True (default), we want to leave the browser running anyway
@@ -1128,6 +1346,42 @@ class BrowserUseApp(App):
 		# Exit the application
 		self.exit()
 		print('\nTry running tasks on our cloud: https://browser-use.com')
+
+	def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+		"""Handle mouse scroll up - user is scrolling away from bottom."""
+		# Find which scrollable container this event targets
+		for container_id in self._user_scrolled_away.keys():
+			try:
+				container = self.query_one(f'#{container_id}', VerticalScroll)
+				# Check if mouse is within this container's region
+				if container.region.contains_point(event.screen_offset):
+					self._user_scrolled_away[container_id] = True
+					break
+			except Exception:
+				pass
+
+	def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+		"""Handle mouse scroll down - check if user scrolled back to bottom."""
+		for container_id in self._user_scrolled_away.keys():
+			try:
+				container = self.query_one(f'#{container_id}', VerticalScroll)
+				# Check if mouse is within this container's region
+				if container.region.contains_point(event.screen_offset):
+					# Check if we're at or near the bottom
+					if container.scroll_y >= container.max_scroll_y - 20:
+						self._user_scrolled_away[container_id] = False
+					break
+			except Exception:
+				pass
+
+	def _should_auto_scroll(self, container_id: str) -> bool:
+		"""Check if we should auto-scroll for a given container."""
+		return not self._user_scrolled_away.get(container_id, False)
+	
+	def _reset_scroll_tracking(self, container_id: str) -> None:
+		"""Reset scroll tracking for a container (re-enable auto-scroll)."""
+		if container_id in self._user_scrolled_away:
+			self._user_scrolled_away[container_id] = False
 
 	def compose(self) -> ComposeResult:
 		"""Create the UI layout."""
@@ -1189,22 +1443,22 @@ class BrowserUseApp(App):
 						yield RichLog(id='model-info', markup=True, highlight=True, wrap=True)
 
 				# Tasks panel (full width, below browser and model)
-				with VerticalScroll(id='tasks-panel'):
-					yield RichLog(id='tasks-info', markup=True, highlight=True, wrap=True, auto_scroll=True)
+				with VerticalScroll(id='tasks-panel', can_focus=True):
+					yield RichLog(id='tasks-info', markup=True, highlight=True, wrap=True, auto_scroll=False)
 
 			# Three-column container (hidden by default)
 			with Container(id='three-column-container'):
 				# Column 1: Main output
-				with VerticalScroll(id='main-output-column'):
-					yield RichLog(highlight=True, markup=True, id='main-output-log', wrap=True, auto_scroll=True)
+				with VerticalScroll(id='main-output-column', can_focus=True):
+					yield RichLog(highlight=True, markup=True, id='main-output-log', wrap=True, auto_scroll=False)
 
 				# Column 2: Event bus events
-				with VerticalScroll(id='events-column'):
-					yield RichLog(highlight=True, markup=True, id='events-log', wrap=True, auto_scroll=True)
+				with VerticalScroll(id='events-column', can_focus=True):
+					yield RichLog(highlight=True, markup=True, id='events-log', wrap=True, auto_scroll=False)
 
 				# Column 3: CDP messages
-				with VerticalScroll(id='cdp-column'):
-					yield RichLog(highlight=True, markup=True, id='cdp-log', wrap=True, auto_scroll=True)
+				with VerticalScroll(id='cdp-column', can_focus=True):
+					yield RichLog(highlight=True, markup=True, id='cdp-log', wrap=True, auto_scroll=False)
 
 			# Task input container (now at the bottom)
 			with Container(id='task-input-container'):
@@ -1467,16 +1721,19 @@ class BrowserUseApp(App):
 						tasks_info.write('')
 
 			# If agent is actively running, show a status indicator
-			if hasattr(self.agent, 'running') and getattr(self.agent, 'running', False):
+			if self._agent_paused:
+				tasks_info.write('[orange3]⏸️  Agent paused - Press [Enter] to resume or [Ctrl+Q] to quit[/]')
+			elif hasattr(self.agent, 'running') and getattr(self.agent, 'running', False):
 				tasks_info.write('[yellow]Agent is actively working[blink]...[/][/]')
 			elif hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
 				tasks_info.write('[orange]Agent is paused (press Enter to resume)[/]')
 		else:
 			tasks_info.write('[dim]Agent not initialized[/]')
 
-		# Force scroll to bottom
-		tasks_panel = self.query_one('#tasks-panel')
-		tasks_panel.scroll_end(animate=False)
+		# Only auto-scroll to bottom if user hasn't scrolled away
+		if self._should_auto_scroll('tasks-panel'):
+			tasks_panel = self.query_one('#tasks-panel')
+			tasks_panel.scroll_end(animate=False)
 
 
 async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
@@ -2359,4 +2616,4 @@ def init(
 
 
 if __name__ == '__main__':
-	main()
+	main()  # type: ignore[call-arg]  # click handles args via decorators
