@@ -154,6 +154,9 @@ class ClickableElementDetector:
 					'spinbutton',
 					'search',
 					'searchbox',
+					'row',
+					'cell',
+					'gridcell',
 				}
 				if node.attributes['role'] in interactive_roles:
 					return True
@@ -175,6 +178,9 @@ class ClickableElementDetector:
 				'listbox',
 				'search',
 				'searchbox',
+				'row',
+				'cell',
+				'gridcell',
 			}
 			if node.ax_node.role in interactive_ax_roles:
 				return True
