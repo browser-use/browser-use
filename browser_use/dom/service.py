@@ -210,9 +210,14 @@ class DomService:
 
 	async def _get_ax_tree_for_all_frames(self, target_id: TargetID) -> GetFullAXTreeReturns:
 		"""Recursively collect all frames and merge their accessibility trees into a single array."""
-
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
-		frame_tree = await cdp_session.cdp_client.send.Page.getFrameTree(session_id=cdp_session.session_id)
+		try:
+			frame_tree = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Page.getFrameTree(session_id=cdp_session.session_id), timeout=2.0
+			)
+		except Exception as e:
+			self.logger.warning(f'Failed to get frame tree for target {target_id}: {e}')
+			return {'nodes': []}
 
 		def collect_all_frame_ids(frame_tree_node) -> list[str]:
 			"""Recursively collect all frame IDs from the frame tree."""
@@ -227,21 +232,33 @@ class DomService:
 		# Collect all frame IDs recursively
 		all_frame_ids = collect_all_frame_ids(frame_tree['frameTree'])
 
-		# Get accessibility tree for each frame
-		ax_tree_requests = []
-		for frame_id in all_frame_ids:
-			ax_tree_request = cdp_session.cdp_client.send.Accessibility.getFullAXTree(
-				params={'frameId': frame_id}, session_id=cdp_session.session_id
-			)
-			ax_tree_requests.append(ax_tree_request)
+		# Function to safely get AX tree for a single frame
+		async def _safe_get_ax_tree(frame_id: str):
+			try:
+				# Use a short timeout for each frame to prevent hanging
+				result = await asyncio.wait_for(
+					cdp_session.cdp_client.send.Accessibility.getFullAXTree(
+						params={'frameId': frame_id}, session_id=cdp_session.session_id
+					),
+					timeout=1.0,  # 1 second timeout per frame
+				)
+				return result
+			except Exception as e:
+				# Log but don't fail if one frame (e.g. cross-origin) fails
+				self.logger.debug(f'Failed to get AX tree for frame {frame_id}: {e}')
+				return None
+
+		# Get accessibility tree for each frame concurrently
+		ax_tree_requests = [_safe_get_ax_tree(frame_id) for frame_id in all_frame_ids]
 
 		# Wait for all requests to complete
-		ax_trees = await asyncio.gather(*ax_tree_requests)
+		ax_trees_results = await asyncio.gather(*ax_tree_requests)
 
-		# Merge all AX nodes into a single array
+		# Merge all valid AX nodes into a single array
 		merged_nodes: list[AXNode] = []
-		for ax_tree in ax_trees:
-			merged_nodes.extend(ax_tree['nodes'])
+		for result in ax_trees_results:
+			if result and 'nodes' in result:
+				merged_nodes.extend(result['nodes'])
 
 		return {'nodes': merged_nodes}
 

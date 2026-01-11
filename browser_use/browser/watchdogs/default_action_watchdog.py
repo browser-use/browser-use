@@ -476,6 +476,28 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.debug(f'Occlusion check failed: {e}, assuming not occluded')
 			return False
 
+	async def _scroll_parent_iframes_into_view(self, element_node) -> None:
+		"""Recursively scroll all parent iframes into view."""
+		current = element_node.parent
+		while current:
+			# If we find an iframe/frame element, scroll it into view
+			if current.tag_name and current.tag_name.upper() in ('IFRAME', 'FRAME'):
+				try:
+					# Get session for the iframe element (which is in the parent document)
+					cdp_session = await self.browser_session.cdp_client_for_node(current)
+
+					await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+						params={'backendNodeId': current.backend_node_id},
+						session_id=cdp_session.session_id,
+					)
+					self.logger.debug(f'Scrolled parent iframe {current.backend_node_id} into view')
+					# Small wait for scroll to settle
+					await asyncio.sleep(0.05)
+				except Exception as e:
+					self.logger.debug(f'Failed to scroll parent iframe into view: {e}')
+
+			current = current.parent
+
 	async def _click_element_node_impl(self, element_node) -> dict | None:
 		"""
 		Click an element using pure CDP with multiple fallback methods for getting element geometry.
@@ -512,6 +534,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
 			viewport_width = layout_metrics['layoutViewport']['clientWidth']
 			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+
+			# Recursively scroll parent iframes into view to ensure the element is actually visible on screen
+			await self._scroll_parent_iframes_into_view(element_node)
 
 			# Scroll element into view FIRST before getting coordinates
 			try:
