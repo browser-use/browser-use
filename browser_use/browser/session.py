@@ -1,13 +1,16 @@
 """Event-driven browser session with backwards compatibility."""
 
 import asyncio
+import json
 import logging
+import os
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
+import anyio
 import httpx
 from bubus import EventBus
 from cdp_use import CDPClient
@@ -415,6 +418,8 @@ class BrowserSession(BaseModel):
 	# Mutable private state shared between watchdogs
 	_cdp_client_root: CDPClient | None = PrivateAttr(default=None)
 	_connection_lock: Any = PrivateAttr(default=None)  # asyncio.Lock for preventing concurrent connections
+	_active_downloads: dict[str, dict] = PrivateAttr(default_factory=dict)  # url -> {filename, start_time}
+	_failed_downloads: list[dict] = PrivateAttr(default_factory=list)  # Track failed downloads
 
 	# PUBLIC: SessionManager instance (OWNS all targets and sessions)
 	session_manager: Any = Field(default=None, exclude=True)  # SessionManager
@@ -970,6 +975,13 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
+		# Setup network interception for remote downloads
+		if self.browser_profile.remote_downloads:
+			try:
+				await self._setup_download_interception(event.target_id)
+			except Exception as e:
+				self.logger.warning(f'Failed to setup download interception for tab {event.target_id[-8:]}: {e}')
+
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
 		if not self.agent_focus_target_id:
@@ -1374,17 +1386,14 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(BrowserStoppedEvent, self._crash_watchdog.on_BrowserStoppedEvent)
 		# self._crash_watchdog.attach_to_session()
 
-		# Initialize DownloadsWatchdog
+		# Initialize DownloadsWatchdog (always enabled - handles both local and remote downloads)
 		DownloadsWatchdog.model_rebuild()
 		self._downloads_watchdog = DownloadsWatchdog(event_bus=self.event_bus, browser_session=self)
-		# self.event_bus.on(BrowserLaunchEvent, self._downloads_watchdog.on_BrowserLaunchEvent)
-		# self.event_bus.on(TabCreatedEvent, self._downloads_watchdog.on_TabCreatedEvent)
-		# self.event_bus.on(TabClosedEvent, self._downloads_watchdog.on_TabClosedEvent)
-		# self.event_bus.on(BrowserStoppedEvent, self._downloads_watchdog.on_BrowserStoppedEvent)
-		# self.event_bus.on(NavigationCompleteEvent, self._downloads_watchdog.on_NavigationCompleteEvent)
 		self._downloads_watchdog.attach_to_session()
 		if self.browser_profile.auto_download_pdfs:
 			self.logger.debug('📄 PDF auto-download enabled for this session')
+		if self.browser_profile.remote_downloads:
+			self.logger.info('📡 Remote downloads enabled - using HTTP client for downloads')
 
 		# Initialize StorageStateWatchdog conditionally
 		# Enable when user provides either storage_state or user_data_dir (indicating they want persistence)
@@ -3543,3 +3552,393 @@ class BrowserSession(BaseModel):
 			'width': max(content[0], content[2], content[4], content[6]) - min(content[0], content[2], content[4], content[6]),
 			'height': max(content[1], content[3], content[5], content[7]) - min(content[1], content[3], content[5], content[7]),
 		}
+
+	async def _setup_download_interception(self, target_id: str) -> None:
+		"""Setup network interception for downloads on a specific tab."""
+		try:
+			self.logger.debug(f"🔧 Setting up download interception for tab {target_id[-8:]}")
+
+			# Get CDP session for this target
+			cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=False)
+
+			# Enable Network domain with request interception
+			await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
+			await cdp_session.cdp_client.send.Network.setRequestInterception(
+				params={'patterns': [{'urlPattern': '*.csv'}, {'urlPattern': '*.pdf'}, {'urlPattern': '*.xlsx'}, {'urlPattern': '*.bin'}]},
+				session_id=cdp_session.session_id
+			)
+
+			# Register request handler
+			cdp_session.cdp_client.register.Network.requestIntercepted(
+				lambda event, session_id=None: asyncio.create_task(
+					self._on_request_intercepted(event, session_id or cdp_session.session_id, target_id)
+				)
+			)
+
+			self.logger.debug(f"✅ Download interception ready for tab {target_id[-8:]}")
+
+		except Exception as e:
+			self.logger.error(f"Failed to setup download interception: {e}")
+
+	async def _on_request_intercepted(self, event, session_id, target_id):
+		"""Handle intercepted requests to detect downloads."""
+		try:
+			request = event.get('request', {})
+			url = request.get('url', '')
+			
+			# Check if this looks like a real download URL (not analytics)
+			is_download = (
+				url.lower().endswith('.csv') or url.lower().endswith('.pdf') or url.lower().endswith('.xlsx') or url.lower().endswith('.bin') or url.lower().endswith('.dat') or
+				'.csv?' in url.lower() or '.pdf?' in url.lower() or '.xlsx?' in url.lower() or '.bin?' in url.lower() or '.dat?' in url.lower()
+			)
+
+			if is_download:
+				self.logger.info(f"🎯 Download request intercepted: {url[:100]}...")
+				
+				# Download directly via HTTP client (bypass browser entirely)
+				asyncio.create_task(self._download_via_http(url))
+
+			# Continue all requests
+			await self._continue_request(event, session_id, target_id)
+		except Exception as e:
+			self.logger.error(f"Error in request interceptor: {e}")
+
+	async def _continue_request(self, event, session_id, target_id):
+		"""Continue intercepted request."""
+		try:
+			cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=False)
+			
+			# Continue the request
+			await cdp_session.cdp_client.send.Network.continueInterceptedRequest(
+				params={'interceptionId': event['interceptionId']},
+				session_id=cdp_session.session_id
+			)
+				
+		except Exception as e:
+			self.logger.error(f"Failed to continue request: {e}")
+
+	async def download_via_browser_fetch(self, target_id: str, url: str | None = None, 
+	                                    filename: str | None = None, 
+	                                    use_cache: bool = True,
+	                                    avoid_duplicates: bool = False,
+	                                    timeout: float = 10.0) -> str | None:
+		"""Unified browser fetch download method."""
+		if not self.browser_profile.downloads_path:
+			self.logger.warning('❌ No downloads path configured')
+			return None
+
+		try:
+			# Create CDP session
+			temp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+			
+			# Get URL - either provided or from current page
+			if url is None:
+				# Get URL from current page (PDF case)
+				result = await asyncio.wait_for(
+					temp_session.cdp_client.send.Runtime.evaluate(
+						params={
+							'expression': """
+						(() => {
+							// For Chrome's PDF viewer, the actual URL is in window.location.href
+							const embedElement = document.querySelector('embed[type="application/x-google-chrome-pdf"]') ||
+												document.querySelector('embed[type="application/pdf"]');
+							if (embedElement) {
+								return { url: window.location.href };
+							}
+							return { url: window.location.href };
+						})()
+						""",
+							'returnByValue': True,
+						},
+						session_id=temp_session.session_id,
+					),
+					timeout=5.0,
+				)
+				url_info = result.get('result', {}).get('value', {})
+				url = url_info.get('url', '')
+				if not url:
+					self.logger.warning('❌ Could not determine URL for download')
+					return None
+			
+			# Generate filename
+			if filename is None:
+				filename = os.path.basename(url.split('?')[0])
+				if not filename:
+					from urllib.parse import urlparse
+					parsed = urlparse(url)
+					filename = os.path.basename(parsed.path) or 'document'
+					if url.lower().endswith('.pdf') or 'pdf' in url.lower():
+						if not filename.endswith('.pdf'):
+							filename += '.pdf'
+			
+			# Check session tracking for duplicates (PDF case)
+			if avoid_duplicates:
+				if not hasattr(self, '_session_pdf_urls'):
+					self._session_pdf_urls = {}
+				if url in self._session_pdf_urls:
+					existing_path = self._session_pdf_urls[url]
+					self.logger.debug(f'File already downloaded in session: {existing_path}')
+					return existing_path
+			
+			# Handle duplicate filenames
+			downloads_dir = str(self.browser_profile.downloads_path)
+			os.makedirs(downloads_dir, exist_ok=True)
+			final_filename = filename
+			
+			if avoid_duplicates:
+				existing_files = os.listdir(downloads_dir)
+				if filename in existing_files:
+					base, ext = os.path.splitext(filename)
+					counter = 1
+					while f'{base} ({counter}){ext}' in existing_files:
+						counter += 1
+					final_filename = f'{base} ({counter}){ext}'
+			
+			# Prepare JavaScript fetch
+			escaped_url = json.dumps(url)
+			cache_option = ', { cache: "force-cache" }' if use_cache else ''
+			
+			# Execute download
+			result = await asyncio.wait_for(
+				temp_session.cdp_client.send.Runtime.evaluate(
+					params={
+						'expression': f"""
+					(async () => {{
+						try {{
+							const response = await fetch({escaped_url}{cache_option});
+							if (!response.ok) {{
+								return {{ error: `HTTP error! status: ${{response.status}}` }};
+							}}
+							const blob = await response.blob();
+							const arrayBuffer = await blob.arrayBuffer();
+							const uint8Array = new Uint8Array(arrayBuffer);
+							
+							return {{ 
+								data: Array.from(uint8Array),
+								responseSize: uint8Array.length
+							}};
+						}} catch (error) {{
+							return {{ error: `Fetch failed: ${{error.message}}` }};
+						}}
+					}})()
+					""",
+						'awaitPromise': True,
+						'returnByValue': True,
+					},
+					session_id=temp_session.session_id,
+				),
+				timeout=timeout
+			)
+			
+			download_result = result.get('result', {}).get('value', {})
+			
+			if download_result.get('error'):
+				self.logger.error(f'Browser fetch error: {download_result["error"]}')
+				return None
+
+			if download_result and download_result.get('data') and len(download_result['data']) > 0:
+				download_path = os.path.join(downloads_dir, final_filename)
+				
+				# Save file
+				async with await anyio.open_file(download_path, 'wb') as f:
+					await f.write(bytes(download_result['data']))
+
+				if os.path.exists(download_path):
+					actual_size = os.path.getsize(download_path)
+					self.logger.info(f'✅ Browser fetch download complete: {download_path} ({actual_size} bytes)')
+					
+					# Track in session if needed
+					if avoid_duplicates:
+						self._session_pdf_urls[url] = download_path
+					
+					return download_path
+
+			self.logger.warning('No file data received from browser fetch')
+			return None
+
+		except Exception as e:
+			self.logger.error(f'❌ Browser fetch download failed: {e}')
+			return None
+
+	async def _download_via_http(self, url: str):
+		"""Download file directly via HTTP client with browser session data."""
+		try:
+			self.logger.info(f"🌐 Direct HTTP download: {url[:100]}...")
+			
+			# Extract cookies from browser session
+			cookies = {}
+			try:
+				if hasattr(self, '_storage_state_watchdog') and self._storage_state_watchdog:
+					cookies_list = await self._storage_state_watchdog.get_current_cookies()
+					cookies = {cookie['name']: cookie['value'] for cookie in cookies_list}
+					self.logger.debug(f"🍪 Using {len(cookies)} cookies for authenticated download")
+				else:
+					# Fallback to direct CDP cookie extraction
+					cookies_list = await self._cdp_get_cookies()
+					cookies = {cookie['name']: cookie['value'] for cookie in cookies_list}
+					self.logger.debug(f"🍪 Using {len(cookies)} cookies via CDP for download")
+			except Exception as e:
+				self.logger.debug(f"⚠️ Could not extract cookies: {e}")
+			
+			# Get headers from browser profile
+			headers = (self.browser_profile.headers or {}).copy()
+			if not headers.get('User-Agent'):
+				headers['User-Agent'] = 'Mozilla/5.0 (compatible; browser-use)'
+
+			async with httpx.AsyncClient(
+				timeout=300,
+				cookies=cookies,
+				headers=headers
+			) as client:
+				async with client.stream('GET', url) as response:
+					response.raise_for_status()
+					
+					local_downloads_dir = Path("./downloads")
+					local_downloads_dir.mkdir(exist_ok=True)
+					
+					filename = url.split('/')[-1].split('?')[0] or 'download.dat'
+					local_path = local_downloads_dir / filename
+					
+					# Get total size from headers for progress tracking
+					total_size = int(response.headers.get('content-length', 0))
+					downloaded = 0
+					
+					with open(local_path, 'wb') as f:
+						async for chunk in response.aiter_bytes():
+							f.write(chunk)
+							
+							# Track progress
+							downloaded += len(chunk)
+							if url in self._active_downloads:
+								self._active_downloads[url]['downloaded'] = downloaded
+								self._active_downloads[url]['total_size'] = total_size
+					
+					file_size = local_path.stat().st_size
+					self.logger.info(f"✅ HTTP download complete: {file_size} bytes saved to {local_path}")
+					
+					# Emit FileDownloadedEvent to integrate with existing download tracking
+					self.event_bus.dispatch(
+						FileDownloadedEvent(
+							url=url,
+							path=str(local_path),
+							file_name=filename,
+							file_size=file_size,
+							file_type=filename.split('.')[-1] if '.' in filename else None,
+							mime_type=response.headers.get('content-type'),
+							auto_download=False,
+							from_cache=False
+						)
+					)
+					
+		except Exception as e:
+			self.logger.error(f"❌ HTTP download failed: {e}")
+			
+			# Track the failed download
+			filename = url.split('/')[-1].split('?')[0] or 'download.dat'
+			self.add_failed_download(url, filename, str(e))
+
+	async def download_via_direct_http_with_tracking(self, url: str, filename: str) -> None:
+		"""Download file via direct HTTP with automatic state tracking."""
+		try:
+			self.add_active_download(url, filename)
+			await self._download_via_http(url)
+		finally:
+			self.remove_active_download(url)
+
+	async def download_via_browser_fetch_with_tracking(self, target_id: str, url: str, filename: str, 
+	                                                   use_cache: bool = False, avoid_duplicates: bool = False, 
+	                                                   timeout: float = 60.0) -> None:
+		"""Download file via browser fetch with automatic state tracking."""
+		try:
+			self.add_active_download(url, filename)
+			result = await self.download_via_browser_fetch(target_id, url, filename, use_cache=use_cache, avoid_duplicates=avoid_duplicates, timeout=timeout)
+			if result:
+				# Dispatch success event
+				file_size = os.path.getsize(result) if os.path.exists(result) else 0
+				self.event_bus.dispatch(
+					FileDownloadedEvent(
+						url=url,
+						path=result,
+						file_name=filename,
+						file_size=file_size,
+						file_type=os.path.splitext(filename)[1].lstrip('.') or 'unknown',
+						mime_type='application/octet-stream',
+						auto_download=True,
+						from_cache=False
+					)
+				)
+				self.logger.info(f'✅ Browser fetch download completed: {filename}')
+			else:
+				self.add_failed_download(url, filename, "Browser fetch failed")
+				self.logger.warning(f'❌ Browser fetch download failed: {filename}')
+		finally:
+			self.remove_active_download(url)
+
+	@property
+	def active_downloads(self) -> list[dict]:
+		"""Get list of currently active downloads."""
+		return [self._format_download_info(url, info) 
+		        for url, info in self._active_downloads.items()]
+
+	def _format_download_info(self, url: str, info: dict) -> dict:
+		"""Format single download with progress info."""
+		import time
+		download_info = {
+			'url': url,
+			'filename': info['filename'],
+			'duration': int(time.time() - info['start_time'])
+		}
+		
+		# Add progress information if available
+		if 'downloaded' in info and 'total_size' in info:
+			downloaded = info['downloaded']
+			total_size = info['total_size']
+			if total_size > 0:
+				progress_percent = int((downloaded / total_size) * 100)
+				downloaded_mb = downloaded / (1024 * 1024)
+				total_mb = total_size / (1024 * 1024)
+				download_info['progress'] = f"{downloaded_mb:.1f}MB / {total_mb:.1f}MB ({progress_percent}%)"
+			else:
+				downloaded_mb = downloaded / (1024 * 1024)
+				download_info['progress'] = f"{downloaded_mb:.1f}MB"
+		
+		return download_info
+
+	def add_active_download(self, url: str, filename: str):
+		"""Track a new active download."""
+		import time
+		self._active_downloads[url] = {
+			'filename': filename,
+			'start_time': time.time()
+		}
+		self.logger.info(f"📥 Added 1 active download: {filename} (total: {len(self._active_downloads)} active downloads)")
+
+	def remove_active_download(self, url: str):
+		"""Remove completed download from tracking."""
+		if url in self._active_downloads:
+			filename = self._active_downloads[url]['filename']
+			self._active_downloads.pop(url, None)
+			self.logger.info(f"✅ Removed 1 active download: {filename} (total: {len(self._active_downloads)} active downloads)")
+
+	def add_failed_download(self, url: str, filename: str, error: str):
+		"""Track a failed download."""
+		import time
+		self._failed_downloads.append({
+			'url': url,
+			'filename': filename,
+			'error': str(error),
+			'timestamp': time.time()
+		})
+		self.logger.info(f"❌ Added 1 failed download: {filename} (total: {len(self._failed_downloads)} failed downloads)")
+		self.logger.error(f"❌ Download failed: {filename} - {error}")
+
+	@property
+	def failed_downloads(self) -> list[dict]:
+		"""Get all failed downloads with age info for LLM context."""
+		import time
+		current_time = time.time()
+		return [{
+			'filename': failure['filename'],
+			'error': failure['error'],
+			'age_minutes': int((current_time - failure['timestamp']) / 60)
+		} for failure in self._failed_downloads]

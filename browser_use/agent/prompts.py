@@ -98,6 +98,8 @@ class AgentMessagePrompt:
 		max_clickable_elements_length: int = 40000,
 		sensitive_data: str | None = None,
 		available_file_paths: list[str] | None = None,
+		active_downloads: list[dict] | None = None,
+		failed_downloads: list[dict] | None = None,
 		screenshots: list[str] | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_recent_events: bool = False,
@@ -117,6 +119,8 @@ class AgentMessagePrompt:
 		self.max_clickable_elements_length: int = max_clickable_elements_length
 		self.sensitive_data: str | None = sensitive_data
 		self.available_file_paths: list[str] | None = available_file_paths
+		self.active_downloads: list[dict] | None = active_downloads
+		self.failed_downloads: list[dict] | None = failed_downloads
 		self.screenshots = screenshots or []
 		self.vision_detail_level = vision_detail_level
 		self.include_recent_events = include_recent_events
@@ -328,6 +332,22 @@ Available tabs:
 		if self.available_file_paths:
 			available_file_paths_text = '\n'.join(self.available_file_paths)
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
+		
+		# Add active downloads context
+		if self.active_downloads:
+			downloads_text = []
+			for d in self.active_downloads:
+				if 'progress' in d:
+					downloads_text.append(f"Downloading: {d['filename']} ({d['progress']}, {d['duration']}s elapsed)")
+				else:
+					downloads_text.append(f"Downloading: {d['filename']} from {d['url']} ({d['duration']}s elapsed)")
+			agent_state += f'<downloads_in_progress>{chr(10).join(downloads_text)}\nThese downloads are still in progress</downloads_in_progress>\n'
+		
+		# Add failed downloads context  
+		if self.failed_downloads:
+			failures_text = '\n'.join([f"Failed: {f['filename']} ({f['error']}) {f['age_minutes']}m ago" for f in self.failed_downloads])
+			agent_state += f'<failed_downloads>{failures_text}\nThese downloads failed recently</failed_downloads>\n'
+		
 		return agent_state
 
 	def _resize_screenshot(self, screenshot_b64: str) -> str:
