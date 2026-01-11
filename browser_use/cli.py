@@ -360,7 +360,7 @@ def setup_readline_history(history: list[str]) -> None:
 
 def get_llm(config: dict[str, Any]):
 	"""Get the language model based on config and available API keys.
-	
+
 	Supports the following providers (in order of auto-detection priority):
 	- Browser Use Cloud (BROWSER_USE_API_KEY) - Recommended
 	- OpenAI (OPENAI_API_KEY) - gpt-* models
@@ -391,46 +391,46 @@ def get_llm(config: dict[str, Any]):
 	# If a specific model is requested, use the appropriate provider
 	if model_name:
 		model_lower = model_name.lower()
-		
+
 		# OpenAI models
 		if model_lower.startswith(('gpt', 'o1', 'o3', 'o4')):
 			if not openai_api_key:
 				print('⚠️  OpenAI API key not found. Please set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatOpenAI(model=model_name, temperature=temperature, api_key=openai_api_key)
-		
+
 		# Anthropic models
 		elif model_lower.startswith('claude'):
 			if not anthropic_api_key:
 				print('⚠️  Anthropic API key not found. Please set ANTHROPIC_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatAnthropic(model=model_name, temperature=temperature)
-		
+
 		# Google models
 		elif model_lower.startswith('gemini'):
 			if not google_api_key:
 				print('⚠️  Google API key not found. Please set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatGoogle(model=model_name, temperature=temperature)
-		
+
 		# DeepSeek models
 		elif model_lower.startswith('deepseek'):
 			if not deepseek_api_key:
 				print('⚠️  DeepSeek API key not found. Please set DEEPSEEK_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatDeepSeek(model=model_name, temperature=temperature, api_key=deepseek_api_key)
-		
+
 		# Groq models (llama, mixtral, gemma)
 		elif model_lower.startswith(('llama', 'mixtral', 'gemma')) and groq_api_key:
 			return ChatGroq(model=model_name, temperature=temperature, api_key=groq_api_key)
-		
+
 		# Mistral models
 		elif model_lower.startswith(('mistral', 'codestral', 'pixtral')):
 			if not mistral_api_key:
 				print('⚠️  Mistral API key not found. Please set MISTRAL_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatMistral(model=model_name, temperature=temperature, api_key=mistral_api_key)
-		
+
 		# OpenRouter models (prefixed with openrouter/ or any unrecognized model when key is set)
 		elif model_lower.startswith('openrouter/') or (openrouter_api_key and '/' in model_name):
 			if not openrouter_api_key:
@@ -439,21 +439,21 @@ def get_llm(config: dict[str, Any]):
 			# Remove openrouter/ prefix if present
 			actual_model = model_name[11:] if model_lower.startswith('openrouter/') else model_name
 			return ChatOpenRouter(model=actual_model, temperature=temperature, api_key=openrouter_api_key)
-		
+
 		# Ollama models (prefixed with ollama/ or when base URL is set)
 		elif model_lower.startswith('ollama/') or (ollama_base_url and ':' in model_name):
 			# Remove ollama/ prefix if present
 			actual_model = model_name[7:] if model_lower.startswith('ollama/') else model_name
 			host = ollama_base_url or 'http://localhost:11434'
 			return ChatOllama(model=actual_model, host=host)
-		
+
 		# OCI models
 		elif model_lower.startswith('oci'):
 			print(
 				'⚠️  OCI models require manual configuration. Please use the ChatOCIRaw class directly with your OCI credentials.'
 			)
 			sys.exit(1)
-		
+
 		# For any unrecognized model, try OpenRouter if key is available
 		elif openrouter_api_key:
 			return ChatOpenRouter(model=model_name, temperature=temperature, api_key=openrouter_api_key)
@@ -958,12 +958,12 @@ class BrowserUseApp(App):
 		"""Handle task input submission."""
 		if event.input.id == 'task-input':
 			task = event.input.value
-			
+
 			# If agent is paused and input is empty, resume the agent
 			if self._agent_paused and not task.strip():
 				asyncio.create_task(self.action_resume_agent())
 				return
-			
+
 			if not task.strip():
 				return
 
@@ -1044,6 +1044,7 @@ class BrowserUseApp(App):
 
 		# Create handler to log all events
 		app = self  # Reference for auto-scroll
+
 		def log_event(event):
 			event_name = event.__class__.__name__
 			# Format event data nicely
@@ -1064,7 +1065,7 @@ class BrowserUseApp(App):
 					event_str = event_str[:200] + '...'
 
 				events_log.write(f'[yellow]→ {event_name}[/] {event_str}')
-				
+
 				# Auto-scroll if user hasn't scrolled away
 				if app._should_auto_scroll('events-column'):
 					try:
@@ -1176,7 +1177,7 @@ class BrowserUseApp(App):
 
 		# Reset pause state for new task
 		self._agent_paused = False
-		
+
 		# Let the agent run in the background
 		async def agent_task_worker() -> None:
 			logger.debug('\n🚀 Working on task: %s', task)
@@ -1294,14 +1295,14 @@ class BrowserUseApp(App):
 			# Signal the agent to stop (it will pause at the next step)
 			if hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused'):
 				self.agent.state.paused = True
-			
+
 			# Update UI to show paused state
 			logger = logging.getLogger('browser_use.app')
 			logger.info('\n⏸️  Agent paused. Press [Enter] to resume or [Ctrl+Q] to quit.')
-			
+
 			# Update tasks panel to show paused state
 			self.update_tasks_panel()
-			
+
 			# Focus input for resume
 			input_field = self.query_one('#task-input', Input)
 			input_field.placeholder = 'Press Enter to resume, Ctrl+Q to quit...'
@@ -1314,18 +1315,18 @@ class BrowserUseApp(App):
 		"""Resume a paused agent."""
 		# Only resume if agent is paused and input is empty (not submitting a new task)
 		input_field = self.query_one('#task-input', Input)
-		
+
 		if self._agent_paused and not input_field.value.strip():
 			self._agent_paused = False
 			if self.agent and hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused'):
 				self.agent.state.paused = False
-			
+
 			# Reset placeholder
 			input_field.placeholder = 'Enter your task...'
-			
+
 			logger = logging.getLogger('browser_use.app')
 			logger.info('\n▶️  Agent resumed.')
-			
+
 			# Update UI
 			self.update_tasks_panel()
 
@@ -1334,7 +1335,7 @@ class BrowserUseApp(App):
 		# Cancel any running agent task
 		if self._agent_task and not self._agent_task.done():
 			self._agent_task.cancel()
-		
+
 		# Note: We don't need to close the browser session here because:
 		# 1. If an agent exists, it already called browser_session.stop() in its run() method
 		# 2. If keep_alive=True (default), we want to leave the browser running anyway
@@ -1377,7 +1378,7 @@ class BrowserUseApp(App):
 	def _should_auto_scroll(self, container_id: str) -> bool:
 		"""Check if we should auto-scroll for a given container."""
 		return not self._user_scrolled_away.get(container_id, False)
-	
+
 	def _reset_scroll_tracking(self, container_id: str) -> None:
 		"""Reset scroll tracking for a container (re-enable auto-scroll)."""
 		if container_id in self._user_scrolled_away:
