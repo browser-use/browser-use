@@ -441,7 +441,7 @@ def get_llm(config: dict[str, Any]):
 			return ChatOpenRouter(model=actual_model, temperature=temperature, api_key=openrouter_api_key)
 
 		# Ollama models (prefixed with ollama/ or when base URL is set)
-		elif model_lower.startswith('ollama/') or (ollama_base_url and ':' in model_name):
+		elif model_lower.startswith('ollama/') or ollama_base_url:
 			# Remove ollama/ prefix if present
 			actual_model = model_name[7:] if model_lower.startswith('ollama/') else model_name
 			host = ollama_base_url or 'http://localhost:11434'
@@ -738,7 +738,7 @@ class BrowserUseApp(App):
 		}
 		# Track agent pause state
 		self._agent_paused = False
-		self._agent_task: asyncio.Task | None = None
+		self._agent_task: Any = None  # Textual Worker for agent task cancellation
 
 	def setup_richlog_logging(self) -> None:
 		"""Set up logging to redirect to RichLog widget instead of stdout."""
@@ -941,18 +941,8 @@ class BrowserUseApp(App):
 		event.prevent_default()
 		event.stop()
 
-	async def on_key(self, event: events.Key) -> None:
-		"""Handle key events at the app level."""
-		# Handle Ctrl+Q and Ctrl+D for immediate app exit
-		if event.key == 'ctrl+d' or event.key == 'ctrl+q':
-			await self.action_force_quit()
-			event.stop()
-			event.prevent_default()
-		# Handle Ctrl+C for pause/quit behavior
-		elif event.key == 'ctrl+c':
-			await self.action_pause_or_quit()
-			event.stop()
-			event.prevent_default()
+	# Key bindings are handled via BINDINGS - no need for on_key handler
+	# which would cause duplicate handling (both binding and on_key fire)
 
 	def on_input_submitted(self, event: Input.Submitted) -> None:
 		"""Handle task input submission."""
@@ -1250,10 +1240,8 @@ class BrowserUseApp(App):
 				# Ensure the input is visible by scrolling to it
 				self.call_after_refresh(self.scroll_to_input)
 
-		# Run the worker and store the task handle
-		worker = self.run_worker(agent_task_worker, name='agent_task')
-		# Store a reference to the current worker for cancellation
-		self._agent_task = None  # Workers handle their own lifecycle
+		# Run the worker and store the handle for cancellation
+		self._agent_task = self.run_worker(agent_task_worker, name='agent_task')
 
 	def action_input_history_prev(self) -> None:
 		"""Navigate to the previous item in command history."""
@@ -1332,8 +1320,8 @@ class BrowserUseApp(App):
 
 	async def action_force_quit(self) -> None:
 		"""Force quit the application and clean up resources."""
-		# Cancel any running agent task
-		if self._agent_task and not self._agent_task.done():
+		# Cancel any running agent worker
+		if self._agent_task and not self._agent_task.is_finished:
 			self._agent_task.cancel()
 
 		# Note: We don't need to close the browser session here because:
