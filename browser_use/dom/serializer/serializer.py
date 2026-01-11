@@ -1052,13 +1052,39 @@ class DOMTreeSerializer:
 
 		# Include HTML attributes
 		if node.attributes:
-			attributes_to_include.update(
-				{
-					key: str(value).strip()
-					for key, value in node.attributes.items()
-					if key in include_attributes and str(value).strip() != ''
-				}
-			)
+			for key, value in node.attributes.items():
+				# Always include attributes in the list
+				if key in include_attributes and str(value).strip() != '':
+					attributes_to_include[key] = str(value).strip()
+
+				# Special handling for CSS classes that indicate state
+				# Even if 'class' is not in include_attributes, we want to know about state
+				elif key == 'class' and value:
+					state_classes = []
+					for cls in str(value).split():
+						if cls.lower() in [
+							'active',
+							'checked',
+							'selected',
+							'disabled',
+							'enabled',
+							'open',
+							'closed',
+							'expanded',
+							'collapsed',
+							'valid',
+							'invalid',
+							'focused',
+							'hidden',
+							'visible',
+						]:
+							state_classes.append(cls)
+
+					if state_classes:
+						# If we found state classes, add them
+						# If class is already included (unexpectedly), join them?
+						# But we are in the 'elif' so it wasn't included.
+						attributes_to_include['class'] = ' '.join(state_classes)
 
 		# Add format hints for date/time inputs to help LLMs use the correct format
 		# NOTE: These formats are standardized by HTML5 specification (ISO 8601), NOT locale-dependent
