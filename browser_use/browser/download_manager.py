@@ -378,7 +378,7 @@ class DownloadManager:
 
 					async with await anyio.open_file(local_path, 'wb') as f:
 						async for chunk in response.aiter_bytes():
-							f.write(chunk)
+							await f.write(chunk)
 
 							# Track progress
 							downloaded += len(chunk)
