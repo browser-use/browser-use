@@ -6,7 +6,6 @@ import os
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import urlparse
 
 import anyio
 from bubus import BaseEvent
@@ -181,32 +180,34 @@ class DownloadsWatchdog(BaseWatchdog):
 		# Define CDP event handlers outside of try to avoid indentation/scope issues
 		def download_will_begin_handler(event: DownloadWillBeginEvent, session_id: SessionID | None) -> None:
 			self.logger.debug(f'[DownloadsWatchdog] 🔽 Download will begin: {event}')
-			
+
 			# Use different download methods based on download_from_remote_browser flag
 			download_url = event.get('url', '')
 			suggested_filename = event.get('suggestedFilename', os.path.basename(download_url) or 'downloaded_file')
 			self.logger.info(f'[DownloadsWatchdog] ✅ File download detected: {download_url}')
-			
+
 			# Choose download method based on download_from_remote_browser flag
 			if self.browser_session.browser_profile.download_from_remote_browser:
-				self.logger.info(f'[DownloadsWatchdog] 🌐 Using HTTP client download (download_from_remote_browser=True)')
-				
+				self.logger.info('[DownloadsWatchdog] 🌐 Using HTTP client download (download_from_remote_browser=True)')
+
 				# Use session's orchestration method with guaranteed cleanup
 				asyncio.create_task(self.browser_session.download_via_direct_http_with_tracking(download_url, suggested_filename))
-				
+
 			else:
-				self.logger.info(f'[DownloadsWatchdog] 🔧 Using JavaScript fetch download (download_from_remote_browser=False)')
-				
+				self.logger.info('[DownloadsWatchdog] 🔧 Using JavaScript fetch download (download_from_remote_browser=False)')
+
 				# Use session's tracking method - handles all tracking and events internally
-				asyncio.create_task(self.browser_session.download_via_browser_fetch_with_tracking(
-					target_id=target_id,
-					url=download_url,
-					filename=suggested_filename,
-					use_cache=False,
-					avoid_duplicates=False,
-					timeout=60.0
-				))
-			
+				asyncio.create_task(
+					self.browser_session.download_via_browser_fetch_with_tracking(
+						target_id=target_id,
+						url=download_url,
+						filename=suggested_filename,
+						use_cache=False,
+						avoid_duplicates=False,
+						timeout=60.0,
+					)
+				)
+
 			# Cache info for later completion event handling (esp. remote browsers)
 			guid = event.get('guid', '')
 			try:
@@ -1024,7 +1025,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.logger.debug(f'[DownloadsWatchdog] PDF detected via URL pattern: {page_url}')
 				self._pdf_viewer_cache[page_url] = True
 				return True
-				
+
 			chrome_pdf_viewer = self._is_chrome_pdf_viewer_url(page_url)
 			if chrome_pdf_viewer:
 				self.logger.debug(f'[DownloadsWatchdog] Chrome PDF viewer detected: {page_url}')
@@ -1128,9 +1129,9 @@ class DownloadsWatchdog(BaseWatchdog):
 			filename=None,  # Auto-generate with duplicates
 			use_cache=True,  # Force cache for PDFs
 			avoid_duplicates=True,  # PDF session tracking
-			timeout=10.0
+			timeout=10.0,
 		)
-			
+
 	@staticmethod
 	async def _get_unique_filename(directory: str, filename: str) -> str:
 		"""Generate a unique filename for downloads by appending (1), (2), etc., if a file already exists."""

@@ -1,16 +1,13 @@
 """Event-driven browser session with backwards compatibility."""
 
 import asyncio
-import json
 import logging
-import os
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
-import anyio
 import httpx
 from bubus import EventBus
 from cdp_use import CDPClient
@@ -414,23 +411,38 @@ class BrowserSession(BaseModel):
 		"""Lazy init download manager."""
 		if self._download_manager is None:
 			from browser_use.browser.download_manager import DownloadManager
+
 			self._download_manager = DownloadManager(self)
 		return self._download_manager
 
 	# DOWNLOAD WRAPPER METHODS - delegate to DownloadManager
-	async def download_via_browser_fetch(self, target_id: str, url: str | None = None, 
-	                                        filename: str | None = None, 
-	                                        use_cache: bool = True,
-	                                        avoid_duplicates: bool = False,
-	                                        timeout: float = 10.0) -> str | None:
+	async def download_via_browser_fetch(
+		self,
+		target_id: str,
+		url: str | None = None,
+		filename: str | None = None,
+		use_cache: bool = True,
+		avoid_duplicates: bool = False,
+		timeout: float = 10.0,
+	) -> str | None:
 		"""Download file via browser fetch - delegates to DownloadManager."""
-		return await self.download_manager.download_via_browser_fetch(target_id, url, filename, use_cache, avoid_duplicates, timeout)
+		return await self.download_manager.download_via_browser_fetch(
+			target_id, url, filename, use_cache, avoid_duplicates, timeout
+		)
 
-	async def download_via_browser_fetch_with_tracking(self, target_id: str, url: str, filename: str, 
-	                                                   use_cache: bool = False, avoid_duplicates: bool = False, 
-	                                                   timeout: float = 60.0) -> None:
+	async def download_via_browser_fetch_with_tracking(
+		self,
+		target_id: str,
+		url: str,
+		filename: str,
+		use_cache: bool = False,
+		avoid_duplicates: bool = False,
+		timeout: float = 60.0,
+	) -> None:
 		"""Download file via browser fetch with tracking - delegates to DownloadManager."""
-		return await self.download_manager.download_via_browser_fetch_with_tracking(target_id, url, filename, use_cache, avoid_duplicates, timeout)
+		return await self.download_manager.download_via_browser_fetch_with_tracking(
+			target_id, url, filename, use_cache, avoid_duplicates, timeout
+		)
 
 	async def download_via_direct_http_with_tracking(self, url: str, filename: str) -> None:
 		"""Download file via direct HTTP with tracking - delegates to DownloadManager."""

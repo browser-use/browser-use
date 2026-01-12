@@ -591,7 +591,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
-	download_from_remote_browser: bool = Field(default=False, description="Download files from remote browser to local machine using HTTP client")
+	download_from_remote_browser: bool = Field(
+		default=False, description='Download files from remote browser to local machine using HTTP client'
+	)
 
 	# --- Proxy settings ---
 	# New consolidated proxy config (typed)

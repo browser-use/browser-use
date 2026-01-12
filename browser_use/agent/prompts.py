@@ -332,22 +332,24 @@ Available tabs:
 		if self.available_file_paths:
 			available_file_paths_text = '\n'.join(self.available_file_paths)
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
-		
+
 		# Add active downloads context
 		if self.active_downloads:
 			downloads_text = []
 			for d in self.active_downloads:
 				if 'progress' in d:
-					downloads_text.append(f"Downloading: {d['filename']} ({d['progress']}, {d['duration']}s elapsed)")
+					downloads_text.append(f'Downloading: {d["filename"]} ({d["progress"]}, {d["duration"]}s elapsed)')
 				else:
-					downloads_text.append(f"Downloading: {d['filename']} from {d['url']} ({d['duration']}s elapsed)")
+					downloads_text.append(f'Downloading: {d["filename"]} from {d["url"]} ({d["duration"]}s elapsed)')
 			agent_state += f'<downloads_in_progress>{chr(10).join(downloads_text)}\nThese downloads are still in progress</downloads_in_progress>\n'
-		
-		# Add failed downloads context  
+
+		# Add failed downloads context
 		if self.failed_downloads:
-			failures_text = '\n'.join([f"Failed: {f['filename']} ({f['error']}) {f['age_minutes']}m ago" for f in self.failed_downloads])
+			failures_text = '\n'.join(
+				[f'Failed: {f["filename"]} ({f["error"]}) {f["age_minutes"]}m ago' for f in self.failed_downloads]
+			)
 			agent_state += f'<failed_downloads>{failures_text}\nThese downloads failed recently</failed_downloads>\n'
-		
+
 		return agent_state
 
 	def _resize_screenshot(self, screenshot_b64: str) -> str:
