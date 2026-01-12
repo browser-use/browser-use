@@ -180,14 +180,14 @@ class DownloadsWatchdog(BaseWatchdog):
 		# Define CDP event handlers outside of try to avoid indentation/scope issues
 		def download_will_begin_handler(event: DownloadWillBeginEvent, session_id: SessionID | None) -> None:
 			self.logger.debug(f'[DownloadsWatchdog] 🔽 Download will begin: {event}')
-			
+
 			# Only intercept downloads when download_from_remote_browser is True
 			if self.browser_session.browser_profile.download_from_remote_browser:
 				download_url = event.get('url', '')
 				suggested_filename = event.get('suggestedFilename', os.path.basename(download_url) or 'downloaded_file')
 				self.logger.info(f'[DownloadsWatchdog] ✅ File download detected: {download_url}')
 				self.logger.info('[DownloadsWatchdog] 🌐 Using HTTP client download (download_from_remote_browser=True)')
-				
+
 				# Use session's orchestration method with guaranteed cleanup
 				asyncio.create_task(self.browser_session.download_via_direct_http_with_tracking(download_url, suggested_filename))
 			else:

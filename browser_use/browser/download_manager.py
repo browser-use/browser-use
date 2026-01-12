@@ -80,8 +80,6 @@ class DownloadManager:
 			self.session.logger.error(f'❌ Browser fetch download failed: {e}')
 			return None
 
-
-
 	async def download_via_direct_http_with_tracking(self, url: str, filename: str) -> None:
 		"""Download file via direct HTTP with automatic state tracking."""
 		self.session.logger.info('🔧 [DownloadManager] Executing download_via_direct_http_with_tracking')

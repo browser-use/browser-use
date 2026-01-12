@@ -430,8 +430,6 @@ class BrowserSession(BaseModel):
 			target_id, url, filename, use_cache, avoid_duplicates, timeout
 		)
 
-
-
 	async def download_via_direct_http_with_tracking(self, url: str, filename: str) -> None:
 		"""Download file via direct HTTP with tracking - delegates to DownloadManager."""
 		return await self.download_manager.download_via_direct_http_with_tracking(url, filename)
