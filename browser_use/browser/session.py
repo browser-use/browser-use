@@ -975,12 +975,7 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
-		# Setup network interception for remote downloads
-		if self.browser_profile.remote_downloads:
-			try:
-				await self._setup_download_interception(event.target_id)
-			except Exception as e:
-				self.logger.warning(f'Failed to setup download interception for tab {event.target_id[-8:]}: {e}')
+
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
@@ -3553,91 +3548,18 @@ class BrowserSession(BaseModel):
 			'height': max(content[1], content[3], content[5], content[7]) - min(content[1], content[3], content[5], content[7]),
 		}
 
-	async def _setup_download_interception(self, target_id: str) -> None:
-		"""Setup network interception for downloads on a specific tab."""
-		try:
-			self.logger.debug(f"🔧 Setting up download interception for tab {target_id[-8:]}")
 
-			# Get CDP session for this target
-			cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=False)
-
-			# Enable Network domain with request interception
-			await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
-			await cdp_session.cdp_client.send.Network.setRequestInterception(
-				params={'patterns': [{'urlPattern': '*.csv'}, {'urlPattern': '*.pdf'}, {'urlPattern': '*.xlsx'}, {'urlPattern': '*.bin'}]},
-				session_id=cdp_session.session_id
-			)
-
-			# Register request handler
-			cdp_session.cdp_client.register.Network.requestIntercepted(
-				lambda event, session_id=None: asyncio.create_task(
-					self._on_request_intercepted(event, session_id or cdp_session.session_id, target_id)
-				)
-			)
-
-			self.logger.debug(f"✅ Download interception ready for tab {target_id[-8:]}")
-
-		except Exception as e:
-			self.logger.error(f"Failed to setup download interception: {e}")
-
-	async def _on_request_intercepted(self, event, session_id, target_id):
-		"""Handle intercepted requests to detect downloads."""
-		try:
-			request = event.get('request', {})
-			url = request.get('url', '')
+	async def _resolve_download_url(self, session, url: str | None) -> str | None:
+		"""Get URL from page if None, otherwise return provided URL."""
+		if url is not None:
+			return url
 			
-			# Check if this looks like a real download URL (not analytics)
-			is_download = (
-				url.lower().endswith('.csv') or url.lower().endswith('.pdf') or url.lower().endswith('.xlsx') or url.lower().endswith('.bin') or url.lower().endswith('.dat') or
-				'.csv?' in url.lower() or '.pdf?' in url.lower() or '.xlsx?' in url.lower() or '.bin?' in url.lower() or '.dat?' in url.lower()
-			)
-
-			if is_download:
-				self.logger.info(f"🎯 Download request intercepted: {url[:100]}...")
-				
-				# Download directly via HTTP client (bypass browser entirely)
-				asyncio.create_task(self._download_via_http(url))
-
-			# Continue all requests
-			await self._continue_request(event, session_id, target_id)
-		except Exception as e:
-			self.logger.error(f"Error in request interceptor: {e}")
-
-	async def _continue_request(self, event, session_id, target_id):
-		"""Continue intercepted request."""
+		# Get URL from current page (PDF case)
 		try:
-			cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=False)
-			
-			# Continue the request
-			await cdp_session.cdp_client.send.Network.continueInterceptedRequest(
-				params={'interceptionId': event['interceptionId']},
-				session_id=cdp_session.session_id
-			)
-				
-		except Exception as e:
-			self.logger.error(f"Failed to continue request: {e}")
-
-	async def download_via_browser_fetch(self, target_id: str, url: str | None = None, 
-	                                    filename: str | None = None, 
-	                                    use_cache: bool = True,
-	                                    avoid_duplicates: bool = False,
-	                                    timeout: float = 10.0) -> str | None:
-		"""Unified browser fetch download method."""
-		if not self.browser_profile.downloads_path:
-			self.logger.warning('❌ No downloads path configured')
-			return None
-
-		try:
-			# Create CDP session
-			temp_session = await self.get_or_create_cdp_session(target_id, focus=False)
-			
-			# Get URL - either provided or from current page
-			if url is None:
-				# Get URL from current page (PDF case)
-				result = await asyncio.wait_for(
-					temp_session.cdp_client.send.Runtime.evaluate(
-						params={
-							'expression': """
+			result = await asyncio.wait_for(
+				session.cdp_client.send.Runtime.evaluate(
+					params={
+						'expression': """
 						(() => {
 							// For Chrome's PDF viewer, the actual URL is in window.location.href
 							const embedElement = document.querySelector('embed[type="application/x-google-chrome-pdf"]') ||
@@ -3648,59 +3570,76 @@ class BrowserSession(BaseModel):
 							return { url: window.location.href };
 						})()
 						""",
-							'returnByValue': True,
-						},
-						session_id=temp_session.session_id,
-					),
-					timeout=5.0,
-				)
-				url_info = result.get('result', {}).get('value', {})
-				url = url_info.get('url', '')
-				if not url:
-					self.logger.warning('❌ Could not determine URL for download')
-					return None
+						'returnByValue': True,
+					},
+					session_id=session.session_id,
+				),
+				timeout=5.0,
+			)
+			url_info = result.get('result', {}).get('value', {})
+			resolved_url = url_info.get('url', '')
+			if not resolved_url:
+				self.logger.warning('❌ Could not determine URL for download')
+				return None
+			return resolved_url
+		except Exception as e:
+			self.logger.error(f'❌ Failed to get page URL: {e}')
+			return None
+
+	def _generate_download_filename(self, url: str, filename: str | None) -> str:
+		"""Generate filename from URL or use provided filename."""
+		if filename is not None:
+			return filename
 			
-			# Generate filename
-			if filename is None:
-				filename = os.path.basename(url.split('?')[0])
-				if not filename:
-					from urllib.parse import urlparse
-					parsed = urlparse(url)
-					filename = os.path.basename(parsed.path) or 'document'
-					if url.lower().endswith('.pdf') or 'pdf' in url.lower():
-						if not filename.endswith('.pdf'):
-							filename += '.pdf'
-			
-			# Check session tracking for duplicates (PDF case)
-			if avoid_duplicates:
-				if not hasattr(self, '_session_pdf_urls'):
-					self._session_pdf_urls = {}
-				if url in self._session_pdf_urls:
-					existing_path = self._session_pdf_urls[url]
-					self.logger.debug(f'File already downloaded in session: {existing_path}')
-					return existing_path
-			
-			# Handle duplicate filenames
-			downloads_dir = str(self.browser_profile.downloads_path)
-			os.makedirs(downloads_dir, exist_ok=True)
-			final_filename = filename
-			
-			if avoid_duplicates:
-				existing_files = os.listdir(downloads_dir)
-				if filename in existing_files:
-					base, ext = os.path.splitext(filename)
-					counter = 1
-					while f'{base} ({counter}){ext}' in existing_files:
-						counter += 1
-					final_filename = f'{base} ({counter}){ext}'
-			
-			# Prepare JavaScript fetch
-			escaped_url = json.dumps(url)
-			cache_option = ', { cache: "force-cache" }' if use_cache else ''
-			
-			# Execute download
+		# Extract filename from URL
+		parsed_filename = os.path.basename(url.split('?')[0])
+		if not parsed_filename:
+			from urllib.parse import urlparse
+			parsed = urlparse(url)
+			parsed_filename = os.path.basename(parsed.path) or 'document'
+			if url.lower().endswith('.pdf') or 'pdf' in url.lower():
+				if not parsed_filename.endswith('.pdf'):
+					parsed_filename += '.pdf'
+		return parsed_filename
+
+	def _check_existing_download(self, url: str, filename: str, use_cache: bool, avoid_duplicates: bool) -> str | None:
+		"""Check for existing cached/duplicate files."""
+		downloads_dir = str(self.browser_profile.downloads_path)
+		
+		# Check session tracking for duplicates (PDF case)
+		if avoid_duplicates:
+			if not hasattr(self, '_session_pdf_urls'):
+				self._session_pdf_urls = {}
+			if url in self._session_pdf_urls:
+				existing_path = self._session_pdf_urls[url]
+				self.logger.debug(f'File already downloaded in session: {existing_path}')
+				return existing_path
+		
+		# Handle duplicate filenames
+		os.makedirs(downloads_dir, exist_ok=True)
+		final_filename = filename
+		
+		if avoid_duplicates:
+			existing_files = os.listdir(downloads_dir)
+			if filename in existing_files:
+				base, ext = os.path.splitext(filename)
+				counter = 1
+				while f'{base} ({counter}){ext}' in existing_files:
+					counter += 1
+				final_filename = f'{base} ({counter}){ext}'
+		
+		# Store final filename for later use
+		self._temp_final_filename = final_filename
+		return None
+
+	async def _execute_browser_fetch(self, session, url: str, use_cache: bool, timeout: float) -> dict | None:
+		"""Execute JavaScript fetch and return download result."""
+		escaped_url = json.dumps(url)
+		cache_option = ', { cache: "force-cache" }' if use_cache else ''
+		
+		try:
 			result = await asyncio.wait_for(
-				temp_session.cdp_client.send.Runtime.evaluate(
+				session.cdp_client.send.Runtime.evaluate(
 					params={
 						'expression': f"""
 					(async () => {{
@@ -3725,9 +3664,9 @@ class BrowserSession(BaseModel):
 						'awaitPromise': True,
 						'returnByValue': True,
 					},
-					session_id=temp_session.session_id,
+					session_id=session.session_id,
 				),
-				timeout=timeout
+				timeout=timeout,
 			)
 			
 			download_result = result.get('result', {}).get('value', {})
@@ -3735,27 +3674,84 @@ class BrowserSession(BaseModel):
 			if download_result.get('error'):
 				self.logger.error(f'Browser fetch error: {download_result["error"]}')
 				return None
-
-			if download_result and download_result.get('data') and len(download_result['data']) > 0:
-				download_path = os.path.join(downloads_dir, final_filename)
 				
-				# Save file
-				async with await anyio.open_file(download_path, 'wb') as f:
-					await f.write(bytes(download_result['data']))
-
-				if os.path.exists(download_path):
-					actual_size = os.path.getsize(download_path)
-					self.logger.info(f'✅ Browser fetch download complete: {download_path} ({actual_size} bytes)')
-					
-					# Track in session if needed
-					if avoid_duplicates:
-						self._session_pdf_urls[url] = download_path
-					
-					return download_path
-
-			self.logger.warning('No file data received from browser fetch')
+			return download_result
+			
+		except Exception as e:
+			self.logger.error(f'❌ Browser fetch execution failed: {e}')
 			return None
 
+	async def _save_download_file(self, filename: str, download_data: dict, url: str, avoid_duplicates: bool) -> str | None:
+		"""Save download data to file and handle tracking."""
+		if not download_data or not download_data.get('data') or len(download_data['data']) == 0:
+			self.logger.warning('No file data received from browser fetch')
+			return None
+			
+		downloads_dir = str(self.browser_profile.downloads_path)
+		download_path = os.path.join(downloads_dir, filename)
+		
+		try:
+			# Save file
+			async with await anyio.open_file(download_path, 'wb') as f:
+				await f.write(bytes(download_data['data']))
+
+			if os.path.exists(download_path):
+				actual_size = os.path.getsize(download_path)
+				self.logger.info(f'✅ Browser fetch download complete: {download_path} ({actual_size} bytes)')
+				
+				# Track in session if needed
+				if avoid_duplicates:
+					if not hasattr(self, '_session_pdf_urls'):
+						self._session_pdf_urls = {}
+					self._session_pdf_urls[url] = download_path
+				
+				return download_path
+			else:
+				self.logger.error('❌ File was not created successfully')
+				return None
+				
+		except Exception as e:
+			self.logger.error(f'❌ Failed to save download file: {e}')
+			return None
+
+	async def download_via_browser_fetch(self, target_id: str, url: str | None = None, 
+	                                        filename: str | None = None, 
+	                                        use_cache: bool = True,
+	                                        avoid_duplicates: bool = False,
+	                                        timeout: float = 10.0) -> str | None:
+		"""Unified browser fetch download method (refactored)."""
+		if not self.browser_profile.downloads_path:
+			self.logger.warning('❌ No downloads path configured')
+			return None
+
+		try:
+			# Create CDP session
+			temp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+			
+			# 1. Resolve URL
+			resolved_url = await self._resolve_download_url(temp_session, url)
+			if not resolved_url:
+				return None
+				
+			# 2. Generate filename
+			final_filename = self._generate_download_filename(resolved_url, filename)
+			
+			# 3. Check cache/duplicates
+			existing_path = self._check_existing_download(resolved_url, final_filename, use_cache, avoid_duplicates)
+			if existing_path:
+				return existing_path
+			
+			# Use the final filename determined by duplicate checking
+			final_filename = getattr(self, '_temp_final_filename', final_filename)
+				
+			# 4. Execute download
+			download_data = await self._execute_browser_fetch(temp_session, resolved_url, use_cache, timeout)
+			if not download_data:
+				return None
+				
+			# 5. Save file
+			return await self._save_download_file(final_filename, download_data, resolved_url, avoid_duplicates)
+			
 		except Exception as e:
 			self.logger.error(f'❌ Browser fetch download failed: {e}')
 			return None

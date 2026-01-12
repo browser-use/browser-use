@@ -1170,17 +1170,6 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.debug(f'[DownloadsWatchdog] Network headers check failed (non-critical): {e}')
 			return False
 
-	async def trigger_file_download(self, target_id: TargetID, file_url: str, suggested_filename: str | None = None) -> str | None:
-		"""Trigger download of any file using JavaScript fetch with provided URL."""
-		return await self.browser_session.download_via_browser_fetch(
-			target_id=target_id,
-			url=file_url,
-			filename=suggested_filename,
-			use_cache=False,
-			avoid_duplicates=False,
-			timeout=60.0
-		)
-
 	async def trigger_pdf_download(self, target_id: TargetID) -> str | None:
 		"""Trigger download of a PDF from Chrome's PDF viewer."""
 		return await self.browser_session.download_via_browser_fetch(
