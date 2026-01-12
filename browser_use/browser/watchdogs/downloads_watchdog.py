@@ -74,7 +74,6 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Monitor new tabs for downloads."""
-		print(f"DEBUG: ORIGINAL DownloadsWatchdog.on_TabCreatedEvent called for {event.target_id}")
 		# logger.info(f'[DownloadsWatchdog] TabCreatedEvent received for tab {event.target_id[-4:]}: {event.url}')
 
 		# Assert downloads path is configured (should always be set by BrowserProfile default)
@@ -149,7 +148,7 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check for PDFs after navigation completes."""
-		self.logger.debug(f'[DownloadsWatchdog] 🔗 NavigationCompleteEvent received for {event.url}, tab #{event.target_id[-4:]}')
+		self.logger.debug(f'[DownloadsWatchdog] NavigationCompleteEvent received for {event.url}, tab #{event.target_id[-4:]}')
 
 		# Clear PDF cache for the navigated URL since content may have changed
 		if event.url in self._pdf_viewer_cache:
@@ -157,9 +156,7 @@ class DownloadsWatchdog(BaseWatchdog):
 
 		# Check if auto-download is enabled
 		auto_download_enabled = self._is_auto_download_enabled()
-		self.logger.debug(f'[DownloadsWatchdog] 🔍 Auto-download enabled: {auto_download_enabled}')
 		if not auto_download_enabled:
-			self.logger.debug(f'[DownloadsWatchdog] ❌ Auto-download disabled, skipping file detection')
 			return
 
 		# Note: Using network-based PDF detection that doesn't require JavaScript
@@ -168,22 +165,14 @@ class DownloadsWatchdog(BaseWatchdog):
 		self.logger.debug(f'[DownloadsWatchdog] Got target_id={target_id} for tab #{event.target_id[-4:]}')
 
 		is_pdf = await self.check_for_pdf_viewer(target_id)
-		self.logger.debug(f'[DownloadsWatchdog] 🔍 File detection result: {is_pdf} for URL: {event.url}')
 
 		if is_pdf:
-			# is_pdf is now true for both PDF and CSV files - just use existing PDF download method
-			self.logger.info(f'[DownloadsWatchdog] 📄 Downloadable file detected at {event.url}, triggering auto-download...')
 			download_path = await self.trigger_pdf_download(target_id)
 			if not download_path:
-				self.logger.warning(f'[DownloadsWatchdog] ⚠️ File download failed for {event.url}')
-			else:
-				self.logger.info(f'[DownloadsWatchdog] ✅ File downloaded successfully to: {download_path}')
-		else:
-			self.logger.debug(f'[DownloadsWatchdog] ❌ No downloadable file detected at {event.url}')
+				self.logger.warning(f'[DownloadsWatchdog] ⚠️ PDF download failed for {event.url}')
 
 	def _is_auto_download_enabled(self) -> bool:
-		"""Check if auto-download is enabled in browser profile."""
-		# Enable auto-download if PDFs are enabled (covers both PDF and CSV files now)
+		"""Check if auto-download PDFs is enabled in browser profile."""
 		return self.browser_session.browser_profile.auto_download_pdfs
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
@@ -191,22 +180,22 @@ class DownloadsWatchdog(BaseWatchdog):
 
 		# Define CDP event handlers outside of try to avoid indentation/scope issues
 		def download_will_begin_handler(event: DownloadWillBeginEvent, session_id: SessionID | None) -> None:
-			self.logger.info(f'[DownloadsWatchdog] 🔽 Download will begin: {event}')
+			self.logger.debug(f'[DownloadsWatchdog] 🔽 Download will begin: {event}')
 			
-			# Use different download methods based on remote_downloads flag
+			# Use different download methods based on download_from_remote_browser flag
 			download_url = event.get('url', '')
 			suggested_filename = event.get('suggestedFilename', os.path.basename(download_url) or 'downloaded_file')
 			self.logger.info(f'[DownloadsWatchdog] ✅ File download detected: {download_url}')
 			
-			# Choose download method based on remote_downloads flag
-			if self.browser_session.browser_profile.remote_downloads:
-				self.logger.info(f'[DownloadsWatchdog] 🌐 Using HTTP client download (remote_downloads=True)')
+			# Choose download method based on download_from_remote_browser flag
+			if self.browser_session.browser_profile.download_from_remote_browser:
+				self.logger.info(f'[DownloadsWatchdog] 🌐 Using HTTP client download (download_from_remote_browser=True)')
 				
 				# Use session's orchestration method with guaranteed cleanup
 				asyncio.create_task(self.browser_session.download_via_direct_http_with_tracking(download_url, suggested_filename))
 				
 			else:
-				self.logger.info(f'[DownloadsWatchdog] 🔧 Using JavaScript fetch download (remote_downloads=False)')
+				self.logger.info(f'[DownloadsWatchdog] 🔧 Using JavaScript fetch download (download_from_remote_browser=False)')
 				
 				# Use session's tracking method - handles all tracking and events internally
 				asyncio.create_task(self.browser_session.download_via_browser_fetch_with_tracking(
@@ -326,7 +315,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				cdp_client.register.Browser.downloadProgress(download_progress_handler)  # type: ignore[arg-type]
 
 				self._download_cdp_session_setup = True
-				self.logger.info('[DownloadsWatchdog] ✅ Set up CDP download listeners')
+				self.logger.debug('[DownloadsWatchdog] ✅ Set up CDP download listeners')
 
 			# No need to track individual targets since download listener is browser-level
 			# logger.debug(f'[DownloadsWatchdog] Successfully set up CDP download listener for target: {target_id}')
@@ -511,7 +500,6 @@ class DownloadsWatchdog(BaseWatchdog):
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 
 			# Enable Network domain to monitor HTTP responses (per-target/per-session)
-			print(f"DEBUG: ORIGINAL DownloadsWatchdog calling Network.enable() for {target_id}")
 			await cdp_client.send.Network.enable(session_id=cdp_session.session_id)
 			self.logger.debug(f'[DownloadsWatchdog] Enabled Network domain for target {target_id[-4:]}')
 
@@ -1023,8 +1011,6 @@ class DownloadsWatchdog(BaseWatchdog):
 			return False
 		page_url = target.url
 
-		self.logger.debug(f'[DownloadsWatchdog] 🔍 Checking URL for downloadable content: {page_url}')
-
 		# Check cache first
 		if page_url in self._pdf_viewer_cache:
 			cached_result = self._pdf_viewer_cache[page_url]
@@ -1035,15 +1021,8 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Method 1: Check URL patterns (fastest, most reliable)
 			url_is_pdf = self._check_url_for_pdf(page_url)
 			if url_is_pdf:
-				self.logger.info(f'[DownloadsWatchdog] ✅ PDF detected via URL pattern: {page_url}')
+				self.logger.debug(f'[DownloadsWatchdog] PDF detected via URL pattern: {page_url}')
 				self._pdf_viewer_cache[page_url] = True
-				return True
-			
-			# Check for CSV files
-			url_is_csv = self._check_url_for_csv(page_url)
-			if url_is_csv:
-				self.logger.info(f'[DownloadsWatchdog] ✅ CSV detected via URL pattern: {page_url}')
-				self._pdf_viewer_cache[page_url] = True  # Reuse cache for now
 				return True
 				
 			chrome_pdf_viewer = self._is_chrome_pdf_viewer_url(page_url)
@@ -1085,35 +1064,6 @@ class DownloadsWatchdog(BaseWatchdog):
 				'content-type=application%2fpdf',
 				'mimetype=application/pdf',
 				'type=application/pdf',
-			]
-		):
-			return True
-
-		return False
-
-	def _check_url_for_csv(self, url: str) -> bool:
-		"""Check if URL indicates a CSV file."""
-		if not url:
-			return False
-
-		url_lower = url.lower()
-
-		# Direct CSV file extensions
-		if url_lower.endswith('.csv'):
-			return True
-
-		# CSV in path
-		if '.csv' in url_lower:
-			return True
-
-		# CSV MIME type in URL parameters
-		if any(
-			param in url_lower
-			for param in [
-				'content-type=text/csv',
-				'content-type=text%2fcsv',
-				'mimetype=text/csv',
-				'type=text/csv',
 			]
 		):
 			return True

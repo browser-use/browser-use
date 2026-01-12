@@ -1,7 +1,11 @@
 """
 Download Manager for browser-use library.
 
-Handles all download operations with clean separation from browser session.
+Handles file downloads through two strategies:
+1. JavaScript fetch via browser (default) - preserves authentication, handles PDFs
+2. Direct HTTP downloads (download_from_remote_browser flag) - transfers files from remote browsers
+
+Features: deduplication, progress tracking, session context preservation.
 """
 
 import asyncio
@@ -16,10 +20,15 @@ from browser_use.browser.events import FileDownloadedEvent
 
 
 class DownloadManager:
-    """Manages file downloads with browser session integration."""
+    """
+    Manages file downloads for browser automation.
+    
+    Supports JavaScript fetch (default) and HTTP downloads (download_from_remote_browser flag).
+    Handles authentication, progress tracking, and file deduplication.
+    """
     
     def __init__(self, browser_session):
-        """Initialize with browser session dependency."""
+        """Initialize with browser session for CDP access, cookies, and configuration."""
         self.session = browser_session
 
     # PUBLIC METHODS

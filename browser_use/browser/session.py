@@ -1427,8 +1427,8 @@ class BrowserSession(BaseModel):
 		self._downloads_watchdog.attach_to_session()
 		if self.browser_profile.auto_download_pdfs:
 			self.logger.debug('📄 PDF auto-download enabled for this session')
-		if self.browser_profile.remote_downloads:
-			self.logger.info('📡 Remote downloads enabled - using HTTP client for downloads')
+		if self.browser_profile.download_from_remote_browser:
+			self.logger.info('📡 Remote browser downloads enabled - using HTTP client for downloads')
 
 		# Initialize StorageStateWatchdog conditionally
 		# Enable when user provides either storage_state or user_data_dir (indicating they want persistence)
