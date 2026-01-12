@@ -430,19 +430,7 @@ class BrowserSession(BaseModel):
 			target_id, url, filename, use_cache, avoid_duplicates, timeout
 		)
 
-	async def download_via_browser_fetch_with_tracking(
-		self,
-		target_id: str,
-		url: str,
-		filename: str,
-		use_cache: bool = False,
-		avoid_duplicates: bool = False,
-		timeout: float = 60.0,
-	) -> None:
-		"""Download file via browser fetch with tracking - delegates to DownloadManager."""
-		return await self.download_manager.download_via_browser_fetch_with_tracking(
-			target_id, url, filename, use_cache, avoid_duplicates, timeout
-		)
+
 
 	async def download_via_direct_http_with_tracking(self, url: str, filename: str) -> None:
 		"""Download file via direct HTTP with tracking - delegates to DownloadManager."""

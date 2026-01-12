@@ -80,43 +80,7 @@ class DownloadManager:
 			self.session.logger.error(f'❌ Browser fetch download failed: {e}')
 			return None
 
-	async def download_via_browser_fetch_with_tracking(
-		self,
-		target_id: str,
-		url: str,
-		filename: str,
-		use_cache: bool = False,
-		avoid_duplicates: bool = False,
-		timeout: float = 60.0,
-	) -> None:
-		"""Download file via browser fetch with automatic state tracking."""
-		self.session.logger.info('🔧 [DownloadManager] Executing download_via_browser_fetch_with_tracking')
-		try:
-			self.add_active_download(url, filename)
-			result = await self.download_via_browser_fetch(
-				target_id, url, filename, use_cache=use_cache, avoid_duplicates=avoid_duplicates, timeout=timeout
-			)
-			if result:
-				# Dispatch success event
-				file_size = os.path.getsize(result) if os.path.exists(result) else 0
-				self.session.event_bus.dispatch(
-					FileDownloadedEvent(
-						url=url,
-						path=result,
-						file_name=filename,
-						file_size=file_size,
-						file_type=os.path.splitext(filename)[1].lstrip('.') or 'unknown',
-						mime_type='application/octet-stream',
-						auto_download=True,
-						from_cache=False,
-					)
-				)
-				self.session.logger.info(f'✅ Browser fetch download completed: {filename}')
-			else:
-				self.add_failed_download(url, filename, 'Browser fetch failed')
-				self.session.logger.warning(f'❌ Browser fetch download failed: {filename}')
-		finally:
-			self.remove_active_download(url)
+
 
 	async def download_via_direct_http_with_tracking(self, url: str, filename: str) -> None:
 		"""Download file via direct HTTP with automatic state tracking."""
