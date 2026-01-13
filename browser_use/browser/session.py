@@ -363,7 +363,7 @@ class BrowserSession(BaseModel):
 		super().__init__(
 			id=id or str(uuid7str()),
 			browser_profile=resolved_browser_profile,
-			event_bus_timeout=event_bus_timeout or 5.0,
+			event_bus_timeout=event_bus_timeout if event_bus_timeout is not None else 5.0,
 		)
 
 	# Session configuration (session identity only)
