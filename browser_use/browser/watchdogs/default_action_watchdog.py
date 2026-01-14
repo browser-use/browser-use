@@ -1705,6 +1705,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 					}
 				});
 
+				// GeneXus / Enterprise Framework Specifics:
+				// Some frameworks bind strictly to 'onchange' or 'onblur' attributes
+				if (typeof element.onchange === 'function') {
+					try { element.onchange(); } catch (e) {}
+				}
+				if (typeof element.onblur === 'function') {
+					try { element.onblur(); } catch (e) {}
+				}
+
 				// Special React synthetic event handling
 				// React uses internal fiber properties for event system
 				if (element._reactInternalFiber || element._reactInternalInstance || element.__reactInternalInstance) {
