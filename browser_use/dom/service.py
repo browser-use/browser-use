@@ -473,9 +473,10 @@ class DomService:
 
 		async def _construct_enhanced_node(
 			node: Node,
-			html_frames: list[EnhancedDOMTreeNode] | None,
-			total_frame_offset: DOMRect | None,
-			all_frames: dict | None,
+			html_frames: list[EnhancedDOMTreeNode],
+			total_frame_offset: DOMRect,
+			all_frames: dict[str, dict] | None = None,
+			iframe_depth: int = 0,
 		) -> EnhancedDOMTreeNode:
 			"""
 			Recursively construct enhanced DOM tree nodes.
@@ -616,11 +617,19 @@ class DomService:
 					total_frame_offset.y += snapshot_data.bounds.y
 
 			if 'contentDocument' in node and node['contentDocument']:
-				dom_tree_node.content_document = await _construct_enhanced_node(
-					node['contentDocument'], updated_html_frames, total_frame_offset, all_frames
-				)
-				dom_tree_node.content_document.parent_node = dom_tree_node
-				# forcefully set the parent node to the content document node (helps traverse the tree)
+				if iframe_depth < self.max_iframe_depth:
+					dom_tree_node.content_document = await _construct_enhanced_node(
+						node['contentDocument'],
+						updated_html_frames,
+						total_frame_offset,
+						all_frames,
+						iframe_depth=iframe_depth + 1,
+					)
+					dom_tree_node.content_document.parent_node = dom_tree_node
+				else:
+					self.logger.debug(
+						f'Skipping iframe content at depth {iframe_depth} to prevent infinite recursion (max depth: {self.max_iframe_depth})'
+					)
 
 			if 'shadowRoots' in node and node['shadowRoots']:
 				dom_tree_node.shadow_roots = []
@@ -671,10 +680,7 @@ class DomService:
 			# handle cross origin iframe (just recursively call the main function with the proper target if it exists in iframes)
 			# only do this if the iframe is visible (otherwise it's not worth it)
 
-			if (
-				# TODO: hacky way to disable cross origin iframes for now
-				self.cross_origin_iframes and node['nodeName'].upper() == 'IFRAME' and node.get('contentDocument', None) is None
-			):  # None meaning there is no content
+			if node['nodeName'].upper() == 'IFRAME':
 				# Check iframe depth to prevent infinite recursion
 				if iframe_depth >= self.max_iframe_depth:
 					self.logger.debug(
@@ -695,26 +701,26 @@ class DomService:
 							# Only process if iframe is at least 50px in both dimensions
 							if width >= 50 and height >= 50:
 								should_process_iframe = True
-								self.logger.debug(f'Processing cross-origin iframe: visible=True, width={width}, height={height}')
+								self.logger.debug(f'Processing iframe: visible=True, width={width}, height={height}')
 							else:
-								self.logger.debug(
-									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 50px)'
-								)
+								self.logger.debug(f'Skipping small iframe: width={width}, height={height} (needs >= 50px)')
 						else:
-							self.logger.debug('Skipping cross-origin iframe: no bounds available')
+							self.logger.debug('Skipping iframe: no bounds available')
 					else:
-						self.logger.debug('Skipping invisible cross-origin iframe')
+						# self.logger.debug('Skipping invisible iframe')
+						pass  # Reduce log noise
 
 					if should_process_iframe:
-						# Lazy fetch all_frames only when actually needed (for cross-origin iframes)
+						# Lazy fetch all_frames only when actually needed
 						if all_frames is None:
 							all_frames, _ = await self.browser_session.get_all_frames()
 
 						# Use pre-fetched all_frames to find the iframe's target (no redundant CDP call)
 						frame_id = node.get('frameId', None)
+						iframe_document_target = None
+
 						if frame_id:
 							frame_info = all_frames.get(frame_id)
-							iframe_document_target = None
 							if frame_info and frame_info.get('frameTargetId'):
 								iframe_target_id = frame_info['frameTargetId']
 								iframe_target = self.browser_session.session_manager.get_target(iframe_target_id)
@@ -725,25 +731,83 @@ class DomService:
 										'title': iframe_target.title,
 										'type': iframe_target.target_type,
 									}
-						else:
-							iframe_document_target = None
-						# if target actually exists in one of the frames, just recursively build the dom tree for it
+
 						if iframe_document_target:
+							# Cross-origin iframe logic
 							self.logger.debug(
-								f'Getting content document for iframe {node.get("frameId", None)} at depth {iframe_depth + 1}'
+								f'Getting content document for cross-origin iframe {frame_id} at depth {iframe_depth + 1}'
 							)
 							content_document, _ = await self.get_dom_tree(
 								target_id=iframe_document_target['targetId'],
 								all_frames=all_frames,
-								# TODO: experiment with this values -> not sure whether the whole cross origin iframe should be ALWAYS included as soon as some part of it is visible or not.
-								# Current config: if the cross origin iframe is AT ALL visible, then just include everything inside of it!
-								# initial_html_frames=updated_html_frames,
 								initial_total_frame_offset=total_frame_offset,
 								iframe_depth=iframe_depth + 1,
 							)
-
 							dom_tree_node.content_document = content_document
 							dom_tree_node.content_document.parent_node = dom_tree_node
+						else:
+							# Handle same-origin iframe (no separate target ID)
+							# If content_document was already populated by pierce=True (automatic recursion), skip manual resolution
+							if dom_tree_node.content_document:
+								return dom_tree_node
+
+							if iframe_depth >= self.max_iframe_depth:
+								self.logger.debug(
+									f'Skipping same-origin iframe manual resolution at depth {iframe_depth} (max: {self.max_iframe_depth})'
+								)
+								return dom_tree_node
+
+							# With pierce=False, we get a shallow contentDocument or None. We must expand it.
+							try:
+								content_doc_id = None
+
+								# Ensure node is a dict before accessing .get
+								if isinstance(node, dict):
+									content_doc = node.get('contentDocument')
+									if content_doc:
+										content_doc_id = content_doc['nodeId']
+								else:
+									# Should not happen if type hinting is respected, but safety first
+									self.logger.warning(f'Warning: node in _construct_enhanced_node is not a dict: {type(node)}')
+
+								if not content_doc_id and isinstance(node, dict):
+									# Try to resolve if missing
+									resolved_iframe = await session.cdp_client.send.DOM.describeNode(
+										params={'backendNodeId': node['backendNodeId'], 'pierce': True, 'depth': 1},
+										session_id=session.session_id,
+									)
+									if resolved_iframe and 'node' in resolved_iframe:
+										content_doc = resolved_iframe['node'].get('contentDocument')
+										if content_doc:
+											content_doc_id = content_doc['nodeId']
+
+								if content_doc_id:
+									# Fetch the full tree of the content document
+									# pierce=False ensures we respect recursion depth (stops at nested iframes)
+									full_content_doc_response = await session.cdp_client.send.DOM.describeNode(
+										params={'nodeId': content_doc_id, 'depth': -1, 'pierce': False},
+										session_id=session.session_id,
+									)
+
+									if full_content_doc_response and 'node' in full_content_doc_response:
+										root_node = full_content_doc_response['node']
+
+										# Recursively construct enhanced node
+										self.logger.debug(
+											f'Getting content document for same-origin iframe {frame_id} at depth {iframe_depth + 1}'
+										)
+
+										dom_tree_node.content_document = await _construct_enhanced_node(
+											root_node,
+											updated_html_frames,
+											total_frame_offset,
+											all_frames,
+											iframe_depth=iframe_depth + 1,
+										)
+										if dom_tree_node.content_document:
+											dom_tree_node.content_document.parent_node = dom_tree_node
+							except Exception as e:
+								self.logger.debug(f'Failed to fetch same-origin iframe content: {e}')
 
 			return dom_tree_node
 
@@ -751,6 +815,14 @@ class DomService:
 		# Note: all_frames stays None and will be lazily fetched inside _construct_enhanced_node
 		# only if/when a cross-origin iframe is encountered
 		start_construct = time.time()
+
+		# Ensure initial_html_frames is a list
+		if initial_html_frames is None:
+			initial_html_frames = []
+
+		if initial_total_frame_offset is None:
+			initial_total_frame_offset = DOMRect(x=0.0, y=0.0, width=0.0, height=0.0)
+
 		enhanced_dom_tree_node = await _construct_enhanced_node(
 			dom_tree['root'], initial_html_frames, initial_total_frame_offset, all_frames
 		)
