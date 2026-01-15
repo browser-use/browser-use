@@ -1344,9 +1344,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
 				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
 				action_instance = self.DoneActionModel(
-					done={
+					**{'done': {
 						'success': False,
 						'text': 'No next action returned by LLM!',
+					}
 					}
 				)
 				model_output.action = [action_instance]
