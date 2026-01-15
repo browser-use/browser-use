@@ -56,3 +56,88 @@ mode: "wide"
 ### Backwards Compatibility
 - `controller`: Alias for `tools` for backwards compatibility.
 - `browser_session`: Alias for `browser` for backwards compatibility.
+
+---
+
+## Environment Variables
+
+These environment variables can be used to tune agent and browser behavior without code changes. They are particularly useful for debugging, slow networks, or deployment-level tuning.
+
+### Agent Timeouts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIMEOUT_AgentEventBusStop` | `3.0` | Timeout in seconds for the agent's event bus to finish processing pending events during shutdown. |
+
+### Browser Action Timeouts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIMEOUT_NavigateToUrlEvent` | `15.0` | Timeout for page navigation |
+| `TIMEOUT_ClickElementEvent` | `15.0` | Timeout for clicking elements |
+| `TIMEOUT_ClickCoordinateEvent` | `15.0` | Timeout for clicking at coordinates |
+| `TIMEOUT_TypeTextEvent` | `60.0` | Timeout for typing text (longer for large inputs) |
+| `TIMEOUT_ScrollEvent` | `8.0` | Timeout for scrolling |
+| `TIMEOUT_ScrollToTextEvent` | `15.0` | Timeout for scrolling to find text |
+| `TIMEOUT_SendKeysEvent` | `60.0` | Timeout for sending keyboard shortcuts |
+| `TIMEOUT_UploadFileEvent` | `30.0` | Timeout for file uploads |
+| `TIMEOUT_GetDropdownOptionsEvent` | `15.0` | Timeout for fetching dropdown options |
+| `TIMEOUT_SelectDropdownOptionEvent` | `8.0` | Timeout for selecting dropdown option |
+| `TIMEOUT_GoBackEvent` | `15.0` | Timeout for browser back navigation |
+| `TIMEOUT_GoForwardEvent` | `15.0` | Timeout for browser forward navigation |
+| `TIMEOUT_RefreshEvent` | `15.0` | Timeout for page refresh |
+| `TIMEOUT_WaitEvent` | `60.0` | Timeout for explicit wait actions |
+| `TIMEOUT_ScreenshotEvent` | `15.0` | Timeout for taking screenshots |
+| `TIMEOUT_BrowserStateRequestEvent` | `30.0` | Timeout for fetching browser state/DOM |
+
+### Browser Lifecycle Timeouts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIMEOUT_BrowserStartEvent` | `30.0` | Timeout for starting browser session |
+| `TIMEOUT_BrowserStopEvent` | `45.0` | Timeout for stopping browser session |
+| `TIMEOUT_BrowserLaunchEvent` | `30.0` | Timeout for launching browser process |
+| `TIMEOUT_BrowserKillEvent` | `30.0` | Timeout for killing browser process |
+| `TIMEOUT_BrowserConnectedEvent` | `30.0` | Timeout for CDP connection |
+| `TIMEOUT_BrowserStoppedEvent` | `30.0` | Timeout for browser stopped confirmation |
+| `TIMEOUT_BrowserErrorEvent` | `30.0` | Timeout for browser error events |
+
+### Tab Management Timeouts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIMEOUT_SwitchTabEvent` | `10.0` | Timeout for switching tabs |
+| `TIMEOUT_CloseTabEvent` | `10.0` | Timeout for closing tabs |
+| `TIMEOUT_TabCreatedEvent` | `30.0` | Timeout for tab creation events |
+| `TIMEOUT_TabClosedEvent` | `10.0` | Timeout for tab closed events |
+| `TIMEOUT_AgentFocusChangedEvent` | `10.0` | Timeout for focus change events |
+| `TIMEOUT_TargetCrashedEvent` | `10.0` | Timeout for crash events |
+
+### Navigation Event Timeouts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIMEOUT_NavigationStartedEvent` | `30.0` | Timeout for navigation started events |
+| `TIMEOUT_NavigationCompleteEvent` | `30.0` | Timeout for navigation complete events |
+
+### Storage & Download Timeouts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIMEOUT_SaveStorageStateEvent` | `45.0` | Timeout for saving cookies/localStorage |
+| `TIMEOUT_StorageStateSavedEvent` | `30.0` | Timeout for storage save confirmation |
+| `TIMEOUT_LoadStorageStateEvent` | `45.0` | Timeout for loading storage state |
+| `TIMEOUT_StorageStateLoadedEvent` | `30.0` | Timeout for storage load confirmation |
+| `TIMEOUT_FileDownloadedEvent` | `30.0` | Timeout for file download events |
+
+### Example Usage
+
+```bash
+# Increase timeouts for slow network or complex pages
+export TIMEOUT_NavigateToUrlEvent=30.0
+export TIMEOUT_TypeTextEvent=120.0
+export TIMEOUT_BrowserStateRequestEvent=60.0
+
+# Increase agent shutdown timeout
+export TIMEOUT_AgentEventBusStop=10.0
+```

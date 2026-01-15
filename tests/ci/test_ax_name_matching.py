@@ -4,6 +4,9 @@ This tests Level 4 matching which uses the accessibility tree's name property
 to match elements when hash, stable_hash, and xpath all fail.
 This is particularly useful for dynamic SPAs where DOM structure changes
 but accessible names remain stable.
+
+Also tests dropdown/menu re-opening behavior when menu items can't be found
+because the dropdown closed during the wait between steps.
 """
 
 from unittest.mock import AsyncMock
@@ -355,3 +358,201 @@ async def test_ax_name_matching_before_attribute_matching(httpserver):
 
 	finally:
 		await agent.close()
+
+
+# Tests for dropdown/menu re-opening behavior
+
+
+def test_is_menu_opener_step_detects_aria_haspopup():
+	"""Test that _is_menu_opener_step detects aria-haspopup elements."""
+	llm = create_mock_llm(actions=None)
+	agent = Agent(task='Test task', llm=llm)
+	AgentOutput = agent.AgentOutput
+
+	# Element with aria-haspopup="true" should be detected as menu opener
+	opener_element = DOMInteractedElement(
+		node_id=1,
+		backend_node_id=1,
+		frame_id=None,
+		node_type=NodeType.ELEMENT_NODE,
+		node_value='',
+		node_name='DIV',
+		attributes={'aria-haspopup': 'true', 'class': 'dropdown-trigger'},
+		x_path='html/body/div',
+		element_hash=12345,
+		stable_hash=12345,
+		bounds=DOMRect(x=0, y=0, width=100, height=50),
+		ax_name='Contact',
+	)
+
+	history_item = AgentHistory(
+		model_output=AgentOutput(
+			evaluation_previous_goal=None,
+			memory='Click dropdown',
+			next_goal=None,
+			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
+		),
+		result=[ActionResult(long_term_memory='Clicked')],
+		state=BrowserStateHistory(
+			url='http://test.com',
+			title='Test',
+			tabs=[],
+			interacted_element=[opener_element],
+		),
+		metadata=StepMetadata(step_start_time=0, step_end_time=1, step_number=1, step_interval=0.1),
+	)
+
+	assert agent._is_menu_opener_step(history_item) is True
+
+
+def test_is_menu_opener_step_detects_guidewire_toggle():
+	"""Test that _is_menu_opener_step detects Guidewire toggleSubMenu pattern."""
+	llm = create_mock_llm(actions=None)
+	agent = Agent(task='Test task', llm=llm)
+	AgentOutput = agent.AgentOutput
+
+	# Element with data-gw-click="toggleSubMenu" should be detected
+	opener_element = DOMInteractedElement(
+		node_id=1,
+		backend_node_id=1,
+		frame_id=None,
+		node_type=NodeType.ELEMENT_NODE,
+		node_value='',
+		node_name='DIV',
+		attributes={'data-gw-click': 'toggleSubMenu', 'class': 'gw-action--expand-button'},
+		x_path='html/body/div',
+		element_hash=12345,
+		stable_hash=12345,
+		bounds=DOMRect(x=0, y=0, width=100, height=50),
+		ax_name=None,
+	)
+
+	history_item = AgentHistory(
+		model_output=AgentOutput(
+			evaluation_previous_goal=None,
+			memory='Toggle menu',
+			next_goal=None,
+			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
+		),
+		result=[ActionResult(long_term_memory='Toggled')],
+		state=BrowserStateHistory(
+			url='http://test.com',
+			title='Test',
+			tabs=[],
+			interacted_element=[opener_element],
+		),
+		metadata=StepMetadata(step_start_time=0, step_end_time=1, step_number=1, step_interval=0.1),
+	)
+
+	assert agent._is_menu_opener_step(history_item) is True
+
+
+def test_is_menu_opener_step_returns_false_for_regular_element():
+	"""Test that _is_menu_opener_step returns False for non-menu elements."""
+	llm = create_mock_llm(actions=None)
+	agent = Agent(task='Test task', llm=llm)
+	AgentOutput = agent.AgentOutput
+
+	# Regular button without menu attributes
+	regular_element = DOMInteractedElement(
+		node_id=1,
+		backend_node_id=1,
+		frame_id=None,
+		node_type=NodeType.ELEMENT_NODE,
+		node_value='',
+		node_name='BUTTON',
+		attributes={'class': 'submit-btn', 'type': 'submit'},
+		x_path='html/body/button',
+		element_hash=12345,
+		stable_hash=12345,
+		bounds=DOMRect(x=0, y=0, width=100, height=50),
+		ax_name='Submit',
+	)
+
+	history_item = AgentHistory(
+		model_output=AgentOutput(
+			evaluation_previous_goal=None,
+			memory='Click submit',
+			next_goal=None,
+			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
+		),
+		result=[ActionResult(long_term_memory='Clicked')],
+		state=BrowserStateHistory(
+			url='http://test.com',
+			title='Test',
+			tabs=[],
+			interacted_element=[regular_element],
+		),
+		metadata=StepMetadata(step_start_time=0, step_end_time=1, step_number=1, step_interval=0.1),
+	)
+
+	assert agent._is_menu_opener_step(history_item) is False
+
+
+def test_is_menu_item_element_detects_role_menuitem():
+	"""Test that _is_menu_item_element detects role=menuitem."""
+	llm = create_mock_llm(actions=None)
+	agent = Agent(task='Test task', llm=llm)
+
+	menu_item = DOMInteractedElement(
+		node_id=1,
+		backend_node_id=1,
+		frame_id=None,
+		node_type=NodeType.ELEMENT_NODE,
+		node_value='',
+		node_name='DIV',
+		attributes={'role': 'menuitem', 'class': 'menu-option'},
+		x_path='html/body/div/div',
+		element_hash=12345,
+		stable_hash=12345,
+		bounds=DOMRect(x=0, y=0, width=100, height=50),
+		ax_name='New Contact',
+	)
+
+	assert agent._is_menu_item_element(menu_item) is True
+
+
+def test_is_menu_item_element_detects_guidewire_class():
+	"""Test that _is_menu_item_element detects Guidewire gw-action--inner class."""
+	llm = create_mock_llm(actions=None)
+	agent = Agent(task='Test task', llm=llm)
+
+	menu_item = DOMInteractedElement(
+		node_id=1,
+		backend_node_id=1,
+		frame_id=None,
+		node_type=NodeType.ELEMENT_NODE,
+		node_value='',
+		node_name='DIV',
+		attributes={'class': 'gw-action--inner gw-hasDivider', 'aria-haspopup': 'true'},
+		x_path='html/body/div/div',
+		element_hash=12345,
+		stable_hash=12345,
+		bounds=DOMRect(x=0, y=0, width=100, height=50),
+		ax_name='New Contact',
+	)
+
+	assert agent._is_menu_item_element(menu_item) is True
+
+
+def test_is_menu_item_element_returns_false_for_regular_element():
+	"""Test that _is_menu_item_element returns False for non-menu elements."""
+	llm = create_mock_llm(actions=None)
+	agent = Agent(task='Test task', llm=llm)
+
+	regular_element = DOMInteractedElement(
+		node_id=1,
+		backend_node_id=1,
+		frame_id=None,
+		node_type=NodeType.ELEMENT_NODE,
+		node_value='',
+		node_name='BUTTON',
+		attributes={'class': 'submit-btn', 'type': 'submit'},
+		x_path='html/body/button',
+		element_hash=12345,
+		stable_hash=12345,
+		bounds=DOMRect(x=0, y=0, width=100, height=50),
+		ax_name='Submit',
+	)
+
+	assert agent._is_menu_item_element(regular_element) is False
