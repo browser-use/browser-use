@@ -1135,7 +1135,7 @@ class DownloadsWatchdog(BaseWatchdog):
 
 				self.event_bus.dispatch(
 					FileDownloadedEvent(
-						url="",  # URL obtained in fetch method.
+						url='',  # URL obtained in fetch method.
 						path=file_path,
 						file_name=path_obj.name,
 						file_size=file_size,
