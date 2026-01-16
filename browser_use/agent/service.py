@@ -59,6 +59,7 @@ from browser_use.agent.views import (
 	JudgementResult,
 	StepMetadata,
 )
+from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
@@ -2342,8 +2343,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._log_final_outcome_messages()
 
 			# Stop the event bus gracefully, waiting for all events to be processed
-			# Use longer timeout to avoid deadlocks in tests with multiple agents
-			await self.eventbus.stop(timeout=3.0)
+			# Configurable via TIMEOUT_AgentEventBusStop env var (default: 3.0s)
+			await self.eventbus.stop(timeout=_get_timeout('TIMEOUT_AgentEventBusStop', 3.0))
 
 			await self.close()
 
@@ -2803,6 +2804,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				retry_count = 0
 				step_succeeded = False
+				menu_reopened = False  # Track if we've already tried reopening the menu
 				# Exponential backoff: 5s base, doubling each retry, capped at 30s
 				base_retry_delay = 5.0
 				max_retry_delay = 30.0
@@ -2814,9 +2816,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						break
 
 					except Exception as e:
+						error_str = str(e)
 						retry_count += 1
+
+						# Check if this is a "Could not find matching element" error for a menu item
+						# If so, try to re-open the dropdown from the previous step before retrying
+						if (
+							not menu_reopened
+							and 'Could not find matching element' in error_str
+							and previous_item is not None
+							and self._is_menu_opener_step(previous_item)
+						):
+							# Check if current step targets a menu item element
+							curr_elements = history_item.state.interacted_element if history_item.state else []
+							curr_elem = curr_elements[0] if curr_elements else None
+							if self._is_menu_item_element(curr_elem):
+								self.logger.info(
+									'🔄 Dropdown may have closed. Attempting to re-open by re-executing previous step...'
+								)
+								reopened = await self._reexecute_menu_opener(previous_item, ai_step_llm)
+								if reopened:
+									menu_reopened = True
+									# Don't increment retry_count for the menu reopen attempt
+									# Retry immediately with minimal delay
+									retry_count -= 1
+									step_delay = 0.5  # Use short delay after reopening
+									self.logger.info('🔄 Dropdown re-opened, retrying element match...')
+									continue
+
 						if retry_count == max_retries:
-							error_msg = f'{step_name} failed after {max_retries} attempts: {str(e)}'
+							error_msg = f'{step_name} failed after {max_retries} attempts: {error_str}'
 							self.logger.error(error_msg)
 							# Always record the error in results so AI summary counts it correctly
 							results.append(ActionResult(error=error_msg))
@@ -3337,6 +3366,102 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		return True
+
+	def _is_menu_opener_step(self, history_item: AgentHistory | None) -> bool:
+		"""
+		Detect if a step opens a dropdown/menu.
+
+		Checks for common patterns indicating a menu opener:
+		- Element has aria-haspopup attribute
+		- Element has data-gw-click="toggleSubMenu" (Guidewire pattern)
+		- Element has expand-button in class name
+		- Element role is "menuitem" with aria-expanded
+
+		Returns True if the step appears to open a dropdown/submenu.
+		"""
+		if not history_item or not history_item.state or not history_item.state.interacted_element:
+			return False
+
+		elem = history_item.state.interacted_element[0] if history_item.state.interacted_element else None
+		if not elem:
+			return False
+
+		attrs = elem.attributes or {}
+
+		# Check for common menu opener indicators
+		if attrs.get('aria-haspopup') in ('true', 'menu', 'listbox'):
+			return True
+		if attrs.get('data-gw-click') == 'toggleSubMenu':
+			return True
+		if 'expand-button' in attrs.get('class', ''):
+			return True
+		if attrs.get('role') == 'menuitem' and attrs.get('aria-expanded') in ('false', 'true'):
+			return True
+		if attrs.get('role') == 'button' and attrs.get('aria-expanded') in ('false', 'true'):
+			return True
+
+		return False
+
+	def _is_menu_item_element(self, elem: 'DOMInteractedElement | None') -> bool:
+		"""
+		Detect if an element is a menu item that appears inside a dropdown/menu.
+
+		Checks for:
+		- role="menuitem", "option", "menuitemcheckbox", "menuitemradio"
+		- Element is inside a menu structure (has menu-related parent indicators)
+		- ax_name is set (menu items typically have accessible names)
+
+		Returns True if the element appears to be a menu item.
+		"""
+		if not elem:
+			return False
+
+		attrs = elem.attributes or {}
+
+		# Check for menu item roles
+		role = attrs.get('role', '')
+		if role in ('menuitem', 'option', 'menuitemcheckbox', 'menuitemradio', 'treeitem'):
+			return True
+
+		# Elements in Guidewire menus have these patterns
+		if 'gw-action--inner' in attrs.get('class', ''):
+			return True
+		if 'menuitem' in attrs.get('class', '').lower():
+			return True
+
+		# If element has an ax_name and looks like it could be in a menu
+		# This is a softer check - only used if the previous step was a menu opener
+		if elem.ax_name and elem.ax_name not in ('', None):
+			# Common menu container classes
+			elem_class = attrs.get('class', '').lower()
+			if any(x in elem_class for x in ['dropdown', 'popup', 'menu', 'submenu', 'action']):
+				return True
+
+		return False
+
+	async def _reexecute_menu_opener(
+		self,
+		opener_item: AgentHistory,
+		ai_step_llm: 'BaseChatModel | None' = None,
+	) -> bool:
+		"""
+		Re-execute a menu opener step to re-open a closed dropdown.
+
+		This is used when a menu item can't be found because the dropdown
+		closed during the wait between steps.
+
+		Returns True if re-execution succeeded, False otherwise.
+		"""
+		try:
+			self.logger.info('🔄 Re-opening dropdown/menu by re-executing previous step...')
+			# Use a minimal delay - we want to quickly re-open the menu
+			await self._execute_history_step(opener_item, delay=0.5, ai_step_llm=ai_step_llm, wait_for_elements=False)
+			# Small delay to let the menu render
+			await asyncio.sleep(0.3)
+			return True
+		except Exception as e:
+			self.logger.warning(f'Failed to re-open dropdown: {e}')
+			return False
 
 	async def load_and_rerun(
 		self,
