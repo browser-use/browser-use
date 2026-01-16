@@ -42,7 +42,7 @@ async def main():
     
     # Initialize AWS session and get region
     boto_session = Session()
-    region = boto_session.region_name
+    region = boto_session.region_name or 'us-west-2'  # Default region if none configured
     console.print(f"[blue]Using AWS region: {region}[/blue]")
     
     # Create BrowserClient for remote browser management
@@ -58,7 +58,6 @@ async def main():
         # Configure browser profile with download enhancements
         browser_profile = BrowserProfile(
             headers=headers,                          # Authentication headers from BrowserClient
-            timeout=1500000,                         # Extended timeout for large downloads
             downloads_path="./downloads",            # Local directory for downloaded files
             download_from_remote_browser=True,       # Enable HTTP client downloads (key feature!)
             auto_download_pdfs=True                  # Automatically download PDFs when encountered
@@ -122,8 +121,8 @@ async def main():
         # Clean up resources
         if browser_session:
             with suppress(Exception):
-                await browser_session.close()
-                console.print("[yellow]🧹 Browser session closed[/yellow]")
+                await browser_session.stop()
+                console.print("[yellow]🧹 Browser session stopped[/yellow]")
         
         client.stop()
         console.print("[yellow]🧹 BrowserClient stopped[/yellow]")
