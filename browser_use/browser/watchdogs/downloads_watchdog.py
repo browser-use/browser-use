@@ -238,26 +238,32 @@ class DownloadsWatchdog(BaseWatchdog):
 							'[DownloadsWatchdog] No filePath in progress event (local); polling will handle detection'
 						)
 				else:
-					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
-					info = self._cdp_downloads_info.get(guid, {})
-					try:
-						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
-						downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
-						effective_path = file_path or str(Path(downloads_path) / suggested_filename)
-						file_name = Path(effective_path).name
-						file_ext = Path(file_name).suffix.lower().lstrip('.')
-						self.event_bus.dispatch(
-							FileDownloadedEvent(
-								url=info.get('url', ''),
-								path=str(effective_path),
-								file_name=file_name,
-								file_size=0,
-								file_type=file_ext if file_ext else None,
+					# Remote browser: check if we're using HTTP client downloads
+					if self.browser_session.browser_profile.download_from_remote_browser:
+						# HTTP client handles all event emission - skip CDP event entirely
+						self.logger.debug(f'[DownloadsWatchdog] Skipping CDP event for HTTP client download (guid: {guid})')
+					else:
+						# Remote browser with browser downloads: emit event with placeholder path
+						info = self._cdp_downloads_info.get(guid, {})
+						try:
+							suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
+							downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
+							effective_path = file_path or str(Path(downloads_path) / suggested_filename)
+							file_name = Path(effective_path).name
+							file_ext = Path(file_name).suffix.lower().lstrip('.')
+							self.event_bus.dispatch(
+								FileDownloadedEvent(
+									url=info.get('url', ''),
+									path=str(effective_path),
+									file_name=file_name,
+									file_size=0,
+									file_type=file_ext if file_ext else None,
+								)
 							)
-						)
-						self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
-					finally:
-						if guid in self._cdp_downloads_info:
+							self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
+						finally:
+							if guid in self._cdp_downloads_info:
+								del self._cdp_downloads_info[guid]
 							del self._cdp_downloads_info[guid]
 
 		try:
@@ -1108,14 +1114,48 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	async def trigger_pdf_download(self, target_id: TargetID) -> str | None:
 		"""Trigger download of a PDF from Chrome's PDF viewer."""
-		return await self.browser_session.download_via_browser_fetch(
-			target_id=target_id,
-			url=None,  # Use current page URL
-			filename=None,  # Auto-generate with duplicates
-			use_cache=True,  # Force cache for PDFs
-			avoid_duplicates=True,  # PDF session tracking
-			timeout=10.0,
-		)
+		try:
+			file_path = await self.browser_session.download_via_browser_fetch(
+				target_id=target_id,
+				url=None,  # Use current page URL
+				filename=None,  # Auto-generate with duplicates
+				use_cache=True,  # Force cache for PDFs
+				avoid_duplicates=True,  # PDF session tracking
+				timeout=10.0,
+			)
+			
+			if file_path:
+				# Emit FileDownloadedEvent for PDF auto-download
+				from pathlib import Path
+				path_obj = Path(file_path)
+				file_size = path_obj.stat().st_size if path_obj.exists() else 0
+				
+				# Get current page URL for event
+				current_url = ""
+				try:
+					cdp_client = await self.browser_session.get_cdp_client(target_id)
+					if cdp_client:
+						result = await cdp_client.Target.getTargetInfo(targetId=target_id)
+						current_url = result.get('targetInfo', {}).get('url', '')
+				except Exception:
+					pass
+				
+				self.event_bus.dispatch(
+					FileDownloadedEvent(
+						url=current_url,
+						path=file_path,
+						file_name=path_obj.name,
+						file_size=file_size,
+						file_type='pdf',
+					)
+				)
+				self.logger.debug(f'[DownloadsWatchdog] ✅ PDF auto-download completed: {file_path}')
+			
+			return file_path
+			
+		except Exception as e:
+			self.logger.error(f'[DownloadsWatchdog] Error in PDF download: {type(e).__name__}: {e}')
+			return None
 
 	@staticmethod
 	async def _get_unique_filename(directory: str, filename: str) -> str:
