@@ -17,14 +17,15 @@ Key Features:
 - Large file download support with progress monitoring
 """
 
-from bedrock_agentcore.tools.browser_client import BrowserClient
-from browser_use.llm import ChatAnthropicBedrock
-from browser_use import Agent
-from browser_use import Browser, BrowserProfile
-from rich.console import Console
-from contextlib import suppress
 import asyncio
+from contextlib import suppress
+
+from bedrock_agentcore.tools.browser_client import BrowserClient
 from boto3.session import Session
+from rich.console import Console
+
+from browser_use import Agent, Browser, BrowserProfile
+from browser_use.llm import ChatAnthropicBedrock
 
 console = Console()
 
