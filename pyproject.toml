@@ -62,7 +62,7 @@ dependencies = [
 [project.optional-dependencies]
 cli = ["textual>=3.2.0"]
 code = ["matplotlib>=3.9.0", "numpy>=2.3.2", "pandas>=2.2.0", "tabulate>=0.9.0"]
-aws = ["boto3>=1.38.45"]
+aws = ["boto3>=1.38.45", "bedrock-agentcore"]
 oci = ["oci>=2.126.4"]
 video = ["imageio[ffmpeg]>=2.37.0", "numpy>=2.3.2"]
 examples = [
