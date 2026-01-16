@@ -246,7 +246,9 @@ class DownloadsWatchdog(BaseWatchdog):
 						# Remote browser with browser downloads: emit event with placeholder path
 						info = self._cdp_downloads_info.get(guid, {})
 						try:
-							suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
+							suggested_filename = info.get('suggested_filename') or (
+								Path(file_path).name if file_path else 'download'
+							)
 							downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
 							effective_path = file_path or str(Path(downloads_path) / suggested_filename)
 							file_name = Path(effective_path).name
@@ -1123,15 +1125,16 @@ class DownloadsWatchdog(BaseWatchdog):
 				avoid_duplicates=True,  # PDF session tracking
 				timeout=10.0,
 			)
-			
+
 			if file_path:
 				# Emit FileDownloadedEvent for PDF auto-download
 				from pathlib import Path
+
 				path_obj = Path(file_path)
 				file_size = path_obj.stat().st_size if path_obj.exists() else 0
-				
+
 				# Get current page URL for event
-				current_url = ""
+				current_url = ''
 				try:
 					cdp_client = await self.browser_session.get_cdp_client(target_id)
 					if cdp_client:
@@ -1139,7 +1142,7 @@ class DownloadsWatchdog(BaseWatchdog):
 						current_url = result.get('targetInfo', {}).get('url', '')
 				except Exception:
 					pass
-				
+
 				self.event_bus.dispatch(
 					FileDownloadedEvent(
 						url=current_url,
@@ -1150,9 +1153,9 @@ class DownloadsWatchdog(BaseWatchdog):
 					)
 				)
 				self.logger.debug(f'[DownloadsWatchdog] ✅ PDF auto-download completed: {file_path}')
-			
+
 			return file_path
-			
+
 		except Exception as e:
 			self.logger.error(f'[DownloadsWatchdog] Error in PDF download: {type(e).__name__}: {e}')
 			return None

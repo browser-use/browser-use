@@ -543,7 +543,7 @@ class BrowserSession(BaseModel):
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
-		
+
 		# Clear download tracking state
 		self._active_downloads.clear()
 		self._failed_downloads.clear()
