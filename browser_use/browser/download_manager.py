@@ -324,7 +324,7 @@ class DownloadManager:
 			if not headers.get('User-Agent'):
 				headers['User-Agent'] = 'Mozilla/5.0 (compatible; browser-use)'
 
-			async with httpx.AsyncClient(timeout=300, cookies=cookies, headers=headers) as client:
+			async with httpx.AsyncClient(timeout=300, cookies=cookies, headers=headers, follow_redirects=True) as client:
 				async with client.stream('GET', url) as response:
 					response.raise_for_status()
 

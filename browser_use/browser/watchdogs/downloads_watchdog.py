@@ -1133,19 +1133,9 @@ class DownloadsWatchdog(BaseWatchdog):
 				path_obj = Path(file_path)
 				file_size = path_obj.stat().st_size if path_obj.exists() else 0
 
-				# Get current page URL for event
-				current_url = ''
-				try:
-					cdp_client = await self.browser_session.get_cdp_client(target_id)
-					if cdp_client:
-						result = await cdp_client.Target.getTargetInfo(targetId=target_id)
-						current_url = result.get('targetInfo', {}).get('url', '')
-				except Exception:
-					pass
-
 				self.event_bus.dispatch(
 					FileDownloadedEvent(
-						url=current_url,
+						url="",  # URL obtained in fetch method.
 						path=file_path,
 						file_name=path_obj.name,
 						file_size=file_size,
