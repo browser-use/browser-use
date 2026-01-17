@@ -196,19 +196,19 @@ class VoiceCommander:
 async def main():
 	"""Run the voice commander"""
 
-	# Configuration
-	USE_CLOUD = False  # True for cloud browser (faster but needs network)
-	FLASH_MODE = True  # False for more accurate but slower execution
-
-	commander = VoiceCommander(use_cloud=USE_CLOUD, flash_mode=FLASH_MODE)
-
 	try:
+		# Configuration
+		USE_CLOUD = False  # True for cloud browser (faster but needs network)
+		FLASH_MODE = True  # False for more accurate but slower execution
+
+		commander = VoiceCommander(use_cloud=USE_CLOUD, flash_mode=FLASH_MODE)
+
 		await commander.run()
 	except KeyboardInterrupt:
 		print('\n\nStopped by user\n')
 	finally:
 		# Cleanup
-		if commander.browser:
+		if 'commander' in locals() and commander.browser:
 			print('Cleaning up...')
 			await commander.browser.close()
 
