@@ -86,6 +86,7 @@ class ModelUsageTokens(BaseModel):
 	model: str
 	prompt_tokens: int
 	prompt_cached_tokens: int
+	prompt_cache_creation_tokens: int
 	completion_tokens: int
 	total_tokens: int
 
@@ -98,6 +99,13 @@ class UsageSummary(BaseModel):
 
 	total_prompt_cached_tokens: int
 	total_prompt_cached_cost: float
+
+	# Cache creation tokens (Anthropic-specific)
+	total_prompt_cache_creation_tokens: int = 0
+	total_prompt_cache_creation_cost: float = 0.0
+
+	# Cache savings: what would have been paid at full price minus actual cached price
+	total_cache_savings: float = 0.0
 
 	total_completion_tokens: int
 	total_completion_cost: float

@@ -43,6 +43,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	total_input_tokens: int
 	total_output_tokens: int
 	prompt_cached_tokens: int
+	prompt_cache_creation_tokens: int
 	total_tokens: int
 	total_duration_seconds: float
 	success: bool | None

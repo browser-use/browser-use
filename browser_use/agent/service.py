@@ -1894,6 +1894,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				total_input_tokens=token_summary.prompt_tokens,
 				total_output_tokens=token_summary.completion_tokens,
 				prompt_cached_tokens=token_summary.prompt_cached_tokens,
+				prompt_cache_creation_tokens=token_summary.prompt_cache_creation_tokens,
 				total_tokens=token_summary.total_tokens,
 				total_duration_seconds=self.history.total_duration_seconds(),
 				success=self.history.is_successful(),
