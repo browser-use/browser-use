@@ -143,6 +143,24 @@ uvx browser-use init --template default --output my_agent.py
 
 <br/>
 
+### QA Assertions (built-in actions)
+
+Validate outcomes directly in flows:
+
+- `assert_text_present` / `assert_text_absent`
+- `assert_element_visible`
+- `assert_url` (equals/prefix/contains/regex)
+- `assert_title` (equals/prefix/contains/regex)
+
+Example (pseudo):
+```
+actions = [
+  {"go_to_url": {"url": "https://example.com", "new_tab": False}},
+  {"assert_text_present": {"text": "Welcome", "partial": True}},
+  {"assert_url": {"expected": "https://example.com/home", "match_mode": "prefix"}},
+]
+```
+
 # Demos
 
 
