@@ -396,7 +396,7 @@ Available tabs:
 		state_description = sanitize_surrogates(state_description)
 
 		# Check if we have images to include (from read_file action)
-		has_images = bool(self.read_state_images)
+		has_images = use_vision is True and bool(self.read_state_images)
 
 		if (use_vision is True and self.screenshots) or has_images:
 			# Start with text description
