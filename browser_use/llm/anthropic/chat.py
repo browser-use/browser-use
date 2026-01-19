@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
@@ -25,6 +26,8 @@ from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -112,7 +115,50 @@ class ChatAnthropic(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _log_cache_debug(self, system_prompt, anthropic_messages) -> None:
+		"""Log debug info about cache_control markers in the request."""
+		# Check system prompt for cache_control
+		system_has_cache = False
+		if isinstance(system_prompt, list):
+			for block in system_prompt:
+				if isinstance(block, dict) and block.get('cache_control'):
+					system_has_cache = True
+					break
+
+		# Check messages for cache_control
+		messages_with_cache = 0
+		total_messages = len(anthropic_messages) if anthropic_messages else 0
+		for msg in anthropic_messages or []:
+			content = msg.get('content') if isinstance(msg, dict) else getattr(msg, 'content', None)
+			if isinstance(content, list):
+				for block in content:
+					if isinstance(block, dict) and block.get('cache_control'):
+						messages_with_cache += 1
+						break
+
+		logger.info(
+			f'📦 [Anthropic Cache] system_has_cache_control={system_has_cache}, '
+			f'messages_with_cache={messages_with_cache}/{total_messages}, '
+			f'system_prompt_type={type(system_prompt).__name__}'
+		)
+
+	def _log_cache_response(self, response: Message) -> None:
+		"""Log the cache-related fields from Anthropic's response."""
+		cache_creation = response.usage.cache_creation_input_tokens or 0
+		cache_read = response.usage.cache_read_input_tokens or 0
+		input_tokens = response.usage.input_tokens
+
+		if cache_creation > 0:
+			logger.info(f'📦 [Anthropic Cache] CACHE CREATED: {cache_creation} tokens written to cache')
+		elif cache_read > 0:
+			logger.info(f'📦 [Anthropic Cache] CACHE HIT: {cache_read} tokens read from cache')
+		else:
+			logger.info(f'📦 [Anthropic Cache] NO CACHING: input_tokens={input_tokens}, cache_creation=0, cache_read=0')
+
 	def _get_usage(self, response: Message) -> ChatInvokeUsage | None:
+		# Log cache response info
+		self._log_cache_response(response)
+
 		usage = ChatInvokeUsage(
 			prompt_tokens=response.usage.input_tokens
 			+ (
@@ -138,6 +184,9 @@ class ChatAnthropic(BaseChatModel):
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
+
+		# Debug logging for cache_control verification
+		self._log_cache_debug(system_prompt, anthropic_messages)
 
 		try:
 			if output_format is None:
