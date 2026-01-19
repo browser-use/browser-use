@@ -117,13 +117,29 @@ class ChatAnthropic(BaseChatModel):
 
 	def _log_cache_debug(self, system_prompt, anthropic_messages) -> None:
 		"""Log debug info about cache_control markers in the request."""
-		# Check system prompt for cache_control
+		# Check system prompt for cache_control and log actual structure
 		system_has_cache = False
-		if isinstance(system_prompt, list):
-			for block in system_prompt:
-				if isinstance(block, dict) and block.get('cache_control'):
+		if isinstance(system_prompt, list) and len(system_prompt) > 0:
+			first_block = system_prompt[0]
+			# Log the actual keys present in the first block
+			if isinstance(first_block, dict):
+				block_keys = list(first_block.keys())
+				logger.info(f'📦 [Anthropic Cache] First system block keys: {block_keys}')
+				# Log truncated block content to see actual structure
+				try:
+					block_dict = dict(first_block)
+					# Truncate text field for logging
+					if 'text' in block_dict and len(str(block_dict.get('text', ''))) > 100:
+						block_dict['text'] = str(block_dict['text'])[:100] + '...[truncated]'
+					logger.info(f'📦 [Anthropic Cache] First system block structure: {block_dict}')
+				except Exception as e:
+					logger.info(f'📦 [Anthropic Cache] Could not serialize block: {e}')
+
+				if first_block.get('cache_control'):
 					system_has_cache = True
-					break
+					logger.info(f'📦 [Anthropic Cache] cache_control value: {first_block.get("cache_control")}')
+			else:
+				logger.info(f'📦 [Anthropic Cache] First block is not a dict, type: {type(first_block).__name__}')
 
 		# Check messages for cache_control
 		messages_with_cache = 0
