@@ -21,14 +21,14 @@ Examples:
 Simply add `@tools.action(...)` to your function.
 
 ```python
-from browser_use import Tools, Agent
+from browser_use import Tools, Agent, ActionResult
 
 tools = Tools()
 
 @tools.action(description='Ask human for help with a question')
-def ask_human(question: str) -> ActionResult:
+async def ask_human(question: str) -> ActionResult:
     answer = input(f'{question} > ')
-    return f'The human responded with: {answer}'
+    return ActionResult(extracted_content=f'The human responded with: {answer}')
 ```
 
 ```python
@@ -39,6 +39,12 @@ agent = Agent(task='...', llm=llm, tools=tools)
 - **`allowed_domains`** - List of domains where tool can run (e.g. `['*.example.com']`), defaults to all domains
 
 The Agent fills your function parameters based on their names, type hints, & defaults.
+
+<Warning>
+**Common Pitfall**: Parameter names must match exactly! Use `browser_session: BrowserSession` (not `browser: Browser`). 
+The agent injects special parameters by **name matching**, so using incorrect names will cause your tool to fail silently.
+See [Available Objects](#available-objects) below for the correct parameter names.
+</Warning>
 
 
 ## Available Objects
@@ -130,3 +136,39 @@ For a comprehensive example of custom tools with Playwright integration, see:
 **[Playwright Integration Example](https://github.com/browser-use/browser-use/blob/main/examples/browser/playwright_integration.py)**
 
 This shows how to create custom actions that use Playwright's precise browser automation alongside Browser-Use.
+
+## Common Pitfalls
+
+<Warning>
+The agent injects special parameters **by name**, not by type. Using incorrect parameter names is the most common cause of tools failing silently.
+</Warning>
+
+### ❌ Wrong: Using `browser: Browser`
+
+```python
+from browser_use import Tools, ActionResult, Browser
+
+@tools.action('My action')
+def my_action(browser: Browser) -> ActionResult:  # WRONG!
+    # This will NOT receive the browser session
+    pass
+```
+
+### ✅ Correct: Using `browser_session: BrowserSession`
+
+```python
+from browser_use import Tools, ActionResult, BrowserSession
+
+@tools.action('My action')
+async def my_action(browser_session: BrowserSession) -> ActionResult:  # CORRECT!
+    page = await browser_session.must_get_current_page()
+    # Now you have access to the browser
+    return ActionResult(extracted_content='Done')
+```
+
+### Key Points
+
+1. **Use `browser_session: BrowserSession`** - not `browser: Browser`
+2. **Use `async` functions** - recommended for consistency with browser operations
+3. **Return `ActionResult`** - not plain strings (though strings work, `ActionResult` provides more control)
+4. **Parameter names must match exactly** - see [Available Objects](#available-objects) for the full list of injectable parameters
