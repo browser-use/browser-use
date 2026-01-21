@@ -455,8 +455,8 @@ class Registry(Generic[Context]):
 				# check if the placeholder key, like x_password is in the output parameters of the LLM and replace it with the sensitive data
 				for placeholder in matches:
 					if placeholder in applicable_secrets:
-						# generate a totp code if secret is a 2fa secret
-						if 'bu_2fa_code' in placeholder:
+						# generate a totp code if secret is suffixed with bu_2fa_code
+						if placeholder.endswith('bu_2fa_code'):
 							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
 							replacement_value = totp.now()
 						else:
