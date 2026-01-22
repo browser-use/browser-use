@@ -176,6 +176,26 @@ class PaintOrderRemover:
 
 				if rect_union.contains(rect):
 					node.ignored_by_paint_order = True
+				
+				# LOG: Element being excluded by paint order filtering
+				import logging
+				
+				logger = logging.getLogger('browser_use.dom.serializer')
+				attrs = node.original_node.attributes or {}
+				element_tag = node.original_node.tag_name.lower() if node.original_node.tag_name else 'unknown'
+				element_id = attrs.get('id', '')
+				element_class = attrs.get('class', '')
+				
+				logger.debug(
+					f'🔍 PAINT ORDER FILTER: Excluding element from selector_map - '
+					f'<{element_tag}> '
+					f'id="{element_id}" class="{element_class}" '
+					f'backendNodeId={node.original_node.backend_node_id} | '
+					f'Reason: Fully covered by elements with higher paint order (z-index) | '
+					f'Paint order: {paint_order} | '
+					f'Bounds: x={rect.x1:.1f} y={rect.y1:.1f} '
+					f'w={rect.x2 - rect.x1:.1f} h={rect.y2 - rect.y1:.1f}'
+				)
 
 				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
 				if (
