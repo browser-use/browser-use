@@ -726,16 +726,16 @@ class DOMTreeSerializer:
 		if not should_make_interactive:
 			is_interactive_check = self._is_interactive_cached(node.original_node)
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
-			
+
 			if is_interactive_check:
 				import logging
-				
+
 				logger = logging.getLogger('browser_use.dom.serializer')
 				attrs = node.original_node.attributes or {}
 				element_tag = node.original_node.tag_name.lower() if node.original_node.tag_name else 'unknown'
 				element_id = attrs.get('id', '')
 				element_class = attrs.get('class', '')
-				
+
 				reasons = []
 				if node.excluded_by_parent:
 					reasons.append('excluded_by_parent (bbox filtering)')
@@ -745,9 +745,9 @@ class DOMTreeSerializer:
 					reasons.append('not_visible')
 				if not node.original_node.snapshot_node and not is_shadow_dom_element:
 					reasons.append('no_snapshot_node')
-				
+
 				reason_str = ', '.join(reasons) if reasons else 'unknown'
-				
+
 				logger.debug(
 					f'🔍 INTERACTIVE ELEMENT NOT ADDED: <{element_tag}> '
 					f'id="{element_id}" class="{element_class}" '
@@ -868,7 +868,6 @@ class DOMTreeSerializer:
 			role = node.original_node.attributes.get('role')
 			if role in ['button', 'link', 'checkbox', 'radio', 'tab', 'menuitem', 'option']:
 				return False
-
 
 		# Default: exclude this child
 		# LOG: Element being excluded by bounding box filtering
