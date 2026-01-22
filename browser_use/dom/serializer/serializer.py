@@ -619,6 +619,11 @@ class DOMTreeSerializer:
 		if not node:
 			return
 
+		# Initialize to False - will be set to True if conditions are met
+		should_make_interactive = False
+		is_file_input = False
+		is_shadow_dom_element = False
+
 		# Skip assigning index to excluded nodes, or ignored by paint order
 		if not node.excluded_by_parent and not node.ignored_by_paint_order:
 			# Regular interactive element assignment (including enhanced compound controls)
