@@ -40,15 +40,21 @@ async def handle(session: SessionInfo, params: dict[str, Any]) -> Any:
 				'error': 'No LLM configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY',
 			}
 
-		# Create and run agent
-		agent = Agent(
-			task=task,
-			llm=llm,
-			browser_session=session.browser_session,
-		)
-
-		logger.info(f'Running agent task: {task}')
-		result = await agent.run(max_steps=max_steps)
+		# Reuse existing agent or create new one (enables chaining multiple run commands)
+		if session.agent is not None:
+			# Chain: add new task to existing agent (preserves context and browser state)
+			logger.info(f'Chaining agent task: {task}')
+			session.agent.add_new_task(task)
+			result = await session.agent.run(max_steps=max_steps)
+		else:
+			# First run: create new agent and store in session
+			logger.info(f'Creating new agent for task: {task}')
+			session.agent = Agent(
+				task=task,
+				llm=llm,
+				browser_session=session.browser_session,
+			)
+			result = await session.agent.run(max_steps=max_steps)
 
 		# Extract result info
 		final_result = result.final_result() if result else None
