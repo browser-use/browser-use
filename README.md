@@ -293,4 +293,4 @@ For production use cases, use our [Browser Use Cloud API](https://cloud.browser-
 
 </div>
 
-<div align="center"> Made with ❤️ in Zurich and San Francisco </div>
+<div align="center"> Made with ❤️ in Zurich and San Francisco... </div>
