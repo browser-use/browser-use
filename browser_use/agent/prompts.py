@@ -57,6 +57,8 @@ class SystemPrompt:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
+			elif self.use_thinking and self.is_anthropic:
+				template_filename = 'system_prompt_anthropic.md'
 			elif self.use_thinking:
 				template_filename = 'system_prompt.md'
 			else:
