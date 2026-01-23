@@ -1,5 +1,6 @@
 # @file purpose: Serializes enhanced DOM trees to HTML format including shadow roots
 
+from browser_use.dom.content_filter import is_semantic_data_attr, is_spa_state_json
 from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 
@@ -70,15 +71,19 @@ class HTMLSerializer:
 			if tag_name in {'style', 'script', 'head', 'meta', 'link', 'title'}:
 				return ''
 
-			# Skip code tags with display:none - these often contain JSON state for SPAs
+			# Skip code tags that contain SPA state/config JSON
 			if tag_name == 'code' and node.attributes:
 				style = node.attributes.get('style', '')
 				# Check if element is hidden (display:none) - likely JSON data
 				if 'display:none' in style.replace(' ', '') or 'display: none' in style:
 					return ''
-				# Also check for bpr-guid IDs (LinkedIn's JSON data pattern)
+				# Check for known JSON data patterns (LinkedIn, etc.)
 				element_id = node.attributes.get('id', '')
-				if 'bpr-guid' in element_id or 'data' in element_id or 'state' in element_id:
+				if 'bpr-guid' in element_id:
+					return ''
+				# Check content for SPA state patterns
+				text_content = self._get_text_content(node)
+				if text_content and is_spa_state_json(text_content):
 					return ''
 
 			# Skip base64 inline images - these are usually placeholders or tracking pixels
@@ -174,10 +179,14 @@ class HTMLSerializer:
 			if not self.extract_links and key == 'href':
 				continue
 
-			# Skip data-* attributes as they often contain JSON payloads
-			# These are used by modern SPAs (React, Vue, Angular) for state management
+			# For data-* attributes, only keep semantic ones (test IDs, field types, etc.)
+			# Skip SPA framework state attributes (React, Vue, Angular internal state)
 			if key.startswith('data-'):
-				continue
+				if not is_semantic_data_attr(key):
+					continue
+				# Also skip if value looks like JSON state
+				if value and len(value) > 100 and is_spa_state_json(value):
+					continue
 
 			# Handle boolean attributes
 			if value == '' or value is None:
@@ -188,6 +197,24 @@ class HTMLSerializer:
 				parts.append(f'{key}="{escaped_value}"')
 
 		return ' '.join(parts)
+
+	def _get_text_content(self, node: EnhancedDOMTreeNode) -> str:
+		"""Recursively get all text content from a node.
+
+		Args:
+			node: Node to extract text from
+
+		Returns:
+			Concatenated text content
+		"""
+		if node.node_type == NodeType.TEXT_NODE:
+			return node.node_value or ''
+
+		parts = []
+		for child in node.children:
+			parts.append(self._get_text_content(child))
+
+		return ''.join(parts)
 
 	def _escape_html(self, text: str) -> str:
 		"""Escape HTML special characters in text content.
