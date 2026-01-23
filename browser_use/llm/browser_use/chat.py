@@ -68,7 +68,7 @@ class ChatBrowserUse(BaseChatModel):
 			retry_max_delay: Maximum delay in seconds between retries (default: 60.0).
 		"""
 		# Validate model name - allow bu-* and browser-use/* patterns
-		valid_models = ['bu-latest', 'bu-1-0']
+		valid_models = ['bu-latest', 'bu-1-0', 'bu-2-0']
 		is_valid = model in valid_models or model.startswith('browser-use/')
 		if not is_valid:
 			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models} or start with 'browser-use/'")

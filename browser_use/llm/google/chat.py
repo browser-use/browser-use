@@ -88,7 +88,10 @@ class ChatGoogle(BaseChatModel):
 	temperature: float | None = 0.5
 	top_p: float | None = None
 	seed: int | None = None
-	thinking_budget: int | None = None  # for gemini-2.5 flash and flash-lite models, default will be set to 0
+	thinking_budget: int | None = None  # for Gemini 2.5: 0 disables (flash), -1 for dynamic, or token count
+	thinking_level: Literal['minimal', 'low', 'medium', 'high'] | None = (
+		None  # for Gemini 3: Pro supports low/high, Flash supports all
+	)
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
@@ -230,13 +233,50 @@ class ChatGoogle(BaseChatModel):
 		if self.seed is not None:
 			config['seed'] = self.seed
 
-		# set default for flash, flash-lite, gemini-flash-lite-latest, and gemini-flash-latest models
-		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
-			self.thinking_budget = 0
+		# Configure thinking based on model version
+		# Gemini 3 uses thinking_level; Gemini 2.5 uses thinking_budget
+		is_gemini_3 = 'gemini-3' in self.model
 
-		if self.thinking_budget is not None:
-			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
+		if is_gemini_3:
+			# Validate: thinking_budget should not be set for Gemini 3
+			if self.thinking_budget is not None:
+				self.logger.warning(
+					f'thinking_budget={self.thinking_budget} is deprecated for Gemini 3 models and may cause '
+					f'suboptimal performance. Use thinking_level instead.'
+				)
+
+			is_gemini_3_flash = 'gemini-3-flash' in self.model
+			is_gemini_3_pro = 'gemini-3-pro' in self.model
+
+			# Validate: minimal/medium only supported on Flash, not Pro
+			if is_gemini_3_pro and self.thinking_level in ('minimal', 'medium'):
+				self.logger.warning(
+					f'thinking_level="{self.thinking_level}" is not supported for Gemini 3 Pro. '
+					f'Only "low" and "high" are valid. Falling back to "low".'
+				)
+				self.thinking_level = 'low'
+
+			# Set defaults: Flash -> minimal (no thinking), Pro -> low
+			if self.thinking_level is None:
+				self.thinking_level = 'minimal' if is_gemini_3_flash else 'low'
+
+			# Map to ThinkingLevel enum (SDK accepts string values)
+			level = types.ThinkingLevel(self.thinking_level.upper())
+			thinking_config_dict: types.ThinkingConfigDict = {'thinking_level': level}
 			config['thinking_config'] = thinking_config_dict
+		else:
+			# Validate: thinking_level should not be set for Gemini 2.5
+			if self.thinking_level is not None:
+				self.logger.warning(
+					f'thinking_level="{self.thinking_level}" is not supported for Gemini 2.5 models. '
+					f'Use thinking_budget instead (0 to disable, -1 for dynamic, or token count).'
+				)
+			# Gemini 2.5 and earlier: use thinking_budget
+			if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
+				self.thinking_budget = 0
+			if self.thinking_budget is not None:
+				thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
+				config['thinking_config'] = thinking_config_dict
 
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
