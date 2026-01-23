@@ -53,12 +53,12 @@ class SystemPrompt:
 					template_filename = 'system_prompt_browser_use.md'
 				else:
 					template_filename = 'system_prompt_browser_use_no_thinking.md'
-			elif self.flash_mode and self.is_anthropic:
-				template_filename = 'system_prompt_flash_anthropic.md'
+			elif self.is_anthropic:
+				# Always use full anthropic prompt to meet minimum token threshold for caching
+				# (Haiku requires 2048 tokens, Sonnet/Opus require 1024 tokens)
+				template_filename = 'system_prompt_anthropic.md'
 			elif self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
-			elif self.use_thinking and self.is_anthropic:
-				template_filename = 'system_prompt_anthropic.md'
 			elif self.use_thinking:
 				template_filename = 'system_prompt.md'
 			else:
