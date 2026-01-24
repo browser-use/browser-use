@@ -37,7 +37,7 @@ async def handle(session: SessionInfo, params: dict[str, Any]) -> Any:
 		if llm is None:
 			return {
 				'success': False,
-				'error': 'No LLM configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY',
+				'error': 'No LLM configured. Set BROWSER_USE_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY',
 			}
 
 		# Create and run agent
@@ -72,7 +72,16 @@ async def handle(session: SessionInfo, params: dict[str, Any]) -> Any:
 
 async def get_llm() -> Any:
 	"""Get LLM instance from environment configuration."""
-	# Try OpenAI first
+	# Try ChatBrowserUse first (optimized for browser automation)
+	if os.environ.get('BROWSER_USE_API_KEY'):
+		try:
+			from browser_use.llm import ChatBrowserUse
+
+			return ChatBrowserUse()  # type: ignore[return-value]
+		except ImportError:
+			pass
+
+	# Try OpenAI
 	if os.environ.get('OPENAI_API_KEY'):
 		try:
 			from langchain_openai import ChatOpenAI  # type: ignore[import-not-found]
