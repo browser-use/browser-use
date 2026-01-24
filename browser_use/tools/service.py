@@ -653,7 +653,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated. Mode: auto (smart filtering), full_page (everything), main_content (articles only).""",
+			"""LLM extracts structured data from page content. Use when: on right page, know what to extract, haven't called before on same page+query. Returns content with element indices [123] that correlate with browser_state for follow-up actions. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated. Mode: auto (smart filtering), full_page (everything), main_content (articles only).""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -669,20 +669,56 @@ class Tools(Generic[Context]):
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
 			mode = params['mode'] if isinstance(params, dict) else params.mode
 
-			# Extract clean markdown using the unified method with extraction mode
+			# Use SOTA structured extraction that preserves element indices
+			# This allows the agent to correlate extracted content with browser_state
 			try:
-				from browser_use.dom.markdown_extractor import extract_clean_markdown, smart_truncate
+				from browser_use.dom.extraction import extract_structured_content
+				from browser_use.dom.markdown_extractor import smart_truncate
+				from browser_use.tools.views import ExtractionMode
 
-				content, content_stats = await extract_clean_markdown(
-					browser_session=browser_session,
-					extract_links=extract_links,
-					mode=mode,
+				# Get selector_map and enhanced DOM tree from browser session
+				selector_map = await browser_session.get_selector_map()
+
+				# Get enhanced DOM tree from DOM watchdog
+				dom_watchdog = browser_session._dom_watchdog
+				if dom_watchdog is None:
+					raise RuntimeError('DOMWatchdog not available - browser may not be initialized')
+
+				if dom_watchdog.enhanced_dom_tree is None:
+					# Trigger DOM tree build if not cached
+					await dom_watchdog._build_dom_tree_without_highlights()
+
+				enhanced_dom_tree = dom_watchdog.enhanced_dom_tree
+				if enhanced_dom_tree is None:
+					raise RuntimeError('Could not get enhanced DOM tree after build')
+
+				# Determine extraction settings based on mode
+				if mode is None:
+					mode = ExtractionMode.AUTO
+
+				include_nav = mode == ExtractionMode.FULL_PAGE
+				include_complementary = mode == ExtractionMode.FULL_PAGE
+
+				# Extract structured content with element indices preserved
+				content, content_stats = extract_structured_content(
+					root=enhanced_dom_tree,
+					selector_map=selector_map,
+					include_navigation=include_nav,
+					include_complementary=include_complementary,
+					max_chars=MAX_CHAR_LIMIT,
 				)
-			except Exception as e:
-				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}: {e}')
 
-			# Original content length for processing
-			final_filtered_length = content_stats['final_filtered_chars']
+				# Add method info to stats
+				content_stats['extraction_mode'] = mode.value if mode else 'auto'
+
+			except Exception as e:
+				raise RuntimeError(f'Could not extract structured content: {type(e).__name__}: {e}')
+
+			# Get content stats from structured extraction
+			total_text_chars = content_stats.get('total_text_chars', len(content))
+			total_interactive = content_stats.get('total_interactive_elements', 0)
+			main_content_found = content_stats.get('main_content_found', False)
+			section_count = content_stats.get('section_count', 0)
 
 			# Use smart truncation that respects document structure
 			content, truncation_info = smart_truncate(
@@ -699,53 +735,45 @@ class Tools(Generic[Context]):
 			content_stats.update(truncation_info)
 
 			# Build comprehensive stats summary for LLM context
-			original_html_length = content_stats['original_html_chars']
-			initial_markdown_length = content_stats['initial_markdown_chars']
-			chars_filtered = content_stats['filtered_chars_removed']
-			main_content_found = content_stats.get('main_content_found', False)
-			removed_regions = content_stats.get('removed_regions', [])
-
 			stats_parts = [
-				f'Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} markdown → {final_filtered_length:,} filtered',
+				f'Extracted {total_text_chars:,} chars from {section_count} sections with {total_interactive} interactive elements',
 			]
 
 			# Add extraction metadata for transparency
 			if main_content_found:
 				stats_parts.append('Main content region detected and used')
-			if removed_regions:
-				stats_parts.append(f'Filtering: {"; ".join(removed_regions)}')
 			if start_from_char > 0:
 				stats_parts.append(f'Started from char {start_from_char:,}')
 			if truncation_info.get('truncated'):
 				method = truncation_info.get('truncation_method', 'unknown')
 				next_char = truncation_info.get('next_start_char', 0)
 				stats_parts.append(f'Truncated at {method} → {len(content):,} chars (use start_from_char={next_char} to continue)')
-			elif chars_filtered > 0:
-				stats_parts.append(f'Filtered {chars_filtered:,} chars of noise')
 
 			stats_summary = '\n'.join(stats_parts)
 
 			system_prompt = """
-You are an expert at extracting data from the markdown of a webpage.
+You are an expert at extracting data from structured webpage content.
 
 <input>
-You will be given a query and the markdown of a webpage. The content has been intelligently filtered:
-- Navigation, headers, footers, and ads have been removed when possible
-- Only the main content region is included if detected
-- SPA framework state/config JSON has been filtered out
-- Document structure (tables, lists, forms) has been preserved
+You will be given a query and structured page content. The content preserves:
+- Element indices like [123]<button> that correlate with browser_state for follow-up actions
+- Semantic structure from accessibility tree (main content, forms, articles)
+- Tables, lists, and form fields with their interactive elements
+- Navigation and boilerplate filtered out (unless full_page mode)
 </input>
 
 <instructions>
-- Extract information from the webpage that is relevant to the query
-- ONLY use information available in the webpage - do not make up information
+- Extract information from the content that is relevant to the query
+- ONLY use information available in the content - do not make up information
 - If the information is not available, clearly state that
 - If the query asks for all items/products/etc., list ALL of them
+- When referencing interactive elements, include their index [123] so they can be clicked
 - If content was truncated, note that start_from_char can be used to continue
 </instructions>
 
 <output>
 - Present ALL relevant information concisely
+- Include element indices [123] when referencing clickable/interactive elements
 - Do not answer in conversational format - directly output the information
 - If information is unavailable, state that clearly
 </output>
@@ -772,13 +800,14 @@ You will be given a query and the markdown of a webpage. The content has been in
 					f'<result>\n{response.completion}\n</result>',
 				]
 
-				# Add metadata about what was filtered (helps agent understand context)
-				if truncation_info.get('truncated') or removed_regions:
+				# Add metadata about extraction (helps agent understand context)
+				if truncation_info.get('truncated') or main_content_found:
 					metadata_parts = []
 					if main_content_found:
 						metadata_parts.append('main_content_used: true')
+					metadata_parts.append(f'interactive_elements: {total_interactive}')
 					if truncation_info.get('truncated'):
-						metadata_parts.append(f'truncated: true')
+						metadata_parts.append('truncated: true')
 						metadata_parts.append(f'next_start_char: {truncation_info.get("next_start_char", 0)}')
 						metadata_parts.append(f'truncation_method: {truncation_info.get("truncation_method", "unknown")}')
 					if metadata_parts:
