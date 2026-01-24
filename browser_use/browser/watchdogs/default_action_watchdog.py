@@ -1549,28 +1549,20 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				self.logger.debug(f'🎯 Typing text character by character: "{text}"')
 
-			# FIX for Issue #3889: Draft.js editors lose the first character because
-			# CDP's dispatchKeyEvent doesn't trigger the beforeinput event that
-			# Draft.js relies on.
-			#
-			# Solution: Detect Draft.js editors specifically (not all contenteditable
-			# elements) and prepend a "sacrifice" space character that will be
-			# dropped by Draft.js, so the actual text starts from the second character.
-			#
-			# Draft.js detection: Check for Draft.js-specific class names and data attributes
+			# Step 5: Prepend sacrifice space for Draft.js editors when clearing
+			# CDP doesn't trigger beforeinput events, causing Draft.js to drop the first char at leaf start
 			_attrs = element_node.attributes or {}
 			_class_name = _attrs.get('class', '')
 			_is_draftjs = (
-				'DraftEditor' in _class_name  # Draft.js editor class (e.g., public-DraftEditor-content)
-				or _attrs.get('data-contents') == 'true'  # Draft.js content container
-				or _attrs.get('data-block') == 'true'  # Draft.js block element
-				or 'data-offset-key' in _attrs  # Draft.js offset key for content tracking
+				'DraftEditor' in _class_name
+				or _attrs.get('data-contents') == 'true'
+				or 'data-offset-key' in _attrs
 			)
 
-			if _is_draftjs and len(text) > 0:
-				# Prepend a space as "sacrifice character" - it will be dropped by Draft.js
+			# Prepend a space as "sacrifice character" if at leaf start - it will be dropped by Draft.js
+			if _is_draftjs and len(text) > 0 and clear:
 				text = ' ' + text
-				self.logger.debug('🎯 Draft.js detected, prepending sacrifice space')
+				self.logger.debug('🎯 Draft.js detected at start position, prepending sacrifice space')
 
 			for i, char in enumerate(text):
 				# Handle newline characters as Enter key
