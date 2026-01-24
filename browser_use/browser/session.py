@@ -2333,6 +2333,9 @@ class BrowserSession(BaseModel):
 		This creates a visual highlight on the browser that shows the user which element
 		is being interacted with. The highlight automatically fades after the configured duration.
 
+		When debug_highlight is enabled, uses a high-visibility "Terminator HUD" style with
+		neon green outline, glow effect, and "AGENT TARGET" label.
+
 		Args:
 			node: The DOM node to highlight with backend_node_id for coordinate lookup
 		"""
@@ -2354,109 +2357,164 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'No coordinates found for backend node {node.backend_node_id}')
 				return
 
-			# Create animated corner brackets that start offset and animate inward
-			script = f"""
-			(function() {{
-				const rect = {json.dumps({'x': rect.x, 'y': rect.y, 'width': rect.width, 'height': rect.height})};
-				const color = {json.dumps(color)};
-				const duration = {duration_ms};
+			# Check if debug_highlight mode is enabled for Terminator HUD style
+			if getattr(self.browser_profile, 'debug_highlight', False):
+				# Terminator HUD Style - Neon green with glow and label
+				script = f"""
+				(function() {{
+					const rect = {json.dumps({'x': rect.x, 'y': rect.y, 'width': rect.width, 'height': rect.height})};
+					const duration = {duration_ms};
 
-				// Scale corner size based on element dimensions to ensure gaps between corners
-				const maxCornerSize = 20;
-				const minCornerSize = 8;
-				const cornerSize = Math.max(
-					minCornerSize,
-					Math.min(maxCornerSize, Math.min(rect.width, rect.height) * 0.35)
-				);
-				const borderWidth = 3;
-				const startOffset = 10; // Starting offset in pixels
-				const finalOffset = -3; // Final position slightly outside the element
+					// Get current scroll position
+					const scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+					const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
 
-				// Get current scroll position
-				const scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
-				const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-
-				// Create container for all corners
-				const container = document.createElement('div');
-				container.setAttribute('data-browser-use-interaction-highlight', 'true');
-				container.style.cssText = `
-					position: absolute;
-					left: ${{rect.x + scrollX}}px;
-					top: ${{rect.y + scrollY}}px;
-					width: ${{rect.width}}px;
-					height: ${{rect.height}}px;
-					pointer-events: none;
-					z-index: 2147483647;
-				`;
-
-				// Create 4 corner brackets
-				const corners = [
-					{{ pos: 'top-left', startX: -startOffset, startY: -startOffset, finalX: finalOffset, finalY: finalOffset }},
-					{{ pos: 'top-right', startX: startOffset, startY: -startOffset, finalX: -finalOffset, finalY: finalOffset }},
-					{{ pos: 'bottom-left', startX: -startOffset, startY: startOffset, finalX: finalOffset, finalY: -finalOffset }},
-					{{ pos: 'bottom-right', startX: startOffset, startY: startOffset, finalX: -finalOffset, finalY: -finalOffset }}
-				];
-
-				corners.forEach(corner => {{
-					const bracket = document.createElement('div');
-					bracket.style.cssText = `
+					// Create container with Terminator HUD style
+					const container = document.createElement('div');
+					container.setAttribute('data-browser-use-debug-highlight', 'true');
+					container.style.cssText = `
 						position: absolute;
-						width: ${{cornerSize}}px;
-						height: ${{cornerSize}}px;
+						left: ${{rect.x + scrollX}}px;
+						top: ${{rect.y + scrollY}}px;
+						width: ${{rect.width}}px;
+						height: ${{rect.height}}px;
 						pointer-events: none;
-						transition: all 0.15s ease-out;
+						z-index: 2147483647;
+						outline: 2px solid #00FF00;
+						box-shadow: 0 0 10px #00FF00;
+						transition: all 0.3s ease;
 					`;
 
-					// Position corners
-					if (corner.pos === 'top-left') {{
-						bracket.style.top = '0';
-						bracket.style.left = '0';
-						bracket.style.borderTop = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.borderLeft = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
-					}} else if (corner.pos === 'top-right') {{
-						bracket.style.top = '0';
-						bracket.style.right = '0';
-						bracket.style.borderTop = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.borderRight = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
-					}} else if (corner.pos === 'bottom-left') {{
-						bracket.style.bottom = '0';
-						bracket.style.left = '0';
-						bracket.style.borderBottom = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.borderLeft = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
-					}} else if (corner.pos === 'bottom-right') {{
-						bracket.style.bottom = '0';
-						bracket.style.right = '0';
-						bracket.style.borderBottom = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.borderRight = `${{borderWidth}}px solid ${{color}}`;
-						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
-					}}
+					// Create "AGENT TARGET" label
+					const label = document.createElement('div');
+					label.textContent = 'AGENT TARGET';
+					label.style.cssText = `
+						position: absolute;
+						top: -20px;
+						right: 0;
+						background: #00FF00;
+						color: black;
+						font-size: 10px;
+						font-weight: bold;
+						padding: 2px 4px;
+						font-family: monospace;
+					`;
+					container.appendChild(label);
 
-					container.appendChild(bracket);
+					document.body.appendChild(container);
 
-					// Animate to final position slightly outside the element
+					// Auto-remove after duration
 					setTimeout(() => {{
-						bracket.style.transform = `translate(${{corner.finalX}}px, ${{corner.finalY}}px)`;
-					}}, 10);
-				}});
+						container.style.opacity = '0';
+						setTimeout(() => container.remove(), 300);
+					}}, duration);
 
-				document.body.appendChild(container);
+					return {{ created: true }};
+				}})();
+				"""
+			else:
+				# Default style - animated corner brackets
+				script = f"""
+				(function() {{
+					const rect = {json.dumps({'x': rect.x, 'y': rect.y, 'width': rect.width, 'height': rect.height})};
+					const color = {json.dumps(color)};
+					const duration = {duration_ms};
 
-				// Auto-remove after duration
-				setTimeout(() => {{
-					container.style.opacity = '0';
-					container.style.transition = 'opacity 0.3s ease-out';
-					setTimeout(() => container.remove(), 300);
-				}}, duration);
+					// Scale corner size based on element dimensions to ensure gaps between corners
+					const maxCornerSize = 20;
+					const minCornerSize = 8;
+					const cornerSize = Math.max(
+						minCornerSize,
+						Math.min(maxCornerSize, Math.min(rect.width, rect.height) * 0.35)
+					);
+					const borderWidth = 3;
+					const startOffset = 10; // Starting offset in pixels
+					const finalOffset = -3; // Final position slightly outside the element
 
-				return {{ created: true }};
-			}})();
-			"""
+					// Get current scroll position
+					const scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+					const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+					// Create container for all corners
+					const container = document.createElement('div');
+					container.setAttribute('data-browser-use-interaction-highlight', 'true');
+					container.style.cssText = `
+						position: absolute;
+						left: ${{rect.x + scrollX}}px;
+						top: ${{rect.y + scrollY}}px;
+						width: ${{rect.width}}px;
+						height: ${{rect.height}}px;
+						pointer-events: none;
+						z-index: 2147483647;
+					`;
+
+					// Create 4 corner brackets
+					const corners = [
+						{{ pos: 'top-left', startX: -startOffset, startY: -startOffset, finalX: finalOffset, finalY: finalOffset }},
+						{{ pos: 'top-right', startX: startOffset, startY: -startOffset, finalX: -finalOffset, finalY: finalOffset }},
+						{{ pos: 'bottom-left', startX: -startOffset, startY: startOffset, finalX: finalOffset, finalY: -finalOffset }},
+						{{ pos: 'bottom-right', startX: startOffset, startY: startOffset, finalX: -finalOffset, finalY: -finalOffset }}
+					];
+
+					corners.forEach(corner => {{
+						const bracket = document.createElement('div');
+						bracket.style.cssText = `
+							position: absolute;
+							width: ${{cornerSize}}px;
+							height: ${{cornerSize}}px;
+							pointer-events: none;
+							transition: all 0.15s ease-out;
+						`;
+
+						// Position corners
+						if (corner.pos === 'top-left') {{
+							bracket.style.top = '0';
+							bracket.style.left = '0';
+							bracket.style.borderTop = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.borderLeft = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+						}} else if (corner.pos === 'top-right') {{
+							bracket.style.top = '0';
+							bracket.style.right = '0';
+							bracket.style.borderTop = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.borderRight = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+						}} else if (corner.pos === 'bottom-left') {{
+							bracket.style.bottom = '0';
+							bracket.style.left = '0';
+							bracket.style.borderBottom = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.borderLeft = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+						}} else if (corner.pos === 'bottom-right') {{
+							bracket.style.bottom = '0';
+							bracket.style.right = '0';
+							bracket.style.borderBottom = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.borderRight = `${{borderWidth}}px solid ${{color}}`;
+							bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+						}}
+
+						container.appendChild(bracket);
+
+						// Animate to final position slightly outside the element
+						setTimeout(() => {{
+							bracket.style.transform = `translate(${{corner.finalX}}px, ${{corner.finalY}}px)`;
+						}}, 10);
+					}});
+
+					document.body.appendChild(container);
+
+					// Auto-remove after duration
+					setTimeout(() => {{
+						container.style.opacity = '0';
+						container.style.transition = 'opacity 0.3s ease-out';
+						setTimeout(() => container.remove(), 300);
+					}}, duration);
+
+					return {{ created: true }};
+				}})();
+				"""
 
 			# Fire and forget - don't wait for completion
-
 			await cdp_session.cdp_client.send.Runtime.evaluate(
 				params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
 			)
