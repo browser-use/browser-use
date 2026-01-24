@@ -260,6 +260,7 @@ class GetDropdownOptionsEvent(ElementSelectedEvent[dict[str, str]]):
 	Returns a dict containing dropdown type, options list, and element metadata."""
 
 	node: 'EnhancedDOMTreeNode'
+	controlled_node: 'EnhancedDOMTreeNode | None' = None  # For ARIA comboboxes: element referenced by aria-controls/aria-owns
 
 	event_timeout: float | None = Field(
 		default_factory=lambda: _get_timeout('TIMEOUT_GetDropdownOptionsEvent', 15.0)
@@ -273,6 +274,7 @@ class SelectDropdownOptionEvent(ElementSelectedEvent[dict[str, str]]):
 
 	node: 'EnhancedDOMTreeNode'
 	text: str  # The option text to select
+	controlled_node: 'EnhancedDOMTreeNode | None' = None  # For ARIA comboboxes: element referenced by aria-controls/aria-owns
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_SelectDropdownOptionEvent', 8.0))  # seconds
 

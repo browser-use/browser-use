@@ -2168,6 +2168,85 @@ class BrowserSession(BaseModel):
 					return idx
 		return None
 
+	async def get_element_by_id_via_cdp(self, element_id: str) -> 'EnhancedDOMTreeNode | None':
+		"""Find element by its id attribute via CDP, even if not in selector_map.
+
+		This is used to resolve elements that may not be indexed as interactive
+		(ex: portal containers referenced via aria-controls).
+
+		Args:
+			element_id: The id attribute value to search for
+
+		Returns:
+			EnhancedDOMTreeNode with minimal info (backend_node_id, session_id, target_id),
+			or None if not found
+		"""
+		from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
+
+		try:
+			cdp_session = await self.get_or_create_cdp_session()
+
+			# Get document root
+			doc_result = await cdp_session.cdp_client.send.DOM.getDocument(
+				params={'depth': 0},
+				session_id=cdp_session.session_id,
+			)
+			root_node_id = doc_result.get('root', {}).get('nodeId')
+			if not root_node_id:
+				return None
+
+			# Query for the element by ID
+			query_result = await cdp_session.cdp_client.send.DOM.querySelector(
+				params={
+					'nodeId': root_node_id,
+					'selector': f'#{element_id}',
+				},
+				session_id=cdp_session.session_id,
+			)
+			node_id = query_result.get('nodeId')
+			if not node_id:
+				return None
+
+			# Get the backend node ID
+			describe_result = await cdp_session.cdp_client.send.DOM.describeNode(
+				params={'nodeId': node_id},
+				session_id=cdp_session.session_id,
+			)
+			node_info = describe_result.get('node', {})
+			backend_node_id = node_info.get('backendNodeId')
+			if not backend_node_id:
+				return None
+
+			# Get current focus target info
+			current_target_id = self.agent_focus_target_id
+			if not current_target_id:
+				return None
+
+			# Create minimal EnhancedDOMTreeNode
+			return EnhancedDOMTreeNode(
+				node_id=node_id,
+				backend_node_id=backend_node_id,
+				session_id=cdp_session.session_id,
+				frame_id=None,
+				target_id=current_target_id,
+				node_type=NodeType.ELEMENT_NODE,
+				node_name=node_info.get('nodeName', '').lower(),
+				node_value='',
+				attributes={'id': element_id},
+				is_scrollable=None,
+				is_visible=None,
+				absolute_position=None,
+				content_document=None,
+				shadow_root_type=None,
+				shadow_roots=[],
+				parent_node=None,
+				children_nodes=[],
+				ax_node=None,
+				snapshot_node=None,
+			)
+		except Exception:
+			return None
+
 	async def remove_highlights(self) -> None:
 		"""Remove highlights from the page using CDP."""
 		if not self.browser_profile.highlight_elements:

@@ -2370,17 +2370,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Get CDP session for this node
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
 
-			# Convert node to object ID for CDP operations
-			try:
-				object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': element_node.backend_node_id}, session_id=cdp_session.session_id
-				)
-				remote_object = object_result.get('object', {})
-				object_id = remote_object.get('objectId')
-				if not object_id:
-					raise ValueError('Could not get object ID from resolved node')
-			except Exception as e:
-				raise ValueError(f'Failed to resolve node to object: {e}') from e
+			# Collect nodes to try: primary node first, then controlled node if available
+			nodes_to_try = [(element_node, 'primary')]
+			if event.controlled_node is not None:
+				nodes_to_try.append((event.controlled_node, 'controlled'))
 
 			# Use JavaScript to extract dropdown options
 			options_script = """
@@ -2505,21 +2498,49 @@ class DefaultActionWatchdog(BaseWatchdog):
 			}
 			"""
 
-			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': options_script,
-					'objectId': object_id,
-					'returnByValue': True,
-				},
-				session_id=cdp_session.session_id,
-			)
+			# Try each node until find options
+			last_error = None
+			dropdown_data = None
+			for current_node, node_type in nodes_to_try:
+				# Convert node to object ID for CDP operations
+				try:
+					object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+						params={'backendNodeId': current_node.backend_node_id}, session_id=cdp_session.session_id
+					)
+					remote_object = object_result.get('object', {})
+					object_id = remote_object.get('objectId')
+					if not object_id:
+						continue  # try next node
+				except Exception:
+					continue  # try next node
 
-			dropdown_data = result.get('result', {}).get('value', {})
+				result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+					params={
+						'functionDeclaration': options_script,
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+					session_id=cdp_session.session_id,
+				)
 
-			if dropdown_data.get('error'):
-				raise BrowserError(message=dropdown_data['error'], long_term_memory=dropdown_data['error'])
+				dropdown_data = result.get('result', {}).get('value', {})
 
-			if not dropdown_data.get('options'):
+				if dropdown_data.get('error'):
+					last_error = dropdown_data['error']
+					continue  # try next node
+
+				if not dropdown_data.get('options'):
+					continue  # try next node
+
+				# Found options - update source info to indicate which node
+				if node_type == 'controlled':
+					dropdown_data['source'] = 'aria-controlled'
+
+				break  # success
+			else:
+				# No nodes had options
+				if last_error:
+					raise BrowserError(message=last_error, long_term_memory=last_error)
 				msg = f'No options found in dropdown at index {index_for_logging}'
 				return {
 					'error': msg,
@@ -2598,21 +2619,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Get CDP session for this node
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
 
-			# Convert node to object ID for CDP operations
-			try:
-				object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': element_node.backend_node_id}, session_id=cdp_session.session_id
-				)
-				remote_object = object_result.get('object', {})
-				object_id = remote_object.get('objectId')
-				if not object_id:
-					raise ValueError('Could not get object ID from resolved node')
-			except Exception as e:
-				raise ValueError(f'Failed to resolve node to object: {e}') from e
+			# Collect nodes to try: primary node first, then controlled node if available
+			nodes_to_try = [(element_node, 'primary')]
+			if event.controlled_node is not None:
+				nodes_to_try.append((event.controlled_node, 'controlled'))
 
-			try:
-				# Use JavaScript to select the option
-				selection_script = """
+			# Use JavaScript to select the option
+			selection_script = """
 				function(targetText) {
 					const startElement = this;
 
@@ -2821,76 +2834,107 @@ class DefaultActionWatchdog(BaseWatchdog):
 				}
 				"""
 
-				result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-					params={
-						'functionDeclaration': selection_script,
-						'arguments': [{'value': target_text}],
-						'objectId': object_id,
-						'returnByValue': True,
-					},
-					session_id=cdp_session.session_id,
-				)
+			# Try each node until selection succeeds
+			last_error_result = None
+			selection_result = None
+			for current_node, node_type in nodes_to_try:
+				# Convert node to object ID for CDP operations
+				try:
+					object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+						params={'backendNodeId': current_node.backend_node_id}, session_id=cdp_session.session_id
+					)
+					remote_object = object_result.get('object', {})
+					object_id = remote_object.get('objectId')
+					if not object_id:
+						continue  # try next node
+				except Exception:
+					continue  # try next node
 
-				selection_result = result.get('result', {}).get('value', {})
+				try:
+					result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': selection_script,
+							'arguments': [{'value': target_text}],
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=cdp_session.session_id,
+					)
 
-				if selection_result.get('success'):
-					msg = selection_result.get('message', f'Selected option: {target_text}')
-					self.logger.debug(f'{msg}')
+					selection_result = result.get('result', {}).get('value', {})
 
-					# Return the result as a dict
-					return {
-						'success': 'true',
-						'message': msg,
-						'value': selection_result.get('value', target_text),
-						'backend_node_id': str(index_for_logging),
-					}
+					if selection_result.get('success'):
+						break  # success, exit loop
+
+					# If options were found but selection failed, don't try other nodes
+					if selection_result.get('availableOptions'):
+						last_error_result = selection_result
+						break  # exit loop - found options but wrong text
+
+					# No options found in this node, try next
+					last_error_result = selection_result
+				except Exception:
+					continue  # try next node
+			else:
+				# Loop completed without success
+				if last_error_result:
+					selection_result = last_error_result
 				else:
-					error_msg = selection_result.get('error', f'Failed to select option: {target_text}')
-					available_options = selection_result.get('availableOptions', [])
-					self.logger.error(f'❌ {error_msg}')
-					self.logger.debug(f'Available options from JavaScript: {available_options}')
+					selection_result = {'success': False, 'error': f'Failed to select option: {target_text}'}
 
-					# If we have available options, return structured error data
-					if available_options:
-						# Format options for short_term_memory (simple bulleted list)
-						short_term_options = []
-						for opt in available_options:
-							if isinstance(opt, dict):
-								text = opt.get('text', '').strip()
-								value = opt.get('value', '').strip()
-								if text:
-									short_term_options.append(f'- {text}')
-								elif value:
-									short_term_options.append(f'- {value}')
-							elif isinstance(opt, str):
-								short_term_options.append(f'- {opt}')
+			if selection_result.get('success'):
+				msg = selection_result.get('message', f'Selected option: {target_text}')
+				self.logger.debug(f'{msg}')
 
-						if short_term_options:
-							short_term_memory = 'Available dropdown options  are:\n' + '\n'.join(short_term_options)
-							long_term_memory = (
-								f"Couldn't select the dropdown option as '{target_text}' is not one of the available options."
-							)
+				# Return the result as a dict
+				return {
+					'success': 'true',
+					'message': msg,
+					'value': selection_result.get('value', target_text),
+					'backend_node_id': str(index_for_logging),
+				}
+			else:
+				error_msg = selection_result.get('error', f'Failed to select option: {target_text}')
+				available_options = selection_result.get('availableOptions', [])
+				self.logger.error(f'❌ {error_msg}')
+				self.logger.debug(f'Available options from JavaScript: {available_options}')
 
-							# Return error result with structured memory instead of raising exception
-							return {
-								'success': 'false',
-								'error': error_msg,
-								'short_term_memory': short_term_memory,
-								'long_term_memory': long_term_memory,
-								'backend_node_id': str(index_for_logging),
-							}
+				# If available options, return structured error data
+				if available_options:
+					# Format options for short_term_memory (simple bulleted list)
+					short_term_options = []
+					for opt in available_options:
+						if isinstance(opt, dict):
+							text = opt.get('text', '').strip()
+							value = opt.get('value', '').strip()
+							if text:
+								short_term_options.append(f'- {text}')
+							elif value:
+								short_term_options.append(f'- {value}')
+						elif isinstance(opt, str):
+							short_term_options.append(f'- {opt}')
 
-					# Fallback to regular error result if no available options
-					return {
-						'success': 'false',
-						'error': error_msg,
-						'backend_node_id': str(index_for_logging),
-					}
+					if short_term_options:
+						short_term_memory = 'Available dropdown options  are:\n' + '\n'.join(short_term_options)
+						long_term_memory = (
+							f"Couldn't select the dropdown option as '{target_text}' is not one of the available options."
+						)
 
-			except Exception as e:
-				error_msg = f'Failed to select dropdown option: {str(e)}'
-				self.logger.error(error_msg)
-				raise ValueError(error_msg) from e
+						# Return error result with structured memory instead of raising exception
+						return {
+							'success': 'false',
+							'error': error_msg,
+							'short_term_memory': short_term_memory,
+							'long_term_memory': long_term_memory,
+							'backend_node_id': str(index_for_logging),
+						}
+
+				# Fallback to regular error result if no available options
+				return {
+					'success': 'false',
+					'error': error_msg,
+					'backend_node_id': str(index_for_logging),
+				}
 
 		except Exception as e:
 			error_msg = f'Failed to select dropdown option "{target_text}" for element {index_for_logging}: {str(e)}'
