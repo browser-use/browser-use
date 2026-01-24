@@ -86,6 +86,7 @@ class Mouse:
 		stealth = self._browser_session.browser_profile.stealth
 		if stealth and stealth.enabled and stealth.mouse_smoothing:
 			from browser_use.browser.stealth import BezierMouse
+
 			await BezierMouse.move(self, self._last_x, self._last_y, x, y)
 		else:
 			# TODO: Implement smooth movement with multiple steps if needed

@@ -1,13 +1,13 @@
 import asyncio
 import math
 import random
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-	from browser_use.browser.session import CDPSession
 	from browser_use.actor.mouse import Mouse
+	from browser_use.browser.session import CDPSession
 
 
 UA_STRINGS = [
