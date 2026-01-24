@@ -2199,7 +2199,7 @@ class BrowserSession(BaseModel):
 			query_result = await cdp_session.cdp_client.send.DOM.querySelector(
 				params={
 					'nodeId': root_node_id,
-					'selector': f'#{element_id}',
+					'selector': f'[id="{element_id}"]',
 				},
 				session_id=cdp_session.session_id,
 			)

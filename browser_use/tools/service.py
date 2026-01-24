@@ -962,15 +962,18 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Per ARIA spec, comboboxes reference their listbox via aria-controls or aria-owns
 			controlled_node = None
 			if node.attributes:
-				controlled_id = node.attributes.get('aria-controls') or node.attributes.get('aria-owns')
-				if controlled_id:
-					# First try the selector map (for indexed interactive elements)
-					controlled_index = await browser_session.get_index_by_id(controlled_id)
-					if controlled_index is not None:
-						controlled_node = await browser_session.get_element_by_index(controlled_index)
-					else:
+				controlled_ids_str = node.attributes.get('aria-controls') or node.attributes.get('aria-owns')
+				if controlled_ids_str:
+					for controlled_id in controlled_ids_str.split():
+						# First try the selector map (for indexed interactive elements)
+						controlled_index = await browser_session.get_index_by_id(controlled_id)
+						if controlled_index is not None:
+							controlled_node = await browser_session.get_element_by_index(controlled_index)
+							break
 						# Fallback: query DOM directly via CDP (for non-interactive portal containers)
 						controlled_node = await browser_session.get_element_by_id_via_cdp(controlled_id)
+						if controlled_node:
+							break
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
 			event = browser_session.event_bus.dispatch(GetDropdownOptionsEvent(node=node, controlled_node=controlled_node))
@@ -1003,20 +1006,25 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Per ARIA spec, comboboxes reference their listbox via aria-controls or aria-owns
 			controlled_node = None
 			if node.attributes:
-				controlled_id = node.attributes.get('aria-controls') or node.attributes.get('aria-owns')
-				if controlled_id:
-					# First try the selector map (for indexed interactive elements)
-					controlled_index = await browser_session.get_index_by_id(controlled_id)
-					if controlled_index is not None:
-						controlled_node = await browser_session.get_element_by_index(controlled_index)
-					else:
+				controlled_ids_str = node.attributes.get('aria-controls') or node.attributes.get('aria-owns')
+				if controlled_ids_str:
+					for controlled_id in controlled_ids_str.split():
+						# First try the selector map (for indexed interactive elements)
+						controlled_index = await browser_session.get_index_by_id(controlled_id)
+						if controlled_index is not None:
+							controlled_node = await browser_session.get_element_by_index(controlled_index)
+							break
 						# Fallback: query DOM directly via CDP (for non-interactive portal containers)
 						controlled_node = await browser_session.get_element_by_id_via_cdp(controlled_id)
+						if controlled_node:
+							break
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent
 
-			event = browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=params.text, controlled_node=controlled_node))
+			event = browser_session.event_bus.dispatch(
+			SelectDropdownOptionEvent(node=node, text=params.text, controlled_node=controlled_node)
+		)
 			selection_data = await event.event_result()
 
 			if not selection_data:
