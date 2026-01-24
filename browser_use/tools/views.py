@@ -16,7 +16,14 @@ class ExtractionMode(str, Enum):
 
 # Action Input Models
 class ExtractAction(BaseModel):
-	query: str
+	query: str = Field(
+		default='',
+		description='Query to answer from page content. Leave empty when using raw=True for raw content dump.',
+	)
+	raw: bool = Field(
+		default=False,
+		description='Set True to get raw structured content without LLM processing. Faster and works with any model.',
+	)
 	extract_links: bool = Field(
 		default=False, description='Set True if the query requires links/URLs, else false to save tokens'
 	)

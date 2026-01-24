@@ -653,7 +653,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page content. Use when: on right page, know what to extract, haven't called before on same page+query. Returns content with element indices [123] that correlate with browser_state for follow-up actions. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated. Mode: auto (smart filtering), full_page (everything), main_content (articles only).""",
+			"""Extract page content. Set raw=True for direct structured content (fast, no LLM). Set raw=False with query for LLM-interpreted extraction. Returns element indices [123] that correlate with browser_state. Mode: auto/full_page/main_content.""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -665,6 +665,7 @@ class Tools(Generic[Context]):
 			# Constants
 			MAX_CHAR_LIMIT = 30000
 			query = params['query'] if isinstance(params, dict) else params.query
+			raw = params['raw'] if isinstance(params, dict) else params.raw
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
 			mode = params['mode'] if isinstance(params, dict) else params.mode
@@ -734,12 +735,10 @@ class Tools(Generic[Context]):
 			# Merge truncation info into stats
 			content_stats.update(truncation_info)
 
-			# Build comprehensive stats summary for LLM context
+			# Build stats summary
 			stats_parts = [
 				f'Extracted {total_text_chars:,} chars from {section_count} sections with {total_interactive} interactive elements',
 			]
-
-			# Add extraction metadata for transparency
 			if main_content_found:
 				stats_parts.append('Main content region detected and used')
 			if start_from_char > 0:
@@ -750,6 +749,48 @@ class Tools(Generic[Context]):
 				stats_parts.append(f'Truncated at {method} → {len(content):,} chars (use start_from_char={next_char} to continue)')
 
 			stats_summary = '\n'.join(stats_parts)
+
+			# RAW MODE: Return structured content directly without LLM processing
+			if raw:
+				current_url = await browser_session.get_current_page_url()
+
+				# Build result with content and metadata
+				result_parts = [
+					f'<url>\n{current_url}\n</url>',
+					f'<stats>\n{stats_summary}\n</stats>',
+					f'<content>\n{content}\n</content>',
+				]
+
+				# Add truncation metadata if needed
+				if truncation_info.get('truncated'):
+					metadata_parts = [
+						'truncated: true',
+						f'next_start_char: {truncation_info.get("next_start_char", 0)}',
+					]
+					result_parts.append(f'<metadata>\n{chr(10).join(metadata_parts)}\n</metadata>')
+
+				extracted_content = '\n'.join(result_parts)
+
+				# Memory handling for raw mode
+				MAX_MEMORY_LENGTH = 1000
+				if len(extracted_content) < MAX_MEMORY_LENGTH:
+					memory = extracted_content
+					include_extracted_content_only_once = False
+				else:
+					file_name = await file_system.save_extracted_content(extracted_content)
+					memory = f'Raw extraction saved to {file_name} (once in <read_state>).'
+					include_extracted_content_only_once = True
+
+				logger.info(f'📄 Raw extraction: {len(content):,} chars, {total_interactive} interactive elements')
+				return ActionResult(
+					extracted_content=extracted_content,
+					include_extracted_content_only_once=include_extracted_content_only_once,
+					long_term_memory=memory,
+				)
+
+			# QUERY MODE: Use LLM to interpret the query
+			if not query:
+				return ActionResult(error='Query is required when raw=False. Use raw=True for content dump or provide a query.')
 
 			system_prompt = """
 You are an expert at extracting data from structured webpage content.
