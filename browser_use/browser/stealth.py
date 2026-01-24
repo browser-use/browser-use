@@ -50,13 +50,13 @@ class StealthService:
 
 		if self.config.navigator_webdriver:
 			tasks.append(self._patch_navigator_webdriver(session))
-		
+
 		if self.config.webgl_vendor and self.config.webgl_renderer:
 			tasks.append(self._patch_webgl(session))
-			
+
 		if self.config.nav_plugins:
 			tasks.append(self._patch_plugins(session))
-			
+
 		if self.config.nav_languages:
 			tasks.append(self._patch_languages(session))
 
@@ -115,7 +115,7 @@ class StealthService:
 			params={'source': script},
 			session_id=session.session_id,
 		)
-		
+
 	async def _patch_languages(self, session: 'CDPSession') -> None:
 		script = """
 			Object.defineProperty(navigator, 'languages', {
@@ -149,21 +149,20 @@ class BezierMouse:
 	@staticmethod
 	async def move(mouse: 'Mouse', start_x: int, start_y: int, end_x: int, end_y: int, steps: int = 10) -> None:
 		"""Move mouse from start to end using a Bezier curve."""
-		
 		# Control points for the Bezier curve
 		# Add some randomness to the control points to make it look human
 		delta_x = end_x - start_x
 		delta_y = end_y - start_y
-		
+
 		# Random control points
 		c1_x = start_x + delta_x * random.uniform(0.2, 0.4) + random.uniform(-50, 50)
 		c1_y = start_y + delta_y * random.uniform(0.1, 0.3) + random.uniform(-50, 50)
-		
+
 		c2_x = start_x + delta_x * random.uniform(0.6, 0.8) + random.uniform(-50, 50)
 		c2_y = start_y + delta_y * random.uniform(0.7, 0.9) + random.uniform(-50, 50)
-		
+
 		points = [(start_x, start_y), (c1_x, c1_y), (c2_x, c2_y), (end_x, end_y)]
-		
+
 		# Calculate path
 		path = []
 		for i in range(steps + 1):
@@ -172,7 +171,7 @@ class BezierMouse:
 			t_eased = t * t * (3 - 2 * t)
 			x, y = BezierMouse._bezier(points, t_eased)
 			path.append((int(x), int(y)))
-			
+
 		# Execute movement
 		for point in path:
 			await mouse._client.send.Input.dispatchMouseEvent(
