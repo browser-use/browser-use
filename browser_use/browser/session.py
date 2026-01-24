@@ -473,6 +473,25 @@ class BrowserSession(BaseModel):
 	def __str__(self) -> str:
 		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs}'
 
+	async def _has_extension_targets(self) -> bool:
+		"""Check if any targets are chrome-extension:// pages.
+
+		Used to decide whether to preserve CDP connection during reset/reconnect.
+		See GitHub issue #3601 for context.
+		"""
+		if not self.session_manager:
+			return False
+		try:
+			targets = self.session_manager.get_all_page_targets()
+			extension_targets = [t.url for t in targets if t.url.startswith('chrome-extension://')]
+			if extension_targets:
+				self.logger.debug(f'Found {len(extension_targets)} extension target(s): {extension_targets[:3]}')
+				return True
+			return False
+		except Exception as e:
+			self.logger.debug(f'Unable to check for extension targets: {e}')
+			return False
+
 	async def reset(self) -> None:
 		"""Clear all cached CDP sessions with proper cleanup."""
 
@@ -483,19 +502,22 @@ class BrowserSession(BaseModel):
 			f'focus: {self.agent_focus_target_id[-4:] if self.agent_focus_target_id else "None"})'
 		)
 
+		has_extensions = await self._has_extension_targets()
+
 		# Clear session manager (which owns _targets, _sessions, _target_sessions)
 		if self.session_manager:
 			await self.session_manager.clear()
 			self.session_manager = None
 
-		# Close CDP WebSocket before clearing to prevent stale event handlers
 		if self._cdp_client_root:
-			try:
-				await self._cdp_client_root.stop()
-				self.logger.debug('Closed CDP client WebSocket during reset')
-			except Exception as e:
-				self.logger.debug(f'Error closing CDP client during reset: {e}')
-
+			if has_extensions:
+				self.logger.debug('Preserving CDP connection for extension pages')
+			else:
+				try:
+					await self._cdp_client_root.stop()
+					self.logger.debug('Closed CDP client WebSocket during reset')
+				except Exception as e:
+					self.logger.debug(f'Error closing CDP client during reset: {e}')
 		self._cdp_client_root = None  # type: ignore
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
@@ -1493,15 +1515,20 @@ class BrowserSession(BaseModel):
 		if not self.cdp_url:
 			raise RuntimeError('Cannot setup CDP connection without CDP URL')
 
-		# Prevent duplicate connections - clean up existing connection first
 		if self._cdp_client_root is not None:
-			self.logger.warning(
-				'⚠️ connect() called but CDP client already exists! Cleaning up old connection before creating new one.'
-			)
-			try:
-				await self._cdp_client_root.stop()
-			except Exception as e:
-				self.logger.debug(f'Error stopping old CDP client: {e}')
+			has_extensions = await self._has_extension_targets()
+			if has_extensions:
+				self.logger.warning(
+					'⚠️ connect() called but CDP client already exists! Preserving connection for extension pages.'
+				)
+			else:
+				self.logger.warning(
+					'⚠️ connect() called but CDP client already exists! Cleaning up old connection.'
+				)
+				try:
+					await self._cdp_client_root.stop()
+				except Exception as e:
+					self.logger.debug(f'Error stopping old CDP client: {e}')
 			self._cdp_client_root = None
 
 		if not self.cdp_url.startswith('ws'):
