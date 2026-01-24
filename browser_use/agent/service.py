@@ -278,7 +278,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if browser_session is not None and demo_mode is not None and browser_session.browser_profile.demo_mode != demo_mode:
 			browser_session.browser_profile = browser_session.browser_profile.model_copy(update={'demo_mode': demo_mode})
 		if browser_session is not None and debug_highlight and not browser_session.browser_profile.debug_highlight:
-			browser_session.browser_profile = browser_session.browser_profile.model_copy(update={'debug_highlight': debug_highlight})
+			browser_session.browser_profile = browser_session.browser_profile.model_copy(
+				update={'debug_highlight': debug_highlight}
+			)
 
 		self.browser_session = browser_session or BrowserSession(
 			browser_profile=browser_profile,
