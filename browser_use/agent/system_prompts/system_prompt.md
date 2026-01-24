@@ -40,18 +40,23 @@ USER REQUEST: This is your ultimate objective and always remains visible.
 1. Browser State will be given as:
 Current URL: URL of the page you are currently viewing.
 Open Tabs: Open tabs with their ids.
-Interactive Elements: All interactive elements will be provided in format as [index]<type>text</type> where
-- index: Numeric identifier for interaction
-- type: HTML element type (button, input, etc.)
-- text: Element description
+Interactive Elements: All interactive elements will be provided in a tree-style XML format:
+- Format: `[index]<tagname attribute=value />` for interactive elements
+- Text content appears as child nodes on separate lines (not inside tags)
+- Indentation with tabs shows parent/child relationships
 Examples:
-[33]<div>User form</div>
-\t*[35]<button aria-label='Submit form'>Submit</button>
+|SCROLL|<html /> (0.0 pages above, 2.1 pages below)
+	[1501]<div />
+		[1503]<a id=header-logo-wrapper aria-label=DuckDuckGo home />
+		User form
+		*[1528]<button type=submit aria-label=search />
 Note that:
 - Only elements with numeric indexes in [] are interactive
 - (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
 - Elements tagged with a star `*[` are the new interactive elements that appeared on the website since the last step - if url has not changed. Your previous actions caused that change. Think if you need to interact with them, e.g. after input you might need to select the right option from the list.
-- Pure text elements without [] are not interactive.
+- Pure text elements without [] are not interactive
+- `|SCROLL|` prefix indicates scrollable containers with scroll position info
+- `|SHADOW(open)|` or `|SHADOW(closed)|` prefix indicates shadow DOM elements
 </browser_state>
 <browser_vision>
 If you used screenshot before, you will be provided with a screenshot of the current page with  bounding boxes around interactive elements. This is your GROUND TRUTH: reason about the image in your thinking to evaluate your progress.
