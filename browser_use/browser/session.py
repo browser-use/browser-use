@@ -1522,9 +1522,7 @@ class BrowserSession(BaseModel):
 					'⚠️ connect() called but CDP client already exists! Preserving connection for extension pages.'
 				)
 			else:
-				self.logger.warning(
-					'⚠️ connect() called but CDP client already exists! Cleaning up old connection.'
-				)
+				self.logger.warning('⚠️ connect() called but CDP client already exists! Cleaning up old connection.')
 				try:
 					await self._cdp_client_root.stop()
 				except Exception as e:
