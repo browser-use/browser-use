@@ -1023,8 +1023,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			from browser_use.browser.events import SelectDropdownOptionEvent
 
 			event = browser_session.event_bus.dispatch(
-			SelectDropdownOptionEvent(node=node, text=params.text, controlled_node=controlled_node)
-		)
+				SelectDropdownOptionEvent(node=node, text=params.text, controlled_node=controlled_node)
+			)
 			selection_data = await event.event_result()
 
 			if not selection_data:
