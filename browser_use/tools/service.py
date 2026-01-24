@@ -663,7 +663,7 @@ class Tools(Generic[Context]):
 			file_system: FileSystem,
 		):
 			# Constants
-			MAX_CHAR_LIMIT = 30000
+			MAX_CHAR_LIMIT = 100000
 			query = params['query'] if isinstance(params, dict) else params.query
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
