@@ -42,6 +42,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
+from browser_use.browser.stealth import StealthService
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
@@ -436,6 +437,7 @@ class BrowserSession(BaseModel):
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_stealth_service: StealthService | None = PrivateAttr(default=None)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
@@ -516,6 +518,7 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		self._stealth_service = None
 		if self._demo_mode:
 			self._demo_mode.reset()
 			self._demo_mode = None
@@ -548,6 +551,14 @@ class BrowserSession(BaseModel):
 		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
 		BaseWatchdog.attach_handler_to_session(self, CloseTabEvent, self.on_CloseTabEvent)
+
+		if self.browser_profile.stealth and self.browser_profile.stealth.enabled:
+			self._stealth_service = StealthService(self.browser_profile.stealth)
+
+	async def apply_stealth(self, session: 'CDPSession') -> None:
+		"""Apply stealth patches to a session."""
+		if self._stealth_service:
+			await self._stealth_service.apply_stealth(session)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
