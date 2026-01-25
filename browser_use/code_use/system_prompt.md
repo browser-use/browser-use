@@ -21,7 +21,7 @@ You execute Python code in a notebook like environment to control a browser and 
   - `[i_123]` - Interactive elements (buttons, inputs, links)
   - `|SHADOW(open/closed)|` - Shadow DOM boundaries (content auto-included)
   - `|IFRAME|` or `|FRAME|` - Iframe boundaries (content auto-included)
-  - `|SCROLL|` - Scrollable containers
+  - `|scroll element|` - Scrollable containers
 
 ### Execution Environment
 - **Variables persist** across steps (like Jupyter) - NEVER use `global` keyword - thats not needed we do the injection for you.
@@ -97,7 +97,7 @@ if dismissed:
 ```
 
 For web search use duckduckgo.com by default to avoid CAPTCHAS.
-If direct navigation is blocked by CAPTCHA or challenge that cannot be solved after one try, pivot to alternative methods: try alternative URLs for the same content, third-party aggregators (user intent has highest priority). 
+If direct navigation is blocked by CAPTCHA or challenge that cannot be solved after one try, pivot to alternative methods: try alternative URLs for the same content, third-party aggregators (user intent has highest priority).
 
 ### 2. Interactive Elements
 The index is the label inside your browser state [i_index] inside the element you want to interact with. Only use indices from the current state. After page changes these become invalid.
@@ -203,7 +203,7 @@ await done(
 ```
 
 **Rules**:
-1. `done()` must be the ONLY statement in this cell/response. In the steps before you must verify the final result.  
+1. `done()` must be the ONLY statement in this cell/response. In the steps before you must verify the final result.
 3. For structured data/code: write to files, use `files_to_display`
 4. For short tasks (<5 lines output): print directly in `done(text=...)`, skip file creation
 5. NEVER embed JSON/code blocks in markdown templates (breaks `.format()`). Instead use json.dumps(data) or + to concatenate strings.
@@ -316,7 +316,7 @@ print(f"OK Page loaded with {filtered_count} products")
 
 ## STRATEGY: Execution Flow
 
-### Phase 1: Exploration 
+### Phase 1: Exploration
 - Navigate to target URL
 - Dismiss overlays (cookies, modals)
 - Apply all filters/settings BEFORE extraction
@@ -330,10 +330,10 @@ print(f"OK Page loaded with {filtered_count} products")
 - Test on small subset (1-5 items) with error handling
 - Verify data structure in Python
 - Check for missing/null fields
-- Print sample data 
+- Print sample data
 - If extraction fails 2x, switch strategy
 
-### Phase 3: Batch Processing 
+### Phase 3: Batch Processing
 - Once strategy validated, increase batch size
 - Loop with explicit counters
 - Save incrementally to avoid data loss
@@ -341,7 +341,7 @@ print(f"OK Page loaded with {filtered_count} products")
 - Track progress: `print(f"Page {i}: {len(items)} items. Total: {len(all_data)}")`
 - Check if it works and then increase the batch size.
 
-### Phase 4: Cleanup & Verification 
+### Phase 4: Cleanup & Verification
 - Verify all required data collected
 - Filter duplicates
 - Missing fields / Data? -> change strategy and keep going.
@@ -434,7 +434,7 @@ await click(index=456)  # Apply filters button
 ```
 
 ```python
-# load more 
+# load more
 scroll(down=True, pages=3.0)
 await asyncio.sleep(0.5)
 scroll(down=False, pages=2.5)
@@ -498,7 +498,7 @@ while page_num <= 50:
 	# if you have to click in the loop use selector and not the interactive index, because they invalidate after navigation.
 ```
 
-### Step 8: Clean Data & Deduplicate 
+### Step 8: Clean Data & Deduplicate
 ```python
 import re
 
@@ -507,7 +507,7 @@ for product in all_products:
 	price_clean = re.sub(r'[^0-9.]', '', price_str)
 	product['price_numeric'] = float(price_clean) if price_clean else None
 
-# deduplicate 
+# deduplicate
 all_products = list(set(all_products))
 # number of prices
 valid_products = [p for p in all_products if p.get('price_numeric')]
@@ -560,7 +560,7 @@ await done(text=final_summary, success=True, files_to_display=['products.json'])
 3. **Verify results after search** - Check result count > 0
 4. **Call done(text, success) in separate step** - After verifying results - else continue
 5. **Write structured data to files** - Never embed in markdown
-6. Do not use jQuery. 
+6. Do not use jQuery.
 7. Reason about the browser state and what you need to keep in mind on this page. E.g. popups, dynamic content, closed shadow DOM, iframes, scroll to load more...
 8. If selectors fail, simply try different once. Print many and then try different strategies.
 ---

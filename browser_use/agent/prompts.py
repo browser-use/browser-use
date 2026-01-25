@@ -13,6 +13,17 @@ if TYPE_CHECKING:
 	from browser_use.filesystem.file_system import FileSystem
 
 
+def _is_anthropic_4_5_model(model_name: str | None) -> bool:
+	"""Check if the model is Claude Opus 4.5 or Haiku 4.5 (requires 4096+ token prompts for caching)."""
+	if not model_name:
+		return False
+	model_lower = model_name.lower()
+	# Check for Opus 4.5 or Haiku 4.5 variants
+	is_opus_4_5 = 'opus' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	is_haiku_4_5 = 'haiku' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	return is_opus_4_5 or is_haiku_4_5
+
+
 class SystemPrompt:
 	def __init__(
 		self,
@@ -23,12 +34,16 @@ class SystemPrompt:
 		flash_mode: bool = False,
 		is_anthropic: bool = False,
 		is_browser_use_model: bool = False,
+		model_name: str | None = None,
 	):
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
 		self.is_anthropic = is_anthropic
 		self.is_browser_use_model = is_browser_use_model
+		self.model_name = model_name
+		# Check if this is an Anthropic 4.5 model that needs longer prompts for caching
+		self.is_anthropic_4_5 = _is_anthropic_4_5_model(model_name)
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
@@ -53,6 +68,14 @@ class SystemPrompt:
 					template_filename = 'system_prompt_browser_use.md'
 				else:
 					template_filename = 'system_prompt_browser_use_no_thinking.md'
+			# Anthropic 4.5 models (Opus 4.5, Haiku 4.5) need 4096+ token prompts for caching
+			elif self.is_anthropic_4_5:
+				if self.flash_mode:
+					template_filename = 'system_prompt_anthropic_flash.md'
+				elif self.use_thinking:
+					template_filename = 'system_prompt_anthropic.md'
+				else:
+					template_filename = 'system_prompt_anthropic_no_thinking.md'
 			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
@@ -200,12 +223,12 @@ class AgentMessagePrompt:
 		# Extract page statistics first
 		page_stats = self._extract_page_statistics()
 
-		# Format statistics for LLM
+		# Format statistics
 		stats_text = '<page_stats>'
 		if page_stats['total_elements'] < 10:
 			stats_text += 'Page appears empty (SPA not loaded?) - '
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
-		stats_text += f'{page_stats["iframes"]} iframes, {page_stats["scroll_containers"]} scroll containers'
+		stats_text += f'{page_stats["iframes"]} iframes'
 		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
 			stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
 		if page_stats['images'] > 0:
@@ -235,18 +258,13 @@ class AgentMessagePrompt:
 			total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
 			current_page_position = pi.scroll_y / max(pi.page_height - pi.viewport_height, 1)
 			page_info_text = '<page_info>'
-			page_info_text += f'{pages_above:.1f} pages above, '
-			page_info_text += f'{pages_below:.1f} pages below, '
-			page_info_text += f'{total_pages:.1f} total pages'
+			page_info_text += f'{pages_above:.1f} above, '
+			page_info_text += f'{pages_below:.1f} below '
+
 			page_info_text += '</page_info>\n'
 			# , at {current_page_position:.0%} of page
 		if elements_text != '':
-			if has_content_above:
-				if self.browser_state.page_info:
-					pi = self.browser_state.page_info
-					pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
-					elements_text = f'... {pages_above:.1f} pages above ...\n{elements_text}'
-			else:
+			if not has_content_above:
 				elements_text = f'[Start of page]\n{elements_text}'
 			if not has_content_below:
 				elements_text = f'{elements_text}\n[End of page]'

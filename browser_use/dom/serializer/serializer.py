@@ -977,11 +977,11 @@ class DOMTreeSerializer:
 
 				if should_show_scroll and not node.is_interactive:
 					# Scrollable container but not clickable
-					line = f'{depth_str}{shadow_prefix}|SCROLL|<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}|scroll element|<{node.original_node.tag_name}'
 				elif node.is_interactive:
 					# Clickable (and possibly scrollable) - show backend_node_id
 					new_prefix = '*' if node.is_new else ''
-					scroll_prefix = '|SCROLL[' if should_show_scroll else '['
+					scroll_prefix = '|scroll element[' if should_show_scroll else '['
 					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.original_node.backend_node_id}]<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
