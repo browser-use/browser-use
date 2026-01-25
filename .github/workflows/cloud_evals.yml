@@ -20,7 +20,7 @@ jobs:
   trigger_cloud_eval_image_build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.TRIGGER_CLOUD_BUILD_GH_KEY }}
           script: |
