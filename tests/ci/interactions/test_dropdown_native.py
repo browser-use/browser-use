@@ -238,6 +238,110 @@ def http_server():
 		content_type='text/html',
 	)
 
+	# Add route for portal-based dropdown test page
+	# Simulates UIs render dropdowns in a portal (separate DOM container)
+	server.expect_request('/portal-dropdown').respond_with_data(
+		"""
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Portal Dropdown Test (Element Plus Style)</title>
+			<style>
+				.el-select {
+					position: relative;
+					display: inline-block;
+					width: 200px;
+				}
+				.el-select__input {
+					padding: 8px 12px;
+					border: 1px solid #dcdfe6;
+					border-radius: 4px;
+					width: 100%;
+					cursor: pointer;
+				}
+				/* Portal container - rendered at body level, NOT inside the combobox */
+				.el-select-dropdown {
+					position: absolute;
+					top: 50px;
+					left: 20px;
+					width: 200px;
+					border: 1px solid #e4e7ed;
+					border-radius: 4px;
+					background: white;
+					box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+					z-index: 1000;
+				}
+				.el-select-dropdown__item {
+					padding: 8px 12px;
+					cursor: pointer;
+					list-style: none;
+				}
+				.el-select-dropdown__item:hover {
+					background: #f5f7fa;
+				}
+				.el-select-dropdown__item[aria-selected="true"] {
+					background: #f5f7fa;
+					color: #409eff;
+				}
+				#result {
+					margin-top: 80px;
+					padding: 10px;
+					border: 1px solid #ddd;
+				}
+			</style>
+		</head>
+		<body>
+			<h1>Portal Dropdown Test (Element Plus Style)</h1>
+			<p>This dropdown uses aria-controls to reference a portal-rendered listbox</p>
+
+			<!-- The combobox input - what the agent typically targets -->
+			<div class="el-select">
+				<input
+					type="text"
+					class="el-select__input"
+					id="el-select-input"
+					role="combobox"
+					aria-controls="el-select-listbox"
+					aria-expanded="true"
+					aria-haspopup="listbox"
+					readonly
+					placeholder="Select an option"
+				>
+			</div>
+
+			<!-- Portal-rendered listbox - NOT a child of the combobox! -->
+			<div id="el-select-listbox" class="el-select-dropdown">
+				<ul role="listbox">
+					<li role="option" id="option-1" class="el-select-dropdown__item" aria-selected="false" onclick="selectOption(this)">Option 1</li>
+					<li role="option" id="option-2" class="el-select-dropdown__item" aria-selected="false" onclick="selectOption(this)">Option 2</li>
+					<li role="option" id="option-3" class="el-select-dropdown__item" aria-selected="false" onclick="selectOption(this)">Option 3</li>
+					<li role="option" id="option-4" class="el-select-dropdown__item" aria-selected="false" onclick="selectOption(this)">Option 4</li>
+					<li role="option" id="option-5" class="el-select-dropdown__item" aria-selected="false" onclick="selectOption(this)">Option 5</li>
+				</ul>
+			</div>
+
+			<div id="result">No selection made</div>
+
+			<script>
+				function selectOption(item) {
+					// Clear previous selection
+					document.querySelectorAll('[role="option"]').forEach(opt => {
+						opt.setAttribute('aria-selected', 'false');
+					});
+					// Set new selection
+					item.setAttribute('aria-selected', 'true');
+					// Update input value
+					document.getElementById('el-select-input').value = item.textContent.trim();
+					// Update result
+					document.getElementById('result').textContent = 'Selected: ' + item.textContent.trim();
+				}
+			</script>
+		</body>
+		</html>
+		""",
+		content_type='text/html',
+	)
+
 	yield server
 	server.stop()
 
@@ -515,3 +619,58 @@ class TestSelectDropdownOptionEvent:
 		except Exception as e:
 			# Or raise an exception
 			assert 'not found' in str(e).lower() or 'no option' in str(e).lower()
+
+
+class TestPortalDropdown:
+	"""Test portal-based dropdown support (Element Plus, Headless UI, Radix, MUI style).
+
+	These dropdowns render options in a portal (separate DOM container) and use
+	aria-controls to reference the associated listbox from the combobox.
+	"""
+
+	async def test_get_dropdown_options_with_portal(self, tools, browser_session: BrowserSession, base_url):
+		"""Test that get_dropdown_options works when options are in a portal via aria-controls."""
+		await tools.navigate(url=f'{base_url}/portal-dropdown', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+
+		# Find the combobox input (which has aria-controls pointing to the listbox)
+		combobox_index = await browser_session.get_index_by_id('el-select-input')
+		assert combobox_index is not None, 'Could not find combobox input'
+
+		# Test via tools action
+		result = await tools.dropdown_options(index=combobox_index, browser_session=browser_session)
+
+		# Verify the result - should find options in the referenced listbox
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+
+		# Verify expected options are present (they're in the portal, not in the combobox)
+		expected_options = ['Option 1', 'Option 2', 'Option 3', 'Option 4', 'Option 5']
+		for option in expected_options:
+			assert option in result.extracted_content, f"Option '{option}' not found in result content"
+
+	async def test_select_dropdown_option_with_portal(self, tools, browser_session: BrowserSession, base_url):
+		"""Test that select_dropdown_option works when options are in a portal via aria-controls."""
+		await tools.navigate(url=f'{base_url}/portal-dropdown', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+
+		# Find the combobox input (which has aria-controls pointing to the listbox)
+		combobox_index = await browser_session.get_index_by_id('el-select-input')
+		assert combobox_index is not None, 'Could not find combobox input'
+
+		# Test via tools action - select Option 2 from the portal-rendered listbox
+		result = await tools.select_dropdown(index=combobox_index, text='Option 2', browser_session=browser_session)
+
+		# Verify the result
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		assert 'Option 2' in result.extracted_content
+
+		# Verify the selection actually worked using CDP
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': "document.getElementById('result').textContent", 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		result_text = result.get('result', {}).get('value', '')
+		assert 'Option 2' in result_text, f"Expected 'Option 2' in result text, got '{result_text}'"
