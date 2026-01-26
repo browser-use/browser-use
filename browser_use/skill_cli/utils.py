@@ -40,6 +40,7 @@ def is_server_running(session: str) -> bool:
 	try:
 		pid = int(pid_path.read_text().strip())
 		import psutil
+
 		return psutil.pid_exists(pid)
 	except (OSError, ValueError):
 		# OSError: PID file unreadable/locked, ValueError: invalid PID format

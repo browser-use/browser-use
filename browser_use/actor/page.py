@@ -317,17 +317,16 @@ class Page:
 
 	async def set_content(self, html: str, timeout: float | None = None) -> None:
 		"""Set the content of the page.
-		
+
 		Args:
 			html: HTML content to set
 			timeout: Timeout in seconds (not used currently, kept for compatibility)
 		"""
-		import json
-		
+
 		# Use arrow function format required by evaluate()
 		# Pass HTML as argument to avoid escaping issues
 		js_code = '(html) => { document.open(); document.write(html); document.close(); }'
-		
+
 		await self.evaluate(js_code, html)
 
 	async def navigate(self, url: str) -> None:
