@@ -324,12 +324,11 @@ class Page:
 		"""
 		import json
 		
-		# Use document.open/write/close to set content
-		# This is robust and works across frames
-		escaped_html = json.dumps(html)
-		js_code = f'document.open(); document.write({escaped_html}); document.close();'
+		# Use arrow function format required by evaluate()
+		# Pass HTML as argument to avoid escaping issues
+		js_code = '(html) => { document.open(); document.write(html); document.close(); }'
 		
-		await self.evaluate(js_code)
+		await self.evaluate(js_code, html)
 
 	async def navigate(self, url: str) -> None:
 		"""Alias for goto."""
