@@ -315,6 +315,22 @@ class Page:
 		params: 'NavigateParameters' = {'url': url}
 		await self._client.send.Page.navigate(params, session_id=session_id)
 
+	async def set_content(self, html: str, timeout: float | None = None) -> None:
+		"""Set the content of the page.
+		
+		Args:
+			html: HTML content to set
+			timeout: Timeout in seconds (not used currently, kept for compatibility)
+		"""
+		import json
+		
+		# Use document.open/write/close to set content
+		# This is robust and works across frames
+		escaped_html = json.dumps(html)
+		js_code = f'document.open(); document.write({escaped_html}); document.close();'
+		
+		await self.evaluate(js_code)
+
 	async def navigate(self, url: str) -> None:
 		"""Alias for goto."""
 		await self.goto(url)

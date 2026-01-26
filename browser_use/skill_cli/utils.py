@@ -39,11 +39,9 @@ def is_server_running(session: str) -> bool:
 		return False
 	try:
 		pid = int(pid_path.read_text().strip())
-		# Check if process exists
-		os.kill(pid, 0)
-		return True
-	except (OSError, ValueError):
-		# Process doesn't exist or invalid PID
+		import psutil
+		return psutil.pid_exists(pid)
+	except ValueError:
 		return False
 
 
