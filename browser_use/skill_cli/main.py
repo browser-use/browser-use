@@ -204,7 +204,6 @@ Examples:
 	# open <url>
 	p = subparsers.add_parser('open', help='Navigate to URL')
 	p.add_argument('url', help='URL to navigate to')
-	p.add_argument('--headed', action='store_true', help='Show browser window')
 
 	# click <index>
 	p = subparsers.add_parser('click', help='Click element by index')

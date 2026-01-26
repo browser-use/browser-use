@@ -196,6 +196,8 @@ class TargetAllTrees:
 	ax_tree: GetFullAXTreeReturns
 	device_pixel_ratio: float
 	cdp_timing: dict[str, float]
+	js_click_listener_backend_ids: set[int] | None = None
+	"""Backend node IDs of elements with JS click/mouse event listeners (detected via CDP getEventListeners)."""
 
 
 @dataclass(slots=True)
@@ -436,6 +438,12 @@ class EnhancedDOMTreeNode:
 
 	# Compound control child components information
 	_compound_children: list[dict[str, Any]] = field(default_factory=list)
+
+	has_js_click_listener: bool = False
+	"""
+	Whether this element has JS click/mouse event listeners attached (detected via CDP getEventListeners)
+	Used to identify clicks that don't use native interactive HTML tags
+	"""
 
 	uuid: str = field(default_factory=uuid7str)
 
