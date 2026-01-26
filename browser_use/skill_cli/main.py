@@ -44,7 +44,11 @@ def is_server_running(session: str) -> bool:
 		pid = int(pid_path.read_text().strip())
 		os.kill(pid, 0)
 		return True
-	except (OSError, ValueError):
+	except OSError as e:
+		if getattr(e, 'winerror', None) == 87:
+			return False
+		return False
+	except ValueError:
 		return False
 
 
