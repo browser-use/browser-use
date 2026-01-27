@@ -673,12 +673,34 @@ class DOMTreeSerializer:
 			# For scrollable elements, ONLY make them interactive if they have no interactive descendants
 			should_make_interactive = False
 			if is_scrollable:
-				# For scrollable elements, check if they have interactive children
-				has_interactive_desc = self._has_interactive_descendants(node)
+				# Check if this is a dropdown container that needs to be indexed regardless of descendants
+				attrs = node.original_node.attributes or {}
+				role = attrs.get('role', '').lower()
+				tag_name = (node.original_node.tag_name or '').lower()
+				class_attr = attrs.get('class', '').lower()
+				class_list = class_attr.split() if class_attr else []
 
-				# Only make scrollable container interactive if it has NO interactive descendants
-				if not has_interactive_desc:
+				# Detect dropdown containers by role, tag, or class
+				is_dropdown_by_role = role in ('listbox', 'menu', 'combobox', 'menubar', 'tree', 'grid')
+				is_dropdown_by_tag = tag_name == 'select'
+				# Match common dropdown class patterns
+				is_dropdown_by_class = (
+					'dropdown' in class_list
+					or 'dropdown-menu' in class_list
+					or 'select-menu' in class_list
+					or ('ui' in class_list and 'dropdown' in class_attr)  # Semantic UI
+				)
+				is_dropdown_container = is_dropdown_by_role or is_dropdown_by_tag or is_dropdown_by_class
+
+				if is_dropdown_container:
+					# Always index dropdown containers - need to be targetable for select_dropdown
 					should_make_interactive = True
+				else:
+					# For other scrollable elements, check if they have interactive children
+					has_interactive_desc = self._has_interactive_descendants(node)
+					# Only make scrollable container interactive if it has no interactive descendants
+					if not has_interactive_desc:
+						should_make_interactive = True
 			elif is_interactive_assign and (is_visible or is_file_input or is_shadow_dom_element):
 				# Non-scrollable interactive elements: make interactive if visible (or file input or shadow DOM form element)
 				should_make_interactive = True
