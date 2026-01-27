@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import random
+
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
@@ -39,6 +41,12 @@ UploadFileEvent.model_rebuild()
 
 class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
+
+	def _sample_typing_delay(self) -> float:
+		return random.uniform(
+			self.browser_session.browser_profile.typing_delay_min,
+			self.browser_session.browser_profile.typing_delay_max,
+		)
 
 	def _is_print_related_element(self, element_node: EnhancedDOMTreeNode) -> bool:
 		"""Check if an element is related to printing (print buttons, print dialogs, etc.).
@@ -921,7 +929,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						session_id=cdp_session.session_id,
 					)
 				# Add 10ms delay between keystrokes
-				await asyncio.sleep(0.010)
+				await asyncio.sleep(self._sample_typing_delay())
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
 
@@ -1581,7 +1589,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					)
 
 					# Small delay to emulate human typing speed
-					await asyncio.sleep(0.001)
+					await asyncio.sleep(self._sample_typing_delay())
 
 					# Send char event with carriage return
 					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
@@ -1624,7 +1632,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					)
 
 					# Small delay to emulate human typing speed
-					await asyncio.sleep(0.005)
+					await asyncio.sleep(self._sample_typing_delay())
 
 					# Step 2: Send char event (WITH text parameter) - this is crucial for text input
 					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
@@ -1649,7 +1657,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					)
 
 				# Small delay between characters to look human (realistic typing speed)
-				await asyncio.sleep(0.001)
+				await asyncio.sleep(self._sample_typing_delay())
 
 			# Step 4: Trigger framework-aware DOM events after typing completion
 			# Modern JavaScript frameworks (React, Vue, Angular) rely on these events
@@ -2242,7 +2250,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						)
 
 						# Small delay between characters (10ms)
-						await asyncio.sleep(0.010)
+						await asyncio.sleep(self._sample_typing_delay())
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
