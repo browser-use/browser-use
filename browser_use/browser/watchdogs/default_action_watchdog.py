@@ -1549,6 +1549,23 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				self.logger.debug(f'🎯 Typing text character by character: "{text}"')
 
+			# Detect Draft.js editors, and prepend a "sacrifice" space so the first char isn't dropped
+
+			# Draft.js detection: Check for Draft.js-specific class names and data attributes
+			_attrs = element_node.attributes or {}
+			_class_name = _attrs.get('class', '')
+			_is_draftjs = (
+				'DraftEditor' in _class_name  # Draft.js editor class (e.g., public-DraftEditor-content)
+				or _attrs.get('data-contents') == 'true'  # Draft.js content container
+				or _attrs.get('data-block') == 'true'  # Draft.js block element
+				or 'data-offset-key' in _attrs  # Draft.js offset key for content tracking
+			)
+
+			if _is_draftjs and len(text) > 0 and clear:
+				# Prepend a space as sacrifice when clear=True (cursor at leaf start) - dropped by Draft.js
+				text = ' ' + text
+				self.logger.debug('🎯 Draft.js detected, prepending sacrifice space')
+
 			for i, char in enumerate(text):
 				# Handle newline characters as Enter key
 				if char == '\n':
