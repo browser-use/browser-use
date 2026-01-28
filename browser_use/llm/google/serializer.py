@@ -88,31 +88,36 @@ class GoogleMessageSerializer:
 			else:
 				# Extract content and create parts normally
 				if isinstance(message.content, str):
-					# Regular text content
-					message_parts = [Part.from_text(text=message.content)]
+					text_part = Part.from_text(text=message.content)
+					if isinstance(message, AssistantMessage) and message.thought_signature:
+						text_part.thought_signature = message.thought_signature
+					message_parts = [text_part]
 				elif message.content is not None:
-					# Handle Iterable of content parts
+					first_text_part_handled = False
 					for part in message.content:
 						if part.type == 'text':
-							message_parts.append(Part.from_text(text=part.text))
+							text_part = Part.from_text(text=part.text)
+							if (
+								isinstance(message, AssistantMessage)
+								and message.thought_signature
+								and not first_text_part_handled
+							):
+								text_part.thought_signature = message.thought_signature
+								first_text_part_handled = True
+							message_parts.append(text_part)
 						elif part.type == 'refusal':
 							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
 						elif part.type == 'image_url':
-							# Handle images
 							url = part.image_url.url
-
-							# Format: data:image/jpeg;base64,<data>
 							header, data = url.split(',', 1)
-							# Decode base64 to bytes
 							image_bytes = base64.b64decode(data)
-
-							# Use the media_type from ImageURL, which correctly identifies the image format
 							mime_type = part.image_url.media_type
-
-							# Add image part
 							image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
-
 							message_parts.append(image_part)
+				elif message.content is None and isinstance(message, AssistantMessage) and message.thought_signature:
+					text_part = Part.from_text(text='')
+					text_part.thought_signature = message.thought_signature
+					message_parts = [text_part]
 
 			# Create the Content object
 			if message_parts:
