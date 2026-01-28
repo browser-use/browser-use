@@ -523,6 +523,10 @@ class BrowserSession(BaseModel):
 			self._demo_mode.reset()
 			self._demo_mode = None
 
+		# Reinitialize stealth service if configured
+		if self.browser_profile.stealth and self.browser_profile.stealth.enabled:
+			self._stealth_service = StealthService(self.browser_profile.stealth)
+
 		self.logger.info('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:

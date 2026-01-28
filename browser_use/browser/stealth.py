@@ -84,14 +84,19 @@ class StealthService:
 		)
 
 	async def _patch_webgl(self, session: 'CDPSession') -> None:
+		import json
+
+		# Escape strings properly to prevent JS injection
+		vendor = json.dumps(self.config.webgl_vendor)
+		renderer = json.dumps(self.config.webgl_renderer)
 		script = f"""
 			const getParameter = WebGLRenderingContext.prototype.getParameter;
 			WebGLRenderingContext.prototype.getParameter = function(parameter) {{
 				if (parameter === 37445) {{
-					return '{self.config.webgl_vendor}';
+					return {vendor};
 				}}
 				if (parameter === 37446) {{
-					return '{self.config.webgl_renderer}';
+					return {renderer};
 				}}
 				return getParameter(parameter);
 			}};
