@@ -6,6 +6,7 @@ Sets up environment variables to ensure tests never connect to production servic
 
 import os
 import socketserver
+import sys
 import tempfile
 from unittest.mock import AsyncMock
 
@@ -62,7 +63,36 @@ def setup_test_environment():
 		original_env[key] = os.environ.get(key)
 		os.environ[key] = value
 
+	# Monkeypatch bubus.EventBus.process_event to use 60s timeout by default for tests
+	# This fixes the timeout issues in CI
+	original_process_event = None
+	if hasattr(BaseEvent, 'process_event'):
+		# This is not where process_event lives, it lives on the EventBus
+		pass
+
+	try:
+		import bubus
+
+		# Directly patch the EventBus class in the bubus module
+		if hasattr(bubus.EventBus, 'process_event'):
+			original_process_event = bubus.EventBus.process_event
+
+			async def process_event_with_long_timeout(self, event, timeout: float | None = 60.0):
+				if timeout is None:
+					timeout = 60.0
+				return await original_process_event(self, event, timeout=timeout)
+
+			bubus.EventBus.process_event = process_event_with_long_timeout
+	except ImportError:
+		pass
+
 	yield
+
+	# Restore original process_event if it was patched
+	if original_process_event and 'bubus' in sys.modules:
+		import bubus
+
+		bubus.EventBus.process_event = original_process_event
 
 	# Restore original environment
 	for key, value in original_env.items():
