@@ -298,6 +298,96 @@ class DomService:
 			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 		iframe_scroll_ms = (time.time() - start_iframe_scroll) * 1000
 
+		# Detect elements with JavaScript click event listeners (without mutating DOM)
+		start_js_listener_detection = time.time()
+		js_click_listener_backend_ids: set[int] = set()
+		try:
+			# Step 1: Run JS to find elements with click listeners and return them by reference
+			js_listener_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': """
+					(() => {
+						// getEventListeners is only available in DevTools context via includeCommandLineAPI
+						if (typeof getEventListeners !== 'function') {
+							return null;
+						}
+
+						const elementsWithListeners = [];
+						const allElements = document.querySelectorAll('*');
+
+						for (const el of allElements) {
+							try {
+								const listeners = getEventListeners(el);
+								// Check for click-related event listeners
+								if (listeners.click || listeners.mousedown || listeners.mouseup || listeners.pointerdown || listeners.pointerup) {
+									elementsWithListeners.push(el);
+								}
+							} catch (e) {
+								// Ignore errors for individual elements (e.g., cross-origin)
+							}
+						}
+
+						return elementsWithListeners;
+					})()
+					""",
+					'includeCommandLineAPI': True,  # enables getEventListeners()
+					'returnByValue': False,  # Return object references, not values
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			result_object_id = js_listener_result.get('result', {}).get('objectId')
+			if result_object_id:
+				# Step 2: Get array properties to access each element
+				array_props = await cdp_session.cdp_client.send.Runtime.getProperties(
+					params={
+						'objectId': result_object_id,
+						'ownProperties': True,
+					},
+					session_id=cdp_session.session_id,
+				)
+
+				# Step 3: For each element, get its backend node ID via DOM.describeNode
+				element_object_ids: list[str] = []
+				for prop in array_props.get('result', []):
+					# Array indices are numeric property names
+					prop_name = prop.get('name', '') if isinstance(prop, dict) else ''
+					if isinstance(prop_name, str) and prop_name.isdigit():
+						prop_value = prop.get('value', {}) if isinstance(prop, dict) else {}
+						if isinstance(prop_value, dict):
+							object_id = prop_value.get('objectId')
+							if object_id and isinstance(object_id, str):
+								element_object_ids.append(object_id)
+
+				# Batch resolve backend node IDs (run in parallel)
+				async def get_backend_node_id(object_id: str) -> int | None:
+					try:
+						node_info = await cdp_session.cdp_client.send.DOM.describeNode(
+							params={'objectId': object_id},
+							session_id=cdp_session.session_id,
+						)
+						return node_info.get('node', {}).get('backendNodeId')
+					except Exception:
+						return None
+
+				# Resolve all element object IDs to backend node IDs in parallel
+				backend_ids = await asyncio.gather(*[get_backend_node_id(oid) for oid in element_object_ids])
+				js_click_listener_backend_ids = {bid for bid in backend_ids if bid is not None}
+
+				# Release the array object to avoid memory leaks
+				try:
+					await cdp_session.cdp_client.send.Runtime.releaseObject(
+						params={'objectId': result_object_id},
+						session_id=cdp_session.session_id,
+					)
+				except Exception:
+					pass  # Best effort cleanup
+
+				self.logger.debug(f'Detected {len(js_click_listener_backend_ids)} elements with JS click listeners')
+		except Exception as e:
+			self.logger.debug(f'Failed to detect JS event listeners: {e}')
+		js_listener_detection_ms = (time.time() - start_js_listener_detection) * 1000
+
 		# Define CDP request factories to avoid duplication
 		def create_snapshot_request():
 			return cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
@@ -415,9 +505,11 @@ class DomService:
 			device_pixel_ratio=device_pixel_ratio,
 			cdp_timing={
 				'iframe_scroll_detection_ms': iframe_scroll_ms,
+				'js_listener_detection_ms': js_listener_detection_ms,
 				'cdp_parallel_calls_ms': cdp_calls_ms,
 				'snapshot_processing_ms': snapshot_processing_ms,
 			},
+			js_click_listener_backend_ids=js_click_listener_backend_ids if js_click_listener_backend_ids else None,
 		)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_dom_tree')
@@ -455,6 +547,7 @@ class DomService:
 		ax_tree = trees.ax_tree
 		snapshot = trees.snapshot
 		device_pixel_ratio = trees.device_pixel_ratio
+		js_click_listener_backend_ids = trees.js_click_listener_backend_ids or set()
 
 		# Build AX tree lookup
 		start_ax = time.time()
@@ -579,6 +672,7 @@ class DomService:
 				ax_node=enhanced_ax_node,
 				snapshot_node=snapshot_data,
 				is_visible=None,
+				has_js_click_listener=node['backendNodeId'] in js_click_listener_backend_ids,
 				absolute_position=absolute_position,
 			)
 

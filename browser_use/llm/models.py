@@ -8,7 +8,7 @@ Usage:
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
     model = llm.google_gemini_2_5_pro
-    model = llm.bu_latest
+    model = llm.bu_latest  # or bu_1_0, bu_2_0
 """
 
 import os
@@ -83,6 +83,7 @@ cerebras_qwen_3_coder_480b: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
+bu_2_0: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -311,6 +312,7 @@ __all__ += [
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',
+	'bu_2_0',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required

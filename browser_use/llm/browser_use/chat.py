@@ -59,6 +59,7 @@ class ChatBrowserUse(BaseChatModel):
 		Args:
 			model: Model name to use. Options:
 				- 'bu-latest' or 'bu-1-0': Default model
+				- 'bu-2-0': Latest premium model
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
