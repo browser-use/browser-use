@@ -12,8 +12,11 @@ icon: "microchip-ai"
 ```python
 from browser_use import Agent, ChatBrowserUse
 
-# Initialize the model
+# Initialize the model (defaults to bu-latest)
 llm = ChatBrowserUse()
+
+# Or use the premium model
+llm = ChatBrowserUse(model='bu-2-0')
 
 # Create agent with the model
 agent = Agent(
@@ -30,15 +33,30 @@ BROWSER_USE_API_KEY=
 
 Get your API key from the [Browser Use Cloud](https://cloud.browser-use.com/new-api-key). New signups get \$10 free credit via OAuth or \$1 via email.
 
+#### Available Models
+
+- `bu-latest` or `bu-1-0`: Default model
+- `bu-2-0`: Latest premium model with improved capabilities
+
 #### Pricing
 
-ChatBrowserUse offers the best pricing per 1 million tokens:
+ChatBrowserUse offers competitive pricing per 1 million tokens:
+
+**bu-1-0 / bu-latest (Default)**
 
 | Token Type | Price per 1M tokens |
 |------------|---------------------|
 | Input tokens | $0.20 |
 | Cached tokens | $0.02 |
 | Output tokens | $2.00 |
+
+**bu-2-0 (Premium)**
+
+| Token Type | Price per 1M tokens |
+|------------|---------------------|
+| Input tokens | $0.60 |
+| Cached tokens | $0.06 |
+| Output tokens | $3.50 |
 
 
 ### Google Gemini [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gemini.py)

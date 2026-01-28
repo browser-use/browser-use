@@ -1276,6 +1276,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			screenshot_paths=screenshot_paths,
 			max_images=10,
 			ground_truth=self.settings.ground_truth,
+			use_vision=self.settings.use_vision,
 		)
 
 		# Call LLM with JudgementResult as output format

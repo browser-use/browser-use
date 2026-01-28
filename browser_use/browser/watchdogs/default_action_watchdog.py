@@ -1549,6 +1549,23 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				self.logger.debug(f'🎯 Typing text character by character: "{text}"')
 
+			# Detect Draft.js editors, and prepend a "sacrifice" space so the first char isn't dropped
+
+			# Draft.js detection: Check for Draft.js-specific class names and data attributes
+			_attrs = element_node.attributes or {}
+			_class_name = _attrs.get('class', '')
+			_is_draftjs = (
+				'DraftEditor' in _class_name  # Draft.js editor class (e.g., public-DraftEditor-content)
+				or _attrs.get('data-contents') == 'true'  # Draft.js content container
+				or _attrs.get('data-block') == 'true'  # Draft.js block element
+				or 'data-offset-key' in _attrs  # Draft.js offset key for content tracking
+			)
+
+			if _is_draftjs and len(text) > 0 and clear:
+				# Prepend a space as sacrifice when clear=True (cursor at leaf start) - dropped by Draft.js
+				text = ' ' + text
+				self.logger.debug('🎯 Draft.js detected, prepending sacrifice space')
+
 			for i, char in enumerate(text):
 				# Handle newline characters as Enter key
 				if char == '\n':
@@ -2382,7 +2399,42 @@ class DefaultActionWatchdog(BaseWatchdog):
 			except Exception as e:
 				raise ValueError(f'Failed to resolve node to object: {e}') from e
 
-			# Use JavaScript to extract dropdown options
+			# Check if this is an ARIA combobox that needs expansion
+			# ARIA comboboxes have options in a separate element referenced by aria-controls
+			check_combobox_script = """
+			function() {
+				const element = this;
+				const role = element.getAttribute('role');
+				const ariaControls = element.getAttribute('aria-controls');
+				const ariaExpanded = element.getAttribute('aria-expanded');
+				
+				if (role === 'combobox' && ariaControls) {
+					return {
+						isCombobox: true,
+						ariaControls: ariaControls,
+						isExpanded: ariaExpanded === 'true',
+						tagName: element.tagName.toLowerCase()
+					};
+				}
+				return { isCombobox: false };
+			}
+			"""
+
+			combobox_check = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': check_combobox_script,
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			combobox_info = combobox_check.get('result', {}).get('value', {})
+
+			# If it's an ARIA combobox with aria-controls, handle it specially
+			if combobox_info.get('isCombobox'):
+				return await self._handle_aria_combobox_options(cdp_session, object_id, combobox_info, index_for_logging)
+
+			# Use JavaScript to extract dropdown options (existing logic for non-combobox elements)
 			options_script = """
 			function() {
 				const startElement = this;
@@ -2405,9 +2457,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 						};
 					}
 
-					// Check if it's an ARIA dropdown/menu
+					// Check if it's an ARIA dropdown/menu (not combobox - handled separately)
 					const role = element.getAttribute('role');
-					if (role === 'menu' || role === 'listbox' || role === 'combobox') {
+					if (role === 'menu' || role === 'listbox') {
 						// Find all menu items/options
 						const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
 						const options = [];
@@ -2587,6 +2639,209 @@ class DefaultActionWatchdog(BaseWatchdog):
 				message=error_msg, long_term_memory=f'Failed to get dropdown options for index {index_for_logging}.'
 			)
 
+	async def _handle_aria_combobox_options(
+		self,
+		cdp_session,
+		object_id: str,
+		combobox_info: dict,
+		index_for_logging: int | str,
+	) -> dict[str, str]:
+		"""Handle ARIA combobox elements with options in a separate listbox element.
+
+		ARIA comboboxes (role="combobox") have options in a separate element referenced
+		by aria-controls. Options may only be rendered when the combobox is expanded.
+
+		This method:
+		1. Expands the combobox if collapsed (by clicking/focusing it)
+		2. Waits for options to render
+		3. Finds options in the aria-controls referenced element
+		4. Collapses the combobox after extracting options
+		"""
+		aria_controls_id = combobox_info.get('ariaControls')
+		was_expanded = combobox_info.get('isExpanded', False)
+
+		# If combobox is collapsed, expand it first to trigger option rendering
+		if not was_expanded:
+			# Use more robust expansion: dispatch proper DOM events that trigger event listeners
+			expand_script = """
+			function() {
+				const element = this;
+				
+				// Dispatch focus event properly
+				const focusEvent = new FocusEvent('focus', { bubbles: true, cancelable: true });
+				element.dispatchEvent(focusEvent);
+				
+				// Also call native focus
+				element.focus();
+				
+				// Dispatch focusin event (bubbles, unlike focus)
+				const focusInEvent = new FocusEvent('focusin', { bubbles: true, cancelable: true });
+				element.dispatchEvent(focusInEvent);
+				
+				// For some comboboxes, a click is needed
+				const clickEvent = new MouseEvent('click', {
+					bubbles: true,
+					cancelable: true,
+					view: window
+				});
+				element.dispatchEvent(clickEvent);
+				
+				// Some comboboxes respond to mousedown
+				const mousedownEvent = new MouseEvent('mousedown', {
+					bubbles: true,
+					cancelable: true,
+					view: window
+				});
+				element.dispatchEvent(mousedownEvent);
+				
+				return {
+					success: true,
+					ariaExpanded: element.getAttribute('aria-expanded')
+				};
+			}
+			"""
+			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': expand_script,
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			await asyncio.sleep(0.5)
+
+		# Now extract options from the aria-controls referenced element
+		extract_options_script = """
+		function(ariaControlsId) {
+			const combobox = this;
+			
+			// Find the listbox element referenced by aria-controls
+			const listbox = document.getElementById(ariaControlsId);
+			
+			if (!listbox) {
+				return {
+					error: `Could not find listbox element with id "${ariaControlsId}" referenced by aria-controls`,
+					ariaControlsId: ariaControlsId
+				};
+			}
+			
+			// Find all option elements in the listbox
+			const optionElements = listbox.querySelectorAll('[role="option"]');
+			const options = [];
+			
+			optionElements.forEach((item, idx) => {
+				const text = item.textContent ? item.textContent.trim() : '';
+				if (text) {
+					options.push({
+						text: text,
+						value: item.getAttribute('data-value') || item.getAttribute('value') || text,
+						index: idx,
+						selected: item.getAttribute('aria-selected') === 'true' || item.classList.contains('selected')
+					});
+				}
+			});
+			
+			// If no options with role="option", try other common patterns
+			if (options.length === 0) {
+				// Try li elements inside
+				const liElements = listbox.querySelectorAll('li');
+				liElements.forEach((item, idx) => {
+					const text = item.textContent ? item.textContent.trim() : '';
+					if (text) {
+						options.push({
+							text: text,
+							value: item.getAttribute('data-value') || item.getAttribute('value') || text,
+							index: idx,
+							selected: item.getAttribute('aria-selected') === 'true' || item.classList.contains('selected')
+						});
+					}
+				});
+			}
+			
+			return {
+				type: 'aria-combobox',
+				options: options,
+				id: combobox.id || '',
+				name: combobox.getAttribute('aria-label') || combobox.getAttribute('name') || '',
+				listboxId: ariaControlsId,
+				source: 'aria-controls'
+			};
+		}
+		"""
+
+		result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+			params={
+				'functionDeclaration': extract_options_script,
+				'objectId': object_id,
+				'arguments': [{'value': aria_controls_id}],
+				'returnByValue': True,
+			},
+			session_id=cdp_session.session_id,
+		)
+
+		dropdown_data = result.get('result', {}).get('value', {})
+
+		# Collapse the combobox if we expanded it (blur to close)
+		if not was_expanded:
+			collapse_script = """
+			function() {
+				this.blur();
+				// Also dispatch escape key to close dropdowns
+				const escEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+				this.dispatchEvent(escEvent);
+				return true;
+			}
+			"""
+			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': collapse_script,
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+		# Handle errors
+		if dropdown_data.get('error'):
+			raise BrowserError(message=dropdown_data['error'], long_term_memory=dropdown_data['error'])
+
+		if not dropdown_data.get('options'):
+			msg = f'No options found in ARIA combobox at index {index_for_logging} (listbox: {aria_controls_id})'
+			return {
+				'error': msg,
+				'short_term_memory': msg,
+				'long_term_memory': msg,
+				'backend_node_id': str(index_for_logging),
+			}
+
+		# Format options for display
+		formatted_options = []
+		for opt in dropdown_data['options']:
+			encoded_text = json.dumps(opt['text'])
+			status = ' (selected)' if opt.get('selected') else ''
+			formatted_options.append(f'{opt["index"]}: text={encoded_text}, value={json.dumps(opt["value"])}{status}')
+
+		dropdown_type = dropdown_data.get('type', 'aria-combobox')
+		element_info = f'Index: {index_for_logging}, Type: {dropdown_type}, ID: {dropdown_data.get("id", "none")}, Name: {dropdown_data.get("name", "none")}'
+		source_info = f'aria-controls → {aria_controls_id}'
+
+		msg = f'Found {dropdown_type} dropdown ({element_info}):\n' + '\n'.join(formatted_options)
+		msg += f'\n\nUse the exact text or value string (without quotes) in select_dropdown(index={index_for_logging}, text=...)'
+
+		self.logger.info(f'📋 Found {len(dropdown_data["options"])} options in ARIA combobox at index {index_for_logging}')
+
+		return {
+			'type': dropdown_type,
+			'options': json.dumps(dropdown_data['options']),
+			'element_info': element_info,
+			'source': source_info,
+			'formatted_options': '\n'.join(formatted_options),
+			'message': msg,
+			'short_term_memory': msg,
+			'long_term_memory': f'Got dropdown options for ARIA combobox at index {index_for_logging}',
+			'backend_node_id': str(index_for_logging),
+		}
+
 	async def on_SelectDropdownOptionEvent(self, event: SelectDropdownOptionEvent) -> dict[str, str]:
 		"""Handle select dropdown option request with CDP."""
 		try:
@@ -2629,13 +2884,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 								// Match against both text and value (case-insensitive)
 								if (optionTextLower === targetTextLower || optionValueLower === targetTextLower) {
+									const expectedValue = option.value;
+
 									// Focus the element FIRST (important for Svelte/Vue/React and other reactive frameworks)
 									// This simulates the user focusing on the dropdown before changing it
 									element.focus();
 
-									// Then set the value
-									element.value = option.value;
+									// Then set the value using multiple methods for maximum compatibility
+									element.value = expectedValue;
 									option.selected = true;
+									element.selectedIndex = option.index;
 
 									// Trigger all necessary events for reactive frameworks
 									// 1. input event - critical for Vue's v-model and Svelte's bind:value
@@ -2648,6 +2906,25 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 									// 3. blur event - completes the interaction, triggers validation
 									element.blur();
+
+									// Verification: Check if the selection actually stuck (avoid intercepting and resetting the value)
+									if (element.value !== expectedValue) {
+										// Selection was reverted - need to try clicking instead
+										return {
+											success: false,
+											error: `Selection was set but reverted by page framework. The dropdown may require clicking.`,
+											selectionReverted: true,
+											targetOption: {
+												text: option.text.trim(),
+												value: expectedValue,
+												index: option.index
+											},
+											availableOptions: Array.from(element.options).map(opt => ({
+												text: opt.text.trim(),
+												value: opt.value
+											}))
+										};
+									}
 
 									return {
 										success: true,
@@ -2832,6 +3109,90 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 
 				selection_result = result.get('result', {}).get('value', {})
+
+				# Check if selection was reverted by framework - try clicking as fallback
+				if selection_result.get('selectionReverted'):
+					self.logger.info('⚠️ Selection was reverted by page framework, trying click fallback...')
+					target_option = selection_result.get('targetOption', {})
+					option_index = target_option.get('index', 0)
+
+					# Try clicking on the option element directly
+					click_fallback_script = """
+					function(optionIndex) {
+						const select = this;
+						if (select.tagName.toLowerCase() !== 'select') return { success: false, error: 'Not a select element' };
+
+						const option = select.options[optionIndex];
+						if (!option) return { success: false, error: 'Option not found at index ' + optionIndex };
+
+						// Method 1: Try using the native selectedIndex setter with a small delay
+						const originalValue = select.value;
+
+						// Simulate opening the dropdown (some frameworks need this)
+						select.focus();
+						const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
+						select.dispatchEvent(mouseDown);
+
+						// Set using selectedIndex (more reliable for some frameworks)
+						select.selectedIndex = optionIndex;
+
+						// Click the option
+						option.selected = true;
+						const optionClick = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+						option.dispatchEvent(optionClick);
+
+						// Close dropdown
+						const mouseUp = new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window });
+						select.dispatchEvent(mouseUp);
+
+						// Fire change event
+						const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+						select.dispatchEvent(changeEvent);
+
+						// Blur to finalize
+						select.blur();
+
+						// Verify
+						if (select.value === option.value || select.selectedIndex === optionIndex) {
+							return {
+								success: true,
+								message: 'Selected via click fallback: ' + option.text.trim(),
+								value: option.value
+							};
+						}
+
+						return {
+							success: false,
+							error: 'Click fallback also failed - framework may block all programmatic selection',
+							finalValue: select.value,
+							expectedValue: option.value
+						};
+					}
+					"""
+
+					fallback_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': click_fallback_script,
+							'arguments': [{'value': option_index}],
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=cdp_session.session_id,
+					)
+
+					fallback_data = fallback_result.get('result', {}).get('value', {})
+					if fallback_data.get('success'):
+						msg = fallback_data.get('message', f'Selected option via click: {target_text}')
+						self.logger.info(f'✅ {msg}')
+						return {
+							'success': 'true',
+							'message': msg,
+							'value': fallback_data.get('value', target_text),
+							'backend_node_id': str(index_for_logging),
+						}
+					else:
+						self.logger.warning(f'⚠️ Click fallback also failed: {fallback_data.get("error", "unknown")}')
+						# Continue to error handling below
 
 				if selection_result.get('success'):
 					msg = selection_result.get('message', f'Selected option: {target_text}')
