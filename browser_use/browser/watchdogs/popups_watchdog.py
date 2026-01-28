@@ -37,8 +37,8 @@ class PopupsWatchdog(BaseWatchdog):
 		self.logger.debug(f'📌 Starting dialog handler setup for target {target_id}')
 		try:
 			# Get all CDP sessions for this target and any child frames
-			cdp_session = await self.browser_session.get_or_create_cdp_session(
-				target_id, focus=False
+			cdp_session = await asyncio.wait_for(
+				self.browser_session.get_or_create_cdp_session(target_id, focus=False), timeout=2.0
 			)  # don't auto-focus new tabs! sometimes we need to open tabs in background
 
 			# CRITICAL: Enable Page domain to receive dialog events
