@@ -2153,6 +2153,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_steps: int = 100,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
+		close_on_finish: bool = True,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Execute the task with maximum number of steps"""
 
@@ -2356,7 +2357,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Configurable via TIMEOUT_AgentEventBusStop env var (default: 3.0s)
 			await self.eventbus.stop(timeout=_get_timeout('TIMEOUT_AgentEventBusStop', 3.0))
 
-			await self.close()
+			if close_on_finish:
+				await self.close()
 
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
@@ -3647,11 +3649,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_steps: int = 100,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
+		close_on_finish: bool = True,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Synchronous wrapper around the async run method for easier usage without asyncio."""
 		import asyncio
 
-		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
+		return asyncio.run(
+			self.run(
+				max_steps=max_steps,
+				on_step_start=on_step_start,
+				on_step_end=on_step_end,
+				close_on_finish=close_on_finish,
+			)
+		)
 
 	def detect_variables(self) -> dict[str, DetectedVariable]:
 		"""Detect reusable variables in agent history"""
