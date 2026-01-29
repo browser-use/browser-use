@@ -406,6 +406,46 @@ class BrowserSession(BaseModel):
 			self._demo_mode = DemoMode(self)
 		return self._demo_mode
 
+	@property
+	def download_manager(self):
+		"""Lazy init download manager."""
+		if self._download_manager is None:
+			from browser_use.browser.download_manager import DownloadManager
+
+			self._download_manager = DownloadManager(self)
+		return self._download_manager
+
+	# DOWNLOAD WRAPPER METHODS - delegate to DownloadManager
+	async def download_via_browser_fetch(
+		self,
+		target_id: str,
+		url: str | None = None,
+		filename: str | None = None,
+		use_cache: bool = True,
+		avoid_duplicates: bool = False,
+		timeout: float = 10.0,
+	) -> str | None:
+		"""Download file via browser fetch - delegates to DownloadManager."""
+		return await self.download_manager.download_via_browser_fetch(
+			target_id, url, filename, use_cache, avoid_duplicates, timeout
+		)
+
+	async def download_via_direct_http_with_tracking(self, url: str, filename: str) -> None:
+		"""Download file via direct HTTP with tracking - delegates to DownloadManager."""
+		return await self.download_manager.download_via_direct_http_with_tracking(url, filename)
+
+	def add_active_download(self, url: str, filename: str):
+		"""Track active download - delegates to DownloadManager."""
+		return self.download_manager.add_active_download(url, filename)
+
+	def remove_active_download(self, url: str):
+		"""Remove active download - delegates to DownloadManager."""
+		return self.download_manager.remove_active_download(url)
+
+	def add_failed_download(self, url: str, filename: str, error: str):
+		"""Track failed download - delegates to DownloadManager."""
+		return self.download_manager.add_failed_download(url, filename, error)
+
 	# Main shared event bus for all browser session + all watchdogs
 	event_bus: EventBus = Field(default_factory=EventBus)
 
@@ -415,6 +455,9 @@ class BrowserSession(BaseModel):
 	# Mutable private state shared between watchdogs
 	_cdp_client_root: CDPClient | None = PrivateAttr(default=None)
 	_connection_lock: Any = PrivateAttr(default=None)  # asyncio.Lock for preventing concurrent connections
+	_active_downloads: dict[str, dict] = PrivateAttr(default_factory=dict)  # url -> {filename, start_time}
+	_failed_downloads: list[dict] = PrivateAttr(default_factory=list)  # Track failed downloads
+	_download_manager: Any = PrivateAttr(default=None)  # DownloadManager instance
 
 	# PUBLIC: SessionManager instance (OWNS all targets and sessions)
 	session_manager: Any = Field(default=None, exclude=True)  # SessionManager
@@ -500,6 +543,11 @@ class BrowserSession(BaseModel):
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
+
+		# Clear download tracking state
+		self._active_downloads.clear()
+		self._failed_downloads.clear()
+		self._download_manager = None
 
 		self.agent_focus_target_id = None
 		if self.is_local:
@@ -1385,6 +1433,8 @@ class BrowserSession(BaseModel):
 		self._downloads_watchdog.attach_to_session()
 		if self.browser_profile.auto_download_pdfs:
 			self.logger.debug('📄 PDF auto-download enabled for this session')
+		if self.browser_profile.download_from_remote_browser:
+			self.logger.info('📡 Remote browser downloads enabled - using HTTP client for downloads')
 
 		# Initialize StorageStateWatchdog conditionally
 		# Enable when user provides either storage_state or user_data_dir (indicating they want persistence)
@@ -3543,3 +3593,13 @@ class BrowserSession(BaseModel):
 			'width': max(content[0], content[2], content[4], content[6]) - min(content[0], content[2], content[4], content[6]),
 			'height': max(content[1], content[3], content[5], content[7]) - min(content[1], content[3], content[5], content[7]),
 		}
+
+	@property
+	def failed_downloads(self) -> list[dict]:
+		"""Get all failed downloads with age info - delegates to DownloadManager."""
+		return self.download_manager.failed_downloads
+
+	@property
+	def active_downloads(self) -> list[dict]:
+		"""Get list of currently active downloads - delegates to DownloadManager."""
+		return self.download_manager.active_downloads
