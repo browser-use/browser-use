@@ -729,18 +729,27 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Setup dynamic action models from tools registry"""
 		# Initially only include actions with no filters
 		self.ActionModel = self.tools.registry.create_action_model()
+
+		# Gemini 3 uses native thinking via thought signatures instead of schema thinking
+		self._is_gemini_3: bool = getattr(self.llm, 'is_gemini_3', False)
+		self._last_thought_signature: bytes | None = None
+
 		# Create output model with the dynamic actions
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+		elif self._is_gemini_3:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 		elif self.settings.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 		else:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
-		# used to force the done action when max_steps is reached
+		# Used to force the done action when max_steps is reached
 		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'])
 		if self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
+		elif self._is_gemini_3:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
 		elif self.settings.use_thinking:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:
@@ -1065,6 +1074,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
+
+		# Gemini 3: inject thought signature from previous turn for reasoning continuity
+		if self._is_gemini_3 and self._last_thought_signature:
+			from browser_use.llm.messages import AssistantMessage
+
+			thought_signature_msg = AssistantMessage(content='', thought_signature=self._last_thought_signature)
+			input_messages.insert(-1, thought_signature_msg)
+
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
@@ -1610,6 +1627,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
+
+			# Gemini 3: transfer native thinking and store signature for next turn
+			if self._is_gemini_3:
+				if response.thinking:
+					parsed.thinking = response.thinking
+				if response.thought_signature:
+					self._last_thought_signature = response.thought_signature
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
@@ -3607,20 +3631,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update action models with page-specific actions"""
-		# Create new action model with current page's filtered actions
 		self.ActionModel = self.tools.registry.create_action_model(page_url=page_url)
-		# Update output model with the new actions
+
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+		elif getattr(self, '_is_gemini_3', False):
+			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 		elif self.settings.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 		else:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
-		# Update done action model too
 		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'], page_url=page_url)
 		if self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
+		elif getattr(self, '_is_gemini_3', False):
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
 		elif self.settings.use_thinking:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:
