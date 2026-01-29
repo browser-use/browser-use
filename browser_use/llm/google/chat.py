@@ -288,19 +288,25 @@ class ChatGoogle(BaseChatModel):
 
 			# Map to ThinkingLevel enum (SDK accepts string values)
 			level = types.ThinkingLevel(self.thinking_level.upper())
-			config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+			config['thinking_config'] = types.ThinkingConfigDict(
+				thinking_level=level, include_thoughts=True
+			)
 		elif is_gemini_3_flash:
 			# Gemini 3 Flash supports both thinking_level and thinking_budget
 			# If user set thinking_level, use that; otherwise default to thinking_budget=-1
 			if self.thinking_level is not None:
 				level = types.ThinkingLevel(self.thinking_level.upper())
-				config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+				config['thinking_config'] = types.ThinkingConfigDict(
+					thinking_level=level, include_thoughts=True
+				)
 			else:
 				if self.thinking_budget is None:
 					self.thinking_budget = -1
-				config['thinking_config'] = types.ThinkingConfigDict(thinking_budget=self.thinking_budget)
+				config['thinking_config'] = types.ThinkingConfigDict(
+					thinking_budget=self.thinking_budget, include_thoughts=True
+				)
 		else:
-			# Gemini 2.5 and earlier: use thinking_budget only
+			# Gemini 2.5 and earlier: use thinking_budget only (no include_thoughts support)
 			if self.thinking_level is not None:
 				self.logger.warning(
 					f'thinking_level="{self.thinking_level}" is not supported for this model. '
