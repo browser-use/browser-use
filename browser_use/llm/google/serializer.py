@@ -5,6 +5,7 @@ from google.genai.types import Content, ContentListUnion, Part
 from browser_use.llm.messages import (
 	AssistantMessage,
 	BaseMessage,
+	ContentPartTextParam,
 	SystemMessage,
 	UserMessage,
 )
@@ -94,7 +95,16 @@ class GoogleMessageSerializer:
 					# Handle Iterable of content parts
 					for part in message.content:
 						if part.type == 'text':
-							message_parts.append(Part.from_text(text=part.text))
+							# Use Part() directly to include thought_signature if present (Gemini 3)
+							if isinstance(part, ContentPartTextParam) and part.thought_signature is not None:
+								message_parts.append(
+									Part(
+										text=part.text,
+										thought_signature=part.thought_signature,
+									)
+								)
+							else:
+								message_parts.append(Part.from_text(text=part.text))
 						elif part.type == 'refusal':
 							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
 						elif part.type == 'image_url':
