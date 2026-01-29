@@ -1,16 +1,38 @@
+from enum import Enum
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ExtractionMode(str, Enum):
+	"""Extraction mode determines what content is prioritized."""
+
+	AUTO = 'auto'  # Automatic - detect main content, include forms
+	FULL_PAGE = 'full_page'  # Everything visible (legacy behavior)
+	MAIN_CONTENT = 'main_content'  # Only main/article content regions
+	INTERACTIVE = 'interactive'  # Focus on forms, inputs, buttons
+	STRUCTURED = 'structured'  # Tables, lists, structured data
+
+
 # Action Input Models
 class ExtractAction(BaseModel):
-	query: str
+	query: str = Field(
+		default='',
+		description='Query to answer from page content. Leave empty when using raw=True for raw content dump.',
+	)
+	raw: bool = Field(
+		default=False,
+		description='Set True to get raw structured content without LLM processing. Faster and works with any model.',
+	)
 	extract_links: bool = Field(
-		default=False, description='Set True to true if the query requires links, else false to safe tokens'
+		default=False, description='Set True if the query requires links/URLs, else false to save tokens'
 	)
 	start_from_char: int = Field(
 		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
+	)
+	mode: ExtractionMode = Field(
+		default=ExtractionMode.AUTO,
+		description='Extraction mode: auto (smart filtering), full_page (everything), main_content (articles only), interactive (forms/buttons), structured (tables/lists)',
 	)
 
 
