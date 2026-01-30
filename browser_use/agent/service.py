@@ -1256,35 +1256,66 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.AgentOutput = self.DoneAgentOutput
 
 	async def _check_for_action_loop(self) -> None:
-		"""Check if the agent is stuck in a loop repeating the same action on the same element."""
-		LOOP_THRESHOLD = 3
-		LOOP_WINDOW = 5
+		"""Check if the agent is stuck in a loop repeating the same action.
 
-		recent_history = self.history.history[-LOOP_WINDOW:]
-		if len(recent_history) < LOOP_THRESHOLD:
-			return
+		Two-tier detection:
+		 1. Exact match: same (action_type, element_index) repeated ≥3 times in last 5 steps.
+		    Catches: scroll loops, same-button retry.
+		 2. Page-stuck match: same (action_type, page_url) with *different* element indices
+		    repeated ≥4 times in last 6 steps.
+		    Catches: Cloudflare checkbox loops, dynamic-DOM click/input retry.
+		"""
+		EXACT_THRESHOLD = 3
+		EXACT_WINDOW = 5
+		PAGE_THRESHOLD = 4
+		PAGE_WINDOW = 6
+		SKIP_ACTIONS = frozenset(('wait', 'done'))
 
-		signature_counts: Counter[tuple[str, int | None]] = Counter()
-		for step in recent_history:
-			if step.model_output is None:
-				continue
-			for action in step.model_output.action:
-				action_data = action.model_dump(exclude_unset=True)
-				if not action_data:
+		# --- Tier 1: exact (action_type, element_index) ---
+		exact_history = self.history.history[-EXACT_WINDOW:]
+		if len(exact_history) >= EXACT_THRESHOLD:
+			exact_counts: Counter[tuple[str, int | None]] = Counter()
+			for step in exact_history:
+				if step.model_output is None:
 					continue
-				action_type = next(iter(action_data.keys()))
-				if action_type in ('wait', 'done'):
-					continue
-				target_index = action.get_index()
-				signature_counts[(action_type, target_index)] += 1
+				for action in step.model_output.action:
+					action_data = action.model_dump(exclude_unset=True)
+					if not action_data:
+						continue
+					action_type = next(iter(action_data.keys()))
+					if action_type in SKIP_ACTIONS:
+						continue
+					exact_counts[(action_type, action.get_index())] += 1
 
-		for (action_type, target_index), count in signature_counts.items():
-			if count >= LOOP_THRESHOLD:
-				self._inject_loop_warning(action_type, target_index, count, LOOP_WINDOW)
-				return  # inject at most one warning per step
+			for (action_type, target_index), count in exact_counts.items():
+				if count >= EXACT_THRESHOLD:
+					self._inject_loop_warning(action_type, target_index, count, EXACT_WINDOW)
+					return  # at most one warning per step
+
+		# --- Tier 2: page-stuck (action_type, url) ignoring element index ---
+		page_history = self.history.history[-PAGE_WINDOW:]
+		if len(page_history) >= PAGE_THRESHOLD:
+			page_counts: Counter[tuple[str, str]] = Counter()
+			for step in page_history:
+				if step.model_output is None:
+					continue
+				url = step.state.url
+				for action in step.model_output.action:
+					action_data = action.model_dump(exclude_unset=True)
+					if not action_data:
+						continue
+					action_type = next(iter(action_data.keys()))
+					if action_type in SKIP_ACTIONS:
+						continue
+					page_counts[(action_type, url)] += 1
+
+			for (action_type, url), count in page_counts.items():
+				if count >= PAGE_THRESHOLD:
+					self._inject_page_stuck_warning(action_type, url, count, PAGE_WINDOW)
+					return
 
 	def _inject_loop_warning(self, action_type: str, target_index: int | None, count: int, window: int) -> None:
-		"""Inject a context message warning the agent about a detected action loop."""
+		"""Inject a context message warning the agent about a detected exact-action loop."""
 		index_desc = f'element index {target_index}' if target_index is not None else 'no specific element'
 		msg = (
 			f'LOOP DETECTED: You have performed "{action_type}" on {index_desc} {count} times '
@@ -1297,6 +1328,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'- If you are truly stuck, use "done" to report your progress so far'
 		)
 		self.logger.warning(f'Loop detected: "{action_type}" on {index_desc} repeated {count} times in last {window} steps')
+		self._message_manager._add_context_message(UserMessage(content=msg))
+
+	def _inject_page_stuck_warning(self, action_type: str, url: str, count: int, window: int) -> None:
+		"""Inject a context message when the agent repeats the same action type on a stuck page."""
+		msg = (
+			f'PAGE STUCK LOOP DETECTED: You have performed "{action_type}" {count} times on the same page '
+			f'({url}) in the last {window} steps, even though the element indices keep changing.\n\n'
+			f'The page is likely blocked (e.g. CAPTCHA, Cloudflare challenge, login wall) or the action is '
+			f'not having the expected effect. Repeating with different element indices will NOT help.\n\n'
+			f'You MUST change your strategy NOW:\n'
+			f'- Navigate to a completely different URL or use a search engine to find the information\n'
+			f'- If blocked by bot protection, try accessing the content through a search engine cache or snippet\n'
+			f'- Try a different website that has the same information\n'
+			f'- If you are truly stuck, use "done" to report what you have found so far'
+		)
+		self.logger.warning(f'Page-stuck loop detected: "{action_type}" repeated {count} times on {url} in last {window} steps')
 		self._message_manager._add_context_message(UserMessage(content=msg))
 
 	@observe(ignore_input=True, ignore_output=False)
