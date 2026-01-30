@@ -410,7 +410,8 @@ class SessionManager:
 			self._session_to_target[session_id] = target_id
 
 		# Create or update Target (source of truth for url/title)
-		if target_id not in self._targets:
+		is_new_target = target_id not in self._targets
+		if is_new_target:
 			from browser_use.browser.session import Target
 
 			target = Target(
@@ -449,6 +450,19 @@ class SessionManager:
 		# Enable lifecycle events and network monitoring for page targets
 		if target_type in ('page', 'tab'):
 			await self._enable_page_monitoring(cdp_session)
+
+		# Dispatch TabCreatedEvent for new page/tab targets
+		if is_new_target and target_type in ('page', 'tab'):
+			from browser_use.browser.events import TabCreatedEvent
+
+			event_to_dispatch = TabCreatedEvent(
+				target_id=target_id,
+				url=target_info.get('url', 'about:blank'),
+				opener_id=target_info.get('openerId') or target_info.get('opener_id'),
+			)
+			self.logger.info(f'[SessionManager] New tab detected: {target_id[:8]}... (opener={event_to_dispatch.opener_id})')
+			# Dispatch asynchronously to avoid blocking the CDP handler
+			self.browser_session.event_bus.dispatch(event_to_dispatch)
 
 		# Resume execution if waiting for debugger
 		if waiting_for_debugger:
