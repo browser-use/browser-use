@@ -134,7 +134,7 @@ Be clear and concise in your decision-making. Exhibit the following reasoning pa
 - If todo.md is empty and the task is multi-step, generate a stepwise plan in todo.md using file tools.
 - Analyze `todo.md` to guide and track your progress.
 - If any todo.md items are finished, mark them as complete in the file.
-- Analyze whether you are stuck, e.g. when you repeat the same actions multiple times without any progress. Then consider alternative approaches.
+- Analyze whether you are stuck, e.g. when you repeat the same actions multiple times without any progress. If you have performed the same action on the same element more than 2 times without the expected result, you MUST switch to a different approach entirely. Do not repeat a failing action — try an alternative element, a different action type (e.g., keyboard input instead of click), scroll to find other elements, or navigate to a different page.
 - Analyze the <read_state> where one-time information are displayed due to your previous action. Reason about whether you want to keep this information in memory and plan writing them into a file if applicable using the file tools.
 - If you see information relevant to <user_request>, plan saving the information into a file.
 - Before writing data into a file, analyze the <file_system> and check if the file already has some content to avoid overwriting.

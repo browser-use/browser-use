@@ -6,6 +6,7 @@ import logging
 import re
 import tempfile
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
@@ -1059,6 +1060,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
+		await self._check_for_action_loop()
 		return browser_state_summary
 
 	@observe_debug(ignore_input=True, name='get_next_action')
@@ -1252,6 +1254,50 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug('Force done action, because we reached max_failures.')
 			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
+
+	async def _check_for_action_loop(self) -> None:
+		"""Check if the agent is stuck in a loop repeating the same action on the same element."""
+		LOOP_THRESHOLD = 3
+		LOOP_WINDOW = 5
+
+		recent_history = self.history.history[-LOOP_WINDOW:]
+		if len(recent_history) < LOOP_THRESHOLD:
+			return
+
+		signature_counts: Counter[tuple[str, int | None]] = Counter()
+		for step in recent_history:
+			if step.model_output is None:
+				continue
+			for action in step.model_output.action:
+				action_data = action.model_dump(exclude_unset=True)
+				if not action_data:
+					continue
+				action_type = next(iter(action_data.keys()))
+				if action_type in ('wait', 'done'):
+					continue
+				target_index = action.get_index()
+				signature_counts[(action_type, target_index)] += 1
+
+		for (action_type, target_index), count in signature_counts.items():
+			if count >= LOOP_THRESHOLD:
+				self._inject_loop_warning(action_type, target_index, count, LOOP_WINDOW)
+				return  # inject at most one warning per step
+
+	def _inject_loop_warning(self, action_type: str, target_index: int | None, count: int, window: int) -> None:
+		"""Inject a context message warning the agent about a detected action loop."""
+		index_desc = f'element index {target_index}' if target_index is not None else 'no specific element'
+		msg = (
+			f'LOOP DETECTED: You have performed "{action_type}" on {index_desc} {count} times '
+			f'in the last {window} steps without making progress.\n\n'
+			f'You MUST change your approach NOW. Do NOT repeat this action again. Consider:\n'
+			f'- Try a different element or a different action type\n'
+			f'- Use keyboard shortcuts (send_keys with Enter, Tab) instead of clicking\n'
+			f'- Scroll to find alternative elements not currently visible\n'
+			f'- Navigate to a different page or use a different approach entirely\n'
+			f'- If you are truly stuck, use "done" to report your progress so far'
+		)
+		self.logger.warning(f'Loop detected: "{action_type}" on {index_desc} repeated {count} times in last {window} steps')
+		self._message_manager._add_context_message(UserMessage(content=msg))
 
 	@observe(ignore_input=True, ignore_output=False)
 	async def _judge_trace(self) -> JudgementResult | None:
