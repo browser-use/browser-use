@@ -29,7 +29,7 @@ async def get_ip_location(browser: Browser) -> AgentHistoryList:
 	agent = Agent(
 		task='Go to ipinfo.io and extract my IP address and location details (country, city, region)',
 		browser=browser,
-		llm=ChatBrowserUse(),
+		llm=ChatBrowserUse(model='bu-2-0'),
 		output_model_schema=IPLocation,
 	)
 	return await agent.run(max_steps=10)

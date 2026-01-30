@@ -188,7 +188,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int | None = None,
-		step_timeout: int = 120,
+		step_timeout: int = 180,
 		directly_open_url: bool = True,
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
@@ -246,13 +246,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if 'gemini' in model_name:
 					if '3-pro' in model_name:
 						return 90
-					return 45
+					return 75
 				elif 'groq' in model_name:
 					return 30
 				elif 'o3' in model_name or 'claude' in model_name or 'sonnet' in model_name or 'deepseek' in model_name:
 					return 90
 				else:
-					return 60  # Default timeout
+					return 75  # Default timeout
 
 			llm_timeout = _get_model_timeout(llm)
 

@@ -28,7 +28,7 @@ async def main():
 	tools = EmailTools(email_client=email_client, inbox=inbox)
 
 	# Initialize the LLM for browser-use agent
-	llm = ChatBrowserUse()
+	llm = ChatBrowserUse(model='bu-2-0')
 
 	# Set your local browser path
 	browser = Browser(executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')

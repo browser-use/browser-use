@@ -32,11 +32,13 @@ class SessionServer:
 		browser_mode: str,
 		headed: bool,
 		profile: str | None,
+		cdp_url: str | None = None,
 	) -> None:
 		self.session_name = session_name
 		self.browser_mode = browser_mode
 		self.headed = headed
 		self.profile = profile
+		self.cdp_url = cdp_url
 		self.running = True
 		self._server: asyncio.Server | None = None
 		self._shutdown_event: asyncio.Event | None = None
@@ -123,6 +125,7 @@ class SessionServer:
 				self.browser_mode,
 				self.headed,
 				self.profile,
+				self.cdp_url,
 			)
 
 			# Dispatch to handler
@@ -238,6 +241,7 @@ def main() -> None:
 	parser.add_argument('--browser', default='chromium', choices=['chromium', 'real', 'remote'])
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
 	parser.add_argument('--profile', help='Chrome profile (real browser mode)')
+	parser.add_argument('--cdp-url', help='CDP URL to connect to existing browser')
 	args = parser.parse_args()
 
 	logger.info(f'Starting server for session: {args.session}')
@@ -248,6 +252,7 @@ def main() -> None:
 		browser_mode=args.browser,
 		headed=args.headed,
 		profile=args.profile,
+		cdp_url=getattr(args, 'cdp_url', None),
 	)
 
 	try:

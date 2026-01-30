@@ -21,7 +21,7 @@ async def basic():
 
 	agent = Agent(
 		task='Go to github.com/browser-use/browser-use and tell me the star count',
-		llm=ChatBrowserUse(),
+		llm=ChatBrowserUse(model='bu-2-0'),
 		browser=browser,
 	)
 
@@ -39,7 +39,7 @@ async def full_config():
 
 	agent = Agent(
 		task='go and check my ip address and the location',
-		llm=ChatBrowserUse(),
+		llm=ChatBrowserUse(model='bu-2-0'),
 		browser=browser,
 	)
 
