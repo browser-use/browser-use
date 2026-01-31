@@ -1550,22 +1550,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				self.logger.debug(f'🎯 Typing text character by character: "{text}"')
 
-			# Detect Draft.js editors, and prepend a "sacrifice" space so the first char isn't dropped
-
-			# Draft.js detection: Check for Draft.js-specific class names and data attributes
+			# Detect contenteditable elements (may have leaf-start bug where first char is dropped)
 			_attrs = element_node.attributes or {}
-			_class_name = _attrs.get('class', '')
-			_is_draftjs = (
-				'DraftEditor' in _class_name  # Draft.js editor class (e.g., public-DraftEditor-content)
-				or _attrs.get('data-contents') == 'true'  # Draft.js content container
-				or _attrs.get('data-block') == 'true'  # Draft.js block element
-				or 'data-offset-key' in _attrs  # Draft.js offset key for content tracking
+			_is_contenteditable = _attrs.get('contenteditable') in ('true', '') or (
+				_attrs.get('role') == 'textbox' and element_node.tag_name not in ('input', 'textarea')
 			)
 
-			if _is_draftjs and len(text) > 0 and clear:
-				# Prepend a space as sacrifice when clear=True (cursor at leaf start) - dropped by Draft.js
-				text = ' ' + text
-				self.logger.debug('🎯 Draft.js detected, prepending sacrifice space')
+			# For contenteditable: after typing first char, check if dropped and retype if needed
+			_check_first_char = _is_contenteditable and len(text) > 0 and clear
+			_first_char = text[0] if _check_first_char else None
 
 			for i, char in enumerate(text):
 				# Handle newline characters as Enter key
@@ -1648,6 +1641,44 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=cdp_session.session_id,
 					)
+
+				# After first char on contenteditable: check if dropped and retype if needed
+				if i == 0 and _check_first_char and _first_char:
+					check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': 'document.activeElement.textContent'},
+						session_id=cdp_session.session_id,
+					)
+					content = check_result.get('result', {}).get('value', '')
+					if _first_char not in content:
+						self.logger.debug(f'🎯 First char "{_first_char}" was dropped (leaf-start bug), retyping')
+						# Retype the first character - cursor now past leaf-start
+						modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(_first_char)
+						key_code = self._get_key_code_for_char(base_key)
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
+						await asyncio.sleep(0.005)
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={'type': 'char', 'text': _first_char, 'key': _first_char},
+							session_id=cdp_session.session_id,
+						)
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
 
 				# Small delay between characters to look human (realistic typing speed)
 				await asyncio.sleep(0.001)

@@ -118,6 +118,15 @@ class NoParamsAction(BaseModel):
 	description: str | None = Field(None, description='Optional description for the action')
 
 
+class ScreenshotAction(BaseModel):
+	model_config = ConfigDict(extra='ignore')
+
+	file_name: str | None = Field(
+		default=None,
+		description='If provided, saves screenshot to this file and returns path. Otherwise screenshot is included in next observation.',
+	)
+
+
 class GetDropdownOptionsAction(BaseModel):
 	index: int
 

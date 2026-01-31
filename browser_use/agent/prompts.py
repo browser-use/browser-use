@@ -69,13 +69,8 @@ class SystemPrompt:
 				else:
 					template_filename = 'system_prompt_browser_use_no_thinking.md'
 			# Anthropic 4.5 models (Opus 4.5, Haiku 4.5) need 4096+ token prompts for caching
-			elif self.is_anthropic_4_5:
-				if self.flash_mode:
-					template_filename = 'system_prompt_anthropic_flash.md'
-				elif self.use_thinking:
-					template_filename = 'system_prompt_anthropic.md'
-				else:
-					template_filename = 'system_prompt_anthropic_no_thinking.md'
+			elif self.is_anthropic_4_5 and self.flash_mode:
+				template_filename = 'system_prompt_anthropic_flash.md'
 			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
