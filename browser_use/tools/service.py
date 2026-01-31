@@ -40,6 +40,7 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	ExtractAction,
+	ExtractWithScriptAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
 	NavigateAction,
@@ -699,6 +700,7 @@ class Tools(Generic[Context]):
 			query = params['query'] if isinstance(params, dict) else params.query
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
+			output_schema = params['output_schema'] if isinstance(params, dict) else params.output_schema
 
 			# Extract clean markdown using the unified method
 			try:
@@ -784,15 +786,45 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
 
 			try:
-				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
-					timeout=120.0,
-				)
+				# Branch: structured extraction with output_schema or free-text
+				structured_model = None
+				if output_schema is not None:
+					try:
+						from browser_use.tools.extraction.schema_utils import schema_dict_to_pydantic_model
 
-				current_url = await browser_session.get_current_page_url()
-				extracted_content = (
-					f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
-				)
+						structured_model = schema_dict_to_pydantic_model(output_schema)
+					except (ValueError, AssertionError) as schema_err:
+						logger.warning(f'Schema conversion failed, falling back to free-text: {schema_err}')
+						structured_model = None
+
+				if structured_model is not None:
+					# Structured extraction: use output_format for validated JSON
+					response = await asyncio.wait_for(
+						page_extraction_llm.ainvoke(
+							[SystemMessage(content=system_prompt), UserMessage(content=prompt)],
+							output_format=structured_model,
+						),
+						timeout=120.0,
+					)
+					# response.completion is a validated Pydantic model instance
+					result_json = response.completion.model_dump(mode='json')
+					result_str = json.dumps(result_json, ensure_ascii=False, indent=2)
+
+					current_url = await browser_session.get_current_page_url()
+					extracted_content = (
+						f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{result_str}\n</result>'
+					)
+				else:
+					# Free-text extraction (original behavior)
+					response = await asyncio.wait_for(
+						page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
+						timeout=120.0,
+					)
+
+					current_url = await browser_session.get_current_page_url()
+					extracted_content = (
+						f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
+					)
 
 				# Simple memory handling
 				MAX_MEMORY_LENGTH = 10000
@@ -813,6 +845,101 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
 				raise RuntimeError(str(e))
+
+		@self.registry.action(
+			"""Generate and execute a JS script to extract structured data from the page DOM.
+More reliable than extract for tables, lists, product grids, and other structured/repetitive content.
+Produces a reusable extraction script. Use extraction_id to reuse a cached script on similar pages (e.g. pagination).""",
+			param_model=ExtractWithScriptAction,
+		)
+		async def extract_with_script(
+			params: ExtractWithScriptAction,
+			browser_session: BrowserSession,
+			page_extraction_llm: BaseChatModel,
+			file_system: FileSystem,
+		):
+			from browser_use.tools.extraction.js_codegen import JSExtractionService
+
+			service = JSExtractionService()
+
+			# Look up cached script if extraction_id provided
+			cached_js = None
+			if params.extraction_id and hasattr(browser_session, '_extraction_cache'):
+				cache = browser_session._extraction_cache
+				strategy = cache.get(params.extraction_id)
+				if strategy and strategy.js_script:
+					cached_js = strategy.js_script
+					logger.info(f'Reusing cached JS script for extraction_id={params.extraction_id}')
+
+			result = await service.extract(
+				query=params.query,
+				browser_session=browser_session,
+				llm=page_extraction_llm,
+				output_schema=params.output_schema,
+				css_selector=params.css_selector,
+				cached_js_script=cached_js,
+			)
+
+			# Cache the generated script for reuse
+			extraction_id = None
+			if result.content_stats and result.content_stats.get('js_script'):
+				js_script = result.content_stats['js_script']
+				if hasattr(browser_session, '_extraction_cache'):
+					from browser_use.tools.extraction.views import ExtractionStrategy
+
+					cache = browser_session._extraction_cache
+					strategy = ExtractionStrategy(
+						url_pattern=result.source_url or '',
+						js_script=js_script,
+						css_selector=params.css_selector,
+						output_schema=params.output_schema,
+						query_template=params.query,
+					)
+					cache.register(strategy)
+					extraction_id = strategy.id
+
+			# Format result for the agent
+			if result.data is not None:
+				if isinstance(result.data, (dict, list)):
+					data_str = json.dumps(result.data, ensure_ascii=False, indent=2)
+				else:
+					data_str = str(result.data)
+			else:
+				error_msg = result.content_stats.get('error', 'Unknown error') if result.content_stats else 'Unknown error'
+				data_str = f'Extraction failed: {error_msg}'
+
+			current_url = result.source_url or ''
+			extracted_content = (
+				f'<url>\n{current_url}\n</url>\n<query>\n{params.query}\n</query>\n<result>\n{data_str}\n</result>'
+			)
+
+			# Memory handling
+			MAX_MEMORY_LENGTH = 10000
+			metadata = {}
+			if extraction_id:
+				metadata['extraction_id'] = extraction_id
+			if result.content_stats and result.content_stats.get('js_script'):
+				metadata['js_script'] = result.content_stats['js_script'][:200]
+
+			if len(extracted_content) < MAX_MEMORY_LENGTH:
+				memory = extracted_content
+				if extraction_id:
+					memory += f'\nextraction_id={extraction_id} (reusable on similar pages)'
+				include_extracted_content_only_once = False
+			else:
+				file_name = await file_system.save_extracted_content(extracted_content)
+				memory = f'Query: {params.query}\nContent in {file_name} and once in <read_state>.'
+				if extraction_id:
+					memory += f'\nextraction_id={extraction_id}'
+				include_extracted_content_only_once = True
+
+			logger.info(f'📄 JS extraction: {memory[:200]}')
+			return ActionResult(
+				extracted_content=extracted_content,
+				include_extracted_content_only_once=include_extracted_content_only_once,
+				long_term_memory=memory,
+				metadata=metadata if metadata else None,
+			)
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
@@ -1607,6 +1734,7 @@ class CodeAgentTools(Tools[Context]):
 			exclude_actions = [
 				# 'scroll',  # Keep for code-use
 				'extract',  # Exclude - use Python + evaluate()
+				'extract_with_script',  # Exclude - use Python + evaluate()
 				'find_text',  # Exclude - use Python string ops
 				# 'select_dropdown',  # Keep for code-use
 				# 'dropdown_options',  # Keep for code-use
