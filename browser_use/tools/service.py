@@ -40,6 +40,7 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	ExtractAction,
+	ExtractDataAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
 	NavigateAction,
@@ -700,6 +701,7 @@ class Tools(Generic[Context]):
 			query = params['query'] if isinstance(params, dict) else params.query
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
+			save_to_file = params['save_to_file'] if isinstance(params, dict) else params.save_to_file
 
 			# Extract clean markdown using the unified method
 			try:
@@ -795,6 +797,22 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
 				)
 
+				# If save_to_file is set, append to file and return short confirmation
+				if save_to_file:
+					file_obj = file_system.get_file(save_to_file)
+					if file_obj:
+						await file_system.append_file(save_to_file, f'\n{response.completion}\n')
+					else:
+						await file_system.write_file(save_to_file, response.completion + '\n')
+					line_count = len(response.completion.splitlines())
+					memory = f'Extracted {line_count} lines from {current_url} and saved to {save_to_file}. Query: {query}'
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=memory,
+						include_extracted_content_only_once=False,
+						long_term_memory=memory,
+					)
+
 				# Simple memory handling
 				MAX_MEMORY_LENGTH = 10000
 				if len(extracted_content) < MAX_MEMORY_LENGTH:
@@ -814,6 +832,149 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
 				raise RuntimeError(str(e))
+
+		@self.registry.action(
+			"""Extract structured data from page using CSS selectors. Much faster and cheaper than extract for structured/tabular data. Uses querySelectorAll to find elements, then extracts specified attributes. Use "text" for innerText, "href" for links, or any HTML attribute. Set save_to_file to accumulate data across pages without consuming context. Returns JSON array of objects.""",
+			param_model=ExtractDataAction,
+		)
+		async def extract_data(
+			params: ExtractDataAction,
+			browser_session: BrowserSession,
+			file_system: FileSystem,
+		):
+			selector = params['selector'] if isinstance(params, dict) else params.selector
+			attributes = params['attributes'] if isinstance(params, dict) else params.attributes
+			save_to_file = params['save_to_file'] if isinstance(params, dict) else params.save_to_file
+			max_results = params['max_results'] if isinstance(params, dict) else params.max_results
+
+			# Build JavaScript to extract data using CSS selectors
+			# The JS runs querySelectorAll and extracts requested attributes for each element
+			attrs_js = json.dumps(attributes)
+			js_code = f"""
+(function() {{
+	try {{
+		const elements = document.querySelectorAll({json.dumps(selector)});
+		const maxResults = {max_results};
+		const attrs = {attrs_js};
+		const results = [];
+		const limit = Math.min(elements.length, maxResults);
+		for (let i = 0; i < limit; i++) {{
+			const el = elements[i];
+			const row = {{}};
+			for (const attr of attrs) {{
+				if (attr === 'text') {{
+					row['text'] = el.innerText ? el.innerText.trim() : '';
+				}} else if (attr === 'html') {{
+					row['html'] = el.innerHTML ? el.innerHTML.trim() : '';
+				}} else {{
+					row[attr] = el.getAttribute(attr) || '';
+				}}
+			}}
+			results.push(row);
+		}}
+		return JSON.stringify({{
+			total_on_page: elements.length,
+			extracted: results.length,
+			data: results
+		}});
+	}} catch(e) {{
+		return JSON.stringify({{error: e.message}});
+	}}
+}})()
+""".strip()
+
+			try:
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': js_code, 'returnByValue': True, 'awaitPromise': True},
+					session_id=cdp_session.session_id,
+				)
+
+				if result.get('exceptionDetails'):
+					error_msg = f'extract_data JavaScript error: {result["exceptionDetails"].get("text", "Unknown")}'
+					return ActionResult(error=error_msg)
+
+				result_value = result.get('result', {}).get('value', '{}')
+				if isinstance(result_value, str):
+					parsed = json.loads(result_value)
+				else:
+					parsed = result_value
+
+				if 'error' in parsed:
+					return ActionResult(error=f'extract_data error: {parsed["error"]}')
+
+				total_on_page = parsed.get('total_on_page', 0)
+				extracted_count = parsed.get('extracted', 0)
+				data = parsed.get('data', [])
+
+				current_url = await browser_session.get_current_page_url()
+
+				# If save_to_file is set, write data to file and return short confirmation
+				if save_to_file and data:
+					is_csv = save_to_file.endswith('.csv')
+					is_jsonl = save_to_file.endswith('.jsonl')
+
+					if is_csv:
+						import csv
+						import io
+
+						output = io.StringIO()
+						file_obj = file_system.get_file(save_to_file)
+						# Write header only if file is new/empty
+						write_header = file_obj is None or not file_obj.content.strip()
+						writer = csv.DictWriter(output, fieldnames=data[0].keys())
+						if write_header:
+							writer.writeheader()
+						writer.writerows(data)
+						file_content = output.getvalue()
+					elif is_jsonl:
+						file_content = '\n'.join(json.dumps(row, ensure_ascii=False) for row in data) + '\n'
+					else:
+						file_content = json.dumps(data, ensure_ascii=False, indent=2) + '\n'
+
+					file_obj = file_system.get_file(save_to_file)
+					if file_obj:
+						await file_system.append_file(save_to_file, file_content)
+					else:
+						await file_system.write_file(save_to_file, file_content)
+
+					memory = f'Extracted {extracted_count} items (of {total_on_page} on page) from {current_url} using selector "{selector}" → saved to {save_to_file}'
+					logger.info(f'📊 {memory}')
+					return ActionResult(
+						extracted_content=memory,
+						include_extracted_content_only_once=False,
+						long_term_memory=memory,
+					)
+
+				# No save_to_file: return data in context
+				if not data:
+					memory = f'No elements found matching selector "{selector}" on {current_url}'
+					logger.info(f'📊 {memory}')
+					return ActionResult(extracted_content=memory, long_term_memory=memory)
+
+				# Format for context
+				result_json = json.dumps(data, ensure_ascii=False, indent=2)
+				extracted_content = f'Extracted {extracted_count} items (of {total_on_page} on page) from {current_url} using "{selector}":\n{result_json}'
+
+				MAX_MEMORY_LENGTH = 10000
+				if len(extracted_content) < MAX_MEMORY_LENGTH:
+					memory = extracted_content
+					include_once = False
+				else:
+					file_name = await file_system.save_extracted_content(extracted_content)
+					memory = f'Extracted {extracted_count} items using "{selector}" → saved to {file_name} and in <read_state>'
+					include_once = True
+
+				logger.info(f'📊 {memory}')
+				return ActionResult(
+					extracted_content=extracted_content,
+					include_extracted_content_only_once=include_once,
+					long_term_memory=memory,
+				)
+
+			except Exception as e:
+				logger.debug(f'Error in extract_data: {e}')
+				raise RuntimeError(f'extract_data failed: {str(e)}')
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",

@@ -12,6 +12,26 @@ class ExtractAction(BaseModel):
 	start_from_char: int = Field(
 		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
 	)
+	save_to_file: str | None = Field(
+		default=None,
+		description='If set, append extracted content to this file (e.g. "results.csv") instead of returning all tokens. Use for multi-page extraction to accumulate data across pages.',
+	)
+
+
+class ExtractDataAction(BaseModel):
+	selector: str = Field(description='CSS selector to match elements, e.g. "table tr", ".product-card", "ul.results > li"')
+	attributes: list[str] = Field(
+		default=['text'],
+		description='List of attributes to extract per element. Use "text" for innerText, "href" for links, or any HTML attribute name like "src", "data-id", etc.',
+	)
+	save_to_file: str | None = Field(
+		default=None,
+		description='If set, append extracted rows to this file as JSON lines (e.g. "data.jsonl") or CSV (e.g. "data.csv"). Keeps data out of context window.',
+	)
+	max_results: int = Field(
+		default=10000,
+		description='Maximum number of elements to extract. Prevents accidental extraction of huge DOMs.',
+	)
 
 
 class SearchAction(BaseModel):
