@@ -203,6 +203,12 @@ class ChatOpenAI(BaseChatModel):
 					**model_params,
 				)
 
+				if not response.choices:
+					raise ModelProviderError(
+						message='Model response missing "choices" field. This can happen with incompatible proxies.',
+						model=self.name,
+					)
+
 				usage = self._get_usage(response)
 				return ChatInvokeCompletion(
 					completion=response.choices[0].message.content or '',
@@ -244,6 +250,12 @@ class ChatOpenAI(BaseChatModel):
 						messages=openai_messages,
 						response_format=ResponseFormatJSONSchema(json_schema=response_format, type='json_schema'),
 						**model_params,
+					)
+
+				if not response.choices:
+					raise ModelProviderError(
+						message='Model response missing "choices" field. This can happen with incompatible proxies.',
+						model=self.name,
 					)
 
 				if response.choices[0].message.content is None:
