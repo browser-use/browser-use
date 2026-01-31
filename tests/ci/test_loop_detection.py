@@ -89,7 +89,7 @@ async def test_no_loop_detection_for_varied_actions():
 	agent.history.history.append(_make_history_entry(agent, 'click', index=2))
 	agent.history.history.append(_make_history_entry(agent, 'input', index=3, text='hello'))
 	agent.history.history.append(_make_history_entry(agent, 'scroll', direction='down', amount=3))
-	agent.history.history.append(_make_history_entry(agent, 'navigate', url='http://example.com'))
+	agent.history.history.append(_make_history_entry(agent, 'navigate', url='http://localhost:8080/other'))
 
 	await agent._check_for_action_loop()
 
@@ -160,7 +160,7 @@ async def test_page_stuck_detects_cloudflare_pattern():
 	llm = create_mock_llm()
 	agent = Agent(task='Test', llm=llm)
 
-	cloudflare_url = 'https://stackoverflow.com/'
+	cloudflare_url = 'http://localhost:8080/challenge'
 	for idx in [87, 282, 480, 910]:
 		agent.history.history.append(
 			_make_history_entry(agent, 'click', page_url=cloudflare_url, page_title='Just a moment...', index=idx)
@@ -196,7 +196,7 @@ async def test_page_stuck_respects_threshold():
 	agent = Agent(task='Test', llm=llm)
 
 	for idx in [100, 200, 300]:
-		agent.history.history.append(_make_history_entry(agent, 'click', page_url='http://stuck.example.com', index=idx))
+		agent.history.history.append(_make_history_entry(agent, 'click', page_url='http://localhost:8080/stuck', index=idx))
 
 	await agent._check_for_action_loop()
 
@@ -210,7 +210,7 @@ async def test_page_stuck_ignores_wait_actions():
 	agent = Agent(task='Test', llm=llm)
 
 	for _ in range(6):
-		agent.history.history.append(_make_history_entry(agent, 'wait', page_url='http://stuck.example.com', seconds=5))
+		agent.history.history.append(_make_history_entry(agent, 'wait', page_url='http://localhost:8080/stuck', seconds=5))
 
 	await agent._check_for_action_loop()
 
@@ -225,7 +225,7 @@ async def test_exact_match_takes_priority_over_page_stuck():
 
 	# 4 clicks on same index AND same url — both tiers qualify
 	for _ in range(4):
-		agent.history.history.append(_make_history_entry(agent, 'click', page_url='http://stuck.example.com', index=5))
+		agent.history.history.append(_make_history_entry(agent, 'click', page_url='http://localhost:8080/stuck', index=5))
 
 	await agent._check_for_action_loop()
 
