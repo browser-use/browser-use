@@ -1,7 +1,5 @@
 """Tests for PR 4: Extraction strategy cache."""
 
-import pytest
-
 from browser_use.tools.extraction.cache import ExtractionCache
 from browser_use.tools.extraction.views import ExtractionStrategy
 
@@ -10,7 +8,7 @@ class TestExtractionCache:
 	def test_register_and_get(self):
 		cache = ExtractionCache()
 		strategy = ExtractionStrategy(
-			url_pattern='https://example.com/products/*',
+			url_pattern='https://test-host.local/products/*',
 			js_script='(function(){ return []; })()',
 			query_template='Get products',
 		)
@@ -28,44 +26,59 @@ class TestExtractionCache:
 	def test_url_pattern_matching(self):
 		cache = ExtractionCache()
 		strategy = ExtractionStrategy(
-			url_pattern='https://example.com/products/*',
+			url_pattern='https://test-host.local/products/*',
 			js_script='(function(){ return []; })()',
 			query_template='Get products',
 		)
 		cache.register(strategy)
 
 		# Should match
-		found = cache.find_matching('https://example.com/products/page-2')
+		found = cache.find_matching('https://test-host.local/products/page-2')
 		assert found is not None
 		assert found.id == strategy.id
 
 		# Should not match
-		not_found = cache.find_matching('https://other.com/products/page-1')
+		not_found = cache.find_matching('https://other-host.local/products/page-1')
 		assert not_found is None
 
 	def test_url_matching_glob_wildcards(self):
 		cache = ExtractionCache()
 		strategy = ExtractionStrategy(
-			url_pattern='https://shop.example.com/*/items',
+			url_pattern='https://shop.test-host.local/*/items',
 			js_script='(function(){ return []; })()',
 			query_template='Get items',
 		)
 		cache.register(strategy)
 
-		assert cache.find_matching('https://shop.example.com/category-a/items') is not None
-		assert cache.find_matching('https://shop.example.com/category-b/items') is not None
-		assert cache.find_matching('https://shop.example.com/other/path') is None
+		assert cache.find_matching('https://shop.test-host.local/category-a/items') is not None
+		assert cache.find_matching('https://shop.test-host.local/category-b/items') is not None
+		assert cache.find_matching('https://shop.test-host.local/other/path') is None
+
+	def test_path_only_pattern_matching(self):
+		cache = ExtractionCache()
+		strategy = ExtractionStrategy(
+			url_pattern='/products/*',
+			js_script='(function(){ return []; })()',
+			query_template='Get products',
+		)
+		cache.register(strategy)
+
+		# Should match any host with matching path
+		assert cache.find_matching('https://test-host.local/products/page-1') is not None
+		assert cache.find_matching('https://other-host.local/products/page-2') is not None
+		# Should not match non-matching path
+		assert cache.find_matching('https://test-host.local/categories/page-1') is None
 
 	def test_best_strategy_by_success_count(self):
 		cache = ExtractionCache()
 		strategy1 = ExtractionStrategy(
-			url_pattern='https://example.com/*',
+			url_pattern='https://test-host.local/*',
 			js_script='script1',
 			query_template='query1',
 			success_count=5,
 		)
 		strategy2 = ExtractionStrategy(
-			url_pattern='https://example.com/*',
+			url_pattern='https://test-host.local/*',
 			js_script='script2',
 			query_template='query2',
 			success_count=10,
@@ -73,7 +86,7 @@ class TestExtractionCache:
 		cache.register(strategy1)
 		cache.register(strategy2)
 
-		best = cache.find_matching('https://example.com/page')
+		best = cache.find_matching('https://test-host.local/page')
 		assert best is not None
 		assert best.id == strategy2.id
 		assert best.success_count == 10
@@ -81,7 +94,7 @@ class TestExtractionCache:
 	def test_record_success_failure(self):
 		cache = ExtractionCache()
 		strategy = ExtractionStrategy(
-			url_pattern='https://example.com/*',
+			url_pattern='https://test-host.local/*',
 			js_script='script',
 			query_template='query',
 		)
@@ -100,7 +113,7 @@ class TestExtractionCache:
 	def test_remove(self):
 		cache = ExtractionCache()
 		strategy = ExtractionStrategy(
-			url_pattern='https://example.com/*',
+			url_pattern='https://test-host.local/*',
 			js_script='script',
 			query_template='query',
 		)
@@ -116,7 +129,7 @@ class TestExtractionCache:
 		for i in range(5):
 			cache.register(
 				ExtractionStrategy(
-					url_pattern=f'https://example{i}.com/*',
+					url_pattern=f'https://test-host-{i}.com/*',
 					js_script=f'script{i}',
 					query_template=f'query{i}',
 				)
@@ -130,13 +143,13 @@ class TestExtractionCache:
 		"""Strategies without js_script should not be returned by find_matching."""
 		cache = ExtractionCache()
 		strategy = ExtractionStrategy(
-			url_pattern='https://example.com/*',
+			url_pattern='https://test-host.local/*',
 			js_script=None,
 			query_template='query',
 		)
 		cache.register(strategy)
 
-		found = cache.find_matching('https://example.com/page')
+		found = cache.find_matching('https://test-host.local/page')
 		assert found is None
 
 	def test_strategy_without_url_pattern_not_matched(self):
@@ -148,7 +161,7 @@ class TestExtractionCache:
 		)
 		cache.register(strategy)
 
-		found = cache.find_matching('https://example.com/page')
+		found = cache.find_matching('https://test-host.local/page')
 		assert found is None
 
 
@@ -161,7 +174,7 @@ class TestExtractionStrategy:
 
 	def test_fields(self):
 		strategy = ExtractionStrategy(
-			url_pattern='https://example.com/*',
+			url_pattern='https://test-host.local/*',
 			js_script='(function(){ return {}; })()',
 			css_selector='table',
 			output_schema={'type': 'object', 'properties': {'items': {'type': 'array'}}},
@@ -169,7 +182,7 @@ class TestExtractionStrategy:
 			success_count=3,
 			failure_count=1,
 		)
-		assert strategy.url_pattern == 'https://example.com/*'
+		assert strategy.url_pattern == 'https://test-host.local/*'
 		assert strategy.css_selector == 'table'
 		assert strategy.success_count == 3
 		assert strategy.failure_count == 1

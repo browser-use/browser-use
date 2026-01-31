@@ -168,6 +168,7 @@ def chunk_markdown_by_structure(
 	current_start = 0
 	char_pos = 0
 	table_header: str | None = None
+	pending_overlap = ''
 
 	for block in blocks:
 		block_size = len(block)
@@ -185,9 +186,12 @@ def chunk_markdown_by_structure(
 						chunk_index=len(chunks),
 						total_chunks=0,  # filled in later
 						has_table_header=table_header is not None,
-						overlap_prefix='',
+						overlap_prefix=pending_overlap,
 					)
 				)
+				if overlap_lines > 0:
+					last_lines = chunk_content.split('\n')
+					pending_overlap = '\n'.join(last_lines[-overlap_lines:])
 				current_blocks = []
 				current_size = 0
 				current_start = char_pos
@@ -203,9 +207,12 @@ def chunk_markdown_by_structure(
 						chunk_index=len(chunks),
 						total_chunks=0,
 						has_table_header=False,
-						overlap_prefix='',
+						overlap_prefix=pending_overlap,
 					)
 				)
+				if overlap_lines > 0:
+					last_lines = sub.split('\n')
+					pending_overlap = '\n'.join(last_lines[-overlap_lines:])
 				char_pos += len(sub)
 			continue
 
@@ -214,11 +221,6 @@ def chunk_markdown_by_structure(
 		if current_size + separator_size + block_size > max_chunk_size and current_blocks:
 			# Flush current chunk
 			chunk_content = '\n\n'.join(current_blocks)
-			# Build overlap from last N lines
-			overlap = ''
-			if overlap_lines > 0:
-				last_lines = chunk_content.split('\n')
-				overlap = '\n'.join(last_lines[-overlap_lines:])
 
 			chunks.append(
 				MarkdownChunk(
@@ -228,11 +230,18 @@ def chunk_markdown_by_structure(
 					chunk_index=len(chunks),
 					total_chunks=0,
 					has_table_header=table_header is not None,
-					overlap_prefix='',
+					overlap_prefix=pending_overlap,
 				)
 			)
 
-			# Start new chunk with overlap prefix
+			# Compute overlap for next chunk from this chunk's last N lines
+			if overlap_lines > 0:
+				last_lines = chunk_content.split('\n')
+				pending_overlap = '\n'.join(last_lines[-overlap_lines:])
+			else:
+				pending_overlap = ''
+
+			# Start new chunk
 			current_blocks = []
 			current_size = 0
 			current_start = char_pos
@@ -263,7 +272,7 @@ def chunk_markdown_by_structure(
 				chunk_index=len(chunks),
 				total_chunks=0,
 				has_table_header=table_header is not None,
-				overlap_prefix='',
+				overlap_prefix=pending_overlap,
 			)
 		)
 
@@ -335,6 +344,33 @@ def _split_into_structural_blocks(content: str) -> list[str]:
 			i += 1
 			continue
 
+		# List item — consume contiguous list block
+		if _is_list_item(stripped):
+			# Flush any non-list content accumulated before this list
+			if current_block_lines and not _is_list_item(current_block_lines[-1].strip()):
+				blocks.append('\n'.join(current_block_lines))
+				current_block_lines = []
+
+			list_lines = [line]
+			i += 1
+			while i < len(lines):
+				next_line = lines[i]
+				next_stripped = next_line.strip()
+				if not next_stripped:
+					# Blank line ends the list block
+					break
+				if _is_list_item(next_stripped):
+					list_lines.append(next_line)
+					i += 1
+				elif next_line.startswith(('  ', '\t')):
+					# Indented continuation line (part of current list item)
+					list_lines.append(next_line)
+					i += 1
+				else:
+					break
+			blocks.append('\n'.join(list_lines))
+			continue
+
 		# Empty line — flush current paragraph block
 		if not stripped:
 			if current_block_lines:
@@ -365,6 +401,15 @@ def _is_table_header(block: str) -> bool:
 	if len(lines) >= 2:
 		return lines[0].strip().startswith('|') and '---' in lines[1]
 	return False
+
+
+def _is_list_item(line: str) -> bool:
+	"""Check if a line starts a markdown list item (unordered or ordered)."""
+	stripped = line.lstrip()
+	if stripped.startswith(('- ', '* ', '+ ')):
+		return True
+	# Ordered list: digit(s) followed by . or ) and a space
+	return bool(re.match(r'\d+[.)]\s', stripped))
 
 
 def _force_split_block(block: str, max_size: int) -> list[str]:

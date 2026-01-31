@@ -1,16 +1,13 @@
 """Tests for PR 3: Structure-aware content chunking in markdown_extractor."""
 
-import pytest
-
 from browser_use.dom.markdown_extractor import (
 	_force_split_block,
+	_is_list_item,
 	_is_table_header,
 	_is_table_row,
 	_split_into_structural_blocks,
 	chunk_markdown_by_structure,
 )
-from browser_use.dom.views import MarkdownChunk
-
 
 # ── Helper function tests ────────────────────────────────────────────────────
 
@@ -81,6 +78,46 @@ class TestTableDetection:
 		assert _is_table_header('| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |')
 		assert not _is_table_header('| Name | Price |')  # No separator
 		assert not _is_table_header('Just text')
+
+
+class TestListDetection:
+	def test_unordered_list_items(self):
+		assert _is_list_item('- item')
+		assert _is_list_item('* item')
+		assert _is_list_item('+ item')
+
+	def test_ordered_list_items(self):
+		assert _is_list_item('1. item')
+		assert _is_list_item('10. item')
+		assert _is_list_item('1) item')
+
+	def test_non_list_items(self):
+		assert not _is_list_item('Regular text')
+		assert not _is_list_item('# Header')
+		assert not _is_list_item('| table |')
+
+	def test_list_block_kept_intact(self):
+		content = 'Before list.\n\n- item 1\n- item 2\n- item 3\n\nAfter list.'
+		blocks = _split_into_structural_blocks(content)
+		assert len(blocks) == 3
+		assert blocks[0] == 'Before list.'
+		assert blocks[1] == '- item 1\n- item 2\n- item 3'
+		assert blocks[2] == 'After list.'
+
+	def test_ordered_list_block_kept_intact(self):
+		content = 'Intro.\n\n1. First\n2. Second\n3. Third\n\nEnd.'
+		blocks = _split_into_structural_blocks(content)
+		assert len(blocks) == 3
+		assert blocks[1] == '1. First\n2. Second\n3. Third'
+
+	def test_list_with_indented_continuation(self):
+		content = 'Text.\n\n- item 1\n  continuation\n- item 2\n\nMore text.'
+		blocks = _split_into_structural_blocks(content)
+		assert len(blocks) == 3
+		list_block = blocks[1]
+		assert '- item 1' in list_block
+		assert 'continuation' in list_block
+		assert '- item 2' in list_block
 
 
 class TestForceSplitBlock:
@@ -165,14 +202,16 @@ class TestChunkMarkdownByStructure:
 	def test_header_boundaries_respected(self):
 		content = '# Section 1\n\nContent for section 1.\n\n# Section 2\n\nContent for section 2.'
 		chunks = chunk_markdown_by_structure(content, max_chunk_size=50)
-		# Headers should appear at the start of chunks or in their own chunks
+		# Every header line should appear at the start of a chunk (index 0)
 		for chunk in chunks:
 			lines = chunk.content.split('\n')
 			for i, line in enumerate(lines):
 				if line.startswith('#') and i > 0:
-					# If a header appears mid-chunk, the preceding line should be empty
-					# (i.e., header was placed at a natural boundary)
-					pass  # Headers at natural boundaries are fine
+					# Header mid-chunk is only acceptable if preceded by empty line
+					assert lines[i - 1].strip() == '', (
+						f'Header "{line}" at line {i} in chunk {chunk.chunk_index} '
+						f'is not at chunk start and not preceded by empty line'
+					)
 
 	def test_end_to_end_large_table(self):
 		"""200-row HTML table → chunk → verify all rows present across chunks."""
@@ -198,6 +237,18 @@ class TestChunkMarkdownByStructure:
 		# All 200 rows should be present
 		for i in range(200):
 			assert f'Row{i}' in found_rows, f'Row{i} missing from chunks'
+
+	def test_overlap_prefix_populated(self):
+		"""overlap_prefix should carry context from the previous chunk's last N lines."""
+		paragraphs = [f'Paragraph {i}: some content here.' for i in range(10)]
+		content = '\n\n'.join(paragraphs)
+		chunks = chunk_markdown_by_structure(content, max_chunk_size=200, overlap_lines=2)
+		assert len(chunks) >= 2
+		# First chunk should have empty overlap (no previous chunk)
+		assert chunks[0].overlap_prefix == ''
+		# Subsequent chunks should have non-empty overlap from previous chunk
+		for i in range(1, len(chunks)):
+			assert chunks[i].overlap_prefix != '', f'Chunk {i} should have overlap_prefix from previous chunk'
 
 	def test_chunk_metadata(self):
 		content = 'A' * 500 + '\n\n' + 'B' * 500 + '\n\n' + 'C' * 500

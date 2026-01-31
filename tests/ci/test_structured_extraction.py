@@ -1,13 +1,10 @@
 """Tests for PR 1: Schema-enforced extraction via output_schema on ExtractAction."""
 
-import json
-
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from browser_use.tools.extraction.schema_utils import schema_dict_to_pydantic_model
 from browser_use.tools.extraction.views import ExtractionResult
-
 
 # ── schema_dict_to_pydantic_model tests ──────────────────────────────────────
 
@@ -208,10 +205,10 @@ class TestExtractionResult:
 	def test_with_stats(self):
 		result = ExtractionResult(
 			data=[1, 2, 3],
-			source_url='https://example.com',
+			source_url='http://localhost:9999/test-page',
 			content_stats={'original_html_chars': 5000},
 		)
-		assert result.source_url == 'https://example.com'
+		assert result.source_url == 'http://localhost:9999/test-page'
 		assert result.content_stats['original_html_chars'] == 5000
 
 

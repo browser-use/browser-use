@@ -34,26 +34,21 @@ class ExtractionAggregator:
 				if not self._is_duplicate(extraction_id, item):
 					self._collections[extraction_id].append(item)
 		elif isinstance(data, dict):
-			# For dict results, merge list-valued fields and deduplicate
-			existing_lists = self._find_list_fields(extraction_id)
-			if existing_lists:
-				# Merge list fields from the new dict into existing collection
-				for key in existing_lists:
-					if key in data and isinstance(data[key], list):
-						for item in data[key]:
-							if not self._is_duplicate(extraction_id, item):
-								self._collections[extraction_id].append(item)
+			# Collect all list-valued fields first
+			list_items: list[Any] = []
+			for value in data.values():
+				if isinstance(value, list):
+					list_items.extend(value)
+
+			if list_items:
+				# Dict contains list fields — extract and merge list items only
+				for item in list_items:
+					if not self._is_duplicate(extraction_id, item):
+						self._collections[extraction_id].append(item)
 			else:
-				# First dict result — extract list fields
-				for key, value in data.items():
-					if isinstance(value, list):
-						for item in value:
-							self._collections[extraction_id].append(item)
-					else:
-						# Non-list field — store the whole dict as a single item
-						if not self._is_duplicate(extraction_id, data):
-							self._collections[extraction_id].append(data)
-						break
+				# Dict has no list fields — store as a single item
+				if not self._is_duplicate(extraction_id, data):
+					self._collections[extraction_id].append(data)
 		else:
 			if not self._is_duplicate(extraction_id, data):
 				self._collections[extraction_id].append(data)
@@ -105,12 +100,3 @@ class ExtractionAggregator:
 			# Non-serializable items — fall back to equality
 			return item in existing
 		return False
-
-	def _find_list_fields(self, extraction_id: str) -> list[str]:
-		"""Find which dict keys contained lists in previous results.
-
-		This is a heuristic — we track it from the first dict result added.
-		"""
-		# If the collection is already a flat list from list-field extraction, return empty
-		# This is tracked implicitly: if items are not dicts, there were no dict keys
-		return []

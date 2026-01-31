@@ -1,17 +1,12 @@
 """Tests for PR 2: JS-codegen extraction via extract_with_script action."""
 
-import json
-
 import pytest
+from conftest import create_mock_llm
 from pytest_httpserver import HTTPServer
 
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.tools.extraction.js_codegen import JSExtractionService
-from browser_use.tools.extraction.views import ExtractionResult
 from browser_use.tools.views import ExtractWithScriptAction
-
-from conftest import create_mock_llm
-
 
 PRODUCT_TABLE_HTML = """
 <!DOCTYPE html>

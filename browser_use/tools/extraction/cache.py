@@ -91,6 +91,10 @@ class ExtractionCache:
 				if not fnmatch.fnmatch(parsed.netloc, parsed_pattern.netloc):
 					return False
 				return fnmatch.fnmatch(parsed.path, parsed_pattern.path)
+
+			# Path-only pattern (starts with '/') — match against URL's path component
+			if pattern.startswith('/'):
+				return fnmatch.fnmatch(parsed.path, pattern)
 		except Exception:
 			pass
 

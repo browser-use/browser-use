@@ -1,9 +1,5 @@
 """Tests for PR 5: Error recovery and multi-page aggregation."""
 
-import json
-
-import pytest
-
 from browser_use.tools.extraction.aggregator import ExtractionAggregator
 from browser_use.tools.extraction.views import ExtractionResult
 
@@ -48,9 +44,25 @@ class TestExtractionAggregator:
 		agg.add(eid, result2)
 
 		aggregated = agg.aggregate(eid)
-		# First dict: extracts list items from 'products'
-		# Items should be: A, B from first, then C, D from second
-		assert len(aggregated.data) >= 4
+		# Both dicts' list items extracted and merged
+		assert len(aggregated.data) == 4
+
+	def test_dict_result_with_mixed_list_and_non_list_fields(self):
+		"""Dict with both list and non-list fields should only extract list items."""
+		agg = ExtractionAggregator()
+		eid = 'mixed-dict'
+
+		result1 = ExtractionResult(data={'products': [{'name': 'A'}], 'total': 100, 'page': 1})
+		result2 = ExtractionResult(data={'products': [{'name': 'B'}], 'total': 100, 'page': 2})
+
+		agg.add(eid, result1)
+		agg.add(eid, result2)
+
+		aggregated = agg.aggregate(eid)
+		# Only list items extracted — non-list fields (total, page) ignored
+		assert len(aggregated.data) == 2
+		names = {item['name'] for item in aggregated.data}
+		assert names == {'A', 'B'}
 
 	def test_summary(self):
 		agg = ExtractionAggregator()
