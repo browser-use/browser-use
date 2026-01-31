@@ -44,6 +44,7 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	ScreenshotAction,
 	ScrollAction,
 	SearchAction,
 	SelectDropdownOptionAction,
@@ -960,20 +961,42 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 		@self.registry.action(
-			'Get a screenshot of the current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot is included in the next browser_state No parameters are needed.',
-			param_model=NoParamsAction,
+			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
+			'Otherwise, screenshot is included in the next browser_state observation.',
+			param_model=ScreenshotAction,
 		)
-		async def screenshot(_: NoParamsAction):
-			"""Request that a screenshot be included in the next observation"""
-			memory = 'Requested screenshot for next observation'
-			msg = f'📸 {memory}'
-			logger.info(msg)
+		async def screenshot(
+			params: ScreenshotAction,
+			browser_session: BrowserSession,
+			file_system: FileSystem,
+		):
+			"""Take screenshot, optionally saving to file."""
+			if params.file_name:
+				# Save screenshot to file
+				file_name = params.file_name
+				if not file_name.lower().endswith('.png'):
+					file_name = f'{file_name}.png'
+				file_name = FileSystem.sanitize_filename(file_name)
 
-			# Return flag in metadata to signal that screenshot should be included
-			return ActionResult(
-				extracted_content=memory,
-				metadata={'include_screenshot': True},
-			)
+				screenshot_bytes = await browser_session.take_screenshot(full_page=False)
+				file_path = file_system.get_dir() / file_name
+				file_path.write_bytes(screenshot_bytes)
+
+				result = f'Screenshot saved to {file_name}'
+				logger.info(f'📸 {result}. Full path: {file_path}')
+				return ActionResult(
+					extracted_content=result,
+					long_term_memory=f'{result}. Full path: {file_path}',
+					attachments=[str(file_path)],
+				)
+			else:
+				# Flag for next observation
+				memory = 'Requested screenshot for next observation'
+				logger.info(f'📸 {memory}')
+				return ActionResult(
+					extracted_content=memory,
+					metadata={'include_screenshot': True},
+				)
 
 		# Dropdown Actions
 
