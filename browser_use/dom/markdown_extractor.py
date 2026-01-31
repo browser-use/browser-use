@@ -14,6 +14,7 @@ from browser_use.dom.service import DomService
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
 	from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
+	from browser_use.dom.views import MarkdownChunk
 
 
 async def extract_clean_markdown(
@@ -125,6 +126,270 @@ async def _get_enhanced_dom_tree_from_browser_session(browser_session: 'BrowserS
 
 
 # Legacy aliases removed - all code now uses the unified extract_clean_markdown function
+
+
+def chunk_markdown_by_structure(
+	content: str,
+	max_chunk_size: int = 100_000,
+	overlap_lines: int = 3,
+) -> list['MarkdownChunk']:
+	"""Split markdown content into structural chunks that never break tables, code blocks, or list items.
+
+	Split priority: headers > double newlines (paragraphs) > table row boundaries > list items > sentences.
+	Never splits inside: table rows, code blocks (```...```), list continuations.
+
+	Args:
+		content: Full markdown content.
+		max_chunk_size: Maximum characters per chunk.
+		overlap_lines: Number of lines to carry from end of previous chunk as context overlap.
+
+	Returns:
+		List of MarkdownChunk objects.
+	"""
+	from browser_use.dom.views import MarkdownChunk
+
+	if len(content) <= max_chunk_size:
+		return [
+			MarkdownChunk(
+				content=content,
+				start_char=0,
+				end_char=len(content),
+				chunk_index=0,
+				total_chunks=1,
+			)
+		]
+
+	# Parse content into structural blocks
+	blocks = _split_into_structural_blocks(content)
+
+	chunks: list[MarkdownChunk] = []
+	current_blocks: list[str] = []
+	current_size = 0
+	current_start = 0
+	char_pos = 0
+	table_header: str | None = None
+
+	for block in blocks:
+		block_size = len(block)
+
+		# If a single block exceeds max_chunk_size, force-split it at sentence boundaries
+		if block_size > max_chunk_size:
+			# Flush current accumulated blocks first
+			if current_blocks:
+				chunk_content = '\n\n'.join(current_blocks)
+				chunks.append(
+					MarkdownChunk(
+						content=chunk_content,
+						start_char=current_start,
+						end_char=current_start + len(chunk_content),
+						chunk_index=len(chunks),
+						total_chunks=0,  # filled in later
+						has_table_header=table_header is not None,
+						overlap_prefix='',
+					)
+				)
+				current_blocks = []
+				current_size = 0
+				current_start = char_pos
+
+			# Force-split the oversized block
+			sub_chunks = _force_split_block(block, max_chunk_size)
+			for sub in sub_chunks:
+				chunks.append(
+					MarkdownChunk(
+						content=sub,
+						start_char=char_pos,
+						end_char=char_pos + len(sub),
+						chunk_index=len(chunks),
+						total_chunks=0,
+						has_table_header=False,
+						overlap_prefix='',
+					)
+				)
+				char_pos += len(sub)
+			continue
+
+		# Would this block push us over the limit?
+		separator_size = 2 if current_blocks else 0  # '\n\n' between blocks
+		if current_size + separator_size + block_size > max_chunk_size and current_blocks:
+			# Flush current chunk
+			chunk_content = '\n\n'.join(current_blocks)
+			# Build overlap from last N lines
+			overlap = ''
+			if overlap_lines > 0:
+				last_lines = chunk_content.split('\n')
+				overlap = '\n'.join(last_lines[-overlap_lines:])
+
+			chunks.append(
+				MarkdownChunk(
+					content=chunk_content,
+					start_char=current_start,
+					end_char=current_start + len(chunk_content),
+					chunk_index=len(chunks),
+					total_chunks=0,
+					has_table_header=table_header is not None,
+					overlap_prefix='',
+				)
+			)
+
+			# Start new chunk with overlap prefix
+			current_blocks = []
+			current_size = 0
+			current_start = char_pos
+
+			# Detect if the block is a table row — carry table header
+			if _is_table_row(block) and table_header:
+				current_blocks.append(table_header)
+				current_size += len(table_header) + 2
+
+		# Track table headers (first row + separator row pattern)
+		if _is_table_header(block):
+			table_header = block
+		elif not _is_table_row(block):
+			table_header = None
+
+		current_blocks.append(block)
+		current_size += block_size + (2 if len(current_blocks) > 1 else 0)
+		char_pos += block_size + 2  # account for \n\n between blocks
+
+	# Flush remaining
+	if current_blocks:
+		chunk_content = '\n\n'.join(current_blocks)
+		chunks.append(
+			MarkdownChunk(
+				content=chunk_content,
+				start_char=current_start,
+				end_char=current_start + len(chunk_content),
+				chunk_index=len(chunks),
+				total_chunks=0,
+				has_table_header=table_header is not None,
+				overlap_prefix='',
+			)
+		)
+
+	# Fill in total_chunks
+	total = len(chunks)
+	for chunk in chunks:
+		chunk.total_chunks = total
+
+	return chunks
+
+
+def _split_into_structural_blocks(content: str) -> list[str]:
+	"""Split markdown into structural blocks, keeping tables and code blocks intact.
+
+	A "block" is one of:
+	- A header line (# ...)
+	- A paragraph (text separated by double newlines)
+	- A complete table (all rows from | header to last | row)
+	- A complete fenced code block (```...```)
+	- A list block (contiguous list items)
+	"""
+	blocks: list[str] = []
+	lines = content.split('\n')
+	i = 0
+	current_block_lines: list[str] = []
+
+	while i < len(lines):
+		line = lines[i]
+		stripped = line.strip()
+
+		# Fenced code block — consume until closing fence
+		if stripped.startswith('```'):
+			# Flush accumulated lines
+			if current_block_lines:
+				blocks.append('\n'.join(current_block_lines))
+				current_block_lines = []
+
+			code_lines = [line]
+			i += 1
+			while i < len(lines):
+				code_lines.append(lines[i])
+				if lines[i].strip().startswith('```') and len(code_lines) > 1:
+					i += 1
+					break
+				i += 1
+			blocks.append('\n'.join(code_lines))
+			continue
+
+		# Table block — consume contiguous rows starting with |
+		if stripped.startswith('|'):
+			if current_block_lines:
+				blocks.append('\n'.join(current_block_lines))
+				current_block_lines = []
+
+			table_lines = [line]
+			i += 1
+			while i < len(lines) and lines[i].strip().startswith('|'):
+				table_lines.append(lines[i])
+				i += 1
+			blocks.append('\n'.join(table_lines))
+			continue
+
+		# Header line — its own block
+		if stripped.startswith('#'):
+			if current_block_lines:
+				blocks.append('\n'.join(current_block_lines))
+				current_block_lines = []
+			blocks.append(line)
+			i += 1
+			continue
+
+		# Empty line — flush current paragraph block
+		if not stripped:
+			if current_block_lines:
+				blocks.append('\n'.join(current_block_lines))
+				current_block_lines = []
+			i += 1
+			continue
+
+		# Regular content line — accumulate
+		current_block_lines.append(line)
+		i += 1
+
+	# Flush remaining
+	if current_block_lines:
+		blocks.append('\n'.join(current_block_lines))
+
+	return [b for b in blocks if b.strip()]
+
+
+def _is_table_row(block: str) -> bool:
+	"""Check if a block is a markdown table (rows starting with |)."""
+	return block.strip().startswith('|')
+
+
+def _is_table_header(block: str) -> bool:
+	"""Check if a block looks like a table header (first row + separator row)."""
+	lines = block.strip().split('\n')
+	if len(lines) >= 2:
+		return lines[0].strip().startswith('|') and '---' in lines[1]
+	return False
+
+
+def _force_split_block(block: str, max_size: int) -> list[str]:
+	"""Force-split an oversized block at sentence/line boundaries."""
+	if len(block) <= max_size:
+		return [block]
+
+	chunks: list[str] = []
+	lines = block.split('\n')
+	current: list[str] = []
+	current_size = 0
+
+	for line in lines:
+		line_size = len(line) + 1  # +1 for newline
+		if current_size + line_size > max_size and current:
+			chunks.append('\n'.join(current))
+			current = []
+			current_size = 0
+		current.append(line)
+		current_size += line_size
+
+	if current:
+		chunks.append('\n'.join(current))
+
+	return chunks
 
 
 def _preprocess_markdown_content(content: str, max_newlines: int = 3) -> tuple[str, int]:

@@ -1014,3 +1014,16 @@ class DOMInteractedElement:
 			stable_hash=enhanced_dom_tree.compute_stable_hash(),  # Compute from source for single source of truth
 			ax_name=ax_name,
 		)
+
+
+@dataclass
+class MarkdownChunk:
+	"""A structural chunk of markdown content with metadata."""
+
+	content: str
+	start_char: int
+	end_char: int
+	chunk_index: int
+	total_chunks: int
+	has_table_header: bool = False
+	overlap_prefix: str = ''
