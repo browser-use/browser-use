@@ -837,6 +837,9 @@ class SessionManager:
 			cdp_session: The CDP session to enable monitoring on
 		"""
 		try:
+			# Apply stealth patches if enabled
+			await self.browser_session.apply_stealth(cdp_session)
+
 			# Enable Page domain first (required for lifecycle events)
 			await cdp_session.cdp_client.send.Page.enable(session_id=cdp_session.session_id)
 
