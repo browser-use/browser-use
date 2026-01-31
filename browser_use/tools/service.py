@@ -44,8 +44,10 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	ReadContentAction,
 	ScrollAction,
 	SearchAction,
+	SearchContentAction,
 	SelectDropdownOptionAction,
 	SendKeysAction,
 	StructuredOutputAction,
@@ -1119,6 +1121,427 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				images=images,
 				include_extracted_content_only_once=True,
 			)
+
+		# Intelligent content reading
+
+		@self.registry.action(
+			'Intelligently read long content to find specific information. Works on current page (source="page") or files. For large content, uses search to identify relevant sections. Best for long articles, documents, or any content where you know what you are looking for.',
+			param_model=ReadContentAction,
+		)
+		async def read_long_content(
+			params: ReadContentAction,
+			browser_session: BrowserSession,
+			page_extraction_llm: BaseChatModel,
+			available_file_paths: list[str],
+		):
+			import re
+
+			from browser_use.llm.messages import UserMessage
+
+			goal = params.goal
+			context = params.context
+			source = params.source
+			max_chars = 50000
+
+			async def extract_search_terms(goal: str, context: str) -> list[str]:
+				"""Use LLM to extract search terms from goal."""
+				prompt = f"""Extract 3-5 key search terms from this goal that would help find relevant sections.
+Return only the terms, one per line, no numbering or bullets.
+
+Goal: {goal}
+
+Context: {context}"""
+				response = await page_extraction_llm.ainvoke([UserMessage(content=prompt)])
+				return [term.strip() for term in response.completion.strip().split('\n') if term.strip()][:5]
+
+			def search_text(content: str, pattern: str, context_chars: int = 100) -> list[dict]:
+				"""Search content for pattern, return matches with positions."""
+				try:
+					regex = re.compile(pattern, re.IGNORECASE)
+				except re.error:
+					regex = re.compile(re.escape(pattern), re.IGNORECASE)
+
+				matches = []
+				for match in regex.finditer(content):
+					start = max(0, match.start() - context_chars)
+					end = min(len(content), match.end() + context_chars)
+					matches.append({
+						'position': match.start(),
+						'snippet': content[start:end],
+					})
+				return matches
+
+			def chunk_content(content: str, chunk_size: int = 2000) -> list[dict]:
+				"""Split content into chunks with positions."""
+				chunks = []
+				for i in range(0, len(content), chunk_size):
+					chunks.append({
+						'start': i,
+						'end': min(i + chunk_size, len(content)),
+						'text': content[i:i + chunk_size],
+					})
+				return chunks
+
+			try:
+				if source.lower() == 'page':
+					# Read from current webpage
+					from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+					# Clear DOM cache and wait for page to settle before extracting
+					if browser_session._dom_watchdog:
+						browser_session._dom_watchdog.clear_cache()
+
+					wait_time = browser_session.browser_profile.wait_for_network_idle_page_load_time
+					await asyncio.sleep(wait_time)
+
+					content, _ = await extract_clean_markdown(browser_session=browser_session, extract_links=False)
+					source_name = 'current page'
+
+					if not content:
+						return ActionResult(
+							extracted_content='Error: No page content available',
+							long_term_memory='Failed to read page: no content',
+						)
+
+				else:
+					# Read from file
+					file_path = source
+
+					if available_file_paths and file_path in available_file_paths:
+						pass
+					elif not os.path.isabs(file_path):
+						return ActionResult(
+							extracted_content=f'Error: File path must be absolute or in available_file_paths: {file_path}',
+							long_term_memory='Failed to read: invalid path',
+						)
+
+					if not os.path.exists(file_path):
+						return ActionResult(
+							extracted_content=f'Error: File not found: {file_path}',
+							long_term_memory='Failed to read: file not found',
+						)
+
+					ext = os.path.splitext(file_path)[1].lower()
+					source_name = os.path.basename(file_path)
+
+					if ext == '.pdf':
+						# Read PDF directly using pypdf
+						import pypdf
+
+						reader = pypdf.PdfReader(file_path)
+						num_pages = len(reader.pages)
+
+						# Extract all page text
+						page_texts: list[str] = []
+						total_chars = 0
+						for page in reader.pages:
+							text = page.extract_text() or ''
+							page_texts.append(text)
+							total_chars += len(text)
+
+						# If PDF is small enough, return it all
+						if total_chars <= max_chars:
+							content_parts = []
+							for i, text in enumerate(page_texts, 1):
+								if text.strip():
+									content_parts.append(f'--- Page {i} ---\n{text}')
+							content = '\n\n'.join(content_parts)
+
+							memory = f'Read {source_name} ({num_pages} pages, {total_chars:,} chars) for goal: {goal[:50]}'
+							logger.info(f'📄 {memory}')
+							return ActionResult(
+								extracted_content=f'PDF: {source_name} ({num_pages} pages)\n\n{content}',
+								long_term_memory=memory,
+								include_extracted_content_only_once=True,
+							)
+
+						# PDF too large - use intelligent extraction
+						logger.info(f'PDF has {total_chars:,} chars across {num_pages} pages, using intelligent extraction')
+
+						# Extract search terms from goal
+						search_terms = await extract_search_terms(goal, context)
+
+						# Search and score pages by relevance
+						page_scores: dict[int, int] = {}  # 1-indexed page -> score
+						for term in search_terms:
+							try:
+								term_pattern = re.compile(re.escape(term), re.IGNORECASE)
+							except re.error:
+								continue
+							for i, text in enumerate(page_texts, 1):
+								if term_pattern.search(text):
+									page_scores[i] = page_scores.get(i, 0) + 1
+
+						# Select pages: always include page 1, then most relevant
+						pages_to_read = [1]
+						sorted_pages = sorted(page_scores.items(), key=lambda x: -x[1])
+						for page_num, _ in sorted_pages:
+							if page_num not in pages_to_read:
+								pages_to_read.append(page_num)
+
+						# Build result respecting char limit
+						content_parts = []
+						chars_used = 0
+						pages_included = []
+						for page_num in sorted(set(pages_to_read)):
+							text = page_texts[page_num - 1]
+							page_content = f'--- Page {page_num} ---\n{text}'
+							if chars_used + len(page_content) > max_chars:
+								break
+							content_parts.append(page_content)
+							chars_used += len(page_content)
+							pages_included.append(page_num)
+
+						content = '\n\n'.join(content_parts)
+						memory = f'Read {source_name} ({len(pages_included)} relevant pages of {num_pages}) for goal: {goal[:50]}'
+						logger.info(f'📄 {memory}')
+						return ActionResult(
+							extracted_content=f'PDF: {source_name} ({num_pages} pages, showing {len(pages_included)} relevant)\n\n{content}',
+							long_term_memory=memory,
+							include_extracted_content_only_once=True,
+						)
+
+					else:
+						# Text file
+						with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+							content = f.read()
+
+				# Check if content fits in budget
+				if len(content) <= max_chars:
+					memory = f'Read {source_name} ({len(content):,} chars) for goal: {goal[:50]}'
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=f'Content from {source_name} ({len(content):,} chars):\n\n{content}',
+						long_term_memory=memory,
+						include_extracted_content_only_once=True,
+					)
+
+				# Content too large - use intelligent extraction
+				logger.info(f'Content has {len(content):,} chars, using intelligent extraction')
+
+				# Extract search terms from goal
+				search_terms = await extract_search_terms(goal, context)
+
+				# Search for each term and score chunks
+				chunks = chunk_content(content, chunk_size=2000)
+				chunk_scores: dict[int, int] = {}  # chunk index -> relevance score
+
+				for term in search_terms:
+					matches = search_text(content, term)
+					for match in matches:
+						# Find which chunk this match belongs to
+						for i, chunk in enumerate(chunks):
+							if chunk['start'] <= match['position'] < chunk['end']:
+								chunk_scores[i] = chunk_scores.get(i, 0) + 1
+								break
+
+				if not chunk_scores:
+					# No matches - return first max_chars
+					truncated = content[:max_chars]
+					memory = f'Read {source_name} (truncated to {max_chars:,} chars, no matches for search terms)'
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=f'Content from {source_name} (first {max_chars:,} of {len(content):,} chars):\n\n{truncated}',
+						long_term_memory=memory,
+						include_extracted_content_only_once=True,
+					)
+
+				# Sort chunks by relevance and collect most relevant ones
+				sorted_chunks = sorted(chunk_scores.items(), key=lambda x: -x[1])
+
+				# Always include first chunk for context
+				selected_indices = {0}  # Start with first chunk
+				for chunk_idx, _ in sorted_chunks:
+					selected_indices.add(chunk_idx)
+
+				# Build result from selected chunks in order
+				result_parts = []
+				total_chars = 0
+				for i in sorted(selected_indices):
+					chunk = chunks[i]
+					if total_chars + len(chunk['text']) > max_chars:
+						break
+					if i > 0 and (i - 1) not in selected_indices:
+						result_parts.append('\n[...]\n')  # Indicate gap
+					result_parts.append(chunk['text'])
+					total_chars += len(chunk['text'])
+
+				result_content = ''.join(result_parts)
+				memory = f'Read {source_name} ({len(selected_indices)} relevant sections of {len(chunks)}) for goal: {goal[:50]}'
+				logger.info(f'📄 {memory}')
+
+				return ActionResult(
+					extracted_content=f'Content from {source_name} (relevant sections, {total_chars:,} of {len(content):,} chars):\n\n{result_content}',
+					long_term_memory=memory,
+					include_extracted_content_only_once=True,
+				)
+
+			except Exception as e:
+				error_msg = f'Error reading content: {str(e)}'
+				logger.error(error_msg)
+				return ActionResult(extracted_content=error_msg, long_term_memory=error_msg)
+
+		@self.registry.action(
+			'Search for text or regex patterns. Use source="page" to search current webpage, or provide a file path to search files. Returns matches with surrounding context. Faster than extract for finding specific text.',
+			param_model=SearchContentAction,
+		)
+		async def search_content(
+			params: SearchContentAction,
+			browser_session: BrowserSession,
+			available_file_paths: list[str],
+		):
+			import re
+
+			query = params.query
+			source = params.source
+
+			# Compile regex pattern
+			try:
+				pattern = re.compile(query, re.IGNORECASE)
+			except re.error:
+				pattern = re.compile(re.escape(query), re.IGNORECASE)
+
+			def find_matches(text: str, context_chars: int = 100) -> list[dict]:
+				"""Find all matches with context."""
+				matches = []
+				for match in pattern.finditer(text):
+					start = max(0, match.start() - context_chars)
+					end = min(len(text), match.end() + context_chars)
+					snippet = text[start:end].replace('\n', ' ')
+					matches.append({
+						'position': match.start(),
+						'snippet': snippet,
+					})
+				return matches
+
+			if source.lower() == 'page':
+				# Search current webpage
+				try:
+					from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+					# Clear DOM cache and wait for page to settle before extracting
+					if browser_session._dom_watchdog:
+						browser_session._dom_watchdog.clear_cache()
+
+					# Wait for network to settle
+					wait_time = browser_session.browser_profile.wait_for_network_idle_page_load_time
+					await asyncio.sleep(wait_time)
+
+					page_text, _ = await extract_clean_markdown(browser_session=browser_session, extract_links=False)
+
+					if not page_text:
+						return ActionResult(
+							extracted_content='Error: No page content available to search',
+							long_term_memory='Search failed: no page content',
+						)
+
+					matches = find_matches(page_text, context_chars=150)
+
+					if not matches:
+						result_text = f'No matches found for "{query}" on current page'
+					else:
+						result_parts = [f'Found {len(matches)} matches for "{query}" on current page:']
+						for i, m in enumerate(matches[:20], 1):
+							result_parts.append(f'  {i}. (char {m["position"]}): ...{m["snippet"]}...')
+						if len(matches) > 20:
+							result_parts.append(f'  ... and {len(matches) - 20} more matches')
+						result_text = '\n'.join(result_parts)
+
+					memory = f'Searched page for "{query}": {len(matches)} matches'
+					logger.info(f'🔍 {memory}')
+					return ActionResult(extracted_content=result_text, long_term_memory=memory)
+
+				except Exception as e:
+					error_msg = f'Error searching page: {str(e)}'
+					logger.error(error_msg)
+					return ActionResult(extracted_content=error_msg, long_term_memory=error_msg)
+
+			else:
+				# Search a file
+				file_path = source
+
+				if available_file_paths and file_path in available_file_paths:
+					pass
+				elif not os.path.isabs(file_path):
+					return ActionResult(
+						extracted_content=f'Error: File path must be absolute or in available_file_paths: {file_path}',
+						long_term_memory=f'Failed to search: invalid path',
+					)
+
+				if not os.path.exists(file_path):
+					return ActionResult(
+						extracted_content=f'Error: File not found: {file_path}',
+						long_term_memory=f'Failed to search: file not found',
+					)
+
+				# Determine file type and search accordingly
+				ext = os.path.splitext(file_path)[1].lower()
+
+				try:
+					if ext == '.pdf':
+						# Search PDF directly using pypdf
+						import pypdf
+
+						reader = pypdf.PdfReader(file_path)
+						results = []
+
+						for page_num, page in enumerate(reader.pages, 1):
+							text = page.extract_text() or ''
+							if not text:
+								continue
+							for match in pattern.finditer(text):
+								start = max(0, match.start() - 150)
+								end = min(len(text), match.end() + 150)
+								snippet = text[start:end].replace('\n', ' ')
+								results.append({'page': page_num, 'snippet': snippet})
+
+						if not results:
+							result_text = f'No matches found for "{query}" in {file_path}'
+						else:
+							result_parts = [f'Found {len(results)} matches for "{query}":']
+							for r in results[:20]:
+								result_parts.append(f'  Page {r["page"]}: ...{r["snippet"]}...')
+							if len(results) > 20:
+								result_parts.append(f'  ... and {len(results) - 20} more matches')
+							result_text = '\n'.join(result_parts)
+
+						memory = f'Searched file for "{query}": {len(results)} matches'
+
+					else:
+						# Text file search
+						with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+							content = f.read()
+
+						lines = content.split('\n')
+						matches = []
+						for line_num, line in enumerate(lines, 1):
+							for match in pattern.finditer(line):
+								start = max(0, match.start() - 50)
+								end = min(len(line), match.end() + 50)
+								matches.append({
+									'line': line_num,
+									'snippet': line[start:end],
+								})
+
+						if not matches:
+							result_text = f'No matches found for "{query}" in {file_path}'
+						else:
+							result_parts = [f'Found {len(matches)} matches for "{query}" in file:']
+							for m in matches[:20]:
+								result_parts.append(f'  Line {m["line"]}: ...{m["snippet"]}...')
+							if len(matches) > 20:
+								result_parts.append(f'  ... and {len(matches) - 20} more matches')
+							result_text = '\n'.join(result_parts)
+
+						memory = f'Searched file for "{query}": {len(matches)} matches'
+
+					logger.info(f'🔍 {memory}')
+					return ActionResult(extracted_content=result_text, long_term_memory=memory)
+
+				except Exception as e:
+					error_msg = f'Error searching file: {str(e)}'
+					logger.error(error_msg)
+					return ActionResult(extracted_content=error_msg, long_term_memory=error_msg)
 
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
