@@ -21,6 +21,7 @@ class SessionInfo:
 	cdp_url: str | None
 	browser_session: BrowserSession
 	python_session: PythonSession = field(default_factory=PythonSession)
+	agent: Any = None  # Persistent agent for chaining run commands
 
 
 class SessionRegistry:
