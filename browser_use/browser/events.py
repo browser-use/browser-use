@@ -197,6 +197,7 @@ class BrowserStateRequestEvent(BaseEvent[BrowserStateSummary]):
 	include_dom: bool = True
 	include_screenshot: bool = True
 	include_recent_events: bool = False
+	update_cache: bool = True  # Set False when checking for new elements without affecting subsequent state comparisons
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_BrowserStateRequestEvent', 30.0))  # seconds
 

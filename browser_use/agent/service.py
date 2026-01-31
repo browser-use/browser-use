@@ -2366,20 +2366,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		total_actions = len(actions)
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
-		try:
-			if (
-				self.browser_session._cached_browser_state_summary is not None
-				and self.browser_session._cached_browser_state_summary.dom_state is not None
-			):
-				cached_selector_map = dict(self.browser_session._cached_browser_state_summary.dom_state.selector_map)
-				cached_element_hashes = {e.parent_branch_hash() for e in cached_selector_map.values()}
-			else:
-				cached_selector_map = {}
-				cached_element_hashes = set()
-		except Exception as e:
-			self.logger.error(f'Error getting cached selector map: {e}')
-			cached_selector_map = {}
-			cached_element_hashes = set()
 
 		for i, action in enumerate(actions):
 			if i > 0:
@@ -2433,6 +2419,29 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					)
 
 				results.append(result)
+
+				# Check if new interactive elements appeared after this action
+				# If so, abort remaining actions so agent can see and interact with new elements
+				if (
+					i < total_actions - 1  # more actions planned
+					and not results[-1].is_done
+					and not results[-1].error
+				):
+					try:
+						# Use update_cache=False so new elements remain marked as new in the next step
+						fresh_state = await self.browser_session.get_browser_state_summary(
+							include_screenshot=False,
+							cached=False,
+							update_cache=False,
+						)
+						if fresh_state.dom_state and fresh_state.dom_state.new_element_ids:
+							self.logger.info(
+								f'🔄 {len(fresh_state.dom_state.new_element_ids)} new interactive element(s) detected after {action_name}, '
+								f'aborting remaining {total_actions - i - 1} planned action(s) to reassess'
+							)
+							break  # abort remaining actions
+					except Exception as e:
+						self.logger.debug(f'Failed to check for new elements: {e}')
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
 					break

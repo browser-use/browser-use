@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from typing import Any
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
@@ -1656,8 +1657,27 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# to update their internal state and trigger re-renders
 			await self._trigger_framework_events(object_id=object_id, cdp_session=cdp_session)
 
-			# Return coordinates metadata if available
-			return input_coordinates
+			# Step 5: Verify the input was actually entered
+			await asyncio.sleep(0.05)
+			actual_value = await self._get_element_value(object_id, cdp_session)
+
+			# Build metadata with verification result
+			metadata: dict[str, Any] = dict(input_coordinates) if input_coordinates else {}
+			if actual_value is not None:
+				# Check if the expected text appears in the actual value
+				original_text = text.lstrip() if _is_draftjs else text
+				input_verified = original_text in actual_value
+				metadata['input_verified'] = input_verified
+				metadata['actual_value'] = actual_value[:100] if len(actual_value) > 100 else actual_value
+
+				if not input_verified:
+					self.logger.warning(
+						f'⚠️ Input verification failed: expected "{original_text}" but got "{actual_value[:50]}..."'
+					)
+				else:
+					self.logger.debug(f'✅ Input verified: "{actual_value[:50]}"')
+
+			return metadata
 
 		except Exception as e:
 			self.logger.error(f'Failed to input text via CDP: {type(e).__name__}: {e}')
@@ -1776,6 +1796,43 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			self.logger.warning(f'⚠️ Failed to trigger framework events: {type(e).__name__}: {e}')
 			# Don't raise - framework events are a best-effort enhancement
+
+	async def _get_element_value(self, object_id: str, cdp_session) -> str | None:
+		"""Get the current value/textContent of an element."""
+		try:
+			get_value_script = """
+			function() {
+				const element = this;
+				if (!element) return null;
+
+				// For input/textarea elements, use .value
+				if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+					return element.value || '';
+				}
+
+				// For contenteditable elements, use textContent
+				if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
+					return element.textContent || '';
+				}
+
+				// For other elements (e.g., Draft.js divs), try value first, then textContent
+				return element.value || element.textContent || '';
+			}
+			"""
+
+			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'objectId': object_id,
+					'functionDeclaration': get_value_script,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			return result.get('result', {}).get('value')
+		except Exception as e:
+			self.logger.debug(f'Failed to get element value: {e}')
+			return None
 
 	async def _scroll_with_cdp_gesture(self, pixels: int) -> bool:
 		"""

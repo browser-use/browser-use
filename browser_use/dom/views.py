@@ -904,6 +904,9 @@ class SerializedDOMState:
 
 	selector_map: DOMSelectorMap
 
+	new_element_ids: set[int] = field(default_factory=set)
+	"""backend_node_ids of elements that are new since the previous state"""
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='llm_representation')
 	def llm_representation(
 		self,

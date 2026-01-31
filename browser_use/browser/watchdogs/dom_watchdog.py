@@ -88,6 +88,111 @@ class DOMWatchdog(BaseWatchdog):
 
 		return json.dumps([])  # Return empty JSON array on error
 
+	async def _wait_for_dom_stability(
+		self, stability_ms: int = 150, timeout_ms: int = 2000, initial_wait_ms: int = 100
+	) -> dict:
+		"""Wait for DOM to stop mutating using MutationObserver."""
+		js_code = f"""
+(function() {{
+	return new Promise((resolve) => {{
+		const startTime = Date.now();
+		let lastMutationTime = startTime;
+		let mutationCount = 0;
+		let checkInterval;
+		let timeoutId;
+		let initialWaitComplete = false;
+
+		// If document.body doesn't exist yet, wait for it
+		if (!document.body) {{
+			resolve({{ stable: false, waited_ms: 0, mutation_count: 0, reason: 'no_body' }});
+			return;
+		}}
+
+		const observer = new MutationObserver((mutations) => {{
+			mutationCount += mutations.length;
+			lastMutationTime = Date.now();
+		}});
+
+		// Observe all types of DOM changes
+		observer.observe(document.body, {{
+			childList: true,
+			subtree: true,
+			attributes: true,
+			characterData: true
+		}});
+
+		// Wait for initial period before starting stability check
+		// This gives debounced operations time to trigger their DOM changes
+		setTimeout(() => {{
+			initialWaitComplete = true;
+		}}, {initial_wait_ms});
+
+		// Check periodically if DOM has been stable for stability_ms
+		checkInterval = setInterval(() => {{
+			const now = Date.now();
+			const timeSinceLastMutation = now - lastMutationTime;
+
+			// Only check stability after initial wait period
+			if (initialWaitComplete && timeSinceLastMutation >= {stability_ms}) {{
+				// DOM has been stable for stability_ms after initial wait
+				clearInterval(checkInterval);
+				clearTimeout(timeoutId);
+				observer.disconnect();
+				resolve({{
+					stable: true,
+					waited_ms: now - startTime,
+					mutation_count: mutationCount
+				}});
+			}}
+		}}, 50);
+
+		// Timeout fallback
+		timeoutId = setTimeout(() => {{
+			clearInterval(checkInterval);
+			observer.disconnect();
+			resolve({{
+				stable: false,
+				waited_ms: {timeout_ms},
+				mutation_count: mutationCount,
+				reason: 'timeout'
+			}});
+		}}, {timeout_ms});
+	}});
+}})()
+"""
+
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': js_code, 'awaitPromise': True, 'returnByValue': True},
+				session_id=cdp_session.session_id,
+			)
+
+			if result.get('result', {}).get('type') == 'object':
+				data = result['result'].get('value', {})
+				stable = data.get('stable', False)
+				waited_ms = data.get('waited_ms', 0)
+				mutation_count = data.get('mutation_count', 0)
+				reason = data.get('reason', '')
+
+				if stable:
+					self.logger.debug(
+						f'🎯 DOM stability: stable after {waited_ms}ms, {mutation_count} mutations observed'
+					)
+				else:
+					self.logger.debug(
+						f'⏱️ DOM stability: timeout after {waited_ms}ms, {mutation_count} mutations observed ({reason})'
+					)
+
+				return data
+
+		except Exception as e:
+			self.logger.debug(f'DOM stability check failed: {e}, using fallback wait')
+
+		# Fallback: simple fixed wait
+		await asyncio.sleep(stability_ms / 1000)
+		return {'stable': True, 'waited_ms': stability_ms, 'mutation_count': 0, 'reason': 'fallback'}
+
 	async def _get_pending_network_requests(self) -> list['NetworkRequest']:
 		"""Get list of currently pending network requests.
 
@@ -272,18 +377,26 @@ class DOMWatchdog(BaseWatchdog):
 					self.logger.debug(f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait')
 			except Exception as e:
 				self.logger.debug(f'Failed to get pending requests before wait: {e}')
-		pending_requests = pending_requests_before_wait
-		# Wait for page stability using browser profile settings (main branch pattern)
+			pending_requests = pending_requests_before_wait
+		# Wait for page stability using MutationObserver-based detection
 		if not not_a_meaningful_website:
-			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
+			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for DOM stability...')
 			try:
-				if pending_requests_before_wait:
-					# Reduced from 1s to 0.3s for faster DOM builds while still allowing critical resources to load
-					await asyncio.sleep(0.3)
-				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
+				# Use longer timeouts if there are pending network requests
+				timeout_ms = 2000 if pending_requests_before_wait else 1500
+				stability_result = await self._wait_for_dom_stability(
+					stability_ms=150,  # DOM must be quiet for 150ms
+					timeout_ms=timeout_ms,
+					initial_wait_ms=300,  # wait 300ms for debounced operations to start
+				)
+				self.logger.debug(
+					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ DOM stability complete '
+					f'(stable={stability_result.get("stable")}, waited={stability_result.get("waited_ms")}ms, '
+					f'mutations={stability_result.get("mutation_count")})'
+				)
 			except Exception as e:
 				self.logger.warning(
-					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Network waiting failed: {e}, continuing anyway...'
+					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: DOM stability check failed: {e}, continuing anyway...'
 				)
 
 		# Get tabs info once at the beginning for all paths
@@ -364,7 +477,7 @@ class DOMWatchdog(BaseWatchdog):
 				)
 
 				dom_task = create_task_with_error_handling(
-					self._build_dom_tree_without_highlights(previous_state),
+					self._build_dom_tree_without_highlights(previous_state, update_cache=event.update_cache),
 					name='build_dom_tree',
 					logger_instance=self.logger,
 					suppress_exceptions=True,
@@ -487,8 +600,9 @@ class DOMWatchdog(BaseWatchdog):
 				closed_popup_messages=self.browser_session._closed_popup_messages.copy(),
 			)
 
-			# Cache the state
-			self.browser_session._cached_browser_state_summary = browser_state
+			# Cache the state (unless update_cache=False, used when checking for new elements mid-action)
+			if event.update_cache:
+				self.browser_session._cached_browser_state_summary = browser_state
 
 			# Cache viewport size for coordinate conversion (if llm_screenshot_size is enabled)
 			if page_info:
@@ -533,7 +647,7 @@ class DOMWatchdog(BaseWatchdog):
 
 	@time_execution_async('build_dom_tree_without_highlights')
 	@observe_debug(ignore_input=True, ignore_output=True, name='build_dom_tree_without_highlights')
-	async def _build_dom_tree_without_highlights(self, previous_state: SerializedDOMState | None = None) -> SerializedDOMState:
+	async def _build_dom_tree_without_highlights(self, previous_state: SerializedDOMState | None = None, update_cache: bool = True) -> SerializedDOMState:
 		"""Build DOM tree without injecting JavaScript highlights (for parallel execution)."""
 		try:
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: STARTING DOM tree build')
@@ -651,8 +765,8 @@ class DOMWatchdog(BaseWatchdog):
 			# Update selector map for other watchdogs
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: Updating selector maps...')
 			self.selector_map = self.current_dom_state.selector_map
-			# Update BrowserSession's cached selector map
-			if self.browser_session:
+			# Update BrowserSession's cached selector map (unless update_cache=False)
+			if self.browser_session and update_cache:
 				self.browser_session.update_cached_selector_map(self.selector_map)
 			self.logger.debug(
 				f'🔍 DOMWatchdog._build_dom_tree_without_highlights: ✅ Selector maps updated, {len(self.selector_map)} elements'

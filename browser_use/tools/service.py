@@ -403,6 +403,13 @@ class Tools(Generic[Context]):
 				await event
 				input_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
+				# Check verification result from metadata
+				input_verified = True
+				actual_value = None
+				if isinstance(input_metadata, dict):
+					input_verified = input_metadata.get('input_verified', True)
+					actual_value = input_metadata.get('actual_value')
+
 				# Create message with sensitive data handling
 				if has_sensitive_data:
 					if sensitive_key_name:
@@ -414,6 +421,14 @@ class Tools(Generic[Context]):
 				else:
 					msg = f"Typed '{params.text}'"
 					log_msg = f"Typed '{params.text}'"
+
+				# Add verification warning if input failed
+				if not input_verified:
+					if has_sensitive_data:
+						msg += ' (WARNING: input verification failed - text may not have been entered)'
+					else:
+						msg += f" (WARNING: input verification failed - element shows '{actual_value}' instead)"
+					log_msg += ' [VERIFICATION FAILED]'
 
 				logger.debug(log_msg)
 

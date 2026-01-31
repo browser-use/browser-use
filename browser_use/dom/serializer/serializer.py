@@ -69,6 +69,7 @@ class DOMTreeSerializer:
 		self._interactive_counter = 1
 		self._selector_map: DOMSelectorMap = {}
 		self._previous_cached_selector_map = previous_cached_state.selector_map if previous_cached_state else None
+		self._new_element_ids: set[int] = set()  # Track backend_node_ids of new elements
 		# Add timing tracking
 		self.timing_info: dict[str, float] = {}
 		# Cache for clickable element detection to avoid redundant calls
@@ -105,6 +106,7 @@ class DOMTreeSerializer:
 		# Reset state
 		self._interactive_counter = 1
 		self._selector_map = {}
+		self._new_element_ids = set()
 		self._semantic_groups = []
 		self._clickable_cache = {}  # Clear cache for new serialization
 
@@ -145,7 +147,7 @@ class DOMTreeSerializer:
 		end_total = time.time()
 		self.timing_info['serialize_accessible_elements_total'] = end_total - start_total
 
-		return SerializedDOMState(_root=filtered_tree, selector_map=self._selector_map), self.timing_info
+		return SerializedDOMState(_root=filtered_tree, selector_map=self._selector_map, new_element_ids=self._new_element_ids), self.timing_info
 
 	def _add_compound_components(self, simplified: SimplifiedNode, node: EnhancedDOMTreeNode) -> None:
 		"""Enhance compound controls with information from their child components."""
@@ -716,11 +718,13 @@ class DOMTreeSerializer:
 				# Mark compound components as new for visibility
 				if node.is_compound_component:
 					node.is_new = True
+					self._new_element_ids.add(node.original_node.backend_node_id)
 				elif self._previous_cached_selector_map:
 					# Check if node is new for regular elements
 					previous_backend_node_ids = {node.backend_node_id for node in self._previous_cached_selector_map.values()}
 					if node.original_node.backend_node_id not in previous_backend_node_ids:
 						node.is_new = True
+						self._new_element_ids.add(node.original_node.backend_node_id)
 
 		# Process children
 		for child in node.children:
