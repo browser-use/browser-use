@@ -64,6 +64,15 @@ class TestExtractionAggregator:
 		names = {item['name'] for item in aggregated.data}
 		assert names == {'A', 'B'}
 
+	def test_dict_with_empty_list_field_not_stored_as_item(self):
+		"""{'items': []} should not be stored as a dict item — it has a list field, just empty."""
+		agg = ExtractionAggregator()
+		eid = 'empty-list'
+
+		agg.add(eid, ExtractionResult(data={'items': []}))
+		aggregated = agg.aggregate(eid)
+		assert len(aggregated.data) == 0
+
 	def test_summary(self):
 		agg = ExtractionAggregator()
 		eid = 'summary-test'

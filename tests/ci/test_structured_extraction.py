@@ -229,6 +229,57 @@ class TestExtractActionOutputSchema:
 		action = ExtractAction(query='Get products', output_schema=schema)
 		assert action.output_schema == schema
 
+	def test_extract_action_output_schema_from_json_string(self):
+		"""Gemini returns output_schema as a JSON string — validator should parse it."""
+		from browser_use.tools.views import ExtractAction
+
+		schema_dict = {'type': 'object', 'properties': {'name': {'type': 'string'}}}
+		json_str = '{"type": "object", "properties": {"name": {"type": "string"}}}'
+		action = ExtractAction(query='Get products', output_schema=json_str)
+		assert action.output_schema == schema_dict
+
+	def test_extract_action_output_schema_invalid_string(self):
+		"""Non-JSON string for output_schema should coerce to None."""
+		from browser_use.tools.views import ExtractAction
+
+		action = ExtractAction(query='Get products', output_schema='not json')
+		assert action.output_schema is None
+
+	def test_extract_with_script_output_schema_from_json_string(self):
+		"""ExtractWithScriptAction also accepts JSON strings for output_schema."""
+		from browser_use.tools.views import ExtractWithScriptAction
+
+		json_str = '{"type": "object", "properties": {"items": {"type": "array"}}}'
+		action = ExtractWithScriptAction(query='Get items', output_schema=json_str)
+		assert isinstance(action.output_schema, dict)
+		assert action.output_schema['type'] == 'object'
+
+	def test_gemini_schema_fixer_converts_bare_object_to_string(self):
+		"""_fix_gemini_schema should convert bare OBJECT types (no properties) to STRING."""
+		from browser_use.llm.google.chat import ChatGoogle
+
+		# Simulate the schema that would be generated for dict[str, Any] | None
+		# after SchemaOptimizer strips additionalProperties
+		schema = {
+			'type': 'OBJECT',
+			'properties': {
+				'output_schema': {
+					'anyOf': [
+						{'type': 'OBJECT'},  # bare object — no properties
+						{'type': 'NULL'},
+					],
+				},
+			},
+		}
+
+		google_llm = ChatGoogle.__new__(ChatGoogle)
+		fixed = google_llm._fix_gemini_schema(schema)
+
+		# The bare OBJECT inside anyOf should be converted to STRING
+		any_of = fixed['properties']['output_schema']['anyOf']
+		object_entry = [e for e in any_of if e.get('type') != 'NULL'][0]
+		assert object_entry['type'] == 'STRING'
+
 	def test_extract_action_backward_compat(self):
 		"""Existing code that doesn't pass output_schema should still work."""
 		from browser_use.tools.views import ExtractAction

@@ -1,6 +1,33 @@
-from typing import Any, Generic, TypeVar
+import json
+from typing import Annotated, Any, Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def _coerce_output_schema(v: Any) -> dict[str, Any] | None:
+	"""Accept both dict and JSON string for output_schema.
+
+	Google Gemini cannot represent free-form objects in its response schema,
+	so the schema fixer converts dict fields to STRING type. This validator
+	ensures the field works regardless of whether the LLM returns a dict or
+	a JSON string.
+	"""
+	if v is None:
+		return None
+	if isinstance(v, dict):
+		return v
+	if isinstance(v, str):
+		try:
+			parsed = json.loads(v)
+			if isinstance(parsed, dict):
+				return parsed
+		except (json.JSONDecodeError, TypeError):
+			pass
+		return None
+	return v if isinstance(v, dict) else None
+
+
+_OutputSchema = Annotated[dict[str, Any] | None, BeforeValidator(_coerce_output_schema)]
 
 
 # Action Input Models
@@ -12,7 +39,7 @@ class ExtractAction(BaseModel):
 	start_from_char: int = Field(
 		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
 	)
-	output_schema: dict[str, Any] | None = Field(
+	output_schema: _OutputSchema = Field(
 		default=None,
 		description='Optional JSON Schema dict. When provided, extraction returns validated JSON matching this schema instead of free text.',
 	)
@@ -20,7 +47,7 @@ class ExtractAction(BaseModel):
 
 class ExtractWithScriptAction(BaseModel):
 	query: str
-	output_schema: dict[str, Any] | None = Field(
+	output_schema: _OutputSchema = Field(
 		default=None,
 		description='Optional JSON Schema dict for structured output validation',
 	)

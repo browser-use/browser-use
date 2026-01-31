@@ -35,12 +35,14 @@ class ExtractionAggregator:
 					self._collections[extraction_id].append(item)
 		elif isinstance(data, dict):
 			# Collect all list-valued fields first
+			has_list_fields = False
 			list_items: list[Any] = []
 			for value in data.values():
 				if isinstance(value, list):
+					has_list_fields = True
 					list_items.extend(value)
 
-			if list_items:
+			if has_list_fields:
 				# Dict contains list fields — extract and merge list items only
 				for item in list_items:
 					if not self._is_duplicate(extraction_id, item):
