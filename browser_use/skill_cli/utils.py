@@ -117,24 +117,15 @@ def find_chrome_executable() -> str | None:
 	return None
 
 
-def get_chrome_profile_path(profile: str | None) -> str | None:
-	"""Get Chrome user data directory for a profile.
-
-	If profile is None, returns the default Chrome user data directory.
-	"""
-	if profile is None:
-		# Use default Chrome profile location
-		system = platform.system()
-		if system == 'Darwin':
-			return str(Path.home() / 'Library' / 'Application Support' / 'Google' / 'Chrome')
-		elif system == 'Linux':
-			return str(Path.home() / '.config' / 'google-chrome')
-		elif system == 'Windows':
-			return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')
-	else:
-		# Return the profile name - Chrome will use it as a subdirectory
-		# The actual path will be user_data_dir/profile
-		return profile
+def get_chrome_profile_path() -> str | None:
+	"""Get the default Chrome user data directory for this platform."""
+	system = platform.system()
+	if system == 'Darwin':
+		return str(Path.home() / 'Library' / 'Application Support' / 'Google' / 'Chrome')
+	elif system == 'Linux':
+		return str(Path.home() / '.config' / 'google-chrome')
+	elif system == 'Windows':
+		return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')
 
 	return None
 

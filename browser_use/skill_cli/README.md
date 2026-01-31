@@ -116,7 +116,11 @@ browser-use python --file script.py   # Run Python file
 | `--session NAME` | Use named session (default: "default") |
 | `--browser MODE` | Browser mode: chromium, real, remote |
 | `--headed` | Show browser window |
-| `--profile NAME` | Chrome profile (real mode) |
+| `--browser-exe PATH` | Path to Chrome/Chromium executable (real mode) |
+| `--user-data-dir PATH` | Chrome user data directory (real mode) |
+| `--profile-directory NAME` | Chrome profile directory name (real mode) |
+| `--profile NAME` | Deprecated alias for `--profile-directory` |
+| `--no-copy-profile` | Use profile in-place without copying |
 | `--json` | Output as JSON |
 | `--api-key KEY` | Override API key |
 

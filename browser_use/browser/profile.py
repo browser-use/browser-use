@@ -797,6 +797,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def _copy_profile(self) -> None:
 		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
+		if os.getenv('BROWSER_USE_NO_COPY_PROFILE'):
+			return
 		if self.user_data_dir is None:
 			return
 
