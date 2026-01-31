@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,6 +11,26 @@ class ExtractAction(BaseModel):
 	)
 	start_from_char: int = Field(
 		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
+	)
+	output_schema: dict[str, Any] | None = Field(
+		default=None,
+		description='Optional JSON Schema dict. When provided, extraction returns validated JSON matching this schema instead of free text.',
+	)
+
+
+class ExtractWithScriptAction(BaseModel):
+	query: str
+	output_schema: dict[str, Any] | None = Field(
+		default=None,
+		description='Optional JSON Schema dict for structured output validation',
+	)
+	css_selector: str | None = Field(
+		default=None,
+		description='CSS selector to narrow extraction to a specific page region',
+	)
+	extraction_id: str | None = Field(
+		default=None,
+		description='Reuse a previously generated script on a similar page',
 	)
 
 
