@@ -802,6 +802,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			try:
 				# Branch: structured extraction with output_schema or free-text
+				extracted_content = ''
 				structured_model = None
 				if output_schema is not None:
 					try:
@@ -844,6 +845,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					current_url = await browser_session.get_current_page_url()
 					extracted_content = (
 						f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
+					)
+
+				# Append truncation notice so the agent knows data may be incomplete
+				if truncated:
+					next_char = content_stats.get('next_start_char', 0)
+					extracted_content += (
+						f'\n<truncation_notice>Content was truncated at ~{len(content):,} chars. '
+						f'Some data may be incomplete. Use start_from_char={next_char} to continue extraction.</truncation_notice>'
 					)
 
 				# Simple memory handling
