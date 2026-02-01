@@ -163,6 +163,52 @@ class TestSchemaDictToPydanticModel:
 		info = Model.model_fields['name']
 		assert info.description == 'The product name'
 
+	def test_union_type_nullable_field(self):
+		"""JSON Schema type: ["string", "null"] should resolve to str."""
+		schema = {
+			'type': 'object',
+			'properties': {
+				'name': {'type': 'string'},
+				'email': {'type': ['string', 'null']},
+				'phone': {'type': ['string', 'null']},
+			},
+			'required': ['name'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		# Should not raise — this was the "unhashable type: 'list'" bug
+		instance = Model(name='Alice', email='a@b.com', phone=None)
+		assert instance.name == 'Alice'  # type: ignore[attr-defined]
+		assert instance.email == 'a@b.com'  # type: ignore[attr-defined]
+		assert instance.phone is None  # type: ignore[attr-defined]
+
+	def test_union_type_nested_in_array(self):
+		"""The exact schema pattern from the real-world failure."""
+		schema = {
+			'type': 'object',
+			'properties': {
+				'agents': {
+					'type': 'array',
+					'items': {
+						'type': 'object',
+						'properties': {
+							'name': {'type': 'string'},
+							'phone': {'type': ['string', 'null']},
+							'email': {'type': ['string', 'null']},
+							'location': {'type': ['string', 'null']},
+							'owner': {'type': ['string', 'null']},
+						},
+						'required': ['name', 'phone', 'email', 'location', 'owner'],
+					},
+				},
+			},
+			'required': ['agents'],
+		}
+		Model = schema_dict_to_pydantic_model(schema)
+		data = {'agents': [{'name': 'Acme Realty', 'phone': '555-1234', 'email': None, 'location': 'NYC', 'owner': None}]}
+		instance = Model.model_validate(data)
+		assert len(instance.agents) == 1  # type: ignore[attr-defined]
+		assert instance.agents[0].name == 'Acme Realty'  # type: ignore[attr-defined]
+
 	def test_object_without_properties_returns_dict(self):
 		"""An object field with no properties should resolve to dict[str, Any]."""
 		schema = {

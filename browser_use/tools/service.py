@@ -794,7 +794,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						from browser_use.tools.extraction.schema_utils import schema_dict_to_pydantic_model
 
 						structured_model = schema_dict_to_pydantic_model(output_schema)
-					except (ValueError, AssertionError) as schema_err:
+					except Exception as schema_err:
 						logger.warning(f'Schema conversion failed, falling back to free-text: {schema_err}')
 						structured_model = None
 

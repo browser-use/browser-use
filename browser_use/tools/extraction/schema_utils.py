@@ -47,14 +47,28 @@ def schema_dict_to_pydantic_model(
 	if not properties:
 		raise ValueError("Schema must have 'properties' when type is 'object'.")
 
-	required_fields = set(schema.get('required', []))
+	raw_required = schema.get('required', [])
+	required_fields = {r for r in raw_required if isinstance(r, str)} if isinstance(raw_required, list) else set()
 	field_definitions: dict[str, Any] = {}
 
 	for field_name, field_schema in properties.items():
+		if not isinstance(field_name, str):
+			logger.warning(f'Skipping non-string property key: {field_name!r}')
+			continue
+		if not isinstance(field_schema, dict):
+			logger.warning(f'Skipping non-dict field schema for {field_name!r}: {type(field_schema).__name__}')
+			continue
 		python_type = _resolve_type(field_schema, parent_name=model_name, field_name=field_name)
 		is_required = field_name in required_fields
 		description = field_schema.get('description', '')
-		default = ... if is_required else field_schema.get('default', None)
+		raw_default = field_schema.get('default', None)
+		# Mutable defaults (list, dict) must use default_factory in Pydantic
+		if is_required:
+			default = ...
+		elif isinstance(raw_default, (list, dict)):
+			default = None
+		else:
+			default = raw_default
 
 		if description:
 			field_definitions[field_name] = (
@@ -83,7 +97,7 @@ def _resolve_type(
 	field_schema: dict[str, Any],
 	parent_name: str,
 	field_name: str,
-) -> type:
+) -> Any:
 	"""Resolve a JSON Schema field definition to a Python type.
 
 	Handles primitives, nested objects, and arrays.
@@ -94,6 +108,22 @@ def _resolve_type(
 		# No type specified — fall back to Any via str
 		logger.warning(f"No 'type' in schema for {parent_name}.{field_name}, defaulting to str")
 		return str
+
+	# JSON Schema union types: "type": ["string", "null"]
+	# Extract the non-null type and resolve it; include None if "null" is present
+	if isinstance(schema_type, list):
+		has_null = 'null' in schema_type
+		non_null_types = [t for t in schema_type if t != 'null']
+		if len(non_null_types) == 1:
+			# Common case: ["string", "null"] → str | None
+			field_schema_copy = {**field_schema, 'type': non_null_types[0]}
+			resolved = _resolve_type(field_schema_copy, parent_name, field_name)
+			return resolved | None if has_null else resolved
+		elif len(non_null_types) == 0:
+			return str | None if has_null else str
+		else:
+			logger.warning(f'Multi-type union {schema_type} for {parent_name}.{field_name}, defaulting to str')
+			return str | None if has_null else str
 
 	# Primitive types
 	if schema_type in _JSON_SCHEMA_TYPE_MAP:
