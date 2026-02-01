@@ -1956,9 +1956,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _log_agent_run(self) -> None:
 		"""Log the agent run"""
-		# Blue color for task
-		self.logger.info(f'\033[34m🎯 Task: {self.task}\033[0m')
-
+		
 		self.logger.debug(f'🤖 Browser-Use Library Version {self.version} ({self.source})')
 
 		# Check for latest version and log upgrade message if needed
