@@ -111,6 +111,13 @@ class UploadFileAction(BaseModel):
 	path: str
 
 
+class ScreenshotAction(BaseModel):
+	full_page: bool = Field(
+		default=False,
+		description='Capture the full scrollable page (True) or just the visible viewport (False, default)',
+	)
+
+
 class NoParamsAction(BaseModel):
 	model_config = ConfigDict(extra='ignore')
 
