@@ -171,7 +171,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 
 					// Create the image element
 					const img = document.createElement('img');
-					img.src = 'https://cf.browser-use.com/logo.svg';
+					img.src = 'https://www.observeone.com/logo/observeone-icon.svg';
 					img.alt = 'Browser-Use';
 					img.style.width = '200px';
 					img.style.height = 'auto';
