@@ -800,23 +800,28 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 				if structured_model is not None:
 					# Structured extraction: use output_format for validated JSON
-					response = await asyncio.wait_for(
-						page_extraction_llm.ainvoke(
-							[SystemMessage(content=system_prompt), UserMessage(content=prompt)],
-							output_format=structured_model,
-						),
-						timeout=120.0,
-					)
-					# response.completion is a validated Pydantic model instance
-					result_json = response.completion.model_dump(mode='json')
-					result_str = json.dumps(result_json, ensure_ascii=False, indent=2)
+					try:
+						response = await asyncio.wait_for(
+							page_extraction_llm.ainvoke(
+								[SystemMessage(content=system_prompt), UserMessage(content=prompt)],
+								output_format=structured_model,
+							),
+							timeout=120.0,
+						)
+						# response.completion is a validated Pydantic model instance
+						result_json = response.completion.model_dump(mode='json')
+						result_str = json.dumps(result_json, ensure_ascii=False, indent=2)
 
-					current_url = await browser_session.get_current_page_url()
-					extracted_content = (
-						f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{result_str}\n</result>'
-					)
-				else:
-					# Free-text extraction (original behavior)
+						current_url = await browser_session.get_current_page_url()
+						extracted_content = (
+							f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{result_str}\n</result>'
+						)
+					except Exception as structured_err:
+						logger.warning(f'Structured extraction failed ({structured_err}), falling back to free-text')
+						structured_model = None
+
+				if structured_model is None:
+					# Free-text extraction (original behavior, or fallback from structured failure)
 					response = await asyncio.wait_for(
 						page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
 						timeout=120.0,
@@ -844,8 +849,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					long_term_memory=memory,
 				)
 			except Exception as e:
-				logger.debug(f'Error extracting content: {e}')
-				raise RuntimeError(str(e))
+				error_msg = str(e) or f'{type(e).__name__}: extraction failed'
+				logger.warning(f'Error extracting content: {error_msg}')
+				raise RuntimeError(error_msg)
 
 		@self.registry.action(
 			"""Generate and execute a JS script to extract structured data from the page DOM.
