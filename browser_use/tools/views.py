@@ -1,6 +1,7 @@
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.json_schema import SkipJsonSchema
 
 
 # Action Input Models
@@ -11,6 +12,10 @@ class ExtractAction(BaseModel):
 	)
 	start_from_char: int = Field(
 		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
+	)
+	output_schema: SkipJsonSchema[dict | None] = Field(
+		default=None,
+		description='Optional JSON Schema dict. When provided, extraction returns validated JSON matching this schema instead of free-text.',
 	)
 
 
