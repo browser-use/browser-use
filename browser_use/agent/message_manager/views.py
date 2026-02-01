@@ -42,17 +42,18 @@ class HistoryItem(BaseModel):
 		else:
 			content_parts = []
 
+			# Use shorter labels to reduce token usage
 			# Only include evaluation_previous_goal if it's not None/empty
 			if self.evaluation_previous_goal:
-				content_parts.append(f'{self.evaluation_previous_goal}')
+				content_parts.append(f'Eval:{self.evaluation_previous_goal}')
 
 			# Always include memory
 			if self.memory:
-				content_parts.append(f'{self.memory}')
+				content_parts.append(f'Mem:{self.memory}')
 
 			# Only include next_goal if it's not None/empty
 			if self.next_goal:
-				content_parts.append(f'{self.next_goal}')
+				content_parts.append(f'Goal:{self.next_goal}')
 
 			if self.action_results:
 				content_parts.append(self.action_results)
