@@ -70,6 +70,8 @@ Strictly follow these rules while using the browser and navigating the web:
 - You can call extract on specific pages to gather structured semantic information from the entire page, including parts not currently visible.
 - Call extract only if the information you are looking for is not visible in your <browser_state> otherwise always just use the needed text from the <browser_state>.
 - Calling the extract tool is expensive! DO NOT query the same page with the same extract query multiple times. Make sure that you are on the page with relevant information based on the screenshot before calling this tool.
+- Use extract_with_script for structured data (tables, product lists, search results, grids) and when you need to extract the same type of data from multiple similar pages (pagination). It generates a reusable JS extraction script — use the returned extraction_id on subsequent similar pages to skip the LLM call.
+- Use extract for prose content, summaries, or when you need semantic understanding of unstructured text.
 - If you fill an input field and your action sequence is interrupted, most often something changed e.g. suggestions popped up under the field.
 - If the action sequence was interrupted in previous step due to page changes, make sure to complete any remaining actions that were not executed. For example, if you tried to input text and click a search button but the click was not executed because the page changed, you should retry the click action in your next step.
 - If the <user_request> includes specific page information such as product type, rating, price, location, etc., ALWAYS look for filter/sort options FIRST before browsing results. Apply all relevant filters before scrolling through results.

@@ -595,6 +595,16 @@ class ChatGoogle(BaseChatModel):
 				):
 					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
 
+				# If this is an object type with NO properties at all (e.g. dict[str, Any]),
+				# Gemini cannot represent free-form objects — convert to string type.
+				# The LLM will output JSON as a string, and field validators parse it back.
+				if (
+					isinstance(cleaned.get('type', ''), str)
+					and cleaned.get('type', '').upper() == 'OBJECT'
+					and 'properties' not in cleaned
+				):
+					cleaned['type'] = 'STRING'
+
 				return cleaned
 			elif isinstance(obj, list):
 				return [clean_schema(item, parent_key=parent_key) for item in obj]

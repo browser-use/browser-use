@@ -280,6 +280,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
 		)
 
+		# Attach extraction cache and aggregator to browser session for tool access
+		from browser_use.tools.extraction.aggregator import ExtractionAggregator
+		from browser_use.tools.extraction.cache import ExtractionCache
+
+		if not hasattr(self.browser_session, '_extraction_cache'):
+			self.browser_session._extraction_cache = ExtractionCache()  # type: ignore[attr-defined]
+		if not hasattr(self.browser_session, '_extraction_aggregator'):
+			self.browser_session._extraction_aggregator = ExtractionAggregator()  # type: ignore[attr-defined]
+
 		self._demo_mode_enabled: bool = bool(self.browser_profile.demo_mode) if self.browser_session else False
 		if self._demo_mode_enabled and getattr(self.browser_profile, 'headless', False):
 			self.logger.warning(
