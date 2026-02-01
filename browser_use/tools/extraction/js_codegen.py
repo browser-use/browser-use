@@ -274,5 +274,5 @@ class JSExtractionService:
 			else:
 				return raw_result, False
 		except Exception as e:
-			logger.debug(f'Schema validation failed: {e}')
+			logger.warning(f'Schema validation failed for JS extraction: {e}')
 			return raw_result, False
