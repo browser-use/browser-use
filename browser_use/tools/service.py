@@ -104,6 +104,20 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 	raise e
 
 
+def _is_empty_data(data: object) -> bool:
+	"""Check if extraction data is effectively empty ([], {}, {"key": []}, etc.)."""
+	if data is None:
+		return True
+	if isinstance(data, list):
+		return len(data) == 0
+	if isinstance(data, dict):
+		if len(data) == 0:
+			return True
+		# Check if all values are empty lists/dicts (e.g. {"products": [], "items": []})
+		return all(isinstance(v, (list, dict)) and len(v) == 0 for v in data.values())
+	return False
+
+
 def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
 	"""Detect if a node is an autocomplete/combobox field from its attributes."""
 	attrs = node.attributes or {}
@@ -886,6 +900,47 @@ Produces a reusable extraction script. Use extraction_id to reuse a cached scrip
 				css_selector=params.css_selector,
 				cached_js_script=cached_js,
 			)
+
+			# Auto-fallback: if JS extraction returned empty, try markdown extraction
+			if result.data is not None and _is_empty_data(result.data):
+				logger.info('JS extraction returned empty results, falling back to markdown extraction')
+				try:
+					from browser_use.dom.markdown_extractor import extract_clean_markdown
+					from browser_use.tools.extraction.views import ExtractionResult
+
+					content, _ = await extract_clean_markdown(
+						browser_session=browser_session, extract_links=False
+					)
+					if len(content) > 100000:
+						content = content[:100000]
+
+					fallback_system = (
+						'You are an expert at extracting data from the markdown of a webpage. '
+						'Extract information relevant to the query. Output only the relevant data.'
+					)
+					fallback_prompt = f'<query>\n{params.query}\n</query>\n\n<webpage_content>\n{content}\n</webpage_content>'
+
+					response = await asyncio.wait_for(
+						page_extraction_llm.ainvoke(
+							[SystemMessage(content=fallback_system), UserMessage(content=fallback_prompt)]
+						),
+						timeout=120.0,
+					)
+
+					fallback_data: object = response.completion
+					try:
+						fallback_data = json.loads(response.completion)
+					except (json.JSONDecodeError, TypeError):
+						pass
+
+					result = ExtractionResult(
+						data=fallback_data,
+						source_url=result.source_url,
+						schema_used=False,
+						content_stats={'fallback': 'markdown_extraction', 'js_was_empty': True},
+					)
+				except Exception as fallback_err:
+					logger.warning(f'Markdown fallback also failed: {fallback_err}')
 
 			# Cache the generated script for reuse
 			extraction_id = None

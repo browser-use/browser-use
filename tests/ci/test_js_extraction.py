@@ -66,6 +66,8 @@ MOCK_JS_EXTRACT_TARGET = """(function(){
   return el ? {title: el.querySelector('h1').textContent.trim(), text: el.querySelector('p').textContent.trim()} : null;
 })()"""
 
+MOCK_JS_RETURNS_EMPTY = """(function(){ return []; })()"""
+
 MOCK_JS_FAILING = """(function(){ throw new Error('selector not found'); })()"""
 
 MOCK_JS_FIXED = """(function(){
@@ -288,6 +290,50 @@ class TestJSExtractionService:
 		assert result.data is not None
 		assert 'products' in result.data
 		assert len(result.data['products']) == 3
+
+
+class TestIsEmptyData:
+	"""Tests for the _is_empty_data helper used in auto-fallback."""
+
+	def test_empty_list(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data([]) is True
+
+	def test_empty_dict(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data({}) is True
+
+	def test_dict_with_empty_lists(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data({'products': [], 'items': []}) is True
+
+	def test_non_empty_list(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data([1, 2, 3]) is False
+
+	def test_non_empty_dict(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data({'name': 'Widget'}) is False
+
+	def test_dict_with_non_empty_list(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data({'products': [{'name': 'Widget'}]}) is False
+
+	def test_none(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data(None) is True
+
+	def test_string(self):
+		from browser_use.tools.service import _is_empty_data
+
+		assert _is_empty_data('some text') is False
 
 
 class TestExtractWithScriptAction:
