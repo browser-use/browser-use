@@ -214,7 +214,18 @@ class JSExtractionService:
 				lines = lines[:-1]
 			script = '\n'.join(lines)
 
-		return script.strip()
+		script = script.strip()
+
+		# Extract IIFE if LLM prepended explanation text
+		if not script.startswith('(function') and not script.startswith('(async'):
+			iife_start = script.find('(function')
+			if iife_start == -1:
+				iife_start = script.find('(async')
+			if iife_start >= 0:
+				logger.info('Stripped non-JS preamble from LLM output before IIFE')
+				script = script[iife_start:]
+
+		return script
 
 	async def _execute_script(
 		self,

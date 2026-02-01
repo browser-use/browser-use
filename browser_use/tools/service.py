@@ -917,9 +917,7 @@ Produces a reusable extraction script. Use extraction_id to reuse a cached scrip
 					from browser_use.dom.markdown_extractor import extract_clean_markdown
 					from browser_use.tools.extraction.views import ExtractionResult
 
-					content, _ = await extract_clean_markdown(
-						browser_session=browser_session, extract_links=False
-					)
+					content, _ = await extract_clean_markdown(browser_session=browser_session, extract_links=False)
 					if len(content) > 100000:
 						content = content[:100000]
 
