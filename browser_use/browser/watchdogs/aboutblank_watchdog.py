@@ -173,7 +173,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 					const img = document.createElement('img');
 					img.src = 'https://www.observeone.com/marketing-assets/observeone-logo.png';
 					img.alt = 'Browser-Use';
-					img.style.width = '400px';
+					img.style.width = '512px';
 					img.style.height = 'auto';
 					img.style.position = 'absolute';
 					img.style.left = '0px';
