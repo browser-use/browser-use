@@ -1759,7 +1759,7 @@ class CodeAgentTools(Tools[Context]):
 				'find_text',  # Exclude - use Python string ops
 				# 'select_dropdown',  # Keep for code-use
 				# 'dropdown_options',  # Keep for code-use
-				'screenshot',  # Exclude - not needed
+				# 'screenshot',  # Keep - saves to disk for file output
 				'search',  # Exclude - use navigate() directly
 				# 'click',  # Keep for code-use
 				# 'input',  # Keep for code-use
