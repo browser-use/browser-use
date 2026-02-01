@@ -17,8 +17,11 @@ class SessionInfo:
 	name: str
 	browser_mode: str
 	headed: bool
-	profile: str | None
+	profile_directory: str | None
 	cdp_url: str | None
+	browser_exe: str | None
+	user_data_dir: str | None
+	no_copy_profile: bool
 	browser_session: BrowserSession
 	python_session: PythonSession = field(default_factory=PythonSession)
 
@@ -38,8 +41,11 @@ class SessionRegistry:
 		name: str,
 		browser_mode: str,
 		headed: bool,
-		profile: str | None,
+		profile_directory: str | None,
 		cdp_url: str | None = None,
+		browser_exe: str | None = None,
+		user_data_dir: str | None = None,
+		no_copy_profile: bool = False,
 	) -> SessionInfo:
 		"""Get existing session or create new one."""
 		if name in self._sessions:
@@ -47,15 +53,25 @@ class SessionRegistry:
 
 		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed}, cdp_url={cdp_url})')
 
-		browser_session = await create_browser_session(browser_mode, headed, profile, cdp_url)
+		browser_session = await create_browser_session(
+			browser_mode,
+			headed,
+			profile_directory,
+			cdp_url,
+			browser_exe,
+			user_data_dir,
+		)
 		await browser_session.start()
 
 		session_info = SessionInfo(
 			name=name,
 			browser_mode=browser_mode,
 			headed=headed,
-			profile=profile,
+			profile_directory=profile_directory,
 			cdp_url=cdp_url,
+			browser_exe=browser_exe,
+			user_data_dir=user_data_dir,
+			no_copy_profile=no_copy_profile,
 			browser_session=browser_session,
 		)
 		self._sessions[name] = session_info
@@ -72,7 +88,10 @@ class SessionRegistry:
 				'name': s.name,
 				'browser_mode': s.browser_mode,
 				'headed': s.headed,
-				'profile': s.profile,
+				'profile_directory': s.profile_directory,
+				'user_data_dir': s.user_data_dir,
+				'browser_exe': s.browser_exe,
+				'no_copy_profile': s.no_copy_profile,
 			}
 			for s in self._sessions.values()
 		]
@@ -99,8 +118,10 @@ class SessionRegistry:
 async def create_browser_session(
 	mode: str,
 	headed: bool,
-	profile: str | None,
+	profile_directory: str | None,
 	cdp_url: str | None = None,
+	browser_exe: str | None = None,
+	user_data_dir: str | None = None,
 ) -> BrowserSession:
 	"""Create BrowserSession based on mode.
 
@@ -122,16 +143,17 @@ async def create_browser_session(
 	elif mode == 'real':
 		from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path
 
-		chrome_path = find_chrome_executable()
+		chrome_path = browser_exe or find_chrome_executable()
 		if not chrome_path:
 			raise RuntimeError('Could not find Chrome executable. Please install Chrome or specify --browser chromium')
 
-		user_data_dir = get_chrome_profile_path(profile)
+		resolved_user_data_dir = user_data_dir or get_chrome_profile_path()
 
 		return BrowserSession(
 			executable_path=chrome_path,
-			user_data_dir=user_data_dir,
+			user_data_dir=resolved_user_data_dir,
 			headless=False,  # Real browser always visible
+			profile_directory=profile_directory,
 		)
 
 	elif mode == 'remote':
