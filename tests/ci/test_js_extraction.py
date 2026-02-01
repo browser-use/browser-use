@@ -112,7 +112,7 @@ class TestJSExtractionService:
 		async def mock_ainvoke(messages, output_format=None, **kwargs):
 			return ChatInvokeCompletion(completion=MOCK_JS_EXTRACT_PRODUCTS, usage=None)
 
-		llm.ainvoke.side_effect = mock_ainvoke
+		llm.ainvoke.side_effect = mock_ainvoke  # type: ignore[attr-defined]
 
 		service = JSExtractionService()
 		result = await service.extract(
@@ -152,7 +152,7 @@ class TestJSExtractionService:
 			return ChatInvokeCompletion(completion=MOCK_JS_EXTRACT_TARGET, usage=None)
 
 		llm = create_mock_llm()
-		llm.ainvoke.side_effect = mock_ainvoke
+		llm.ainvoke.side_effect = mock_ainvoke  # type: ignore[attr-defined]
 
 		service = JSExtractionService()
 		result = await service.extract(
@@ -200,7 +200,7 @@ class TestJSExtractionService:
 				return ChatInvokeCompletion(completion=MOCK_JS_FIXED, usage=None)
 
 		llm = create_mock_llm()
-		llm.ainvoke.side_effect = mock_ainvoke
+		llm.ainvoke.side_effect = mock_ainvoke  # type: ignore[attr-defined]
 
 		service = JSExtractionService()
 		result = await service.extract(
@@ -230,7 +230,7 @@ class TestJSExtractionService:
 			return ChatInvokeCompletion(completion=MOCK_JS_EXTRACT_PRODUCTS, usage=None)
 
 		llm = create_mock_llm()
-		llm.ainvoke.side_effect = mock_ainvoke
+		llm.ainvoke.side_effect = mock_ainvoke  # type: ignore[attr-defined]
 
 		schema = {
 			'type': 'object',
@@ -275,7 +275,7 @@ class TestJSExtractionService:
 
 		# LLM should NOT be called when cached_js_script is provided
 		llm = create_mock_llm()
-		llm.ainvoke.side_effect = AssertionError('LLM should not be called with cached script')
+		llm.ainvoke.side_effect = AssertionError('LLM should not be called with cached script')  # type: ignore[attr-defined]
 
 		service = JSExtractionService()
 		result = await service.extract(

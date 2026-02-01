@@ -866,7 +866,7 @@ Produces a reusable extraction script. Use extraction_id to reuse a cached scrip
 			# Look up cached script if extraction_id provided
 			cached_js = None
 			if params.extraction_id and hasattr(browser_session, '_extraction_cache'):
-				cache = browser_session._extraction_cache
+				cache = getattr(browser_session, '_extraction_cache')
 				strategy = cache.get(params.extraction_id)
 				if strategy and strategy.js_script:
 					cached_js = strategy.js_script
@@ -888,7 +888,7 @@ Produces a reusable extraction script. Use extraction_id to reuse a cached scrip
 				if hasattr(browser_session, '_extraction_cache'):
 					from browser_use.tools.extraction.views import ExtractionStrategy
 
-					cache = browser_session._extraction_cache
+					cache = getattr(browser_session, '_extraction_cache')
 					strategy = ExtractionStrategy(
 						url_pattern=result.source_url or '',
 						js_script=js_script,

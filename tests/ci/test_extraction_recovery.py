@@ -89,6 +89,7 @@ class TestExtractionAggregator:
 		agg = ExtractionAggregator()
 		aggregated = agg.aggregate('nonexistent')
 		assert aggregated.data == []
+		assert aggregated.content_stats is not None
 		assert aggregated.content_stats['total_items'] == 0
 		assert aggregated.content_stats['pages_aggregated'] == 0
 
@@ -108,6 +109,7 @@ class TestExtractionAggregator:
 		assert not agg.has_data(eid)
 		# But page count should still increase
 		aggregated = agg.aggregate(eid)
+		assert aggregated.content_stats is not None
 		assert aggregated.content_stats['pages_aggregated'] == 1
 
 	def test_clear_specific(self):
@@ -147,6 +149,7 @@ class TestExtractionAggregator:
 		aggregated = agg.aggregate(eid)
 		# Should have 15 unique products (product 10 deduplicated)
 		assert len(aggregated.data) == 15
+		assert aggregated.content_stats is not None
 		assert aggregated.content_stats['pages_aggregated'] == 3
 
 		# Summary should reflect the counts

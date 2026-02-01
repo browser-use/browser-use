@@ -209,6 +209,7 @@ class TestExtractionResult:
 			content_stats={'original_html_chars': 5000},
 		)
 		assert result.source_url == 'http://localhost:9999/test-page'
+		assert result.content_stats is not None
 		assert result.content_stats['original_html_chars'] == 5000
 
 
@@ -235,14 +236,14 @@ class TestExtractActionOutputSchema:
 
 		schema_dict = {'type': 'object', 'properties': {'name': {'type': 'string'}}}
 		json_str = '{"type": "object", "properties": {"name": {"type": "string"}}}'
-		action = ExtractAction(query='Get products', output_schema=json_str)
+		action = ExtractAction(query='Get products', output_schema=json_str)  # type: ignore[arg-type]
 		assert action.output_schema == schema_dict
 
 	def test_extract_action_output_schema_invalid_string(self):
 		"""Non-JSON string for output_schema should coerce to None."""
 		from browser_use.tools.views import ExtractAction
 
-		action = ExtractAction(query='Get products', output_schema='not json')
+		action = ExtractAction(query='Get products', output_schema='not json')  # type: ignore[arg-type]
 		assert action.output_schema is None
 
 	def test_extract_with_script_output_schema_from_json_string(self):
@@ -250,7 +251,7 @@ class TestExtractActionOutputSchema:
 		from browser_use.tools.views import ExtractWithScriptAction
 
 		json_str = '{"type": "object", "properties": {"items": {"type": "array"}}}'
-		action = ExtractWithScriptAction(query='Get items', output_schema=json_str)
+		action = ExtractWithScriptAction(query='Get items', output_schema=json_str)  # type: ignore[arg-type]
 		assert isinstance(action.output_schema, dict)
 		assert action.output_schema['type'] == 'object'
 
