@@ -215,7 +215,8 @@ class TestChatGoogleRetries:
 					mock_response.usage_metadata = MagicMock(
 						prompt_token_count=10, candidates_token_count=5, total_token_count=15, cached_content_token_count=0
 					)
-					mock_response.candidates = [MagicMock(content=MagicMock(parts=[MagicMock(text='Success!')]))]
+					mock_part = MagicMock(text='Success!', thought=False, thought_signature=None)
+					mock_response.candidates = [MagicMock(content=MagicMock(parts=[mock_part]))]
 					return mock_response
 
 			# Mock the aio.models.generate_content path
@@ -288,7 +289,8 @@ class TestChatGoogleRetries:
 					mock_response.usage_metadata = MagicMock(
 						prompt_token_count=10, candidates_token_count=5, total_token_count=15, cached_content_token_count=0
 					)
-					mock_response.candidates = [MagicMock(content=MagicMock(parts=[MagicMock(text='Success after rate limit!')]))]
+					mock_part = MagicMock(text='Success after rate limit!', thought=False, thought_signature=None)
+					mock_response.candidates = [MagicMock(content=MagicMock(parts=[mock_part]))]
 					return mock_response
 
 			mock_client.aio.models.generate_content = mock_generate
