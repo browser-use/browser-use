@@ -1,10 +1,9 @@
 package browseruse
 
-type Tool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Parameters  map[string]any `json:"parameters"`
-}
+import (
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
+)
 
 type Action struct {
 	Name       string         `json:"name"`
@@ -16,30 +15,34 @@ type ActionResult struct {
 	Screenshot string `json:"screenshot,omitempty"`
 }
 
-func DefaultTools() []Tool {
-	return []Tool{
-		{
-			Name:        "navigate",
-			Description: "Navigate to a URL in the current tab",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"url": map[string]any{"type": "string"}},
-				"required":   []string{"url"},
+func DefaultTools() []responses.ToolUnionParam {
+	return []responses.ToolUnionParam{
+		functionTool(
+			"navigate",
+			"Navigate to a URL in the current tab",
+			responses.FunctionParameters{
+				"type": "object",
+				"properties": map[string]any{
+					"url": map[string]any{"type": "string"},
+				},
+				"required": []string{"url"},
 			},
-		},
-		{
-			Name:        "click_selector",
-			Description: "Click the first element matching a CSS selector",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"selector": map[string]any{"type": "string"}},
-				"required":   []string{"selector"},
+		),
+		functionTool(
+			"click_selector",
+			"Click the first element matching a CSS selector",
+			responses.FunctionParameters{
+				"type": "object",
+				"properties": map[string]any{
+					"selector": map[string]any{"type": "string"},
+				},
+				"required": []string{"selector"},
 			},
-		},
-		{
-			Name:        "input_text",
-			Description: "Fill the first element matching selector with text",
-			Parameters: map[string]any{
+		),
+		functionTool(
+			"input_text",
+			"Fill the first element matching selector with text",
+			responses.FunctionParameters{
 				"type": "object",
 				"properties": map[string]any{
 					"selector": map[string]any{"type": "string"},
@@ -48,22 +51,22 @@ func DefaultTools() []Tool {
 				},
 				"required": []string{"selector", "text"},
 			},
-		},
-		{
-			Name:        "screenshot",
-			Description: "Capture a screenshot of the current page",
-			Parameters: map[string]any{
+		),
+		functionTool(
+			"screenshot",
+			"Capture a screenshot of the current page",
+			responses.FunctionParameters{
 				"type": "object",
 				"properties": map[string]any{
 					"format":  map[string]any{"type": "string"},
 					"quality": map[string]any{"type": "integer"},
 				},
 			},
-		},
-		{
-			Name:        "evaluate",
-			Description: "Run JavaScript in the page context",
-			Parameters: map[string]any{
+		),
+		functionTool(
+			"evaluate",
+			"Run JavaScript in the page context",
+			responses.FunctionParameters{
 				"type": "object",
 				"properties": map[string]any{
 					"page_function": map[string]any{"type": "string"},
@@ -71,14 +74,26 @@ func DefaultTools() []Tool {
 				},
 				"required": []string{"page_function"},
 			},
-		},
-		{
-			Name:        "new_tab",
-			Description: "Open a new tab (optionally with URL)",
-			Parameters: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"url": map[string]any{"type": "string"}},
+		),
+		functionTool(
+			"new_tab",
+			"Open a new tab (optionally with URL)",
+			responses.FunctionParameters{
+				"type": "object",
+				"properties": map[string]any{
+					"url": map[string]any{"type": "string"},
+				},
 			},
+		),
+	}
+}
+
+func functionTool(name, description string, params responses.FunctionParameters) responses.ToolUnionParam {
+	return responses.ToolUnionParam{
+		OfFunction: &responses.FunctionToolParam{
+			Name:        name,
+			Description: openai.String(description),
+			Parameters:  params,
 		},
 	}
 }

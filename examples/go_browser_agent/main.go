@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"browseruse"
+	"browseruse/browseruse"
 )
 
 func main() {

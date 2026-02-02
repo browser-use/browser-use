@@ -114,12 +114,14 @@ func (bs *BrowserSession) GetOrCreateSession(ctx context.Context, targetID strin
 	if session := bs.sessionManager.GetSessionForTarget(targetID); session != nil {
 		if focus {
 			bs.AgentFocusTarget = targetID
+			_, _ = bs.client.Send(ctx, "Target.activateTarget", map[string]any{"targetId": targetID}, "")
 		}
 		return session, nil
 	}
 	if waited, err := bs.sessionManager.WaitForSession(targetID, 500*time.Millisecond); err == nil {
 		if focus {
 			bs.AgentFocusTarget = targetID
+			_, _ = bs.client.Send(ctx, "Target.activateTarget", map[string]any{"targetId": targetID}, "")
 		}
 		return waited, nil
 	}
@@ -133,6 +135,7 @@ func (bs *BrowserSession) GetOrCreateSession(ctx context.Context, targetID strin
 	}
 	if focus {
 		bs.AgentFocusTarget = targetID
+		_, _ = bs.client.Send(ctx, "Target.activateTarget", map[string]any{"targetId": targetID}, "")
 	}
 	return waited, nil
 }
