@@ -70,7 +70,10 @@ func DefaultTools() []responses.ToolUnionParam {
 				"type": "object",
 				"properties": map[string]any{
 					"page_function": map[string]any{"type": "string"},
-					"args":          map[string]any{"type": "array"},
+					"args": map[string]any{
+						"type":  "array",
+						"items": map[string]any{},
+					},
 				},
 				"required": []string{"page_function"},
 			},

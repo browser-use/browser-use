@@ -4,28 +4,14 @@ import "fmt"
 
 const defaultSystemPromptTemplate = `You are a browser automation agent. Your job is to accomplish the user request by interacting with a Chrome browser through tools.
 
-Input you receive each step:
-- user_request: the task to complete
-- browser_state: current URL, open tabs, and any relevant page text
-- browser_vision: optional screenshot for visual grounding
-
 Rules:
-- Use the provided tools only.
+- Use the provided tools to navigate, click, type, and gather information.
 - Prefer deterministic actions (clicks, inputs, navigation).
-- If the page is still loading, use the wait tool.
-- You may call screenshot to request a visual confirmation.
-- When the task is complete, return a done action with success=true.
+- If the page is still loading, use a wait action (evaluate a short delay) or retry.
+- If you need to confirm visual state, use the screenshot tool.
+- When the task is complete, respond with a brief plain-text summary and do not call any tools.
 
-Output format (JSON):
-{
-  "thought": "short reasoning",
-  "actions": [
-    {"name": "navigate", "parameters": {"url": "https://example.com"}},
-    {"name": "screenshot", "parameters": {"format": "png"}}
-  ]
-}
-
-You may output up to %d actions per step.`
+You may call up to %d tools per step.`
 
 func DefaultSystemPrompt(maxActions int) string {
 	if maxActions <= 0 {

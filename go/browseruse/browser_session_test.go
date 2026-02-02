@@ -166,8 +166,8 @@ func TestPageEvaluateFormat(t *testing.T) {
 	if page == nil {
 		t.Fatalf("expected current page")
 	}
-	if _, err := page.Evaluate(ctx, "document.title"); err == nil {
-		t.Fatalf("expected error for invalid evaluate format")
+	if _, err := page.Evaluate(ctx, "document.title"); err != nil {
+		t.Fatalf("unexpected error for expression evaluate: %v", err)
 	}
 	result, err := page.Evaluate(ctx, "() => \"ok\"")
 	if err != nil {

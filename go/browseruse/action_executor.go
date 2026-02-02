@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 func ExecuteAction(ctx context.Context, session *BrowserSession, action Action) (ActionResult, error) {
@@ -21,13 +22,14 @@ func ExecuteAction(ctx context.Context, session *BrowserSession, action Action) 
 		if url == "" {
 			return ActionResult{}, errors.New("url required")
 		}
-		return ActionResult{}, page.Goto(ctx, url)
+		err := page.Goto(ctx, url)
+		return ActionResult{}, err
 	case "click_selector":
 		selector, _ := params["selector"].(string)
 		if selector == "" {
 			return ActionResult{}, errors.New("selector required")
 		}
-		element, err := page.GetElementByCSSSelector(ctx, selector)
+		element, err := page.WaitForSelector(ctx, selector, 5*time.Second)
 		if err != nil {
 			return ActionResult{}, err
 		}
@@ -39,7 +41,7 @@ func ExecuteAction(ctx context.Context, session *BrowserSession, action Action) 
 		if selector == "" {
 			return ActionResult{}, errors.New("selector required")
 		}
-		element, err := page.GetElementByCSSSelector(ctx, selector)
+		element, err := page.WaitForSelector(ctx, selector, 5*time.Second)
 		if err != nil {
 			return ActionResult{}, err
 		}

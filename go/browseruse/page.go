@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Page struct {
@@ -33,7 +34,10 @@ func (p *Page) Goto(ctx context.Context, url string) error {
 		return err
 	}
 	_, err = p.browser.client.Send(ctx, "Page.navigate", map[string]any{"url": url}, sessionID)
-	return err
+	if err != nil {
+		return err
+	}
+	return p.WaitForReadyState(ctx, 10*time.Second)
 }
 
 func (p *Page) Reload(ctx context.Context) error {
@@ -47,22 +51,35 @@ func (p *Page) Reload(ctx context.Context) error {
 
 func (p *Page) Evaluate(ctx context.Context, pageFunction string, args ...any) (string, error) {
 	pageFunction = strings.TrimSpace(pageFunction)
-	if !strings.HasPrefix(pageFunction, "(") || !strings.Contains(pageFunction, "=>") {
-		return "", fmt.Errorf("javascript code must start with (...args) => format")
-	}
 	var expression string
-	if len(args) > 0 {
-		argStrings := make([]string, 0, len(args))
-		for _, arg := range args {
-			encoded, err := json.Marshal(arg)
-			if err != nil {
-				return "", err
+	if strings.HasPrefix(pageFunction, "(") && strings.Contains(pageFunction, "=>") {
+		if len(args) > 0 {
+			argStrings := make([]string, 0, len(args))
+			for _, arg := range args {
+				encoded, err := json.Marshal(arg)
+				if err != nil {
+					return "", err
+				}
+				argStrings = append(argStrings, string(encoded))
 			}
-			argStrings = append(argStrings, string(encoded))
+			expression = fmt.Sprintf("(%s)(%s)", pageFunction, strings.Join(argStrings, ", "))
+		} else {
+			expression = fmt.Sprintf("(%s)()", pageFunction)
 		}
-		expression = fmt.Sprintf("(%s)(%s)", pageFunction, strings.Join(argStrings, ", "))
 	} else {
-		expression = fmt.Sprintf("(%s)()", pageFunction)
+		if len(args) > 0 {
+			argStrings := make([]string, 0, len(args))
+			for _, arg := range args {
+				encoded, err := json.Marshal(arg)
+				if err != nil {
+					return "", err
+				}
+				argStrings = append(argStrings, string(encoded))
+			}
+			expression = fmt.Sprintf("(function(...args){ return (%s); })(%s)", pageFunction, strings.Join(argStrings, ", "))
+		} else {
+			expression = pageFunction
+		}
 	}
 	sessionID, err := p.ensureSession(ctx)
 	if err != nil {
@@ -94,6 +111,61 @@ func (p *Page) Evaluate(ctx context.Context, pageFunction string, args ...any) (
 			return fmt.Sprintf("%v", v), nil
 		}
 		return string(encoded), nil
+	}
+}
+
+func (p *Page) WaitForReadyState(ctx context.Context, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return context.DeadlineExceeded
+		case <-ticker.C:
+			state, err := p.Evaluate(ctx, "document.readyState")
+			if err != nil {
+				continue
+			}
+			if state == "complete" || state == "interactive" {
+				return nil
+			}
+		}
+	}
+}
+
+func (p *Page) WaitForSelector(ctx context.Context, selector string, timeout time.Duration) (*Element, error) {
+	if selector == "" {
+		return nil, errors.New("selector required")
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return nil, errors.New("no elements found")
+		case <-ticker.C:
+			elements, err := p.GetElementsByCSSSelector(ctx, selector)
+			if err != nil {
+				continue
+			}
+			if len(elements) > 0 {
+				return elements[0], nil
+			}
+		}
 	}
 }
 

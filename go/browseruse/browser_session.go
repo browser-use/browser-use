@@ -177,3 +177,14 @@ func (bs *BrowserSession) ClosePage(ctx context.Context, targetID string) error 
 	_, err := bs.client.Send(ctx, "Target.closeTarget", map[string]any{"targetId": targetID}, "")
 	return err
 }
+
+func (bs *BrowserSession) Close() error {
+	if bs.client == nil {
+		return nil
+	}
+	return bs.client.Stop()
+}
+
+func (bs *BrowserSession) Kill() error {
+	return bs.Close()
+}
