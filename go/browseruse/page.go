@@ -171,7 +171,7 @@ func (p *Page) WaitForSelector(ctx context.Context, selector string, timeout tim
 
 func (p *Page) Screenshot(ctx context.Context, format string, quality *int, maxWidth, maxHeight int) (string, error) {
 	if format == "" {
-		format = "jpeg"
+		format = "webp"
 	}
 	if maxWidth <= 0 {
 		maxWidth = 1280
@@ -179,9 +179,12 @@ func (p *Page) Screenshot(ctx context.Context, format string, quality *int, maxW
 	if maxHeight <= 0 {
 		maxHeight = 720
 	}
-	if quality == nil && strings.ToLower(format) == "jpeg" {
-		q := 60
-		quality = &q
+	if quality == nil {
+		formatLower := strings.ToLower(format)
+		if formatLower == "jpeg" || formatLower == "webp" {
+			q := 60
+			quality = &q
+		}
 	}
 	sessionID, err := p.ensureSession(ctx)
 	if err != nil {
@@ -191,8 +194,11 @@ func (p *Page) Screenshot(ctx context.Context, format string, quality *int, maxW
 		"format":                format,
 		"captureBeyondViewport": false,
 	}
-	if quality != nil && strings.ToLower(format) == "jpeg" {
-		params["quality"] = *quality
+	if quality != nil {
+		formatLower := strings.ToLower(format)
+		if formatLower == "jpeg" || formatLower == "webp" {
+			params["quality"] = *quality
+		}
 	}
 	if metrics, err := p.browser.client.Send(ctx, "Page.getLayoutMetrics", nil, sessionID); err == nil {
 		if viewport, ok := metrics["layoutViewport"].(map[string]any); ok {
