@@ -17,12 +17,24 @@ type BrowserSession struct {
 	Headers           map[string]string
 	client            *CDPClient
 	sessionManager    *SessionManager
-	AgentFocusTarget  string
-	connectTimeoutSec int
+	AgentFocusTarget   string
+	connectTimeoutSec  int
+	fileSystem         *FileSystem
+	lastBrowserState   *BrowserStateSummary
+	lastSelectors      map[string]struct{}
+	elementsByIndex    map[int]IndexedElement
 }
 
 func NewBrowserSession(cdpURL string, headers map[string]string) *BrowserSession {
-	return &BrowserSession{CDPURL: cdpURL, Headers: headers, connectTimeoutSec: 10}
+	fs, _ := NewFileSystem("")
+	return &BrowserSession{
+		CDPURL:            cdpURL,
+		Headers:           headers,
+		connectTimeoutSec: 10,
+		fileSystem:        fs,
+		lastSelectors:     make(map[string]struct{}),
+		elementsByIndex:   make(map[int]IndexedElement),
+	}
 }
 
 func (bs *BrowserSession) Connect(ctx context.Context) error {
@@ -176,6 +188,14 @@ func (bs *BrowserSession) GetCurrentPage() *Page {
 func (bs *BrowserSession) ClosePage(ctx context.Context, targetID string) error {
 	_, err := bs.client.Send(ctx, "Target.closeTarget", map[string]any{"targetId": targetID}, "")
 	return err
+}
+
+func (bs *BrowserSession) FileSystem() *FileSystem {
+	return bs.fileSystem
+}
+
+func (bs *BrowserSession) SetFileSystem(fs *FileSystem) {
+	bs.fileSystem = fs
 }
 
 func (bs *BrowserSession) Close() error {

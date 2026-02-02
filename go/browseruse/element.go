@@ -191,6 +191,27 @@ func (e *Element) Evaluate(ctx context.Context, function string, args ...any) (s
 	return string(encoded), nil
 }
 
+func (e *Element) ScrollIntoView(ctx context.Context) error {
+	objectID, err := e.resolveObjectID(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = e.browser.client.Send(ctx, "Runtime.callFunctionOn", map[string]any{
+		"functionDeclaration": "function() { this.scrollIntoView({block:'center', inline:'center'}); }",
+		"objectId":            objectID,
+	}, e.sessionID)
+	return err
+}
+
+func (e *Element) SetFileInputFiles(ctx context.Context, paths []string) error {
+	nodeID, err := e.getNodeID(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = e.browser.client.Send(ctx, "DOM.setFileInputFiles", map[string]any{"nodeId": nodeID, "files": paths}, e.sessionID)
+	return err
+}
+
 func (e *Element) GetAttribute(ctx context.Context, name string) (string, error) {
 	nodeID, err := e.getNodeID(ctx)
 	if err != nil {

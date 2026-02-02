@@ -40,6 +40,36 @@ func (p *Page) Goto(ctx context.Context, url string) error {
 	return p.WaitForReadyState(ctx, 10*time.Second)
 }
 
+func (p *Page) GoBack(ctx context.Context) error {
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return err
+	}
+	history, err := p.browser.client.Send(ctx, "Page.getNavigationHistory", nil, sessionID)
+	if err != nil {
+		return err
+	}
+	currentIndex, ok := history["currentIndex"].(float64)
+	if !ok {
+		return errors.New("navigation history missing")
+	}
+	entries, ok := history["entries"].([]any)
+	if !ok || len(entries) == 0 {
+		return errors.New("navigation entries missing")
+	}
+	idx := int(currentIndex) - 1
+	if idx < 0 {
+		return nil
+	}
+	entry := entries[idx].(map[string]any)
+	entryID, ok := entry["id"].(float64)
+	if !ok {
+		return errors.New("entry id missing")
+	}
+	_, err = p.browser.client.Send(ctx, "Page.navigateToHistoryEntry", map[string]any{"entryId": int(entryID)}, sessionID)
+	return err
+}
+
 func (p *Page) Reload(ctx context.Context) error {
 	sessionID, err := p.ensureSession(ctx)
 	if err != nil {
@@ -234,6 +264,15 @@ func (p *Page) Screenshot(ctx context.Context, format string, quality *int, maxW
 		return "", errors.New("screenshot data missing")
 	}
 	return data, nil
+}
+
+func (p *Page) InsertText(ctx context.Context, text string) error {
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = p.browser.client.Send(ctx, "Input.insertText", map[string]any{"text": text}, sessionID)
+	return err
 }
 
 func (p *Page) Press(ctx context.Context, key string) error {

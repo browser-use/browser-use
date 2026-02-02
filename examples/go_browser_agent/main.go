@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"browseruse/browseruse"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
@@ -24,7 +25,7 @@ func main() {
 		log.Fatal("OPENAI_API_KEY is required")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	session := browseruse.NewBrowserSession(cdpURL, nil)
@@ -39,14 +40,16 @@ func main() {
 
 	client := openai.NewClient(option.WithAPIKey(apiKey))
 	agent, err := browseruse.NewAgent(browseruse.AgentConfig{
-		Task:    "Visit https://duckduckgo.com and search for \"browser-use founders\"",
+		Task:    "Find an online x o game and play it until you win.",
 		Model:   "gpt-5.2",
 		Session: session,
 		Client:  &client,
 		Reasoning: &shared.ReasoningParam{
 			Effort: shared.ReasoningEffortMedium,
 		},
-		LogRequests: true,
+		MaxSteps:     200,
+		LogRequests:  true,
+		LogResponses: true,
 	})
 	if err != nil {
 		log.Fatalf("agent init failed: %v", err)
