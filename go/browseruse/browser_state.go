@@ -81,17 +81,20 @@ func (bs *BrowserSession) GetBrowserStateSummary(ctx context.Context, includeScr
 		PageText: payload.Text,
 	}
 	if includeScreenshot {
-		shot, err := page.Screenshot(ctx, "webp", nil, 1280, 720)
-		if err == nil {
-			dpr := page.DevicePixelRatio(ctx)
-			highlighted, highlightErr := highlightScreenshot(shot, indexed, dpr)
-			if highlightErr == nil {
-				state.Screenshot = highlighted
-			} else {
-				state.Screenshot = shot
+		if len(indexed) > 0 {
+			if _, err := page.Evaluate(ctx, addHighlightOverlayJS, indexed); err == nil {
+				defer func() {
+					_, _ = page.Evaluate(ctx, removeHighlightOverlayJS)
+				}()
 			}
 		}
+		shot, err := page.Screenshot(ctx, "webp", nil, 1280, 720)
+		if err != nil {
+			return nil, err
+		}
+		state.Screenshot = shot
 	}
+
 	bs.lastBrowserState = state
 	return state, nil
 }
@@ -187,7 +190,7 @@ const collectInteractiveElementsJS = `(function(){
     'button','link','checkbox','radio','tab','menuitem','menuitemcheckbox','menuitemradio',
     'option','switch','slider','textbox','combobox','listbox','searchbox','spinbutton'
   ]);
-  const baseSelector = 'a[href],button,input,select,textarea,summary,details,[role],[contenteditable="true"],[tabindex]';
+  const baseSelector = 'a[href],button,input,select,textarea,summary,details,canvas,iframe,video,[role],[contenteditable="true"],[tabindex]';
   const candidates = [];
   const seen = new Set();
   const addCandidate = (el) => {
@@ -201,7 +204,7 @@ const collectInteractiveElementsJS = `(function(){
   const isInteractive = (el) => {
     const tag = el.tagName ? el.tagName.toLowerCase() : '';
     if (tag === 'a' && el.hasAttribute('href')) return true;
-    if (['button','input','select','textarea','summary'].includes(tag)) return true;
+    if (['button','input','select','textarea','summary','details','canvas','iframe','video'].includes(tag)) return true;
     const role = (el.getAttribute('role') || '').toLowerCase();
     if (interactiveRoles.has(role)) return true;
     if (el.isContentEditable) return true;
@@ -284,3 +287,74 @@ const collectInteractiveElementsJS = `(function(){
   });
   return JSON.stringify({url: window.location.href, title: document.title, text: (document.body && document.body.innerText || '').slice(0, 4000), elements: payload});
 })();`
+
+const addHighlightOverlayJS = `(elements) => {
+  const overlayId = '__browseruse_highlight_overlay';
+  const existing = document.getElementById(overlayId);
+  if (existing) existing.remove();
+  const container = document.createElement('div');
+  container.id = overlayId;
+  container.style.position = 'fixed';
+  container.style.left = '0';
+  container.style.top = '0';
+  container.style.width = '100%';
+  container.style.height = '100%';
+  container.style.zIndex = '2147483647';
+  container.style.pointerEvents = 'none';
+  container.style.fontFamily = 'Arial, sans-serif';
+  container.style.fontSize = '12px';
+  const colors = {
+    button: '#FF6B6B',
+    input: '#4ECDC4',
+    select: '#45B7D1',
+    a: '#96CEB4',
+    textarea: '#FF8C42',
+    default: '#DDA0DD'
+  };
+  const pickColor = (el) => {
+    if (!el) return colors.default;
+    if (el.tag === 'input' && el.attrs && (el.attrs.type === 'button' || el.attrs.type === 'submit')) {
+      return colors.button;
+    }
+    return colors[el.tag] || colors.default;
+  };
+  const root = document.body || document.documentElement;
+  if (!root) return false;
+  (elements || []).forEach((el) => {
+    if (!el || !el.rect) return;
+    const rect = el.rect;
+    if (!rect || rect.width < 2 || rect.height < 2) return;
+    const color = pickColor(el);
+    const box = document.createElement('div');
+    box.style.position = 'fixed';
+    box.style.left = rect.x + 'px';
+    box.style.top = rect.y + 'px';
+    box.style.width = rect.width + 'px';
+    box.style.height = rect.height + 'px';
+    box.style.border = '2px solid ' + color;
+    box.style.boxSizing = 'border-box';
+    box.style.pointerEvents = 'none';
+    const label = document.createElement('div');
+    label.textContent = String(el.index || '');
+    label.style.position = 'absolute';
+    label.style.left = '0';
+    label.style.top = '0';
+    label.style.background = color;
+    label.style.color = '#000';
+    label.style.padding = '1px 4px';
+    label.style.borderRadius = '2px';
+    label.style.fontSize = '12px';
+    label.style.fontWeight = 'bold';
+    label.style.lineHeight = '14px';
+    box.appendChild(label);
+    container.appendChild(box);
+  });
+  root.appendChild(container);
+  return true;
+};`
+
+const removeHighlightOverlayJS = `() => {
+  const existing = document.getElementById('__browseruse_highlight_overlay');
+  if (existing) existing.remove();
+  return true;
+};`
