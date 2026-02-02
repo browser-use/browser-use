@@ -1,0 +1,253 @@
+package browseruse
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+type Page struct {
+	browser   *BrowserSession
+	targetID  string
+	sessionID string
+	mouse     *Mouse
+}
+
+func (p *Page) ensureSession(ctx context.Context) (string, error) {
+	if p.sessionID != "" {
+		return p.sessionID, nil
+	}
+	session, err := p.browser.GetOrCreateSession(ctx, p.targetID, false)
+	if err != nil {
+		return "", err
+	}
+	p.sessionID = session.SessionID
+	return p.sessionID, nil
+}
+
+func (p *Page) Goto(ctx context.Context, url string) error {
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = p.browser.client.Send(ctx, "Page.navigate", map[string]any{"url": url}, sessionID)
+	return err
+}
+
+func (p *Page) Reload(ctx context.Context) error {
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = p.browser.client.Send(ctx, "Page.reload", nil, sessionID)
+	return err
+}
+
+func (p *Page) Evaluate(ctx context.Context, pageFunction string, args ...any) (string, error) {
+	pageFunction = strings.TrimSpace(pageFunction)
+	if !strings.HasPrefix(pageFunction, "(") || !strings.Contains(pageFunction, "=>") {
+		return "", fmt.Errorf("javascript code must start with (...args) => format")
+	}
+	var expression string
+	if len(args) > 0 {
+		argStrings := make([]string, 0, len(args))
+		for _, arg := range args {
+			encoded, err := json.Marshal(arg)
+			if err != nil {
+				return "", err
+			}
+			argStrings = append(argStrings, string(encoded))
+		}
+		expression = fmt.Sprintf("(%s)(%s)", pageFunction, strings.Join(argStrings, ", "))
+	} else {
+		expression = fmt.Sprintf("(%s)()", pageFunction)
+	}
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return "", err
+	}
+	result, err := p.browser.client.Send(ctx, "Runtime.evaluate", map[string]any{"expression": expression, "returnByValue": true, "awaitPromise": true}, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if result == nil {
+		return "", nil
+	}
+	resValue, ok := result["result"].(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	value, ok := resValue["value"]
+	if !ok || value == nil {
+		return "", nil
+	}
+	switch v := value.(type) {
+	case string:
+		return v, nil
+	case float64, int, bool:
+		return fmt.Sprintf("%v", v), nil
+	default:
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%v", v), nil
+		}
+		return string(encoded), nil
+	}
+}
+
+func (p *Page) Screenshot(ctx context.Context, format string, quality *int) (string, error) {
+	if format == "" {
+		format = "png"
+	}
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return "", err
+	}
+	params := map[string]any{"format": format}
+	if quality != nil && strings.ToLower(format) == "jpeg" {
+		params["quality"] = *quality
+	}
+	result, err := p.browser.client.Send(ctx, "Page.captureScreenshot", params, sessionID)
+	if err != nil {
+		return "", err
+	}
+	data, ok := result["data"].(string)
+	if !ok {
+		return "", errors.New("screenshot data missing")
+	}
+	return data, nil
+}
+
+func (p *Page) Press(ctx context.Context, key string) error {
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return err
+	}
+	if key == "" {
+		return nil
+	}
+	parts := strings.Split(key, "+")
+	if len(parts) == 1 {
+		_, err := p.browser.client.Send(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": key}, sessionID)
+		if err != nil {
+			return err
+		}
+		_, err = p.browser.client.Send(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": key}, sessionID)
+		return err
+	}
+	for _, modifier := range parts[:len(parts)-1] {
+		_, err := p.browser.client.Send(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": modifier}, sessionID)
+		if err != nil {
+			return err
+		}
+	}
+	mainKey := parts[len(parts)-1]
+	_, err = p.browser.client.Send(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": mainKey}, sessionID)
+	if err != nil {
+		return err
+	}
+	_, err = p.browser.client.Send(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": mainKey}, sessionID)
+	if err != nil {
+		return err
+	}
+	for i := len(parts) - 2; i >= 0; i-- {
+		modifier := parts[i]
+		_, err = p.browser.client.Send(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": modifier}, sessionID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Page) SetViewportSize(ctx context.Context, width, height int) error {
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return err
+	}
+	params := map[string]any{"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}
+	_, err = p.browser.client.Send(ctx, "Emulation.setDeviceMetricsOverride", params, sessionID)
+	return err
+}
+
+func (p *Page) GetURL(ctx context.Context) (string, error) {
+	result, err := p.Evaluate(ctx, "() => window.location.href")
+	return result, err
+}
+
+func (p *Page) GetTitle(ctx context.Context) (string, error) {
+	result, err := p.Evaluate(ctx, "() => document.title")
+	return result, err
+}
+
+func (p *Page) GetElementsByCSSSelector(ctx context.Context, selector string) ([]*Element, error) {
+	sessionID, err := p.ensureSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := p.browser.client.Send(ctx, "DOM.getDocument", map[string]any{"depth": 1}, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	root, ok := result["root"].(map[string]any)
+	if !ok {
+		return nil, errors.New("root missing")
+	}
+	nodeIDFloat, ok := root["nodeId"].(float64)
+	if !ok {
+		return nil, errors.New("nodeId missing")
+	}
+	nodeID := int(nodeIDFloat)
+	queryResult, err := p.browser.client.Send(ctx, "DOM.querySelectorAll", map[string]any{"nodeId": nodeID, "selector": selector}, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	nodeIDsAny, ok := queryResult["nodeIds"].([]any)
+	if !ok {
+		return nil, nil
+	}
+	var elements []*Element
+	for _, nodeAny := range nodeIDsAny {
+		nID := int(nodeAny.(float64))
+		desc, err := p.browser.client.Send(ctx, "DOM.describeNode", map[string]any{"nodeId": nID}, sessionID)
+		if err != nil {
+			continue
+		}
+		node, ok := desc["node"].(map[string]any)
+		if !ok {
+			continue
+		}
+		backendIDFloat, ok := node["backendNodeId"].(float64)
+		if !ok {
+			continue
+		}
+		backendID := int(backendIDFloat)
+		elements = append(elements, &Element{browser: p.browser, backendNodeID: backendID, sessionID: sessionID})
+	}
+	return elements, nil
+}
+
+func (p *Page) GetElementByCSSSelector(ctx context.Context, selector string) (*Element, error) {
+	elements, err := p.GetElementsByCSSSelector(ctx, selector)
+	if err != nil {
+		return nil, err
+	}
+	if len(elements) == 0 {
+		return nil, errors.New("no elements found")
+	}
+	return elements[0], nil
+}
+
+func (p *Page) Mouse(ctx context.Context) (*Mouse, error) {
+	if p.mouse != nil {
+		return p.mouse, nil
+	}
+	_, err := p.ensureSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.mouse = &Mouse{browser: p.browser, sessionID: p.sessionID, targetID: p.targetID}
+	return p.mouse, nil
+}
