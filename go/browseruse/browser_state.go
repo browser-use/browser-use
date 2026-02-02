@@ -185,7 +185,7 @@ func sanitizeText(text string) string {
 	return text
 }
 
-const collectInteractiveElementsJS = `(function(){
+const collectInteractiveElementsJS = `(() => {
   const interactiveRoles = new Set([
     'button','link','checkbox','radio','tab','menuitem','menuitemcheckbox','menuitemradio',
     'option','switch','slider','textbox','combobox','listbox','searchbox','spinbutton'
@@ -286,7 +286,7 @@ const collectInteractiveElementsJS = `(function(){
     };
   });
   return JSON.stringify({url: window.location.href, title: document.title, text: (document.body && document.body.innerText || '').slice(0, 4000), elements: payload});
-})();`
+})`
 
 const addHighlightOverlayJS = `(elements) => {
   const overlayId = '__browseruse_highlight_overlay';

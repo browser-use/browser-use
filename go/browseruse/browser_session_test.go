@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ type mockCDPServer struct {
 	wsURL                  string
 	methods                []string
 	lastEvaluateExpression string
+	evaluateValue          any
 	mu                     sync.Mutex
 }
 
@@ -93,7 +95,13 @@ func (ms *mockCDPServer) handleConn(conn *websocket.Conn) {
 					ms.mu.Unlock()
 				}
 			}
-			result = map[string]any{"result": map[string]any{"value": "ok"}}
+			ms.mu.Lock()
+			value := ms.evaluateValue
+			ms.mu.Unlock()
+			if value == nil {
+				value = "ok"
+			}
+			result = map[string]any{"result": map[string]any{"value": value}}
 		}
 		_ = conn.WriteJSON(map[string]any{"id": id, "result": result})
 	}
@@ -148,6 +156,72 @@ func TestBrowserSessionConnectSequence(t *testing.T) {
 		if methods[i] != method {
 			t.Fatalf("method mismatch at %d: expected %s got %s", i, method, methods[i])
 		}
+	}
+}
+
+func TestCollectInteractiveElementsExpression(t *testing.T) {
+	server := newMockCDPServer(t)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	session := NewBrowserSession(server.server.URL, nil)
+	if err := session.Connect(ctx); err != nil {
+		t.Fatalf("connect failed: %v", err)
+	}
+
+	page := session.GetCurrentPage()
+	if page == nil {
+		t.Fatalf("expected current page")
+	}
+
+	if _, err := page.Evaluate(ctx, collectInteractiveElementsJS); err != nil {
+		t.Fatalf("evaluate failed: %v", err)
+	}
+
+	expr := strings.TrimSpace(server.LastExpression())
+	if expr == "" {
+		t.Fatalf("expected expression recorded")
+	}
+	if !strings.HasSuffix(expr, ")()") {
+		t.Fatalf("expected arrow function invocation suffix, got %s", expr)
+	}
+	if strings.Contains(expr, ")();") {
+		t.Fatalf("expression appears double-invoked: %s", expr)
+	}
+}
+
+func TestBrowserStateSummaryCollectsElements(t *testing.T) {
+	server := newMockCDPServer(t)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	elementPayload := `{"url":"https://example.com","title":"Example","text":"Hello","elements":[{"selector":"a[href='x']","tag":"a","text":"Link","depth":0,"attrs":{"role":"link"},"rect":{"x":1,"y":2,"width":10,"height":10}}]}`
+	server.mu.Lock()
+	server.evaluateValue = elementPayload
+	server.mu.Unlock()
+
+	session := NewBrowserSession(server.server.URL, nil)
+	if err := session.Connect(ctx); err != nil {
+		t.Fatalf("connect failed: %v", err)
+	}
+
+	state, err := session.GetBrowserStateSummary(ctx, false)
+	if err != nil {
+		t.Fatalf("GetBrowserStateSummary failed: %v", err)
+	}
+	if state == nil {
+		t.Fatalf("expected state")
+	}
+	if len(state.Elements) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(state.Elements))
+	}
+	if state.Elements[0].Selector == "" {
+		t.Fatalf("expected selector populated")
+	}
+	if state.Elements[0].Index != 1 {
+		t.Fatalf("expected index 1, got %d", state.Elements[0].Index)
 	}
 }
 
