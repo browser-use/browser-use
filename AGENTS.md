@@ -293,7 +293,7 @@ Check out all customizable parameters <a href="https://docs.browser-use.com/cust
 
 ### Vision & Processing
 
-* `use_vision` (default: `"auto"`): Vision mode - `"auto"` includes screenshot tool but only uses vision when requested, `True` always includes screenshots, `False` never includes screenshots and excludes screenshot tool
+* `use_vision` (default: `True`): Controls whether screenshots are included in the LLM's observations - `True` always includes screenshots, `"auto"` only includes a screenshot when the agent explicitly requests one via the screenshot action, `False` never includes screenshots in observations. The screenshot tool itself is always available regardless of this setting since it saves files to disk.
 * `vision_detail_level` (default: `'auto'`): Screenshot detail level - `'low'`, `'high'`, or `'auto'`
 * `page_extraction_llm`: Separate LLM model for page content extraction. You can choose a small & fast model because it only needs to extract text from the page (default: same as `llm`)
 

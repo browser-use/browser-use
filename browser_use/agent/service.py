@@ -295,13 +295,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		elif controller is not None:
 			self.tools = controller
 		else:
-			# Exclude screenshot tool when use_vision is not auto
-			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
-			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
-
-		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
-		if use_vision != 'auto':
-			self.tools.exclude_action('screenshot')
+			self.tools = Tools(display_files_in_done_text=display_files_in_done_text)
 
 		# Enable coordinate clicking for models that support it
 		model_name = getattr(llm, 'model', '').lower()
