@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -199,7 +200,14 @@ func ExecuteAction(ctx context.Context, action Action, actionCtx ActionContext) 
 		if err != nil {
 			return ActionResult{}, err
 		}
-		return ActionResult{ExtractedContent: resultText}, nil
+		formatted, parseErr := formatFindElementsResult(resultText, selector)
+		if parseErr != nil {
+			return ActionResult{ExtractedContent: fmt.Sprintf("find_elements returned unexpected result: %s", resultText)}, nil
+		}
+		if strings.HasPrefix(formatted, "ERROR:") {
+			return ActionResult{Error: strings.TrimPrefix(formatted, "ERROR:")}, nil
+		}
+		return ActionResult{ExtractedContent: formatted}, nil
 	case "scroll":
 		down := toBool(params["down"], true)
 		pages := toFloat(params["pages"], 1.0)
@@ -522,22 +530,97 @@ func buildSearchPageJS(pattern string, regex, caseSensitive bool, contextChars i
 func buildFindElementsJS(selector string, attrs []string, maxResults int, includeText bool) string {
 	encodedAttrs, _ := json.Marshal(attrs)
 	return fmt.Sprintf(`(function(){
-  const selector = %q;
-  const includeText = %v;
-  const attrs = %s;
-  const elements = Array.from(document.querySelectorAll(selector)).slice(0, %d);
-  return JSON.stringify(elements.map(el => {
-    const out = {tag: el.tagName.toLowerCase()};
-    if (includeText) out.text = (el.innerText || '').trim();
-    const attributes = {};
-    attrs.forEach(attr => {
-      const val = el.getAttribute(attr);
-      if (val !== null) attributes[attr] = val;
-    });
-    out.attributes = attributes;
-    return out;
-  }));
-})();`, selector, includeText, string(encodedAttrs), maxResults)
+  var SELECTOR = %q;
+  var ATTRIBUTES = %s;
+  var MAX_RESULTS = %d;
+  var INCLUDE_TEXT = %v;
+  try {
+    var elements;
+    try {
+      elements = document.querySelectorAll(SELECTOR);
+    } catch (e) {
+      return {error: 'Invalid CSS selector: ' + e.message, elements: [], total: 0};
+    }
+    var total = elements.length;
+    var limit = Math.min(total, MAX_RESULTS);
+    var results = [];
+    for (var i = 0; i < limit; i++) {
+      var el = elements[i];
+      var item = {index: i, tag: el.tagName.toLowerCase()};
+      if (INCLUDE_TEXT) {
+        var text = (el.textContent || '').trim();
+        item.text = text.length > 300 ? text.slice(0, 300) + '...' : text;
+      }
+      if (ATTRIBUTES && ATTRIBUTES.length > 0) {
+        item.attrs = {};
+        for (var j = 0; j < ATTRIBUTES.length; j++) {
+          var val = el.getAttribute(ATTRIBUTES[j]);
+          if (val !== null) {
+            item.attrs[ATTRIBUTES[j]] = val.length > 500 ? val.slice(0, 500) + '...' : val;
+          }
+        }
+      }
+      item.children_count = el.children.length;
+      results.push(item);
+    }
+    return {elements: results, total: total, showing: limit};
+  } catch (e) {
+    return {error: 'find_elements error: ' + e.message, elements: [], total: 0};
+  }
+})();`, selector, string(encodedAttrs), maxResults, includeText)
+}
+
+func formatFindElementsResult(resultText string, selector string) (string, error) {
+	var payload struct {
+		Elements []struct {
+			Index         int               `json:"index"`
+			Tag           string            `json:"tag"`
+			Text          string            `json:"text"`
+			Attrs         map[string]string `json:"attrs"`
+			ChildrenCount int               `json:"children_count"`
+		} `json:"elements"`
+		Total   int    `json:"total"`
+		Showing int    `json:"showing"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(resultText), &payload); err != nil {
+		return "", err
+	}
+	if payload.Error != "" {
+		return "ERROR: find_elements: " + payload.Error, nil
+	}
+	if payload.Total == 0 {
+		return fmt.Sprintf("No elements found matching %q.", selector), nil
+	}
+	plural := "s"
+	if payload.Total == 1 {
+		plural = ""
+	}
+	lines := []string{fmt.Sprintf("Found %d element%s matching %q:", payload.Total, plural, selector), ""}
+	for _, el := range payload.Elements {
+		parts := []string{fmt.Sprintf("[%d] <%s>", el.Index, el.Tag)}
+		if el.Text != "" {
+			displayText := strings.Join(strings.Fields(el.Text), " ")
+			if len(displayText) > 120 {
+				displayText = displayText[:120] + "..."
+			}
+			parts = append(parts, fmt.Sprintf("%q", displayText))
+		}
+		if len(el.Attrs) > 0 {
+			attrParts := make([]string, 0, len(el.Attrs))
+			for key, value := range el.Attrs {
+				attrParts = append(attrParts, fmt.Sprintf("%s=\"%s\"", key, value))
+			}
+			sort.Strings(attrParts)
+			parts = append(parts, "{"+strings.Join(attrParts, ", ")+"}")
+		}
+		parts = append(parts, fmt.Sprintf("(%d children)", el.ChildrenCount))
+		lines = append(lines, strings.Join(parts, " "))
+	}
+	if payload.Showing > 0 && payload.Showing < payload.Total {
+		lines = append(lines, fmt.Sprintf("\nShowing %d of %d total elements. Increase max_results to see more.", payload.Showing, payload.Total))
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func buildFindTextJS(text string) string {

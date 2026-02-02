@@ -517,7 +517,7 @@ func (a *Agent) logBrowserUseRequest(stateMessage string) {
 		return
 	}
 	a.logger.Printf("BrowserUse request summary:\n%s", string(data))
-	a.logger.Printf("BrowserUse request payload (decoded):\n%s", truncateText(stateMessage, 4000))
+	a.logger.Printf("BrowserUse request payload (decoded):\n%s", stateMessage)
 }
 
 func (a *Agent) logBrowserUseResponse(outputText string, actions []Action) {
@@ -540,6 +540,7 @@ func (a *Agent) logBrowserUseResponse(outputText string, actions []Action) {
 		return
 	}
 	a.logger.Printf("BrowserUse response summary:\n%s", string(data))
+	a.logger.Printf("BrowserUse response payload (decoded):\n%s", outputText)
 }
 
 func (a *Agent) logBrowserUseToolResults(actions []Action, results []string) {

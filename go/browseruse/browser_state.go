@@ -8,14 +8,14 @@ import (
 )
 
 type IndexedElement struct {
-	Index      int               `json:"index"`
-	Selector   string            `json:"selector"`
-	Tag        string            `json:"tag"`
-	Text       string            `json:"text"`
-	Depth      int               `json:"depth"`
-	Attrs      map[string]string `json:"attrs"`
-	Bounding   BoundingBox       `json:"rect"`
-	IsNew      bool              `json:"is_new"`
+	Index    int               `json:"index"`
+	Selector string            `json:"selector"`
+	Tag      string            `json:"tag"`
+	Text     string            `json:"text"`
+	Depth    int               `json:"depth"`
+	Attrs    map[string]string `json:"attrs"`
+	Bounding BoundingBox       `json:"rect"`
+	IsNew    bool              `json:"is_new"`
 }
 
 type BrowserStateSummary struct {
@@ -83,7 +83,13 @@ func (bs *BrowserSession) GetBrowserStateSummary(ctx context.Context, includeScr
 	if includeScreenshot {
 		shot, err := page.Screenshot(ctx, "webp", nil, 1280, 720)
 		if err == nil {
-			state.Screenshot = shot
+			dpr := page.DevicePixelRatio(ctx)
+			highlighted, highlightErr := highlightScreenshot(shot, indexed, dpr)
+			if highlightErr == nil {
+				state.Screenshot = highlighted
+			} else {
+				state.Screenshot = shot
+			}
 		}
 	}
 	bs.lastBrowserState = state
@@ -177,15 +183,53 @@ func sanitizeText(text string) string {
 }
 
 const collectInteractiveElementsJS = `(function(){
-  const interactiveSelector = "a,button,input,select,textarea,[role=button],[role=link],[role=checkbox],[role=tab],[role=option],[onclick],[contenteditable='true']";
-  const elements = Array.from(document.querySelectorAll(interactiveSelector));
+  const interactiveRoles = new Set([
+    'button','link','checkbox','radio','tab','menuitem','menuitemcheckbox','menuitemradio',
+    'option','switch','slider','textbox','combobox','listbox','searchbox','spinbutton'
+  ]);
+  const baseSelector = 'a[href],button,input,select,textarea,summary,details,[role],[contenteditable="true"],[tabindex]';
+  const candidates = [];
+  const seen = new Set();
+  const addCandidate = (el) => {
+    if (!el || el.nodeType !== 1) return;
+    if (seen.has(el)) return;
+    seen.add(el);
+    candidates.push(el);
+  };
+  document.querySelectorAll(baseSelector).forEach(addCandidate);
+  const all = Array.from(document.querySelectorAll('*'));
+  const isInteractive = (el) => {
+    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+    if (tag === 'a' && el.hasAttribute('href')) return true;
+    if (['button','input','select','textarea','summary'].includes(tag)) return true;
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    if (interactiveRoles.has(role)) return true;
+    if (el.isContentEditable) return true;
+    const tabindex = el.getAttribute('tabindex');
+    if (tabindex !== null && parseInt(tabindex, 10) >= 0) return true;
+    if (typeof el.onclick === 'function' || el.getAttribute('onclick')) return true;
+    const style = window.getComputedStyle(el);
+    if (style && style.cursor === 'pointer') return true;
+    return false;
+  };
+  all.forEach((el) => {
+    if (isInteractive(el)) addCandidate(el);
+    if (el.shadowRoot) {
+      el.shadowRoot.querySelectorAll('*').forEach((node) => {
+        if (isInteractive(node)) addCandidate(node);
+      });
+    }
+  });
   const isVisible = (el) => {
     const rect = el.getBoundingClientRect();
-    return rect.width > 1 && rect.height > 1 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+    const style = window.getComputedStyle(el);
+    if (!style) return false;
+    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') <= 0) return false;
+    return rect.width > 1 && rect.height > 1;
   };
   const cssEscape = (value) => {
     if (window.CSS && window.CSS.escape) return window.CSS.escape(value);
-    return value.replace(/([ #;?%&,.+*~\\\":'!^$\[\]()=>|\/])/g,'\\\\$1');
+    return value.replace(/([ #;?%&,.+*~\":'!^$\[\]()=>|\/])/g,'\\$1');
   };
   const buildPath = (el) => {
     if (!el || el.nodeType !== 1) return "";
@@ -221,10 +265,11 @@ const collectInteractiveElementsJS = `(function(){
     }
     return depth;
   };
-  const payload = elements.filter(isVisible).map((el) => {
+  const maxElements = 200;
+  const payload = candidates.filter(isVisible).slice(0, maxElements).map((el) => {
     const rect = el.getBoundingClientRect();
     const attrs = {};
-    ['aria-label','placeholder','type','role','name','value','title','alt'].forEach((attr) => {
+    ['aria-label','placeholder','type','role','name','value','title','alt','tabindex'].forEach((attr) => {
       const val = el.getAttribute(attr);
       if (val) attrs[attr] = val;
     });

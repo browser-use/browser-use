@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -264,6 +265,21 @@ func (p *Page) Screenshot(ctx context.Context, format string, quality *int, maxW
 		return "", errors.New("screenshot data missing")
 	}
 	return data, nil
+}
+
+func (p *Page) DevicePixelRatio(ctx context.Context) float64 {
+	value, err := p.Evaluate(ctx, "window.devicePixelRatio")
+	if err != nil {
+		return 1
+	}
+	if value == "" {
+		return 1
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || parsed <= 0 {
+		return 1
+	}
+	return parsed
 }
 
 func (p *Page) InsertText(ctx context.Context, text string) error {

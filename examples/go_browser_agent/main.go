@@ -41,11 +41,11 @@ func main() {
 	client := openai.NewClient(option.WithAPIKey(apiKey))
 	agent, err := browseruse.NewAgent(browseruse.AgentConfig{
 		Task:    "Find an online x o game and play it until you win.",
-		Model:   "gpt-5.2",
+		Model:   "gpt-5-mini",
 		Session: session,
 		Client:  &client,
 		Reasoning: &shared.ReasoningParam{
-			Effort: shared.ReasoningEffortMedium,
+			Effort: shared.ReasoningEffortLow,
 		},
 		MaxSteps:     200,
 		LogRequests:  true,
