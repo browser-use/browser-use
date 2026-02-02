@@ -46,6 +46,7 @@ func main() {
 		Reasoning: &shared.ReasoningParam{
 			Effort: shared.ReasoningEffortMedium,
 		},
+		LogRequests: true,
 	})
 	if err != nil {
 		log.Fatalf("agent init failed: %v", err)

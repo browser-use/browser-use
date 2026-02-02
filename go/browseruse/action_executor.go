@@ -53,7 +53,15 @@ func ExecuteAction(ctx context.Context, session *BrowserSession, action Action) 
 			q := int(rawQuality)
 			quality = &q
 		}
-		data, err := page.Screenshot(ctx, format, quality)
+		maxWidth := 1280
+		maxHeight := 720
+		if rawWidth, ok := params["max_width"].(float64); ok {
+			maxWidth = int(rawWidth)
+		}
+		if rawHeight, ok := params["max_height"].(float64); ok {
+			maxHeight = int(rawHeight)
+		}
+		data, err := page.Screenshot(ctx, format, quality, maxWidth, maxHeight)
 		if err != nil {
 			return ActionResult{}, err
 		}

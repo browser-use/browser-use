@@ -11,6 +11,7 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 )
@@ -23,6 +24,7 @@ type AgentConfig struct {
 	Tools        []responses.ToolUnionParam
 	MaxSteps     int
 	SystemPrompt string
+	LogRequests  bool
 	Reasoning    *shared.ReasoningParam
 	Logger       *log.Logger
 }
@@ -36,6 +38,7 @@ type Agent struct {
 	maxSteps     int
 	systemPrompt string
 	reasoning    *shared.ReasoningParam
+	logRequests  bool
 	logger       *log.Logger
 }
 
@@ -72,6 +75,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 		prompt = DefaultSystemPrompt(3)
 	}
 	reasoning := cfg.Reasoning
+	logRequests := cfg.LogRequests
 	logger := cfg.Logger
 	if logger == nil {
 		logger = log.New(os.Stdout, "", log.LstdFlags)
@@ -85,6 +89,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 		maxSteps:     maxSteps,
 		systemPrompt: prompt,
 		reasoning:    reasoning,
+		logRequests:  logRequests,
 		logger:       logger,
 	}, nil
 }
@@ -110,6 +115,9 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 		}
 		if previousResponseID != "" {
 			params.PreviousResponseID = openai.String(previousResponseID)
+		}
+		if a.logRequests {
+			a.logRequest(params)
 		}
 		resp, err := a.client.Responses.New(ctx, params)
 		if err != nil {
@@ -195,8 +203,8 @@ func formatToolOutput(result ActionResult, err error) string {
 		payload["text"] = truncateText(result.Text, 2000)
 	}
 	if result.Screenshot != "" {
+		payload["screenshot"] = result.Screenshot
 		payload["screenshot_length"] = len(result.Screenshot)
-		payload["screenshot_omitted"] = true
 	}
 	if err != nil {
 		payload["error"] = err.Error()
@@ -213,4 +221,91 @@ func truncateText(text string, max int) string {
 		return text
 	}
 	return text[:max] + "...<truncated>"
+}
+
+func (a *Agent) logRequest(params responses.ResponseNewParams) {
+	summary := map[string]any{
+		"model": params.Model,
+		"tools": toolNames(params.Tools),
+	}
+	if !param.IsOmitted(params.Input.OfString) {
+		value := params.Input.OfString.Value
+		summary["input_type"] = "string"
+		summary["input_length"] = len(value)
+		summary["input_preview"] = truncateText(value, 200)
+	} else if !param.IsOmitted(params.Input.OfInputItemList) {
+		summary["input_type"] = "input_items"
+		summary["items"] = summarizeInputItems(params.Input.OfInputItemList)
+	}
+	if a.reasoning != nil {
+		summary["reasoning_effort"] = a.reasoning.Effort
+		if a.reasoning.Summary != "" {
+			summary["reasoning_summary"] = a.reasoning.Summary
+		}
+	}
+	data, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		a.logger.Printf("OpenAI payload summary marshal error: %v", err)
+		return
+	}
+	a.logger.Printf("OpenAI payload summary:\n%s", string(data))
+}
+
+func toolNames(tools []responses.ToolUnionParam) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		switch {
+		case tool.OfFunction != nil:
+			names = append(names, tool.OfFunction.Name)
+		case tool.OfWebSearch != nil:
+			names = append(names, "web_search")
+		case tool.OfWebSearchPreview != nil:
+			names = append(names, "web_search_preview")
+		case tool.OfComputerUsePreview != nil:
+			names = append(names, "computer_use_preview")
+		case tool.OfCodeInterpreter != nil:
+			names = append(names, "code_interpreter")
+		case tool.OfImageGeneration != nil:
+			names = append(names, "image_generation")
+		case tool.OfFileSearch != nil:
+			names = append(names, "file_search")
+		case tool.OfLocalShell != nil:
+			names = append(names, "local_shell")
+		case tool.OfMcp != nil:
+			names = append(names, "mcp")
+		case tool.OfCustom != nil:
+			names = append(names, "custom")
+		default:
+			names = append(names, "unknown")
+		}
+	}
+	return names
+}
+
+func summarizeInputItems(items responses.ResponseInputParam) []map[string]any {
+	summaries := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		summary := map[string]any{}
+		switch {
+		case item.OfFunctionCallOutput != nil:
+			summary["type"] = "function_call_output"
+			summary["call_id"] = item.OfFunctionCallOutput.CallID
+			if !param.IsOmitted(item.OfFunctionCallOutput.Output.OfString) {
+				output := item.OfFunctionCallOutput.Output.OfString.Value
+				summary["output_length"] = len(output)
+				summary["output_preview"] = truncateText(output, 120)
+			} else {
+				summary["output_type"] = "structured"
+			}
+		case item.OfInputMessage != nil:
+			summary["type"] = "input_message"
+			summary["role"] = item.OfInputMessage.Role
+		case item.OfMessage != nil:
+			summary["type"] = "message"
+		default:
+			summary["type"] = "unknown"
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries
 }

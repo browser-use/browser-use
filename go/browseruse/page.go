@@ -169,17 +169,55 @@ func (p *Page) WaitForSelector(ctx context.Context, selector string, timeout tim
 	}
 }
 
-func (p *Page) Screenshot(ctx context.Context, format string, quality *int) (string, error) {
+func (p *Page) Screenshot(ctx context.Context, format string, quality *int, maxWidth, maxHeight int) (string, error) {
 	if format == "" {
-		format = "png"
+		format = "jpeg"
+	}
+	if maxWidth <= 0 {
+		maxWidth = 1280
+	}
+	if maxHeight <= 0 {
+		maxHeight = 720
+	}
+	if quality == nil && strings.ToLower(format) == "jpeg" {
+		q := 60
+		quality = &q
 	}
 	sessionID, err := p.ensureSession(ctx)
 	if err != nil {
 		return "", err
 	}
-	params := map[string]any{"format": format}
+	params := map[string]any{
+		"format":                format,
+		"captureBeyondViewport": false,
+	}
 	if quality != nil && strings.ToLower(format) == "jpeg" {
 		params["quality"] = *quality
+	}
+	if metrics, err := p.browser.client.Send(ctx, "Page.getLayoutMetrics", nil, sessionID); err == nil {
+		if viewport, ok := metrics["layoutViewport"].(map[string]any); ok {
+			widthVal, widthOk := viewport["clientWidth"].(float64)
+			heightVal, heightOk := viewport["clientHeight"].(float64)
+			if widthOk && heightOk {
+				width := int(widthVal)
+				height := int(heightVal)
+				if width > maxWidth {
+					width = maxWidth
+				}
+				if height > maxHeight {
+					height = maxHeight
+				}
+				if width > 0 && height > 0 {
+					params["clip"] = map[string]any{
+						"x":      0,
+						"y":      0,
+						"width":  width,
+						"height": height,
+						"scale":  1,
+					}
+				}
+			}
+		}
 	}
 	result, err := p.browser.client.Send(ctx, "Page.captureScreenshot", params, sessionID)
 	if err != nil {

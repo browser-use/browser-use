@@ -58,8 +58,10 @@ func DefaultTools() []responses.ToolUnionParam {
 			responses.FunctionParameters{
 				"type": "object",
 				"properties": map[string]any{
-					"format":  map[string]any{"type": "string"},
-					"quality": map[string]any{"type": "integer"},
+					"format":     map[string]any{"type": "string"},
+					"quality":    map[string]any{"type": "integer"},
+					"max_width":  map[string]any{"type": "integer"},
+					"max_height": map[string]any{"type": "integer"},
 				},
 			},
 		),
