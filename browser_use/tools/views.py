@@ -21,6 +21,10 @@ class ExtractAction(BaseModel):
 
 class ExtractWithScriptAction(BaseModel):
 	query: str = Field(description='Description of what data to extract from the page')
+	script_id: str | None = Field(
+		default=None,
+		description='Reuse a previously generated extraction script by its ID. Pass the script_id from a prior extract_with_script result to skip JS generation and run the same script on a new page (e.g. pagination).',
+	)
 	css_selector: SkipJsonSchema[str | None] = Field(
 		default=None,
 		description='Optional CSS selector to scope extraction to a specific page section. Only available for programmatic callers.',

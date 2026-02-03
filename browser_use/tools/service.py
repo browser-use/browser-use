@@ -354,7 +354,9 @@ class Tools(Generic[Context]):
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
-		self._js_script_cache: dict[str, str] = {}
+		from browser_use.tools.extraction.js_codegen import ScriptCache
+
+		self._js_script_cache = ScriptCache()
 
 		"""Register all default browser actions"""
 
@@ -1160,12 +1162,20 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					output_schema=output_schema,
 					css_selector=css_selector,
 					script_cache=self._js_script_cache,
+					script_id=params.script_id,
 				)
 
 				result_json = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
 				current_url = metadata.get('source_url', '')
+				script_id = metadata.get('script_id', '')
 
-				extracted_content = f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<js_extraction_result>\n{result_json}\n</js_extraction_result>'
+				# Include script_id in the result so the agent can reuse it on subsequent pages
+				script_id_attr = f' script_id="{script_id}"' if script_id else ''
+				extracted_content = (
+					f'<url>\n{current_url}\n</url>\n'
+					f'<query>\n{query}\n</query>\n'
+					f'<js_extraction_result{script_id_attr}>\n{result_json}\n</js_extraction_result>'
+				)
 
 				# Simple memory handling
 				MAX_MEMORY_LENGTH = 10000

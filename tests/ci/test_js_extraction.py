@@ -463,13 +463,14 @@ class TestJsCodegenExtraction:
 
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
-		assert '<js_extraction_result>' in result.extracted_content
+		assert '<js_extraction_result' in result.extracted_content
 		assert '</js_extraction_result>' in result.extracted_content
 
-		# Parse JSON from tags
-		start = result.extracted_content.index('<js_extraction_result>') + len('<js_extraction_result>')
+		# Parse JSON from tags (tag now has a script_id attribute)
+		tag_start = result.extracted_content.index('<js_extraction_result')
+		data_start = result.extracted_content.index('>', tag_start) + 1
 		end = result.extracted_content.index('</js_extraction_result>')
-		parsed = json.loads(result.extracted_content[start:end].strip())
+		parsed = json.loads(result.extracted_content[data_start:end].strip())
 		assert 'products' in parsed
 		assert len(parsed['products']) == 3
 		assert parsed['products'][0]['name'] == 'Widget A'
@@ -478,6 +479,8 @@ class TestJsCodegenExtraction:
 		assert result.metadata is not None
 		assert result.metadata['js_codegen_extraction'] is True
 		assert 'js_script' in result.metadata
+		assert 'script_id' in result.metadata
+		assert len(result.metadata['script_id']) == 8
 
 	async def test_css_selector_scoping(self, browser_session, base_url):
 		"""Verify css_selector scopes the HTML sent to the LLM."""
@@ -532,8 +535,8 @@ class TestJsCodegenExtraction:
 		assert result.error is not None
 		assert 'matched no element' in result.error
 
-	async def test_css_selector_hidden_from_schema(self):
-		"""css_selector should not appear in the agent-facing tool schema."""
+	async def test_schema_visibility(self):
+		"""query and script_id visible; css_selector and output_schema hidden."""
 		tools = Tools()
 		action_model = tools.registry.create_action_model()
 		schema = action_model.model_json_schema()
@@ -548,6 +551,7 @@ class TestJsCodegenExtraction:
 		assert ews_schema is not None, 'ExtractWithScriptAction not found in schema'
 		props = ews_schema.get('properties', {})
 		assert 'query' in props, 'query should be visible'
+		assert 'script_id' in props, 'script_id should be visible to the agent'
 		assert 'css_selector' not in props, 'css_selector should be hidden from agent schema'
 		assert 'output_schema' not in props, 'output_schema should be hidden from agent schema'
 
@@ -614,12 +618,13 @@ class TestJsCodegenExtraction:
 
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
-		assert '<js_extraction_result>' in result.extracted_content
+		assert '<js_extraction_result' in result.extracted_content
 
 		# Parse and verify successful extraction
-		start = result.extracted_content.index('<js_extraction_result>') + len('<js_extraction_result>')
+		tag_start = result.extracted_content.index('<js_extraction_result')
+		data_start = result.extracted_content.index('>', tag_start) + 1
 		end = result.extracted_content.index('</js_extraction_result>')
-		parsed = json.loads(result.extracted_content[start:end].strip())
+		parsed = json.loads(result.extracted_content[data_start:end].strip())
 		assert 'products' in parsed
 		assert len(parsed['products']) == 3
 
@@ -635,6 +640,7 @@ class TestJsCodegenExtraction:
 		second_messages = second_call_args[0][0]
 		second_user_content = str(second_messages[1].content)
 		assert '<previous_attempt_error>' in second_user_content
+		assert '<previous_script>' in second_user_content
 
 	async def test_extraction_schema_injection(self, browser_session, base_url):
 		"""Special param extraction_schema used when output_schema absent."""
@@ -720,7 +726,7 @@ class TestJsCodegenExtraction:
 
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
-		assert '<js_extraction_result>' in result.extracted_content
+		assert '<js_extraction_result' in result.extracted_content
 		assert result.metadata is not None
 		assert 'extraction_result' in result.metadata
 
@@ -755,7 +761,7 @@ try {
 
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
-		assert '<js_extraction_result>' in result.extracted_content
+		assert '<js_extraction_result' in result.extracted_content
 
 		# Verify the LLM received scoped HTML (should contain <main> content but not the filler)
 		call_args = extraction_llm.ainvoke.call_args
@@ -786,16 +792,17 @@ try {
 
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
-		assert '<js_extraction_result>' in result.extracted_content
+		assert '<js_extraction_result' in result.extracted_content
 
 		# Verify LLM was called twice (retry happened)
 		assert extraction_llm.ainvoke.call_count == 2
 
-		# Second call should have empty-result error feedback
+		# Second call should have empty-result error feedback and the failed script
 		second_call = extraction_llm.ainvoke.call_args_list[1]
 		second_user_content = str(second_call[0][0][1].content)
 		assert '<previous_attempt_error>' in second_user_content
 		assert 'empty result' in second_user_content.lower()
+		assert '<previous_script>' in second_user_content
 
 		# Verify retry count in metadata
 		assert result.metadata is not None
@@ -846,6 +853,13 @@ try {
 		assert isinstance(result1, ActionResult)
 		assert result1.metadata is not None
 		assert result1.metadata.get('cache_hit') is False
+		# script_id should be returned
+		script_id = result1.metadata.get('script_id')
+		assert script_id is not None
+		assert len(script_id) == 8
+		# script_id should appear in extracted_content
+		assert result1.extracted_content is not None
+		assert f'script_id="{script_id}"' in result1.extracted_content
 		assert extraction_llm.ainvoke.call_count == 1
 
 		# Second call: /products/2 (same DOM structure, numeric segment normalizes) — cached
@@ -865,16 +879,73 @@ try {
 		assert result2.extracted_content is not None
 		assert result2.metadata is not None
 		assert result2.metadata.get('cache_hit') is True
+		assert result2.metadata.get('script_id') == script_id
+
+		# LLM should NOT have been called again
+		assert extraction_llm.ainvoke.call_count == 1
+
+		# Verify page 2 data was extracted (tag has script_id attribute)
+		assert f'script_id="{script_id}"' in result2.extracted_content
+		# Extract JSON from the tag (strip the attribute from the opening tag)
+		start = result2.extracted_content.index('>') + 1  # after the first tag with script_id
+		# Find the actual data between the result tags
+		tag_start = result2.extracted_content.index('<js_extraction_result')
+		data_start = result2.extracted_content.index('>', tag_start) + 1
+		data_end = result2.extracted_content.index('</js_extraction_result>')
+		parsed = json.loads(result2.extracted_content[data_start:data_end].strip())
+		assert 'products' in parsed
+		assert len(parsed['products']) == 2
+		assert parsed['products'][0]['name'] == 'Widget D'
+
+	async def test_explicit_script_id_reuse(self, browser_session, base_url):
+		"""Agent passes script_id from prior result to explicitly reuse the script."""
+		tools = Tools()
+
+		# First call: generate script
+		await tools.navigate(url=f'{base_url}/products/1', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result1 = await tools.extract_with_script(
+				query='Extract all products with names and prices',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		script_id = result1.metadata['script_id']
+		assert extraction_llm.ainvoke.call_count == 1
+
+		# Second call: different query text but pass script_id — should skip LLM
+		await tools.navigate(url=f'{base_url}/products/2', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result2 = await tools.extract_with_script(
+				query='Get products from this page too',  # different query!
+				script_id=script_id,
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result2, ActionResult)
+		assert result2.metadata is not None
+		assert result2.metadata.get('cache_hit') is True
+		assert result2.metadata.get('script_id') == script_id
 
 		# LLM should NOT have been called again
 		assert extraction_llm.ainvoke.call_count == 1
 
 		# Verify page 2 data was extracted
-		start = result2.extracted_content.index('<js_extraction_result>') + len('<js_extraction_result>')
-		end = result2.extracted_content.index('</js_extraction_result>')
-		parsed = json.loads(result2.extracted_content[start:end].strip())
-		assert 'products' in parsed
-		assert len(parsed['products']) == 2
+		tag_start = result2.extracted_content.index('<js_extraction_result')
+		data_start = result2.extracted_content.index('>', tag_start) + 1
+		data_end = result2.extracted_content.index('</js_extraction_result>')
+		parsed = json.loads(result2.extracted_content[data_start:data_end].strip())
 		assert parsed['products'][0]['name'] == 'Widget D'
 
 	async def test_script_cache_miss_for_different_query(self, browser_session, base_url):

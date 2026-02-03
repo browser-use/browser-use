@@ -1,5 +1,6 @@
 """JS-codegen extraction: LLM generates a JS IIFE, executed via CDP, returns structured JSON."""
 
+import hashlib
 import json
 import logging
 import re
@@ -36,7 +37,17 @@ _KEEP_ATTRS = frozenset({
 })
 
 # Tags to strip entirely (including children) — noise for data extraction.
-_STRIP_TAGS = frozenset({'svg', 'noscript', 'iframe', 'canvas', 'video', 'audio', 'picture', 'source', 'map'})
+_STRIP_TAGS = frozenset({
+	# Media / embeds
+	'svg', 'canvas', 'video', 'audio', 'picture', 'source', 'map',
+	# Non-rendered / frames
+	'noscript', 'iframe',
+	# Structural chrome — navigation, headers, footers, sidebars contain
+	# zero extraction-relevant data but often 40-60% of the HTML.
+	'nav', 'header', 'footer', 'aside',
+	# Interactive / scripting noise
+	'script', 'style', 'dialog',
+})
 
 # Max number of CSS classes to keep per element.
 _MAX_CLASSES = 5
@@ -174,6 +185,46 @@ def _normalize_url_for_cache(url: str) -> str:
 		norm_params[key] = [('_N_' if _NUMERIC_RE.match(v) else v) for v in params[key]]
 	norm_query = urlencode(norm_params, doseq=True)
 	return urlunparse((parsed.scheme, parsed.netloc, norm_path, '', norm_query, ''))
+
+
+def _make_script_id(js_code: str) -> str:
+	"""Deterministic short ID for a JS script (first 8 hex chars of SHA-256)."""
+	return hashlib.sha256(js_code.encode()).hexdigest()[:8]
+
+
+class ScriptCache:
+	"""Stores JS extraction scripts for reuse across pages.
+
+	Supports two lookup modes:
+	- **Explicit** (by ``script_id``): the agent passes back a script_id from a
+	  previous extraction result.
+	- **Implicit** (by URL pattern + query): paginated pages that share the same
+	  URL template and extraction query automatically reuse a cached script.
+	"""
+
+	def __init__(self) -> None:
+		self._by_id: dict[str, str] = {}  # script_id -> js_code
+		self._by_url_query: dict[str, str] = {}  # url+query key -> script_id
+
+	def get_by_id(self, script_id: str) -> str | None:
+		"""Look up a script by its explicit ID."""
+		return self._by_id.get(script_id)
+
+	def get_by_url_query(self, url: str, query: str) -> tuple[str | None, str | None]:
+		"""Look up a script by normalized URL + query. Returns (script_id, js_code) or (None, None)."""
+		key = f'{_normalize_url_for_cache(url)}|{query}'
+		sid = self._by_url_query.get(key)
+		if sid is None:
+			return None, None
+		return sid, self._by_id.get(sid)
+
+	def store(self, js_code: str, url: str, query: str) -> str:
+		"""Store a successful script. Returns the generated script_id."""
+		sid = _make_script_id(js_code)
+		self._by_id[sid] = js_code
+		key = f'{_normalize_url_for_cache(url)}|{query}'
+		self._by_url_query[key] = sid
+		return sid
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +381,26 @@ Rules:
 - Do NOT use fetch or XMLHttpRequest
 - Do NOT navigate or modify the page
 - Keep the code concise
+- Prefer structural selectors (tag, nth-child, attribute) over class names which break across sites
+- Always use .textContent.trim() to get clean text
+- For missing/optional fields, return null instead of throwing
+
+<examples>
+Example 1 — extract rows from a table:
+```js
+(function(){try{var rows=document.querySelectorAll('table tbody tr');var out=[];for(var i=0;i<rows.length;i++){var c=rows[i].querySelectorAll('td');out.push({col1:c[0]?c[0].textContent.trim():null,col2:c[1]?c[1].textContent.trim():null});}return out;}catch(e){return{error:e.message};}})()
+```
+
+Example 2 — extract repeated cards/items from a grid:
+```js
+(function(){try{var items=document.querySelectorAll('[class*="card"],[class*="item"],[class*="product"]');var out=[];items.forEach(function(el){var t=el.querySelector('h2,h3,h4,[class*="title"],[class*="name"]');var p=el.querySelector('[class*="price"]');var a=el.querySelector('a[href]');out.push({title:t?t.textContent.trim():null,price:p?p.textContent.trim():null,link:a?a.href:null});});return out;}catch(e){return{error:e.message};}})()
+```
+
+Example 3 — extract all links with text from a page:
+```js
+(function(){try{var links=document.querySelectorAll('a[href]');var out=[];links.forEach(function(a){var t=a.textContent.trim();if(t&&a.href)out.push({text:t,href:a.href});});return out;}catch(e){return{error:e.message};}})()
+```
+</examples>
 """.strip()
 
 
@@ -340,6 +411,7 @@ async def _generate_js_script(
 	output_schema: dict | None = None,
 	css_selector: str | None = None,
 	error_feedback: str | None = None,
+	failed_script: str | None = None,
 ) -> str:
 	"""Single blocking LLM call that returns JS code."""
 	user_parts: list[str] = []
@@ -355,6 +427,9 @@ async def _generate_js_script(
 
 	if error_feedback:
 		user_parts.append(f'<previous_attempt_error>\n{error_feedback}\n</previous_attempt_error>')
+		# Include the failed script so the LLM can fix it rather than regenerate blind
+		if failed_script:
+			user_parts.append(f'<previous_script>\n{failed_script}\n</previous_script>')
 
 	user_msg = '\n\n'.join(user_parts)
 
@@ -375,51 +450,80 @@ async def js_codegen_extract(
 	output_schema: dict | None = None,
 	css_selector: str | None = None,
 	max_retries: int = 1,
-	script_cache: dict[str, str] | None = None,
+	script_cache: ScriptCache | None = None,
+	script_id: str | None = None,
 ) -> tuple[Any, dict[str, Any]]:
 	"""Full JS-codegen extraction pipeline.
 
 	Returns (extracted_data, metadata_dict).
 
-	If *script_cache* is provided (a mutable dict), successful scripts are
-	stored keyed by ``(normalized_url, query)`` and reused on pages that
-	share the same URL template (e.g. paginated results).
+	If *script_id* is provided and found in *script_cache*, the cached script
+	is executed directly — no LLM call, no HTML fetching for the prompt.
+
+	If *script_cache* is provided without an explicit *script_id*, the cache is
+	checked by URL-pattern + query (implicit pagination reuse).
+
+	On success, ``metadata['script_id']`` contains an ID the caller can pass
+	back on subsequent calls to reuse the same script.
 	"""
-	raw_html, url = await _get_page_html(browser_session, css_selector)
-	html = _clean_html_for_codegen(raw_html)
-	html, was_truncated = _truncate_html(html)
+	current_url = await browser_session.get_current_page_url()
 
 	metadata: dict[str, Any] = {
 		'js_codegen_extraction': True,
-		'source_url': url,
-		'html_truncated': was_truncated,
+		'source_url': current_url,
 	}
 
-	# --- Cache lookup ---
-	cache_key: str | None = None
-	if script_cache is not None:
-		norm_url = _normalize_url_for_cache(url)
-		cache_key = f'{norm_url}|{query}'
-		cached_script = script_cache.get(cache_key)
-		if cached_script is not None:
-			logger.debug(f'Script cache hit for {cache_key!r}')
+	# --- Explicit script_id reuse ---
+	if script_id is not None and script_cache is not None:
+		cached_js = script_cache.get_by_id(script_id)
+		if cached_js is not None:
+			logger.debug(f'Explicit script reuse: script_id={script_id}')
 			try:
-				data = await _execute_js_on_page(browser_session, cached_script)
+				data = await _execute_js_on_page(browser_session, cached_js)
 				if _is_empty_result(data):
 					logger.debug('Cached script returned empty result, falling through to LLM generation')
 				else:
-					metadata['js_script'] = cached_script
+					metadata['js_script'] = cached_js
+					metadata['script_id'] = script_id
 					metadata['cache_hit'] = True
 					metadata['retries_used'] = 0
-					# Schema validation on cached result
+					metadata['html_truncated'] = False
+					if output_schema is not None:
+						data = _validate_schema(data, output_schema, False, current_url, metadata)
+					return data, metadata
+			except Exception:
+				logger.debug(f'Script {script_id} failed on this page, falling through to LLM generation')
+
+	# --- Get page HTML (needed for LLM prompt and implicit cache) ---
+	raw_html, url = await _get_page_html(browser_session, css_selector)
+	html = _clean_html_for_codegen(raw_html)
+	html, was_truncated = _truncate_html(html)
+	metadata['source_url'] = url
+	metadata['html_truncated'] = was_truncated
+
+	# --- Implicit cache lookup (URL pattern + query) ---
+	if script_cache is not None and script_id is None:
+		cached_sid, cached_js = script_cache.get_by_url_query(url, query)
+		if cached_js is not None:
+			logger.debug(f'Implicit cache hit: script_id={cached_sid}')
+			try:
+				data = await _execute_js_on_page(browser_session, cached_js)
+				if _is_empty_result(data):
+					logger.debug('Cached script returned empty result, falling through to LLM generation')
+				else:
+					metadata['js_script'] = cached_js
+					metadata['script_id'] = cached_sid
+					metadata['cache_hit'] = True
+					metadata['retries_used'] = 0
 					if output_schema is not None:
 						data = _validate_schema(data, output_schema, was_truncated, url, metadata)
 					return data, metadata
 			except Exception:
-				logger.debug('Cached script failed on new page, falling through to LLM generation')
+				logger.debug('Implicitly cached script failed, falling through to LLM generation')
 
 	# --- LLM generation loop ---
 	last_error: str | None = None
+	last_script: str | None = None
 	js_script: str | None = None
 
 	for attempt in range(1 + max_retries):
@@ -431,6 +535,7 @@ async def js_codegen_extract(
 				output_schema=output_schema,
 				css_selector=css_selector,
 				error_feedback=last_error,
+				failed_script=last_script,
 			)
 			metadata['js_script'] = js_script
 
@@ -450,14 +555,16 @@ async def js_codegen_extract(
 			metadata['retries_used'] = attempt
 			metadata['cache_hit'] = False
 
-			# Store successful script in cache
-			if script_cache is not None and cache_key is not None and js_script is not None:
-				script_cache[cache_key] = js_script
+			# Store successful script in cache and return script_id
+			if script_cache is not None and js_script is not None:
+				sid = script_cache.store(js_script, url, query)
+				metadata['script_id'] = sid
 
 			return data, metadata
 
 		except Exception as exc:
 			last_error = str(exc)
+			last_script = js_script
 			logger.debug(f'js_codegen_extract attempt {attempt + 1} failed: {last_error}')
 			if attempt >= max_retries:
 				metadata['retries_used'] = attempt
