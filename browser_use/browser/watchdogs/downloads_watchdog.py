@@ -877,8 +877,7 @@ class DownloadsWatchdog(BaseWatchdog):
 
 			# For remote browsers with download_from_remote_browser: fetch file in-browser and save to agent local fs
 			use_fetch_for_remote = (
-				not self.browser_session.is_local
-				and self.browser_session.browser_profile.download_from_remote_browser
+				not self.browser_session.is_local and self.browser_session.browser_profile.download_from_remote_browser
 			)
 			# Try manual JavaScript fetch as a fallback for local browsers (disabled for regular local downloads)
 			if use_fetch_for_remote or (self.browser_session.is_local and self._use_js_fetch_for_local):
