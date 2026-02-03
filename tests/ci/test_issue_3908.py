@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from browser_use.browser.session import BrowserSession
 from browser_use.browser.events import BrowserStartEvent
+from browser_use.browser.session import BrowserSession
 
 
 @pytest.mark.asyncio
@@ -38,7 +38,7 @@ async def test_reproduce_create_target_no_browser_failure():
 			await asyncio.sleep(0.1)
 
 		page_targets_now = session.session_manager.get_all_page_targets()
-		assert len(page_targets_now) == 0, f"All pages should be closed, but found {len(page_targets_now)}"
+		assert len(page_targets_now) == 0, f'All pages should be closed, but found {len(page_targets_now)}'
 
 		# Now try to create a new page with new_window=False (default behavior in session.py)
 		# This SHOULD fail prior to fix, and PASS after fix.
