@@ -651,6 +651,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
+	collect_accessibility_tree: bool = Field(
+		default=True,
+		description='Collect accessibility tree via CDP (Accessibility.getFullAXTree). Set to False to reduce native focus ring flicker in headful mode, as Chromium traverses focusable elements during AX tree construction. Primarily intended for headful runs where visual stability matters; headless behavior is unchanged.',
+	)
 	interaction_highlight_color: str = Field(
 		default='rgb(255, 127, 39)',
 		description='Color to use for highlighting elements during interactions (CSS color string).',

@@ -50,6 +50,7 @@ class DomService:
 		paint_order_filtering: bool = True,
 		max_iframes: int = 100,
 		max_iframe_depth: int = 5,
+		collect_accessibility_tree: bool = True,
 	):
 		self.browser_session = browser_session
 		self.logger = logger or browser_session.logger
@@ -57,6 +58,10 @@ class DomService:
 		self.paint_order_filtering = paint_order_filtering
 		self.max_iframes = max_iframes
 		self.max_iframe_depth = max_iframe_depth
+		self.collect_accessibility_tree = collect_accessibility_tree
+		self._cached_ax_tree: GetFullAXTreeReturns | None = None
+		self._cached_ax_tree_target_id: TargetID | None = None
+		self._cached_ax_tree_url: str | None = None
 
 	async def __aenter__(self):
 		return self
@@ -245,6 +250,27 @@ class DomService:
 
 		return {'nodes': merged_nodes}
 
+	async def _resolve_ax_tree(self, target_id: TargetID) -> GetFullAXTreeReturns:
+		"""Get AX tree, respecting collect_accessibility_tree flag and per-navigation cache."""
+		if not self.collect_accessibility_tree:
+			return {'nodes': []}
+		current_url: str | None = None
+		if self.browser_session.session_manager:
+			target = self.browser_session.session_manager.get_target(target_id)
+			if target:
+				current_url = target.url or None
+		if (
+			self._cached_ax_tree is not None
+			and self._cached_ax_tree_target_id == target_id
+			and self._cached_ax_tree_url == current_url
+		):
+			return self._cached_ax_tree
+		ax_tree = await self._get_ax_tree_for_all_frames(target_id)
+		self._cached_ax_tree = ax_tree
+		self._cached_ax_tree_target_id = target_id
+		self._cached_ax_tree_url = current_url
+		return ax_tree
+
 	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
@@ -412,7 +438,7 @@ class DomService:
 		tasks = {
 			'snapshot': create_task_with_error_handling(create_snapshot_request(), name='get_snapshot'),
 			'dom_tree': create_task_with_error_handling(create_dom_tree_request(), name='get_dom_tree'),
-			'ax_tree': create_task_with_error_handling(self._get_ax_tree_for_all_frames(target_id), name='get_ax_tree'),
+			'ax_tree': create_task_with_error_handling(self._resolve_ax_tree(target_id), name='get_ax_tree'),
 			'device_pixel_ratio': create_task_with_error_handling(self._get_viewport_ratio(target_id), name='get_viewport_ratio'),
 		}
 
@@ -429,7 +455,7 @@ class DomService:
 				tasks['snapshot']: lambda: create_task_with_error_handling(create_snapshot_request(), name='get_snapshot_retry'),
 				tasks['dom_tree']: lambda: create_task_with_error_handling(create_dom_tree_request(), name='get_dom_tree_retry'),
 				tasks['ax_tree']: lambda: create_task_with_error_handling(
-					self._get_ax_tree_for_all_frames(target_id), name='get_ax_tree_retry'
+					self._resolve_ax_tree(target_id), name='get_ax_tree_retry'
 				),
 				tasks['device_pixel_ratio']: lambda: create_task_with_error_handling(
 					self._get_viewport_ratio(target_id), name='get_viewport_ratio_retry'
