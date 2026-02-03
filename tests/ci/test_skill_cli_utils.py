@@ -41,7 +41,7 @@ class TestIsServerRunning:
 		"""Test that missing PID file returns False."""
 		# Create a temp PID path that doesn't exist
 		from browser_use.skill_cli import utils
-		
+
 		original_func = utils.get_pid_path
 		try:
 			utils.get_pid_path = lambda session: tmp_path / 'nonexistent.pid'
@@ -52,10 +52,10 @@ class TestIsServerRunning:
 	def test_invalid_pid_content_returns_false(self, tmp_path):
 		"""Test that invalid PID content returns False."""
 		from browser_use.skill_cli import utils
-		
+
 		pid_file = tmp_path / 'test.pid'
 		pid_file.write_text('not-a-number')
-		
+
 		original_func = utils.get_pid_path
 		try:
 			utils.get_pid_path = lambda session: pid_file
@@ -66,10 +66,10 @@ class TestIsServerRunning:
 	def test_dead_process_returns_false(self, tmp_path):
 		"""Test that a non-existent PID returns False."""
 		from browser_use.skill_cli import utils
-		
+
 		pid_file = tmp_path / 'test.pid'
 		pid_file.write_text('999999999')  # Non-existent PID
-		
+
 		original_func = utils.get_pid_path
 		try:
 			utils.get_pid_path = lambda session: pid_file
@@ -80,10 +80,10 @@ class TestIsServerRunning:
 	def test_running_process_returns_true(self, tmp_path):
 		"""Test that a running PID returns True."""
 		from browser_use.skill_cli import utils
-		
+
 		pid_file = tmp_path / 'test.pid'
 		pid_file.write_text(str(os.getpid()))  # Current process
-		
+
 		original_func = utils.get_pid_path
 		try:
 			utils.get_pid_path = lambda session: pid_file
