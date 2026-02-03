@@ -79,6 +79,10 @@ class AgentState(BaseModel):
 	session_initialized: bool = False  # Track if session events have been dispatched
 	follow_up_task: bool = False  # Track if the agent is a follow-up task
 
+	# Domain provenance tracking
+	target_domain: str | None = None  # Hostname extracted from the task URL
+	domains_visited: set[str] = Field(default_factory=set)
+
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
 
@@ -148,6 +152,9 @@ class ActionResult(BaseModel):
 
 	# Metadata for observability (e.g., click coordinates)
 	metadata: dict | None = None
+
+	# Domain provenance
+	source_domain: str | None = None  # Domain that produced this result
 
 	# Deprecated
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
