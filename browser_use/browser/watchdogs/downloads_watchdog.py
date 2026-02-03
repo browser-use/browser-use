@@ -820,8 +820,13 @@ class DownloadsWatchdog(BaseWatchdog):
 				files_before = list(downloads_dir.iterdir())
 				self.logger.debug(f'[DownloadsWatchdog] Files before download: {[f.name for f in files_before]}')
 
+			# For remote browsers with download_from_remote_browser: fetch file in-browser and save to agent local fs
+			use_fetch_for_remote = (
+				not self.browser_session.is_local
+				and self.browser_session.browser_profile.download_from_remote_browser
+			)
 			# Try manual JavaScript fetch as a fallback for local browsers (disabled for regular local downloads)
-			if self.browser_session.is_local and self._use_js_fetch_for_local:
+			if use_fetch_for_remote or (self.browser_session.is_local and self._use_js_fetch_for_local):
 				self.logger.debug(f'[DownloadsWatchdog] Attempting JS fetch fallback for {download_url}')
 
 				unique_filename = None
@@ -834,7 +839,15 @@ class DownloadsWatchdog(BaseWatchdog):
 					escaped_url = json.dumps(download_url)
 
 					# Get the proper session for the frame that initiated the download
-					cdp_session = await self.browser_session.cdp_client_for_frame(event.get('frameId'))
+					frame_id = event.get('frameId')
+					cdp_session = None
+					if frame_id:
+						try:
+							cdp_session = await self.browser_session.cdp_client_for_frame(frame_id)
+						except ValueError:
+							pass
+					if cdp_session is None:
+						cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 					assert cdp_session
 
 					result = await cdp_session.cdp_client.send.Runtime.evaluate(
