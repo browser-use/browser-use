@@ -4,7 +4,6 @@ When download_from_remote_browser is True and using a remote browser (is_local=F
 downloads are fetched in-browser and saved to the agent's local filesystem.
 """
 
-
 from browser_use.browser.profile import BrowserProfile
 
 
