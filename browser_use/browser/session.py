@@ -170,6 +170,7 @@ class BrowserSession(BaseModel):
 		user_data_dir: str | Path | None = None,
 		args: list[str] | None = None,
 		downloads_path: str | Path | None = None,
+		download_from_remote_browser: bool | None = None,
 		# Common params
 		headers: dict[str, str] | None = None,
 		allowed_domains: list[str] | None = None,
@@ -245,6 +246,7 @@ class BrowserSession(BaseModel):
 		chromium_sandbox: bool | None = None,
 		devtools: bool | None = None,
 		downloads_path: str | Path | None = None,
+		download_from_remote_browser: bool | None = None,
 		traces_dir: str | Path | None = None,
 		# From BrowserContextArgs
 		accept_downloads: bool | None = None,

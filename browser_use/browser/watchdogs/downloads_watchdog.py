@@ -869,6 +869,109 @@ class DownloadsWatchdog(BaseWatchdog):
 			# We just need to wait for it to appear in the downloads directory
 			expected_path = downloads_dir / suggested_filename
 
+			# Debug: List current directory contents
+			self.logger.debug(f'[DownloadsWatchdog] Downloads directory: {downloads_dir}')
+			if downloads_dir.exists():
+				files_before = list(downloads_dir.iterdir())
+				self.logger.debug(f'[DownloadsWatchdog] Files before download: {[f.name for f in files_before]}')
+
+			# For remote browsers with download_from_remote_browser: fetch file in-browser and save to agent local fs
+			use_fetch_for_remote = (
+				not self.browser_session.is_local
+				and self.browser_session.browser_profile.download_from_remote_browser
+			)
+			# Try manual JavaScript fetch as a fallback for local browsers (disabled for regular local downloads)
+			if use_fetch_for_remote or (self.browser_session.is_local and self._use_js_fetch_for_local):
+				self.logger.debug(f'[DownloadsWatchdog] Attempting JS fetch fallback for {download_url}')
+
+				unique_filename = None
+				file_size = None
+				download_result = None
+				try:
+					# Escape the URL for JavaScript
+					import json
+
+					escaped_url = json.dumps(download_url)
+
+					# Get the proper session for the frame that initiated the download
+					frame_id = event.get('frameId')
+					cdp_session = None
+					if frame_id:
+						try:
+							cdp_session = await self.browser_session.cdp_client_for_frame(frame_id)
+						except ValueError:
+							pass
+					if cdp_session is None:
+						cdp_session = await self.browser_session.get_or_create_cdp_session(
+							target_id=target_id, focus=False
+						)
+					assert cdp_session
+
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={
+							'expression': f"""
+						(async () => {{
+							try {{
+								const response = await fetch({escaped_url});
+								if (!response.ok) {{
+									throw new Error(`HTTP error! status: ${{response.status}}`);
+								}}
+								const blob = await response.blob();
+								const arrayBuffer = await blob.arrayBuffer();
+								const uint8Array = new Uint8Array(arrayBuffer);
+								return {{
+									data: Array.from(uint8Array),
+									size: uint8Array.length,
+									contentType: response.headers.get('content-type') || 'application/octet-stream'
+								}};
+							}} catch (error) {{
+								throw new Error(`Fetch failed: ${{error.message}}`);
+							}}
+						}})()
+						""",
+							'awaitPromise': True,
+							'returnByValue': True,
+						},
+						session_id=cdp_session.session_id,
+					)
+					download_result = result.get('result', {}).get('value')
+
+					if download_result and download_result.get('data'):
+						# Save the file
+						file_data = bytes(download_result['data'])
+						file_size = len(file_data)
+
+						# Ensure unique filename
+						unique_filename = await self._get_unique_filename(str(downloads_dir), suggested_filename)
+						final_path = downloads_dir / unique_filename
+
+						# Write the file
+						import anyio
+
+						async with await anyio.open_file(final_path, 'wb') as f:
+							await f.write(file_data)
+
+						self.logger.debug(f'[DownloadsWatchdog] ✅ Downloaded and saved file: {final_path} ({file_size} bytes)')
+						expected_path = final_path
+						# Use _track_download for unified completion flow (callbacks + event dispatch)
+						# Skip if progress handler already fired (prevents double-fire)
+						if not self._cdp_downloads_info.get(guid, {}).get('handled'):
+							self._track_download(str(expected_path), guid=guid)
+						# Mark as handled to prevent duplicate dispatch from progress/polling paths
+						try:
+							if guid in self._cdp_downloads_info:
+								self._cdp_downloads_info[guid]['handled'] = True
+						except (KeyError, AttributeError):
+							pass
+						self.logger.debug(
+							f'[DownloadsWatchdog] ✅ File download completed via CDP: {suggested_filename} ({file_size} bytes) saved to {expected_path}'
+						)
+						return
+					else:
+						self.logger.error('[DownloadsWatchdog] ❌ No data received from fetch')
+
+				except Exception as fetch_error:
+					self.logger.error(f'[DownloadsWatchdog] ❌ Failed to download file via fetch: {fetch_error}')
 			# For remote browsers, don't poll local filesystem; downloadProgress handler will emit the event
 			if not self.browser_session.is_local:
 				return
