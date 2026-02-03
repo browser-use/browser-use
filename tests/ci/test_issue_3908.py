@@ -40,7 +40,7 @@ async def test_reproduce_create_target_no_browser_failure():
 			await asyncio.sleep(0.1)
 
 		page_targets_now = session.session_manager.get_all_page_targets()
-		
+
 		# If auto-recovery happened (using our fix), we have pages.
 		# If not, we try to create one manually to verify the fix works in '0 pages' state.
 		if len(page_targets_now) == 0:
@@ -48,9 +48,7 @@ async def test_reproduce_create_target_no_browser_failure():
 			page_targets_now = session.session_manager.get_all_page_targets()
 
 		# The fix is verified if we have pages now and didn't crash with "no browser is open"
-		assert len(page_targets_now) > 0, f"Should have active pages (recovered or created), but found {len(page_targets_now)}"
-
-
+		assert len(page_targets_now) > 0, f'Should have active pages (recovered or created), but found {len(page_targets_now)}'
 
 	finally:
 		await session.stop()
