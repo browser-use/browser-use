@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any
 
 from browser_use.llm.base import BaseChatModel
@@ -12,6 +13,96 @@ if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# HTML cleaning for codegen LLM
+# ---------------------------------------------------------------------------
+
+# Attributes the JS codegen LLM actually needs to write correct selectors/extraction code.
+_KEEP_ATTRS = frozenset({
+	# Identification & selectors
+	'id', 'name', 'class', 'for',
+	# Semantic / structural
+	'type', 'role', 'href', 'src', 'alt', 'title', 'placeholder',
+	# State
+	'disabled', 'readonly', 'checked', 'selected', 'required', 'open',
+	# Accessibility (useful for selector hints)
+	'aria-label', 'aria-hidden', 'aria-expanded', 'aria-checked',
+	# Form validation
+	'pattern', 'min', 'max', 'minlength', 'maxlength', 'step', 'value', 'action', 'method',
+	# Testing selectors the LLM may reference
+	'data-testid', 'data-cy', 'data-test', 'data-qa', 'data-id',
+})
+
+# Tags to strip entirely (including children) — noise for data extraction.
+_STRIP_TAGS = frozenset({'svg', 'noscript', 'iframe', 'canvas', 'video', 'audio', 'picture', 'source', 'map'})
+
+# Max number of CSS classes to keep per element.
+_MAX_CLASSES = 5
+
+
+class _HTMLCleaner(HTMLParser):
+	"""Single-pass HTML cleaner that strips bloat for the codegen LLM."""
+
+	def __init__(self) -> None:
+		super().__init__(convert_charrefs=True)
+		self.parts: list[str] = []
+		self._skip_depth = 0  # > 0 means we're inside a stripped tag
+
+	def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+		if tag in _STRIP_TAGS:
+			self._skip_depth += 1
+			return
+		if self._skip_depth:
+			return
+
+		# Filter attributes to whitelist
+		clean_attrs: list[str] = []
+		for key, val in attrs:
+			if key not in _KEEP_ATTRS:
+				continue
+			if val is None:
+				clean_attrs.append(f' {key}')
+				continue
+			# Compact class lists
+			if key == 'class' and val:
+				classes = val.split()
+				if len(classes) > _MAX_CLASSES:
+					val = ' '.join(classes[:_MAX_CLASSES])
+			clean_attrs.append(f' {key}="{val}"')
+
+		self.parts.append(f'<{tag}{"".join(clean_attrs)}>')
+
+	def handle_endtag(self, tag: str) -> None:
+		if tag in _STRIP_TAGS:
+			self._skip_depth = max(0, self._skip_depth - 1)
+			return
+		if self._skip_depth:
+			return
+		self.parts.append(f'</{tag}>')
+
+	def handle_data(self, data: str) -> None:
+		if self._skip_depth:
+			return
+		self.parts.append(data)
+
+	def get_clean_html(self) -> str:
+		return ''.join(self.parts)
+
+
+def _clean_html_for_codegen(html: str) -> str:
+	"""Strip attributes and tags the codegen LLM doesn't need.
+
+	Single-pass parser that:
+	- Keeps only whitelisted attributes (id, class, type, role, href, etc.)
+	- Strips SVG, noscript, iframe, canvas, video, audio entirely
+	- Caps class lists at 5 classes per element
+	- Preserves all text content and tag structure
+	"""
+	cleaner = _HTMLCleaner()
+	cleaner.feed(html)
+	return cleaner.get_clean_html()
+
 
 # ---------------------------------------------------------------------------
 # HTML truncation
@@ -69,6 +160,29 @@ def _extract_js_from_response(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Semantic landmarks to try for auto-scoping, in priority order.
+# These are standard HTML5 content markers that reliably identify the main content area.
+_AUTO_SCOPE_SELECTORS = ['main', '[role="main"]', 'article', '#content', '#main']
+
+# Only auto-scope if the scoped HTML is at least this much smaller than the full page.
+_AUTO_SCOPE_MIN_REDUCTION = 0.5
+
+
+async def _get_scoped_html_via_cdp(
+	browser_session: 'BrowserSession',
+	css_selector: str,
+) -> str | None:
+	"""Try to get outerHTML for a CSS selector via CDP. Returns None if no match."""
+	js = f'(function(){{ var el = document.querySelector({json.dumps(css_selector)}); return el ? el.outerHTML : null; }})()'
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': js, 'returnByValue': True, 'awaitPromise': True},
+		session_id=cdp_session.session_id,
+	)
+	value = result.get('result', {}).get('value')
+	return str(value) if value is not None else None
+
+
 async def _get_page_html(
 	browser_session: 'BrowserSession',
 	css_selector: str | None = None,
@@ -76,22 +190,17 @@ async def _get_page_html(
 	"""Return (html, url) for the current page.
 
 	If *css_selector* is given, we evaluate ``querySelector(sel).outerHTML`` via CDP.
-	Otherwise we serialise the full enhanced DOM tree to HTML.
+	Otherwise we get the full page HTML and attempt to auto-scope to the main content
+	area using semantic landmarks (main, article, [role="main"], etc.).
 	"""
 	current_url = await browser_session.get_current_page_url()
 
 	if css_selector is not None:
-		# Scoped path — CDP outerHTML
-		js = f'(function(){{ var el = document.querySelector({json.dumps(css_selector)}); return el ? el.outerHTML : null; }})()'
-		cdp_session = await browser_session.get_or_create_cdp_session()
-		result = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': js, 'returnByValue': True, 'awaitPromise': True},
-			session_id=cdp_session.session_id,
-		)
-		value = result.get('result', {}).get('value')
+		# Explicit selector from programmatic caller
+		value = await _get_scoped_html_via_cdp(browser_session, css_selector)
 		if value is None:
 			raise RuntimeError(f'CSS selector {css_selector!r} matched no element on {current_url}')
-		return str(value), current_url
+		return value, current_url
 
 	# Full-page path — enhanced DOM → HTML serialiser
 	from browser_use.dom.markdown_extractor import _get_enhanced_dom_tree_from_browser_session
@@ -99,8 +208,16 @@ async def _get_page_html(
 
 	enhanced_dom_tree = await _get_enhanced_dom_tree_from_browser_session(browser_session)
 	serializer = HTMLSerializer(extract_links=False)
-	html = serializer.serialize(enhanced_dom_tree)
-	return html, current_url
+	full_html = serializer.serialize(enhanced_dom_tree)
+
+	# Auto-scope: try semantic landmarks to reduce HTML size
+	for selector in _AUTO_SCOPE_SELECTORS:
+		scoped = await _get_scoped_html_via_cdp(browser_session, selector)
+		if scoped is not None and len(scoped) < len(full_html) * _AUTO_SCOPE_MIN_REDUCTION:
+			logger.debug(f'Auto-scoped to {selector!r} ({len(scoped)} chars vs {len(full_html)} full page)')
+			return scoped, current_url
+
+	return full_html, current_url
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +334,8 @@ async def js_codegen_extract(
 
 	Returns (extracted_data, metadata_dict).
 	"""
-	html, url = await _get_page_html(browser_session, css_selector)
+	raw_html, url = await _get_page_html(browser_session, css_selector)
+	html = _clean_html_for_codegen(raw_html)
 	html, was_truncated = _truncate_html(html)
 
 	metadata: dict[str, Any] = {

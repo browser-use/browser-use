@@ -21,9 +21,9 @@ class ExtractAction(BaseModel):
 
 class ExtractWithScriptAction(BaseModel):
 	query: str = Field(description='Description of what data to extract from the page')
-	css_selector: str | None = Field(
+	css_selector: SkipJsonSchema[str | None] = Field(
 		default=None,
-		description='Optional CSS selector to scope extraction to a specific page section',
+		description='Optional CSS selector to scope extraction to a specific page section. Only available for programmatic callers.',
 	)
 	output_schema: SkipJsonSchema[dict | None] = Field(
 		default=None,

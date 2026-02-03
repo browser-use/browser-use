@@ -70,7 +70,7 @@ Strictly follow these rules while using the browser and navigating the web:
 - You can call extract on specific pages to gather structured semantic information from the entire page, including parts not currently visible.
 - Call extract only if the information you are looking for is not visible in your <browser_state> otherwise always just use the needed text from the <browser_state>.
 - Calling the extract tool is expensive! DO NOT query the same page with the same extract query multiple times. Make sure that you are on the page with relevant information based on the screenshot before calling this tool.
-- Use extract_with_script when you need to extract structured data from tables, lists, or repeated DOM elements — it generates a JS snippet to pull data directly. Use css_selector to scope to a specific section.
+- Use extract_with_script when you need to extract structured data from tables, lists, or repeated DOM elements — it generates a JS snippet to pull data directly from the page DOM.
 - Prefer regular extract over extract_with_script when you need prose, summaries, or semantic interpretation of page content.
 - Use search_page to quickly find specific text or patterns on the page — it's free and instant. Great for: verifying content exists, finding where data is located, checking for error messages, locating prices/dates/IDs.
 - Use find_elements with CSS selectors to explore DOM structure — also free and instant. Great for: counting items (e.g. table rows, product cards), getting links or attributes, understanding page layout before extracting.

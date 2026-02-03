@@ -1128,7 +1128,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# --- JS-codegen extraction ---
 
 		@self.registry.action(
-			"""LLM generates a JavaScript snippet to extract structured data directly from the DOM. Best for: tables, lists, repeated elements, structured DOM data. Use css_selector to scope extraction to a specific section. Prefer regular extract for prose or semantic interpretation.""",
+			"""LLM generates a JavaScript snippet to extract structured data directly from the DOM. Best for: tables, lists, repeated elements, structured DOM data. Prefer regular extract for prose or semantic interpretation.""",
 			param_model=ExtractWithScriptAction,
 		)
 		async def extract_with_script(

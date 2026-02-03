@@ -14,6 +14,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.extraction.js_codegen import (
+	_clean_html_for_codegen,
 	_extract_js_from_response,
 	_truncate_html,
 )
@@ -93,6 +94,95 @@ class TestExtractJsFromResponse:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: _clean_html_for_codegen
+# ---------------------------------------------------------------------------
+
+
+class TestCleanHtmlForCodegen:
+	def test_strips_unwanted_attributes(self):
+		html = '<div id="main" style="color:red" onclick="alert(1)" class="foo" data-v-abc123=""></div>'
+		result = _clean_html_for_codegen(html)
+		assert 'id="main"' in result
+		assert 'class="foo"' in result
+		assert 'style=' not in result
+		assert 'onclick=' not in result
+		assert 'data-v-abc123' not in result
+
+	def test_keeps_whitelisted_attrs(self):
+		html = '<input id="email" type="email" name="user_email" placeholder="Enter email" required disabled/>'
+		result = _clean_html_for_codegen(html)
+		for attr in ('id="email"', 'type="email"', 'name="user_email"', 'placeholder="Enter email"', 'required', 'disabled'):
+			assert attr in result
+
+	def test_strips_svg_entirely(self):
+		html = '<div><p>Before</p><svg xmlns="..." viewBox="0 0 24 24"><path d="M12 2L2 7"/></svg><p>After</p></div>'
+		result = _clean_html_for_codegen(html)
+		assert '<svg' not in result
+		assert '<path' not in result
+		assert 'Before' in result
+		assert 'After' in result
+
+	def test_strips_noscript_and_iframe(self):
+		html = '<div>Content<noscript>Fallback</noscript><iframe src="x"></iframe>More</div>'
+		result = _clean_html_for_codegen(html)
+		assert '<noscript' not in result
+		assert 'Fallback' not in result
+		assert '<iframe' not in result
+		assert 'Content' in result
+		assert 'More' in result
+
+	def test_caps_class_list(self):
+		classes = ' '.join(f'c{i}' for i in range(20))
+		html = f'<div class="{classes}">Text</div>'
+		result = _clean_html_for_codegen(html)
+		# Should keep only first 5 classes
+		assert 'c0' in result
+		assert 'c4' in result
+		assert 'c5' not in result
+
+	def test_preserves_text_content(self):
+		html = '<table><tr><td style="width:100px" class="price">$9.99</td></tr></table>'
+		result = _clean_html_for_codegen(html)
+		assert '$9.99' in result
+		assert 'style=' not in result
+		assert 'class="price"' in result
+
+	def test_preserves_data_testid(self):
+		html = '<button data-testid="submit-btn" data-analytics="click-track">Go</button>'
+		result = _clean_html_for_codegen(html)
+		assert 'data-testid="submit-btn"' in result
+		assert 'data-analytics' not in result
+
+	def test_nested_stripped_tags(self):
+		html = '<div><svg><g><circle r="5"/></g></svg><span>Visible</span></div>'
+		result = _clean_html_for_codegen(html)
+		assert '<svg' not in result
+		assert '<circle' not in result
+		assert 'Visible' in result
+
+	def test_reduction_on_bloated_html(self):
+		"""Verify meaningful size reduction on attribute-heavy HTML."""
+		attrs = ' '.join(
+			f'{k}="{v}"'
+			for k, v in [
+				('id', 'item'),
+				('class', 'a b c d e f g h i j'),
+				('style', 'margin:0;padding:0;display:flex;align-items:center;justify-content:center'),
+				('onclick', 'handleClick(event)'),
+				('data-v-a1b2c3', ''),
+				('data-react-fiber', 'abc'),
+				('aria-describedby', 'tooltip-1'),
+				('tabindex', '0'),
+			]
+		)
+		row = f'<div {attrs}><span>Item</span></div>\n'
+		html = '<body>' + row * 100 + '</body>'
+		result = _clean_html_for_codegen(html)
+		# Should be meaningfully smaller
+		assert len(result) < len(html) * 0.6, f'Expected >40% reduction, got {len(result)}/{len(html)}'
+
+
+# ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
@@ -108,6 +198,25 @@ PRODUCT_TABLE_HTML = """<html><body>
 </table>
 <div id="sidebar">Unrelated content</div>
 </body></html>"""
+
+# Page with <main> landmark — main content is small, rest is large filler.
+# Auto-scoping should pick <main> and skip the filler.
+_FILLER = '<div class="filler">' + ('x' * 5000) + '</div>\n'
+MAIN_LANDMARK_HTML = (
+	'<html><body>\n'
+	'<header><nav>' + ('link ' * 200) + '</nav></header>\n'
+	+ _FILLER * 5
+	+ '<main><table id="products">\n'
+	'  <thead><tr><th>Name</th><th>Price</th></tr></thead>\n'
+	'  <tbody>\n'
+	'    <tr><td>Widget A</td><td>$9.99</td></tr>\n'
+	'    <tr><td>Widget B</td><td>$19.99</td></tr>\n'
+	'  </tbody>\n'
+	'</table></main>\n'
+	+ _FILLER * 5
+	+ '<footer>' + ('footer ' * 200) + '</footer>\n'
+	'</body></html>'
+)
 
 # JS that the mock LLM will "generate" for table extraction
 TABLE_EXTRACT_JS = """(function(){
@@ -200,6 +309,10 @@ def http_server():
 		PRODUCT_TABLE_HTML,
 		content_type='text/html',
 	)
+	server.expect_request('/main-landmark').respond_with_data(
+		MAIN_LANDMARK_HTML,
+		content_type='text/html',
+	)
 	yield server
 	server.stop()
 
@@ -282,6 +395,47 @@ class TestJsCodegenExtraction:
 		user_msg_content = str(messages[1].content)
 		assert '<css_selector>' in user_msg_content
 		assert '#sidebar' in user_msg_content
+
+	async def test_css_selector_miss_returns_error(self, browser_session, base_url):
+		"""Programmatic callers passing a bad css_selector get an ActionResult with error."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all products',
+				css_selector='#nonexistent-selector',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.error is not None
+		assert 'matched no element' in result.error
+
+	async def test_css_selector_hidden_from_schema(self):
+		"""css_selector should not appear in the agent-facing tool schema."""
+		tools = Tools()
+		action_model = tools.registry.create_action_model()
+		schema = action_model.model_json_schema()
+
+		# Find extract_with_script in the schema definitions
+		ews_schema = None
+		for key, defn in schema.get('$defs', {}).items():
+			if key == 'ExtractWithScriptAction':
+				ews_schema = defn
+				break
+
+		assert ews_schema is not None, 'ExtractWithScriptAction not found in schema'
+		props = ews_schema.get('properties', {})
+		assert 'query' in props, 'query should be visible'
+		assert 'css_selector' not in props, 'css_selector should be hidden from agent schema'
+		assert 'output_schema' not in props, 'output_schema should be hidden from agent schema'
 
 	async def test_schema_validation(self, browser_session, base_url):
 		"""output_schema provided, verify extraction_result in metadata."""
@@ -455,3 +609,45 @@ class TestJsCodegenExtraction:
 		assert '<js_extraction_result>' in result.extracted_content
 		assert result.metadata is not None
 		assert 'extraction_result' in result.metadata
+
+	async def test_auto_scoping_to_main_landmark(self, browser_session, base_url):
+		"""When page has a <main> element, auto-scope sends only that section to the LLM."""
+		# JS that extracts from the #products table (which lives inside <main>)
+		main_extract_js = """(function(){
+try {
+  var rows = document.querySelectorAll('#products tbody tr');
+  var products = [];
+  for (var i = 0; i < rows.length; i++) {
+    var cells = rows[i].querySelectorAll('td');
+    products.push({name: cells[0].textContent.trim(), price: cells[1].textContent.trim()});
+  }
+  return {products: products};
+} catch(e) { return {error: e.message}; }
+})()"""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/main-landmark', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		extraction_llm = _make_js_extraction_llm(main_extract_js)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract products from the table',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		assert '<js_extraction_result>' in result.extracted_content
+
+		# Verify the LLM received scoped HTML (should contain <main> content but not the filler)
+		call_args = extraction_llm.ainvoke.call_args
+		messages = call_args[0][0]
+		user_msg_content = str(messages[1].content)
+		# The HTML sent to the LLM should contain the table
+		assert '#products' in user_msg_content or 'Widget A' in user_msg_content
+		# The filler content should NOT be in the scoped HTML
+		assert 'xxxxx' not in user_msg_content
