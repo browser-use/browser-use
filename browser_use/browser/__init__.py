@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from .profile import BrowserProfile, ProxySettings
 	from .session import BrowserSession
+	from .stealth import StealthConfig
 
 
 # Lazy imports mapping for heavy browser components
@@ -11,6 +12,7 @@ _LAZY_IMPORTS = {
 	'ProxySettings': ('.profile', 'ProxySettings'),
 	'BrowserProfile': ('.profile', 'BrowserProfile'),
 	'BrowserSession': ('.session', 'BrowserSession'),
+	'StealthConfig': ('.stealth', 'StealthConfig'),
 }
 
 
@@ -38,4 +40,5 @@ __all__ = [
 	'BrowserSession',
 	'BrowserProfile',
 	'ProxySettings',
+	'StealthConfig',
 ]
