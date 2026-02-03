@@ -70,8 +70,9 @@ def is_server_running(session: str) -> bool:
 		pid = int(pid_path.read_text().strip())
 		# Check if process exists (cross-platform)
 		return _is_process_running(pid)
-	except ValueError:
-		# Invalid PID in file
+	except (OSError, ValueError):
+		# OSError: file deleted/locked after exists() check (race condition)
+		# ValueError: invalid PID in file
 		return False
 
 
