@@ -32,6 +32,35 @@ def get_log_path(session: str) -> Path:
 	return Path(tempfile.gettempdir()) / f'browser-use-{session}.log'
 
 
+def _is_process_running(pid: int) -> bool:
+	"""Check if a process is running (cross-platform).
+
+	On Windows, uses ctypes to call kernel32.OpenProcess.
+	On Unix, uses signal 0 via os.kill.
+	"""
+	# Invalid PIDs should return False
+	if pid <= 0:
+		return False
+
+	if sys.platform == 'win32':
+		# Windows: use ctypes to check process existence
+		import ctypes
+
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		if handle:
+			ctypes.windll.kernel32.CloseHandle(handle)
+			return True
+		return False
+	else:
+		# Unix: use signal 0
+		try:
+			os.kill(pid, 0)
+			return True
+		except OSError:
+			return False
+
+
 def is_server_running(session: str) -> bool:
 	"""Check if server is running for session."""
 	pid_path = get_pid_path(session)
@@ -39,11 +68,10 @@ def is_server_running(session: str) -> bool:
 		return False
 	try:
 		pid = int(pid_path.read_text().strip())
-		# Check if process exists
-		os.kill(pid, 0)
-		return True
-	except (OSError, ValueError):
-		# Process doesn't exist or invalid PID
+		# Check if process exists (cross-platform)
+		return _is_process_running(pid)
+	except ValueError:
+		# Invalid PID in file
 		return False
 
 
