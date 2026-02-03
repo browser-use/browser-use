@@ -6,7 +6,6 @@ Verifies that:
 2. BrowserProfile accepts collect_accessibility_tree parameter
 """
 
-import pytest
 from unittest.mock import MagicMock
 
 from browser_use.browser.profile import BrowserProfile
