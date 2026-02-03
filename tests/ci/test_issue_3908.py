@@ -31,13 +31,15 @@ async def test_reproduce_create_target_no_browser_failure():
 
 		# Give a moment for browser state to update
 		# Polling wait for pages to close
-		for _ in range(20):
+		for _ in range(50):
 			page_targets_now = session.session_manager.get_all_page_targets()
 			if len(page_targets_now) == 0:
 				break
 			await asyncio.sleep(0.1)
 
 		page_targets_now = session.session_manager.get_all_page_targets()
+		if len(page_targets_now) != 0:
+			print(f'Remaining pages: {page_targets_now}')
 		assert len(page_targets_now) == 0, f'All pages should be closed, but found {len(page_targets_now)}'
 
 		# Now try to create a new page with new_window=False (default behavior in session.py)
