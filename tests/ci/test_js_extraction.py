@@ -15,7 +15,9 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.extraction.js_codegen import (
 	_clean_html_for_codegen,
+	_discover_page_structure,
 	_extract_js_from_response,
+	_format_structure_probe,
 	_is_empty_result,
 	_normalize_url_for_cache,
 	_truncate_html,
@@ -162,6 +164,19 @@ class TestCleanHtmlForCodegen:
 		assert '<circle' not in result
 		assert 'Visible' in result
 
+	def test_preserves_nav_header_footer_aside(self):
+		"""Regression: nav/header/footer/aside must NOT be stripped — they can contain extraction targets."""
+		html = '<body><nav><a href="/home">Home</a><a href="/about">About</a></nav><header><h1>Store</h1></header><main><p>Content</p></main><aside><ul><li>Related A</li></ul></aside><footer><span>Contact us</span></footer></body>'
+		result = _clean_html_for_codegen(html)
+		assert '<nav>' in result
+		assert 'Home' in result
+		assert '<header>' in result
+		assert 'Store' in result
+		assert '<aside>' in result
+		assert 'Related A' in result
+		assert '<footer>' in result
+		assert 'Contact us' in result
+
 	def test_reduction_on_bloated_html(self):
 		"""Verify meaningful size reduction on attribute-heavy HTML."""
 		attrs = ' '.join(
@@ -285,17 +300,13 @@ PRODUCT_TABLE_HTML = """<html><body>
 _FILLER = '<div class="filler">' + ('x' * 5000) + '</div>\n'
 MAIN_LANDMARK_HTML = (
 	'<html><body>\n'
-	'<header><nav>' + ('link ' * 200) + '</nav></header>\n'
-	+ _FILLER * 5
-	+ '<main><table id="products">\n'
+	'<header><nav>' + ('link ' * 200) + '</nav></header>\n' + _FILLER * 5 + '<main><table id="products">\n'
 	'  <thead><tr><th>Name</th><th>Price</th></tr></thead>\n'
 	'  <tbody>\n'
 	'    <tr><td>Widget A</td><td>$9.99</td></tr>\n'
 	'    <tr><td>Widget B</td><td>$19.99</td></tr>\n'
 	'  </tbody>\n'
-	'</table></main>\n'
-	+ _FILLER * 5
-	+ '<footer>' + ('footer ' * 200) + '</footer>\n'
+	'</table></main>\n' + _FILLER * 5 + '<footer>' + ('footer ' * 200) + '</footer>\n'
 	'</body></html>'
 )
 
@@ -355,6 +366,16 @@ try {
   return {products: products};
 } catch(e) { return {error: e.message}; }
 })()"""
+
+
+CARD_LAYOUT_HTML = """<html><body>
+<div class="product-grid">
+  <div class="card"><h3>Widget A</h3><span class="price">$9.99</span></div>
+  <div class="card"><h3>Widget B</h3><span class="price">$19.99</span></div>
+  <div class="card"><h3>Widget C</h3><span class="price">$29.99</span></div>
+  <div class="card"><h3>Widget D</h3><span class="price">$39.99</span></div>
+</div>
+</body></html>"""
 
 
 def _make_js_extraction_llm(js_response: str) -> BaseChatModel:
@@ -425,6 +446,10 @@ def http_server():
 	)
 	server.expect_request('/products/2').respond_with_data(
 		PRODUCT_TABLE_PAGE2_HTML,
+		content_type='text/html',
+	)
+	server.expect_request('/cards').respond_with_data(
+		CARD_LAYOUT_HTML,
 		content_type='text/html',
 	)
 	yield server
@@ -767,10 +792,14 @@ try {
 		call_args = extraction_llm.ainvoke.call_args
 		messages = call_args[0][0]
 		user_msg_content = str(messages[1].content)
+		# Extract just the <page_html> section to check scoping
+		html_start = user_msg_content.index('<page_html>') + len('<page_html>')
+		html_end = user_msg_content.index('</page_html>')
+		page_html_section = user_msg_content[html_start:html_end]
 		# The HTML sent to the LLM should contain the table
-		assert '#products' in user_msg_content or 'Widget A' in user_msg_content
+		assert '#products' in page_html_section or 'Widget A' in page_html_section
 		# The filler content should NOT be in the scoped HTML
-		assert 'xxxxx' not in user_msg_content
+		assert 'xxxxx' not in page_html_section
 
 	async def test_empty_result_triggers_retry(self, browser_session, base_url):
 		"""Script returning [] triggers retry with error feedback to the LLM."""
@@ -809,13 +838,13 @@ try {
 		assert result.metadata['retries_used'] == 1
 
 	async def test_empty_result_all_retries_fail(self, browser_session, base_url):
-		"""If every attempt returns empty, the action returns an error."""
+		"""If every attempt returns empty, the action returns an error (3 attempts with max_retries=2)."""
 		tools = Tools()
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 
-		# Both calls return empty-array JS
-		extraction_llm = _make_js_extraction_llm_sequence([EMPTY_RESULT_JS, EMPTY_RESULT_JS])
+		# All 3 calls return empty-array JS (max_retries=2 → 3 total attempts)
+		extraction_llm = _make_js_extraction_llm_sequence([EMPTY_RESULT_JS, EMPTY_RESULT_JS, EMPTY_RESULT_JS])
 
 		with tempfile.TemporaryDirectory() as tmp:
 			fs = FileSystem(tmp)
@@ -980,3 +1009,148 @@ try {
 			)
 
 		assert extraction_llm.ainvoke.call_count == 2
+
+	async def test_structure_probe_on_table_page(self, browser_session, base_url):
+		"""Structure probe detects table columns and sample row on a product table page."""
+		await browser_session.navigate_to(f'{base_url}/products')
+		await asyncio.sleep(0.5)
+
+		result = await _discover_page_structure(browser_session)
+		assert 'Tables found:' in result
+		assert 'Name' in result
+		assert 'Price' in result
+		# Should have a sample row with actual data
+		assert 'Widget A' in result or 'Widget' in result
+
+	async def test_structure_probe_on_card_page(self, browser_session, base_url):
+		"""Structure probe detects repeating card pattern on a grid layout page."""
+		await browser_session.navigate_to(f'{base_url}/cards')
+		await asyncio.sleep(0.5)
+
+		result = await _discover_page_structure(browser_session)
+		assert 'Repeating patterns found:' in result
+		assert 'card' in result.lower()
+		# Should find 4 .card elements
+		assert '4 items' in result
+
+	async def test_retry_includes_page_structure(self, browser_session, base_url):
+		"""LLM prompt on retry includes <page_structure> tag."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		# First call returns buggy JS, second call returns working JS
+		extraction_llm = _make_js_extraction_llm_sequence([BUGGY_JS, FIXED_JS])
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all products',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+
+		# Both first and retry call should include page_structure
+		for call_args in extraction_llm.ainvoke.call_args_list:
+			messages = call_args[0][0]
+			user_msg_content = str(messages[1].content)
+			assert '<page_structure>' in user_msg_content
+			assert '</page_structure>' in user_msg_content
+
+		# Second call should also have error feedback
+		second_call = extraction_llm.ainvoke.call_args_list[1]
+		second_user_content = str(second_call[0][0][1].content)
+		assert '<previous_attempt_error>' in second_user_content
+
+	async def test_three_attempt_recovery(self, browser_session, base_url):
+		"""First 2 scripts fail, third succeeds (max_retries=2 → 3 total attempts)."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		# First two calls return buggy JS, third returns working JS
+		extraction_llm = _make_js_extraction_llm_sequence([BUGGY_JS, EMPTY_RESULT_JS, FIXED_JS])
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all products',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		assert '<js_extraction_result' in result.extracted_content
+
+		# Verify 3 LLM calls
+		assert extraction_llm.ainvoke.call_count == 3
+
+		# Parse and verify extraction
+		tag_start = result.extracted_content.index('<js_extraction_result')
+		data_start = result.extracted_content.index('>', tag_start) + 1
+		end = result.extracted_content.index('</js_extraction_result>')
+		parsed = json.loads(result.extracted_content[data_start:end].strip())
+		assert 'products' in parsed
+		assert len(parsed['products']) == 3
+
+		# Verify retries_used == 2 (third attempt)
+		assert result.metadata is not None
+		assert result.metadata['retries_used'] == 2
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _format_structure_probe
+# ---------------------------------------------------------------------------
+
+
+class TestFormatStructureProbe:
+	def test_formats_repeating_patterns(self):
+		data = {
+			'repeatingPatterns': [
+				{'key': 'div.card', 'count': 5, 'sample': '<div class="card"><h3>Item</h3></div>'},
+				{'key': 'span.price', 'count': 5, 'sample': '<span class="price">$9.99</span>'},
+			],
+			'tables': [],
+		}
+		result = _format_structure_probe(data)
+		assert 'Repeating patterns found:' in result
+		assert 'div.card (5 items)' in result
+		assert '<div class="card">' in result
+		assert 'span.price (5 items)' in result
+
+	def test_formats_tables(self):
+		data = {
+			'repeatingPatterns': [],
+			'tables': [
+				{'id': 'products', 'columns': ['Name', 'Price'], 'sampleRow': '<tr><td>Widget A</td><td>$9.99</td></tr>'},
+			],
+		}
+		result = _format_structure_probe(data)
+		assert 'Tables found:' in result
+		assert '#products' in result
+		assert 'Name, Price' in result
+		assert 'Widget A' in result
+
+	def test_empty_data_returns_empty_string(self):
+		data = {'repeatingPatterns': [], 'tables': []}
+		result = _format_structure_probe(data)
+		assert result == ''
+
+	def test_mixed_patterns_and_tables(self):
+		data = {
+			'repeatingPatterns': [
+				{'key': 'tr', 'count': 10, 'sample': '<tr><td>row</td></tr>'},
+			],
+			'tables': [
+				{'id': 'data', 'columns': ['Col1'], 'sampleRow': '<tr><td>val</td></tr>'},
+			],
+		}
+		result = _format_structure_probe(data)
+		assert 'Repeating patterns found:' in result
+		assert 'Tables found:' in result

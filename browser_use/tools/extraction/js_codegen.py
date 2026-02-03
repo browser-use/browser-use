@@ -21,33 +21,72 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Attributes the JS codegen LLM actually needs to write correct selectors/extraction code.
-_KEEP_ATTRS = frozenset({
-	# Identification & selectors
-	'id', 'name', 'class', 'for',
-	# Semantic / structural
-	'type', 'role', 'href', 'src', 'alt', 'title', 'placeholder',
-	# State
-	'disabled', 'readonly', 'checked', 'selected', 'required', 'open',
-	# Accessibility (useful for selector hints)
-	'aria-label', 'aria-hidden', 'aria-expanded', 'aria-checked',
-	# Form validation
-	'pattern', 'min', 'max', 'minlength', 'maxlength', 'step', 'value', 'action', 'method',
-	# Testing selectors the LLM may reference
-	'data-testid', 'data-cy', 'data-test', 'data-qa', 'data-id',
-})
+_KEEP_ATTRS = frozenset(
+	{
+		# Identification & selectors
+		'id',
+		'name',
+		'class',
+		'for',
+		# Semantic / structural
+		'type',
+		'role',
+		'href',
+		'src',
+		'alt',
+		'title',
+		'placeholder',
+		# State
+		'disabled',
+		'readonly',
+		'checked',
+		'selected',
+		'required',
+		'open',
+		# Accessibility (useful for selector hints)
+		'aria-label',
+		'aria-hidden',
+		'aria-expanded',
+		'aria-checked',
+		# Form validation
+		'pattern',
+		'min',
+		'max',
+		'minlength',
+		'maxlength',
+		'step',
+		'value',
+		'action',
+		'method',
+		# Testing selectors the LLM may reference
+		'data-testid',
+		'data-cy',
+		'data-test',
+		'data-qa',
+		'data-id',
+	}
+)
 
 # Tags to strip entirely (including children) — noise for data extraction.
-_STRIP_TAGS = frozenset({
-	# Media / embeds
-	'svg', 'canvas', 'video', 'audio', 'picture', 'source', 'map',
-	# Non-rendered / frames
-	'noscript', 'iframe',
-	# Structural chrome — navigation, headers, footers, sidebars contain
-	# zero extraction-relevant data but often 40-60% of the HTML.
-	'nav', 'header', 'footer', 'aside',
-	# Interactive / scripting noise
-	'script', 'style', 'dialog',
-})
+_STRIP_TAGS = frozenset(
+	{
+		# Media / embeds
+		'svg',
+		'canvas',
+		'video',
+		'audio',
+		'picture',
+		'source',
+		'map',
+		# Non-rendered / frames
+		'noscript',
+		'iframe',
+		# Interactive / scripting noise
+		'script',
+		'style',
+		'dialog',
+	}
+)
 
 # Max number of CSS classes to keep per element.
 _MAX_CLASSES = 5
@@ -225,6 +264,99 @@ class ScriptCache:
 		key = f'{_normalize_url_for_cache(url)}|{query}'
 		self._by_url_query[key] = sid
 		return sid
+
+
+# ---------------------------------------------------------------------------
+# Structure probe — zero-LLM-cost page analysis via CDP
+# ---------------------------------------------------------------------------
+
+_STRUCTURE_PROBE_JS = """(function(){
+try {
+  var body = document.body;
+  if (!body) return {repeatingPatterns: [], tables: []};
+
+  var map = {};
+  var els = body.querySelectorAll('*');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    var tag = el.tagName.toLowerCase();
+    if (tag === 'script' || tag === 'style' || tag === 'br' || tag === 'hr') continue;
+    var cls = el.className;
+    var key = cls && typeof cls === 'string' ? tag + '.' + cls.split(/\\s+/).slice(0, 3).join('.') : tag;
+    if (!map[key]) map[key] = {count: 0, sample: null};
+    map[key].count++;
+    if (!map[key].sample) {
+      var h = el.outerHTML;
+      map[key].sample = h.length > 500 ? h.substring(0, 500) + '...' : h;
+    }
+  }
+
+  var patterns = [];
+  for (var k in map) {
+    if (map[k].count >= 3) patterns.push({key: k, count: map[k].count, sample: map[k].sample});
+  }
+  patterns.sort(function(a, b) { return b.count - a.count; });
+  patterns = patterns.slice(0, 15);
+
+  var tables = [];
+  var tbls = body.querySelectorAll('table');
+  for (var t = 0; t < tbls.length && t < 5; t++) {
+    var tbl = tbls[t];
+    var id = tbl.id || tbl.className || ('table_' + t);
+    var cols = [];
+    var ths = tbl.querySelectorAll('thead th');
+    for (var c = 0; c < ths.length; c++) cols.push(ths[c].textContent.trim());
+    var sampleRow = null;
+    var firstRow = tbl.querySelector('tbody tr');
+    if (firstRow) {
+      var rh = firstRow.outerHTML;
+      sampleRow = rh.length > 500 ? rh.substring(0, 500) + '...' : rh;
+    }
+    tables.push({id: id, columns: cols, sampleRow: sampleRow});
+  }
+
+  return {repeatingPatterns: patterns, tables: tables};
+} catch(e) { return {repeatingPatterns: [], tables: []}; }
+})()"""
+
+
+def _format_structure_probe(data: dict) -> str:
+	"""Format raw probe output into a readable string for the LLM prompt."""
+	parts: list[str] = []
+
+	patterns = data.get('repeatingPatterns', [])
+	if patterns:
+		parts.append('Repeating patterns found:')
+		for p in patterns:
+			parts.append(f'- {p["key"]} ({p["count"]} items), sample: {p["sample"]}')
+
+	tables = data.get('tables', [])
+	if tables:
+		parts.append('Tables found:')
+		for t in tables:
+			cols = ', '.join(t.get('columns', [])) or 'no headers'
+			line = f'- #{t["id"]}: columns [{cols}]'
+			if t.get('sampleRow'):
+				line += f' | sample row: {t["sampleRow"]}'
+			parts.append(line)
+
+	return '\n'.join(parts)
+
+
+async def _discover_page_structure(browser_session: 'BrowserSession') -> str:
+	"""Run a JS probe via CDP to discover repeating element patterns and table structures.
+
+	Returns a formatted string for inclusion in LLM prompts, or empty string on failure.
+	"""
+	try:
+		data = await _execute_js_on_page(browser_session, _STRUCTURE_PROBE_JS)
+		if not isinstance(data, dict):
+			return ''
+		result = _format_structure_probe(data)
+		return result
+	except Exception:
+		logger.debug('Structure probe failed, continuing without page structure')
+		return ''
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +544,7 @@ async def _generate_js_script(
 	css_selector: str | None = None,
 	error_feedback: str | None = None,
 	failed_script: str | None = None,
+	page_structure: str | None = None,
 ) -> str:
 	"""Single blocking LLM call that returns JS code."""
 	user_parts: list[str] = []
@@ -424,6 +557,9 @@ async def _generate_js_script(
 		user_parts.append(f'<output_schema>\n{json.dumps(output_schema, indent=2)}\n</output_schema>')
 
 	user_parts.append(f'<page_html>\n{html}\n</page_html>')
+
+	if page_structure:
+		user_parts.append(f'<page_structure>\n{page_structure}\n</page_structure>')
 
 	if error_feedback:
 		user_parts.append(f'<previous_attempt_error>\n{error_feedback}\n</previous_attempt_error>')
@@ -449,7 +585,7 @@ async def js_codegen_extract(
 	llm: BaseChatModel,
 	output_schema: dict | None = None,
 	css_selector: str | None = None,
-	max_retries: int = 1,
+	max_retries: int = 2,
 	script_cache: ScriptCache | None = None,
 	script_id: str | None = None,
 ) -> tuple[Any, dict[str, Any]]:
@@ -521,6 +657,9 @@ async def js_codegen_extract(
 			except Exception:
 				logger.debug('Implicitly cached script failed, falling through to LLM generation')
 
+	# --- Structure probe (zero LLM cost) ---
+	page_structure = await _discover_page_structure(browser_session)
+
 	# --- LLM generation loop ---
 	last_error: str | None = None
 	last_script: str | None = None
@@ -536,6 +675,7 @@ async def js_codegen_extract(
 				css_selector=css_selector,
 				error_feedback=last_error,
 				failed_script=last_script,
+				page_structure=page_structure or None,
 			)
 			metadata['js_script'] = js_script
 
