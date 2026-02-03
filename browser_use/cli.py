@@ -11,6 +11,22 @@ if '--mcp' in sys.argv:
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 	logging.disable(logging.CRITICAL)
 
+	# Run as MCP server immediately to avoid loading TUI dependencies
+	import asyncio
+
+	try:
+		from browser_use.mcp.server import main as mcp_main
+
+		asyncio.run(mcp_main())
+		sys.exit(0)
+	except ImportError as e:
+		# MCP server import failed - likely missing mcp dependencies
+		print(f'Failed to start MCP server: {e}', file=sys.stderr)
+		sys.exit(1)
+	except Exception as e:
+		print(f'Failed to start MCP server: {e}', file=sys.stderr)
+		sys.exit(1)
+
 # Special case: install command doesn't need CLI dependencies
 if len(sys.argv) > 1 and sys.argv[1] == 'install':
 	import platform
