@@ -1400,9 +1400,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		task = self.task
 		final_result = self.history.final_result() or ''
 
+		# Include agent reasoning if available — helps judge understand context
+		agent_reasoning = ''
+		last_output = self.history.history[-1].model_output
+		if last_output:
+			parts = []
+			if last_output.thinking:
+				parts.append(f'Thinking: {last_output.thinking}')
+			if last_output.evaluation_previous_goal:
+				parts.append(f'Evaluation: {last_output.evaluation_previous_goal}')
+			if parts:
+				agent_reasoning = '\n'.join(parts)
+
 		messages = construct_simple_judge_messages(
 			task=task,
 			final_result=final_result,
+			agent_reasoning=agent_reasoning,
 		)
 
 		try:

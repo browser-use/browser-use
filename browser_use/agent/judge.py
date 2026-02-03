@@ -2,6 +2,7 @@
 
 import base64
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -100,7 +101,11 @@ The <ground_truth> section contains verified correct information for this task. 
 The ground truth takes ABSOLUTE precedence over all other evaluation criteria. If the ground truth is not satisfied by the agent's execution and final response, the verdict MUST be false.
 """
 
+	today = datetime.now().strftime('%Y-%m-%d')
+
 	system_prompt = f"""You are an expert judge evaluating browser automation agent performance.
+
+<current_date>{today}</current_date>
 
 <evaluation_framework>
 {ground_truth_section}
@@ -167,7 +172,7 @@ Set `reached_captcha` to true if:
 - **evaluate for action** - For each key step of the trace, double check whether the action that the agent tried to performed actually happened. If the required action did not actually occur, the verdict should be false.
 - **screenshot is not entire content** - The agent has the entire DOM content, but the screenshot is only part of the content. If the agent extracts information from the page, but you do not see it in the screenshot, you can assume this information is there.
 - **Penalize poor tool usage** - Wrong tools, inefficient approaches, ignoring available information.
-- **ignore unexpected dates and times** - These agent traces are from varying dates, you can assume the dates the agent uses for search or filtering are correct.
+- **ignore unexpected dates and times** - These agent traces are from varying dates. You can assume the dates the agent uses for search or filtering are correct.
 - **IMPORTANT**: be very picky about the user's request - Have very high standard for the agent completing the task exactly to the user's request. 
 - **IMPORTANT**: be initially doubtful of the agent's self reported success, be sure to verify that its methods are valid and fulfill the user's desires to a tee.
 
@@ -225,33 +230,49 @@ Evaluate this agent execution given the criteria and respond with the exact JSON
 def construct_simple_judge_messages(
 	task: str,
 	final_result: str,
+	agent_reasoning: str = '',
 ) -> list[BaseMessage]:
 	"""Construct lightweight judge messages to validate agent success claims.
 
 	Always runs regardless of use_judge setting. Text-only — no screenshots,
-	no trajectory. Just task + final result.
+	no trajectory. Just task + final result + optional agent reasoning.
 	"""
 	task_truncated = _truncate_text(task, 20000)
 	final_result_truncated = _truncate_text(final_result, 20000)
 
-	system_prompt = """You are a strict verifier checking whether a browser automation agent actually completed its task.
+	today = datetime.now().strftime('%Y-%m-%d')
 
-Given the task and the agent's final response, determine if the response genuinely satisfies ALL requirements.
+	system_prompt = f"""You are a verifier checking whether a browser automation agent's response is consistent with its task.
 
-Check for these common failure patterns:
-1. **Incorrect data**: Wrong number of items, missing filters/criteria, wrong format
-2. **Unverified actions**: Agent claims to have submitted a form, posted a comment, or saved a file but there's no evidence
-3. **Incomplete results**: Some requirements from the task are not addressed in the response
-4. **Fabricated content**: Data that looks plausible but wasn't actually extracted from any page
-5. **Partial completion reported as success**: Response acknowledges failure or blockers (captcha, access denied, etc.) but still claims success
+<current_date>{today}</current_date>
+
+You only see the task and the agent's final text response — you do NOT have screenshots, browser state, or action history. Only flag failures you can determine from the text alone.
+
+Flag as NOT correct only when the response clearly shows:
+1. **Missing requirements**: The task asked for specific items/criteria and the response obviously doesn't address them
+2. **Self-contradictions**: The response itself acknowledges failure, errors, or blockers but still claims success
+3. **Wrong format**: The task specified an output format and the response is clearly in a different format
+4. **Incomplete output**: The task asked for N items and the response contains significantly fewer
+
+Give the agent the benefit of the doubt when:
+- The task involves actions (clicking, submitting, saving) — you cannot verify these from text alone
+- The response contains plausible data that could have come from a real page
+- Minor formatting differences that don't affect the substance
 
 Respond with EXACTLY this JSON structure:
-{
+{{
 	"is_correct": true or false,
 	"reason": "Brief explanation if not correct, empty string if correct"
-}
+}}"""
 
-Be strict: if the response doesn't clearly satisfy every requirement, set is_correct to false."""
+	reasoning_section = ''
+	if agent_reasoning:
+		reasoning_truncated = _truncate_text(agent_reasoning, 5000)
+		reasoning_section = f"""
+<agent_reasoning>
+{reasoning_truncated}
+</agent_reasoning>
+"""
 
 	user_prompt = f"""<task>
 {task_truncated or 'No task provided'}
@@ -260,7 +281,7 @@ Be strict: if the response doesn't clearly satisfy every requirement, set is_cor
 <agent_final_response>
 {final_result_truncated or 'No response provided'}
 </agent_final_response>
-
+{reasoning_section}
 Does the agent's response fully satisfy all requirements of the task? Respond with the JSON structure."""
 
 	return [
