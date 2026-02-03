@@ -83,6 +83,15 @@ from browser_use.utils import (
 
 logger = logging.getLogger(__name__)
 
+SEARCH_ENGINE_DOMAINS: frozenset[str] = frozenset({
+	'google.com', 'www.google.com',
+	'bing.com', 'www.bing.com',
+	'duckduckgo.com', 'www.duckduckgo.com',
+	'yahoo.com', 'search.yahoo.com',
+	'yandex.com', 'baidu.com',
+	'ecosia.org', 'search.brave.com',
+})
+
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 	"""Utility function to log the model's response."""
@@ -438,6 +447,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				initial_actions = [{'navigate': {'url': initial_url, 'new_tab': False}}]
 
 		self.initial_url = initial_url
+
+		# Extract target domain for provenance tracking
+		if initial_url:
+			parsed = urlparse(initial_url)
+			self.state.target_domain = parsed.hostname
 
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 		# Verify we can connect to the model
@@ -1082,6 +1096,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._inject_budget_warning(step_info)
 		self._inject_replan_nudge()
 		self._inject_exploration_nudge()
+		self._inject_domain_departure_signal(browser_state_summary.url)
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
@@ -1202,6 +1217,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		step_end_time = time.time()
 		if not self.state.last_result:
 			return
+
+		# Tag each action result with the domain it was produced on
+		if browser_state_summary and browser_state_summary.url and self.state.last_result:
+			parsed_url = urlparse(browser_state_summary.url)
+			step_domain = parsed_url.hostname
+			if step_domain:
+				for result in self.state.last_result:
+					result.source_domain = step_domain
 
 		if browser_state_summary:
 			step_interval = None
@@ -1336,6 +1359,87 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 			self.logger.info(f'📋 Exploration nudge injected after {self.state.n_steps} steps without a plan')
 			self._message_manager._add_context_message(UserMessage(content=msg))
+
+	@staticmethod
+	def _normalize_domain(hostname: str | None) -> str | None:
+		"""Strip leading 'www.' for domain comparison."""
+		if hostname is None:
+			return None
+		return hostname[4:] if hostname.startswith('www.') else hostname
+
+	def _inject_domain_departure_signal(self, current_url: str | None) -> None:
+		"""Inject a context message when the agent has navigated away from the target domain."""
+		if not current_url or self.state.target_domain is None:
+			return
+
+		parsed = urlparse(current_url)
+		current_host = parsed.hostname
+		if current_host is None:
+			return
+
+		self.state.domains_visited.add(current_host)
+
+		if self._normalize_domain(current_host) == self._normalize_domain(self.state.target_domain):
+			return
+
+		if current_host in SEARCH_ENGINE_DOMAINS:
+			msg = (
+				f'DOMAIN NOTE: You are currently on a search engine ({current_host}), '
+				f'not the target domain ({self.state.target_domain}). '
+				'Any information found here is from search results, not the target site itself. '
+				'Navigate to the target domain to get authoritative data.'
+			)
+		else:
+			msg = (
+				f'DOMAIN NOTE: You have navigated away from the target domain '
+				f'({self.state.target_domain}) and are now on {current_host}. '
+				'Results from this domain may not be authoritative for the original task.'
+			)
+
+		self.logger.debug(f'🌐 Domain departure signal: {self.state.target_domain} → {current_host}')
+		self._message_manager._add_context_message(UserMessage(content=msg))
+
+	def _tag_result_with_provenance(self) -> None:
+		"""Tag the final result with provenance information about domains visited."""
+		if self.state.target_domain is None:
+			return
+		if not self.history.history:
+			return
+
+		last_result = self.history.history[-1].result[-1]
+		if not last_result.is_done:
+			return
+
+		non_target = {
+			d for d in self.state.domains_visited
+			if self._normalize_domain(d) != self._normalize_domain(self.state.target_domain)
+		}
+		if not non_target:
+			return
+
+		last_result.source_domain = self.state.target_domain
+
+		search_engines = non_target & SEARCH_ENGINE_DOMAINS
+		other_domains = non_target - search_engines
+
+		parts: list[str] = []
+		if search_engines:
+			parts.append(f'search engines visited: {", ".join(sorted(search_engines))}')
+		if other_domains:
+			parts.append(f'other domains visited: {", ".join(sorted(other_domains))}')
+
+		provenance_note = f'[Provenance: target={self.state.target_domain}; {"; ".join(parts)}]'
+
+		# For structured output, store in metadata to avoid corrupting the schema
+		if self.output_model_schema is not None:
+			if last_result.metadata is None:
+				last_result.metadata = {}
+			last_result.metadata['provenance'] = provenance_note
+		else:
+			if last_result.extracted_content:
+				last_result.extracted_content += f'\n\n{provenance_note}'
+			else:
+				last_result.extracted_content = provenance_note
 
 	async def _inject_budget_warning(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Inject a prominent budget warning when the agent has used >= 75% of its step budget.
@@ -2102,6 +2206,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self.step(step_info)
 
 		if self.history.is_done():
+			self._tag_result_with_provenance()
 			# Always run simple judge to align agent success with reality
 			await self._run_simple_judge()
 
@@ -2306,6 +2411,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await on_step_end(self)
 
 		if self.history.is_done():
+			self._tag_result_with_provenance()
 			# Always run simple judge to align agent success with reality
 			await self._run_simple_judge()
 
