@@ -53,9 +53,10 @@ async def test_departure_signal_on_different_domain():
 
 	messages = _get_context_messages(agent)
 	assert len(messages) == 1
-	assert 'DOMAIN NOTE' in messages[0]
-	assert 'other-site.org' in messages[0]
-	assert 'example.com' in messages[0]
+	msg = messages[0]
+	assert 'DOMAIN NOTE' in msg
+	assert 'now on other-site.org' in msg
+	assert 'target domain (example.com)' in msg
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +89,9 @@ async def test_departure_signal_identifies_search_engine():
 
 	messages = _get_context_messages(agent)
 	assert len(messages) == 1
-	assert 'search engine' in messages[0]
-	assert 'www.google.com' in messages[0]
+	msg = messages[0]
+	assert 'search engine' in msg
+	assert 'search engine (www.google.com)' in msg
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +189,10 @@ async def test_provenance_tagging_on_done_result():
 
 	assert done_result.source_domain == 'example.com'
 	assert done_result.extracted_content is not None
-	assert '[Provenance:' in done_result.extracted_content
-	assert 'target=example.com' in done_result.extracted_content
+	# Check provenance annotation format: [Provenance: target=<domain>; ...]
+	assert done_result.extracted_content.startswith('The answer is 42')
+	provenance_part = done_result.extracted_content.split('[Provenance:')[1]
+	assert provenance_part.startswith(' target=example.com;')
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +284,9 @@ async def test_provenance_in_metadata_for_structured_output():
 	# provenance should be in metadata
 	assert done_result.metadata is not None
 	assert 'provenance' in done_result.metadata
-	assert 'google.com' in done_result.metadata['provenance']
+	provenance = done_result.metadata['provenance']
+	assert provenance.startswith('[Provenance: target=example.com;')
+	assert 'search engines visited:' in provenance
 
 
 # ---------------------------------------------------------------------------
@@ -307,10 +313,15 @@ async def test_provenance_categorizes_search_engines():
 	agent._tag_result_with_provenance()
 
 	assert done_result.extracted_content is not None
-	assert 'search engines visited' in done_result.extracted_content
-	assert 'other domains visited' in done_result.extracted_content
-	assert 'www.google.com' in done_result.extracted_content
-	assert 'other-site.org' in done_result.extracted_content
+	# Parse the provenance annotation and validate both categories are present
+	provenance_part = done_result.extracted_content.split('[Provenance:')[1].rstrip(']')
+	assert 'search engines visited:' in provenance_part
+	assert 'other domains visited:' in provenance_part
+	# Validate specific domains appear in the correct category
+	search_section = provenance_part.split('search engines visited:')[1].split(';')[0].strip()
+	other_section = provenance_part.split('other domains visited:')[1].split(';')[0].strip().rstrip(']')
+	assert 'www.google.com' in search_section.split(', ')
+	assert 'other-site.org' in other_section.split(', ')
 
 
 # ---------------------------------------------------------------------------
