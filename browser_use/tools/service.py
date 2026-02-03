@@ -354,6 +354,7 @@ class Tools(Generic[Context]):
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		self._js_script_cache: dict[str, str] = {}
 
 		"""Register all default browser actions"""
 
@@ -1158,6 +1159,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					llm=page_extraction_llm,
 					output_schema=output_schema,
 					css_selector=css_selector,
+					script_cache=self._js_script_cache,
 				)
 
 				result_json = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data

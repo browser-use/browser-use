@@ -16,6 +16,8 @@ from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.extraction.js_codegen import (
 	_clean_html_for_codegen,
 	_extract_js_from_response,
+	_is_empty_result,
+	_normalize_url_for_cache,
 	_truncate_html,
 )
 from browser_use.tools.service import Tools
@@ -183,6 +185,85 @@ class TestCleanHtmlForCodegen:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: _is_empty_result
+# ---------------------------------------------------------------------------
+
+
+class TestIsEmptyResult:
+	def test_none_is_empty(self):
+		assert _is_empty_result(None) is True
+
+	def test_empty_list_is_empty(self):
+		assert _is_empty_result([]) is True
+
+	def test_empty_dict_is_empty(self):
+		assert _is_empty_result({}) is True
+
+	def test_blank_string_is_empty(self):
+		assert _is_empty_result('') is True
+		assert _is_empty_result('   ') is True
+
+	def test_non_empty_list_is_not_empty(self):
+		assert _is_empty_result([1]) is False
+
+	def test_non_empty_dict_is_not_empty(self):
+		assert _is_empty_result({'a': 1}) is False
+
+	def test_non_empty_string_is_not_empty(self):
+		assert _is_empty_result('hello') is False
+
+	def test_zero_is_not_empty(self):
+		assert _is_empty_result(0) is False
+
+	def test_false_is_not_empty(self):
+		assert _is_empty_result(False) is False
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: _normalize_url_for_cache
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeUrlForCache:
+	def test_numeric_query_param_replaced(self):
+		url = 'https://example.com/products?page=3&sort=price'
+		result = _normalize_url_for_cache(url)
+		assert 'page=_N_' in result
+		assert 'sort=price' in result
+
+	def test_numeric_path_segment_replaced(self):
+		url = 'https://example.com/products/page/2'
+		result = _normalize_url_for_cache(url)
+		assert '/page/_N_' in result
+
+	def test_non_numeric_values_preserved(self):
+		url = 'https://example.com/search?q=shoes&category=boots'
+		result = _normalize_url_for_cache(url)
+		assert 'q=shoes' in result
+		assert 'category=boots' in result
+
+	def test_same_pages_different_numbers_match(self):
+		url1 = 'https://example.com/products?page=1&sort=asc'
+		url2 = 'https://example.com/products?page=99&sort=asc'
+		assert _normalize_url_for_cache(url1) == _normalize_url_for_cache(url2)
+
+	def test_different_paths_dont_match(self):
+		url1 = 'https://example.com/products?page=1'
+		url2 = 'https://example.com/about?page=1'
+		assert _normalize_url_for_cache(url1) != _normalize_url_for_cache(url2)
+
+	def test_no_query_params(self):
+		url = 'https://example.com/products'
+		result = _normalize_url_for_cache(url)
+		assert result == 'https://example.com/products'
+
+	def test_mixed_numeric_non_numeric_path(self):
+		url = 'https://example.com/category/123/items/456'
+		result = _normalize_url_for_cache(url)
+		assert '/category/_N_/items/_N_' in result
+
+
+# ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
@@ -218,6 +299,18 @@ MAIN_LANDMARK_HTML = (
 	'</body></html>'
 )
 
+# Second page of products — same DOM structure, different data.
+PRODUCT_TABLE_PAGE2_HTML = """<html><body>
+<h1>Products - Page 2</h1>
+<table id="products">
+  <thead><tr><th>Name</th><th>Price</th></tr></thead>
+  <tbody>
+    <tr><td>Widget D</td><td>$39.99</td></tr>
+    <tr><td>Widget E</td><td>$49.99</td></tr>
+  </tbody>
+</table>
+</body></html>"""
+
 # JS that the mock LLM will "generate" for table extraction
 TABLE_EXTRACT_JS = """(function(){
 try {
@@ -228,6 +321,19 @@ try {
     products.push({name: cells[0].textContent.trim(), price: cells[1].textContent.trim()});
   }
   return {products: products};
+} catch(e) { return {error: e.message}; }
+})()"""
+
+# JS that returns an empty array (simulates selectors not matching)
+EMPTY_RESULT_JS = """(function(){
+try {
+  var rows = document.querySelectorAll('#nonexistent-table tbody tr');
+  var products = [];
+  for (var i = 0; i < rows.length; i++) {
+    var cells = rows[i].querySelectorAll('td');
+    products.push({name: cells[0].textContent.trim(), price: cells[1].textContent.trim()});
+  }
+  return products;
 } catch(e) { return {error: e.message}; }
 })()"""
 
@@ -311,6 +417,14 @@ def http_server():
 	)
 	server.expect_request('/main-landmark').respond_with_data(
 		MAIN_LANDMARK_HTML,
+		content_type='text/html',
+	)
+	server.expect_request('/products/1').respond_with_data(
+		PRODUCT_TABLE_HTML,
+		content_type='text/html',
+	)
+	server.expect_request('/products/2').respond_with_data(
+		PRODUCT_TABLE_PAGE2_HTML,
 		content_type='text/html',
 	)
 	yield server
@@ -651,3 +765,147 @@ try {
 		assert '#products' in user_msg_content or 'Widget A' in user_msg_content
 		# The filler content should NOT be in the scoped HTML
 		assert 'xxxxx' not in user_msg_content
+
+	async def test_empty_result_triggers_retry(self, browser_session, base_url):
+		"""Script returning [] triggers retry with error feedback to the LLM."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		# First call returns empty-array JS, second call returns working JS
+		extraction_llm = _make_js_extraction_llm_sequence([EMPTY_RESULT_JS, TABLE_EXTRACT_JS])
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all products',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		assert '<js_extraction_result>' in result.extracted_content
+
+		# Verify LLM was called twice (retry happened)
+		assert extraction_llm.ainvoke.call_count == 2
+
+		# Second call should have empty-result error feedback
+		second_call = extraction_llm.ainvoke.call_args_list[1]
+		second_user_content = str(second_call[0][0][1].content)
+		assert '<previous_attempt_error>' in second_user_content
+		assert 'empty result' in second_user_content.lower()
+
+		# Verify retry count in metadata
+		assert result.metadata is not None
+		assert result.metadata['retries_used'] == 1
+
+	async def test_empty_result_all_retries_fail(self, browser_session, base_url):
+		"""If every attempt returns empty, the action returns an error."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		# Both calls return empty-array JS
+		extraction_llm = _make_js_extraction_llm_sequence([EMPTY_RESULT_JS, EMPTY_RESULT_JS])
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all products',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		# Should get an error back since the registry catches RuntimeError
+		assert isinstance(result, ActionResult)
+		assert result.error is not None
+		assert 'empty result' in result.error.lower()
+
+	async def test_script_cache_hit_skips_llm(self, browser_session, base_url):
+		"""Second call to same page pattern reuses cached script, no LLM call."""
+		tools = Tools()
+
+		# First call: /products/1 — LLM generates script
+		await tools.navigate(url=f'{base_url}/products/1', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result1 = await tools.extract_with_script(
+				query='Extract all products with names and prices',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result1, ActionResult)
+		assert result1.metadata is not None
+		assert result1.metadata.get('cache_hit') is False
+		assert extraction_llm.ainvoke.call_count == 1
+
+		# Second call: /products/2 (same DOM structure, numeric segment normalizes) — cached
+		await tools.navigate(url=f'{base_url}/products/2', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result2 = await tools.extract_with_script(
+				query='Extract all products with names and prices',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result2, ActionResult)
+		assert result2.extracted_content is not None
+		assert result2.metadata is not None
+		assert result2.metadata.get('cache_hit') is True
+
+		# LLM should NOT have been called again
+		assert extraction_llm.ainvoke.call_count == 1
+
+		# Verify page 2 data was extracted
+		start = result2.extracted_content.index('<js_extraction_result>') + len('<js_extraction_result>')
+		end = result2.extracted_content.index('</js_extraction_result>')
+		parsed = json.loads(result2.extracted_content[start:end].strip())
+		assert 'products' in parsed
+		assert len(parsed['products']) == 2
+		assert parsed['products'][0]['name'] == 'Widget D'
+
+	async def test_script_cache_miss_for_different_query(self, browser_session, base_url):
+		"""Different query on same URL does NOT use cached script."""
+		tools = Tools()
+
+		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+
+		# First call with query A
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			await tools.extract_with_script(
+				query='Extract all products',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert extraction_llm.ainvoke.call_count == 1
+
+		# Second call with different query — should call LLM again
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			await tools.extract_with_script(
+				query='Get only product names',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert extraction_llm.ainvoke.call_count == 2

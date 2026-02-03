@@ -5,6 +5,7 @@ import logging
 import re
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
@@ -128,6 +129,51 @@ def _truncate_html(html: str, max_chars: int = _DEFAULT_MAX_HTML_CHARS) -> tuple
 		cut += 1  # include the '>'
 
 	return html[:cut], True
+
+
+# ---------------------------------------------------------------------------
+# Empty result detection
+# ---------------------------------------------------------------------------
+
+
+def _is_empty_result(data: Any) -> bool:
+	"""Return True if *data* is empty/null and should trigger a retry."""
+	if data is None:
+		return True
+	if isinstance(data, list) and len(data) == 0:
+		return True
+	if isinstance(data, dict) and len(data) == 0:
+		return True
+	if isinstance(data, str) and data.strip() == '':
+		return True
+	return False
+
+
+# ---------------------------------------------------------------------------
+# URL normalization for script caching
+# ---------------------------------------------------------------------------
+
+_NUMERIC_RE = re.compile(r'^\d+$')
+
+
+def _normalize_url_for_cache(url: str) -> str:
+	"""Normalize a URL so that paginated variants share the same cache key.
+
+	Replaces purely-numeric path segments and query-param values with ``_N_``
+	so that ``/products?page=1`` and ``/products?page=2`` map to the same key.
+	"""
+	parsed = urlparse(url)
+	# Path: replace purely numeric segments
+	parts = parsed.path.split('/')
+	norm_parts = [('_N_' if _NUMERIC_RE.match(p) else p) for p in parts]
+	norm_path = '/'.join(norm_parts)
+	# Query: replace purely numeric values
+	params = parse_qs(parsed.query, keep_blank_values=True)
+	norm_params: dict[str, list[str]] = {}
+	for key in sorted(params):
+		norm_params[key] = [('_N_' if _NUMERIC_RE.match(v) else v) for v in params[key]]
+	norm_query = urlencode(norm_params, doseq=True)
+	return urlunparse((parsed.scheme, parsed.netloc, norm_path, '', norm_query, ''))
 
 
 # ---------------------------------------------------------------------------
@@ -329,10 +375,15 @@ async def js_codegen_extract(
 	output_schema: dict | None = None,
 	css_selector: str | None = None,
 	max_retries: int = 1,
+	script_cache: dict[str, str] | None = None,
 ) -> tuple[Any, dict[str, Any]]:
 	"""Full JS-codegen extraction pipeline.
 
 	Returns (extracted_data, metadata_dict).
+
+	If *script_cache* is provided (a mutable dict), successful scripts are
+	stored keyed by ``(normalized_url, query)`` and reused on pages that
+	share the same URL template (e.g. paginated results).
 	"""
 	raw_html, url = await _get_page_html(browser_session, css_selector)
 	html = _clean_html_for_codegen(raw_html)
@@ -344,6 +395,30 @@ async def js_codegen_extract(
 		'html_truncated': was_truncated,
 	}
 
+	# --- Cache lookup ---
+	cache_key: str | None = None
+	if script_cache is not None:
+		norm_url = _normalize_url_for_cache(url)
+		cache_key = f'{norm_url}|{query}'
+		cached_script = script_cache.get(cache_key)
+		if cached_script is not None:
+			logger.debug(f'Script cache hit for {cache_key!r}')
+			try:
+				data = await _execute_js_on_page(browser_session, cached_script)
+				if _is_empty_result(data):
+					logger.debug('Cached script returned empty result, falling through to LLM generation')
+				else:
+					metadata['js_script'] = cached_script
+					metadata['cache_hit'] = True
+					metadata['retries_used'] = 0
+					# Schema validation on cached result
+					if output_schema is not None:
+						data = _validate_schema(data, output_schema, was_truncated, url, metadata)
+					return data, metadata
+			except Exception:
+				logger.debug('Cached script failed on new page, falling through to LLM generation')
+
+	# --- LLM generation loop ---
 	last_error: str | None = None
 	js_script: str | None = None
 
@@ -361,28 +436,24 @@ async def js_codegen_extract(
 
 			data = await _execute_js_on_page(browser_session, js_script)
 
+			# Empty result detection — treat as retryable
+			if _is_empty_result(data):
+				raise RuntimeError(
+					'Script executed successfully but returned empty result '
+					'(null, [], {}, or blank string). The selectors likely did not match any elements.'
+				)
+
 			# Schema validation if requested
 			if output_schema is not None:
-				from browser_use.tools.extraction.schema_utils import schema_dict_to_pydantic_model
-
-				try:
-					model = schema_dict_to_pydantic_model(output_schema)
-					validated = model.model_validate(data)
-					data = validated.model_dump(mode='json')
-					from browser_use.tools.extraction.views import ExtractionResult
-
-					extraction_meta = ExtractionResult(
-						data=data,
-						schema_used=output_schema,
-						is_partial=was_truncated,
-						source_url=url,
-					)
-					metadata['extraction_result'] = extraction_meta.model_dump(mode='json')
-				except Exception as validation_err:
-					# Validation failed — treat as retryable error
-					raise RuntimeError(f'Schema validation failed: {validation_err}') from validation_err
+				data = _validate_schema(data, output_schema, was_truncated, url, metadata)
 
 			metadata['retries_used'] = attempt
+			metadata['cache_hit'] = False
+
+			# Store successful script in cache
+			if script_cache is not None and cache_key is not None and js_script is not None:
+				script_cache[cache_key] = js_script
+
 			return data, metadata
 
 		except Exception as exc:
@@ -395,3 +466,30 @@ async def js_codegen_extract(
 
 	# Should never reach here, but satisfy type checker
 	raise RuntimeError('js_codegen_extract: unexpected control flow')  # pragma: no cover
+
+
+def _validate_schema(
+	data: Any,
+	output_schema: dict,
+	was_truncated: bool,
+	url: str,
+	metadata: dict[str, Any],
+) -> Any:
+	"""Validate *data* against *output_schema* and update *metadata* in place."""
+	from browser_use.tools.extraction.schema_utils import schema_dict_to_pydantic_model
+	from browser_use.tools.extraction.views import ExtractionResult
+
+	try:
+		model = schema_dict_to_pydantic_model(output_schema)
+		validated = model.model_validate(data)
+		data = validated.model_dump(mode='json')
+		extraction_meta = ExtractionResult(
+			data=data,
+			schema_used=output_schema,
+			is_partial=was_truncated,
+			source_url=url,
+		)
+		metadata['extraction_result'] = extraction_meta.model_dump(mode='json')
+	except Exception as validation_err:
+		raise RuntimeError(f'Schema validation failed: {validation_err}') from validation_err
+	return data
