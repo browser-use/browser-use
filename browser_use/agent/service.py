@@ -83,14 +83,22 @@ from browser_use.utils import (
 
 logger = logging.getLogger(__name__)
 
-SEARCH_ENGINE_DOMAINS: frozenset[str] = frozenset({
-	'google.com', 'www.google.com',
-	'bing.com', 'www.bing.com',
-	'duckduckgo.com', 'www.duckduckgo.com',
-	'yahoo.com', 'search.yahoo.com',
-	'yandex.com', 'baidu.com',
-	'ecosia.org', 'search.brave.com',
-})
+SEARCH_ENGINE_DOMAINS: frozenset[str] = frozenset(
+	{
+		'google.com',
+		'www.google.com',
+		'bing.com',
+		'www.bing.com',
+		'duckduckgo.com',
+		'www.duckduckgo.com',
+		'yahoo.com',
+		'search.yahoo.com',
+		'yandex.com',
+		'baidu.com',
+		'ecosia.org',
+		'search.brave.com',
+	}
+)
 
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
@@ -1411,8 +1419,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 
 		non_target = {
-			d for d in self.state.domains_visited
-			if self._normalize_domain(d) != self._normalize_domain(self.state.target_domain)
+			d for d in self.state.domains_visited if self._normalize_domain(d) != self._normalize_domain(self.state.target_domain)
 		}
 		if not non_target:
 			return
