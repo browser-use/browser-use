@@ -1165,6 +1165,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				for i, file_path in enumerate(self.state.last_result[-1].attachments):
 					self.logger.info(f'👉 Attachment {i + 1 if total_attachments > 1 else ""}: {file_path}')
 
+	def _is_browser_closed_error(self, error: Exception) -> bool:
+		"""Detect errors indicating the browser was closed manually (CDP disconnected)."""
+		error_type = type(error).__name__
+		error_str = str(error)
+		browser_closed_indicators = [
+			'ConnectionClosedError' in error_type,
+			'ConnectionError' in error_type,
+			'browser not connected' in error_str.lower(),
+			'no browser is open' in error_str.lower(),
+			'no valid agent focus' in error_str.lower(),
+			'recovery failed' in error_str.lower() and 'browser' in error_str.lower(),
+		]
+		return any(browser_closed_indicators)
+
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Handle all types of errors that can occur during a step"""
 
@@ -1173,6 +1187,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			error_msg = 'The agent was interrupted mid-step' + (f' - {str(error)}' if str(error) else '')
 			# NOTE: This is not an error, it's a normal part of the execution when the user interrupts the agent
 			self.logger.warning(f'{error_msg}')
+			return
+
+		# Detect browser closed manually - stop agent immediately instead of retrying
+		if self._is_browser_closed_error(error):
+			self.logger.info('🛑 Browser was closed manually - stopping agent')
+			self.state.stopped = True
+			self._external_pause_event.set()
+			error_msg = AgentError.format_error(error, include_trace=self.logger.isEnabledFor(logging.DEBUG))
+			self.state.last_result = [ActionResult(error=f'Browser closed: {error_msg}')]
+			await self._demo_mode_log('Browser was closed - agent stopping', 'error', {'step': self.state.n_steps})
 			return
 
 		# Handle all other exceptions
