@@ -371,7 +371,7 @@ class TestExtractStructured:
 
 	async def test_structured_extraction_returns_json(self, browser_session, base_url):
 		"""When output_schema is provided, extract returns structured JSON in <structured_result> tags."""
-		tools = Tools()
+		tools = Tools(exclude_actions=[])
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 
@@ -426,7 +426,7 @@ class TestExtractStructured:
 
 	async def test_freetext_extraction_unchanged(self, browser_session, base_url):
 		"""When output_schema is None, extract returns free-text in <result> tags (backward compat)."""
-		tools = Tools()
+		tools = Tools(exclude_actions=[])
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 
@@ -450,7 +450,7 @@ class TestExtractStructured:
 
 	async def test_invalid_schema_falls_back_to_freetext(self, browser_session, base_url):
 		"""When output_schema contains unsupported keywords, fall back to free-text gracefully."""
-		tools = Tools()
+		tools = Tools(exclude_actions=[])
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 
@@ -510,7 +510,7 @@ class TestExtractionSchemaInjection:
 
 	async def test_injected_extraction_schema_triggers_structured_path(self, browser_session, base_url):
 		"""extraction_schema passed via act() triggers structured extraction even without output_schema in params."""
-		tools = Tools()
+		tools = Tools(exclude_actions=[])
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 
@@ -541,7 +541,7 @@ class TestExtractionSchemaInjection:
 
 	async def test_output_schema_takes_precedence_over_extraction_schema(self, browser_session, base_url):
 		"""When the LLM provides output_schema in params, it should take precedence over injected extraction_schema."""
-		tools = Tools()
+		tools = Tools(exclude_actions=[])
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 
@@ -581,7 +581,7 @@ class TestExtractionSchemaInjection:
 
 	async def test_no_schema_uses_freetext_path(self, browser_session, base_url):
 		"""When neither output_schema nor extraction_schema is provided, free-text path is used (backward compat)."""
-		tools = Tools()
+		tools = Tools(exclude_actions=[])
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 
@@ -605,7 +605,7 @@ class TestExtractionSchemaInjection:
 
 	async def test_extraction_schema_threads_through_act(self, browser_session, base_url):
 		"""extraction_schema passed to act() reaches extract() via the registry's special parameter injection."""
-		tools = Tools()
+		tools = Tools(exclude_actions=[])
 		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
 		await asyncio.sleep(0.5)
 

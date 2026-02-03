@@ -341,13 +341,16 @@ def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
 
 
 class Tools(Generic[Context]):
+	# Actions excluded by default. Callers can override by passing exclude_actions=[].
+	_DEFAULT_EXCLUDE_ACTIONS = ['extract']
+
 	def __init__(
 		self,
 		exclude_actions: list[str] | None = None,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
-		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [])
+		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else list(self._DEFAULT_EXCLUDE_ACTIONS))
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
@@ -910,7 +913,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page.""",
+			"""EXPENSIVE — last resort. Sends full page to LLM. Only use when you need semantic interpretation of large text (e.g. summarize an article, interpret complex prose). Try search_page, find_elements, or extract_with_script first. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated.""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -1128,7 +1131,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# --- JS-codegen extraction ---
 
 		@self.registry.action(
-			"""LLM generates a JavaScript snippet to extract structured data directly from the DOM. Best for: tables, lists, repeated elements, structured DOM data. Prefer regular extract for prose or semantic interpretation.""",
+			"""Scrape many identical items from the DOM via generated JS (e.g. all rows of a data table, all products in a listing grid, all search results). Use when you need to collect a large set of repeated elements. Try search_page or find_elements first if they can answer the query.""",
 			param_model=ExtractWithScriptAction,
 		)
 		async def extract_with_script(
