@@ -25,9 +25,12 @@ class TestAgentBrowserClosed:
 		assert agent._is_browser_closed_error(ConnectionClosedError()) is True
 		assert agent._is_browser_closed_error(RuntimeError('browser not connected')) is True
 		assert agent._is_browser_closed_error(RuntimeError('Failed to open new tab - no browser is open')) is True
-		assert agent._is_browser_closed_error(
-			RuntimeError('No valid agent focus available - target may have detached and recovery failed')
-		) is True
+		assert (
+			agent._is_browser_closed_error(
+				RuntimeError('No valid agent focus available - target may have detached and recovery failed')
+			)
+			is True
+		)
 
 		# Normal errors should not trigger
 		assert agent._is_browser_closed_error(ValueError('invalid input')) is False
@@ -44,4 +47,6 @@ class TestAgentBrowserClosed:
 		assert agent.state.stopped is True
 		assert agent.state.last_result is not None
 		assert len(agent.state.last_result) == 1
-		assert 'Browser closed' in agent.state.last_result[0].error
+		error_msg = agent.state.last_result[0].error
+		assert error_msg is not None
+		assert 'Browser closed' in error_msg
