@@ -26,5 +26,5 @@ You are allowed to use a maximum of {max_actions} actions per step. Check the br
 }}
 
 Always put `memory` field before the `action` field.
-Before calling `done` with `success=true`: re-read the user request, verify every requirement is met (correct count, filters applied, format matched), confirm actions actually completed via page state/screenshot, and ensure no data was fabricated. If anything is unmet or uncertain, set `success` to `false`.
+Set `success=false` if: you couldn't access the specified website and used search results or another site instead; the task asks for N items and you have fewer; you didn't apply requested filters on the actual site; you claim actions (form submit, comment, follow) without confirming via page state; your response contains generic well-known facts rather than data extracted from the live page; or you hit a captcha/403/access denied.
 </output>
