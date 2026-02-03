@@ -40,6 +40,7 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	ExtractAction,
+	ExtractWithScriptAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
@@ -1122,6 +1123,64 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
+				raise RuntimeError(str(e))
+
+		# --- JS-codegen extraction ---
+
+		@self.registry.action(
+			"""LLM generates a JavaScript snippet to extract structured data directly from the DOM. Best for: tables, lists, repeated elements, structured DOM data. Use css_selector to scope extraction to a specific section. Prefer regular extract for prose or semantic interpretation.""",
+			param_model=ExtractWithScriptAction,
+		)
+		async def extract_with_script(
+			params: ExtractWithScriptAction,
+			browser_session: BrowserSession,
+			page_extraction_llm: BaseChatModel,
+			file_system: FileSystem,
+			extraction_schema: dict | None = None,
+		):
+			from browser_use.tools.extraction.js_codegen import js_codegen_extract
+
+			query = params.query
+			css_selector = params.css_selector
+			output_schema: dict | None = params.output_schema
+
+			# If the LLM didn't provide an output_schema, use the agent-injected extraction_schema
+			if output_schema is None and extraction_schema is not None:
+				output_schema = extraction_schema
+
+			try:
+				data, metadata = await js_codegen_extract(
+					query=query,
+					browser_session=browser_session,
+					llm=page_extraction_llm,
+					output_schema=output_schema,
+					css_selector=css_selector,
+				)
+
+				result_json = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
+				current_url = metadata.get('source_url', '')
+
+				extracted_content = f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<js_extraction_result>\n{result_json}\n</js_extraction_result>'
+
+				# Simple memory handling
+				MAX_MEMORY_LENGTH = 10000
+				if len(extracted_content) < MAX_MEMORY_LENGTH:
+					memory = extracted_content
+					include_extracted_content_only_once = False
+				else:
+					file_name = await file_system.save_extracted_content(extracted_content)
+					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
+					include_extracted_content_only_once = True
+
+				logger.info(f'📄 JS extraction: {memory[:200]}')
+				return ActionResult(
+					extracted_content=extracted_content,
+					include_extracted_content_only_once=include_extracted_content_only_once,
+					long_term_memory=memory,
+					metadata=metadata,
+				)
+			except Exception as e:
+				logger.debug(f'Error in JS-codegen extraction: {e}')
 				raise RuntimeError(str(e))
 
 		# --- Page search and exploration tools (zero LLM cost) ---

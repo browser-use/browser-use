@@ -19,6 +19,18 @@ class ExtractAction(BaseModel):
 	)
 
 
+class ExtractWithScriptAction(BaseModel):
+	query: str = Field(description='Description of what data to extract from the page')
+	css_selector: str | None = Field(
+		default=None,
+		description='Optional CSS selector to scope extraction to a specific page section',
+	)
+	output_schema: SkipJsonSchema[dict | None] = Field(
+		default=None,
+		description='Optional JSON Schema dict for validation of extracted data.',
+	)
+
+
 class SearchPageAction(BaseModel):
 	pattern: str = Field(description='Text or regex pattern to search for in page content')
 	regex: bool = Field(default=False, description='Treat pattern as regex (default: literal text match)')
