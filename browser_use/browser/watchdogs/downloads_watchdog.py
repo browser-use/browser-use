@@ -362,28 +362,51 @@ class DownloadsWatchdog(BaseWatchdog):
 												pass
 											break
 				else:
-					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
+					# Remote browser: file is on container, not agent disk. Cannot use _track_download
+					# (it requires path.exists()). Fire callbacks manually so click handler unblocks.
+					# Skip if already handled by use_fetch_for_remote path (prevents double-fire).
 					info = self._cdp_downloads_info.get(guid, {})
-					try:
-						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
-						downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
-						effective_path = file_path or str(Path(downloads_path) / suggested_filename)
-						file_name = Path(effective_path).name
-						file_ext = Path(file_name).suffix.lower().lstrip('.')
-						self.event_bus.dispatch(
-							FileDownloadedEvent(
-								guid=guid,
-								url=info.get('url', ''),
-								path=str(effective_path),
-								file_name=file_name,
-								file_size=0,
-								file_type=file_ext if file_ext else None,
+					if info.get('handled'):
+						pass  # Fetch path already fired
+					else:
+						try:
+							suggested_filename = info.get('suggested_filename') or (
+								Path(file_path).name if file_path else 'download'
 							)
-						)
-						self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
-					finally:
-						if guid in self._cdp_downloads_info:
-							del self._cdp_downloads_info[guid]
+							downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
+							effective_path = file_path or str(Path(downloads_path) / suggested_filename)
+							file_name = Path(effective_path).name
+							file_ext = Path(file_name).suffix.lower().lstrip('.')
+							complete_info = {
+								'guid': guid,
+								'url': info.get('url', ''),
+								'path': str(effective_path),
+								'file_name': file_name,
+								'file_size': 0,
+								'file_type': file_ext if file_ext else None,
+								'auto_download': False,
+							}
+							for callback in self._download_complete_callbacks:
+								try:
+									callback(complete_info)
+								except Exception as e:
+									self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
+							self.event_bus.dispatch(
+								FileDownloadedEvent(
+									guid=guid,
+									url=info.get('url', ''),
+									path=str(effective_path),
+									file_name=file_name,
+									file_size=0,
+									file_type=file_ext if file_ext else None,
+								)
+							)
+							self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
+							if guid in self._cdp_downloads_info:
+								self._cdp_downloads_info[guid]['handled'] = True
+						finally:
+							if guid in self._cdp_downloads_info:
+								del self._cdp_downloads_info[guid]
 
 		try:
 			downloads_path_raw = self.browser_session.browser_profile.downloads_path
