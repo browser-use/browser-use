@@ -1483,6 +1483,21 @@ class BrowserSession(BaseModel):
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True
 
+	async def _apply_stealth_patches(self) -> None:
+		"""Apply rebrowser-patches style CDP overrides for fingerprint evasion."""
+		if not self._cdp_client_root:
+			return
+		stealth_script = """
+			delete Object.getPrototypeOf(navigator).webdriver;
+			window.chrome = { runtime: {}, loadTimes: () => ({}), csi: () => ({}), app: { isInstalled: false } };
+			Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+		"""
+		try:
+			await self._cdp_client_root.send.Page.addScriptToEvaluateOnNewDocument(params={'source': stealth_script})
+			self.logger.debug('✅ rebrowser-patches stealth script applied')
+		except Exception as e:
+			self.logger.warning(f'Stealth failed: {e}')
+
 	async def connect(self, cdp_url: str | None = None) -> Self:
 		"""Connect to a remote chromium-based browser via CDP using cdp-use.
 
@@ -1553,6 +1568,7 @@ class BrowserSession(BaseModel):
 
 			# Enable auto-attach so Chrome automatically notifies us when NEW targets attach/detach
 			# This is the foundation of event-driven session management
+			await self._apply_stealth_patches()
 			await self._cdp_client_root.send.Target.setAutoAttach(
 				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
 			)
