@@ -151,6 +151,7 @@ class BrowserSession(BaseModel):
 		highlight_elements: bool | None = None,
 		dom_highlight_elements: bool | None = None,
 		paint_order_filtering: bool | None = None,
+		collect_accessibility_tree: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
 	) -> None: ...
@@ -184,6 +185,7 @@ class BrowserSession(BaseModel):
 		highlight_elements: bool | None = None,
 		dom_highlight_elements: bool | None = None,
 		paint_order_filtering: bool | None = None,
+		collect_accessibility_tree: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
 		# All other local params
@@ -291,6 +293,7 @@ class BrowserSession(BaseModel):
 		highlight_elements: bool | None = None,
 		dom_highlight_elements: bool | None = None,
 		paint_order_filtering: bool | None = None,
+		collect_accessibility_tree: bool | None = None,
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
