@@ -131,6 +131,17 @@ class ScreenshotAction(BaseModel):
 	)
 
 
+class ReadContentAction(BaseModel):
+	"""Action for intelligent reading of long content."""
+
+	goal: str = Field(description='What to look for or extract from the content')
+	source: str = Field(
+		default='page',
+		description='What to read: "page" for current webpage, or a file path',
+	)
+	context: str = Field(default='', description='Additional context about the task')
+
+
 class GetDropdownOptionsAction(BaseModel):
 	index: int
 

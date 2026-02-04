@@ -199,6 +199,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		enable_planning: bool = True,
 		planning_replan_on_stall: int = 3,
 		planning_exploration_limit: int = 5,
+		loop_detection_window: int = 10,
+		loop_detection_enabled: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		_url_shortening_limit: int = 25,
 		**kwargs,
@@ -399,6 +401,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			enable_planning=enable_planning,
 			planning_replan_on_stall=planning_replan_on_stall,
 			planning_exploration_limit=planning_exploration_limit,
+			loop_detection_window=loop_detection_window,
+			loop_detection_enabled=loop_detection_enabled,
 		)
 
 		# Token cost service
@@ -409,6 +413,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
+
+		# Configure loop detector window size from settings
+		self.state.loop_detector.window_size = self.settings.loop_detection_window
 
 		# Initialize history
 		self.history = AgentHistoryList(history=[], usage=None)
@@ -1082,6 +1089,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._inject_budget_warning(step_info)
 		self._inject_replan_nudge()
 		self._inject_exploration_nudge()
+		self._update_loop_detector_page_state(browser_state_summary)
+		self._inject_loop_detection_nudge()
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
@@ -1140,6 +1149,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Update plan state from model output
 		if self.state.last_model_output is not None:
 			self._update_plan_from_model_output(self.state.last_model_output)
+
+		# Record executed actions for loop detection
+		self._update_loop_detector_actions()
 
 		# check for action errors  and len more than 1
 		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
@@ -1336,6 +1348,47 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 			self.logger.info(f'📋 Exploration nudge injected after {self.state.n_steps} steps without a plan')
 			self._message_manager._add_context_message(UserMessage(content=msg))
+
+	def _inject_loop_detection_nudge(self) -> None:
+		"""Inject an escalating nudge when behavioral loops are detected."""
+		if not self.settings.loop_detection_enabled:
+			return
+		nudge = self.state.loop_detector.get_nudge_message()
+		if nudge:
+			self.logger.info(
+				f'🔁 Loop detection nudge injected (repetition={self.state.loop_detector.max_repetition_count}, '
+				f'stagnation={self.state.loop_detector.consecutive_stagnant_pages})'
+			)
+			self._message_manager._add_context_message(UserMessage(content=nudge))
+
+	def _update_loop_detector_actions(self) -> None:
+		"""Record the actions from the latest step into the loop detector."""
+		if not self.settings.loop_detection_enabled:
+			return
+		if self.state.last_model_output is None:
+			return
+		for action in self.state.last_model_output.action:
+			action_data = action.model_dump(exclude_unset=True)
+			action_name = next(iter(action_data.keys()), 'unknown')
+			params = action_data.get(action_name, {})
+			if not isinstance(params, dict):
+				params = {}
+			self.state.loop_detector.record_action(action_name, params)
+
+	def _update_loop_detector_page_state(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Record the current page state for stagnation detection."""
+		if not self.settings.loop_detection_enabled:
+			return
+		url = browser_state_summary.url or ''
+		element_count = len(browser_state_summary.dom_state.selector_map) if browser_state_summary.dom_state else 0
+		# Use the DOM text representation for fingerprinting
+		dom_text = ''
+		if browser_state_summary.dom_state:
+			try:
+				dom_text = browser_state_summary.dom_state.llm_representation()
+			except Exception:
+				dom_text = ''
+		self.state.loop_detector.record_page_state(url, dom_text, element_count)
 
 	async def _inject_budget_warning(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Inject a prominent budget warning when the agent has used >= 75% of its step budget.
