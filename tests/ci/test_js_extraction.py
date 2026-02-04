@@ -1566,4 +1566,4 @@ class TestHtmlCharLimit:
 		"""Verify the constant was updated to 200k."""
 		from browser_use.tools.extraction.js_codegen import _DEFAULT_MAX_HTML_CHARS
 
-		assert _DEFAULT_MAX_HTML_CHARS == 200_000
+		assert _DEFAULT_MAX_HTML_CHARS == 100_000

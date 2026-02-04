@@ -195,7 +195,7 @@ def _clean_html_for_codegen(html: str) -> str:
 # HTML truncation
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MAX_HTML_CHARS = 200_000
+_DEFAULT_MAX_HTML_CHARS = 100_000
 
 
 def _truncate_html(html: str, max_chars: int = _DEFAULT_MAX_HTML_CHARS) -> tuple[str, bool]:
