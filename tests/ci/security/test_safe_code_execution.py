@@ -32,11 +32,17 @@ class TestSafeCodeExecution:
 		_safe_exec('print("hello")', ns)
 		# No exception, print executed
 
-	def test_safe_exec_allows_namespace_attrs(self):
-		"""Allow attribute access on namespace objects (json, Path)."""
-		ns: dict = {'json': __import__('json')}
-		_safe_exec('r = json.dumps({"a": 1})', ns)
-		assert ns['r'] == '{"a": 1}'
+	def test_safe_exec_copies_back_variables(self):
+		"""Safe variables are copied back to parent namespace."""
+		ns: dict = {}
+		_safe_exec('r = {"a": 1}', ns)
+		assert ns['r'] == {'a': 1}
+
+	def test_safe_exec_isolates_namespace_no_escape(self):
+		"""Dangerous objects in parent namespace are NOT visible (no os.system escape)."""
+		ns: dict = {'os': __import__('os')}
+		with pytest.raises((NameError, ValueError)):
+			_safe_exec('os.system("echo pwned")', ns)
 
 
 def test_safe_code_execution_flag_default_off():
