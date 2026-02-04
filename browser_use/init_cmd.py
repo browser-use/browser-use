@@ -55,8 +55,33 @@ def _validate_url(url: str) -> None:
 	if parsed.scheme not in _ALLOWED_SCHEMES:
 		raise ValueError(f'Disallowed URL scheme: {parsed.scheme}. Only HTTPS is allowed.')
 
-	if parsed.netloc not in _ALLOWED_DOMAINS:
+	# Domain names are case-insensitive per RFC 4343
+	if parsed.netloc.lower() not in _ALLOWED_DOMAINS:
 		raise ValueError(f'Disallowed domain: {parsed.netloc}. Only GitHub domains are allowed.')
+
+
+class _NoRedirectHandler(request.HTTPRedirectHandler):
+	"""HTTP handler that raises an error on redirects instead of following them.
+
+	This prevents SSRF attacks via open redirects on allowed domains.
+	"""
+
+	def redirect_request(self, req, fp, code, msg, headers, newurl):
+		raise ValueError(f'Redirects are not allowed for security. Redirect attempted to: {newurl}')
+
+
+def _safe_urlopen(url: str, timeout: int = 5):
+	"""Safely open a URL without following redirects.
+
+	Args:
+		url: The URL to open
+		timeout: Request timeout in seconds
+
+	Returns:
+		The response object
+	"""
+	opener = request.build_opener(_NoRedirectHandler)
+	return opener.open(url, timeout=timeout)
 
 
 def _fetch_template_list() -> dict[str, Any] | None:
@@ -68,7 +93,7 @@ def _fetch_template_list() -> dict[str, Any] | None:
 	try:
 		url = f'{TEMPLATE_REPO_URL}/templates.json'
 		_validate_url(url)
-		with request.urlopen(url, timeout=5) as response:
+		with _safe_urlopen(url, timeout=5) as response:
 			data = response.read().decode('utf-8')
 			return json.loads(data)
 	except (URLError, TimeoutError, json.JSONDecodeError, ValueError, Exception):
@@ -96,7 +121,7 @@ def _fetch_from_github(file_path: str) -> str | None:
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
 		_validate_url(url)
-		with request.urlopen(url, timeout=5) as response:
+		with _safe_urlopen(url, timeout=5) as response:
 			return response.read().decode('utf-8')
 	except (URLError, TimeoutError, ValueError, Exception):
 		return None
@@ -111,7 +136,7 @@ def _fetch_binary_from_github(file_path: str) -> bytes | None:
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
 		_validate_url(url)
-		with request.urlopen(url, timeout=5) as response:
+		with _safe_urlopen(url, timeout=5) as response:
 			return response.read()
 	except (URLError, TimeoutError, ValueError, Exception):
 		return None
