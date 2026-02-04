@@ -119,154 +119,6 @@ _SEMANTIC_CLASS_FRAGMENTS = frozenset(
 	}
 )
 
-# ---------------------------------------------------------------------------
-# HTML deduplication — collapse repeated elements to N samples + count
-# ---------------------------------------------------------------------------
-
-_VOID_ELEMENTS = frozenset(
-	{
-		'area',
-		'base',
-		'br',
-		'col',
-		'embed',
-		'hr',
-		'img',
-		'input',
-		'link',
-		'meta',
-		'param',
-		'source',
-		'track',
-		'wbr',
-	}
-)
-
-_DEDUP_SKIP_TAGS = frozenset(
-	{
-		'td',
-		'th',  # table cells
-		'span',
-		'a',
-		'em',
-		'strong',
-		'b',
-		'i',
-		'u',
-		'small',  # inline
-		'dt',
-		'dd',  # definition list pairs
-		'label',
-		'legend',  # form labels
-	}
-)
-
-_DEDUP_MIN_COUNT = 8
-_DEDUP_MAX_SAMPLES = 3
-
-
-def _parse_dedup_patterns(
-	raw_patterns: list[dict],
-	min_count: int = _DEDUP_MIN_COUNT,
-) -> list[tuple[str, frozenset[str], str]]:
-	"""Parse probe patterns into (tag, required_classes, key) tuples."""
-	result: list[tuple[str, frozenset[str], str]] = []
-	for p in raw_patterns:
-		key = p.get('key', '')
-		count = p.get('count', 0)
-		if count < min_count:
-			continue
-		parts = key.split('.')
-		tag = parts[0]
-		classes = frozenset(parts[1:]) if len(parts) > 1 else frozenset()
-		if not classes:
-			continue  # tag-only patterns too broad
-		if tag in _DEDUP_SKIP_TAGS:
-			continue
-		result.append((tag, classes, key))
-	return result
-
-
-class _HTMLDeduplicator(HTMLParser):
-	"""Removes repeated DOM elements, keeping max_samples examples + count annotation."""
-
-	def __init__(self, patterns: list[tuple[str, frozenset[str], str]], max_samples: int = _DEDUP_MAX_SAMPLES):
-		super().__init__(convert_charrefs=True)
-		self.parts: list[str] = []
-		self._patterns = patterns
-		self._max_samples = max_samples
-		self._skip_depth = 0
-		self._seen: dict[str, int] = {}  # pattern_key → times seen
-		self._skipped: dict[str, int] = {}  # pattern_key → pending skip count
-		self.total_skipped = 0
-
-	def _match(self, tag: str, attrs: list[tuple[str, str | None]]) -> str | None:
-		classes: set[str] = set()
-		for k, v in attrs:
-			if k == 'class' and v:
-				classes = set(v.split())
-				break
-		for p_tag, p_classes, p_key in self._patterns:
-			if tag == p_tag and p_classes <= classes:
-				return p_key
-		return None
-
-	def _flush(self) -> None:
-		for key, count in self._skipped.items():
-			if count > 0:
-				self.parts.append(f'<!-- +{count} more {key} elements -->')
-		self._skipped.clear()
-
-	def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-		if self._skip_depth > 0:
-			if tag not in _VOID_ELEMENTS:
-				self._skip_depth += 1
-			return
-		key = self._match(tag, attrs)
-		if key is not None:
-			self._seen[key] = self._seen.get(key, 0) + 1
-			if self._seen[key] > self._max_samples:
-				self._skipped[key] = self._skipped.get(key, 0) + 1
-				self.total_skipped += 1
-				if tag not in _VOID_ELEMENTS:
-					self._skip_depth = 1
-				return
-		self._flush()
-		attr_str = ''.join(f' {k}="{v}"' if v is not None else f' {k}' for k, v in attrs)
-		self.parts.append(f'<{tag}{attr_str}>')
-
-	def handle_endtag(self, tag: str) -> None:
-		if tag in _VOID_ELEMENTS:
-			return
-		if self._skip_depth > 0:
-			self._skip_depth -= 1
-			return
-		self._flush()
-		self.parts.append(f'</{tag}>')
-
-	def handle_data(self, data: str) -> None:
-		if self._skip_depth:
-			return
-		self._flush()
-		self.parts.append(data)
-
-	def get_deduped_html(self) -> str:
-		self._flush()
-		return ''.join(self.parts)
-
-
-def _dedup_html(html: str, patterns: list[dict], max_samples: int = _DEDUP_MAX_SAMPLES) -> str:
-	"""Remove repeated DOM elements, keeping max_samples examples of each probe pattern."""
-	parsed = _parse_dedup_patterns(patterns)
-	if not parsed:
-		return html
-	deduper = _HTMLDeduplicator(parsed, max_samples=max_samples)
-	deduper.feed(html)
-	result = deduper.get_deduped_html()
-	if deduper.total_skipped > 0:
-		logger.debug(f'HTML dedup: removed {deduper.total_skipped} repeated elements')
-	return result
-
 
 class _HTMLCleaner(HTMLParser):
 	"""Single-pass HTML cleaner that strips bloat for the codegen LLM."""
@@ -549,22 +401,21 @@ def _format_structure_probe(data: dict) -> str:
 	return '\n'.join(parts)
 
 
-async def _discover_page_structure(browser_session: 'BrowserSession') -> tuple[str, str | None, list[dict]]:
+async def _discover_page_structure(browser_session: 'BrowserSession') -> tuple[str, str | None]:
 	"""Run a JS probe via CDP to discover repeating element patterns and table structures.
 
-	Returns (formatted_text, container_selector, repeating_patterns). On failure returns ('', None, []).
+	Returns (formatted_text, container_selector). On failure returns ('', None).
 	"""
 	try:
 		data = await _execute_js_on_page(browser_session, _STRUCTURE_PROBE_JS)
 		if not isinstance(data, dict):
-			return '', None, []
+			return '', None
 		result = _format_structure_probe(data)
 		container = data.get('containerSelector')
-		patterns = data.get('repeatingPatterns', [])
-		return result, container, patterns
+		return result, container
 	except Exception:
 		logger.debug('Structure probe failed, continuing without page structure')
-		return '', None, []
+		return '', None
 
 
 # ---------------------------------------------------------------------------
@@ -849,13 +700,12 @@ async def js_codegen_extract(
 				logger.debug(f'Script {script_id} failed on this page, falling through to LLM generation')
 
 	# --- Structure probe (zero LLM cost) ---
-	page_structure, container_selector, probe_patterns = await _discover_page_structure(browser_session)
+	page_structure, container_selector = await _discover_page_structure(browser_session)
 
 	# --- Get page HTML (needed for LLM prompt and implicit cache) ---
 	extra_scopes = [container_selector] if container_selector else None
 	raw_html, url = await _get_page_html(browser_session, css_selector, extra_scope_selectors=extra_scopes)
 	html = _clean_html_for_codegen(raw_html)
-	html = _dedup_html(html, probe_patterns)
 	html, was_truncated = _truncate_html(html)
 	metadata['source_url'] = url
 	metadata['html_truncated'] = was_truncated

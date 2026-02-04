@@ -15,7 +15,6 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.extraction.js_codegen import (
 	_clean_html_for_codegen,
-	_dedup_html,
 	_discover_page_structure,
 	_extract_js_from_response,
 	_format_structure_probe,
@@ -1061,20 +1060,19 @@ try {
 		await browser_session.navigate_to(f'{base_url}/products')
 		await asyncio.sleep(0.5)
 
-		result, container, patterns = await _discover_page_structure(browser_session)
+		result, container = await _discover_page_structure(browser_session)
 		assert 'Tables found:' in result
 		assert 'Name' in result
 		assert 'Price' in result
 		# Should have a sample row with actual data
 		assert 'Widget A' in result or 'Widget' in result
-		assert isinstance(patterns, list)
 
 	async def test_structure_probe_on_card_page(self, browser_session, base_url):
 		"""Structure probe detects repeating card pattern on a grid layout page."""
 		await browser_session.navigate_to(f'{base_url}/cards')
 		await asyncio.sleep(0.5)
 
-		result, container, patterns = await _discover_page_structure(browser_session)
+		result, container = await _discover_page_structure(browser_session)
 		assert 'Repeating patterns found:' in result
 		assert 'card' in result.lower()
 		# Should find 4 .card elements
@@ -1326,18 +1324,17 @@ class TestStructureProbeContainer:
 		await browser_session.navigate_to(f'{base_url}/products')
 		await asyncio.sleep(0.5)
 
-		result, container, patterns = await _discover_page_structure(browser_session)
+		result, container = await _discover_page_structure(browser_session)
 		# The table page has a <table id="products"> — the most repeated element (tr/td)
 		# lives inside it, so container should refer to the table or its parent
 		assert result != ''  # probe should find something
-		assert isinstance(patterns, list)
 
 	async def test_probe_returns_container_for_card_page(self, browser_session, base_url):
 		"""Card page: probe returns container selector for div.product-grid."""
 		await browser_session.navigate_to(f'{base_url}/cards')
 		await asyncio.sleep(0.5)
 
-		result, container, patterns = await _discover_page_structure(browser_session)
+		result, container = await _discover_page_structure(browser_session)
 		assert container is not None
 		assert 'product-grid' in container
 
@@ -1570,112 +1567,3 @@ class TestHtmlCharLimit:
 		from browser_use.tools.extraction.js_codegen import _DEFAULT_MAX_HTML_CHARS
 
 		assert _DEFAULT_MAX_HTML_CHARS == 100_000
-
-
-# ---------------------------------------------------------------------------
-# Unit tests: _dedup_html
-# ---------------------------------------------------------------------------
-
-
-class TestDedupHtml:
-	def test_dedup_basic(self):
-		"""10 div.card elements → only 3 kept + comment."""
-		cards = '<div class="card"><p>Item</p></div>' * 10
-		html = f'<div class="grid">{cards}</div>'
-		patterns = [{'key': 'div.card', 'count': 10}]
-		result = _dedup_html(html, patterns)
-		assert result.count('<div class="card">') == 3
-		assert '<!-- +7 more div.card elements -->' in result
-
-	def test_dedup_void_elements(self):
-		"""10 img.thumb elements → 3 kept + comment."""
-		imgs = '<img class="thumb" src="x.jpg">' * 10
-		html = f'<div>{imgs}</div>'
-		patterns = [{'key': 'img.thumb', 'count': 10}]
-		result = _dedup_html(html, patterns)
-		assert result.count('<img') == 3
-		assert '<!-- +7 more img.thumb elements -->' in result
-
-	def test_dedup_skips_inline_tags(self):
-		"""span.highlight with count=20 → NOT deduped (in _DEDUP_SKIP_TAGS)."""
-		spans = '<span class="highlight">text</span>' * 20
-		html = f'<p>{spans}</p>'
-		patterns = [{'key': 'span.highlight', 'count': 20}]
-		result = _dedup_html(html, patterns)
-		# All spans should be preserved
-		assert result.count('<span') == 20
-		assert '<!-- +' not in result
-
-	def test_dedup_skips_low_count(self):
-		"""5 div.card → NOT deduped (count < _DEDUP_MIN_COUNT)."""
-		cards = '<div class="card"><p>Item</p></div>' * 5
-		html = f'<div>{cards}</div>'
-		patterns = [{'key': 'div.card', 'count': 5}]
-		result = _dedup_html(html, patterns)
-		assert result.count('<div class="card">') == 5
-		assert '<!-- +' not in result
-
-	def test_dedup_skips_classless_patterns(self):
-		"""div (no classes) with count=50 → NOT deduped."""
-		divs = '<div>item</div>' * 50
-		html = f'<section>{divs}</section>'
-		patterns = [{'key': 'div', 'count': 50}]
-		result = _dedup_html(html, patterns)
-		assert result.count('<div>') == 50
-		assert '<!-- +' not in result
-
-	def test_dedup_preserves_non_matching_content(self):
-		"""Interleaved <p> text between cards → text preserved."""
-		parts = []
-		for i in range(10):
-			parts.append(f'<p>Text {i}</p>')
-			parts.append(f'<div class="card">Card {i}</div>')
-		html = f'<div>{"".join(parts)}</div>'
-		patterns = [{'key': 'div.card', 'count': 10}]
-		result = _dedup_html(html, patterns)
-		# All 10 <p> should be preserved
-		for i in range(10):
-			assert f'Text {i}' in result
-		# Only 3 cards kept
-		assert result.count('<div class="card">') == 3
-		# When interleaved, each skipped card flushes independently
-		assert result.count('more div.card elements') == 7
-
-	def test_dedup_nested_content_suppressed(self):
-		"""Skipped div.card with deep nested children → all nested content removed."""
-		card = '<div class="card"><div class="inner"><span>nested</span></div></div>'
-		html = f'<div>{card * 10}</div>'
-		patterns = [{'key': 'div.card', 'count': 10}]
-		result = _dedup_html(html, patterns)
-		# Only 3 cards should have nested content
-		assert result.count('nested') == 3
-		assert '<!-- +7 more div.card elements -->' in result
-
-	def test_dedup_subset_matching(self):
-		"""Pattern div.card matches div with extra classes like 'card product featured'."""
-		cards = '<div class="card product featured"><p>Item</p></div>' * 10
-		html = f'<div>{cards}</div>'
-		patterns = [{'key': 'div.card', 'count': 10}]
-		result = _dedup_html(html, patterns)
-		assert result.count('<div class="card product featured">') == 3
-		assert '<!-- +7 more div.card elements -->' in result
-
-	def test_dedup_no_patterns_passthrough(self):
-		"""Empty patterns list returns html unchanged."""
-		html = '<div><p>Hello</p></div>'
-		result = _dedup_html(html, [])
-		assert result == html
-
-	def test_dedup_multiple_patterns(self):
-		"""Two different patterns tracked independently."""
-		items = '<div class="card">card</div>' * 10 + '<li class="item">item</li>' * 10
-		html = f'<div>{items}</div>'
-		patterns = [
-			{'key': 'div.card', 'count': 10},
-			{'key': 'li.item', 'count': 10},
-		]
-		result = _dedup_html(html, patterns)
-		assert result.count('<div class="card">') == 3
-		assert result.count('<li class="item">') == 3
-		assert '<!-- +7 more div.card elements -->' in result
-		assert '<!-- +7 more li.item elements -->' in result
