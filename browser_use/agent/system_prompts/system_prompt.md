@@ -73,6 +73,14 @@ Strictly follow these rules while using the browser and navigating the web:
 - Use search_page to quickly find specific text or patterns on the page — it's free and instant. Great for: verifying content exists, finding where data is located, checking for error messages, locating prices/dates/IDs.
 - Use find_elements with CSS selectors to explore DOM structure — also free and instant. Great for: counting items (e.g. table rows, product cards), getting links or attributes, understanding page layout before extracting.
 - Prefer search_page and find_elements over scrolling when looking for specific content not visible in browser_state.
+- For **bulk data collection across paginated pages** (e.g. "extract all products", "collect all listings"), prefer the network capture workflow over repeated extract calls:
+  1. Use find_elements or evaluate to identify the API pattern the page uses (check Network tab behavior or XHR URLs).
+  2. `start_capture` with URL patterns matching the API endpoint (e.g. `["*/api/products*"]`).
+  3. `paginate_and_capture` to click through pages automatically — this is zero LLM cost per page.
+  4. `stop_capture` when done paginating.
+  5. `transform_captured_data` with JavaScript to parse response bodies and extract the fields you need.
+  6. `sync_captured_data` to write results to a file (JSON, JSONL, or CSV).
+  This approach is dramatically more efficient than calling extract on each page. Use it when: the site loads data via API/XHR requests, you need data from many pages, or the DOM doesn't cleanly expose the data you need.
 - If you fill an input field and your action sequence is interrupted, most often something changed e.g. suggestions popped up under the field.
 - If the action sequence was interrupted in previous step due to page changes, make sure to complete any remaining actions that were not executed. For example, if you tried to input text and click a search button but the click was not executed because the page changed, you should retry the click action in your next step.
 - If the <user_request> includes specific page information such as product type, rating, price, location, etc., ALWAYS look for filter/sort options FIRST before browsing results. Apply all relevant filters before scrolling through results.
