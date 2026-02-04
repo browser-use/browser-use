@@ -25,6 +25,13 @@ def _safe_exec(code: str, parent_namespace: dict[str, Any]) -> None:
 	Only a minimal builtin allowlist is exposed. Safe variables are copied back after execution.
 	"""
 	tree = ast.parse(code)
+
+	# Explicit import blocking — unambiguous restriction for reviewers
+	_DISALLOWED_NODES = (ast.Import, ast.ImportFrom)
+	for node in ast.walk(tree):
+		if isinstance(node, _DISALLOWED_NODES):
+			raise ValueError('Import statements are not allowed in safe execution mode')
+
 	allowed_nodes = (
 		ast.Module,
 		ast.Expr,

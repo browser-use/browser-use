@@ -16,9 +16,14 @@ class TestSafeCodeExecution:
 			_safe_exec("__import__('os').system('echo hacked')", {})
 
 	def test_safe_exec_blocks_import_statement(self):
-		"""Block import statements (ast.Import not in allowlist)."""
-		with pytest.raises(ValueError, match='Disallowed operation'):
+		"""Block import statements via explicit AST check."""
+		with pytest.raises(ValueError, match='Import statements are not allowed'):
 			_safe_exec('import os', {})
+
+	def test_safe_exec_blocks_import_from(self):
+		"""Block from x import y statements."""
+		with pytest.raises(ValueError, match='Import statements are not allowed'):
+			_safe_exec('from os import system', {})
 
 	def test_safe_exec_allows_simple_expressions(self):
 		"""Allow simple expressions and assignments."""
