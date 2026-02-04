@@ -31,6 +31,33 @@ TEMPLATE_REPO_URL = 'https://raw.githubusercontent.com/browser-use/template-libr
 # Templates are fetched at runtime via _get_template_list()
 INIT_TEMPLATES: dict[str, Any] = {}
 
+# Security: Allowed URL schemes and domains for SSRF protection
+_ALLOWED_SCHEMES = {'https'}
+_ALLOWED_DOMAINS = {'raw.githubusercontent.com', 'github.com'}
+
+
+def _validate_url(url: str) -> None:
+	"""Validate URL for security (SSRF protection).
+
+	Ensures only HTTPS requests to allowed GitHub domains are permitted.
+	This is a defense-in-depth measure.
+
+	Args:
+		url: The URL to validate
+
+	Raises:
+		ValueError: If URL scheme or domain is not allowed
+	"""
+	import urllib.parse
+
+	parsed = urllib.parse.urlparse(url)
+
+	if parsed.scheme not in _ALLOWED_SCHEMES:
+		raise ValueError(f'Disallowed URL scheme: {parsed.scheme}. Only HTTPS is allowed.')
+
+	if parsed.netloc not in _ALLOWED_DOMAINS:
+		raise ValueError(f'Disallowed domain: {parsed.netloc}. Only GitHub domains are allowed.')
+
 
 def _fetch_template_list() -> dict[str, Any] | None:
 	"""
@@ -40,10 +67,11 @@ def _fetch_template_list() -> dict[str, Any] | None:
 	"""
 	try:
 		url = f'{TEMPLATE_REPO_URL}/templates.json'
+		_validate_url(url)
 		with request.urlopen(url, timeout=5) as response:
 			data = response.read().decode('utf-8')
 			return json.loads(data)
-	except (URLError, TimeoutError, json.JSONDecodeError, Exception):
+	except (URLError, TimeoutError, json.JSONDecodeError, ValueError, Exception):
 		return None
 
 
@@ -67,9 +95,10 @@ def _fetch_from_github(file_path: str) -> str | None:
 	"""
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
+		_validate_url(url)
 		with request.urlopen(url, timeout=5) as response:
 			return response.read().decode('utf-8')
-	except (URLError, TimeoutError, Exception):
+	except (URLError, TimeoutError, ValueError, Exception):
 		return None
 
 
@@ -81,9 +110,10 @@ def _fetch_binary_from_github(file_path: str) -> bytes | None:
 	"""
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
+		_validate_url(url)
 		with request.urlopen(url, timeout=5) as response:
 			return response.read()
-	except (URLError, TimeoutError, Exception):
+	except (URLError, TimeoutError, ValueError, Exception):
 		return None
 
 
