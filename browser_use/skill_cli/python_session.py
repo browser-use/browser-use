@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 SAFE_CODE_EXECUTION = os.getenv('BROWSER_USE_SAFE_CODE_EXECUTION') == '1'
 
 SAFE_BUILTINS = {'print': print, 'len': len, 'range': range}
-SAFE_GLOBALS: dict[str, object] = {'__builtins__': SAFE_BUILTINS}
 
 
 def _safe_exec(code: str, parent_namespace: dict[str, Any]) -> None:
@@ -85,7 +84,9 @@ def _safe_exec(code: str, parent_namespace: dict[str, Any]) -> None:
 
 	# Isolated namespace — no os, Path, json, etc. from parent
 	safe_locals: dict[str, object] = {}
-	exec(compile(tree, '<safe>', 'exec'), SAFE_GLOBALS, safe_locals)
+	# Fresh builtins per execution to avoid cross-call mutation
+	safe_globals = {'__builtins__': dict(SAFE_BUILTINS)}
+	exec(compile(tree, '<safe>', 'exec'), safe_globals, safe_locals)
 
 	# Copy back non-underscore variables only
 	for k, v in safe_locals.items():
