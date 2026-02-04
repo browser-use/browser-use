@@ -54,9 +54,13 @@ async def test_departure_signal_on_different_domain():
 	messages = _get_context_messages(agent)
 	assert len(messages) == 1
 	msg = messages[0]
-	assert 'DOMAIN NOTE' in msg
-	assert 'now on other-site.org' in msg
-	assert 'target domain (example.com)' in msg
+	assert msg.startswith('DOMAIN NOTE:')
+	# Verify the message references both the current and target domains
+	assert 'navigated away from the target domain' in msg
+	current_domain = 'other-site.org'
+	target_domain = 'example.com'
+	assert f'now on {current_domain}' in msg
+	assert f'target domain ({target_domain})' in msg
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +94,11 @@ async def test_departure_signal_identifies_search_engine():
 	messages = _get_context_messages(agent)
 	assert len(messages) == 1
 	msg = messages[0]
+	assert msg.startswith('DOMAIN NOTE:')
 	assert 'search engine' in msg
-	assert 'search engine (www.google.com)' in msg
+	# Verify the search engine hostname appears in parentheses after "search engine"
+	se_host = 'www.google.com'
+	assert f'search engine ({se_host})' in msg
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +133,8 @@ async def test_domains_visited_tracked():
 	agent._inject_domain_departure_signal('https://other.org/page')
 	agent._inject_domain_departure_signal('https://example.com/page2')
 
-	assert 'example.com' in agent.state.domains_visited
-	assert 'google.com' in agent.state.domains_visited
-	assert 'other.org' in agent.state.domains_visited
+	visited = agent.state.domains_visited
+	assert visited == {'example.com', 'google.com', 'other.org'}
 
 
 # ---------------------------------------------------------------------------
@@ -320,8 +326,10 @@ async def test_provenance_categorizes_search_engines():
 	# Validate specific domains appear in the correct category
 	search_section = provenance_part.split('search engines visited:')[1].split(';')[0].strip()
 	other_section = provenance_part.split('other domains visited:')[1].split(';')[0].strip().rstrip(']')
-	assert 'www.google.com' in search_section.split(', ')
-	assert 'other-site.org' in other_section.split(', ')
+	search_domains = set(search_section.split(', '))
+	other_domains = set(other_section.split(', '))
+	assert search_domains == {'www.google.com'}
+	assert other_domains == {'other-site.org'}
 
 
 # ---------------------------------------------------------------------------
