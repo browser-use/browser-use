@@ -220,6 +220,53 @@ try {
 }
 """
 
+_PAGINATION_PROBE_JS = """\
+(function() {
+  var hints = [];
+  var found = false;
+
+  // Check for "Next" / "Load more" links/buttons
+  var candidates = document.querySelectorAll('a, button, [role="button"]');
+  for (var i = 0; i < candidates.length; i++) {
+    var el = candidates[i];
+    var txt = (el.textContent || '').trim().toLowerCase();
+    if (/^(next|next\\s*page|load\\s*more|show\\s*more|view\\s*more|see\\s*more|more\\s*results)$/i.test(txt)
+        || el.getAttribute('aria-label') && /next|load more/i.test(el.getAttribute('aria-label'))
+        || el.getAttribute('rel') === 'next') {
+      var tag = el.tagName.toLowerCase();
+      var href = el.getAttribute('href') || '';
+      hints.push('Found "' + txt + '" ' + tag + (href ? ' (href=' + href + ')' : '') + ' — click it to get more results, then re-run extract_with_script with the same script_id.');
+      found = true;
+      if (hints.length >= 3) break;
+    }
+  }
+
+  // Check for pagination nav (numbered pages)
+  var pagNavs = document.querySelectorAll('nav[aria-label*="pag"], ul.pagination, [class*="pagination"], [class*="pager"]');
+  if (pagNavs.length > 0) {
+    var pageLinks = pagNavs[0].querySelectorAll('a, button');
+    var pages = [];
+    for (var j = 0; j < Math.min(pageLinks.length, 10); j++) {
+      var pt = (pageLinks[j].textContent || '').trim();
+      if (pt) pages.push(pt);
+    }
+    if (pages.length > 0) {
+      hints.push('Pagination nav found with pages: [' + pages.join(', ') + ']. Click the next page number and re-run extract_with_script with the same script_id.');
+      found = true;
+    }
+  }
+
+  // Check for infinite scroll / lazy load indicators
+  var sentinels = document.querySelectorAll('[class*="sentinel"], [class*="loading"], [class*="spinner"], [data-testid*="load"]');
+  if (sentinels.length > 0 && !found) {
+    hints.push('Page may use infinite scroll. Scroll down to trigger loading more items, then re-run extract_with_script with the same script_id.');
+    found = true;
+  }
+
+  return {found: found, hints: hints};
+})()
+"""
+
 
 def _build_search_page_js(
 	pattern: str,
@@ -1171,10 +1218,28 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 				# Include script_id in the result so the agent can reuse it on subsequent pages
 				script_id_attr = f' script_id="{script_id}"' if script_id else ''
+
+				# Probe for pagination / load-more controls so the agent knows there may be more data
+				pagination_hint = ''
+				try:
+					cdp_session = await browser_session.get_or_create_cdp_session()
+					pag_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': _PAGINATION_PROBE_JS, 'returnByValue': True, 'awaitPromise': True},
+						session_id=cdp_session.session_id,
+					)
+					pag_data = pag_result.get('result', {}).get('value')
+					if isinstance(pag_data, dict) and pag_data.get('found'):
+						hints = pag_data.get('hints', [])
+						if hints:
+							pagination_hint = '\n<pagination_hint>\n' + '\n'.join(hints) + '\n</pagination_hint>'
+				except Exception:
+					pass  # non-critical — just skip the hint
+
 				extracted_content = (
 					f'<url>\n{current_url}\n</url>\n'
 					f'<query>\n{query}\n</query>\n'
 					f'<js_extraction_result{script_id_attr}>\n{result_json}\n</js_extraction_result>'
+					f'{pagination_hint}'
 				)
 
 				# Simple memory handling

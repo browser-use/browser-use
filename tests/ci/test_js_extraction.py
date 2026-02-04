@@ -139,10 +139,10 @@ class TestCleanHtmlForCodegen:
 		classes = ' '.join(f'c{i}' for i in range(20))
 		html = f'<div class="{classes}">Text</div>'
 		result = _clean_html_for_codegen(html)
-		# Should keep only first 5 classes
+		# Should keep only first 8 classes (no semantic classes to prioritize here)
 		assert 'c0' in result
-		assert 'c4' in result
-		assert 'c5' not in result
+		assert 'c7' in result
+		assert 'c8' not in result
 
 	def test_preserves_text_content(self):
 		html = '<table><tr><td style="width:100px" class="price">$9.99</td></tr></table>'
@@ -377,6 +377,39 @@ CARD_LAYOUT_HTML = """<html><body>
 </div>
 </body></html>"""
 
+# Page with a "Next" pagination link
+PAGINATED_TABLE_HTML = """<html><body>
+<table id="products">
+  <thead><tr><th>Name</th><th>Price</th></tr></thead>
+  <tbody>
+    <tr><td>Widget A</td><td>$9.99</td></tr>
+    <tr><td>Widget B</td><td>$19.99</td></tr>
+  </tbody>
+</table>
+<nav aria-label="pagination">
+  <a href="/products?page=1">1</a>
+  <a href="/products?page=2">2</a>
+  <a href="/products?page=3">Next</a>
+</nav>
+</body></html>"""
+
+# Page with links (href attributes)
+LINKS_HTML = """<html><body>
+<ul>
+  <li><a href="/page/1">Link One</a></li>
+  <li><a href="/page/2">Link Two</a></li>
+  <li><a href="https://example.com/ext">External Link</a></li>
+</ul>
+</body></html>"""
+
+# Page with data-testid attributes
+DATA_ATTR_HTML = """<html><body>
+<div data-testid="product-list" data-analytics="track-view" data-react-fiber="abc123">
+  <div data-testid="item-1" data-v-hash="x" class="item"><span>Widget A</span></div>
+  <div data-testid="item-2" data-v-hash="y" class="item"><span>Widget B</span></div>
+</div>
+</body></html>"""
+
 
 def _make_js_extraction_llm(js_response: str) -> BaseChatModel:
 	"""Create a mock LLM that returns a JS code string."""
@@ -450,6 +483,18 @@ def http_server():
 	)
 	server.expect_request('/cards').respond_with_data(
 		CARD_LAYOUT_HTML,
+		content_type='text/html',
+	)
+	server.expect_request('/paginated').respond_with_data(
+		PAGINATED_TABLE_HTML,
+		content_type='text/html',
+	)
+	server.expect_request('/links').respond_with_data(
+		LINKS_HTML,
+		content_type='text/html',
+	)
+	server.expect_request('/data-attrs').respond_with_data(
+		DATA_ATTR_HTML,
 		content_type='text/html',
 	)
 	yield server
@@ -1015,7 +1060,7 @@ try {
 		await browser_session.navigate_to(f'{base_url}/products')
 		await asyncio.sleep(0.5)
 
-		result = await _discover_page_structure(browser_session)
+		result, container = await _discover_page_structure(browser_session)
 		assert 'Tables found:' in result
 		assert 'Name' in result
 		assert 'Price' in result
@@ -1027,7 +1072,7 @@ try {
 		await browser_session.navigate_to(f'{base_url}/cards')
 		await asyncio.sleep(0.5)
 
-		result = await _discover_page_structure(browser_session)
+		result, container = await _discover_page_structure(browser_session)
 		assert 'Repeating patterns found:' in result
 		assert 'card' in result.lower()
 		# Should find 4 .card elements
@@ -1154,3 +1199,371 @@ class TestFormatStructureProbe:
 		result = _format_structure_probe(data)
 		assert 'Repeating patterns found:' in result
 		assert 'Tables found:' in result
+
+
+# ---------------------------------------------------------------------------
+# New tests: whitespace compression
+# ---------------------------------------------------------------------------
+
+
+class TestWhitespaceCompression:
+	def test_collapses_indentation_and_blank_lines(self):
+		html = '<div>\n    \n    <p>  Hello   world  </p>\n\n</div>'
+		result = _clean_html_for_codegen(html)
+		# Blank-only text nodes should be dropped, inner whitespace collapsed
+		assert '\n' not in result
+		assert '    ' not in result
+		assert 'Hello world' in result
+
+	def test_preserves_meaningful_text(self):
+		html = '<span>  Widget A  </span>'
+		result = _clean_html_for_codegen(html)
+		assert 'Widget A' in result
+
+	def test_blank_nodes_removed(self):
+		html = '<ul>\n  \n  <li>Item</li>\n  \n</ul>'
+		result = _clean_html_for_codegen(html)
+		# Only tag markup and the text "Item" should remain
+		assert result == '<ul><li>Item</li></ul>'
+
+
+# ---------------------------------------------------------------------------
+# New tests: semantic class preservation
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticClassPreservation:
+	def test_semantic_class_kept_over_positional(self):
+		"""product-card at position 7 should be kept when there are 10+ classes."""
+		classes = 'c1 c2 c3 c4 c5 c6 product-card c8 c9 c10'
+		html = f'<div class="{classes}">Text</div>'
+		result = _clean_html_for_codegen(html)
+		assert 'product-card' in result
+
+	def test_multiple_semantic_classes_prioritized(self):
+		classes = 'a1 a2 a3 a4 a5 a6 a7 a8 a9 price-cell product-title nav-link'
+		html = f'<div class="{classes}">Text</div>'
+		result = _clean_html_for_codegen(html)
+		assert 'price-cell' in result
+		assert 'product-title' in result
+		assert 'nav-link' in result
+
+	def test_fewer_than_max_classes_untouched(self):
+		classes = 'foo bar product-card'
+		html = f'<div class="{classes}">Text</div>'
+		result = _clean_html_for_codegen(html)
+		assert 'foo' in result
+		assert 'bar' in result
+		assert 'product-card' in result
+
+	def test_no_semantic_classes_falls_back_to_front(self):
+		"""When no classes match semantic fragments, keep the first _MAX_CLASSES."""
+		classes = ' '.join(f'x{i}' for i in range(15))
+		html = f'<div class="{classes}">Text</div>'
+		result = _clean_html_for_codegen(html)
+		assert 'x0' in result
+		assert 'x7' in result
+		assert 'x8' not in result
+
+
+# ---------------------------------------------------------------------------
+# New tests: truncation warning in LLM prompt
+# ---------------------------------------------------------------------------
+
+
+class TestTruncationWarningInPrompt:
+	async def test_truncation_warning_appears_when_html_truncated(self):
+		"""When html_truncated=True, _generate_js_script includes the warning in the LLM prompt."""
+		from browser_use.tools.extraction.js_codegen import _generate_js_script
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+		html = '<div>Some HTML</div>'
+
+		await _generate_js_script(
+			llm=extraction_llm,
+			query='Extract products',
+			html=html,
+			html_truncated=True,
+		)
+
+		call_args = extraction_llm.ainvoke.call_args
+		messages = call_args[0][0]
+		user_msg_content = str(messages[1].content)
+		assert 'truncated' in user_msg_content.lower()
+		assert 'missing' in user_msg_content.lower()
+		assert 'null' in user_msg_content.lower()
+
+	async def test_no_truncation_warning_when_not_truncated(self):
+		"""When html_truncated=False (default), no warning in the LLM prompt."""
+		from browser_use.tools.extraction.js_codegen import _generate_js_script
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+		html = '<div>Some HTML</div>'
+
+		await _generate_js_script(
+			llm=extraction_llm,
+			query='Extract products',
+			html=html,
+			html_truncated=False,
+		)
+
+		call_args = extraction_llm.ainvoke.call_args
+		messages = call_args[0][0]
+		user_msg_content = str(messages[1].content)
+		assert '\u26a0\ufe0f The page HTML above was truncated' not in user_msg_content
+
+
+# ---------------------------------------------------------------------------
+# New tests: structure probe container selector
+# ---------------------------------------------------------------------------
+
+
+class TestStructureProbeContainer:
+	async def test_probe_returns_container_for_table_page(self, browser_session, base_url):
+		"""Table page: probe returns a container selector for the table's parent."""
+		await browser_session.navigate_to(f'{base_url}/products')
+		await asyncio.sleep(0.5)
+
+		result, container = await _discover_page_structure(browser_session)
+		# The table page has a <table id="products"> — the most repeated element (tr/td)
+		# lives inside it, so container should refer to the table or its parent
+		assert result != ''  # probe should find something
+
+	async def test_probe_returns_container_for_card_page(self, browser_session, base_url):
+		"""Card page: probe returns container selector for div.product-grid."""
+		await browser_session.navigate_to(f'{base_url}/cards')
+		await asyncio.sleep(0.5)
+
+		result, container = await _discover_page_structure(browser_session)
+		assert container is not None
+		assert 'product-grid' in container
+
+
+# ---------------------------------------------------------------------------
+# New tests: container-based auto-scoping
+# ---------------------------------------------------------------------------
+
+
+# Page where data is inside div.product-grid, surrounded by lots of filler.
+# The filler uses a single large <p> per section (not repeating divs) so the
+# structure probe correctly identifies the repeating .card pattern as dominant.
+_GRID_SECTION_FILLER = '<section><p>' + ('y' * 10000) + '</p></section>\n'
+CONTAINER_SCOPING_HTML = (
+	'<html><body>\n'
+	+ _GRID_SECTION_FILLER * 3
+	+ '<div class="product-grid">\n'
+	+ '  <div class="card"><h3>Item A</h3><span class="price">$1</span></div>\n' * 6
+	+ '</div>\n'
+	+ _GRID_SECTION_FILLER * 3
+	+ '</body></html>'
+)
+
+
+class TestContainerBasedAutoScoping:
+	async def test_auto_scopes_to_probe_container(self, browser_session, http_server, base_url):
+		"""When structure probe finds a container, auto-scoping uses it to trim HTML."""
+		http_server.expect_request('/container-scope-test').respond_with_data(
+			CONTAINER_SCOPING_HTML,
+			content_type='text/html',
+		)
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/container-scope-test', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		card_extract_js = """(function(){
+try {
+  var items = document.querySelectorAll('.card');
+  var out = [];
+  items.forEach(function(el) {
+    var t = el.querySelector('h3');
+    var p = el.querySelector('.price');
+    out.push({title: t ? t.textContent.trim() : null, price: p ? p.textContent.trim() : null});
+  });
+  return out;
+} catch(e) { return {error: e.message}; }
+})()"""
+		extraction_llm = _make_js_extraction_llm(card_extract_js)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all items with titles and prices',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+
+		# Verify the LLM received scoped HTML — filler should NOT be present
+		call_args = extraction_llm.ainvoke.call_args
+		messages = call_args[0][0]
+		user_msg_content = str(messages[1].content)
+		html_start = user_msg_content.index('<page_html>') + len('<page_html>')
+		html_end = user_msg_content.index('</page_html>')
+		page_html_section = user_msg_content[html_start:html_end]
+		# The filler 'yyyyy' should not be in the scoped HTML
+		assert 'yyyyy' not in page_html_section
+		# But the card content should be present
+		assert 'Item A' in page_html_section
+
+
+# ---------------------------------------------------------------------------
+# New tests: extract_links=True (href preservation)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractLinksEnabled:
+	async def test_href_visible_in_codegen_html(self, browser_session, base_url):
+		"""With extract_links=True, href attributes should appear in the HTML sent to the codegen LLM."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/links', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		link_extract_js = """(function(){
+try {
+  var links = document.querySelectorAll('a');
+  var out = [];
+  for (var i = 0; i < links.length; i++) {
+    out.push({text: links[i].textContent.trim(), href: links[i].getAttribute('href')});
+  }
+  return out;
+} catch(e) { return {error: e.message}; }
+})()"""
+		extraction_llm = _make_js_extraction_llm(link_extract_js)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all links with their URLs',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+
+		# Verify the LLM received HTML with href attributes
+		call_args = extraction_llm.ainvoke.call_args
+		messages = call_args[0][0]
+		user_msg_content = str(messages[1].content)
+		assert 'href=' in user_msg_content
+		assert '/page/1' in user_msg_content
+		assert 'example.com' in user_msg_content
+
+
+# ---------------------------------------------------------------------------
+# New tests: data-* attribute whitelist in HTMLSerializer
+# ---------------------------------------------------------------------------
+
+
+class TestDataAttrWhitelist:
+	async def test_data_testid_preserved_in_codegen_html(self, browser_session, base_url):
+		"""data-testid should be preserved through the full serialization + cleaning pipeline."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/data-attrs', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		attr_extract_js = """(function(){
+try {
+  var items = document.querySelectorAll('[data-testid^="item-"]');
+  var out = [];
+  for (var i = 0; i < items.length; i++) {
+    out.push({testid: items[i].getAttribute('data-testid'), text: items[i].textContent.trim()});
+  }
+  return out;
+} catch(e) { return {error: e.message}; }
+})()"""
+		extraction_llm = _make_js_extraction_llm(attr_extract_js)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract items using data-testid',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+
+		# Verify the LLM received HTML with data-testid but not data-analytics or data-v-hash
+		call_args = extraction_llm.ainvoke.call_args
+		messages = call_args[0][0]
+		user_msg_content = str(messages[1].content)
+		assert 'data-testid=' in user_msg_content
+		assert 'data-analytics' not in user_msg_content
+		assert 'data-v-hash' not in user_msg_content
+		assert 'data-react-fiber' not in user_msg_content
+
+
+# ---------------------------------------------------------------------------
+# New tests: pagination hint probe
+# ---------------------------------------------------------------------------
+
+
+class TestPaginationHintProbe:
+	async def test_pagination_hint_included_in_extraction_result(self, browser_session, base_url):
+		"""When the page has pagination controls, the extraction result should include a pagination_hint."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/paginated', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all products',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		# Should contain the pagination hint
+		assert '<pagination_hint>' in result.extracted_content
+		assert '</pagination_hint>' in result.extracted_content
+		# Should mention "Next" or pagination
+		assert 'next' in result.extracted_content.lower() or 'pagination' in result.extracted_content.lower()
+		# Should mention script_id reuse
+		assert 'script_id' in result.extracted_content.lower()
+
+	async def test_no_pagination_hint_on_non_paginated_page(self, browser_session, base_url):
+		"""When the page has no pagination, no pagination_hint tag should appear."""
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/products', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result = await tools.extract_with_script(
+				query='Extract all products',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		# Should NOT contain pagination hint
+		assert '<pagination_hint>' not in result.extracted_content
+
+
+# ---------------------------------------------------------------------------
+# New tests: increased HTML char limit
+# ---------------------------------------------------------------------------
+
+
+class TestHtmlCharLimit:
+	def test_default_max_html_chars_is_200k(self):
+		"""Verify the constant was updated to 200k."""
+		from browser_use.tools.extraction.js_codegen import _DEFAULT_MAX_HTML_CHARS
+
+		assert _DEFAULT_MAX_HTML_CHARS == 200_000

@@ -89,7 +89,35 @@ _STRIP_TAGS = frozenset(
 )
 
 # Max number of CSS classes to keep per element.
-_MAX_CLASSES = 5
+_MAX_CLASSES = 8
+
+# Substrings that indicate a CSS class is semantically useful for extraction selectors.
+_SEMANTIC_CLASS_FRAGMENTS = frozenset(
+	{
+		'product',
+		'item',
+		'card',
+		'price',
+		'title',
+		'name',
+		'row',
+		'cell',
+		'result',
+		'list',
+		'grid',
+		'table',
+		'header',
+		'footer',
+		'nav',
+		'menu',
+		'link',
+		'btn',
+		'button',
+		'content',
+		'main',
+		'sidebar',
+	}
+)
 
 
 class _HTMLCleaner(HTMLParser):
@@ -115,11 +143,16 @@ class _HTMLCleaner(HTMLParser):
 			if val is None:
 				clean_attrs.append(f' {key}')
 				continue
-			# Compact class lists
+			# Compact class lists — prioritize semantic classes over utility noise
 			if key == 'class' and val:
 				classes = val.split()
 				if len(classes) > _MAX_CLASSES:
-					val = ' '.join(classes[:_MAX_CLASSES])
+					semantic = [c for c in classes if any(f in c.lower() for f in _SEMANTIC_CLASS_FRAGMENTS)]
+					rest = [c for c in classes if c not in semantic]
+					kept = semantic[:_MAX_CLASSES]
+					if len(kept) < _MAX_CLASSES:
+						kept.extend(rest[: _MAX_CLASSES - len(kept)])
+					val = ' '.join(kept[:_MAX_CLASSES])
 			clean_attrs.append(f' {key}="{val}"')
 
 		self.parts.append(f'<{tag}{"".join(clean_attrs)}>')
@@ -135,7 +168,10 @@ class _HTMLCleaner(HTMLParser):
 	def handle_data(self, data: str) -> None:
 		if self._skip_depth:
 			return
-		self.parts.append(data)
+		# Collapse whitespace runs to single space, skip blank-only nodes
+		compressed = ' '.join(data.split())
+		if compressed:
+			self.parts.append(compressed)
 
 	def get_clean_html(self) -> str:
 		return ''.join(self.parts)
@@ -159,7 +195,7 @@ def _clean_html_for_codegen(html: str) -> str:
 # HTML truncation
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MAX_HTML_CHARS = 100_000
+_DEFAULT_MAX_HTML_CHARS = 200_000
 
 
 def _truncate_html(html: str, max_chars: int = _DEFAULT_MAX_HTML_CHARS) -> tuple[str, bool]:
@@ -298,6 +334,28 @@ try {
   patterns.sort(function(a, b) { return b.count - a.count; });
   patterns = patterns.slice(0, 15);
 
+  // Find container of a top pattern for auto-scoping.
+  // Try each pattern until we find one whose parent is not <body>.
+  var containerSelector = null;
+  for (var pi = 0; pi < Math.min(patterns.length, 5) && !containerSelector; pi++) {
+    var topKey = patterns[pi].key;
+    var parts = topKey.split('.');
+    var sel = parts[0];
+    if (parts.length > 1) sel += '.' + parts.slice(1).join('.');
+    var firstEl = body.querySelector(sel);
+    if (firstEl && firstEl.parentElement && firstEl.parentElement !== body) {
+      var p = firstEl.parentElement;
+      if (p.id) containerSelector = '#' + p.id;
+      else {
+        var pTag = p.tagName.toLowerCase();
+        var pCls = p.className && typeof p.className === 'string'
+          ? p.className.split(/\\s+/).slice(0, 2).join('.')
+          : '';
+        if (pCls) containerSelector = pTag + '.' + pCls;
+      }
+    }
+  }
+
   var tables = [];
   var tbls = body.querySelectorAll('table');
   for (var t = 0; t < tbls.length && t < 5; t++) {
@@ -315,8 +373,8 @@ try {
     tables.push({id: id, columns: cols, sampleRow: sampleRow});
   }
 
-  return {repeatingPatterns: patterns, tables: tables};
-} catch(e) { return {repeatingPatterns: [], tables: []}; }
+  return {repeatingPatterns: patterns, tables: tables, containerSelector: containerSelector};
+} catch(e) { return {repeatingPatterns: [], tables: [], containerSelector: null}; }
 })()"""
 
 
@@ -343,20 +401,21 @@ def _format_structure_probe(data: dict) -> str:
 	return '\n'.join(parts)
 
 
-async def _discover_page_structure(browser_session: 'BrowserSession') -> str:
+async def _discover_page_structure(browser_session: 'BrowserSession') -> tuple[str, str | None]:
 	"""Run a JS probe via CDP to discover repeating element patterns and table structures.
 
-	Returns a formatted string for inclusion in LLM prompts, or empty string on failure.
+	Returns (formatted_text, container_selector). On failure returns ('', None).
 	"""
 	try:
 		data = await _execute_js_on_page(browser_session, _STRUCTURE_PROBE_JS)
 		if not isinstance(data, dict):
-			return ''
+			return '', None
 		result = _format_structure_probe(data)
-		return result
+		container = data.get('containerSelector')
+		return result, container
 	except Exception:
 		logger.debug('Structure probe failed, continuing without page structure')
-		return ''
+		return '', None
 
 
 # ---------------------------------------------------------------------------
@@ -415,12 +474,14 @@ async def _get_scoped_html_via_cdp(
 async def _get_page_html(
 	browser_session: 'BrowserSession',
 	css_selector: str | None = None,
+	extra_scope_selectors: list[str] | None = None,
 ) -> tuple[str, str]:
 	"""Return (html, url) for the current page.
 
 	If *css_selector* is given, we evaluate ``querySelector(sel).outerHTML`` via CDP.
 	Otherwise we get the full page HTML and attempt to auto-scope to the main content
-	area using semantic landmarks (main, article, [role="main"], etc.).
+	area.  *extra_scope_selectors* (e.g. from the structure probe) are tried before
+	the built-in semantic landmarks.
 	"""
 	current_url = await browser_session.get_current_page_url()
 
@@ -436,11 +497,12 @@ async def _get_page_html(
 	from browser_use.dom.serializer.html_serializer import HTMLSerializer
 
 	enhanced_dom_tree = await _get_enhanced_dom_tree_from_browser_session(browser_session)
-	serializer = HTMLSerializer(extract_links=False)
+	serializer = HTMLSerializer(extract_links=True)
 	full_html = serializer.serialize(enhanced_dom_tree)
 
-	# Auto-scope: try semantic landmarks to reduce HTML size
-	for selector in _AUTO_SCOPE_SELECTORS:
+	# Auto-scope: try probe-discovered containers first, then semantic landmarks
+	scope_selectors = list(extra_scope_selectors or []) + list(_AUTO_SCOPE_SELECTORS)
+	for selector in scope_selectors:
 		scoped = await _get_scoped_html_via_cdp(browser_session, selector)
 		if scoped is not None and len(scoped) < len(full_html) * _AUTO_SCOPE_MIN_REDUCTION:
 			logger.debug(f'Auto-scoped to {selector!r} ({len(scoped)} chars vs {len(full_html)} full page)')
@@ -545,6 +607,7 @@ async def _generate_js_script(
 	error_feedback: str | None = None,
 	failed_script: str | None = None,
 	page_structure: str | None = None,
+	html_truncated: bool = False,
 ) -> str:
 	"""Single blocking LLM call that returns JS code."""
 	user_parts: list[str] = []
@@ -557,6 +620,12 @@ async def _generate_js_script(
 		user_parts.append(f'<output_schema>\n{json.dumps(output_schema, indent=2)}\n</output_schema>')
 
 	user_parts.append(f'<page_html>\n{html}\n</page_html>')
+
+	if html_truncated:
+		user_parts.append(
+			'\u26a0\ufe0f The page HTML above was truncated. Content near the end of the document may be missing. '
+			'Write selectors that handle missing elements gracefully (check for null before accessing properties).'
+		)
 
 	if page_structure:
 		user_parts.append(f'<page_structure>\n{page_structure}\n</page_structure>')
@@ -630,8 +699,12 @@ async def js_codegen_extract(
 			except Exception:
 				logger.debug(f'Script {script_id} failed on this page, falling through to LLM generation')
 
+	# --- Structure probe (zero LLM cost) ---
+	page_structure, container_selector = await _discover_page_structure(browser_session)
+
 	# --- Get page HTML (needed for LLM prompt and implicit cache) ---
-	raw_html, url = await _get_page_html(browser_session, css_selector)
+	extra_scopes = [container_selector] if container_selector else None
+	raw_html, url = await _get_page_html(browser_session, css_selector, extra_scope_selectors=extra_scopes)
 	html = _clean_html_for_codegen(raw_html)
 	html, was_truncated = _truncate_html(html)
 	metadata['source_url'] = url
@@ -657,9 +730,6 @@ async def js_codegen_extract(
 			except Exception:
 				logger.debug('Implicitly cached script failed, falling through to LLM generation')
 
-	# --- Structure probe (zero LLM cost) ---
-	page_structure = await _discover_page_structure(browser_session)
-
 	# --- LLM generation loop ---
 	last_error: str | None = None
 	last_script: str | None = None
@@ -676,6 +746,7 @@ async def js_codegen_extract(
 				error_feedback=last_error,
 				failed_script=last_script,
 				page_structure=page_structure or None,
+				html_truncated=was_truncated,
 			)
 			metadata['js_script'] = js_script
 
