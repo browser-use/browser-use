@@ -1,7 +1,9 @@
 """Jupyter-like persistent Python execution for browser-use CLI."""
 
+import ast
 import asyncio
 import io
+import os
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
@@ -10,6 +12,72 @@ from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
+
+SAFE_CODE_EXECUTION = os.getenv('BROWSER_USE_SAFE_CODE_EXECUTION') == '1'
+
+
+def _safe_exec(code: str, namespace: dict[str, Any]) -> None:
+	"""Execute code with a restricted AST allowlist. Blocks imports and dangerous operations."""
+	tree = ast.parse(code)
+	allowed_nodes = (
+		ast.Module,
+		ast.Expr,
+		ast.Assign,
+		ast.AugAssign,
+		ast.Name,
+		ast.Load,
+		ast.Store,
+		ast.Constant,
+		ast.BinOp,
+		ast.UnaryOp,
+		ast.Call,
+		ast.Attribute,
+		ast.Dict,
+		ast.List,
+		ast.Tuple,
+		ast.Subscript,
+		ast.Index,
+		ast.Slice,
+		ast.ExtSlice,
+		# BinOp operators
+		ast.Add,
+		ast.Sub,
+		ast.Mult,
+		ast.Div,
+		ast.FloorDiv,
+		ast.Mod,
+		ast.Pow,
+		ast.LShift,
+		ast.RShift,
+		ast.BitOr,
+		ast.BitXor,
+		ast.BitAnd,
+		ast.MatMult,
+		# UnaryOp operators
+		ast.UAdd,
+		ast.USub,
+		ast.Not,
+		ast.Invert,
+		# AugAssign operators (reuse BinOp op types)
+	)
+	_DANGEROUS_NAMES = frozenset({'__import__', 'open', 'exec', 'eval', 'compile', 'globals', 'locals', 'vars'})
+
+	def _get_call_name(n: ast.AST) -> str | None:
+		if isinstance(n, ast.Name):
+			return n.id
+		if isinstance(n, ast.Attribute):
+			return _get_call_name(n.value)
+		return None
+
+	for node in ast.walk(tree):
+		if not isinstance(node, allowed_nodes):
+			raise ValueError(f'Disallowed operation: {type(node).__name__}')
+		if isinstance(node, ast.Call):
+			name = _get_call_name(node.func)
+			if name in _DANGEROUS_NAMES:
+				raise ValueError(f'Disallowed function: {name}')
+	safe_builtins = {'print': print, 'len': len, 'range': range}
+	exec(compile(tree, '<safe>', 'exec'), {'__builtins__': safe_builtins}, namespace)
 
 
 @dataclass
@@ -70,16 +138,19 @@ class PythonSession:
 
 		try:
 			with redirect_stdout(stdout), redirect_stderr(stderr):
-				try:
-					# First try to compile as expression (for REPL-like behavior)
-					compiled = compile(code, '<input>', 'eval')
-					result = eval(compiled, self.namespace)
-					if result is not None:
-						print(repr(result))
-				except SyntaxError:
-					# Compile as statements
-					compiled = compile(code, '<input>', 'exec')
-					exec(compiled, self.namespace)
+				if SAFE_CODE_EXECUTION:
+					_safe_exec(code, self.namespace)
+				else:
+					try:
+						# First try to compile as expression (for REPL-like behavior)
+						compiled = compile(code, '<input>', 'eval')
+						result = eval(compiled, self.namespace)
+						if result is not None:
+							print(repr(result))
+					except SyntaxError:
+						# Compile as statements
+						compiled = compile(code, '<input>', 'exec')
+						exec(compiled, self.namespace)
 
 			output = stdout.getvalue()
 			if stderr.getvalue():

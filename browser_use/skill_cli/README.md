@@ -100,6 +100,17 @@ browser-use python --reset            # Clear namespace
 browser-use python --file script.py   # Run Python file
 ```
 
+#### Code execution safety
+
+Browser-use executes Python code by design. For embedded or multi-tenant environments, an opt-in hardened execution mode can be enabled:
+
+```bash
+export BROWSER_USE_SAFE_CODE_EXECUTION=1
+browser-use python "x = 1 + 2"
+```
+
+This restricts execution to a limited subset of Python syntax (blocks `import`, `__import__`, `open`, etc.). Default behavior remains unchanged.
+
 ### Session Management
 | Command | Description |
 |---------|-------------|
