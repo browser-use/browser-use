@@ -576,6 +576,23 @@ class DialogOpenedEvent(BaseEvent):
 	# target_id: TargetID   # TODO: add this to avoid needing target_id_from_frame() later
 
 
+class NetworkCaptureStartedEvent(BaseEvent[None]):
+	"""Informational: network capture session was started."""
+
+	session_name: str
+	url_patterns: list[str]
+	origin: str
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_NetworkCaptureStartedEvent', 10.0))
+
+
+class NetworkCaptureStoppedEvent(BaseEvent[None]):
+	"""Informational: network capture session was stopped."""
+
+	session_name: str
+	responses_captured: int
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_NetworkCaptureStoppedEvent', 10.0))
+
+
 # Note: Model rebuilding for forward references is handled in the importing modules
 # Events with 'EnhancedDOMTreeNode' forward references (ClickElementEvent, TypeTextEvent,
 # ScrollEvent, UploadFileEvent) need model_rebuild() called after imports are complete

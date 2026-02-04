@@ -138,3 +138,33 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int
 	text: str = Field(description='exact text/value')
+
+
+class StartCaptureAction(BaseModel):
+	session_name: str = Field(default='default', description='Label for this capture session')
+	url_patterns: list[str] = Field(description='URL glob patterns to capture, e.g. ["*/api/products*"]')
+
+
+class StopCaptureAction(BaseModel):
+	model_config = ConfigDict(extra='ignore')
+	description: str | None = Field(None, description='Optional')
+
+
+class TransformCapturedDataAction(BaseModel):
+	js_code: str = Field(
+		description='JS code to transform captured data. Has access to: responses (array of captured responses), _writeResults(db, items) to store results, db (IndexedDB handle).'
+	)
+
+
+class SyncCapturedDataAction(BaseModel):
+	file_name: str = Field(description='Output filename, e.g. "products.json"')
+	source: str = Field(default='results', description='"responses" for raw captured data or "results" for transformed data')
+
+
+class PaginateAndCaptureAction(BaseModel):
+	button_selector: str = Field(description='CSS selector for next-page button')
+	pages: int = Field(ge=1, le=100, description='Number of pages to advance')
+	wait_ms: int = Field(default=2000, description='Wait ms between pages for API responses to arrive')
+	stop_selector: str | None = Field(
+		default=None, description='CSS selector — stops pagination if this element is missing or disabled'
+	)

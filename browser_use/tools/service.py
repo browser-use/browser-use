@@ -45,14 +45,19 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	PaginateAndCaptureAction,
 	ScreenshotAction,
 	ScrollAction,
 	SearchAction,
 	SearchPageAction,
 	SelectDropdownOptionAction,
 	SendKeysAction,
+	StartCaptureAction,
+	StopCaptureAction,
 	StructuredOutputAction,
 	SwitchTabAction,
+	SyncCapturedDataAction,
+	TransformCapturedDataAction,
 	UploadFileAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
@@ -1643,6 +1648,140 @@ Validated Code (after quote fixing):
 				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.debug(f'JavaScript code that failed: {code[:200]}...')
 				return ActionResult(error=error_msg)
+
+		# --- Network Capture Actions ---
+
+		@self.registry.action(
+			'Start capturing network API responses matching URL patterns. Responses are stored in browser IndexedDB for later transform/sync. Use before pagination or actions that trigger API calls.',
+			param_model=StartCaptureAction,
+		)
+		async def start_capture(params: StartCaptureAction, browser_session: BrowserSession):
+			watchdog = browser_session._network_capture_watchdog
+			if watchdog is None:
+				return ActionResult(error='Network capture watchdog not initialized. Browser session may not be started.')
+			try:
+				result = await watchdog.start_capture(
+					session_name=params.session_name,
+					url_patterns=params.url_patterns,
+				)
+				origin = result.get('origin', 'unknown')
+				patterns_str = ', '.join(params.url_patterns)
+				memory = f'Started capturing network responses matching [{patterns_str}] on {origin}'
+				logger.info(f'📡 {memory}')
+				return ActionResult(
+					extracted_content=f'Capturing on {origin}. Patterns: {patterns_str}',
+					long_term_memory=memory,
+				)
+			except Exception as e:
+				return ActionResult(error=f'Failed to start capture: {e}')
+
+		@self.registry.action(
+			'Stop capturing network responses. Returns count of captured responses.',
+			param_model=StopCaptureAction,
+		)
+		async def stop_capture(params: StopCaptureAction, browser_session: BrowserSession):
+			watchdog = browser_session._network_capture_watchdog
+			if watchdog is None:
+				return ActionResult(error='Network capture watchdog not initialized.')
+			try:
+				result = await watchdog.stop_capture()
+				count = result.get('responses_captured', 0)
+				memory = f'Stopped capture: {count} responses captured'
+				logger.info(f'📡 {memory}')
+				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			except Exception as e:
+				return ActionResult(error=f'Failed to stop capture: {e}')
+
+		@self.registry.action(
+			'Transform captured network data using JavaScript. Code runs in browser sandbox with access to `responses` array (captured data), `db` (IndexedDB handle), and `_writeResults(db, items)` helper. '
+			'Store results by calling: `const __result_count = await _writeResults(db, transformedArray);`',
+			param_model=TransformCapturedDataAction,
+		)
+		async def transform_captured_data(params: TransformCapturedDataAction, browser_session: BrowserSession):
+			watchdog = browser_session._network_capture_watchdog
+			if watchdog is None:
+				return ActionResult(error='Network capture watchdog not initialized.')
+			try:
+				result = await watchdog.run_js_transform(params.js_code)
+				if result.get('ok'):
+					count = result.get('count')
+					msg = f'Transform complete: {count} items' if count is not None else 'Transform complete'
+					logger.info(f'🔄 {msg}')
+					return ActionResult(extracted_content=msg, long_term_memory=msg)
+				else:
+					error = result.get('error', 'Unknown error')
+					return ActionResult(error=f'Transform failed: {error}')
+			except Exception as e:
+				return ActionResult(error=f'Transform error: {e}')
+
+		@self.registry.action(
+			'Sync captured/transformed data from browser IndexedDB to a file. Use source="responses" for raw captured data or source="results" for transformed data.',
+			param_model=SyncCapturedDataAction,
+		)
+		async def sync_captured_data(params: SyncCapturedDataAction, browser_session: BrowserSession, file_system: FileSystem):
+			watchdog = browser_session._network_capture_watchdog
+			if watchdog is None:
+				return ActionResult(error='Network capture watchdog not initialized.')
+			try:
+				result = await watchdog.sync_to_filesystem(
+					file_system=file_system,
+					file_name=params.file_name,
+					source=params.source,
+				)
+				logger.info(f'💾 {result}')
+				return ActionResult(extracted_content=result, long_term_memory=result)
+			except Exception as e:
+				return ActionResult(error=f'Failed to sync data: {e}')
+
+		@self.registry.action(
+			'Auto-paginate by clicking a next-page button N times with wait between clicks. '
+			'Use with start_capture to collect API responses across pages without LLM round-trips per page. '
+			'Stops early if button not found or stop_selector element is missing/disabled.',
+			param_model=PaginateAndCaptureAction,
+			terminates_sequence=True,
+		)
+		async def paginate_and_capture(params: PaginateAndCaptureAction, browser_session: BrowserSession):
+			pages_done = 0
+			cdp_session = await browser_session.get_or_create_cdp_session()
+
+			for i in range(params.pages):
+				# Check stop condition
+				if params.stop_selector:
+					stop_js = f'(function(){{ var el = document.querySelector({json.dumps(params.stop_selector)}); return el && !el.disabled; }})()'
+					stop_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': stop_js, 'returnByValue': True},
+						session_id=cdp_session.session_id,
+					)
+					if not stop_result.get('result', {}).get('value', False):
+						break
+
+				# Find and click the next button
+				click_js = f"""(function(){{
+					var btn = document.querySelector({json.dumps(params.button_selector)});
+					if (!btn) return false;
+					btn.click();
+					return true;
+				}})()"""
+
+				click_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': click_js, 'returnByValue': True},
+					session_id=cdp_session.session_id,
+				)
+				if not click_result.get('result', {}).get('value', False):
+					break
+
+				pages_done += 1
+
+				# Wait for API responses to arrive
+				await asyncio.sleep(params.wait_ms / 1000.0)
+
+			# Get capture count if watchdog is active
+			watchdog = browser_session._network_capture_watchdog
+			captured = watchdog._captured_count if watchdog else 0
+
+			msg = f'Paginated {pages_done}/{params.pages} pages. {captured} responses captured total.'
+			logger.info(f'📄 {msg}')
+			return ActionResult(extracted_content=msg, long_term_memory=msg)
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
 		"""Validate and fix common JavaScript issues before execution"""
