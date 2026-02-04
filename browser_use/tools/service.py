@@ -401,9 +401,11 @@ class Tools(Generic[Context]):
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
 		from browser_use.tools.extraction.js_codegen import ScriptCache
 
 		self._js_script_cache = ScriptCache()
+		self._result_deduplicator = ResultDeduplicator()
 
 		"""Register all default browser actions"""
 
@@ -1212,9 +1214,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					script_id=params.script_id,
 				)
 
+				# Dedup against previously seen items for this script
+				script_id = metadata.get('script_id', '')
+				duplicates_removed = 0
+				total_seen = 0
+				if script_id:
+					data, duplicates_removed, total_seen = self._result_deduplicator.dedup(data, script_id)
+					if duplicates_removed > 0:
+						metadata['dedup'] = {'duplicates_removed': duplicates_removed, 'total_unique': total_seen}
+
 				result_json = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
 				current_url = metadata.get('source_url', '')
-				script_id = metadata.get('script_id', '')
 
 				# Include script_id in the result so the agent can reuse it on subsequent pages
 				script_id_attr = f' script_id="{script_id}"' if script_id else ''
@@ -1235,10 +1245,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				except Exception:
 					pass  # non-critical — just skip the hint
 
+				# Add dedup annotation if duplicates were removed
+				dedup_annotation = ''
+				if duplicates_removed > 0:
+					dedup_annotation = (
+						f'\n<dedup_stats>'
+						f'{duplicates_removed} duplicate(s) removed, '
+						f'{total_seen} total unique item(s) across all pages'
+						f'</dedup_stats>'
+					)
+
 				extracted_content = (
 					f'<url>\n{current_url}\n</url>\n'
 					f'<query>\n{query}\n</query>\n'
 					f'<js_extraction_result{script_id_attr}>\n{result_json}\n</js_extraction_result>'
+					f'{dedup_annotation}'
 					f'{pagination_hint}'
 				)
 

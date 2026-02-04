@@ -1567,3 +1567,259 @@ class TestHtmlCharLimit:
 		from browser_use.tools.extraction.js_codegen import _DEFAULT_MAX_HTML_CHARS
 
 		assert _DEFAULT_MAX_HTML_CHARS == 100_000
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: ResultDeduplicator
+# ---------------------------------------------------------------------------
+
+
+class TestResultDeduplicator:
+	def test_dedup_bare_array(self):
+		"""Two calls with overlapping items — second call strips duplicates."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		batch1 = [{'name': 'A'}, {'name': 'B'}]
+		result1, removed1, total1 = dd.dedup(batch1, 'script1')
+		assert result1 == batch1
+		assert removed1 == 0
+		assert total1 == 2
+
+		batch2 = [{'name': 'B'}, {'name': 'C'}]
+		result2, removed2, total2 = dd.dedup(batch2, 'script1')
+		assert result2 == [{'name': 'C'}]
+		assert removed2 == 1
+		assert total2 == 3
+
+	def test_dedup_wrapped_dict(self):
+		"""Single-key wrapper dict unwrapped, deduped, rewrapped."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		batch1 = {'products': [{'id': 1}, {'id': 2}]}
+		result1, removed1, _ = dd.dedup(batch1, 'script1')
+		assert result1 == {'products': [{'id': 1}, {'id': 2}]}
+		assert removed1 == 0
+
+		batch2 = {'products': [{'id': 2}, {'id': 3}]}
+		result2, removed2, total2 = dd.dedup(batch2, 'script1')
+		assert result2 == {'products': [{'id': 3}]}
+		assert removed2 == 1
+		assert total2 == 3
+
+	def test_dedup_field_order_independent(self):
+		"""{"a":1,"b":2} and {"b":2,"a":1} hash the same."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		batch1 = [{'a': 1, 'b': 2}]
+		dd.dedup(batch1, 'script1')
+
+		batch2 = [{'b': 2, 'a': 1}]
+		result, removed, _ = dd.dedup(batch2, 'script1')
+		assert result == []
+		assert removed == 1
+
+	def test_dedup_script_id_isolation(self):
+		"""Same data under different script_ids — no cross-contamination."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		batch = [{'x': 1}]
+		dd.dedup(batch, 'scriptA')
+
+		result, removed, _ = dd.dedup(batch, 'scriptB')
+		assert result == [{'x': 1}]
+		assert removed == 0
+
+	def test_dedup_passthrough_non_array(self):
+		"""Single dict, string, empty list — no dedup, returns unchanged."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+
+		# Single dict (not a wrapper)
+		single = {'a': 1, 'b': 2}
+		result, removed, total = dd.dedup(single, 'script1')
+		assert result == single
+		assert removed == 0
+		assert total == 0
+
+		# String
+		result, removed, total = dd.dedup('hello', 'script1')
+		assert result == 'hello'
+		assert removed == 0
+
+		# Empty list
+		result, removed, total = dd.dedup([], 'script1')
+		assert result == []
+		assert removed == 0
+
+		# Non-dict array
+		result, removed, total = dd.dedup([1, 2, 3], 'script1')
+		assert result == [1, 2, 3]
+		assert removed == 0
+
+	def test_dedup_all_duplicates_returns_empty(self):
+		"""Second call with exact same data — empty array, removed count matches."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		batch = [{'name': 'A'}, {'name': 'B'}]
+		dd.dedup(batch, 'script1')
+
+		result, removed, total = dd.dedup(batch, 'script1')
+		assert result == []
+		assert removed == 2
+		assert total == 2
+
+	def test_dedup_nested_key_ordering(self):
+		"""Nested dicts with reordered keys — same hash."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		batch1 = [{'outer': {'z': 1, 'a': 2}}]
+		dd.dedup(batch1, 'script1')
+
+		batch2 = [{'outer': {'a': 2, 'z': 1}}]
+		result, removed, _ = dd.dedup(batch2, 'script1')
+		assert result == []
+		assert removed == 1
+
+	def test_dedup_reset(self):
+		"""reset(script_id) clears one scope, others untouched."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		batch = [{'x': 1}]
+		dd.dedup(batch, 'scriptA')
+		dd.dedup(batch, 'scriptB')
+
+		dd.reset('scriptA')
+
+		# scriptA: item should be treated as new
+		resultA, removedA, _ = dd.dedup(batch, 'scriptA')
+		assert resultA == [{'x': 1}]
+		assert removedA == 0
+
+		# scriptB: item should still be seen
+		resultB, removedB, _ = dd.dedup(batch, 'scriptB')
+		assert resultB == []
+		assert removedB == 1
+
+	def test_dedup_reset_all(self):
+		"""reset() with no args clears everything."""
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+
+		dd = ResultDeduplicator()
+		dd.dedup([{'x': 1}], 'scriptA')
+		dd.dedup([{'x': 1}], 'scriptB')
+		dd.reset()
+
+		resultA, removedA, _ = dd.dedup([{'x': 1}], 'scriptA')
+		resultB, removedB, _ = dd.dedup([{'x': 1}], 'scriptB')
+		assert removedA == 0
+		assert removedB == 0
+
+
+# ---------------------------------------------------------------------------
+# Integration test: dedup across paginated pages
+# ---------------------------------------------------------------------------
+
+
+# Page 1 and page 2 share Widget B (overlap)
+DEDUP_PAGE1_HTML = """<html><body>
+<table id="products">
+  <thead><tr><th>Name</th><th>Price</th></tr></thead>
+  <tbody>
+    <tr><td>Widget A</td><td>$9.99</td></tr>
+    <tr><td>Widget B</td><td>$19.99</td></tr>
+  </tbody>
+</table>
+</body></html>"""
+
+DEDUP_PAGE2_HTML = """<html><body>
+<table id="products">
+  <thead><tr><th>Name</th><th>Price</th></tr></thead>
+  <tbody>
+    <tr><td>Widget B</td><td>$19.99</td></tr>
+    <tr><td>Widget C</td><td>$29.99</td></tr>
+  </tbody>
+</table>
+</body></html>"""
+
+
+class TestDedupAcrossPaginatedPages:
+	async def test_dedup_across_paginated_pages(self, browser_session, http_server, base_url):
+		"""Extract page 1, extract page 2 with same script_id. Page 2 should have Widget B stripped."""
+		http_server.expect_request('/dedup-page1').respond_with_data(
+			DEDUP_PAGE1_HTML,
+			content_type='text/html',
+		)
+		http_server.expect_request('/dedup-page2').respond_with_data(
+			DEDUP_PAGE2_HTML,
+			content_type='text/html',
+		)
+
+		tools = Tools()
+		extraction_llm = _make_js_extraction_llm(TABLE_EXTRACT_JS)
+
+		# Page 1 extraction
+		await tools.navigate(url=f'{base_url}/dedup-page1', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result1 = await tools.extract_with_script(
+				query='Extract all products with names and prices',
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result1, ActionResult)
+		assert result1.metadata is not None
+		script_id = result1.metadata['script_id']
+		# Page 1 should have no dedup stats (first extraction)
+		assert '<dedup_stats>' not in result1.extracted_content
+
+		# Parse page 1 results
+		tag_start = result1.extracted_content.index('<js_extraction_result')
+		data_start = result1.extracted_content.index('>', tag_start) + 1
+		data_end = result1.extracted_content.index('</js_extraction_result>')
+		parsed1 = json.loads(result1.extracted_content[data_start:data_end].strip())
+		assert len(parsed1['products']) == 2
+
+		# Page 2 extraction — reuse script_id
+		await tools.navigate(url=f'{base_url}/dedup-page2', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as tmp:
+			fs = FileSystem(tmp)
+			result2 = await tools.extract_with_script(
+				query='Extract all products with names and prices',
+				script_id=script_id,
+				browser_session=browser_session,
+				page_extraction_llm=extraction_llm,
+				file_system=fs,
+			)
+
+		assert isinstance(result2, ActionResult)
+		assert result2.extracted_content is not None
+
+		# Page 2 should have dedup_stats
+		assert '<dedup_stats>' in result2.extracted_content
+		assert 'duplicate(s) removed' in result2.extracted_content
+
+		# Parse page 2 results — Widget B should be stripped
+		tag_start = result2.extracted_content.index('<js_extraction_result')
+		data_start = result2.extracted_content.index('>', tag_start) + 1
+		data_end = result2.extracted_content.index('</js_extraction_result>')
+		parsed2 = json.loads(result2.extracted_content[data_start:data_end].strip())
+		assert len(parsed2['products']) == 1
+		assert parsed2['products'][0]['name'] == 'Widget C'
+
+		# Metadata should have dedup info
+		assert result2.metadata is not None
+		assert result2.metadata.get('dedup') == {'duplicates_removed': 1, 'total_unique': 3}
