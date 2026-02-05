@@ -182,7 +182,7 @@ async def browser_session():
 
 if HAS_HTTPSERVER:
 	@pytest.fixture(scope='function')
-	def cloud_sync(httpserver: HTTPServer):
+	def cloud_sync(httpserver: HTTPServer):  # type: ignore[valid-type]
 		"""
 		Create a CloudSync instance configured for testing.
 
