@@ -11,15 +11,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 from dotenv import load_dotenv
+from typing import Any
+
 try:
 	from pytest_httpserver import HTTPServer
 	HAS_HTTPSERVER = True
 except ImportError:
-	class _HTTPServer:
-		def url_for(self, uri: str) -> str:
-			return f"http://mock-server/{uri}"
-
-	HTTPServer = _HTTPServer
+	HTTPServer = Any
 	HAS_HTTPSERVER = False
 
 
