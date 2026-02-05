@@ -29,6 +29,19 @@ from browser_use.tools.registry.views import ActionModel
 logger = logging.getLogger(__name__)
 
 
+class MessageCompactionSettings(BaseModel):
+	"""Configuration options for message compaction."""
+
+	enabled: bool = True
+	trigger_char_count: int = 120000
+	min_history_items: int = 12
+	keep_last_items: int = 6
+	summary_max_chars: int = 6000
+	cooldown_steps: int = 3
+	include_read_state: bool = False
+	compaction_llm: BaseChatModel | None = None
+
+
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
@@ -47,6 +60,7 @@ class AgentSettings(BaseModel):
 	use_judge: bool = True
 	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
+	message_compaction: MessageCompactionSettings | None = None
 
 	page_extraction_llm: BaseChatModel | None = None
 	calculate_cost: bool = False

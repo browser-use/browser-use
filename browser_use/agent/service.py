@@ -57,6 +57,7 @@ from browser_use.agent.views import (
 	BrowserStateHistory,
 	DetectedVariable,
 	JudgementResult,
+	MessageCompactionSettings,
 	StepMetadata,
 )
 from browser_use.browser.events import _get_timeout
@@ -194,6 +195,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		message_compaction: MessageCompactionSettings | bool | None = True,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
@@ -359,6 +361,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.sample_images = sample_images
 
+		if isinstance(message_compaction, bool):
+			message_compaction = MessageCompactionSettings(enabled=message_compaction)
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			vision_detail_level=vision_detail_level,
@@ -381,6 +386,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			final_response_after_failure=final_response_after_failure,
 			use_judge=use_judge,
 			ground_truth=ground_truth,
+			message_compaction=message_compaction,
 		)
 
 		# Token cost service
@@ -388,6 +394,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
 		self.token_cost_service.register_llm(judge_llm)
+		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
+			self.token_cost_service.register_llm(self.settings.message_compaction.compaction_llm)
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -1045,6 +1053,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.skill_service is not None:
 			unavailable_skills_info = await self._get_unavailable_skills_info()
 
+		self._message_manager.prepare_step_state(
+			browser_state_summary=browser_state_summary,
+			model_output=self.state.last_model_output,
+			result=self.state.last_result,
+			step_info=step_info,
+			sensitive_data=self.sensitive_data,
+		)
+
+		await self._maybe_compact_messages(step_info)
+
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
@@ -1055,11 +1073,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			sensitive_data=self.sensitive_data,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 			unavailable_skills_info=unavailable_skills_info,
+			skip_state_update=True,
 		)
 
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
+
+	async def _maybe_compact_messages(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Optionally compact message history to keep prompts small."""
+		settings = self.settings.message_compaction
+		if not settings or not settings.enabled:
+			return
+
+		compaction_llm = settings.compaction_llm or self.settings.page_extraction_llm or self.llm
+		await self._message_manager.maybe_compact_messages(
+			llm=compaction_llm,
+			settings=settings,
+			step_info=step_info,
+		)
 
 	@observe_debug(ignore_input=True, name='get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
