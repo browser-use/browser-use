@@ -769,3 +769,46 @@ def sanitize_surrogates(text: str) -> str:
 		Text with surrogate characters removed
 	"""
 	return text.encode('utf-8', errors='ignore').decode('utf-8')
+
+
+def normalize_xpath_attributes(xpath: str) -> str:
+	"""
+	Normalize XPath attribute names to lowercase to fix LLM hallucination errors.
+	
+	Common issue: LLMs sometimes generate XPath with incorrectly cased attributes:
+	- @ROLE instead of @role
+	- @Class instead of @class  
+	- @ID instead of @id
+	- @ARIA-LABEL instead of @aria-label
+	
+	This is a defensive programming measure since HTML attributes are case-insensitive
+	in HTML but case-sensitive in XPath, and standard HTML attributes are lowercase.
+	
+	Args:
+		xpath: XPath expression that may contain incorrectly cased attributes
+		
+	Returns:
+		XPath with all attribute names normalized to lowercase
+		
+	Examples:
+		>>> normalize_xpath_attributes("//div[@ROLE='button']")
+		"//div[@role='button']"
+		>>> normalize_xpath_attributes("//div[@Class='test'][@ID='myid']")
+		"//div[@class='test'][@id='myid']"
+		>>> normalize_xpath_attributes("//div[@role='BUTTON']")  # values unchanged
+		"//div[@role='BUTTON']"
+	"""
+	if not xpath:
+		return xpath
+	
+	# Pattern to match @AttributeName (attribute names in XPath)
+	# Matches: @word (where word can contain letters, numbers, hyphens)
+	# Captures the @ and the attribute name separately
+	# This preserves attribute values (which come after = sign)
+	pattern = r'@([A-Za-z][\w-]*)'
+	
+	def lowercase_attribute(match):
+		"""Convert matched attribute name to lowercase, preserving the @"""
+		return f'@{match.group(1).lower()}'
+	
+	return re.sub(pattern, lowercase_attribute, xpath)
