@@ -14,10 +14,10 @@ from dotenv import load_dotenv
 from typing import Any
 
 try:
-	from pytest_httpserver import HTTPServer
+	from pytest_httpserver import HTTPServer  # type: ignore
 	HAS_HTTPSERVER = True
 except ImportError:
-	HTTPServer = Any
+	HTTPServer = Any  # type: ignore
 	HAS_HTTPSERVER = False
 
 
