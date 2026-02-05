@@ -812,4 +812,3 @@ def normalize_xpath_attributes(xpath: str) -> str:
 		return f'@{match.group(1).lower()}'
 
 	return re.sub(pattern, lowercase_attribute, xpath)
-
