@@ -18,7 +18,6 @@ class SessionInfo:
 	browser_mode: str
 	headed: bool
 	profile: str | None
-	cdp_url: str | None
 	browser_exe: str | None
 	user_data_dir: str | None
 	no_copy_profile: bool
@@ -42,7 +41,6 @@ class SessionRegistry:
 		browser_mode: str,
 		headed: bool,
 		profile: str | None,
-		cdp_url: str | None = None,
 		browser_exe: str | None = None,
 		user_data_dir: str | None = None,
 		no_copy_profile: bool = False,
@@ -57,7 +55,6 @@ class SessionRegistry:
 			browser_mode,
 			headed,
 			profile,
-			cdp_url,
 			browser_exe,
 			user_data_dir,
 		)
@@ -68,7 +65,6 @@ class SessionRegistry:
 			browser_mode=browser_mode,
 			headed=headed,
 			profile=profile,
-			cdp_url=cdp_url,
 			browser_exe=browser_exe,
 			user_data_dir=user_data_dir,
 			no_copy_profile=no_copy_profile,
@@ -89,7 +85,6 @@ class SessionRegistry:
 				'browser_mode': s.browser_mode,
 				'headed': s.headed,
 				'profile': s.profile,
-				'cdp_url': s.cdp_url,
 				'user_data_dir': s.user_data_dir,
 				'browser_exe': s.browser_exe,
 				'no_copy_profile': s.no_copy_profile,
@@ -120,7 +115,6 @@ async def create_browser_session(
 	mode: str,
 	headed: bool,
 	profile: str | None,
-	cdp_url: str | None = None,
 	browser_exe: str | None = None,
 	user_data_dir: str | None = None,
 ) -> BrowserSession:
@@ -131,11 +125,6 @@ async def create_browser_session(
 	- real: User's Chrome with profile
 	- remote: Browser-Use Cloud (requires API key)
 	"""
-	if cdp_url:
-		return BrowserSession(
-			cdp_url=cdp_url,
-		)
-
 	if mode == 'chromium':
 		return BrowserSession(
 			headless=not headed,

@@ -187,7 +187,6 @@ def ensure_server(
 	headed: bool,
 	profile: str | None,
 	api_key: str | None,
-	cdp_url: str | None = None,
 	browser_exe: str | None = None,
 	user_data_dir: str | None = None,
 	no_copy_profile: bool = False,
@@ -222,8 +221,6 @@ def ensure_server(
 		cmd.extend(['--user-data-dir', user_data_dir])
 	if no_copy_profile:
 		cmd.append('--no-copy-profile')
-	if cdp_url:
-		cmd.extend(['--cdp-url', cdp_url])
 
 	# Set up environment
 	env = os.environ.copy()
@@ -335,7 +332,6 @@ Examples:
 		help='Cloud profile id (remote) or Chrome profile directory name (real)',
 	)
 	parser.add_argument('--no-copy-profile', action='store_true', help='Use profile in-place without copying')
-	parser.add_argument('--cdp-url', help='CDP URL to connect to existing browser (e.g., http://localhost:9222)')
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--api-key', help='Browser-Use API key')
 	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
@@ -1229,7 +1225,6 @@ def main() -> int:
 		args.headed,
 		profile,
 		args.api_key,
-		getattr(args, 'cdp_url', None),
 		getattr(args, 'browser_exe', None),
 		getattr(args, 'user_data_dir', None),
 		getattr(args, 'no_copy_profile', False),
@@ -1246,7 +1241,6 @@ def main() -> int:
 		'json',
 		'api_key',
 		'server_command',
-		'cdp_url',
 		'browser_exe',
 		'user_data_dir',
 		'no_copy_profile',

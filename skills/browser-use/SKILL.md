@@ -48,13 +48,11 @@ browser-use --browser chromium --headed open <url>  # Visible Chromium window
 browser-use --browser real --profile "Default" open <url>
 browser-use --browser real --browser-exe <path> --user-data-dir <path> open <url>
 browser-use --browser remote open <url>             # Cloud browser (requires API key)
-browser-use --cdp-url http://localhost:9222 open <url>  # Connect to existing browser
 ```
 
 - **chromium**: Fast, isolated, headless by default
 - **real**: Uses your Chrome profile (copies profile by default)
 - **remote**: Cloud-hosted browser with proxy support (requires BROWSER_USE_API_KEY)
-- **cdp-url**: Connects to an existing browser via CDP
 
 Real browser notes:
 - Use `--no-copy-profile` or `BROWSER_USE_NO_COPY_PROFILE=1` to use the profile in-place
@@ -314,13 +312,12 @@ browser-use install                       # Install Chromium and system dependen
 | `--user-data-dir PATH` | Chrome user data directory (real mode) |
 | `--profile NAME` | Cloud profile id (remote mode) or Chrome profile directory name (real mode) |
 | `--no-copy-profile` | Use profile in-place without copying |
-| `--cdp-url URL` | Connect to existing browser via CDP |
 | `--json` | Output as JSON |
 | `--api-key KEY` | Override API key |
 
 Note: In real mode, `--profile` expects a directory name under `--user-data-dir` (for example `Default` or `Profile 1`), which is what Chromium expects. In remote mode, it is the cloud profile id.
 
-**Session behavior**: All commands without `--session` use the same "default" session. The browser stays open and is reused across commands. Use `--session NAME` to run multiple browsers in parallel. When using `--cdp-url` without `--session`, the CLI uses the `cdp-default` session to avoid collisions with other modes.
+**Session behavior**: All commands without `--session` use the same "default" session. The browser stays open and is reused across commands. Use `--session NAME` to run multiple browsers in parallel.
 
 ## API Key Configuration
 

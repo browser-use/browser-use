@@ -32,7 +32,6 @@ class SessionServer:
 		browser_mode: str,
 		headed: bool,
 		profile: str | None,
-		cdp_url: str | None = None,
 		browser_exe: str | None = None,
 		user_data_dir: str | None = None,
 		no_copy_profile: bool = False,
@@ -41,7 +40,6 @@ class SessionServer:
 		self.browser_mode = browser_mode
 		self.headed = headed
 		self.profile = profile
-		self.cdp_url = cdp_url
 		self.browser_exe = browser_exe
 		self.user_data_dir = user_data_dir
 		self.no_copy_profile = no_copy_profile
@@ -131,7 +129,6 @@ class SessionServer:
 				self.browser_mode,
 				self.headed,
 				self.profile,
-				self.cdp_url,
 				self.browser_exe,
 				self.user_data_dir,
 				self.no_copy_profile,
@@ -253,7 +250,6 @@ def main() -> None:
 	parser.add_argument('--user-data-dir', help='Chrome user data directory (real browser mode)')
 	parser.add_argument('--profile', help='Cloud profile id (remote) or Chrome profile directory name (real)')
 	parser.add_argument('--no-copy-profile', action='store_true', help='Use profile in-place without copying')
-	parser.add_argument('--cdp-url', help='CDP URL to connect to existing browser')
 	args = parser.parse_args()
 
 	logger.info(f'Starting server for session: {args.session}')
@@ -266,7 +262,6 @@ def main() -> None:
 		browser_mode=args.browser,
 		headed=args.headed,
 		profile=args.profile,
-		cdp_url=getattr(args, 'cdp_url', None),
 		browser_exe=args.browser_exe,
 		user_data_dir=args.user_data_dir,
 		no_copy_profile=args.no_copy_profile,

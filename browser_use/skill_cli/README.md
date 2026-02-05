@@ -120,7 +120,6 @@ browser-use python --file script.py   # Run Python file
 | `--user-data-dir PATH` | Chrome user data directory (real mode) |
 | `--profile NAME` | Cloud profile id (remote mode) or Chrome profile directory name (real mode) |
 | `--no-copy-profile` | Use profile in-place without copying |
-| `--cdp-url URL` | Connect to existing browser via CDP |
 | `--json` | Output as JSON |
 | `--api-key KEY` | Override API key |
 
