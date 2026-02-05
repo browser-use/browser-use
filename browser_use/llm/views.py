@@ -1,4 +1,6 @@
-from typing import Generic, TypeVar, Union
+from __future__ import annotations
+
+from typing import Any, Generic, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -36,6 +38,15 @@ class ChatInvokeCompletion(BaseModel, Generic[T]):
 
 	completion: T
 	"""The completion of the response."""
+
+	text_parts: list[Any] | None = None
+	"""Structured text parts with metadata (e.g., Gemini thought_signature).
+
+	Type: list[ContentPartTextParam] | None
+
+	When present, these parts should be used instead of raw completion string
+	to preserve thought signatures for Gemini 3 models in conversation history.
+	"""
 
 	# Thinking stuff
 	thinking: str | None = None

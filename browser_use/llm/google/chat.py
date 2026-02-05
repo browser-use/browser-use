@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, ContentPartTextParam
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
@@ -187,6 +187,67 @@ class ChatGoogle(BaseChatModel):
 
 		return usage
 
+	def _extract_thinking(self, response: types.GenerateContentResponse) -> str | None:
+		"""Extract thinking/reasoning content from Gemini 3 response.
+
+		Gemini 3 models return thinking content in parts where part.thought == True.
+		This content represents the model's internal reasoning process.
+		"""
+		if not response.candidates:
+			return None
+
+		content = response.candidates[0].content
+		if content is None or not content.parts:
+			return None
+
+		thinking_parts: list[str] = []
+		for part in content.parts:
+			if hasattr(part, 'text') and part.text:
+				# Collect thought parts (part.thought == True)
+				# Use explicit True comparison to handle MagicMock in tests
+				thought_attr = getattr(part, 'thought', None)
+				if thought_attr is True:
+					thinking_parts.append(part.text)
+
+		return '\n'.join(thinking_parts) if thinking_parts else None
+
+	def _extract_text_parts(self, response: types.GenerateContentResponse) -> list[ContentPartTextParam]:
+		"""Extract text parts with thought_signatures from Google response.
+
+		Gemini 3 models may return thought signatures on any part type.
+		These signatures must be passed back in conversation history
+		to maintain reasoning coherence. This method:
+		1. Skips thought parts (part.thought == True) - these are internal reasoning
+		2. Preserves thought_signature on non-thought parts for passing back
+		"""
+		if not response.candidates:
+			return []
+
+		content = response.candidates[0].content
+		if content is None or not content.parts:
+			return []
+
+		text_parts: list[ContentPartTextParam] = []
+		for part in content.parts:
+			if hasattr(part, 'text') and part.text:
+				# Skip thought summaries (part.thought == True) - these are internal reasoning
+				# Use explicit True comparison to handle MagicMock in tests
+				thought_attr = getattr(part, 'thought', None)
+				if thought_attr is True:
+					continue
+				# Only include thought_signature if it's actually bytes (not a MagicMock)
+				thought_sig = getattr(part, 'thought_signature', None)
+				if thought_sig is not None and not isinstance(thought_sig, bytes):
+					thought_sig = None
+				text_parts.append(
+					ContentPartTextParam(
+						text=part.text,
+						thought_signature=thought_sig,
+					)
+				)
+
+		return text_parts
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -307,8 +368,14 @@ class ChatGoogle(BaseChatModel):
 					elapsed = time.time() - start_time
 					self.logger.debug(f'✅ Got text response in {elapsed:.2f}s')
 
-					# Handle case where response.text might be None
-					text = response.text or ''
+					# Extract thinking content (Gemini 3 specific)
+					thinking = self._extract_thinking(response)
+
+					# Extract text parts with thought_signatures, excluding thinking parts
+					text_parts = self._extract_text_parts(response)
+
+					# Build text from non-thinking parts
+					text = '\n'.join(p.text for p in text_parts) if text_parts else ''
 					if not text:
 						self.logger.warning('⚠️ Empty text response received')
 
@@ -316,6 +383,8 @@ class ChatGoogle(BaseChatModel):
 
 					return ChatInvokeCompletion(
 						completion=text,
+						text_parts=text_parts if text_parts else None,
+						thinking=thinking,
 						usage=usage,
 						stop_reason=self._get_stop_reason(response),
 					)
@@ -343,6 +412,9 @@ class ChatGoogle(BaseChatModel):
 
 						usage = self._get_usage(response)
 
+						# Extract thinking content (Gemini 3 specific)
+						thinking = self._extract_thinking(response)
+
 						# Handle case where response.parsed might be None
 						if response.parsed is None:
 							self.logger.debug('📝 Parsing JSON from text response')
@@ -362,6 +434,7 @@ class ChatGoogle(BaseChatModel):
 									parsed_data = json.loads(text)
 									return ChatInvokeCompletion(
 										completion=output_format.model_validate(parsed_data),
+										thinking=thinking,
 										usage=usage,
 										stop_reason=self._get_stop_reason(response),
 									)
@@ -385,6 +458,7 @@ class ChatGoogle(BaseChatModel):
 						if isinstance(response.parsed, output_format):
 							return ChatInvokeCompletion(
 								completion=response.parsed,
+								thinking=thinking,
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -392,6 +466,7 @@ class ChatGoogle(BaseChatModel):
 							# If it's not the expected type, try to validate it
 							return ChatInvokeCompletion(
 								completion=output_format.model_validate(response.parsed),
+								thinking=thinking,
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -427,6 +502,9 @@ class ChatGoogle(BaseChatModel):
 
 						usage = self._get_usage(response)
 
+						# Extract thinking content (Gemini 3 specific)
+						thinking = self._extract_thinking(response)
+
 						# Try to extract JSON from the text response
 						if response.text:
 							try:
@@ -443,6 +521,7 @@ class ChatGoogle(BaseChatModel):
 								parsed_data = json.loads(text)
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(parsed_data),
+									thinking=thinking,
 									usage=usage,
 									stop_reason=self._get_stop_reason(response),
 								)
