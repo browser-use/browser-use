@@ -75,12 +75,12 @@ class TestXPathNormalization:
 
 	def test_empty_string(self):
 		"""Test handling of empty string."""
-		assert normalize_xpath_attributes("") == ""
+		assert normalize_xpath_attributes('') == ''
 
 	def test_xpath_without_attributes(self):
 		"""Test XPath without attributes."""
-		xpath = "//div/span/a"
-		expected = "//div/span/a"
+		xpath = '//div/span/a'
+		expected = '//div/span/a'
 		assert normalize_xpath_attributes(xpath) == expected
 
 	def test_mixed_operators(self):
