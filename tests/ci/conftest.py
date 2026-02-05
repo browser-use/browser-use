@@ -15,10 +15,11 @@ try:
 	from pytest_httpserver import HTTPServer
 	HAS_HTTPSERVER = True
 except ImportError:
-	class HTTPServer:
+	class _HTTPServer:
 		def url_for(self, uri: str) -> str:
 			return f"http://mock-server/{uri}"
 
+	HTTPServer = _HTTPServer
 	HAS_HTTPSERVER = False
 
 
