@@ -436,6 +436,7 @@ class BrowserSession(BaseModel):
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_network_watchdog: Any | None = PrivateAttr(default=None)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
@@ -516,6 +517,7 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		self._network_watchdog = None
 		if self._demo_mode:
 			self._demo_mode.reset()
 			self._demo_mode = None
@@ -1360,6 +1362,7 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
 		from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
 		from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
+		from browser_use.browser.watchdogs.network_watchdog import NetworkWatchdog
 		from browser_use.browser.watchdogs.permissions_watchdog import PermissionsWatchdog
 		from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog
 		from browser_use.browser.watchdogs.recording_watchdog import RecordingWatchdog
@@ -1479,6 +1482,11 @@ class BrowserSession(BaseModel):
 		RecordingWatchdog.model_rebuild()
 		self._recording_watchdog = RecordingWatchdog(event_bus=self.event_bus, browser_session=self)
 		self._recording_watchdog.attach_to_session()
+
+		# Initialize NetworkWatchdog (handles network traffic logging and extraction)
+		NetworkWatchdog.model_rebuild()
+		self._network_watchdog = NetworkWatchdog(event_bus=self.event_bus, browser_session=self)
+		self._network_watchdog.attach_to_session()
 
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True

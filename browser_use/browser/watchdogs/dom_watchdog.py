@@ -460,6 +460,26 @@ class DOMWatchdog(BaseWatchdog):
 			if content and content.selector_map:
 				pagination_buttons_data = self._detect_pagination_buttons(content.selector_map)
 
+			# Generate Network Summary
+			network_log_summary = None
+			if hasattr(self.browser_session, '_network_watchdog') and self.browser_session._network_watchdog:
+				target_id = self.browser_session.agent_focus_target_id
+				if target_id:
+					logs = self.browser_session._network_watchdog.get_traffic_log(target_id)
+					if logs:
+						# Count stats
+						total_requests = len(logs)
+						failed_requests = sum(1 for log in logs if (log.status and log.status >= 400) or log.error_text)
+						xhr_fetch_count = sum(1 for log in logs if log.resource_type in ['XHR', 'Fetch'])
+
+						# Format summary
+						parts = []
+						if failed_requests > 0:
+							parts.append(f'{failed_requests} failed')
+						parts.append(f'{xhr_fetch_count} XHR/Fetch')
+
+						network_log_summary = f'Network Traffic: {", ".join(parts)} (Total: {total_requests})'
+
 			# Build and cache the browser state summary
 			if screenshot_b64:
 				self.logger.debug(
@@ -485,6 +505,7 @@ class DOMWatchdog(BaseWatchdog):
 				pending_network_requests=pending_requests,
 				pagination_buttons=pagination_buttons_data,
 				closed_popup_messages=self.browser_session._closed_popup_messages.copy(),
+				network_log_summary=network_log_summary,
 			)
 
 			# Cache the state
