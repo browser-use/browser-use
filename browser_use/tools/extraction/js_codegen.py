@@ -563,34 +563,55 @@ async def _execute_js_on_page(browser_session: 'BrowserSession', js_code: str) -
 _SYSTEM_PROMPT = """\
 You are a JavaScript code generator for browser automation data extraction.
 
-Your task: write a single vanilla JavaScript IIFE that extracts data from the current page's DOM and returns a JSON-serializable value.
+Goal: Write a single vanilla JavaScript IIFE that extracts data from the current page DOM and returns a JSON-serializable value.
 
-Rules:
-- Return a single IIFE: (function(){ ... })() or (() => { ... })()
-- Use document.querySelector / document.querySelectorAll to locate elements
+## Analysis Steps
+
+Before writing code, analyze the inputs in this order:
+
+1. **Read <query>** — identify what data fields are needed and how many items are expected (single item vs list)
+2. **Read <page_structure>** if present — this is a pre-computed analysis of the page:
+   - Look for repeating patterns whose count and sample HTML match the query (e.g. `div.product-card (42 items)` for a product extraction)
+   - Look for tables with column headers matching the query fields
+   - Note the containerSelector if provided — it scopes your querySelectorAll
+3. **Read <output_schema>** if present — map each required field to a DOM element you'll target
+4. **Scan <page_html>** to confirm your selector choices — look for the actual elements matching your plan
+
+## Selector Strategy (prefer in this order)
+
+1. Structural: `table > tbody > tr`, `ul > li`, `dl > dt + dd` — most stable across sites
+2. Attributes: `[data-testid="..."]`, `[role="listitem"]`, `a[href*="product"]`
+3. IDs: `#results-table`, `#product-list`
+4. Semantic class fragments: `[class*="price"]`, `[class*="product"]` — less stable, use when no structural alternative exists
+5. Positional: `:nth-child(N)` — fragile, use only for fixed-layout tables
+
+## Code Requirements
+
+- Return a single IIFE: `(function(){ ... })()` or `(() => { ... })()`
+- Use `document.querySelector` / `document.querySelectorAll` to locate elements
 - Return JSON-serializable values only (objects, arrays, strings, numbers, booleans, null)
-- Wrap the entire body in try/catch — on error return {error: e.message}
+- Wrap the entire body in try/catch — on error return `{error: e.message}`
 - Do NOT include comments
-- Do NOT use Node.js APIs (require, fs, process, etc.)
-- Do NOT use fetch or XMLHttpRequest
+- Do NOT use Node.js APIs (require, fs, process), fetch, or XMLHttpRequest
 - Do NOT navigate or modify the page
-- Keep the code concise
-- Prefer structural selectors (tag, nth-child, attribute) over class names which break across sites
-- Always use .textContent.trim() to get clean text
-- For missing/optional fields, return null instead of throwing
+- Always use `.textContent.trim()` for clean text
+- For missing/optional fields, return `null` instead of throwing
+- Keep code concise
 
 <examples>
-Example 1 — extract rows from a table:
+Example 1 — table with headers:
+Given page_structure shows "table#results: columns [Name, Price, Stock]", target the table directly:
 ```js
-(function(){try{var rows=document.querySelectorAll('table tbody tr');var out=[];for(var i=0;i<rows.length;i++){var c=rows[i].querySelectorAll('td');out.push({col1:c[0]?c[0].textContent.trim():null,col2:c[1]?c[1].textContent.trim():null});}return out;}catch(e){return{error:e.message};}})()
+(function(){try{var rows=document.querySelectorAll('table#results tbody tr');var out=[];for(var i=0;i<rows.length;i++){var c=rows[i].querySelectorAll('td');out.push({name:c[0]?c[0].textContent.trim():null,price:c[1]?c[1].textContent.trim():null,stock:c[2]?c[2].textContent.trim():null});}return out;}catch(e){return{error:e.message};}})()
 ```
 
-Example 2 — extract repeated cards/items from a grid:
+Example 2 — repeating cards from page_structure:
+Given page_structure shows "div.product-card (42 items)", use that selector and find child elements for each field:
 ```js
-(function(){try{var items=document.querySelectorAll('[class*="card"],[class*="item"],[class*="product"]');var out=[];items.forEach(function(el){var t=el.querySelector('h2,h3,h4,[class*="title"],[class*="name"]');var p=el.querySelector('[class*="price"]');var a=el.querySelector('a[href]');out.push({title:t?t.textContent.trim():null,price:p?p.textContent.trim():null,link:a?a.href:null});});return out;}catch(e){return{error:e.message};}})()
+(function(){try{var items=document.querySelectorAll('div.product-card');var out=[];items.forEach(function(el){var t=el.querySelector('h2,h3,[class*="title"]');var p=el.querySelector('[class*="price"]');var a=el.querySelector('a[href]');out.push({title:t?t.textContent.trim():null,price:p?p.textContent.trim():null,link:a?a.href:null});});return out;}catch(e){return{error:e.message};}})()
 ```
 
-Example 3 — extract all links with text from a page:
+Example 3 — links with text:
 ```js
 (function(){try{var links=document.querySelectorAll('a[href]');var out=[];links.forEach(function(a){var t=a.textContent.trim();if(t&&a.href)out.push({text:t,href:a.href});});return out;}catch(e){return{error:e.message};}})()
 ```
@@ -611,28 +632,34 @@ async def _generate_js_script(
 ) -> str:
 	"""Single blocking LLM call that returns JS code."""
 	user_parts: list[str] = []
-	user_parts.append(f'<query>\n{query}\n</query>')
 
-	if css_selector:
-		user_parts.append(f'<css_selector>\n{css_selector}\n</css_selector>')
+	# Step 1: What to extract
+	user_parts.append(f'Step 1 — What to extract:\n<query>\n{query}\n</query>')
 
-	if output_schema:
-		user_parts.append(f'<output_schema>\n{json.dumps(output_schema, indent=2)}\n</output_schema>')
-
-	user_parts.append(f'<page_html>\n{html}\n</page_html>')
-
-	if html_truncated:
+	# Step 2: Page structure (free analysis)
+	if page_structure:
 		user_parts.append(
-			'\u26a0\ufe0f The page HTML above was truncated. Content near the end of the document may be missing. '
-			'Write selectors that handle missing elements gracefully (check for null before accessing properties).'
+			f'Step 2 — Page structure (pre-computed, use to pick selectors):\n'
+			f'<page_structure>\n{page_structure}\n</page_structure>'
 		)
 
-	if page_structure:
-		user_parts.append(f'<page_structure>\n{page_structure}\n</page_structure>')
+	# Step 3: Scope constraint (optional)
+	if css_selector:
+		user_parts.append(f'Step 3 — Scope extraction to this container:\n<css_selector>\n{css_selector}\n</css_selector>')
 
+	# Output schema (optional)
+	if output_schema:
+		user_parts.append(f'Required output shape:\n<output_schema>\n{json.dumps(output_schema, indent=2)}\n</output_schema>')
+
+	# Page HTML
+	user_parts.append(f'Page HTML:\n<page_html>\n{html}\n</page_html>')
+
+	if html_truncated:
+		user_parts.append('\u26a0\ufe0f The HTML above was truncated. Write selectors that handle missing elements gracefully.')
+
+	# Retry context
 	if error_feedback:
-		user_parts.append(f'<previous_attempt_error>\n{error_feedback}\n</previous_attempt_error>')
-		# Include the failed script so the LLM can fix it rather than regenerate blind
+		user_parts.append(f'Previous attempt failed:\n<previous_attempt_error>\n{error_feedback}\n</previous_attempt_error>')
 		if failed_script:
 			user_parts.append(f'<previous_script>\n{failed_script}\n</previous_script>')
 

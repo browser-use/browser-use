@@ -1290,8 +1290,7 @@ class TestTruncationWarningInPrompt:
 		messages = call_args[0][0]
 		user_msg_content = str(messages[1].content)
 		assert 'truncated' in user_msg_content.lower()
-		assert 'missing' in user_msg_content.lower()
-		assert 'null' in user_msg_content.lower()
+		assert 'missing elements' in user_msg_content.lower() or 'gracefully' in user_msg_content.lower()
 
 	async def test_no_truncation_warning_when_not_truncated(self):
 		"""When html_truncated=False (default), no warning in the LLM prompt."""
@@ -1310,7 +1309,7 @@ class TestTruncationWarningInPrompt:
 		call_args = extraction_llm.ainvoke.call_args
 		messages = call_args[0][0]
 		user_msg_content = str(messages[1].content)
-		assert '\u26a0\ufe0f The page HTML above was truncated' not in user_msg_content
+		assert '\u26a0\ufe0f The HTML above was truncated' not in user_msg_content
 
 
 # ---------------------------------------------------------------------------
