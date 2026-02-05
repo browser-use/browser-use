@@ -818,7 +818,30 @@ class BrowserUseServer:
 			result['interactive_elements'].append(elem_info)
 
 		if include_screenshot and state.screenshot:
-			result['screenshot'] = state.screenshot
+			# Save screenshot to disk and return file path instead of base64
+			try:
+				import base64
+				import uuid
+
+				# Create screenshots directory
+				screenshots_dir = Path.home() / '.browser-use-mcp' / 'screenshots'
+				screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+				# Generate unique filename with timestamp
+				timestamp = time.strftime('%Y%m%d_%H%M%S')
+				filename = f'screenshot_{timestamp}_{uuid.uuid4().hex[:8]}.png'
+				screenshot_path = screenshots_dir / filename
+
+				# Decode base64 and save to file
+				screenshot_data = base64.b64decode(state.screenshot)
+				screenshot_path.write_bytes(screenshot_data)
+
+				result['screenshot_path'] = str(screenshot_path)
+				logger.debug(f'Screenshot saved to: {screenshot_path}')
+			except Exception as e:
+				# Fallback to base64 if file save fails
+				logger.warning(f'Failed to save screenshot to file, falling back to base64: {e}')
+				result['screenshot'] = state.screenshot
 
 		return json.dumps(result, indent=2)
 
