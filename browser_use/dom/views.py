@@ -449,6 +449,18 @@ class EnhancedDOMTreeNode:
 	Used to identify clicks that don't use native interactive HTML tags
 	"""
 
+	hidden_elements_info: list[dict[str, Any]] = field(default_factory=list)
+	"""
+	Details of interactive elements hidden due to viewport threshold (for iframes).
+	Each dict contains: tag, text, pages (scroll distance in viewport pages).
+	Used to show specific element info in the LLM representation.
+	"""
+
+	has_hidden_content: bool = False
+	"""
+	Whether this iframe has hidden non-interactive content below the viewport threshold.
+	"""
+
 	uuid: str = field(default_factory=uuid7str)
 
 	@property
@@ -899,6 +911,19 @@ class EnhancedDOMTreeNode:
 
 
 DOMSelectorMap = dict[int, EnhancedDOMTreeNode]
+
+
+@dataclass(slots=True)
+class MarkdownChunk:
+	"""A structure-aware chunk of markdown content."""
+
+	content: str
+	chunk_index: int
+	total_chunks: int
+	char_offset_start: int  # in original content
+	char_offset_end: int  # in original content
+	overlap_prefix: str  # context from prev chunk (e.g. table headers)
+	has_more: bool
 
 
 @dataclass

@@ -12,10 +12,10 @@ The `browser-use` command provides fast, persistent browser automation. It maint
 
 ```bash
 # Run without installing (recommended for one-off use)
-uvx browser-use[cli] open https://example.com
+uvx "browser-use[cli]" open https://example.com
 
 # Or install permanently
-uv pip install browser-use[cli]
+uv pip install "browser-use[cli]"
 
 # Install browser dependencies (Chromium)
 browser-use install
@@ -45,7 +45,7 @@ browser-use close                              # Close browser
 ```bash
 browser-use --browser chromium open <url>           # Default: headless Chromium
 browser-use --browser chromium --headed open <url>  # Visible Chromium window
-browser-use --browser real --profile-directory "Default" open <url>
+browser-use --browser real --profile "Default" open <url>
 browser-use --browser real --browser-exe <path> --user-data-dir <path> open <url>
 browser-use --browser remote open <url>             # Cloud browser (requires API key)
 browser-use --cdp-url http://localhost:9222 open <url>  # Connect to existing browser
@@ -58,7 +58,7 @@ browser-use --cdp-url http://localhost:9222 open <url>  # Connect to existing br
 
 Real browser notes:
 - Use `--no-copy-profile` or `BROWSER_USE_NO_COPY_PROFILE=1` to use the profile in-place
-- Use `--browser-exe`, `--user-data-dir`, and `--profile-directory` to target a specific Chrome profile
+- Use `--browser-exe`, `--user-data-dir`, and `--profile` to target a specific Chrome profile
 
 ## Commands
 
@@ -102,6 +102,46 @@ browser-use eval "document.title"         # Execute JavaScript, return result
 browser-use extract "all product prices"  # Extract data using LLM (requires API key)
 ```
 
+### Cookies
+```bash
+browser-use cookies get                   # Get all cookies
+browser-use cookies get --url <url>       # Get cookies for specific URL
+browser-use cookies set <name> <value>    # Set a cookie
+browser-use cookies set name val --domain .example.com --secure --http-only
+browser-use cookies clear                 # Clear all cookies
+browser-use cookies clear --url <url>     # Clear cookies for specific URL
+browser-use cookies export <file>         # Export all cookies to JSON file
+browser-use cookies export <file> --url <url>  # Export cookies for specific URL
+browser-use cookies import <file>         # Import cookies from JSON file
+```
+
+### Wait Conditions
+```bash
+browser-use wait selector "h1"            # Wait for element to be visible
+browser-use wait selector ".loading" --state hidden  # Wait for element to disappear
+browser-use wait selector "#btn" --state attached    # Wait for element in DOM
+browser-use wait text "Success"           # Wait for text to appear
+browser-use wait selector "h1" --timeout 5000  # Custom timeout in ms
+```
+
+### Additional Interactions
+```bash
+browser-use hover <index>                 # Hover over element (triggers CSS :hover)
+browser-use dblclick <index>              # Double-click element
+browser-use rightclick <index>            # Right-click element (context menu)
+```
+
+### Information Retrieval
+```bash
+browser-use get title                     # Get page title
+browser-use get html                      # Get full page HTML
+browser-use get html --selector "h1"      # Get HTML of specific element
+browser-use get text <index>              # Get text content of element
+browser-use get value <index>             # Get value of input/textarea
+browser-use get attributes <index>        # Get all attributes of element
+browser-use get bbox <index>              # Get bounding box (x, y, width, height)
+```
+
 ### Python Execution (Persistent Session)
 ```bash
 browser-use python "x = 42"               # Set variable
@@ -138,6 +178,119 @@ browser-use close                         # Close current session
 browser-use close --all                   # Close all sessions
 ```
 
+### Profile Management
+```bash
+browser-use profile list-local            # List local Chrome profiles
+```
+
+**Before opening a real browser (`--browser real`)**, always ask the user if they want to use a specific Chrome profile or no profile. Use `profile list-local` to show available profiles:
+
+```bash
+browser-use profile list-local
+# Output: Default: Person 1 (user@gmail.com)
+#         Profile 1: Work (work@company.com)
+
+# With a specific profile (has that profile's cookies/logins)
+browser-use --browser real --profile "Profile 1" open https://gmail.com
+
+# Without a profile (fresh browser, no existing logins)
+browser-use --browser real open https://gmail.com
+
+# Headless mode (no visible window) - useful for cookie export
+browser-use --browser real --profile "Default" cookies export /tmp/cookies.json
+```
+
+Each Chrome profile has its own cookies, history, and logged-in sessions. Choosing the right profile determines whether sites will be pre-authenticated.
+
+### Cloud Profiles
+
+Cloud profiles store browser state (cookies) in Browser-Use Cloud, persisting across sessions. Requires `BROWSER_USE_API_KEY`.
+
+```bash
+browser-use profile list                      # List cloud profiles
+browser-use profile get <id>                  # Get profile details
+browser-use profile update <id> --name "New"  # Rename profile
+browser-use profile delete <id>               # Delete profile
+```
+
+Use a cloud profile with `--browser remote --profile <id>`:
+
+```bash
+browser-use --browser remote --profile abc-123 open https://example.com
+```
+
+### Syncing Cookies to Cloud
+
+**⚠️ IMPORTANT: Before syncing cookies from a local browser to the cloud, the agent MUST:**
+1. Ask the user which local Chrome profile to use (`browser-use profile list-local`)
+2. Ask which domain(s) to sync - do NOT default to syncing the full profile
+3. Confirm before proceeding
+
+**Default behavior:** Create a NEW cloud profile for each domain sync. This ensures clear separation of concerns for cookies. Users can add cookies to existing profiles if needed.
+
+**Step 1: List available profiles and cookies**
+
+```bash
+# List local Chrome profiles
+browser-use profile list-local
+# → Default: Person 1 (user@gmail.com)
+# → Profile 1: Work (work@company.com)
+
+# See what cookies are in a profile
+browser-use profile cookies "Default"
+# → youtube.com: 23
+# → google.com: 18
+# → github.com: 2
+```
+
+**Step 2: Sync cookies (three levels of control)**
+
+**1. Domain-specific sync (recommended default)**
+```bash
+browser-use profile sync --from "Default" --domain youtube.com
+# Creates new cloud profile: "Chrome - Default (youtube.com)"
+# Only syncs youtube.com cookies
+```
+This is the recommended approach - sync only the cookies you need.
+
+**2. Full profile sync (use with caution)**
+```bash
+browser-use profile sync --from "Default"
+# Syncs ALL cookies from the profile
+```
+⚠️ **Warning:** This syncs ALL cookies including sensitive data, tracking cookies, session tokens for every site, etc. Only use when the user explicitly needs their entire browser state.
+
+**3. Fine-grained control (advanced)**
+```bash
+# Export cookies to file
+browser-use --browser real --profile "Default" cookies export /tmp/cookies.json
+
+# Manually edit the JSON to keep only specific cookies
+
+# Import to cloud profile
+browser-use --browser remote --profile <id> cookies import /tmp/cookies.json
+```
+For users who need individual cookie-level control.
+
+**Step 3: Use the synced profile**
+
+```bash
+browser-use --browser remote --profile <id> open https://youtube.com
+```
+
+**Adding cookies to existing profiles:**
+```bash
+# Sync additional domain to existing profile
+browser-use --browser real --profile "Default" cookies export /tmp/cookies.json
+browser-use --browser remote --profile <existing-id> cookies import /tmp/cookies.json
+```
+
+**Managing profiles:**
+```bash
+browser-use profile update <id> --name "New Name"  # Rename
+browser-use profile delete <id>                    # Delete
+```
+
 ### Server Control
 ```bash
 browser-use server status                 # Check if server is running
@@ -159,14 +312,13 @@ browser-use install                       # Install Chromium and system dependen
 | `--headed` | Show browser window (chromium mode) |
 | `--browser-exe PATH` | Path to Chrome/Chromium executable (real mode) |
 | `--user-data-dir PATH` | Chrome user data directory (real mode) |
-| `--profile-directory NAME` | Chrome profile directory name (real mode) |
-| `--profile NAME` | Deprecated alias for `--profile-directory` |
+| `--profile NAME` | Cloud profile id (remote mode) or Chrome profile directory name (real mode) |
 | `--no-copy-profile` | Use profile in-place without copying |
 | `--cdp-url URL` | Connect to existing browser via CDP |
 | `--json` | Output as JSON |
 | `--api-key KEY` | Override API key |
 
-Note: `--profile-directory` expects a directory name under `--user-data-dir` (for example `Default` or `Profile 1`), which is what Chromium expects. The `--profile` flag remains as a deprecated alias.
+Note: In real mode, `--profile` expects a directory name under `--user-data-dir` (for example `Default` or `Profile 1`), which is what Chromium expects. In remote mode, it is the cloud profile id.
 
 **Session behavior**: All commands without `--session` use the same "default" session. The browser stays open and is reused across commands. Use `--session NAME` to run multiple browsers in parallel. When using `--cdp-url` without `--session`, the CLI uses the `cdp-default` session to avoid collisions with other modes.
 
@@ -223,7 +375,7 @@ browser-use python "print(f'Captured {len(products)} products')"
 
 ### Using Real Browser (Logged-In Sessions)
 ```bash
-browser-use --browser real --profile-directory "Default" open https://gmail.com
+browser-use --browser real --profile "Default" open https://gmail.com
 # Use profile in-place (skip temporary copy)
 browser-use --browser real --no-copy-profile open https://gmail.com
 # Uses your actual Chrome with existing login sessions

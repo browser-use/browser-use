@@ -69,13 +69,8 @@ class SystemPrompt:
 				else:
 					template_filename = 'system_prompt_browser_use_no_thinking.md'
 			# Anthropic 4.5 models (Opus 4.5, Haiku 4.5) need 4096+ token prompts for caching
-			elif self.is_anthropic_4_5:
-				if self.flash_mode:
-					template_filename = 'system_prompt_anthropic_flash.md'
-				elif self.use_thinking:
-					template_filename = 'system_prompt_anthropic.md'
-				else:
-					template_filename = 'system_prompt_anthropic_no_thinking.md'
+			elif self.is_anthropic_4_5 and self.flash_mode:
+				template_filename = 'system_prompt_anthropic_flash.md'
 			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
@@ -128,6 +123,7 @@ class AgentMessagePrompt:
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
+		plan_description: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -146,6 +142,7 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
+		self.plan_description: str | None = plan_description
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
@@ -344,6 +341,9 @@ Available tabs:
 {_todo_contents}
 </todo_contents>
 """
+		if self.plan_description:
+			agent_state += f'<plan>\n{self.plan_description}\n</plan>\n'
+
 		if self.sensitive_data:
 			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
 

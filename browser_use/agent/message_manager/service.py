@@ -299,6 +299,7 @@ class MessageManager:
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
 		unavailable_skills_info: str | None = None,  # Information about skills that cannot be used yet
+		plan_description: str | None = None,  # Rendered plan for injection into agent state
 	) -> None:
 		"""Create single state message with all content"""
 
@@ -366,6 +367,7 @@ class MessageManager:
 			read_state_images=self.state.read_state_images,
 			llm_screenshot_size=self.llm_screenshot_size,
 			unavailable_skills_info=unavailable_skills_info,
+			plan_description=plan_description,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history

@@ -68,6 +68,7 @@ class Registry(Generic[Context]):
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
 			'file_system': FileSystem,
+			'extraction_schema': None,  # dict | None, skip type validation
 		}
 
 	def _normalize_action_function_signature(
@@ -292,6 +293,7 @@ class Registry(Generic[Context]):
 		param_model: type[BaseModel] | None = None,
 		domains: list[str] | None = None,
 		allowed_domains: list[str] | None = None,
+		terminates_sequence: bool = False,
 	):
 		"""Decorator for registering actions"""
 		# Handle aliases: domains and allowed_domains are the same parameter
@@ -314,6 +316,7 @@ class Registry(Generic[Context]):
 				function=normalized_func,
 				param_model=actual_param_model,
 				domains=final_domains,
+				terminates_sequence=terminates_sequence,
 			)
 			self.registry.actions[func.__name__] = action
 
@@ -333,6 +336,7 @@ class Registry(Generic[Context]):
 		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
+		extraction_schema: dict | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -366,6 +370,7 @@ class Registry(Generic[Context]):
 				'available_file_paths': available_file_paths,
 				'has_sensitive_data': action_name == 'input' and bool(sensitive_data),
 				'file_system': file_system,
+				'extraction_schema': extraction_schema,
 			}
 
 			# Only pass sensitive_data to actions that explicitly need it (input)

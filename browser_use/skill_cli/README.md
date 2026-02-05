@@ -118,13 +118,13 @@ browser-use python --file script.py   # Run Python file
 | `--headed` | Show browser window |
 | `--browser-exe PATH` | Path to Chrome/Chromium executable (real mode) |
 | `--user-data-dir PATH` | Chrome user data directory (real mode) |
-| `--profile-directory NAME` | Chrome profile directory name (real mode) |
-| `--profile NAME` | Deprecated alias for `--profile-directory` |
+| `--profile NAME` | Cloud profile id (remote mode) or Chrome profile directory name (real mode) |
 | `--no-copy-profile` | Use profile in-place without copying |
+| `--cdp-url URL` | Connect to existing browser via CDP |
 | `--json` | Output as JSON |
 | `--api-key KEY` | Override API key |
 
-Note: `--profile-directory` expects a directory name under `--user-data-dir` (for example `Default` or `Profile 1`), which is what Chromium expects. The `--profile` flag remains as a deprecated alias.
+Note: In real mode, `--profile` expects a directory name under `--user-data-dir` (for example `Default` or `Profile 1`), which is what Chromium expects. In remote mode, it is the cloud profile id.
 
 **Session behavior**: All commands without `--session` use the same "default" session. The browser stays open and is reused across commands. Use `--session NAME` to run multiple browsers in parallel.
 

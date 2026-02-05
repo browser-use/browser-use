@@ -8,7 +8,6 @@ import pytest
 
 from browser_use.filesystem.file_system import (
 	DEFAULT_FILE_SYSTEM_PATH,
-	INVALID_FILENAME_ERROR_MESSAGE,
 	CsvFile,
 	FileSystem,
 	FileSystemState,
@@ -325,9 +324,13 @@ class TestFileSystem:
 		non_existent = fs.get_file('nonexistent.md')
 		assert non_existent is None
 
-		# Get file with invalid name
+		# Get file with invalid name - sanitized to invalidname.md, still not found
 		invalid = fs.get_file('invalid@name.md')
 		assert invalid is None
+
+		# Get default file via sanitized name should work
+		todo = fs.get_file('todo.md')
+		assert todo is not None
 
 	def test_list_files(self, temp_filesystem):
 		"""Test listing files in the filesystem."""
@@ -366,9 +369,11 @@ class TestFileSystem:
 		result = await fs.read_file('nonexistent.md')
 		assert result == "File 'nonexistent.md' not found."
 
-		# Read file with invalid name
+		# Read file with invalid name - gets auto-sanitized to invalidname.md, but file doesn't exist
 		result = await fs.read_file('invalid@name.md')
-		assert result == INVALID_FILENAME_ERROR_MESSAGE
+		assert 'not found' in result
+		assert 'invalidname.md' in result
+		assert 'auto-corrected' in result
 
 	async def test_write_file(self, temp_filesystem):
 		"""Test writing content to files."""
@@ -391,6 +396,8 @@ class TestFileSystem:
 		# Write with special chars in filename - auto-sanitized to 'invalidname.md'
 		result = await fs.write_file('invalid@name.md', 'content')
 		assert 'successfully' in result
+		assert 'auto-corrected' in result
+		assert 'invalidname.md' in result
 
 		# Write with unsupported extension - gives specific error
 		result = await fs.write_file('test.doc', 'content')
@@ -468,6 +475,7 @@ class TestFileSystem:
 		# Append with special chars in filename - auto-sanitized but file doesn't exist
 		result = await fs.append_file('invalid@name.md', 'content')
 		assert 'not found' in result
+		assert 'auto-corrected' in result
 
 	async def test_append_json_file(self, temp_filesystem):
 		"""Test appending content to JSON files."""
@@ -967,17 +975,28 @@ class TestFilenameSanitization:
 		assert FileSystem.sanitize_filename('@#$.md') == 'file.md'
 
 	async def test_write_file_auto_sanitizes(self):
-		"""Test that write_file auto-sanitizes invalid filenames when possible."""
+		"""Test that write_file auto-sanitizes invalid filenames and includes a notice."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
 
-			# Filename with special chars should be auto-sanitized
+			# Filename with special chars should be auto-sanitized with notice
 			result = await fs.write_file('test@file.md', 'content')
 			assert 'successfully' in result
+			assert 'auto-corrected' in result
+			assert 'testfile.md' in result
 
-			# Filename with spaces should be auto-sanitized
+			# Filename with spaces - spaces are valid, so no sanitization needed
 			result = await fs.write_file('my file.txt', 'content')
 			assert 'successfully' in result
+
+			# Verify the sanitized file can be read back
+			content = await fs.read_file('testfile.md')
+			assert 'content' in content
+
+			# Verify reading with the original invalid name also works (via sanitization)
+			content = await fs.read_file('test@file.md')
+			assert 'content' in content
+			assert 'auto-corrected' in content
 
 			fs.nuke()
 
@@ -1031,6 +1050,154 @@ class TestFilenameSanitization:
 
 			result = await fs.write_file('data.backup.2024.csv', 'a,b\n1,2')
 			assert 'successfully' in result
+
+			fs.nuke()
+
+	async def test_read_file_with_sanitized_name(self):
+		"""Test that read_file resolves sanitized filenames to find existing files."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			# Write with invalid name (gets sanitized)
+			await fs.write_file('data#export.json', '{"key": "value"}')
+
+			# Read with the sanitized name directly
+			result = await fs.read_file('dataexport.json')
+			assert '{"key": "value"}' in result
+
+			# Read with the original invalid name (should resolve via sanitization)
+			result = await fs.read_file('data#export.json')
+			assert '{"key": "value"}' in result
+			assert 'auto-corrected' in result
+
+			fs.nuke()
+
+	async def test_append_file_with_sanitized_name(self):
+		"""Test that append_file works with sanitized filenames."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			# Write with invalid name (gets sanitized to 'report.md')
+			await fs.write_file('report!.md', '# Report')
+
+			# Append using the original invalid name (should resolve via sanitization)
+			result = await fs.append_file('report!.md', '\n## Section 2')
+			assert 'successfully' in result
+			assert 'auto-corrected' in result
+
+			# Verify content was appended
+			content = await fs.read_file('report.md')
+			assert '# Report' in content
+			assert '## Section 2' in content
+
+			fs.nuke()
+
+	async def test_replace_file_with_sanitized_name(self):
+		"""Test that replace_file_str works with sanitized filenames."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			# Write with invalid name (gets sanitized)
+			await fs.write_file('my$notes.txt', 'old text here')
+
+			# Replace using the original invalid name
+			result = await fs.replace_file_str('my$notes.txt', 'old text', 'new text')
+			assert 'Successfully replaced' in result
+			assert 'auto-corrected' in result
+
+			# Verify replacement worked
+			content = await fs.read_file('mynotes.txt')
+			assert 'new text here' in content
+
+			fs.nuke()
+
+	async def test_no_extension_gives_specific_error(self):
+		"""Test that filenames without extensions give a helpful error."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			result = await fs.write_file('justname', 'content')
+			assert 'no extension' in result.lower()
+			assert '.md' in result
+
+			fs.nuke()
+
+	async def test_read_unsanitizable_filename_gives_specific_error(self):
+		"""Test that truly unresolvable filenames get specific error messages."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			# No extension - can't be sanitized
+			result = await fs.read_file('noextension')
+			assert 'no extension' in result.lower()
+
+			# Binary extension - specific error
+			result = await fs.write_file('image.png', 'data')
+			assert 'binary' in result.lower() or 'Cannot write' in result
+
+			fs.nuke()
+
+	def test_get_file_with_sanitized_name(self):
+		"""Test that get_file resolves sanitized filenames."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=True)
+
+			# get_file with valid name
+			assert fs.get_file('todo.md') is not None
+
+			# get_file with invalid chars that sanitize to a non-existent file
+			assert fs.get_file('nonexistent@file.md') is None
+
+			fs.nuke()
+
+	def test_display_file_with_sanitized_name(self):
+		"""Test that display_file resolves sanitized filenames."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=True)
+
+			# Display with valid name
+			assert fs.display_file('todo.md') is not None
+
+			# Display with unsanitizable name
+			assert fs.display_file('noext') is None
+
+			fs.nuke()
+
+	async def test_path_traversal_prevented(self):
+		"""Test that directory traversal in filenames is stripped to basename."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			# Write with path traversal - should strip to basename 'secret.md'
+			result = await fs.write_file('../secret.md', 'traversal attempt')
+			assert 'successfully' in result
+			assert 'secret.md' in result
+
+			# File should be stored under basename only, inside data_dir
+			assert 'secret.md' in fs.files
+			file_on_disk = fs.data_dir / 'secret.md'
+			assert file_on_disk.exists()
+
+			# Parent directory should NOT have the file
+			escaped_path = fs.data_dir.parent / 'secret.md'
+			assert not escaped_path.exists()
+
+			# Nested traversal also stripped
+			result = await fs.write_file('../../etc/passwd.txt', 'nope')
+			assert 'successfully' in result
+			assert 'passwd.txt' in result
+			assert (fs.data_dir / 'passwd.txt').exists()
+
+			# Absolute paths stripped to basename
+			result = await fs.write_file('/tmp/evil.md', 'nope')
+			assert 'successfully' in result
+			assert 'evil.md' in result
+			assert (fs.data_dir / 'evil.md').exists()
+
+			# resolve_filename returns basename, not the traversal path
+			resolved, was_changed = fs._resolve_filename('../secret.md')
+			assert resolved == 'secret.md'
+			assert was_changed is True
 
 			fs.nuke()
 

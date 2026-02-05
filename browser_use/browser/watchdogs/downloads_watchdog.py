@@ -10,7 +10,8 @@ from urllib.parse import urlparse
 
 import anyio
 from bubus import BaseEvent
-from cdp_use.cdp.browser import DownloadProgressEvent, DownloadWillBeginEvent
+from cdp_use.cdp.browser import DownloadProgressEvent as CDPDownloadProgressEvent
+from cdp_use.cdp.browser import DownloadWillBeginEvent
 from cdp_use.cdp.network import ResponseReceivedEvent
 from cdp_use.cdp.target import SessionID, TargetID
 from pydantic import PrivateAttr
@@ -19,6 +20,8 @@ from browser_use.browser.events import (
 	BrowserLaunchEvent,
 	BrowserStateRequestEvent,
 	BrowserStoppedEvent,
+	DownloadProgressEvent,
+	DownloadStartedEvent,
 	FileDownloadedEvent,
 	NavigationCompleteEvent,
 	TabClosedEvent,
@@ -46,6 +49,8 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	# Events this watchdog emits
 	EMITS: ClassVar[list[type[BaseEvent[Any]]]] = [
+		DownloadProgressEvent,
+		DownloadStartedEvent,
 		FileDownloadedEvent,
 	]
 
@@ -62,6 +67,49 @@ class DownloadsWatchdog(BaseWatchdog):
 	_network_monitored_targets: set[str] = PrivateAttr(default_factory=set)  # Track targets with network monitoring enabled
 	_detected_downloads: set[str] = PrivateAttr(default_factory=set)  # Track detected download URLs to avoid duplicates
 	_network_callback_registered: bool = PrivateAttr(default=False)  # Track if global network callback is registered
+
+	# Direct callback support for download waiting (bypasses event bus for synchronization)
+	_download_start_callbacks: list[Any] = PrivateAttr(default_factory=list)  # Callbacks for download start
+	_download_progress_callbacks: list[Any] = PrivateAttr(default_factory=list)  # Callbacks for download progress
+	_download_complete_callbacks: list[Any] = PrivateAttr(default_factory=list)  # Callbacks for download complete
+
+	def register_download_callbacks(
+		self,
+		on_start: Any | None = None,
+		on_progress: Any | None = None,
+		on_complete: Any | None = None,
+	) -> None:
+		"""Register direct callbacks for download events
+
+		Callbacks called sync from CDP event handlers, so click
+		handlers receive download notif without waiting for event bus to process
+		"""
+		self.logger.debug(
+			f'[DownloadsWatchdog] Registering callbacks: start={on_start is not None}, progress={on_progress is not None}, complete={on_complete is not None}'
+		)
+		if on_start:
+			self._download_start_callbacks.append(on_start)
+			self.logger.debug(
+				f'[DownloadsWatchdog] Registered start callback, now have {len(self._download_start_callbacks)} start callbacks'
+			)
+		if on_progress:
+			self._download_progress_callbacks.append(on_progress)
+		if on_complete:
+			self._download_complete_callbacks.append(on_complete)
+
+	def unregister_download_callbacks(
+		self,
+		on_start: Any | None = None,
+		on_progress: Any | None = None,
+		on_complete: Any | None = None,
+	) -> None:
+		"""Unregister previously registered download callbacks."""
+		if on_start and on_start in self._download_start_callbacks:
+			self._download_start_callbacks.remove(on_start)
+		if on_progress and on_progress in self._download_progress_callbacks:
+			self._download_progress_callbacks.remove(on_progress)
+		if on_complete and on_complete in self._download_complete_callbacks:
+			self._download_complete_callbacks.remove(on_complete)
 
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> None:
 		self.logger.debug(f'[DownloadsWatchdog] Received BrowserLaunchEvent, EventBus ID: {id(self.event_bus)}')
@@ -184,16 +232,43 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.debug(f'[DownloadsWatchdog] Download will begin: {event}')
 			# Cache info for later completion event handling (esp. remote browsers)
 			guid = event.get('guid', '')
+			url = event.get('url', '')
+			suggested_filename = event.get('suggestedFilename', 'download')
 			try:
-				suggested_filename = event.get('suggestedFilename')
 				assert suggested_filename, 'CDP DownloadWillBegin missing suggestedFilename'
 				self._cdp_downloads_info[guid] = {
-					'url': event.get('url', ''),
+					'url': url,
 					'suggested_filename': suggested_filename,
 					'handled': False,
 				}
 			except (AssertionError, KeyError):
 				pass
+
+			# Call direct callbacks first (for click handlers waiting for downloads)
+			download_info = {
+				'guid': guid,
+				'url': url,
+				'suggested_filename': suggested_filename,
+				'auto_download': False,
+			}
+			self.logger.debug(f'[DownloadsWatchdog] Calling {len(self._download_start_callbacks)} start callbacks')
+			for callback in self._download_start_callbacks:
+				try:
+					self.logger.debug(f'[DownloadsWatchdog] Calling start callback: {callback}')
+					callback(download_info)
+				except Exception as e:
+					self.logger.debug(f'[DownloadsWatchdog] Error in download start callback: {e}')
+
+			# Emit DownloadStartedEvent so other components can react
+			self.event_bus.dispatch(
+				DownloadStartedEvent(
+					guid=guid,
+					url=url,
+					suggested_filename=suggested_filename,
+					auto_download=False,  # CDP-triggered downloads are user-initiated
+				)
+			)
+
 			# Create and track the task
 			task = create_task_with_error_handling(
 				self._handle_cdp_download(event, target_id, session_id),
@@ -205,16 +280,45 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Remove from set when done
 			task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
 
-		def download_progress_handler(event: DownloadProgressEvent, session_id: SessionID | None) -> None:
+		def download_progress_handler(event: CDPDownloadProgressEvent, session_id: SessionID | None) -> None:
+			guid = event.get('guid', '')
+			state = event.get('state', '')
+			received_bytes = int(event.get('receivedBytes', 0))
+			total_bytes = int(event.get('totalBytes', 0))
+
+			# Call direct callbacks first (for click handlers tracking progress)
+			progress_info = {
+				'guid': guid,
+				'received_bytes': received_bytes,
+				'total_bytes': total_bytes,
+				'state': state,
+			}
+			for callback in self._download_progress_callbacks:
+				try:
+					callback(progress_info)
+				except Exception as e:
+					self.logger.debug(f'[DownloadsWatchdog] Error in download progress callback: {e}')
+
+			# Emit progress event for all states so listeners can track progress
+			from browser_use.browser.events import DownloadProgressEvent as DownloadProgressEventInternal
+
+			self.event_bus.dispatch(
+				DownloadProgressEventInternal(
+					guid=guid,
+					received_bytes=received_bytes,
+					total_bytes=total_bytes,
+					state=state,
+				)
+			)
+
 			# Check if download is complete
-			if event.get('state') == 'completed':
+			if state == 'completed':
 				file_path = event.get('filePath')
-				guid = event.get('guid', '')
 				if self.browser_session.is_local:
 					if file_path:
 						self.logger.debug(f'[DownloadsWatchdog] Download completed: {file_path}')
 						# Track the download
-						self._track_download(file_path)
+						self._track_download(file_path, guid=guid)
 						# Mark as handled to prevent fallback duplicate dispatch
 						try:
 							if guid in self._cdp_downloads_info:
@@ -237,6 +341,7 @@ class DownloadsWatchdog(BaseWatchdog):
 						file_ext = Path(file_name).suffix.lower().lstrip('.')
 						self.event_bus.dispatch(
 							FileDownloadedEvent(
+								guid=guid,
 								url=info.get('url', ''),
 								path=str(effective_path),
 								file_name=file_name,
@@ -629,11 +734,12 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.warning(f'[DownloadsWatchdog] Download failed: {type(e).__name__}: {e}')
 			return None
 
-	def _track_download(self, file_path: str) -> None:
+	def _track_download(self, file_path: str, guid: str | None = None) -> None:
 		"""Track a completed download and dispatch the appropriate event.
 
 		Args:
 			file_path: The path to the downloaded file
+			guid: Optional CDP download GUID for correlation with DownloadStartedEvent
 		"""
 		try:
 			# Get file info
@@ -642,11 +748,31 @@ class DownloadsWatchdog(BaseWatchdog):
 				file_size = path.stat().st_size
 				self.logger.debug(f'[DownloadsWatchdog] Tracked download: {path.name} ({file_size} bytes)')
 
+				# Get file extension for file_type
+				file_ext = path.suffix.lower().lstrip('.')
+
+				# Call direct callbacks first (for click handlers waiting for downloads)
+				complete_info = {
+					'guid': guid,
+					'url': str(path),
+					'path': str(path),
+					'file_name': path.name,
+					'file_size': file_size,
+					'file_type': file_ext if file_ext else None,
+					'auto_download': False,
+				}
+				for callback in self._download_complete_callbacks:
+					try:
+						callback(complete_info)
+					except Exception as e:
+						self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
+
 				# Dispatch download event
 				from browser_use.browser.events import FileDownloadedEvent
 
 				self.event_bus.dispatch(
 					FileDownloadedEvent(
+						guid=guid,
 						url=str(path),  # Use the file path as URL for local files
 						path=str(path),
 						file_name=path.name,
@@ -762,6 +888,7 @@ class DownloadsWatchdog(BaseWatchdog):
 						file_type = file_ext if file_ext else None
 						self.event_bus.dispatch(
 							FileDownloadedEvent(
+								guid=guid,
 								url=download_url,
 								path=str(expected_path),
 								file_name=unique_filename or expected_path.name,
@@ -836,6 +963,7 @@ class DownloadsWatchdog(BaseWatchdog):
 									return
 								self.event_bus.dispatch(
 									FileDownloadedEvent(
+										guid=guid,
 										url=download_url,
 										path=str(file_path),
 										file_name=file_path.name,

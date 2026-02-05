@@ -17,7 +17,7 @@ class SessionInfo:
 	name: str
 	browser_mode: str
 	headed: bool
-	profile_directory: str | None
+	profile: str | None
 	cdp_url: str | None
 	browser_exe: str | None
 	user_data_dir: str | None
@@ -41,7 +41,7 @@ class SessionRegistry:
 		name: str,
 		browser_mode: str,
 		headed: bool,
-		profile_directory: str | None,
+		profile: str | None,
 		cdp_url: str | None = None,
 		browser_exe: str | None = None,
 		user_data_dir: str | None = None,
@@ -51,12 +51,12 @@ class SessionRegistry:
 		if name in self._sessions:
 			return self._sessions[name]
 
-		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed}, cdp_url={cdp_url})')
+		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed})')
 
 		browser_session = await create_browser_session(
 			browser_mode,
 			headed,
-			profile_directory,
+			profile,
 			cdp_url,
 			browser_exe,
 			user_data_dir,
@@ -67,7 +67,7 @@ class SessionRegistry:
 			name=name,
 			browser_mode=browser_mode,
 			headed=headed,
-			profile_directory=profile_directory,
+			profile=profile,
 			cdp_url=cdp_url,
 			browser_exe=browser_exe,
 			user_data_dir=user_data_dir,
@@ -88,7 +88,8 @@ class SessionRegistry:
 				'name': s.name,
 				'browser_mode': s.browser_mode,
 				'headed': s.headed,
-				'profile_directory': s.profile_directory,
+				'profile': s.profile,
+				'cdp_url': s.cdp_url,
 				'user_data_dir': s.user_data_dir,
 				'browser_exe': s.browser_exe,
 				'no_copy_profile': s.no_copy_profile,
@@ -118,7 +119,7 @@ class SessionRegistry:
 async def create_browser_session(
 	mode: str,
 	headed: bool,
-	profile_directory: str | None,
+	profile: str | None,
 	cdp_url: str | None = None,
 	browser_exe: str | None = None,
 	user_data_dir: str | None = None,
@@ -129,11 +130,11 @@ async def create_browser_session(
 	- chromium: Playwright-managed Chromium (default)
 	- real: User's Chrome with profile
 	- remote: Browser-Use Cloud (requires API key)
-	- cdp_url: Connect to existing browser via CDP URL (takes precedence)
 	"""
-	# CDP URL takes precedence over other modes
 	if cdp_url:
-		return BrowserSession(cdp_url=cdp_url)
+		return BrowserSession(
+			cdp_url=cdp_url,
+		)
 
 	if mode == 'chromium':
 		return BrowserSession(
@@ -148,20 +149,23 @@ async def create_browser_session(
 			raise RuntimeError('Could not find Chrome executable. Please install Chrome or specify --browser chromium')
 
 		resolved_user_data_dir = user_data_dir or get_chrome_profile_path()
+		resolved_profile_directory = profile or 'Default'
 
 		return BrowserSession(
 			executable_path=chrome_path,
 			user_data_dir=resolved_user_data_dir,
-			headless=False,  # Real browser always visible
-			profile_directory=profile_directory,
+			profile_directory=resolved_profile_directory,
+			headless=not headed,  # Headless by default, --headed for visible
 		)
 
 	elif mode == 'remote':
 		from browser_use.skill_cli.api_key import require_api_key
 
 		require_api_key('Remote browser')
+		# Profile is used as cloud_profile_id for remote mode
 		return BrowserSession(
 			use_cloud=True,
+			cloud_profile_id=profile,
 		)
 
 	else:

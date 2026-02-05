@@ -31,7 +31,7 @@ class SessionServer:
 		session_name: str,
 		browser_mode: str,
 		headed: bool,
-		profile_directory: str | None,
+		profile: str | None,
 		cdp_url: str | None = None,
 		browser_exe: str | None = None,
 		user_data_dir: str | None = None,
@@ -40,7 +40,7 @@ class SessionServer:
 		self.session_name = session_name
 		self.browser_mode = browser_mode
 		self.headed = headed
-		self.profile_directory = profile_directory
+		self.profile = profile
 		self.cdp_url = cdp_url
 		self.browser_exe = browser_exe
 		self.user_data_dir = user_data_dir
@@ -130,7 +130,7 @@ class SessionServer:
 				self.session_name,
 				self.browser_mode,
 				self.headed,
-				self.profile_directory,
+				self.profile,
 				self.cdp_url,
 				self.browser_exe,
 				self.user_data_dir,
@@ -251,8 +251,7 @@ def main() -> None:
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
 	parser.add_argument('--browser-exe', help='Path to Chrome/Chromium executable (real browser mode)')
 	parser.add_argument('--user-data-dir', help='Chrome user data directory (real browser mode)')
-	parser.add_argument('--profile-directory', help='Chrome profile directory name (e.g. "Default", "Profile 1")')
-	parser.add_argument('--profile', help='Deprecated alias for --profile-directory')
+	parser.add_argument('--profile', help='Cloud profile id (remote) or Chrome profile directory name (real)')
 	parser.add_argument('--no-copy-profile', action='store_true', help='Use profile in-place without copying')
 	parser.add_argument('--cdp-url', help='CDP URL to connect to existing browser')
 	args = parser.parse_args()
@@ -262,13 +261,11 @@ def main() -> None:
 	if args.no_copy_profile:
 		os.environ['BROWSER_USE_NO_COPY_PROFILE'] = '1'
 
-	profile_directory = args.profile_directory or args.profile
-
 	server = SessionServer(
 		session_name=args.session,
 		browser_mode=args.browser,
 		headed=args.headed,
-		profile_directory=profile_directory,
+		profile=args.profile,
 		cdp_url=getattr(args, 'cdp_url', None),
 		browser_exe=args.browser_exe,
 		user_data_dir=args.user_data_dir,
