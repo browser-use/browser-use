@@ -823,21 +823,34 @@ class BrowserUseServer:
 				import base64
 				import uuid
 
+				import anyio
+
 				# Create screenshots directory
 				screenshots_dir = Path.home() / '.browser-use-mcp' / 'screenshots'
-				screenshots_dir.mkdir(parents=True, exist_ok=True)
+				await anyio.Path(screenshots_dir).mkdir(parents=True, exist_ok=True)
 
 				# Generate unique filename with timestamp
 				timestamp = time.strftime('%Y%m%d_%H%M%S')
 				filename = f'screenshot_{timestamp}_{uuid.uuid4().hex[:8]}.png'
 				screenshot_path = screenshots_dir / filename
 
-				# Decode base64 and save to file
+				# Decode base64 and save to file asynchronously
 				screenshot_data = base64.b64decode(state.screenshot)
-				screenshot_path.write_bytes(screenshot_data)
+				async with await anyio.open_file(screenshot_path, 'wb') as f:
+					await f.write(screenshot_data)
 
 				result['screenshot_path'] = str(screenshot_path)
 				logger.debug(f'Screenshot saved to: {screenshot_path}')
+
+				# Cleanup old screenshots - keep only last 50 files
+				try:
+					screenshot_files = sorted(screenshots_dir.glob('screenshot_*.png'), key=lambda p: p.stat().st_mtime)
+					if len(screenshot_files) > 50:
+						for old_file in screenshot_files[:-50]:
+							await anyio.Path(old_file).unlink(missing_ok=True)
+						logger.debug(f'Cleaned up {len(screenshot_files) - 50} old screenshots')
+				except Exception as cleanup_error:
+					logger.debug(f'Screenshot cleanup failed (non-critical): {cleanup_error}')
 			except Exception as e:
 				# Fallback to base64 if file save fails
 				logger.warning(f'Failed to save screenshot to file, falling back to base64: {e}')
