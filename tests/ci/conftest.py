@@ -7,14 +7,15 @@ Sets up environment variables to ensure tests never connect to production servic
 import os
 import socketserver
 import tempfile
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from dotenv import load_dotenv
-from typing import Any
 
 try:
 	from pytest_httpserver import HTTPServer  # type: ignore
+
 	HAS_HTTPSERVER = True
 except ImportError:
 	HTTPServer = Any  # type: ignore
@@ -181,6 +182,7 @@ async def browser_session():
 
 
 if HAS_HTTPSERVER:
+
 	@pytest.fixture(scope='function')
 	def cloud_sync(httpserver: HTTPServer):  # type: ignore[valid-type]
 		"""
@@ -203,9 +205,10 @@ if HAS_HTTPSERVER:
 
 		return cloud_sync
 else:
+
 	@pytest.fixture(scope='function')
 	def cloud_sync():
-		pytest.skip("pytest-httpserver not installed")
+		pytest.skip('pytest-httpserver not installed')
 
 
 @pytest.fixture(scope='function')

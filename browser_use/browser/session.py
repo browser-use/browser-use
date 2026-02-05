@@ -1324,10 +1324,7 @@ class BrowserSession(BaseModel):
 			Other exceptions from command_fn if not session-related
 
 		Example:
-			>>> result = await self._send_cdp_with_retry(
-			...     cdp_session,
-			...     lambda s: s.cdp_client.send.Target.activateTarget(params={'targetId': target_id})
-			... )
+			>>> result = await self._send_cdp_with_retry(cdp_session, lambda s: s.cdp_client.send.Target.activateTarget(params={'targetId': target_id}))
 		"""
 		for attempt in range(max_retries):
 			try:
@@ -1340,7 +1337,7 @@ class BrowserSession(BaseModel):
 						# Session detached, wait and refresh
 						wait_time = 0.1 * (2**attempt)  # Exponential backoff
 						self.logger.debug(
-							f'CDP session detached during command, retrying in {wait_time*1000:.0f}ms '
+							f'CDP session detached during command, retrying in {wait_time * 1000:.0f}ms '
 							f'(attempt {attempt + 1}/{max_retries})'
 						)
 						await asyncio.sleep(wait_time)
@@ -1358,9 +1355,7 @@ class BrowserSession(BaseModel):
 						continue
 					else:
 						# All retries exhausted
-						raise RuntimeError(
-							f'CDP session detached and all {max_retries} retries failed'
-						) from e
+						raise RuntimeError(f'CDP session detached and all {max_retries} retries failed') from e
 				# Different error, propagate immediately
 				raise
 
