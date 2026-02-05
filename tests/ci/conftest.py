@@ -13,8 +13,11 @@ import pytest
 from dotenv import load_dotenv
 try:
 	from pytest_httpserver import HTTPServer
+	HAS_HTTPSERVER = True
 except ImportError:
-	HTTPServer = None
+	class HTTPServer: pass
+	HAS_HTTPSERVER = False
+
 
 # Fix for httpserver hanging on shutdown - prevent blocking on socket close
 # This prevents tests from hanging when shutting down HTTP servers
@@ -175,7 +178,7 @@ async def browser_session():
 	await session.event_bus.stop(clear=True, timeout=5)
 
 
-if HTTPServer:
+if HAS_HTTPSERVER:
 	@pytest.fixture(scope='function')
 	def cloud_sync(httpserver: HTTPServer):
 		"""

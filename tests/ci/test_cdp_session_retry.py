@@ -23,7 +23,6 @@ class TestCDPSessionRetry:
 		session.logger = MagicMock()
 		
 		# Bind the method to the mock instance
-		from browser_use.browser.session import BrowserSession
 		retry_method = BrowserSession._send_cdp_with_retry.__get__(session, BrowserSession)
 		
 		# Create mock CDP session
@@ -58,7 +57,6 @@ class TestCDPSessionRetry:
 		session.get_or_create_cdp_session = mock_get_session
 		
 		# Bind the method
-		from browser_use.browser.session import BrowserSession
 		retry_method = BrowserSession._send_cdp_with_retry.__get__(session, BrowserSession)
 		
 		# Create mock CDP session
@@ -100,7 +98,6 @@ class TestCDPSessionRetry:
 		session.get_or_create_cdp_session = mock_get_session
 		
 		# Bind the method
-		from browser_use.browser.session import BrowserSession
 		retry_method = BrowserSession._send_cdp_with_retry.__get__(session, BrowserSession)
 		
 		# Create mock CDP session
@@ -123,7 +120,6 @@ class TestCDPSessionRetry:
 		session.logger = MagicMock()
 		
 		# Bind the method
-		from browser_use.browser.session import BrowserSession
 		retry_method = BrowserSession._send_cdp_with_retry.__get__(session, BrowserSession)
 		
 		# Create mock CDP session
@@ -158,7 +154,6 @@ class TestCDPSessionRetry:
 		session.get_or_create_cdp_session = mock_get_session
 		
 		# Bind the method
-		from browser_use.browser.session import BrowserSession
 		retry_method = BrowserSession._send_cdp_with_retry.__get__(session, BrowserSession)
 		
 		# Create mock CDP session
@@ -174,7 +169,7 @@ class TestCDPSessionRetry:
 			await original_sleep(0)  # Don't actually sleep in test
 		
 		# Patch asyncio.sleep
-		import asyncio
+		# Note: We use the global asyncio module which is already imported
 		asyncio.sleep = mock_sleep
 		
 		try:
@@ -215,7 +210,6 @@ class TestCDPSessionRetry:
 		session.get_or_create_cdp_session = mock_get_session
 		
 		# Bind the method
-		from browser_use.browser.session import BrowserSession
 		retry_method = BrowserSession._send_cdp_with_retry.__get__(session, BrowserSession)
 		
 		# Create mock CDP session
