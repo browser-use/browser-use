@@ -147,6 +147,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
+		final_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
 			Callable[['BrowserStateSummary', 'AgentOutput', int], None]  # Sync callback
@@ -447,6 +448,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.initial_url = initial_url
 
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
+		self.final_actions = self._convert_initial_actions(final_actions) if final_actions else None
 		# Verify we can connect to the model
 		self._verify_and_setup_llm()
 
@@ -2521,6 +2523,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				self.logger.info(f'❌ {agent_run_error}')
 
+			# Execute final actions if task completed successfully
+			if self.history.is_done() and self.final_actions:
+				await self._execute_final_actions()
+
 			self.history.usage = await self.token_cost_service.get_usage_summary()
 
 			# set the model output schema and call it on the fly
@@ -3199,6 +3205,56 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.history.add_item(history_item)
 			self.logger.debug('📝 Saved initial actions to history as step 0')
 			self.logger.debug('Initial actions completed')
+
+	async def _execute_final_actions(self) -> None:
+		"""Execute final actions after task completion."""
+		if self.final_actions:
+			self.logger.debug(f'⚡ Executing {len(self.final_actions)} final actions...')
+			result = await self.multi_act(self.final_actions)
+			self.state.last_result = result
+
+			# Save final actions to history
+			if self.settings.flash_mode:
+				model_output = self.AgentOutput(
+					evaluation_previous_goal=None,
+					memory='Final actions',
+					next_goal=None,
+					action=self.final_actions,
+				)
+			else:
+				model_output = self.AgentOutput(
+					evaluation_previous_goal='Task completed',
+					memory=None,
+					next_goal='Final cleanup actions',
+					action=self.final_actions,
+				)
+
+			metadata = StepMetadata(
+				step_number=len(self.history.history),
+				step_start_time=time.time(),
+				step_end_time=time.time(),
+				step_interval=None,
+			)
+
+			# Create minimal browser state history for final actions
+			state_history = BrowserStateHistory(
+				url='',
+				title='Final Actions',
+				tabs=[],
+				interacted_element=[None] * len(self.final_actions),
+				screenshot_path=None,
+			)
+
+			history_item = AgentHistory(
+				model_output=model_output,
+				result=result,
+				state=state_history,
+				metadata=metadata,
+			)
+
+			self.history.add_item(history_item)
+			self.logger.debug('📝 Saved final actions to history')
+			self.logger.debug('Final actions completed')
 
 	async def _wait_for_minimum_elements(
 		self,
