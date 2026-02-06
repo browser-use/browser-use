@@ -369,22 +369,45 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		return port
 
 	@staticmethod
-	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
-		"""Wait for the browser to start and return the CDP URL."""
+	async def _wait_for_cdp_url(port: int, process: asyncio.subprocess.Process | None = None, timeout: float = 30) -> str:
+		"""Wait for the browser to start and return the CDP URL.
+
+		Args:
+			port: Debugging port
+			process: Browser subprocess to monitor for crashes
+			timeout: Timeout in seconds
+		"""
 		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
+			# Check if process crashed
+			if process and process.returncode is not None:
+				# Try to read stderr if available
+				stderr_output = ''
+				if process.stderr:
+					try:
+						stderr_output = (await process.stderr.read()).decode()
+					except Exception:
+						pass
+				raise RuntimeError(f'Browser process crashed with exit code {process.returncode}: {stderr_output}')
+
 			try:
 				async with aiohttp.ClientSession() as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
 						if resp.status == 200:
-							# Chrome is ready
-							return f'http://127.0.0.1:{port}/'
-						else:
-							# Chrome is starting up and returning 502/500 errors
-							await asyncio.sleep(0.1)
+							# Chrome is ready, get the WebSocket URL
+							try:
+								version_info = await resp.json()
+								# Return the WebSocket URL directly so BrowserSession doesn't have to query it again
+								return version_info['webSocketDebuggerUrl']
+							except Exception:
+								# JSON parsing failed, Chrome might be returning partial response
+								pass
+
+						# Chrome is starting up or returning 502/500 errors
+						await asyncio.sleep(0.1)
 			except Exception:
 				# Connection error - Chrome might not be ready yet
 				await asyncio.sleep(0.1)
