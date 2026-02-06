@@ -342,7 +342,7 @@ Available tabs:
 		if self.sensitive_data:
 			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
 
-		agent_state += f'<step_info>{step_info_description}</step_info>\n'
+		agent_state += f'<current_date>{step_info_description}</current_date>\n'
 		if self.available_file_paths:
 			available_file_paths_text = '\n'.join(self.available_file_paths)
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
