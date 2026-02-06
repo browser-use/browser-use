@@ -42,6 +42,7 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	ExtractAction,
+	ExtractWithScriptAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
@@ -222,6 +223,53 @@ try {
 }
 """
 
+_PAGINATION_PROBE_JS = """\
+(function() {
+  var hints = [];
+  var found = false;
+
+  // Check for "Next" / "Load more" links/buttons
+  var candidates = document.querySelectorAll('a, button, [role="button"]');
+  for (var i = 0; i < candidates.length; i++) {
+    var el = candidates[i];
+    var txt = (el.textContent || '').trim().toLowerCase();
+    if (/^(next|next\\s*page|load\\s*more|show\\s*more|view\\s*more|see\\s*more|more\\s*results)$/i.test(txt)
+        || el.getAttribute('aria-label') && /next|load more/i.test(el.getAttribute('aria-label'))
+        || el.getAttribute('rel') === 'next') {
+      var tag = el.tagName.toLowerCase();
+      var href = el.getAttribute('href') || '';
+      hints.push('Found "' + txt + '" ' + tag + (href ? ' (href=' + href + ')' : '') + ' — click it to get more results, then re-run extract_with_script with the same script_id.');
+      found = true;
+      if (hints.length >= 3) break;
+    }
+  }
+
+  // Check for pagination nav (numbered pages)
+  var pagNavs = document.querySelectorAll('nav[aria-label*="pag"], ul.pagination, [class*="pagination"], [class*="pager"]');
+  if (pagNavs.length > 0) {
+    var pageLinks = pagNavs[0].querySelectorAll('a, button');
+    var pages = [];
+    for (var j = 0; j < Math.min(pageLinks.length, 10); j++) {
+      var pt = (pageLinks[j].textContent || '').trim();
+      if (pt) pages.push(pt);
+    }
+    if (pages.length > 0) {
+      hints.push('Pagination nav found with pages: [' + pages.join(', ') + ']. Click the next page number and re-run extract_with_script with the same script_id.');
+      found = true;
+    }
+  }
+
+  // Check for infinite scroll / lazy load indicators
+  var sentinels = document.querySelectorAll('[class*="sentinel"], [class*="loading"], [class*="spinner"], [data-testid*="load"]');
+  if (sentinels.length > 0 && !found) {
+    hints.push('Page may use infinite scroll. Scroll down to trigger loading more items, then re-run extract_with_script with the same script_id.');
+    found = true;
+  }
+
+  return {found: found, hints: hints};
+})()
+"""
+
 
 def _build_search_page_js(
 	pattern: str,
@@ -343,16 +391,24 @@ def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
 
 
 class Tools(Generic[Context]):
+	# Actions excluded by default. Callers can override by passing exclude_actions=[].
+	_DEFAULT_EXCLUDE_ACTIONS = ['extract']
+
 	def __init__(
 		self,
 		exclude_actions: list[str] | None = None,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
-		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [])
+		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else list(self._DEFAULT_EXCLUDE_ACTIONS))
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		from browser_use.tools.extraction.dedup import ResultDeduplicator
+		from browser_use.tools.extraction.js_codegen import ScriptCache
+
+		self._js_script_cache = ScriptCache()
+		self._result_deduplicator = ResultDeduplicator()
 
 		"""Register all default browser actions"""
 
@@ -945,7 +1001,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page.""",
+			"""EXPENSIVE — last resort. Sends full page to LLM. Only use when you need semantic interpretation of large text (e.g. summarize an article, interpret complex prose). Try search_page, find_elements, or extract_with_script first. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated.""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -1158,6 +1214,110 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
+				raise RuntimeError(str(e))
+
+		# --- JS-codegen extraction ---
+
+		@self.registry.action(
+			"""Scrape many identical items from the DOM via generated JS (e.g. all rows of a data table, all products in a listing grid, all search results). Use when you need to collect a large set of repeated elements. Try search_page or find_elements first if they can answer the query.""",
+			param_model=ExtractWithScriptAction,
+		)
+		async def extract_with_script(
+			params: ExtractWithScriptAction,
+			browser_session: BrowserSession,
+			page_extraction_llm: BaseChatModel,
+			file_system: FileSystem,
+			extraction_schema: dict | None = None,
+		):
+			from browser_use.tools.extraction.js_codegen import js_codegen_extract
+
+			query = params.query
+			css_selector = params.css_selector
+			output_schema: dict | None = params.output_schema
+
+			# If the LLM didn't provide an output_schema, use the agent-injected extraction_schema
+			if output_schema is None and extraction_schema is not None:
+				output_schema = extraction_schema
+
+			try:
+				data, metadata = await js_codegen_extract(
+					query=query,
+					browser_session=browser_session,
+					llm=page_extraction_llm,
+					output_schema=output_schema,
+					css_selector=css_selector,
+					script_cache=self._js_script_cache,
+					script_id=params.script_id,
+				)
+
+				# Dedup against previously seen items for this script
+				script_id = metadata.get('script_id', '')
+				duplicates_removed = 0
+				total_seen = 0
+				if script_id:
+					data, duplicates_removed, total_seen = self._result_deduplicator.dedup(data, script_id)
+					if duplicates_removed > 0:
+						metadata['dedup'] = {'duplicates_removed': duplicates_removed, 'total_unique': total_seen}
+
+				result_json = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
+				current_url = metadata.get('source_url', '')
+
+				# Include script_id in the result so the agent can reuse it on subsequent pages
+				script_id_attr = f' script_id="{script_id}"' if script_id else ''
+
+				# Probe for pagination / load-more controls so the agent knows there may be more data
+				pagination_hint = ''
+				try:
+					cdp_session = await browser_session.get_or_create_cdp_session()
+					pag_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': _PAGINATION_PROBE_JS, 'returnByValue': True, 'awaitPromise': True},
+						session_id=cdp_session.session_id,
+					)
+					pag_data = pag_result.get('result', {}).get('value')
+					if isinstance(pag_data, dict) and pag_data.get('found'):
+						hints = pag_data.get('hints', [])
+						if hints:
+							pagination_hint = '\n<pagination_hint>\n' + '\n'.join(hints) + '\n</pagination_hint>'
+				except Exception:
+					pass  # non-critical — just skip the hint
+
+				# Add dedup annotation if duplicates were removed
+				dedup_annotation = ''
+				if duplicates_removed > 0:
+					dedup_annotation = (
+						f'\n<dedup_stats>'
+						f'{duplicates_removed} duplicate(s) removed, '
+						f'{total_seen} total unique item(s) across all pages'
+						f'</dedup_stats>'
+					)
+
+				extracted_content = (
+					f'<url>\n{current_url}\n</url>\n'
+					f'<query>\n{query}\n</query>\n'
+					f'<js_extraction_result{script_id_attr}>\n{result_json}\n</js_extraction_result>'
+					f'{dedup_annotation}'
+					f'{pagination_hint}'
+				)
+
+				# Simple memory handling
+				MAX_MEMORY_LENGTH = 10000
+				if len(extracted_content) < MAX_MEMORY_LENGTH:
+					memory = extracted_content
+					include_extracted_content_only_once = False
+				else:
+					file_name = await file_system.save_extracted_content(extracted_content)
+					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
+					include_extracted_content_only_once = True
+
+				logger.info(f'📄 JS extraction: {memory[:200]}')
+				return ActionResult(
+					extracted_content=extracted_content,
+					include_extracted_content_only_once=include_extracted_content_only_once,
+					long_term_memory=memory,
+					metadata=metadata,
+				)
+			except Exception as e:
+				logger.debug(f'Error in JS-codegen extraction: {e}')
 				raise RuntimeError(str(e))
 
 		# --- Page search and exploration tools (zero LLM cost) ---
