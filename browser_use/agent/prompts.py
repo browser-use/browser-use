@@ -318,13 +318,8 @@ Available tabs:
 		return browser_state
 
 	def _get_agent_state_description(self) -> str:
-		if self.step_info:
-			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
-		else:
-			step_info_description = ''
-
 		time_str = datetime.now().strftime('%Y-%m-%d')
-		step_info_description += f'Today:{time_str}'
+		step_info_description = f'Today:{time_str}'
 
 		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
 		if not len(_todo_contents):
