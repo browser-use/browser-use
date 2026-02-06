@@ -315,6 +315,20 @@ class Page:
 		params: 'NavigateParameters' = {'url': url}
 		await self._client.send.Page.navigate(params, session_id=session_id)
 
+	async def set_content(self, html: str, timeout: float | None = None) -> None:
+		"""Set the content of the page.
+
+		Args:
+			html: HTML content to set
+			timeout: Timeout in seconds (not used currently, kept for compatibility)
+		"""
+
+		# Use arrow function format required by evaluate()
+		# Pass HTML as argument to avoid escaping issues
+		js_code = '(html) => { document.open(); document.write(html); document.close(); }'
+
+		await self.evaluate(js_code, html)
+
 	async def navigate(self, url: str) -> None:
 		"""Alias for goto."""
 		await self.goto(url)
