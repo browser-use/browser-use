@@ -1450,7 +1450,7 @@ try {
 		user_msg_content = str(messages[1].content)
 		assert 'href=' in user_msg_content
 		assert '/page/1' in user_msg_content
-		assert 'example.com' in user_msg_content
+		assert 'https://example.com/ext' in user_msg_content
 
 
 # ---------------------------------------------------------------------------

@@ -183,7 +183,7 @@ def _clean_html_for_codegen(html: str) -> str:
 	Single-pass parser that:
 	- Keeps only whitelisted attributes (id, class, type, role, href, etc.)
 	- Strips SVG, noscript, iframe, canvas, video, audio entirely
-	- Caps class lists at 5 classes per element
+	- Caps class lists at 8 classes per element
 	- Preserves all text content and tag structure
 	"""
 	cleaner = _HTMLCleaner()
@@ -360,7 +360,18 @@ try {
   var tbls = body.querySelectorAll('table');
   for (var t = 0; t < tbls.length && t < 5; t++) {
     var tbl = tbls[t];
-    var id = tbl.id || tbl.className || ('table_' + t);
+    var selector = null;
+    var selectorType = null;
+    if (tbl.id) {
+      selector = tbl.id;
+      selectorType = 'id';
+    } else if (tbl.className && typeof tbl.className === 'string') {
+      selector = tbl.className.split(/\\s+/)[0];
+      selectorType = 'class';
+    } else {
+      selector = 'table_' + t;
+      selectorType = 'index';
+    }
     var cols = [];
     var ths = tbl.querySelectorAll('thead th');
     for (var c = 0; c < ths.length; c++) cols.push(ths[c].textContent.trim());
@@ -370,7 +381,7 @@ try {
       var rh = firstRow.outerHTML;
       sampleRow = rh.length > 500 ? rh.substring(0, 500) + '...' : rh;
     }
-    tables.push({id: id, columns: cols, sampleRow: sampleRow});
+    tables.push({selector: selector, selectorType: selectorType, columns: cols, sampleRow: sampleRow});
   }
 
   return {repeatingPatterns: patterns, tables: tables, containerSelector: containerSelector};
@@ -393,7 +404,16 @@ def _format_structure_probe(data: dict) -> str:
 		parts.append('Tables found:')
 		for t in tables:
 			cols = ', '.join(t.get('columns', [])) or 'no headers'
-			line = f'- #{t["id"]}: columns [{cols}]'
+			# Format selector with correct CSS prefix based on type
+			selector_type = t.get('selectorType', 'id')
+			selector = t.get('selector') or t.get('id', '')  # fallback for old format
+			if selector_type == 'id':
+				formatted_selector = f'#{selector}'
+			elif selector_type == 'class':
+				formatted_selector = f'.{selector}'
+			else:
+				formatted_selector = f'table:nth-of-type({selector.replace("table_", "")})'
+			line = f'- {formatted_selector}: columns [{cols}]'
 			if t.get('sampleRow'):
 				line += f' | sample row: {t["sampleRow"]}'
 			parts.append(line)
