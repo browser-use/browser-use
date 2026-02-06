@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +49,9 @@ class AgentSettings(BaseModel):
 	use_judge: bool = True
 	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
+	enable_planning: bool = True
+	planning_replan_on_stall: int = 3  # consecutive failures before replan nudge; 0 = disabled
+	planning_exploration_limit: int = 5  # steps without a plan before nudge; 0 = disabled
 
 	page_extraction_llm: BaseChatModel | None = None
 	calculate_cost: bool = False
@@ -54,6 +59,166 @@ class AgentSettings(BaseModel):
 	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
 	step_timeout: int = 180  # Timeout in seconds for each step
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
+
+	# Loop detection settings
+	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
+	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
+
+
+class PageFingerprint(BaseModel):
+	"""Lightweight fingerprint of the browser page state."""
+
+	model_config = ConfigDict(frozen=True)
+
+	url: str
+	element_count: int
+	text_hash: str  # First 16 chars of SHA-256 of the DOM text representation
+
+	@staticmethod
+	def from_browser_state(url: str, dom_text: str, element_count: int) -> PageFingerprint:
+		text_hash = hashlib.sha256(dom_text.encode('utf-8', errors='replace')).hexdigest()[:16]
+		return PageFingerprint(url=url, element_count=element_count, text_hash=text_hash)
+
+
+def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
+	"""Normalize action parameters for similarity hashing.
+
+	For search actions: strip minor keyword variations by sorting tokens.
+	For click actions: hash by element type + rough text content, ignoring index.
+	For navigate: hash by URL domain only.
+	For others: hash by action_name + sorted params.
+	"""
+	if action_name == 'search':
+		query = str(params.get('query', ''))
+		# Normalize search: lowercase, sort tokens, collapse whitespace
+		tokens = sorted(set(re.sub(r'[^\w\s]', ' ', query.lower()).split()))
+		engine = params.get('engine', 'google')
+		return f'search|{engine}|{"|".join(tokens)}'
+
+	if action_name in ('click', 'input'):
+		# For element-interaction actions, we only use the index (element identity).
+		# Two clicks on the same element index are the same action.
+		index = params.get('index')
+		if action_name == 'input':
+			text = str(params.get('text', ''))
+			# Normalize input text: lowercase, strip whitespace
+			return f'input|{index}|{text.strip().lower()}'
+		return f'click|{index}'
+
+	if action_name == 'navigate':
+		url = str(params.get('url', ''))
+		# Hash by full URL — navigating to different paths is genuine exploration,
+		# only repeated navigation to the exact same URL is a loop signal.
+		return f'navigate|{url}'
+
+	if action_name == 'scroll':
+		direction = 'down' if params.get('down', True) else 'up'
+		index = params.get('index')
+		return f'scroll|{direction}|{index}'
+
+	# Default: hash by action name + sorted params (excluding None values)
+	filtered = {k: v for k, v in sorted(params.items()) if v is not None}
+	return f'{action_name}|{json.dumps(filtered, sort_keys=True, default=str)}'
+
+
+def compute_action_hash(action_name: str, params: dict[str, Any]) -> str:
+	"""Compute a stable hash string for an action based on type + normalized parameters."""
+	normalized = _normalize_action_for_hash(action_name, params)
+	return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:12]
+
+
+class ActionLoopDetector(BaseModel):
+	"""Tracks action repetition and page stagnation to detect behavioral loops.
+
+	This is a soft detection system — it generates context messages for the LLM
+	but never blocks actions. The agent can still repeat if it wants to.
+	"""
+
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
+	# Rolling window of recent action hashes
+	window_size: int = 20
+	recent_action_hashes: list[str] = Field(default_factory=list)
+
+	# Page fingerprint tracking for stagnation detection
+	recent_page_fingerprints: list[PageFingerprint] = Field(default_factory=list)
+
+	# Current repetition state
+	max_repetition_count: int = 0  # Highest count of any single hash in the window
+	most_repeated_hash: str | None = None
+	consecutive_stagnant_pages: int = 0  # How many consecutive steps had the same page fingerprint
+
+	def record_action(self, action_name: str, params: dict[str, Any]) -> None:
+		"""Record an action and update repetition statistics."""
+		h = compute_action_hash(action_name, params)
+		self.recent_action_hashes.append(h)
+		# Trim to window size
+		if len(self.recent_action_hashes) > self.window_size:
+			self.recent_action_hashes = self.recent_action_hashes[-self.window_size :]
+		self._update_repetition_stats()
+
+	def record_page_state(self, url: str, dom_text: str, element_count: int) -> None:
+		"""Record the current page fingerprint and update stagnation count."""
+		fp = PageFingerprint.from_browser_state(url, dom_text, element_count)
+		if self.recent_page_fingerprints and self.recent_page_fingerprints[-1] == fp:
+			self.consecutive_stagnant_pages += 1
+		else:
+			self.consecutive_stagnant_pages = 0
+		self.recent_page_fingerprints.append(fp)
+		# Keep only last few fingerprints (no need for a large window)
+		if len(self.recent_page_fingerprints) > 5:
+			self.recent_page_fingerprints = self.recent_page_fingerprints[-5:]
+
+	def _update_repetition_stats(self) -> None:
+		"""Recompute max_repetition_count from the current window."""
+		if not self.recent_action_hashes:
+			self.max_repetition_count = 0
+			self.most_repeated_hash = None
+			return
+		counts: dict[str, int] = {}
+		for h in self.recent_action_hashes:
+			counts[h] = counts.get(h, 0) + 1
+		self.most_repeated_hash = max(counts, key=lambda k: counts[k])
+		self.max_repetition_count = counts[self.most_repeated_hash]
+
+	def get_nudge_message(self) -> str | None:
+		"""Return an escalating awareness nudge based on repetition severity, or None if no loop detected."""
+		messages: list[str] = []
+
+		# Action repetition nudges (escalating at 5, 8, 12)
+		if self.max_repetition_count >= 12:
+			messages.append(
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
+				f'in the last {len(self.recent_action_hashes)} actions. '
+				'If you are making progress with each repetition, keep going. '
+				'If not, a different approach might get you there faster.'
+			)
+		elif self.max_repetition_count >= 8:
+			messages.append(
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
+				f'in the last {len(self.recent_action_hashes)} actions. '
+				'Are you still making progress with each attempt? '
+				'If so, carry on. Otherwise, it might be worth trying a different approach.'
+			)
+		elif self.max_repetition_count >= 5:
+			messages.append(
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
+				f'in the last {len(self.recent_action_hashes)} actions. '
+				'If this is intentional and making progress, carry on. '
+				'If not, it might be worth reconsidering your approach.'
+			)
+
+		# Page stagnation nudge
+		if self.consecutive_stagnant_pages >= 5:
+			messages.append(
+				f'The page content has not changed across {self.consecutive_stagnant_pages} consecutive actions. '
+				'Your actions might not be having the intended effect. '
+				'It could be worth trying a different element or approach.'
+			)
+
+		if messages:
+			return '\n\n'.join(messages)
+		return None
 
 
 class AgentState(BaseModel):
@@ -65,7 +230,9 @@ class AgentState(BaseModel):
 	n_steps: int = 1
 	consecutive_failures: int = 0
 	last_result: list[ActionResult] | None = None
-	last_plan: str | None = None
+	plan: list[PlanItem] | None = None
+	current_plan_item_index: int = 0
+	plan_generation_step: int | None = None
 	last_model_output: AgentOutput | None = None
 
 	# Pause/resume state (kept serialisable for checkpointing)
@@ -76,6 +243,9 @@ class AgentState(BaseModel):
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
+
+	# Loop detection state
+	loop_detector: ActionLoopDetector = Field(default_factory=ActionLoopDetector)
 
 
 @dataclass
@@ -105,6 +275,13 @@ class JudgementResult(BaseModel):
 		default=False,
 		description='True if the agent encountered captcha challenges during task execution',
 	)
+
+
+class SimpleJudgeResult(BaseModel):
+	"""Result of lightweight always-on judge that validates agent success claims."""
+
+	is_correct: bool = Field(description='True if the agent response genuinely satisfies the task requirements')
+	reason: str = Field(default='', description='Brief explanation if not correct')
 
 
 class ActionResult(BaseModel):
@@ -176,6 +353,11 @@ class StepMetadata(BaseModel):
 		return self.step_end_time - self.step_start_time
 
 
+class PlanItem(BaseModel):
+	text: str
+	status: Literal['pending', 'current', 'done', 'skipped'] = 'pending'
+
+
 class AgentBrain(BaseModel):
 	thinking: str | None = None
 	evaluation_previous_goal: str
@@ -190,6 +372,8 @@ class AgentOutput(BaseModel):
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
+	current_plan_item: int | None = None
+	plan_update: list[str] | None = None
 	action: list[ActionModel] = Field(
 		...,
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
@@ -258,10 +442,12 @@ class AgentOutput(BaseModel):
 			@classmethod
 			def model_json_schema(cls, **kwargs):
 				schema = super().model_json_schema(**kwargs)
-				# Remove thinking, evaluation_previous_goal, and next_goal fields
+				# Remove thinking, evaluation_previous_goal, next_goal, and plan fields
 				del schema['properties']['thinking']
 				del schema['properties']['evaluation_previous_goal']
 				del schema['properties']['next_goal']
+				schema['properties'].pop('current_plan_item', None)
+				schema['properties'].pop('plan_update', None)
 				# Update required fields to only include remaining properties
 				schema['required'] = ['memory', 'action']
 				return schema
@@ -381,6 +567,10 @@ class AgentHistory(BaseModel):
 			# Only include thinking if it's present
 			if self.model_output.thinking is not None:
 				model_output_dump['thinking'] = self.model_output.thinking
+			if self.model_output.current_plan_item is not None:
+				model_output_dump['current_plan_item'] = self.model_output.current_plan_item
+			if self.model_output.plan_update is not None:
+				model_output_dump['plan_update'] = self.model_output.plan_update
 
 		# Handle result serialization - don't filter ActionResult data
 		# as it should contain meaningful information for the agent

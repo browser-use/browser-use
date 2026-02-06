@@ -1885,6 +1885,59 @@ class DefaultActionWatchdog(BaseWatchdog):
 				except Exception as e:
 					self.logger.debug(f'Value readback failed (non-critical): {e}')
 
+			# Step 6: Auto-retry on concatenation mismatch (only when clear was requested)
+			# If we asked to clear but the readback value contains the typed text as a substring
+			# yet is longer, the field had pre-existing text that wasn't cleared. Set directly.
+			if clear and not is_sensitive and input_coordinates and 'actual_value' in input_coordinates:
+				actual_value = input_coordinates['actual_value']
+				if (
+					isinstance(actual_value, str)
+					and actual_value != text
+					and len(actual_value) > len(text)
+					and (actual_value.endswith(text) or actual_value.startswith(text))
+				):
+					self.logger.info(f'🔄 Concatenation detected: got "{actual_value}", expected "{text}" — auto-retrying')
+					try:
+						# Clear + set value via native setter in one JS call (works with React/Vue)
+						retry_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'objectId': object_id,
+								'functionDeclaration': """
+									function(newValue) {
+										if (this.value !== undefined) {
+											var desc = Object.getOwnPropertyDescriptor(
+												HTMLInputElement.prototype, 'value'
+											) || Object.getOwnPropertyDescriptor(
+												HTMLTextAreaElement.prototype, 'value'
+											);
+											if (desc && desc.set) {
+												desc.set.call(this, newValue);
+											} else {
+												this.value = newValue;
+											}
+										} else if (this.isContentEditable) {
+											this.textContent = newValue;
+										}
+										this.dispatchEvent(new Event('input', { bubbles: true }));
+										this.dispatchEvent(new Event('change', { bubbles: true }));
+										return this.value !== undefined ? this.value : this.textContent;
+									}
+								""",
+								'arguments': [{'value': text}],
+								'returnByValue': True,
+							},
+							session_id=cdp_session.session_id,
+						)
+						retry_value = retry_result.get('result', {}).get('value')
+						if retry_value is not None:
+							input_coordinates['actual_value'] = retry_value
+							if retry_value == text:
+								self.logger.info('✅ Auto-retry fixed concatenation')
+							else:
+								self.logger.warning(f'⚠️ Auto-retry value still differs: "{retry_value}"')
+					except Exception as e:
+						self.logger.debug(f'Auto-retry failed (non-critical): {e}')
+
 			# Return coordinates metadata if available
 			return input_coordinates
 

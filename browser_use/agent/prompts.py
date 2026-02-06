@@ -123,6 +123,7 @@ class AgentMessagePrompt:
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
+		plan_description: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -141,6 +142,7 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
+		self.plan_description: str | None = plan_description
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
@@ -339,6 +341,9 @@ Available tabs:
 {_todo_contents}
 </todo_contents>
 """
+		if self.plan_description:
+			agent_state += f'<plan>\n{self.plan_description}\n</plan>\n'
+
 		if self.sensitive_data:
 			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
 
