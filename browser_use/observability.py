@@ -49,9 +49,11 @@ try:
 	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
 		logger.debug('Lmnr is available for observability')
 	_LMNR_AVAILABLE = True
-except ImportError:
+except (ImportError, TypeError, AttributeError) as e:
+	# Catch ImportError (lmnr not installed), TypeError (Python 3.13 compatibility issues),
+	# and AttributeError (metadata issues) to gracefully degrade to no-op mode
 	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
-		logger.debug('Lmnr is not available for observability')
+		logger.debug(f'Lmnr is not available for observability: {type(e).__name__}: {e}')
 	_LMNR_AVAILABLE = False
 
 
