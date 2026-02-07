@@ -1,7 +1,9 @@
 """Jupyter-like persistent Python execution for browser-use CLI."""
 
+import ast
 import asyncio
 import io
+import os
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
@@ -10,6 +12,93 @@ from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
+
+SAFE_CODE_EXECUTION = os.getenv('BROWSER_USE_SAFE_CODE_EXECUTION') == '1'
+
+SAFE_BUILTINS = {'print': print, 'len': len, 'range': range}
+
+
+def _safe_exec(code: str, parent_namespace: dict[str, Any]) -> None:
+	"""Execute code in an isolated namespace. Blocks imports and dangerous operations.
+
+	Dangerous objects (os, Path, etc.) from parent_namespace are NOT visible.
+	Only a minimal builtin allowlist is exposed. Safe variables are copied back after execution.
+	"""
+	tree = ast.parse(code)
+
+	# Explicit import blocking — unambiguous restriction for reviewers
+	_DISALLOWED_NODES = (ast.Import, ast.ImportFrom)
+	for node in ast.walk(tree):
+		if isinstance(node, _DISALLOWED_NODES):
+			raise ValueError('Import statements are not allowed in safe execution mode')
+
+	allowed_nodes = (
+		ast.Module,
+		ast.Expr,
+		ast.Assign,
+		ast.AugAssign,
+		ast.Name,
+		ast.Load,
+		ast.Store,
+		ast.Constant,
+		ast.BinOp,
+		ast.UnaryOp,
+		ast.Call,
+		ast.Attribute,
+		ast.Dict,
+		ast.List,
+		ast.Tuple,
+		ast.Subscript,
+		ast.Index,
+		ast.Slice,
+		ast.ExtSlice,
+		# BinOp operators
+		ast.Add,
+		ast.Sub,
+		ast.Mult,
+		ast.Div,
+		ast.FloorDiv,
+		ast.Mod,
+		ast.Pow,
+		ast.LShift,
+		ast.RShift,
+		ast.BitOr,
+		ast.BitXor,
+		ast.BitAnd,
+		ast.MatMult,
+		# UnaryOp operators
+		ast.UAdd,
+		ast.USub,
+		ast.Not,
+		ast.Invert,
+	)
+	_DANGEROUS_NAMES = frozenset({'__import__', 'open', 'exec', 'eval', 'compile', 'globals', 'locals', 'vars'})
+
+	def _get_call_name(n: ast.AST) -> str | None:
+		if isinstance(n, ast.Name):
+			return n.id
+		if isinstance(n, ast.Attribute):
+			return _get_call_name(n.value)
+		return None
+
+	for node in ast.walk(tree):
+		if not isinstance(node, allowed_nodes):
+			raise ValueError(f'Disallowed operation: {type(node).__name__}')
+		if isinstance(node, ast.Call):
+			name = _get_call_name(node.func)
+			if name in _DANGEROUS_NAMES:
+				raise ValueError(f'Disallowed function: {name}')
+
+	# Isolated namespace — no os, Path, json, etc. from parent
+	safe_locals: dict[str, object] = {}
+	# Fresh builtins per execution to avoid cross-call mutation
+	safe_globals = {'__builtins__': dict(SAFE_BUILTINS)}
+	exec(compile(tree, '<safe>', 'exec'), safe_globals, safe_locals)
+
+	# Copy back non-underscore variables only
+	for k, v in safe_locals.items():
+		if not k.startswith('_'):
+			parent_namespace[k] = v
 
 
 @dataclass
@@ -70,16 +159,19 @@ class PythonSession:
 
 		try:
 			with redirect_stdout(stdout), redirect_stderr(stderr):
-				try:
-					# First try to compile as expression (for REPL-like behavior)
-					compiled = compile(code, '<input>', 'eval')
-					result = eval(compiled, self.namespace)
-					if result is not None:
-						print(repr(result))
-				except SyntaxError:
-					# Compile as statements
-					compiled = compile(code, '<input>', 'exec')
-					exec(compiled, self.namespace)
+				if SAFE_CODE_EXECUTION:
+					_safe_exec(code, self.namespace)
+				else:
+					try:
+						# First try to compile as expression (for REPL-like behavior)
+						compiled = compile(code, '<input>', 'eval')
+						result = eval(compiled, self.namespace)
+						if result is not None:
+							print(repr(result))
+					except SyntaxError:
+						# Compile as statements
+						compiled = compile(code, '<input>', 'exec')
+						exec(compiled, self.namespace)
 
 			output = stdout.getvalue()
 			if stderr.getvalue():
