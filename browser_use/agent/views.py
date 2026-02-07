@@ -31,6 +31,30 @@ from browser_use.tools.registry.views import ActionModel
 logger = logging.getLogger(__name__)
 
 
+class MessageCompactionSettings(BaseModel):
+	"""Summarizes older history into a compact memory block to reduce prompt size."""
+
+	enabled: bool = True
+	compact_every_n_steps: int = 15
+	trigger_char_count: int | None = None  # Min char floor; set via trigger_token_count if preferred
+	trigger_token_count: int | None = None  # Alternative to trigger_char_count (~4 chars/token)
+	chars_per_token: float = 4.0
+	keep_last_items: int = 6
+	summary_max_chars: int = 6000
+	include_read_state: bool = False
+	compaction_llm: BaseChatModel | None = None
+
+	@model_validator(mode='after')
+	def _resolve_trigger_threshold(self) -> MessageCompactionSettings:
+		if self.trigger_char_count is not None and self.trigger_token_count is not None:
+			raise ValueError('Set trigger_char_count or trigger_token_count, not both.')
+		if self.trigger_token_count is not None:
+			self.trigger_char_count = int(self.trigger_token_count * self.chars_per_token)
+		elif self.trigger_char_count is None:
+			self.trigger_char_count = 40000  # ~10k tokens
+		return self
+
+
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
@@ -49,6 +73,7 @@ class AgentSettings(BaseModel):
 	use_judge: bool = True
 	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
+	message_compaction: MessageCompactionSettings | None = None
 	enable_planning: bool = True
 	planning_replan_on_stall: int = 3  # consecutive failures before replan nudge; 0 = disabled
 	planning_exploration_limit: int = 5  # steps without a plan before nudge; 0 = disabled
@@ -61,7 +86,7 @@ class AgentSettings(BaseModel):
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
 	# Loop detection settings
-	loop_detection_window: int = 10  # Rolling window size for action similarity tracking
+	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
 
 
@@ -95,15 +120,15 @@ def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
 		engine = params.get('engine', 'google')
 		return f'search|{engine}|{"|".join(tokens)}'
 
-	if action_name in ('click_element', 'input_text'):
+	if action_name in ('click', 'input'):
 		# For element-interaction actions, we only use the index (element identity).
 		# Two clicks on the same element index are the same action.
 		index = params.get('index')
-		if action_name == 'input_text':
+		if action_name == 'input':
 			text = str(params.get('text', ''))
 			# Normalize input text: lowercase, strip whitespace
-			return f'input_text|{index}|{text.strip().lower()}'
-		return f'click_element|{index}'
+			return f'input|{index}|{text.strip().lower()}'
+		return f'click|{index}'
 
 	if action_name == 'navigate':
 		url = str(params.get('url', ''))
@@ -113,7 +138,8 @@ def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
 
 	if action_name == 'scroll':
 		direction = 'down' if params.get('down', True) else 'up'
-		return f'scroll|{direction}'
+		index = params.get('index')
+		return f'scroll|{direction}|{index}'
 
 	# Default: hash by action name + sorted params (excluding None values)
 	filtered = {k: v for k, v in sorted(params.items()) if v is not None}
@@ -136,7 +162,7 @@ class ActionLoopDetector(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	# Rolling window of recent action hashes
-	window_size: int = 10
+	window_size: int = 20
 	recent_action_hashes: list[str] = Field(default_factory=list)
 
 	# Page fingerprint tracking for stagnation detection
@@ -181,37 +207,38 @@ class ActionLoopDetector(BaseModel):
 		self.max_repetition_count = counts[self.most_repeated_hash]
 
 	def get_nudge_message(self) -> str | None:
-		"""Return an escalating nudge message based on repetition severity, or None if no loop detected."""
+		"""Return an escalating awareness nudge based on repetition severity, or None if no loop detected."""
 		messages: list[str] = []
 
-		# Action repetition nudges (escalating at 3, 5, 8)
-		if self.max_repetition_count >= 8:
+		# Action repetition nudges (escalating at 5, 8, 12)
+		if self.max_repetition_count >= 12:
 			messages.append(
-				f'CRITICAL LOOP DETECTED: You have repeated a similar action {self.max_repetition_count} times '
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
 				f'in the last {len(self.recent_action_hashes)} actions. '
-				'Your remaining action budget is low. Extract what you can and report results using the done action. '
-				'Continuing to repeat the same action will not yield different results.'
+				'If you are making progress with each repetition, keep going. '
+				'If not, a different approach might get you there faster.'
+			)
+		elif self.max_repetition_count >= 8:
+			messages.append(
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
+				f'in the last {len(self.recent_action_hashes)} actions. '
+				'Are you still making progress with each attempt? '
+				'If so, carry on. Otherwise, it might be worth trying a different approach.'
 			)
 		elif self.max_repetition_count >= 5:
 			messages.append(
-				f'STRONG LOOP WARNING: You have repeated a similar action {self.max_repetition_count} times '
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
 				f'in the last {len(self.recent_action_hashes)} actions. '
-				'Strongly consider abandoning this approach. Try a fundamentally different strategy '
-				'or report that the task cannot be completed with the current approach.'
-			)
-		elif self.max_repetition_count >= 3:
-			messages.append(
-				f'LOOP DETECTED: You have repeated a similar action {self.max_repetition_count} times '
-				f'in the last {len(self.recent_action_hashes)} actions without meaningful progress. '
-				'Try a fundamentally different approach or report that the task cannot be completed on this site.'
+				'If this is intentional and making progress, carry on. '
+				'If not, it might be worth reconsidering your approach.'
 			)
 
 		# Page stagnation nudge
-		if self.consecutive_stagnant_pages >= 3:
+		if self.consecutive_stagnant_pages >= 5:
 			messages.append(
-				f'PAGE STAGNATION: The page content has not changed across {self.consecutive_stagnant_pages} '
-				'consecutive actions. Your actions are not affecting the page state. '
-				'Try a different element, navigate to a different page, or conclude the task.'
+				f'The page content has not changed across {self.consecutive_stagnant_pages} consecutive actions. '
+				'Your actions might not be having the intended effect. '
+				'It could be worth trying a different element or approach.'
 			)
 
 		if messages:

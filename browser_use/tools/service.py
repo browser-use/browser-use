@@ -497,6 +497,27 @@ class Tools(Generic[Context]):
 			return llm_x, llm_y
 
 		# Element Interaction Actions
+		async def _detect_new_tab_opened(
+			browser_session: BrowserSession,
+			tabs_before: set[str],
+		) -> str:
+			"""Detect if a click opened a new tab, and return a note for the agent.
+			Waits briefly for CDP events to propagate, then checks if any new tabs appeared.
+			"""
+			try:
+				# Brief delay to allow CDP Target.attachedToTarget events to propagate
+				# and be processed by SessionManager._handle_target_attached
+				await asyncio.sleep(0.05)
+
+				tabs_after = await browser_session.get_tabs()
+				new_tabs = [t for t in tabs_after if t.target_id not in tabs_before]
+				if new_tabs:
+					new_tab_id = new_tabs[0].target_id[-4:]
+					return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+			except Exception:
+				pass
+			return ''
+
 		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
 			# Ensure coordinates are provided (type safety)
 			if params.coordinate_x is None or params.coordinate_y is None:
@@ -507,6 +528,9 @@ class Tools(Generic[Context]):
 				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
 					params.coordinate_x, params.coordinate_y, browser_session
 				)
+
+				# Capture tab IDs before click to detect new tabs
+				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
 
 				# Highlight the coordinate being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
@@ -525,8 +549,8 @@ class Tools(Generic[Context]):
 					return ActionResult(error=error_msg)
 
 				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}'
-				msg = f'🖱️ {memory}'
-				logger.info(msg)
+				memory += await _detect_new_tab_opened(browser_session, tabs_before)
+				logger.info(f'🖱️ {memory}')
 
 				return ActionResult(
 					extracted_content=memory,
@@ -557,6 +581,9 @@ class Tools(Generic[Context]):
 				# Get description of clicked element
 				element_desc = get_click_description(node)
 
+				# Capture tab IDs before click to detect new tabs
+				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
+
 				# Highlight the element being clicked (truly non-blocking)
 				create_task_with_error_handling(
 					browser_session.highlight_interaction_element(node), name='highlight_click_element', suppress_exceptions=True
@@ -584,6 +611,7 @@ class Tools(Generic[Context]):
 
 				# Build memory with element info
 				memory = f'Clicked {element_desc}'
+				memory += await _detect_new_tab_opened(browser_session, tabs_before)
 				logger.info(f'🖱️ {memory}')
 
 				# Include click coordinates in metadata if available
@@ -1995,7 +2023,7 @@ Validated Code (after quote fixing):
 				param_model=StructuredOutputAction[output_model],
 			)
 			async def done(params: StructuredOutputAction):
-				# Exclude success from the output JSON since it's an internal parameter
+				# Exclude success from the output JSON
 				# Use mode='json' to properly serialize enums at all nesting levels
 				output_dict = params.data.model_dump(mode='json')
 

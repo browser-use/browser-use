@@ -87,7 +87,14 @@ class DoneAction(BaseModel):
 T = TypeVar('T', bound=BaseModel)
 
 
+def _hide_success_from_schema(schema: dict) -> None:
+	"""Remove 'success' from the JSON schema to avoid field name collisions with user models."""
+	schema.get('properties', {}).pop('success', None)
+
+
 class StructuredOutputAction(BaseModel, Generic[T]):
+	model_config = ConfigDict(json_schema_extra=_hide_success_from_schema)
+
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	data: T = Field(description='The actual output data matching the requested schema')
 

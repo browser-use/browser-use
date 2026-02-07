@@ -57,6 +57,7 @@ from browser_use.agent.views import (
 	BrowserStateHistory,
 	DetectedVariable,
 	JudgementResult,
+	MessageCompactionSettings,
 	PlanItem,
 	SimpleJudgeResult,
 	StepMetadata,
@@ -199,9 +200,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		enable_planning: bool = True,
 		planning_replan_on_stall: int = 3,
 		planning_exploration_limit: int = 5,
-		loop_detection_window: int = 10,
+		loop_detection_window: int = 20,
 		loop_detection_enabled: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		message_compaction: MessageCompactionSettings | bool | None = True,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
@@ -376,6 +378,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.sample_images = sample_images
 
+		if isinstance(message_compaction, bool):
+			message_compaction = MessageCompactionSettings(enabled=message_compaction)
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			vision_detail_level=vision_detail_level,
@@ -403,6 +408,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			planning_exploration_limit=planning_exploration_limit,
 			loop_detection_window=loop_detection_window,
 			loop_detection_enabled=loop_detection_enabled,
+			message_compaction=message_compaction,
 		)
 
 		# Token cost service
@@ -410,6 +416,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
 		self.token_cost_service.register_llm(judge_llm)
+		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
+			self.token_cost_service.register_llm(self.settings.message_compaction.compaction_llm)
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -1073,6 +1081,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Render plan description for injection into agent context
 		plan_description = self._render_plan_description()
 
+		self._message_manager.prepare_step_state(
+			browser_state_summary=browser_state_summary,
+			model_output=self.state.last_model_output,
+			result=self.state.last_result,
+			step_info=step_info,
+			sensitive_data=self.sensitive_data,
+		)
+
+		await self._maybe_compact_messages(step_info)
+
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
@@ -1084,6 +1102,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 			unavailable_skills_info=unavailable_skills_info,
 			plan_description=plan_description,
+			skip_state_update=True,
 		)
 
 		await self._inject_budget_warning(step_info)
@@ -1094,6 +1113,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
+
+	async def _maybe_compact_messages(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Optionally compact message history to keep prompts small."""
+		settings = self.settings.message_compaction
+		if not settings or not settings.enabled:
+			return
+
+		compaction_llm = settings.compaction_llm or self.settings.page_extraction_llm or self.llm
+		await self._message_manager.maybe_compact_messages(
+			llm=compaction_llm,
+			settings=settings,
+			step_info=step_info,
+		)
 
 	@observe_debug(ignore_input=True, name='get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
@@ -1367,9 +1399,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 		if self.state.last_model_output is None:
 			return
+		# Actions to exclude: wait always hashes identically (instant false positive),
+		# done is terminal, go_back is navigation recovery
+		_LOOP_EXEMPT_ACTIONS = {'wait', 'done', 'go_back'}
 		for action in self.state.last_model_output.action:
 			action_data = action.model_dump(exclude_unset=True)
 			action_name = next(iter(action_data.keys()), 'unknown')
+			if action_name in _LOOP_EXEMPT_ACTIONS:
+				continue
 			params = action_data.get(action_name, {})
 			if not isinstance(params, dict):
 				params = {}
@@ -2382,7 +2419,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	@time_execution_async('--run')
 	async def run(
 		self,
-		max_steps: int = 100,
+		max_steps: int = 500,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
@@ -3906,7 +3943,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def run_sync(
 		self,
-		max_steps: int = 100,
+		max_steps: int = 500,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
