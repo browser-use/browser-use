@@ -181,7 +181,16 @@ def connect_to_server(session: str, timeout: float = 60.0) -> socket.socket:
 	return sock
 
 
-def ensure_server(session: str, browser: str, headed: bool, profile: str | None, api_key: str | None) -> bool:
+def ensure_server(
+	session: str,
+	browser: str,
+	headed: bool,
+	profile: str | None,
+	api_key: str | None,
+	browser_exe: str | None = None,
+	user_data_dir: str | None = None,
+	no_copy_profile: bool = False,
+) -> bool:
 	"""Start server if not running. Returns True if started."""
 	# Check if server is already running and responsive
 	if is_server_running(session):
@@ -206,11 +215,19 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 		cmd.append('--headed')
 	if profile:
 		cmd.extend(['--profile', profile])
+	if browser_exe:
+		cmd.extend(['--browser-exe', browser_exe])
+	if user_data_dir:
+		cmd.extend(['--user-data-dir', user_data_dir])
+	if no_copy_profile:
+		cmd.append('--no-copy-profile')
 
 	# Set up environment
 	env = os.environ.copy()
 	if api_key:
 		env['BROWSER_USE_API_KEY'] = api_key
+	if no_copy_profile:
+		env['BROWSER_USE_NO_COPY_PROFILE'] = '1'
 
 	# Start server as background process
 	if sys.platform == 'win32':
@@ -308,7 +325,13 @@ Examples:
 	parser.add_argument('--session', '-s', default='default', help='Session name (default: default)')
 	parser.add_argument('--browser', '-b', choices=['chromium', 'real', 'remote'], default='chromium', help='Browser mode')
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
-	parser.add_argument('--profile', help='Chrome profile (real browser mode)')
+	parser.add_argument('--browser-exe', help='Path to Chrome/Chromium executable (real browser mode)')
+	parser.add_argument('--user-data-dir', help='Chrome user data directory (real browser mode)')
+	parser.add_argument(
+		'--profile',
+		help='Cloud profile id (remote) or Chrome profile directory name (real)',
+	)
+	parser.add_argument('--no-copy-profile', action='store_true', help='Use profile in-place without copying')
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--api-key', help='Browser-Use API key')
 	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
@@ -816,7 +839,11 @@ def handle_profile_cookies(args: argparse.Namespace) -> int:
 		from browser_use.skill_cli.sessions import create_browser_session
 
 		# Start local browser headless
-		local_session = await create_browser_session('real', headed=False, profile=profile_id)
+		local_session = await create_browser_session(
+			'real',
+			headed=False,
+			profile=profile_id,
+		)
 		await local_session.start()
 
 		try:
@@ -946,7 +973,11 @@ def handle_profile_sync(args: argparse.Namespace) -> int:
 		from browser_use.skill_cli.sessions import create_browser_session
 
 		# Start local browser headless
-		local_session = await create_browser_session('real', headed=False, profile=profile_id)
+		local_session = await create_browser_session(
+			'real',
+			headed=False,
+			profile=profile_id,
+		)
 		await local_session.start()
 
 		try:
@@ -999,7 +1030,11 @@ def handle_profile_sync(args: argparse.Namespace) -> int:
 		from browser_use.skill_cli.sessions import create_browser_session
 
 		# Start remote browser with the new profile
-		remote_session = await create_browser_session('remote', headed=False, profile=cloud_profile_id)
+		remote_session = await create_browser_session(
+			'remote',
+			headed=False,
+			profile=cloud_profile_id,
+		)
 		await remote_session.start()
 
 		try:
@@ -1182,11 +1217,34 @@ def main() -> int:
 			return 1
 
 	# Ensure server is running
-	ensure_server(args.session, args.browser, args.headed, args.profile, args.api_key)
+	profile = getattr(args, 'profile', None)
+
+	ensure_server(
+		args.session,
+		args.browser,
+		args.headed,
+		profile,
+		args.api_key,
+		getattr(args, 'browser_exe', None),
+		getattr(args, 'user_data_dir', None),
+		getattr(args, 'no_copy_profile', False),
+	)
 
 	# Build params from args
 	params = {}
-	skip_keys = {'command', 'session', 'browser', 'headed', 'profile', 'json', 'api_key', 'server_command'}
+	skip_keys = {
+		'command',
+		'session',
+		'browser',
+		'headed',
+		'profile',
+		'json',
+		'api_key',
+		'server_command',
+		'browser_exe',
+		'user_data_dir',
+		'no_copy_profile',
+	}
 
 	for key, value in vars(args).items():
 		if key not in skip_keys and value is not None:

@@ -18,6 +18,9 @@ class SessionInfo:
 	browser_mode: str
 	headed: bool
 	profile: str | None
+	browser_exe: str | None
+	user_data_dir: str | None
+	no_copy_profile: bool
 	browser_session: BrowserSession
 	python_session: PythonSession = field(default_factory=PythonSession)
 
@@ -38,6 +41,9 @@ class SessionRegistry:
 		browser_mode: str,
 		headed: bool,
 		profile: str | None,
+		browser_exe: str | None = None,
+		user_data_dir: str | None = None,
+		no_copy_profile: bool = False,
 	) -> SessionInfo:
 		"""Get existing session or create new one."""
 		if name in self._sessions:
@@ -45,7 +51,13 @@ class SessionRegistry:
 
 		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed})')
 
-		browser_session = await create_browser_session(browser_mode, headed, profile)
+		browser_session = await create_browser_session(
+			browser_mode,
+			headed,
+			profile,
+			browser_exe,
+			user_data_dir,
+		)
 		await browser_session.start()
 
 		session_info = SessionInfo(
@@ -53,6 +65,9 @@ class SessionRegistry:
 			browser_mode=browser_mode,
 			headed=headed,
 			profile=profile,
+			browser_exe=browser_exe,
+			user_data_dir=user_data_dir,
+			no_copy_profile=no_copy_profile,
 			browser_session=browser_session,
 		)
 		self._sessions[name] = session_info
@@ -70,6 +85,9 @@ class SessionRegistry:
 				'browser_mode': s.browser_mode,
 				'headed': s.headed,
 				'profile': s.profile,
+				'user_data_dir': s.user_data_dir,
+				'browser_exe': s.browser_exe,
+				'no_copy_profile': s.no_copy_profile,
 			}
 			for s in self._sessions.values()
 		]
@@ -97,6 +115,8 @@ async def create_browser_session(
 	mode: str,
 	headed: bool,
 	profile: str | None,
+	browser_exe: str | None = None,
+	user_data_dir: str | None = None,
 ) -> BrowserSession:
 	"""Create BrowserSession based on mode.
 
@@ -113,19 +133,17 @@ async def create_browser_session(
 	elif mode == 'real':
 		from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path
 
-		chrome_path = find_chrome_executable()
+		chrome_path = browser_exe or find_chrome_executable()
 		if not chrome_path:
 			raise RuntimeError('Could not find Chrome executable. Please install Chrome or specify --browser chromium')
 
-		# Always get the Chrome user data directory (not the profile subdirectory)
-		user_data_dir = get_chrome_profile_path(None)
-		# Profile directory defaults to 'Default', or use the specified profile name
-		profile_directory = profile if profile else 'Default'
+		resolved_user_data_dir = user_data_dir or get_chrome_profile_path()
+		resolved_profile_directory = profile or 'Default'
 
 		return BrowserSession(
 			executable_path=chrome_path,
-			user_data_dir=user_data_dir,
-			profile_directory=profile_directory,
+			user_data_dir=resolved_user_data_dir,
+			profile_directory=resolved_profile_directory,
 			headless=not headed,  # Headless by default, --headed for visible
 		)
 
