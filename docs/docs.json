@@ -186,6 +186,7 @@
             "isDefaultOpen": false,
             "pages": [
               "customize/browser/basics",
+              "customize/browser/authentication",
               "customize/browser/real-browser",
               "customize/browser/remote",
               "customize/browser/all-parameters"

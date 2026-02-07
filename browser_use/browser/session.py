@@ -379,6 +379,57 @@ class BrowserSession(BaseModel):
 	# Cache of original viewport size for coordinate conversion (set when browser state is captured)
 	_original_viewport_size: tuple[int, int] | None = PrivateAttr(default=None)
 
+	@classmethod
+	def from_system_chrome(cls, profile_directory: str | None = None, **kwargs: Any) -> Self:
+		"""Create a BrowserSession using system's Chrome installation and profile"""
+		from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
+
+		executable_path = find_chrome_executable()
+		if executable_path is None:
+			raise RuntimeError(
+				'Chrome not found. Please install Chrome or use Browser() with explicit executable_path.\n'
+				'Expected locations:\n'
+				'  macOS: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n'
+				'  Linux: /usr/bin/google-chrome or /usr/bin/chromium\n'
+				'  Windows: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+			)
+
+		user_data_dir = get_chrome_profile_path(None)
+		if user_data_dir is None:
+			raise RuntimeError(
+				'Could not detect Chrome profile directory for your platform.\n'
+				'Expected locations:\n'
+				'  macOS: ~/Library/Application Support/Google/Chrome\n'
+				'  Linux: ~/.config/google-chrome\n'
+				'  Windows: %LocalAppData%\\Google\\Chrome\\User Data'
+			)
+
+		# Auto-select profile if not specified
+		profiles = list_chrome_profiles()
+		if profile_directory is None:
+			if profiles:
+				# Use first available profile
+				profile_directory = profiles[0]['directory']
+				logging.getLogger('browser_use').info(
+					f'Auto-selected Chrome profile: {profiles[0]["name"]} ({profile_directory})'
+				)
+			else:
+				profile_directory = 'Default'
+
+		return cls(
+			executable_path=executable_path,
+			user_data_dir=user_data_dir,
+			profile_directory=profile_directory,
+			**kwargs,
+		)
+
+	@classmethod
+	def list_chrome_profiles(cls) -> list[dict[str, str]]:
+		"""List available Chrome profiles on the system"""
+		from browser_use.skill_cli.utils import list_chrome_profiles
+
+		return list_chrome_profiles()
+
 	# Convenience properties for common browser settings
 	@property
 	def cdp_url(self) -> str | None:

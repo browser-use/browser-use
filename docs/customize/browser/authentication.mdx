@@ -1,0 +1,340 @@
+---
+title: "Authentication"
+description: "Login to websites using real browser profiles, storage state, and 2FA codes"
+icon: "key"
+mode: "wide"
+---
+
+Browser-Use supports multiple authentication strategies depending on your use case:
+
+| Approach | Best For | Setup Effort |
+|----------|----------|--------------|
+| [Real Browser](#real-browser-profiles) | Personal automation, existing logins | Low |
+| [Storage State](#storage-state-persistence) | Production, CI/CD, headless | Medium |
+| [TOTP 2FA](#totp-2fa) | Sites with authenticator apps | Low |
+| [Email and SMS 2FA](#email-and-sms-2fa) | Sites with email/SMS verification | Medium |
+
+---
+
+## Real Browser Profiles
+
+Connect to your existing Chrome browser to reuse your authenticated sessions. No need to handle logins, cookies, or 2FA - if you're logged in on Chrome, the agent is, too.
+
+<Info>
+See [Real Browser](/customize/browser/real-browser) for more details and platform paths.
+</Info>
+
+<Warning>
+You may need to close Chrome completely before running. Browser-Use launches Chrome in debug mode, which can conflict with existing Chrome processes.
+</Warning>
+
+```python
+from browser_use import Agent, Browser, ChatBrowserUse
+
+# Auto-detect Chrome and profile (cross-platform)
+browser = Browser.from_system_chrome()
+
+agent = Agent(
+    task='Check my Gmail inbox',
+    browser=browser,
+    llm=ChatBrowserUse(),
+)
+await agent.run()
+```
+
+---
+
+## Storage State Persistence
+
+Export cookies and localStorage from an authenticated browser, then load them in headless mode. Useful for production/CI where you can't use a real browser profile.
+
+<Info>
+See [Browser Parameters](/customize/browser/all-parameters#user-data--profiles) for all storage options.
+</Info>
+
+### Export from Real Browser
+
+```python
+from browser_use import Browser
+
+browser = Browser.from_system_chrome()
+await browser.start()
+await browser.export_storage_state('auth.json')
+await browser.stop()
+```
+
+### Load in Headless Mode
+
+```python
+from browser_use import Agent, Browser, ChatBrowserUse
+
+browser = Browser(storage_state='auth.json')
+
+agent = Agent(
+    task='Check my notifications',
+    browser=browser,
+    llm=ChatBrowserUse(),
+)
+await agent.run()
+```
+
+### Auto-Save and Load
+
+When you provide a `storage_state` path, Browser-Use automatically:
+- Loads cookies from the file on startup (if it exists)
+- Saves cookies to the file periodically and on shutdown
+
+```python
+browser = Browser(storage_state='session.json')
+```
+
+The file is created if it doesn't exist, and new cookies are merged with existing ones on each save.
+
+### Storage State Format
+
+The JSON file follows Playwright's format:
+
+```json
+{
+  "cookies": [
+    {
+      "name": "session_id",
+      "value": "abc123",
+      "domain": ".example.com",
+      "path": "/",
+      "expires": 1704067200,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://example.com",
+      "localStorage": [
+        {"name": "auth_token", "value": "xyz789"}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## TOTP 2FA
+
+For sites using authenticator apps (Google Authenticator, 1Password, etc.), Browser-Use can generate TOTP codes automatically.
+
+<Info>
+See [Sensitive Data](/examples/templates/sensitive-data) for more on credential handling.
+</Info>
+
+### How It Works
+
+1. Get the TOTP secret key when setting up 2FA (usually shown as "manual entry" or "can't scan QR code")
+2. Pass the secret with `bu_2fa_code` suffix in `sensitive_data`
+3. When the agent inputs `bu_2fa_code`, it generates a fresh 6-digit code
+
+```python
+from browser_use import Agent, ChatBrowserUse
+
+# TOTP secret from your authenticator setup
+# (NOT the 6-digit code - the secret key itself)
+totp_secret = 'JBSWY3DPEHPK3PXP'
+
+agent = Agent(
+    task='''
+    1. Go to https://example.com/login
+    2. Enter username x_user and password x_pass
+    3. When prompted for 2FA, enter bu_2fa_code
+    ''',
+    sensitive_data={
+        'x_user': 'myusername',
+        'x_pass': 'mypassword',
+        'bu_2fa_code': totp_secret,  # suffix must be bu_2fa_code
+    },
+    llm=ChatBrowserUse(),
+)
+await agent.run()
+```
+
+<Tip>
+The placeholder name must end with `bu_2fa_code`. You can use any prefix: `google_bu_2fa_code`, `github_bu_2fa_code`, etc.
+</Tip>
+
+### Where to Find TOTP Secrets
+
+- **1Password**: Edit item → One-Time Password → Show secret
+- **Google Authenticator**: During setup, click "Can't scan it?" to see the key
+- **Authy**: Export via desktop app settings
+- **Most sites**: Look for "manual entry" or "setup key" during 2FA enrollment
+
+---
+
+## Email and SMS 2FA
+
+For sites that send verification codes via email or SMS, use follow-up tasks to retrieve the code.
+
+### With AgentMail
+
+[AgentMail](https://agentmail.to) provides disposable inboxes for email verification:
+
+```python
+from agentmail import AsyncAgentMail
+from browser_use import Agent, ChatBrowserUse, Tools, ActionResult
+
+email_client = AsyncAgentMail()
+inbox = await email_client.inboxes.create()
+
+tools = Tools()
+
+@tools.registry.action('Get email address for signup')
+async def get_email_address():
+    return ActionResult(extracted_content=inbox.inbox_id)
+
+@tools.registry.action('Get verification code from email')
+async def get_verification_code():
+    emails = await email_client.inboxes.messages.list(inbox_id=inbox.inbox_id)
+    if emails.messages:
+        return ActionResult(extracted_content=emails.messages[0].text)
+    return ActionResult(error='No emails found')
+
+agent = Agent(
+    task='Sign up at example.com, get verification code from email',
+    tools=tools,
+    llm=ChatBrowserUse(),
+)
+await agent.run()
+```
+
+See [`examples/integrations/agentmail/`](https://github.com/browser-use/browser-use/tree/main/examples/integrations/agentmail) for a more complete implementation with email waiting and parsing.
+
+### With 1Password SDK
+
+Retrieve codes from your password manager:
+
+```python
+import os
+from onepassword.client import Client
+from browser_use import Agent, Tools, ActionResult, ChatBrowserUse
+
+tools = Tools()
+
+@tools.registry.action('Get 2FA code from 1Password', domains=['*.google.com'])
+async def get_1password_2fa():
+    client = await Client.authenticate(
+        auth=os.environ['OP_SERVICE_ACCOUNT_TOKEN'],
+        integration_name='Browser-Use',
+        integration_version='v1.0.0',
+    )
+    code = await client.secrets.resolve('op://Private/Google/One-time passcode')
+    return ActionResult(extracted_content=code)
+
+agent = Agent(
+    task='Login to Google and check email',
+    tools=tools,
+    llm=ChatBrowserUse(),
+)
+await agent.run()
+```
+
+See [`examples/custom-functions/onepassword_2fa.py`](https://github.com/browser-use/browser-use/tree/main/examples/custom-functions/onepassword_2fa.py) for the full example.
+
+### With Gmail API
+
+Built-in Gmail integration for reading 2FA codes from your inbox:
+
+```python
+from browser_use import Agent, ChatBrowserUse, Tools
+from browser_use.integrations.gmail import GmailService, register_gmail_actions
+
+gmail_service = GmailService()
+tools = Tools()
+register_gmail_actions(tools, gmail_service=gmail_service)
+
+agent = Agent(
+    task='Login to example.com, then get the verification code from Gmail',
+    tools=tools,
+    llm=ChatBrowserUse(),
+)
+await agent.run()
+```
+
+Requires Gmail API setup:
+1. Enable Gmail API in [Google Cloud Console](https://console.cloud.google.com/)
+2. Create OAuth 2.0 credentials (Desktop app)
+3. Save credentials to `~/.config/browseruse/gmail_credentials.json`
+
+See [`examples/integrations/gmail_2fa_integration.py`](https://github.com/browser-use/browser-use/tree/main/examples/integrations/gmail_2fa_integration.py) for setup with automatic credential validation.
+
+---
+
+## Security Best Practices
+
+<Info>
+See [Secure Setup](/examples/templates/secure) for enterprise security with Azure OpenAI.
+</Info>
+
+### Restrict Domains
+
+Limit where the browser can navigate to prevent credential leaks:
+
+```python
+browser = Browser(
+    allowed_domains=['*.example.com', 'auth.example.com'],
+)
+```
+
+### Disable Vision for Sensitive Pages
+
+Prevent screenshots from being sent to the LLM:
+
+```python
+agent = Agent(
+    task='Login and check balance',
+    use_vision=False,  # No screenshots sent to LLM
+    sensitive_data={'password': 'secret123'},
+    llm=ChatBrowserUse(),
+)
+```
+
+### Domain-Specific Credentials
+
+Route credentials to specific domains only:
+
+```python
+sensitive_data = {
+    'https://*.work.com': {
+        'work_user': 'alice@work.com',
+        'work_pass': 'work_password',
+    },
+    'https://personal.com': {
+        'personal_user': 'alice@gmail.com',
+        'personal_pass': 'personal_password',
+    },
+}
+```
+
+---
+
+## Cloud Browser Profiles
+
+For production deployments, consider [Browser Use Cloud](https://cloud.browser-use.com), which provides:
+
+- Persistent browser profiles in the cloud
+- Pre-authenticated sessions
+- No local Chrome installation required
+- Built-in proxy and fingerprint management
+
+```python
+from browser_use import Agent, Browser, ChatBrowserUse
+
+browser = Browser(cdp_url='wss://cloud.browser-use.com/...')
+
+agent = Agent(
+    task='Check my orders',
+    browser=browser,
+    llm=ChatBrowserUse(),
+)
+await agent.run()
+```
