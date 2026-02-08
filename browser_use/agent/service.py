@@ -1219,6 +1219,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning(f'{error_msg}')
 			return
 
+		# Handle browser closed/disconnected errors - stop immediately instead of retrying
+		if self._is_browser_closed_error(error):
+			self.logger.warning(f'🛑 Browser closed or disconnected: {error}')
+			self.state.stopped = True
+			self._external_pause_event.set()
+			return
+
 		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
@@ -1240,6 +1247,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._demo_mode_log(f'Step error: {error_msg}', 'error', {'step': self.state.n_steps})
 		self.state.last_result = [ActionResult(error=error_msg)]
 		return None
+
+	def _is_browser_closed_error(self, error: Exception) -> bool:
+		"""Check if the browser has been closed or disconnected."""
+		return self.browser_session._cdp_client_root is None
 
 	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
 		"""Finalize the step with history, logging, and events"""
