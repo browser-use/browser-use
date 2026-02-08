@@ -79,6 +79,7 @@ class TestClickCommandHandler:
 				browser_mode='chromium',
 				headed=False,
 				profile=None,
+				user_data_dir=None,
 				browser_session=session,
 			)
 
@@ -111,6 +112,7 @@ class TestClickCommandHandler:
 				browser_mode='chromium',
 				headed=False,
 				profile=None,
+				user_data_dir=None,
 				browser_session=session,
 			)
 
@@ -133,6 +135,7 @@ class TestClickCommandHandler:
 			browser_mode='chromium',
 			headed=False,
 			profile=None,
+			user_data_dir=None,
 			browser_session=BrowserSession(headless=True),
 		)
 
