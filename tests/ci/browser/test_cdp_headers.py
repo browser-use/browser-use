@@ -134,6 +134,7 @@ async def test_headers_used_for_json_version_endpoint():
 
 		# Mock the /json/version response
 		mock_response = MagicMock()
+		mock_response.status_code = 200
 		mock_response.json.return_value = {'webSocketDebuggerUrl': 'ws://remote-browser.example.com:9222/devtools/browser/abc'}
 		mock_client.get = AsyncMock(return_value=mock_response)
 
