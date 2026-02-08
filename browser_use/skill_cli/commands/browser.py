@@ -84,14 +84,25 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 
 	if action == 'open':
 		url = params['url']
+		new_tab = params.get('new_tab', False)
 		# Ensure URL has scheme
 		if not url.startswith(('http://', 'https://', 'file://')):
 			url = 'https://' + url
 
-		from browser_use.browser.events import NavigateToUrlEvent
+		if new_tab:
+			# Force a new page creation to bypass reuse logic in NavigateToUrlEvent
+			page = await bs.new_page(url)
+			from browser_use.browser.events import AgentFocusChangedEvent, SwitchTabEvent
 
-		await bs.event_bus.dispatch(NavigateToUrlEvent(url=url))
-		result: dict[str, Any] = {'url': url}
+			# Ensure agent focus is updated and tab is activated
+			await bs.event_bus.dispatch(SwitchTabEvent(target_id=page._target_id))
+			await bs.event_bus.dispatch(AgentFocusChangedEvent(target_id=page._target_id, url=url))
+		else:
+			from browser_use.browser.events import NavigateToUrlEvent
+
+			await bs.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=False))
+
+		result: dict[str, Any] = {'url': url, 'new_tab': new_tab}
 		# Add live preview URL for cloud browsers
 		if bs.browser_profile.use_cloud and bs.cdp_url:
 			from urllib.parse import quote
