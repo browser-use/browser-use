@@ -83,6 +83,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Listen for BrowserStopEvent and dispatch BrowserKillEvent without awaiting it."""
 		if self.browser_session.is_local and self._subprocess:
+			if not event.force and self.browser_session.browser_profile.keep_alive:
+				self.logger.debug('[LocalBrowserWatchdog] Skipping kill - keep_alive=True')
+				return
 			self.logger.debug('[LocalBrowserWatchdog] BrowserStopEvent received, dispatching BrowserKillEvent')
 			# Dispatch BrowserKillEvent without awaiting so it gets processed after all BrowserStopEvent handlers
 			self.event_bus.dispatch(BrowserKillEvent())
