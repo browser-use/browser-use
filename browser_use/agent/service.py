@@ -3891,7 +3891,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				else:
 					# Stop the EventBus run loop so asyncio.run() can shut down cleanly
 					# Everything else stays alive for session reuse
-					await self.browser_session.event_bus.stop(clear=False, timeout=5)
+					await self.browser_session.event_bus.stop(clear=False, timeout=0)
 
 			# Close skill service if configured
 			if self.skill_service is not None:
