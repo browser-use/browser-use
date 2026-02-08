@@ -597,7 +597,7 @@ class BrowserSession(BaseModel):
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset state (preserve CDP/session manager when keep_alive)
-		await self.reset(keep_alive=self.browser_profile.keep_alive)
+		await self.reset(keep_alive=bool(self.browser_profile.keep_alive))
 		# Create fresh event bus
 		self.event_bus = EventBus()
 
