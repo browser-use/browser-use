@@ -594,12 +594,15 @@ class BrowserSession(BaseModel):
 		# Now dispatch BrowserStopEvent to notify watchdogs
 		await self.event_bus.dispatch(BrowserStopEvent(force=False))
 
-		# Stop the event bus
-		await self.event_bus.stop(clear=True, timeout=5)
-		# Reset state (preserve CDP/session manager when keep_alive)
-		await self.reset(keep_alive=bool(self.browser_profile.keep_alive))
-		# Create fresh event bus
-		self.event_bus = EventBus()
+		keep_alive = bool(self.browser_profile.keep_alive)
+
+		# Stop the event bus run loop to prevent asyncio.run() hang.
+		# When keep_alive, preserve handlers so the session remains usable;
+		# the EventBus auto-restarts on next dispatch.
+		await self.event_bus.stop(clear=not keep_alive, timeout=5)
+		await self.reset(keep_alive=keep_alive)
+		if not keep_alive:
+			self.event_bus = EventBus()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_event_handler')
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
