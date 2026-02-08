@@ -1,6 +1,7 @@
 # @file purpose: Concise evaluation serializer for DOM trees - optimized for LLM query writing
 
 
+from browser_use.dom.serializer.serializer import BOOLEAN_ATTRIBUTES
 from browser_use.dom.utils import cap_text_length
 from browser_use.dom.views import (
 	EnhancedDOMTreeNode,
@@ -307,8 +308,13 @@ class DOMEvalSerializer:
 			for attr in EVAL_KEY_ATTRIBUTES:
 				if attr in node.attributes:
 					value = str(node.attributes[attr]).strip()
+					# Boolean attributes: empty string means "true" (presence indicates true state)
+					# e.g., <div expanded=""> is equivalent to <div expanded="true">
 					if not value:
-						continue
+						if attr.lower() in BOOLEAN_ATTRIBUTES:
+							value = 'true'
+						else:
+							continue
 
 					# Special handling for different attributes
 					if attr == 'class':
