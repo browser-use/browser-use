@@ -3889,8 +3889,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
 				else:
-					# Clean up async tasks without killing the browser process
-					await self.browser_session.stop()
+					# Stop the EventBus run loop so asyncio.run() can shut down cleanly
+					# Everything else stays alive for session reuse
+					await self.browser_session.event_bus.stop(clear=False, timeout=5)
 
 			# Close skill service if configured
 			if self.skill_service is not None:
