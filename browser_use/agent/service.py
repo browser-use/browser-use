@@ -3883,12 +3883,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def close(self):
 		"""Close all resources"""
 		try:
-			# Only close browser if keep_alive is False (or not set)
 			if self.browser_session is not None:
 				if not self.browser_session.browser_profile.keep_alive:
 					# Kill the browser session - this dispatches BrowserStopEvent,
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
+				else:
+					# Clean up async tasks without killing the browser process
+					await self.browser_session.stop()
 
 			# Close skill service if configured
 			if self.skill_service is not None:
