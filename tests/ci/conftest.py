@@ -29,25 +29,9 @@ load_dotenv()
 
 
 # Skip LLM API key verification for tests
-# Skip LLM API key verification for tests
 os.environ['SKIP_LLM_API_KEY_VERIFICATION'] = 'true'
 
-import bubus
 from bubus import BaseEvent
-
-# Monkeypatch bubus EventBus to have longer default timeout for tests (CI can be slow)
-# The default is often 30s, which is too tight when browser launch takes 28s
-original_process_event = bubus.EventBus.process_event
-
-
-async def patched_process_event(self, event: bubus.BaseEvent, *args, **kwargs):
-	# If timeout is not explicitly set (or key missing), default to 60s for CI
-	if 'timeout' not in kwargs:
-		kwargs['timeout'] = 60.0
-	return await original_process_event(self, event, *args, **kwargs)
-
-
-bubus.EventBus.process_event = patched_process_event
 
 from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
