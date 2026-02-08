@@ -1524,11 +1524,32 @@ class BrowserSession(BaseModel):
 			)
 
 			# Run a tiny HTTP client to query for the WebSocket URL from the /json/version endpoint
-			async with httpx.AsyncClient() as client:
+			# Use trust_env=False to bypass proxy settings for localhost CDP requests
+			# (proxy env vars cause 502 errors on Windows - see issue #4050)
+			async with httpx.AsyncClient(trust_env=False, timeout=10.0) as client:
 				headers = self.browser_profile.headers or {}
-				version_info = await client.get(url, headers=headers)
-				self.logger.debug(f'Raw version info: {str(version_info)}')
-				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+				max_retries = 3
+				last_error: Exception | None = None
+				for attempt in range(max_retries):
+					try:
+						version_info = await client.get(url, headers=headers)
+						if version_info.status_code != 200:
+							raise RuntimeError(
+								f'CDP /json/version returned HTTP {version_info.status_code} '
+								f'(body length: {len(version_info.content)})'
+							)
+						self.logger.debug(f'Raw version info: {str(version_info)}')
+						self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+						break
+					except Exception as e:
+						last_error = e
+						if attempt < max_retries - 1:
+							self.logger.debug(f'CDP /json/version attempt {attempt + 1} failed: {e}, retrying...')
+							await asyncio.sleep(0.5)
+						else:
+							raise RuntimeError(
+								f'Failed to get CDP WebSocket URL after {max_retries} attempts: {last_error}'
+							) from last_error
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
 
