@@ -211,7 +211,9 @@ def get_session_metadata_path(session: str) -> Path:
 	return Path(tempfile.gettempdir()) / f'browser-use-{session}.meta'
 
 
-def ensure_server(session: str, browser: str, headed: bool, profile: str | None, api_key: str | None) -> bool:
+def ensure_server(
+	session: str, browser: str, headed: bool, profile: str | None, api_key: str | None, user_data_dir: str | None = None
+) -> bool:
 	"""Start server if not running. Returns True if started."""
 	from browser_use.skill_cli.utils import is_session_locked, kill_orphaned_server
 
@@ -269,6 +271,8 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 		cmd.append('--headed')
 	if profile:
 		cmd.extend(['--profile', profile])
+	if user_data_dir:
+		cmd.extend(['--user-data-dir', user_data_dir])
 
 	# Set up environment
 	env = os.environ.copy()
@@ -429,6 +433,7 @@ Setup:
 		help=f'Browser mode (available: {", ".join(available_modes)})',
 	)
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
+	parser.add_argument('--user-data-dir', help='Path to browser user data directory')
 	parser.add_argument('--profile', help='Browser profile (local name or cloud ID)')
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--api-key', help='Browser-Use API key')
@@ -467,6 +472,9 @@ Setup:
 	# open <url>
 	p = subparsers.add_parser('open', help='Navigate to URL')
 	p.add_argument('url', help='URL to navigate to')
+
+	# new-tab
+	subparsers.add_parser('new-tab', help='Open a new blank tab')
 
 	# click <index> OR click <x> <y>
 	p = subparsers.add_parser('click', help='Click element by index or coordinates (x y)')
@@ -1189,11 +1197,11 @@ def main() -> int:
 		return _handle_remote_run_with_wait(args)
 
 	# Ensure server is running
-	ensure_server(args.session, args.browser, args.headed, args.profile, args.api_key)
+	ensure_server(args.session, args.browser, args.headed, args.profile, args.api_key, args.user_data_dir)
 
 	# Build params from args
 	params = {}
-	skip_keys = {'command', 'session', 'browser', 'headed', 'json', 'api_key', 'server_command'}
+	skip_keys = {'command', 'session', 'browser', 'headed', 'profile', 'user_data_dir', 'json', 'api_key', 'server_command'}
 
 	for key, value in vars(args).items():
 		if key not in skip_keys and value is not None:

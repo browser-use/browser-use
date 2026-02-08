@@ -35,11 +35,13 @@ class SessionServer:
 		browser_mode: str,
 		headed: bool,
 		profile: str | None,
+		user_data_dir: str | None = None,
 	) -> None:
 		self.session_name = session_name
 		self.browser_mode = browser_mode
 		self.headed = headed
 		self.profile = profile
+		self.user_data_dir = user_data_dir
 		self.running = True
 		self._server: asyncio.Server | None = None
 		self._shutdown_event: asyncio.Event | None = None
@@ -127,6 +129,7 @@ class SessionServer:
 				self.browser_mode,
 				self.headed,
 				self.profile,
+				self.user_data_dir,
 			)
 
 			# Dispatch to handler
@@ -266,6 +269,7 @@ def main() -> None:
 	parser.add_argument('--session', required=True, help='Session name')
 	parser.add_argument('--browser', default='chromium', choices=['chromium', 'real', 'remote'])
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
+	parser.add_argument('--user-data-dir', help='Path to browser user data directory')
 	parser.add_argument('--profile', help='Chrome profile (real browser mode)')
 	args = parser.parse_args()
 
@@ -277,6 +281,7 @@ def main() -> None:
 		browser_mode=args.browser,
 		headed=args.headed,
 		profile=args.profile,
+		user_data_dir=args.user_data_dir,
 	)
 
 	try:
