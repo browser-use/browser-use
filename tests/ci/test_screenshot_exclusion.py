@@ -49,9 +49,7 @@ def test_screenshot_available_with_use_vision_true():
 
 	agent = Agent(task='test', llm=mock_llm, use_vision=True)
 
-	assert 'screenshot' in agent.tools.registry.registry.actions, (
-		'Screenshot should be available when use_vision=True'
-	)
+	assert 'screenshot' in agent.tools.registry.registry.actions, 'Screenshot should be available when use_vision=True'
 
 
 def test_screenshot_available_with_use_vision_auto():
@@ -60,9 +58,7 @@ def test_screenshot_available_with_use_vision_auto():
 
 	agent = Agent(task='test', llm=mock_llm, use_vision='auto')
 
-	assert 'screenshot' in agent.tools.registry.registry.actions, (
-		'Screenshot should be available when use_vision="auto"'
-	)
+	assert 'screenshot' in agent.tools.registry.registry.actions, 'Screenshot should be available when use_vision="auto"'
 
 
 def test_screenshot_available_with_custom_tools():
@@ -208,9 +204,7 @@ async def test_screenshot_full_page(browser_session: BrowserSession, file_system
 	full_path = Path(full_result.extracted_content.split('to ')[-1])
 	full_size = full_path.stat().st_size
 
-	assert full_size > viewport_size, (
-		f'Full page screenshot ({full_size}B) should be larger than viewport ({viewport_size}B)'
-	)
+	assert full_size > viewport_size, f'Full page screenshot ({full_size}B) should be larger than viewport ({viewport_size}B)'
 
 
 async def test_screenshot_counter_increments(browser_session: BrowserSession, file_system: FileSystem, httpserver: HTTPServer):
@@ -224,10 +218,16 @@ async def test_screenshot_counter_increments(browser_session: BrowserSession, fi
 	await tools.navigate(url=httpserver.url_for('/'), new_tab=False, browser_session=browser_session)
 
 	result1 = await tools.registry.execute_action(
-		'screenshot', {}, browser_session=browser_session, file_system=file_system,
+		'screenshot',
+		{},
+		browser_session=browser_session,
+		file_system=file_system,
 	)
 	result2 = await tools.registry.execute_action(
-		'screenshot', {}, browser_session=browser_session, file_system=file_system,
+		'screenshot',
+		{},
+		browser_session=browser_session,
+		file_system=file_system,
 	)
 
 	assert result1.error is None
@@ -260,7 +260,10 @@ async def test_done_with_screenshot_attachment(browser_session: BrowserSession, 
 
 	# Take a screenshot first
 	ss_result = await tools.registry.execute_action(
-		'screenshot', {}, browser_session=browser_session, file_system=file_system,
+		'screenshot',
+		{},
+		browser_session=browser_session,
+		file_system=file_system,
 	)
 	assert ss_result.error is None
 	screenshot_path = ss_result.extracted_content.split('to ')[-1]
