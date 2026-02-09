@@ -45,6 +45,7 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	ScreenshotAction,
 	ScrollAction,
 	SearchAction,
 	SelectDropdownOptionAction,
@@ -1092,21 +1093,37 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
 
-		@self.registry.action(
-			'Get a screenshot of the current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot is included in the next browser_state No parameters are needed.',
-			param_model=NoParamsAction,
-		)
-		async def screenshot(_: NoParamsAction):
-			"""Request that a screenshot be included in the next observation"""
-			memory = 'Requested screenshot for next observation'
-			msg = f'📸 {memory}'
-			logger.info(msg)
+		self._screenshot_counter = 0
 
-			# Return flag in metadata to signal that screenshot should be included
-			return ActionResult(
-				extracted_content=memory,
-				metadata={'include_screenshot': True},
-			)
+		@self.registry.action(
+			'Take a screenshot and save it to disk. Returns the file path so you can pass it to done(files_to_display=[path]). The screenshot is also included in the next browser_state observation. Use full_page=True to capture the entire scrollable page.',
+			param_model=ScreenshotAction,
+		)
+		async def screenshot(params: ScreenshotAction, browser_session: BrowserSession, file_system: FileSystem):
+			"""Take a screenshot via CDP, save to disk, and return the file path"""
+			try:
+				screenshot_bytes = await browser_session.take_screenshot(full_page=params.full_page)
+
+				self._screenshot_counter += 1
+				file_name = f'screenshot_{self._screenshot_counter}.png'
+				file_path = file_system.get_dir() / file_name
+				file_path.write_bytes(screenshot_bytes)
+
+				abs_path = str(file_path.resolve())
+				page_type = 'full page' if params.full_page else 'viewport'
+				memory = f'Saved {page_type} screenshot to {abs_path}'
+				msg = f'📸 {memory}'
+				logger.info(msg)
+
+				return ActionResult(
+					extracted_content=memory,
+					long_term_memory=memory,
+					metadata={'include_screenshot': True},
+				)
+			except Exception as e:
+				error_msg = f'Failed to take screenshot: {str(e)}'
+				logger.error(f'📸 {error_msg}')
+				return ActionResult(error=error_msg)
 
 		# Dropdown Actions
 
@@ -1466,7 +1483,7 @@ Validated Code (after quote fixing):
 				if len_text > len_max_memory:
 					memory += f' - {len_text - len_max_memory} more characters'
 
-				attachments = []
+				attachments: list[str] = []
 				if params.files_to_display:
 					if self.display_files_in_done_text:
 						file_msg = ''
@@ -1474,19 +1491,22 @@ Validated Code (after quote fixing):
 							file_content = file_system.display_file(file_name)
 							if file_content:
 								file_msg += f'\n\n{file_name}:\n{file_content}'
+								attachments.append(str(file_system.get_dir() / file_name))
+							elif os.path.isabs(file_name) and os.path.exists(file_name):
+								# Absolute path to file on disk (e.g. screenshot PNG)
 								attachments.append(file_name)
 						if file_msg:
 							user_message += '\n\nAttachments:'
 							user_message += file_msg
-						else:
+						elif not attachments:
 							logger.warning('Agent wanted to display files but none were found')
 					else:
 						for file_name in params.files_to_display:
 							file_content = file_system.display_file(file_name)
 							if file_content:
+								attachments.append(str(file_system.get_dir() / file_name))
+							elif os.path.isabs(file_name) and os.path.exists(file_name):
 								attachments.append(file_name)
-
-				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
 
 				return ActionResult(
 					is_done=True,
@@ -1739,7 +1759,7 @@ class CodeAgentTools(Tools[Context]):
 				'find_text',  # Exclude - use Python string ops
 				# 'select_dropdown',  # Keep for code-use
 				# 'dropdown_options',  # Keep for code-use
-				'screenshot',  # Exclude - not needed
+				# 'screenshot',  # Keep - saves to disk for file output
 				'search',  # Exclude - use navigate() directly
 				# 'click',  # Keep for code-use
 				# 'input',  # Keep for code-use
