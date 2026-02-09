@@ -11,15 +11,18 @@ from browser_use.agent.views import (
 	ActionResult,
 	AgentOutput,
 	AgentStepInfo,
+	MessageCompactionSettings,
 	MessageManagerState,
 )
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
 	ContentPartTextParam,
 	SystemMessage,
+	UserMessage,
 )
 from browser_use.observability import observe_debug
 from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
@@ -139,15 +142,19 @@ class MessageManager:
 	@property
 	def agent_history_description(self) -> str:
 		"""Build agent history description from list of items, respecting max_history_items limit"""
+		compacted_prefix = ''
+		if self.state.compacted_memory:
+			compacted_prefix = f'<compacted_memory>\n{self.state.compacted_memory}\n</compacted_memory>\n'
+
 		if self.max_history_items is None:
 			# Include all items
-			return '\n'.join(item.to_string() for item in self.state.agent_history_items)
+			return compacted_prefix + '\n'.join(item.to_string() for item in self.state.agent_history_items)
 
 		total_items = len(self.state.agent_history_items)
 
 		# If we have fewer items than the limit, just return all items
 		if total_items <= self.max_history_items:
-			return '\n'.join(item.to_string() for item in self.state.agent_history_items)
+			return compacted_prefix + '\n'.join(item.to_string() for item in self.state.agent_history_items)
 
 		# We have more items than the limit, so we need to omit some
 		omitted_count = total_items - self.max_history_items
@@ -163,7 +170,7 @@ class MessageManager:
 		# Add most recent items
 		items_to_include.extend([item.to_string() for item in self.state.agent_history_items[-recent_items_count:]])
 
-		return '\n'.join(items_to_include)
+		return compacted_prefix + '\n'.join(items_to_include)
 
 	def add_new_task(self, new_task: str) -> None:
 		new_task = '<follow_up_user_request> ' + new_task.strip() + ' </follow_up_user_request>'
@@ -172,6 +179,108 @@ class MessageManager:
 		self.task += '\n' + new_task
 		task_update_item = HistoryItem(system_message=new_task)
 		self.state.agent_history_items.append(task_update_item)
+
+	def prepare_step_state(
+		self,
+		browser_state_summary: BrowserStateSummary,
+		model_output: AgentOutput | None = None,
+		result: list[ActionResult] | None = None,
+		step_info: AgentStepInfo | None = None,
+		sensitive_data=None,
+	) -> None:
+		"""Prepare state for the next LLM call without building the final state message."""
+		self.state.history.context_messages.clear()
+		self._update_agent_history_description(model_output, result, step_info)
+
+		effective_sensitive_data = sensitive_data if sensitive_data is not None else self.sensitive_data
+		if effective_sensitive_data is not None:
+			self.sensitive_data = effective_sensitive_data
+			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
+
+	async def maybe_compact_messages(
+		self,
+		llm: BaseChatModel | None,
+		settings: MessageCompactionSettings | None,
+		step_info: AgentStepInfo | None = None,
+	) -> bool:
+		"""Summarize older history into a compact memory block.
+
+		Step interval is the primary trigger; char count is a minimum floor.
+		"""
+		if not settings or not settings.enabled:
+			return False
+		if llm is None:
+			return False
+		if step_info is None:
+			return False
+
+		# Step cadence gate
+		steps_since = step_info.step_number - (self.state.last_compaction_step or 0)
+		if steps_since < settings.compact_every_n_steps:
+			return False
+
+		# Char floor gate
+		history_items = self.state.agent_history_items
+		full_history_text = '\n'.join(item.to_string() for item in history_items).strip()
+		trigger_char_count = settings.trigger_char_count or 40000
+		if len(full_history_text) < trigger_char_count:
+			return False
+
+		logger.debug(f'Compacting message history (items={len(history_items)}, chars={len(full_history_text)})')
+
+		# Build compaction input
+		compaction_sections = []
+		if self.state.compacted_memory:
+			compaction_sections.append(
+				f'<previous_compacted_memory>\n{self.state.compacted_memory}\n</previous_compacted_memory>'
+			)
+		compaction_sections.append(f'<agent_history>\n{full_history_text}\n</agent_history>')
+		if settings.include_read_state and self.state.read_state_description:
+			compaction_sections.append(f'<read_state>\n{self.state.read_state_description}\n</read_state>')
+		compaction_input = '\n\n'.join(compaction_sections)
+
+		if self.sensitive_data:
+			filtered = self._filter_sensitive_data(UserMessage(content=compaction_input))
+			compaction_input = filtered.text
+
+		system_prompt = (
+			'You are summarizing an agent run for prompt compaction.\n'
+			'Capture task requirements, key facts, decisions, partial progress, errors, and next steps.\n'
+			'Preserve important entities, values, URLs, and file paths.\n'
+			'Return plain text only. Do not include tool calls or JSON.'
+		)
+		if settings.summary_max_chars:
+			system_prompt += f' Keep under {settings.summary_max_chars} characters if possible.'
+
+		messages = [SystemMessage(content=system_prompt), UserMessage(content=compaction_input)]
+		try:
+			response = await llm.ainvoke(messages)
+			summary = (response.completion or '').strip()
+		except Exception as e:
+			logger.warning(f'Failed to compact messages: {e}')
+			return False
+
+		if not summary:
+			return False
+
+		if settings.summary_max_chars and len(summary) > settings.summary_max_chars:
+			summary = summary[: settings.summary_max_chars].rstrip() + '…'
+
+		self.state.compacted_memory = summary
+		self.state.compaction_count += 1
+		self.state.last_compaction_step = step_info.step_number
+
+		# Keep first item + most recent items
+		keep_last = max(0, settings.keep_last_items)
+		if len(history_items) > keep_last + 1:
+			if keep_last == 0:
+				self.state.agent_history_items = [history_items[0]]
+			else:
+				self.state.agent_history_items = [history_items[0]] + history_items[-keep_last:]
+
+		logger.debug(f'Compaction complete (summary_chars={len(summary)}, history_items={len(self.state.agent_history_items)})')
+
+		return True
 
 	def _update_agent_history_description(
 		self,
@@ -300,21 +409,18 @@ class MessageManager:
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
 		unavailable_skills_info: str | None = None,  # Information about skills that cannot be used yet
 		plan_description: str | None = None,  # Rendered plan for injection into agent state
+		skip_state_update: bool = False,
 	) -> None:
 		"""Create single state message with all content"""
 
-		# Clear contextual messages from previous steps to prevent accumulation
-		self.state.history.context_messages.clear()
-
-		# First, update the agent history items with the latest step results
-		self._update_agent_history_description(model_output, result, step_info)
-
-		# Use the passed sensitive_data parameter, falling back to instance variable
-		effective_sensitive_data = sensitive_data if sensitive_data is not None else self.sensitive_data
-		if effective_sensitive_data is not None:
-			# Update instance variable to keep it in sync
-			self.sensitive_data = effective_sensitive_data
-			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
+		if not skip_state_update:
+			self.prepare_step_state(
+				browser_state_summary=browser_state_summary,
+				model_output=model_output,
+				result=result,
+				step_info=step_info,
+				sensitive_data=sensitive_data,
+			)
 
 		# Use only the current screenshot, but check if action results request screenshot inclusion
 		screenshots = []

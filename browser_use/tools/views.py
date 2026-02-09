@@ -87,7 +87,14 @@ class DoneAction(BaseModel):
 T = TypeVar('T', bound=BaseModel)
 
 
+def _hide_success_from_schema(schema: dict) -> None:
+	"""Remove 'success' from the JSON schema to avoid field name collisions with user models."""
+	schema.get('properties', {}).pop('success', None)
+
+
 class StructuredOutputAction(BaseModel, Generic[T]):
+	model_config = ConfigDict(json_schema_extra=_hide_success_from_schema)
+
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	data: T = Field(description='The actual output data matching the requested schema')
 
@@ -129,6 +136,17 @@ class ScreenshotAction(BaseModel):
 		default=None,
 		description='If provided, saves screenshot to this file and returns path. Otherwise screenshot is included in next observation.',
 	)
+
+
+class ReadContentAction(BaseModel):
+	"""Action for intelligent reading of long content."""
+
+	goal: str = Field(description='What to look for or extract from the content')
+	source: str = Field(
+		default='page',
+		description='What to read: "page" for current webpage, or a file path',
+	)
+	context: str = Field(default='', description='Additional context about the task')
 
 
 class GetDropdownOptionsAction(BaseModel):

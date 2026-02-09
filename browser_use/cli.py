@@ -169,7 +169,9 @@ try:
 	from textual.containers import Container, HorizontalGroup, VerticalScroll
 	from textual.widgets import Footer, Header, Input, Label, Link, RichLog, Static
 except ImportError:
-	print('⚠️ CLI addon is not installed. Please install it with: `pip install "browser-use[cli]"` and try again.')
+	print(
+		'⚠️ CLI addon is not installed. Please install it with: `pip install "browser-use[cli]"` and try again.', file=sys.stderr
+	)
 	sys.exit(1)
 
 

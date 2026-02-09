@@ -1065,6 +1065,23 @@ class DOMTreeSerializer:
 				if child_text:
 					formatted_text.append(child_text)
 
+			# Add hidden content hint for iframes
+			if (
+				node.original_node.node_type == NodeType.ELEMENT_NODE
+				and node.original_node.tag_name
+				and node.original_node.tag_name.upper() in ('IFRAME', 'FRAME')
+			):
+				if node.original_node.hidden_elements_info:
+					# Show specific interactive elements with scroll distances
+					hidden = node.original_node.hidden_elements_info
+					hint_lines = [f'{depth_str}... ({len(hidden)} more elements below - scroll to reveal):']
+					for elem in hidden:
+						hint_lines.append(f'{depth_str}    <{elem["tag"]}> "{elem["text"]}" ~{elem["pages"]} pages down')
+					formatted_text.extend(hint_lines)
+				elif node.original_node.has_hidden_content:
+					# Generic hint for non-interactive hidden content
+					formatted_text.append(f'{depth_str}... (more content below viewport - scroll to reveal)')
+
 		return '\n'.join(formatted_text)
 
 	@staticmethod

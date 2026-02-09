@@ -1359,6 +1359,7 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
 		from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
 		from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
+		from browser_use.browser.watchdogs.har_recording_watchdog import HarRecordingWatchdog
 		from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 		from browser_use.browser.watchdogs.permissions_watchdog import PermissionsWatchdog
 		from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog
@@ -1479,6 +1480,12 @@ class BrowserSession(BaseModel):
 		RecordingWatchdog.model_rebuild()
 		self._recording_watchdog = RecordingWatchdog(event_bus=self.event_bus, browser_session=self)
 		self._recording_watchdog.attach_to_session()
+
+		# Initialize HarRecordingWatchdog if record_har_path is configured (handles HTTPS HAR capture)
+		if self.browser_profile.record_har_path:
+			HarRecordingWatchdog.model_rebuild()
+			self._har_recording_watchdog = HarRecordingWatchdog(event_bus=self.event_bus, browser_session=self)
+			self._har_recording_watchdog.attach_to_session()
 
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True

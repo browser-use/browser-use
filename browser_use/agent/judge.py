@@ -2,6 +2,7 @@
 
 import base64
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -234,7 +235,11 @@ def construct_simple_judge_messages(
 	task_truncated = _truncate_text(task, 20000)
 	final_result_truncated = _truncate_text(final_result, 20000)
 
-	system_prompt = """You are a strict verifier checking whether a browser automation agent actually completed its task.
+	current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+	system_prompt = f"""You are a strict verifier checking whether a browser automation agent actually completed its task.
+
+Today's date is {current_date}. The agent ran recently — dates near today are expected and NOT fabricated.
 
 Given the task and the agent's final response, determine if the response genuinely satisfies ALL requirements.
 
@@ -242,14 +247,14 @@ Check for these common failure patterns:
 1. **Incorrect data**: Wrong number of items, missing filters/criteria, wrong format
 2. **Unverified actions**: Agent claims to have submitted a form, posted a comment, or saved a file but there's no evidence
 3. **Incomplete results**: Some requirements from the task are not addressed in the response
-4. **Fabricated content**: Data that looks plausible but wasn't actually extracted from any page
+4. **Fabricated content**: Data that looks plausible but wasn't actually extracted from any page. NOTE: dates and times close to today's date ({current_date}) are NOT fabricated — the agent browses live websites and extracts real-time content.
 5. **Partial completion reported as success**: Response acknowledges failure or blockers (captcha, access denied, etc.) but still claims success
 
 Respond with EXACTLY this JSON structure:
-{
+{{
 	"is_correct": true or false,
 	"reason": "Brief explanation if not correct, empty string if correct"
-}
+}}
 
 Be strict: if the response doesn't clearly satisfy every requirement, set is_correct to false."""
 

@@ -57,6 +57,7 @@ from browser_use.agent.views import (
 	BrowserStateHistory,
 	DetectedVariable,
 	JudgementResult,
+	MessageCompactionSettings,
 	PlanItem,
 	SimpleJudgeResult,
 	StepMetadata,
@@ -216,7 +217,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		enable_planning: bool = True,
 		planning_replan_on_stall: int = 3,
 		planning_exploration_limit: int = 5,
+		loop_detection_window: int = 20,
+		loop_detection_enabled: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		message_compaction: MessageCompactionSettings | bool | None = True,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
@@ -391,6 +395,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.sample_images = sample_images
 
+		if isinstance(message_compaction, bool):
+			message_compaction = MessageCompactionSettings(enabled=message_compaction)
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			vision_detail_level=vision_detail_level,
@@ -416,6 +423,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			enable_planning=enable_planning,
 			planning_replan_on_stall=planning_replan_on_stall,
 			planning_exploration_limit=planning_exploration_limit,
+			loop_detection_window=loop_detection_window,
+			loop_detection_enabled=loop_detection_enabled,
+			message_compaction=message_compaction,
 		)
 
 		# Token cost service
@@ -423,9 +433,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
 		self.token_cost_service.register_llm(judge_llm)
+		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
+			self.token_cost_service.register_llm(self.settings.message_compaction.compaction_llm)
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
+
+		# Configure loop detector window size from settings
+		self.state.loop_detector.window_size = self.settings.loop_detection_window
 
 		# Initialize history
 		self.history = AgentHistoryList(history=[], usage=None)
@@ -1088,6 +1103,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Render plan description for injection into agent context
 		plan_description = self._render_plan_description()
 
+		self._message_manager.prepare_step_state(
+			browser_state_summary=browser_state_summary,
+			model_output=self.state.last_model_output,
+			result=self.state.last_result,
+			step_info=step_info,
+			sensitive_data=self.sensitive_data,
+		)
+
+		await self._maybe_compact_messages(step_info)
+
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
@@ -1099,15 +1124,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 			unavailable_skills_info=unavailable_skills_info,
 			plan_description=plan_description,
+			skip_state_update=True,
 		)
 
 		await self._inject_budget_warning(step_info)
 		self._inject_replan_nudge()
 		self._inject_exploration_nudge()
 		self._inject_domain_departure_signal(browser_state_summary.url)
+		self._update_loop_detector_page_state(browser_state_summary)
+		self._inject_loop_detection_nudge()
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
+
+	async def _maybe_compact_messages(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Optionally compact message history to keep prompts small."""
+		settings = self.settings.message_compaction
+		if not settings or not settings.enabled:
+			return
+
+		compaction_llm = settings.compaction_llm or self.settings.page_extraction_llm or self.llm
+		await self._message_manager.maybe_compact_messages(
+			llm=compaction_llm,
+			settings=settings,
+			step_info=step_info,
+		)
 
 	@observe_debug(ignore_input=True, name='get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
@@ -1164,8 +1205,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.state.last_model_output is not None:
 			self._update_plan_from_model_output(self.state.last_model_output)
 
-		# check for action errors  and len more than 1
-		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
+		# Record executed actions for loop detection
+		self._update_loop_detector_actions()
+
+		# check for action errors - increment on any step where the last result has an error
+		if self.state.last_result and self.state.last_result[-1].error:
 			self.state.consecutive_failures += 1
 			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
 			return
@@ -1198,6 +1242,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning(f'{error_msg}')
 			return
 
+		# Handle browser closed/disconnected errors - stop immediately instead of retrying
+		if self._is_browser_closed_error(error):
+			self.logger.warning(f'🛑 Browser closed or disconnected: {error}')
+			self.state.stopped = True
+			self._external_pause_event.set()
+			return
+
 		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
@@ -1219,6 +1270,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._demo_mode_log(f'Step error: {error_msg}', 'error', {'step': self.state.n_steps})
 		self.state.last_result = [ActionResult(error=error_msg)]
 		return None
+
+	def _is_browser_closed_error(self, error: Exception) -> bool:
+		"""Check if the browser has been closed or disconnected."""
+		return self.browser_session._cdp_client_root is None
 
 	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
 		"""Finalize the step with history, logging, and events"""
@@ -1447,6 +1502,51 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				last_result.extracted_content += f'\n\n{provenance_note}'
 			else:
 				last_result.extracted_content = provenance_note
+	def _inject_loop_detection_nudge(self) -> None:
+		"""Inject an escalating nudge when behavioral loops are detected."""
+		if not self.settings.loop_detection_enabled:
+			return
+		nudge = self.state.loop_detector.get_nudge_message()
+		if nudge:
+			self.logger.info(
+				f'🔁 Loop detection nudge injected (repetition={self.state.loop_detector.max_repetition_count}, '
+				f'stagnation={self.state.loop_detector.consecutive_stagnant_pages})'
+			)
+			self._message_manager._add_context_message(UserMessage(content=nudge))
+
+	def _update_loop_detector_actions(self) -> None:
+		"""Record the actions from the latest step into the loop detector."""
+		if not self.settings.loop_detection_enabled:
+			return
+		if self.state.last_model_output is None:
+			return
+		# Actions to exclude: wait always hashes identically (instant false positive),
+		# done is terminal, go_back is navigation recovery
+		_LOOP_EXEMPT_ACTIONS = {'wait', 'done', 'go_back'}
+		for action in self.state.last_model_output.action:
+			action_data = action.model_dump(exclude_unset=True)
+			action_name = next(iter(action_data.keys()), 'unknown')
+			if action_name in _LOOP_EXEMPT_ACTIONS:
+				continue
+			params = action_data.get(action_name, {})
+			if not isinstance(params, dict):
+				params = {}
+			self.state.loop_detector.record_action(action_name, params)
+
+	def _update_loop_detector_page_state(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Record the current page state for stagnation detection."""
+		if not self.settings.loop_detection_enabled:
+			return
+		url = browser_state_summary.url or ''
+		element_count = len(browser_state_summary.dom_state.selector_map) if browser_state_summary.dom_state else 0
+		# Use the DOM text representation for fingerprinting
+		dom_text = ''
+		if browser_state_summary.dom_state:
+			try:
+				dom_text = browser_state_summary.dom_state.llm_representation()
+			except Exception:
+				dom_text = ''
+		self.state.loop_detector.record_page_state(url, dom_text, element_count)
 
 	async def _inject_budget_warning(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Inject a prominent budget warning when the agent has used >= 75% of its step budget.
@@ -2442,7 +2542,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	@time_execution_async('--run')
 	async def run(
 		self,
-		max_steps: int = 100,
+		max_steps: int = 500,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
@@ -3966,7 +4066,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def run_sync(
 		self,
-		max_steps: int = 100,
+		max_steps: int = 500,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
