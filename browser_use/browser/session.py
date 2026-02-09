@@ -1259,6 +1259,11 @@ class BrowserSession(BaseModel):
 					break
 
 			if not session:
+				# One last check to reduce race with delayed Target.attachedToTarget handler.
+				# In some environments the attach event can arrive right after the polling window ends.
+				session = self.session_manager._get_session_for_target(target_id)
+
+			if not session:
 				# 2) If still no session, explicit attach fallback
 				self.logger.warning(
 					f'[SessionManager] Target {target_id[:8]}... has no session after auto-attach wait; '
