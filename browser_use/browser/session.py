@@ -436,6 +436,7 @@ class BrowserSession(BaseModel):
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_network_watchdog: Any | None = PrivateAttr(default=None)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
@@ -516,6 +517,7 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		self._network_watchdog = None
 		if self._demo_mode:
 			self._demo_mode.reset()
 			self._demo_mode = None
@@ -1468,6 +1470,13 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(BrowserStoppedEvent, self._screenshot_watchdog.on_BrowserStoppedEvent)
 		# self.event_bus.on(ScreenshotEvent, self._screenshot_watchdog.on_ScreenshotEvent)
 		self._screenshot_watchdog.attach_to_session()
+
+		# Initialize NetworkWatchdog (monitors XHR/Fetch traffic for agent inspection)
+		from browser_use.browser.watchdogs.network_watchdog import NetworkWatchdog
+
+		NetworkWatchdog.model_rebuild()
+		self._network_watchdog = NetworkWatchdog(event_bus=self.event_bus, browser_session=self)
+		self._network_watchdog.attach_to_session()
 
 		# Initialize DOMWatchdog (handles building the DOM tree and detecting interactive elements, depends on ScreenshotWatchdog)
 		DOMWatchdog.model_rebuild()

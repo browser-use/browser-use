@@ -300,6 +300,11 @@ class AgentMessagePrompt:
 		if self.include_recent_events and self.browser_state.recent_events:
 			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
 
+		# Add network summary if available
+		network_summary_text = ''
+		if self.browser_state.network_log_summary:
+			network_summary_text = f'{self.browser_state.network_log_summary}\n'
+
 		# Add closed popup messages if any
 		closed_popups_text = ''
 		if self.browser_state.closed_popup_messages:
@@ -312,7 +317,7 @@ class AgentMessagePrompt:
 Available tabs:
 {tabs_text}
 {page_info_text}
-{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
+{recent_events_text}{closed_popups_text}{network_summary_text}{pdf_message}Interactive elements{truncated_text}:
 {elements_text}
 """
 		return browser_state

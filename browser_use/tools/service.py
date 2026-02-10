@@ -37,6 +37,7 @@ from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
+	CheckNetworkTrafficAction,
 	ClickElementAction,
 	ClickElementActionIndexOnly,
 	CloseTabAction,
@@ -44,6 +45,7 @@ from browser_use.tools.views import (
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	GetResponseBodyAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -1233,6 +1235,89 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			memory = f'Found {total} element{"s" if total != 1 else ""} matching "{params.selector}".'
 			logger.info(f'🔍 {memory}')
 			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+
+		@self.registry.action(
+			'Check recent network traffic log. Useful to verify if a button click triggered an API call, debug failed actions, or find hidden API endpoints.',
+			param_model=CheckNetworkTrafficAction,
+		)
+		async def check_network_traffic(params: CheckNetworkTrafficAction, browser_session: BrowserSession):
+			# 1. Access the watchdog safely
+			if not hasattr(browser_session, '_network_watchdog') or browser_session._network_watchdog is None:
+				return ActionResult(error='NetworkWatchdog is not active on this BrowserSession.')
+
+			watchdog = browser_session._network_watchdog
+
+			# 2. Get the current active tab ID
+			target_id = browser_session.agent_focus_target_id
+			if not target_id:
+				return ActionResult(error='No active tab found.')
+
+			# 3. Retrieve logs
+			logs = watchdog.get_traffic_log(target_id)
+			if not logs:
+				return ActionResult(extracted_content='No network traffic recorded for this tab yet.')
+
+			# 4. Filter logs
+			filtered_lines = []
+			for entry in logs:
+				# Filter by error status
+				if params.only_errors:
+					if not entry.error_text and (entry.status is not None and entry.status < 400):
+						continue
+
+				# Filter by resource type
+				if params.resource_type.lower() != 'all':
+					if entry.resource_type.lower() != params.resource_type.lower():
+						continue
+
+				filtered_lines.append(entry.to_string())
+
+			if not filtered_lines:
+				return ActionResult(extracted_content='No requests matched the filters.')
+
+			# Limit output to prevent overflowing context window (last 20 requests)
+			output = '\n'.join(filtered_lines[-20:])
+			return ActionResult(extracted_content=f'Recent Network Traffic:\n{output}')
+
+		@self.registry.action(
+			'Get the full response body (JSON/Text) of a specific network request. Use this to read API data directly instead of parsing HTML.',
+			param_model=GetResponseBodyAction,
+		)
+		async def get_response_body(params: GetResponseBodyAction, browser_session: BrowserSession):
+			# 1. Access the watchdog safely
+			if not hasattr(browser_session, '_network_watchdog') or browser_session._network_watchdog is None:
+				return ActionResult(error='NetworkWatchdog is not active.')
+
+			watchdog = browser_session._network_watchdog
+			target_id = browser_session.agent_focus_target_id
+
+			# 2. Find the specific request ID matching the URL pattern
+			logs = watchdog.get_traffic_log(target_id)
+			target_entry = None
+
+			# Search backwards (most recent first)
+			for entry in reversed(logs):
+				if params.url_pattern in entry.url:
+					target_entry = entry
+					break
+
+			if not target_entry:
+				return ActionResult(error=f"No recent request found matching URL pattern: '{params.url_pattern}'")
+
+			# 3. Fetch the body using the watchdog
+			body = await watchdog.get_response_body(target_id, target_entry.request_id)
+
+			if body is None:
+				return ActionResult(
+					error=f'Could not retrieve body for {target_entry.url}. The request might be too old, failed, or response body was discarded.'
+				)
+
+			# 4. Truncate if necessary
+			MAX_BODY_LENGTH = 10000
+			if len(body) > MAX_BODY_LENGTH:
+				body = body[:MAX_BODY_LENGTH] + f'\n... (truncated {len(body) - MAX_BODY_LENGTH} chars)'
+
+			return ActionResult(extracted_content=body)
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
