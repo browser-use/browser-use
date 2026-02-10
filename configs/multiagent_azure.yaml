@@ -1,0 +1,58 @@
+# Multi-Agent Orchestration with Azure OpenAI
+# =============================================
+# Example config using Azure OpenAI for all agents.
+# Set these environment variables:
+#   AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_PROXY_URL
+
+agents:
+  planner:
+    enabled: true
+    prompt_path: prompts/planner.md
+    provider:
+      type: azure
+      model_name: gpt-5
+      api_version: "2024-12-01-preview"
+      # api_key: set via AZURE_OPENAI_API_KEY env
+      # api_base: set via AZURE_OPENAI_ENDPOINT env
+      # proxy_url: http://127.0.0.1:9090  # set via AZURE_PROXY_URL env
+      temperature: 0.2
+      max_completion_tokens: 4096
+    budget_max_calls: 100
+
+  searcher:
+    enabled: true
+    prompt_path: prompts/searcher.md
+    provider:
+      type: azure
+      model_name: gpt-5
+      api_version: "2024-12-01-preview"
+      temperature: 0.1
+      max_completion_tokens: 2048
+    budget_max_calls: 30
+
+  critic:
+    enabled: true
+    prompt_path: prompts/critic.md
+    provider:
+      type: azure
+      model_name: gpt-5
+      api_version: "2024-12-01-preview"
+      temperature: 0.1
+      max_completion_tokens: 2048
+    budget_max_calls: 60
+
+orchestrator:
+  max_steps: 50
+  loop_detection_window: 5
+  loop_detection_threshold: 3
+  searcher_on_first_step: true
+  always_use_critic: true
+  force_replan_on_loop: true
+  abort_on_critic_reject_count: 3
+
+logging:
+  run_dir_base: runs/multiagent
+  experiment_name: azure_experiment
+  save_screenshots: true
+  save_dom_snapshots: true
+  log_level: INFO

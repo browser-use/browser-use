@@ -1,0 +1,55 @@
+# Multi-Agent Orchestration Default Configuration
+# ================================================
+# This config enables a Planner-Searcher-Critic multi-agent setup.
+# All provider settings can be overridden via environment variables.
+
+agents:
+  planner:
+    enabled: true
+    prompt_path: prompts/planner.md
+    provider:
+      type: vllm
+      model_name: Qwen3VL_32b
+      # base_url: http://127.0.0.1:3333/v1  # override via VLLM_BASE_URL env
+      temperature: 0.2
+      max_completion_tokens: 4096
+    max_tokens_per_call: 4096
+    budget_max_calls: 100
+
+  searcher:
+    enabled: true
+    prompt_path: prompts/searcher.md
+    provider:
+      type: vllm
+      model_name: Qwen3VL_32b
+      temperature: 0.1
+      max_completion_tokens: 2048
+    max_tokens_per_call: 2048
+    budget_max_calls: 30
+
+  critic:
+    enabled: true
+    prompt_path: prompts/critic.md
+    provider:
+      type: vllm
+      model_name: Qwen3VL_32b
+      temperature: 0.1
+      max_completion_tokens: 2048
+    max_tokens_per_call: 2048
+    budget_max_calls: 60
+
+orchestrator:
+  max_steps: 50
+  loop_detection_window: 5
+  loop_detection_threshold: 3
+  searcher_on_first_step: true
+  always_use_critic: true
+  force_replan_on_loop: true
+  abort_on_critic_reject_count: 3
+
+logging:
+  run_dir_base: runs/multiagent
+  experiment_name: default
+  save_screenshots: true
+  save_dom_snapshots: true
+  log_level: INFO
