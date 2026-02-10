@@ -2,8 +2,9 @@
 """CLI entrypoint for multi-agent browser-use orchestration.
 
 Usage:
-    python scripts/run_multiagent.py --config configs/multiagent_default.yaml --task "Search for the latest Python release"
-    python scripts/run_multiagent.py --config configs/multiagent_azure.yaml --task "Find the price of ..." --headless
+    python running_dirs/run_multiagent.py --config configs/multiagent_default.yaml --task "Search for the latest Python release"
+    python running_dirs/run_multiagent.py --config configs/multiagent_azure.yaml --task "Find the price of ..." --headless
+    python running_dirs/run_multiagent.py --config configs/multiagent_default.yaml --task "..." --log-dir my_logs/
 """
 
 from __future__ import annotations
@@ -56,6 +57,12 @@ def parse_args() -> argparse.Namespace:
 		choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
 		help='Override log level from config.',
 	)
+	parser.add_argument(
+		'--log-dir',
+		type=str,
+		default=None,
+		help='Override log directory (run_dir_base) from config.',
+	)
 	return parser.parse_args()
 
 
@@ -80,6 +87,9 @@ async def main() -> None:
 
 	if args.log_level is not None:
 		config.logging.log_level = args.log_level
+
+	if args.log_dir is not None:
+		config.logging.run_dir_base = args.log_dir
 
 	# Create browser profile
 	browser_profile = BrowserProfile(headless=args.headless)

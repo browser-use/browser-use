@@ -10,7 +10,7 @@ agents:
     provider:
       type: vllm
       model_name: Qwen3VL_32b
-      # base_url: http://127.0.0.1:3333/v1  # override via VLLM_BASE_URL env
+      base_url: http://127.0.0.1:3333/v1  # override via VLLM_BASE_URL env
       temperature: 0.2
       max_completion_tokens: 4096
     max_tokens_per_call: 4096
