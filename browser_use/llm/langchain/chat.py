@@ -43,12 +43,10 @@ def is_langchain_model(obj: Any) -> bool:
 	module = getattr(obj.__class__, '__module__', '')
 	is_langchain_module = 'langchain' in module
 
-	# Must have LangChain attributes AND NOT be a browser-use model
-	is_browser_use_model = hasattr(obj, 'provider') and callable(getattr(obj, 'provider', None).__get__ if hasattr(getattr(obj, 'provider', None), '__get__') else lambda: None)
-
 	# Check if it's from browser-use by looking at the module
 	browser_use_module = 'browser_use' in module
 
+	# Must have LangChain attributes AND be from langchain module AND NOT from browser-use
 	return has_langchain_attrs and is_langchain_module and not browser_use_module
 
 
