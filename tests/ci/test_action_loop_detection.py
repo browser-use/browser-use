@@ -137,7 +137,7 @@ def test_different_action_types_different_hashes():
 
 def test_detector_no_nudge_for_diverse_actions():
 	"""No nudge when actions are all different."""
-	detector = ActionLoopDetector(window_size=20)
+	detector = ActionLoopDetector(window_size=30)
 	detector.record_action('click', {'index': 1})
 	detector.record_action('scroll', {'down': True, 'index': None})
 	detector.record_action('click', {'index': 2})
@@ -146,51 +146,51 @@ def test_detector_no_nudge_for_diverse_actions():
 	assert detector.get_nudge_message() is None
 
 
-def test_detector_nudge_at_5_repeats():
-	"""Nudge triggers at 5 repetitions of the same action."""
-	detector = ActionLoopDetector(window_size=20)
-	for _ in range(5):
-		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
-	msg = detector.get_nudge_message()
-	assert msg is not None
-	assert 'repeated a similar action' in msg
-	assert '5 times' in msg
-
-
-def test_detector_no_nudge_at_4_repeats():
-	"""No nudge at only 4 repetitions (below threshold)."""
-	detector = ActionLoopDetector(window_size=20)
-	for _ in range(4):
-		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
-	assert detector.get_nudge_message() is None
-
-
-def test_detector_nudge_escalates_at_8_repeats():
-	"""Stronger nudge at 8 repetitions."""
-	detector = ActionLoopDetector(window_size=20)
+def test_detector_nudge_at_8_repeats():
+	"""Nudge triggers at 8 repetitions of the same action."""
+	detector = ActionLoopDetector(window_size=30)
 	for _ in range(8):
 		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
 	msg = detector.get_nudge_message()
 	assert msg is not None
-	assert 'still making progress' in msg
+	assert 'repeated a similar action' in msg
 	assert '8 times' in msg
 
 
+def test_detector_no_nudge_at_7_repeats():
+	"""No nudge at only 7 repetitions (below threshold)."""
+	detector = ActionLoopDetector(window_size=30)
+	for _ in range(7):
+		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
+	assert detector.get_nudge_message() is None
+
+
 def test_detector_nudge_escalates_at_12_repeats():
-	"""Most urgent nudge at 12 repetitions."""
-	detector = ActionLoopDetector(window_size=20)
+	"""Stronger nudge at 12 repetitions."""
+	detector = ActionLoopDetector(window_size=30)
 	for _ in range(12):
 		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
 	msg = detector.get_nudge_message()
 	assert msg is not None
-	assert 'making progress with each repetition' in msg
+	assert 'still making progress' in msg
 	assert '12 times' in msg
+
+
+def test_detector_nudge_escalates_at_16_repeats():
+	"""Most urgent nudge at 16 repetitions."""
+	detector = ActionLoopDetector(window_size=30)
+	for _ in range(16):
+		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
+	msg = detector.get_nudge_message()
+	assert msg is not None
+	assert 'making progress with each repetition' in msg
+	assert '16 times' in msg
 
 
 def test_detector_critical_message_no_done_directive():
 	"""Critical nudge should NOT tell the agent to call done — just a gentle heads up."""
-	detector = ActionLoopDetector(window_size=20)
-	for _ in range(12):
+	detector = ActionLoopDetector(window_size=30)
+	for _ in range(16):
 		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
 	msg = detector.get_nudge_message()
 	assert msg is not None
@@ -200,8 +200,8 @@ def test_detector_critical_message_no_done_directive():
 
 def test_detector_first_nudge_no_cannot_complete():
 	"""First nudge should NOT say task 'cannot be completed' — just raise awareness."""
-	detector = ActionLoopDetector(window_size=20)
-	for _ in range(5):
+	detector = ActionLoopDetector(window_size=30)
+	for _ in range(8):
 		detector.record_action('search', {'query': 'site:hinative.com answers votes'})
 	msg = detector.get_nudge_message()
 	assert msg is not None
@@ -227,7 +227,7 @@ def test_detector_window_slides():
 
 def test_detector_search_variations_detected_as_same():
 	"""Minor variations of the same search (the hinative pattern) are detected as repetition."""
-	detector = ActionLoopDetector(window_size=20)
+	detector = ActionLoopDetector(window_size=30)
 	# These are the kind of variations the agent produces
 	queries = [
 		'site:hinative.com answers votes questions',
@@ -235,10 +235,13 @@ def test_detector_search_variations_detected_as_same():
 		'site:hinative.com votes answers questions',
 		'site:hinative.com questions votes answers',
 		'site:hinative.com answers questions votes',
+		'site:hinative.com votes questions answers',
+		'site:hinative.com answers votes questions',
+		'site:hinative.com questions answers votes',
 	]
 	for q in queries:
 		detector.record_action('search', {'query': q})
-	assert detector.max_repetition_count == 5
+	assert detector.max_repetition_count == 8
 	assert detector.get_nudge_message() is not None
 
 
@@ -247,7 +250,7 @@ def test_detector_search_variations_detected_as_same():
 
 def test_page_stagnation_no_nudge_when_pages_change():
 	"""No stagnation nudge when page content changes each step."""
-	detector = ActionLoopDetector(window_size=20)
+	detector = ActionLoopDetector(window_size=30)
 	detector.record_page_state('https://example.com', 'page content 1', 50)
 	detector.record_page_state('https://example.com', 'page content 2', 55)
 	detector.record_page_state('https://example.com', 'page content 3', 60)
@@ -255,31 +258,31 @@ def test_page_stagnation_no_nudge_when_pages_change():
 	assert detector.get_nudge_message() is None
 
 
-def test_page_stagnation_nudge_at_5_identical_pages():
-	"""Stagnation nudge fires after 5 consecutive identical page states."""
-	detector = ActionLoopDetector(window_size=20)
+def test_page_stagnation_nudge_at_8_identical_pages():
+	"""Stagnation nudge fires after 8 consecutive identical page states."""
+	detector = ActionLoopDetector(window_size=30)
 	# First recording establishes baseline (doesn't count as stagnant)
-	for _ in range(6):
+	for _ in range(9):
 		detector.record_page_state('https://example.com', 'same content', 50)
-	assert detector.consecutive_stagnant_pages >= 5
+	assert detector.consecutive_stagnant_pages >= 8
 	msg = detector.get_nudge_message()
 	assert msg is not None
 	assert 'page content has not changed' in msg
 
 
-def test_page_stagnation_no_nudge_at_4_identical_pages():
-	"""No stagnation nudge at only 4 consecutive identical pages (below threshold)."""
-	detector = ActionLoopDetector(window_size=20)
-	# First recording establishes baseline, then 4 stagnant = 5 total recordings
-	for _ in range(5):
+def test_page_stagnation_no_nudge_at_7_identical_pages():
+	"""No stagnation nudge at only 7 consecutive identical pages (below threshold)."""
+	detector = ActionLoopDetector(window_size=30)
+	# First recording establishes baseline, then 7 stagnant = 8 total recordings
+	for _ in range(8):
 		detector.record_page_state('https://example.com', 'same content', 50)
-	assert detector.consecutive_stagnant_pages == 4
+	assert detector.consecutive_stagnant_pages == 7
 	assert detector.get_nudge_message() is None
 
 
 def test_page_stagnation_resets_on_change():
 	"""Stagnation counter resets when page content changes."""
-	detector = ActionLoopDetector(window_size=20)
+	detector = ActionLoopDetector(window_size=30)
 	detector.record_page_state('https://example.com', 'same content', 50)
 	detector.record_page_state('https://example.com', 'same content', 50)
 	detector.record_page_state('https://example.com', 'same content', 50)
@@ -291,13 +294,13 @@ def test_page_stagnation_resets_on_change():
 
 def test_combined_loop_and_stagnation():
 	"""Both action loop and page stagnation messages appear together."""
-	detector = ActionLoopDetector(window_size=20)
-	# Create action repetition (8 for STRONG LOOP WARNING)
-	for _ in range(8):
+	detector = ActionLoopDetector(window_size=30)
+	# Create action repetition (12 for stronger nudge)
+	for _ in range(12):
 		detector.record_action('click', {'index': 7})
-	# Create page stagnation (need 5 consecutive stagnant)
+	# Create page stagnation (need 8 consecutive stagnant)
 	detector.record_page_state('https://example.com', 'same', 50)
-	for _ in range(5):
+	for _ in range(8):
 		detector.record_page_state('https://example.com', 'same', 50)
 	msg = detector.get_nudge_message()
 	assert msg is not None
@@ -344,8 +347,8 @@ async def test_loop_nudge_injected_into_context():
 	llm = create_mock_llm()
 	agent = Agent(task='Test task', llm=llm)
 
-	# Simulate 5 repeated actions (new threshold)
-	for _ in range(5):
+	# Simulate 8 repeated actions (threshold)
+	for _ in range(8):
 		agent.state.loop_detector.record_action('search', {'query': 'site:example.com answers'})
 
 	agent._inject_loop_detection_nudge()
@@ -397,8 +400,8 @@ async def test_loop_detector_initialized_from_settings():
 
 
 async def test_loop_detector_default_window_size():
-	"""Loop detection default window size is 20."""
+	"""Loop detection default window size is 30."""
 	llm = create_mock_llm()
 	agent = Agent(task='Test task', llm=llm)
 	assert agent.settings.loop_detection_enabled is True
-	assert agent.state.loop_detector.window_size == 20
+	assert agent.state.loop_detector.window_size == 30
