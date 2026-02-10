@@ -88,12 +88,16 @@ _LAZY_IMPORTS = {
 	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
+	'ChatLangchain': ('browser_use.llm.langchain.chat', 'ChatLangchain'),
 	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
+	# LangChain compatibility utilities
+	'is_langchain_model': ('browser_use.llm.langchain.chat', 'is_langchain_model'),
+	'wrap_langchain_model': ('browser_use.llm.langchain.chat', 'wrap_langchain_model'),
 }
 
 # Cache for model instances - only created when accessed
@@ -158,4 +162,8 @@ __all__ = [
 	'ChatOpenRouter',
 	'ChatVercel',
 	'ChatCerebras',
+	# LangChain compatibility
+	'ChatLangchain',
+	'is_langchain_model',
+	'wrap_langchain_model',
 ]
