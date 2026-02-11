@@ -576,6 +576,16 @@ class DialogOpenedEvent(BaseEvent):
 	# target_id: TargetID   # TODO: add this to avoid needing target_id_from_frame() later
 
 
+class WebMCPToolsChangedEvent(BaseEvent):
+	"""WebMCP tools on the current page have changed (discovered, removed, or updated)."""
+
+	target_id: TargetID
+	url: str
+	tool_names: list[str] = Field(default_factory=list, description='Names of currently available WebMCP tools.')
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_WebMCPToolsChangedEvent', 10.0))
+
+
 # Note: Model rebuilding for forward references is handled in the importing modules
 # Events with 'EnhancedDOMTreeNode' forward references (ClickElementEvent, TypeTextEvent,
 # ScrollEvent, UploadFileEvent) need model_rebuild() called after imports are complete

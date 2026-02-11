@@ -657,6 +657,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	)
 	interaction_highlight_duration: float = Field(default=1.0, description='Duration in seconds to show interaction highlights.')
 
+	# --- WebMCP ---
+	webmcp_enabled: bool = Field(default=True, description='Enable WebMCP tool discovery on pages that use navigator.modelContext.')
+
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
 

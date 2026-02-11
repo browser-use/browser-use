@@ -902,6 +902,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.logger.info(f'✓ Registered {len(skills)} skill actions')
 
+	def _setup_webmcp_registry(self) -> None:
+		"""Wire the WebMCP watchdog to the tools registry for dynamic action registration"""
+		if not self.browser_session.browser_profile.webmcp_enabled:
+			return
+		watchdog = getattr(self.browser_session, '_webmcp_watchdog', None)
+		if watchdog is not None:
+			watchdog.set_registry(self.tools.registry)
+			self.logger.debug('WebMCP watchdog connected to tools registry')
+
 	async def _get_unavailable_skills_info(self) -> str:
 		"""Get information about skills that are unavailable due to missing cookies
 
@@ -2504,6 +2513,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Register skills as actions if SkillService is configured
 			await self._register_skills_as_actions()
+
+			# Wire WebMCP watchdog to the tools registry for dynamic action registration
+			self._setup_webmcp_registry()
 
 			# Normally there was no try catch here but the callback can raise an InterruptedError
 			try:
