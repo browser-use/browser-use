@@ -49,6 +49,7 @@ class WebMCPWatchdog(BaseWatchdog):
 
 		url = event.url
 		if not url or not url.startswith(('http://', 'https://')):
+			self._service.clear_all_actions(self._registry)
 			return
 
 		tools = await self._service.discover_tools(self.browser_session)

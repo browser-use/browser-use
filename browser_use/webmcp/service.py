@@ -56,7 +56,9 @@ def _sanitize_tool_name(name: str) -> str:
 
 	e.g. 'add-todo' -> 'webmcp_add_todo', 'getDresses' -> 'webmcp_getDresses'
 	"""
-	safe = name.replace('-', '_').replace('.', '_').replace(' ', '_')
+	import re
+
+	safe = re.sub(r'[^a-zA-Z0-9_]', '_', name)
 	return f'webmcp_{safe}'
 
 

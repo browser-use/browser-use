@@ -45,7 +45,12 @@
           error: 'WebMCP tool "' + toolName + '" not found',
         });
 
-      var args = typeof argsJSON === 'string' ? JSON.parse(argsJSON) : argsJSON || {};
+      var args;
+      try {
+        args = typeof argsJSON === 'string' ? JSON.parse(argsJSON) : argsJSON || {};
+      } catch (e) {
+        return JSON.stringify({ error: 'Invalid JSON args: ' + e.message });
+      }
 
       // The agent object passed as second arg to execute(), per the spec.
       var agent = {
