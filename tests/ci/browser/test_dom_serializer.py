@@ -557,16 +557,14 @@ class TestDOMSerializer:
 				timeout=30.0,  # 30 second timeout - should complete in < 5 seconds
 			)
 		except asyncio.TimeoutError:
-			raise AssertionError(
-				'DOM tree building timed out! Self-referencing iframe caused infinite recursion.'
-			)
+			raise AssertionError('DOM tree building timed out! Self-referencing iframe caused infinite recursion.')
 
 		assert browser_state_summary is not None, 'Browser state summary should not be None'
 		assert browser_state_summary.dom_state is not None, 'DOM state should not be None'
 
 		selector_map = browser_state_summary.dom_state.selector_map
 
-		print(f'\n📊 Self-Referencing Iframe Test:')
+		print('\n📊 Self-Referencing Iframe Test:')
 		print(f'   Total interactive elements found: {len(selector_map)}')
 
 		# We should find at least 2 elements from the main page (button + input)

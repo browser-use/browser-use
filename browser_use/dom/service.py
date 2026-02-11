@@ -849,7 +849,9 @@ class DomService:
 					visited_frame_urls = set()
 
 				# Check for URL cycle (self-referencing iframe)
-				is_self_referencing = content_doc_url and content_doc_url not in ('', 'about:blank') and content_doc_url in visited_frame_urls
+				is_self_referencing = (
+					content_doc_url and content_doc_url not in ('', 'about:blank') and content_doc_url in visited_frame_urls
+				)
 				# Check iframe content depth limit
 				is_too_deep = iframe_content_depth >= self.max_iframe_depth
 
@@ -865,7 +867,10 @@ class DomService:
 					# Track this URL for cycle detection in descendants
 					new_visited = visited_frame_urls | {content_doc_url} if content_doc_url else visited_frame_urls
 					dom_tree_node.content_document = await _construct_enhanced_node(
-						node['contentDocument'], updated_html_frames, total_frame_offset, all_frames,
+						node['contentDocument'],
+						updated_html_frames,
+						total_frame_offset,
+						all_frames,
 						visited_frame_urls=new_visited,
 						iframe_content_depth=iframe_content_depth + 1,
 					)
@@ -876,7 +881,10 @@ class DomService:
 				dom_tree_node.shadow_roots = []
 				for shadow_root in node['shadowRoots']:
 					shadow_root_node = await _construct_enhanced_node(
-						shadow_root, updated_html_frames, total_frame_offset, all_frames,
+						shadow_root,
+						updated_html_frames,
+						total_frame_offset,
+						all_frames,
 						visited_frame_urls=visited_frame_urls,
 						iframe_content_depth=iframe_content_depth,
 					)
@@ -898,7 +906,10 @@ class DomService:
 						continue
 					dom_tree_node.children_nodes.append(
 						await _construct_enhanced_node(
-							child, updated_html_frames, total_frame_offset, all_frames,
+							child,
+							updated_html_frames,
+							total_frame_offset,
+							all_frames,
 							visited_frame_urls=visited_frame_urls,
 							iframe_content_depth=iframe_content_depth,
 						)
@@ -1013,7 +1024,10 @@ class DomService:
 		root_doc_url = dom_tree['root'].get('documentURL', '') or dom_tree['root'].get('baseURL', '')
 		initial_visited_urls = {root_doc_url} if root_doc_url else set()
 		enhanced_dom_tree_node = await _construct_enhanced_node(
-			dom_tree['root'], initial_html_frames, initial_total_frame_offset, all_frames,
+			dom_tree['root'],
+			initial_html_frames,
+			initial_total_frame_offset,
+			all_frames,
 			visited_frame_urls=initial_visited_urls,
 		)
 		timing_info['construct_enhanced_tree_ms'] = (time.time() - start_construct) * 1000
