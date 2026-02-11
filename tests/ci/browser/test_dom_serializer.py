@@ -556,7 +556,7 @@ class TestDOMSerializer:
 				),
 				timeout=30.0,  # 30 second timeout - should complete in < 5 seconds
 			)
-		except asyncio.TimeoutError:
+		except TimeoutError:
 			raise AssertionError('DOM tree building timed out! Self-referencing iframe caused infinite recursion.')
 
 		assert browser_state_summary is not None, 'Browser state summary should not be None'
