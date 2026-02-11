@@ -91,7 +91,7 @@ class AgentSettings(BaseModel):
 
 	# Feature toggles
 	enable_todo: bool = True  # Registers the todo_write tool for task tracking
-	enable_python: bool = False  # Registers the python REPL tool (opt-in, uses exec())
+	enable_python: bool = True  # Registers the python REPL tool
 
 
 class PageFingerprint(BaseModel):

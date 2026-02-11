@@ -205,7 +205,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		enable_todo: bool = True,
-		enable_python: bool = False,
+		enable_python: bool = True,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
