@@ -62,18 +62,14 @@
       };
 
       try {
-        var result = tool._execute(args, agent);
-        // Handle async execute functions
-        if (result && typeof result.then === 'function') {
-          return result.then(function (r) {
-            return JSON.stringify(r != null ? r : {});
-          }).catch(function (err) {
-            return JSON.stringify({ error: err.message || 'Tool execution failed' });
-          });
-        }
-        return JSON.stringify(result != null ? result : {});
+        return Promise.resolve(tool._execute(args, agent)).then(function (r) {
+          return JSON.stringify(r != null ? r : {});
+        }).catch(function (err) {
+          return JSON.stringify({ error: err.message || 'Tool execution failed' });
+        });
       } catch (err) {
-        return JSON.stringify({ error: err.message || 'Tool execution failed' });
+        // Catch synchronous throws before Promise.resolve runs
+        return Promise.resolve(JSON.stringify({ error: err.message || 'Tool execution failed' }));
       }
     },
   };

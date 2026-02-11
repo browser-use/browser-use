@@ -253,7 +253,7 @@ class WebMCPService:
 		if param_model:
 
 			async def webmcp_action_wrapper(params: param_model) -> ActionResult:  # type: ignore[valid-type]
-				tool_params = params.model_dump(exclude_none=True)
+				tool_params = params.model_dump(exclude_unset=True)
 				logger.debug(f"Calling WebMCP tool '{original_name}' with params: {tool_params}")
 				result = await _service.call_tool(_browser_session, original_name, tool_params)
 				if result.error:
