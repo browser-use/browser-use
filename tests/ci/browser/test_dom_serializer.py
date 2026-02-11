@@ -33,6 +33,7 @@ def http_server():
 	main_page_html = (test_dir / 'test_page_template.html').read_text()
 	iframe_html = (test_dir / 'iframe_template.html').read_text()
 	stacked_page_html = (test_dir / 'test_page_stacked_template.html').read_text()
+	self_ref_iframe_html = (test_dir / 'self_referencing_iframe_template.html').read_text()
 
 	# Route 1: Main page with shadow DOM and iframes
 	server.expect_request('/dom-test-main').respond_with_data(main_page_html, content_type='text/html')
@@ -42,6 +43,9 @@ def http_server():
 
 	# Route 3: Stacked complex scenarios test page
 	server.expect_request('/stacked-test').respond_with_data(stacked_page_html, content_type='text/html')
+
+	# Route 4: Self-referencing iframe test page
+	server.expect_request('/self-ref-iframe').respond_with_data(self_ref_iframe_html, content_type='text/html')
 
 	yield server
 	server.stop()
@@ -523,6 +527,72 @@ class TestDOMSerializer:
 		print('   ✓ Same-origin iframe clicks work (can access elements inside)')
 		print('   ✓ Cross-origin iframe extraction works (CDP target switching enabled)')
 		print('   ✓ Truly nested structure works: Open Shadow → Closed Shadow → Iframe')
+
+	async def test_self_referencing_iframe_does_not_hang(self, browser_session, base_url):
+		"""Test that self-referencing iframes do not cause infinite recursion (Issue #2715).
+
+		This test verifies that when an iframe's src points to the same page,
+		the DOM tree builder detects the cycle and skips the self-referencing
+		content document instead of hanging indefinitely.
+		"""
+		import asyncio
+
+		from browser_use.tools.service import Tools
+
+		tools = Tools()
+
+		# Navigate to the self-referencing iframe page
+		await tools.navigate(url=f'{base_url}/self-ref-iframe', new_tab=False, browser_session=browser_session)
+
+		# Give the page time to load (iframe needs to load too)
+		await asyncio.sleep(2)
+
+		# This should NOT hang - if the fix is missing, this will timeout
+		try:
+			browser_state_summary = await asyncio.wait_for(
+				browser_session.get_browser_state_summary(
+					include_screenshot=False,
+					include_recent_events=False,
+				),
+				timeout=30.0,  # 30 second timeout - should complete in < 5 seconds
+			)
+		except asyncio.TimeoutError:
+			raise AssertionError(
+				'DOM tree building timed out! Self-referencing iframe caused infinite recursion.'
+			)
+
+		assert browser_state_summary is not None, 'Browser state summary should not be None'
+		assert browser_state_summary.dom_state is not None, 'DOM state should not be None'
+
+		selector_map = browser_state_summary.dom_state.selector_map
+
+		print(f'\n📊 Self-Referencing Iframe Test:')
+		print(f'   Total interactive elements found: {len(selector_map)}')
+
+		# We should find at least 2 elements from the main page (button + input)
+		assert len(selector_map) >= 2, f'Should find at least 2 interactive elements, found {len(selector_map)}'
+
+		# Verify the main page elements are present
+		main_btn_found = False
+		main_input_found = False
+		iframe_tag_found = False
+		for idx, element in selector_map.items():
+			elem_id = element.attributes.get('id', '') if hasattr(element, 'attributes') else ''
+			if elem_id == 'main-btn':
+				main_btn_found = True
+			elif elem_id == 'main-input':
+				main_input_found = True
+			elif element.tag_name == 'iframe':
+				iframe_tag_found = True
+			print(f'   [{idx}] {element.tag_name} id={elem_id}')
+
+		assert main_btn_found, 'Main page button should be found in selector map'
+		assert main_input_found, 'Main page input should be found in selector map'
+
+		print('\n✅ Self-referencing iframe test passed!')
+		print('   ✓ DOM tree built successfully without hanging')
+		print('   ✓ Main page elements are accessible')
+		print('   ✓ Self-referencing iframe cycle was detected and skipped')
 
 
 if __name__ == '__main__':
