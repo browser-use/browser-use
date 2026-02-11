@@ -41,15 +41,15 @@
     callTool: function (toolName, argsJSON) {
       var tool = tools[toolName];
       if (!tool)
-        return JSON.stringify({
+        return Promise.resolve(JSON.stringify({
           error: 'WebMCP tool "' + toolName + '" not found',
-        });
+        }));
 
       var args;
       try {
         args = typeof argsJSON === 'string' ? JSON.parse(argsJSON) : argsJSON || {};
       } catch (e) {
-        return JSON.stringify({ error: 'Invalid JSON args: ' + e.message });
+        return Promise.resolve(JSON.stringify({ error: 'Invalid JSON args: ' + e.message }));
       }
 
       // The agent object passed as second arg to execute(), per the spec.
@@ -63,7 +63,7 @@
 
       try {
         return Promise.resolve(tool._execute(args, agent)).then(function (r) {
-          return JSON.stringify(r != null ? r : {});
+          return JSON.stringify(r != null ? r : { content: [] });
         }).catch(function (err) {
           return JSON.stringify({ error: err.message || 'Tool execution failed' });
         });
