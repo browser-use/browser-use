@@ -36,6 +36,8 @@ from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
+from browser_use.tools.python.views import PythonAction, PythonSession
+from browser_use.tools.todo.views import TodoItem, TodoStats, TodoWriteAction
 from browser_use.tools.views import (
 	ClickElementAction,
 	ClickElementActionIndexOnly,
@@ -354,9 +356,17 @@ class Tools(Generic[Context]):
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
 
+		# Todo tool state
+		self._todos: list[TodoItem] = []
+
+		# Python REPL state (lazy-initialized via enable_python_repl())
+		self._python_session: 'PythonSession | None' = None
+		self._python_enabled: bool = False
+
 		"""Register all default browser actions"""
 
 		self._register_done_action(output_model)
+		self._register_todo_action()
 
 		# Basic Navigation Actions
 		@self.registry.action(
@@ -2078,6 +2088,166 @@ Validated Code (after quote fixing):
 					long_term_memory=memory,
 					attachments=attachments,
 				)
+
+	# --- Todo tool ---------------------------------------------------------------
+
+	def _get_todo_stats(self) -> TodoStats:
+		"""Compute statistics for the current todo list."""
+		return TodoStats(
+			total=len(self._todos),
+			pending=sum(1 for t in self._todos if t.status == 'pending'),
+			in_progress=sum(1 for t in self._todos if t.status == 'in_progress'),
+			completed=sum(1 for t in self._todos if t.status == 'completed'),
+		)
+
+	def get_todos(self) -> list[TodoItem]:
+		"""Public accessor for the current todo list."""
+		return list(self._todos)
+
+	def _register_todo_action(self) -> None:
+		"""Register the todo_write action."""
+
+		TODO_DESCRIPTION = (
+			'Create and manage a structured task list for this session. '
+			'Use proactively for: complex multi-step tasks (3+ steps), user-provided task lists, '
+			'non-trivial work requiring planning. Skip for: single trivial tasks, conversational/info requests.\n\n'
+			'Task states: pending (not started), in_progress (currently working - limit ONE at a time), '
+			'completed (finished). Each todo needs content (imperative, e.g. "Run tests") and '
+			'activeForm (continuous, e.g. "Running tests").\n\n'
+			'Management rules: update status in real-time, mark complete IMMEDIATELY after finishing, '
+			'only ONE task in_progress at a time, remove irrelevant tasks. '
+			'ONLY mark completed when FULLY accomplished - keep as in_progress if blocked/errors.\n\n'
+			'Use replan=True with replan_reason to discard and rewrite the plan when assumptions were wrong '
+			'or approach is infeasible. Do NOT replan for minor adjustments.'
+		)
+
+		@self.registry.action(
+			TODO_DESCRIPTION,
+			param_model=TodoWriteAction,
+		)
+		async def todo_write(params: TodoWriteAction) -> ActionResult:
+			old_count = len(self._todos)
+
+			# Replace the entire todo list
+			self._todos = list(params.todos)
+
+			stats = self._get_todo_stats()
+			stats_str = f'Total: {stats.total}, Pending: {stats.pending}, In Progress: {stats.in_progress}, Completed: {stats.completed}'
+
+			if params.replan and old_count > 0:
+				reason = params.replan_reason or 'No reason provided'
+				msg = f'Plan rewritten: {reason}. New plan has {stats.total} tasks. {stats_str}'
+			else:
+				msg = f'Todos updated. {stats_str}'
+
+			return ActionResult(
+				extracted_content=msg,
+				include_extracted_content_only_once=True,
+			)
+
+	# --- Python REPL tool --------------------------------------------------------
+
+	def enable_python_repl(self) -> None:
+		"""Enable the Python REPL tool. Creates a session and registers the action."""
+		if self._python_enabled:
+			return
+		self._python_session = PythonSession()
+		self._python_enabled = True
+		self._register_python_action()
+
+	def _register_python_action(self) -> None:
+		"""Register the python action."""
+
+		PYTHON_DESCRIPTION = (
+			'Execute Python code with browser access. Persistent state like Jupyter cells — '
+			'variables, functions, classes all persist across calls. Never use `global`.\n\n'
+			'OUTPUT: print() is captured — ALWAYS print important values. No print = no visibility. '
+			'Output > 30k chars is truncated.\n\n'
+			'BROWSER: `browser` object with async methods:\n'
+			'- await browser.get_html(selector?) — get page/element HTML\n'
+			'- await browser.evaluate(js, variables?) — execute JS, return Python data\n'
+			'- await browser.navigate(url) — go to URL\n'
+			'- await browser.click(index=N) or click(selector=".btn") — click element\n'
+			'- await browser.input(index, text, clear=True) — type text\n'
+			'- await browser.scroll(down=True, pages=1) — scroll\n'
+			'- await browser.wait(seconds) — wait\n'
+			'- await browser.send_keys(keys) — keyboard keys\n'
+			'- await browser.go_back() — browser back\n\n'
+			'PRE-IMPORTED: BeautifulSoup, pd/pandas, np/numpy, plt, tabulate, json, re, csv, Path, requests\n'
+			'HELPERS: save_json(data, path), save_csv(data, path), read_file(path)\n\n'
+			'ELEMENT INDICES INVALIDATE after page changes. Extract URLs/selectors first, then navigate.\n'
+			'For large extractions, save incrementally with save_json().'
+		)
+
+		@self.registry.action(
+			PYTHON_DESCRIPTION,
+			param_model=PythonAction,
+		)
+		async def python(params: PythonAction, browser_session: BrowserSession = None, file_system: FileSystem = None) -> ActionResult:  # type: ignore[assignment]
+			from browser_use.tools.python.execution import (
+				create_namespace,
+				execute_code,
+				get_changed_variables,
+				truncate_output,
+			)
+
+			assert self._python_session is not None, 'Python session not initialized — call enable_python_repl() first'
+
+			# Create/update namespace
+			namespace = create_namespace(browser_session, file_system, self._python_session.namespace)
+			self._python_session.namespace = namespace
+
+			# Track variables before execution
+			vars_before = set(namespace.keys())
+
+			# Increment execution count
+			self._python_session.increment_execution_count()
+
+			# Change to file_system working directory so relative paths work
+			old_cwd = os.getcwd()
+			try:
+				if file_system is not None:
+					os.chdir(file_system.get_dir())
+				output, error = await execute_code(params.code, namespace)
+			finally:
+				os.chdir(old_cwd)
+
+			# Truncate large output
+			if output:
+				output = truncate_output(output)
+
+			# Track changed variables
+			vars_after = set(namespace.keys())
+			variables_changed = get_changed_variables(vars_before, vars_after, namespace)
+
+			# Record in history
+			self._python_session.add_history(
+				source=params.code,
+				output=output,
+				error=error,
+				variables_created=variables_changed,
+			)
+
+			# Build result
+			parts = []
+			if output:
+				parts.append(output)
+			if error:
+				parts.append(f'Error: {error}')
+			if variables_changed:
+				parts.append(f'Variables created: {", ".join(variables_changed)}')
+
+			content = '\n'.join(parts) if parts else 'Code executed successfully (no output)'
+
+			if error:
+				return ActionResult(error=content)
+
+			return ActionResult(
+				extracted_content=content,
+				include_extracted_content_only_once=True,
+			)
+
+	# --- Structured output / public API ------------------------------------------
 
 	def use_structured_output_action(self, output_model: type[T]):
 		self._output_model = output_model

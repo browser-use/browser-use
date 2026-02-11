@@ -204,6 +204,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		loop_detection_enabled: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
+		enable_todo: bool = True,
+		enable_python: bool = False,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
@@ -409,7 +411,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			loop_detection_window=loop_detection_window,
 			loop_detection_enabled=loop_detection_enabled,
 			message_compaction=message_compaction,
+			enable_todo=enable_todo,
+			enable_python=enable_python,
 		)
+
+		# Wire feature toggles to tools
+		if not self.settings.enable_todo:
+			self.tools.exclude_action('todo_write')
+		if self.settings.enable_python:
+			self.tools.enable_python_repl()
 
 		# Token cost service
 		self.token_cost_service = TokenCost(include_cost=calculate_cost)

@@ -89,6 +89,10 @@ class AgentSettings(BaseModel):
 	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
 
+	# Feature toggles
+	enable_todo: bool = True  # Registers the todo_write tool for task tracking
+	enable_python: bool = False  # Registers the python REPL tool (opt-in, uses exec())
+
 
 class PageFingerprint(BaseModel):
 	"""Lightweight fingerprint of the browser page state."""
