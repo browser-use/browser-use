@@ -43,15 +43,20 @@ browser-use close                              # Close browser
 ## Browser Modes
 
 ```bash
-browser-use --browser chromium open <url>      # Default: headless Chromium
+browser-use --browser chromium open <url>           # Default: headless Chromium
 browser-use --browser chromium --headed open <url>  # Visible Chromium window
-browser-use --browser real open <url>          # User's Chrome with login sessions
-browser-use --browser remote open <url>        # Cloud browser (requires API key)
+browser-use --browser real --profile "Default" open <url>
+browser-use --browser real --browser-exe <path> --user-data-dir <path> open <url>
+browser-use --browser remote open <url>             # Cloud browser (requires API key)
 ```
 
 - **chromium**: Fast, isolated, headless by default
-- **real**: Uses your Chrome with cookies, extensions, logged-in sessions
+- **real**: Uses your Chrome profile (copies profile by default)
 - **remote**: Cloud-hosted browser with proxy support (requires BROWSER_USE_API_KEY)
+
+Real browser notes:
+- Use `--no-copy-profile` or `BROWSER_USE_NO_COPY_PROFILE=1` to use the profile in-place
+- Use `--browser-exe`, `--user-data-dir`, and `--profile` to target a specific Chrome profile
 
 ## Commands
 
@@ -61,6 +66,7 @@ browser-use open <url>                    # Navigate to URL
 browser-use back                          # Go back in history
 browser-use scroll down                   # Scroll down
 browser-use scroll up                     # Scroll up
+browser-use scroll down --amount 800      # Scroll with custom pixel amount
 ```
 
 ### Page State
@@ -142,6 +148,7 @@ browser-use python "print(browser.url)"   # Access browser object
 browser-use python --vars                 # Show defined variables
 browser-use python --reset                # Clear Python namespace
 browser-use python --file script.py       # Execute Python file
+browser-use python -f script.py           # Short alias for --file
 ```
 
 The Python session maintains state across commands. The `browser` object provides:
@@ -298,12 +305,17 @@ browser-use install                       # Install Chromium and system dependen
 
 | Option | Description |
 |--------|-------------|
-| `--session NAME` | Use named session (default: "default") |
-| `--browser MODE` | Browser mode: chromium, real, remote |
+| `--session NAME`, `-s` | Use named session (default: "default") |
+| `--browser MODE`, `-b` | Browser mode: chromium, real, remote |
 | `--headed` | Show browser window (chromium mode) |
-| `--profile NAME` | Chrome profile (real mode only) |
+| `--browser-exe PATH` | Path to Chrome/Chromium executable (real mode) |
+| `--user-data-dir PATH` | Chrome user data directory (real mode) |
+| `--profile NAME` | Cloud profile id (remote mode) or Chrome profile directory name (real mode) |
+| `--no-copy-profile` | Use profile in-place without copying |
 | `--json` | Output as JSON |
 | `--api-key KEY` | Override API key |
+
+Note: In real mode, `--profile` expects a directory name under `--user-data-dir` (for example `Default` or `Profile 1`), which is what Chromium expects. In remote mode, it is the cloud profile id.
 
 **Session behavior**: All commands without `--session` use the same "default" session. The browser stays open and is reused across commands. Use `--session NAME` to run multiple browsers in parallel.
 
@@ -313,13 +325,15 @@ Some features (`run`, `extract`, `--browser remote`) require an API key. The CLI
 
 1. `--api-key` command line flag
 2. `BROWSER_USE_API_KEY` environment variable
-3. `~/.config/browser-use/config.json` file
+3. `~/.config/browseruse/config.json` file
 
 To configure permanently:
 ```bash
-mkdir -p ~/.config/browser-use
-echo '{"api_key": "your-key-here"}' > ~/.config/browser-use/config.json
+mkdir -p ~/.config/browseruse
+echo '{"api_key": "your-key-here"}' > ~/.config/browseruse/config.json
 ```
+
+Set `BROWSER_USE_CONFIG_DIR` to override the config location.
 
 ## Examples
 
@@ -358,7 +372,9 @@ browser-use python "print(f'Captured {len(products)} products')"
 
 ### Using Real Browser (Logged-In Sessions)
 ```bash
-browser-use --browser real open https://gmail.com
+browser-use --browser real --profile "Default" open https://gmail.com
+# Use profile in-place (skip temporary copy)
+browser-use --browser real --no-copy-profile open https://gmail.com
 # Uses your actual Chrome with existing login sessions
 browser-use state  # Already logged in!
 ```
