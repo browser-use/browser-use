@@ -202,7 +202,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		loop_detection_window: int = 20,
 		loop_detection_enabled: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
-		message_compaction: MessageCompactionSettings | bool | None = True,
+		message_compaction: MessageCompactionSettings | bool | None = False,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
