@@ -5,6 +5,7 @@ truncation, and variable tracking.
 """
 
 import ast
+import asyncio
 import csv as csv_module
 import io
 import json
@@ -47,6 +48,7 @@ def create_namespace(
 	namespace['re'] = re
 	namespace['csv'] = csv_module
 	namespace['Path'] = Path
+	namespace['asyncio'] = asyncio
 
 	# Helper functions bound to file_system
 	if file_system is not None:
@@ -130,6 +132,35 @@ def create_namespace(
 	return namespace
 
 
+class _AsyncioRunTransformer(ast.NodeTransformer):
+	"""Rewrite asyncio.run(coro) → (await coro) so it works inside a running loop."""
+
+	def __init__(self) -> None:
+		self.transformed = False
+
+	def visit_Call(self, node: ast.Call) -> ast.AST:
+		self.generic_visit(node)
+		# Match asyncio.run(x) or asyncio.run(x, ...)
+		if (
+			isinstance(node.func, ast.Attribute)
+			and isinstance(node.func.value, ast.Name)
+			and node.func.value.id == 'asyncio'
+			and node.func.attr == 'run'
+			and len(node.args) >= 1
+		):
+			self.transformed = True
+			return ast.copy_location(ast.Await(value=node.args[0]), node)
+		# Match loop.run_until_complete(x)
+		if (
+			isinstance(node.func, ast.Attribute)
+			and node.func.attr == 'run_until_complete'
+			and len(node.args) >= 1
+		):
+			self.transformed = True
+			return ast.copy_location(ast.Await(value=node.args[0]), node)
+		return node
+
+
 async def execute_code(
 	code: str,
 	namespace: dict[str, Any],
@@ -137,6 +168,8 @@ async def execute_code(
 	"""Execute Python code in namespace.
 
 	Handles async code automatically by detecting await expressions.
+	Rewrites asyncio.run() calls to await expressions since we're
+	already inside a running event loop.
 
 	Returns:
 		(output, error) tuple
@@ -156,12 +189,25 @@ async def execute_code(
 		except SyntaxError as e:
 			return None, f'SyntaxError: {e}'
 
-		# Check if code contains await/async constructs
-		has_await = any(isinstance(node, (ast.Await, ast.AsyncWith, ast.AsyncFor)) for node in ast.walk(tree))
+		# Rewrite asyncio.run(coro) → await coro (we're already in an event loop)
+		transformer = _AsyncioRunTransformer()
+		tree = transformer.visit(tree)
+		ast.fix_missing_locations(tree)
+
+		# Check if code contains await/async constructs (including after transform)
+		has_await = transformer.transformed or any(
+			isinstance(node, (ast.Await, ast.AsyncWith, ast.AsyncFor)) for node in ast.walk(tree)
+		)
 
 		if has_await:
 			# Wrap in async function to handle await
-			indented_code = textwrap.indent(code, '    ')
+			# Re-unparse the (possibly transformed) AST back to source
+			try:
+				transformed_code = ast.unparse(tree)
+			except Exception:
+				# Fallback to original code if unparse fails
+				transformed_code = code
+			indented_code = textwrap.indent(transformed_code, '    ')
 			wrapped = f'''async def __python_exec_async__():
 {indented_code}
     return dict((k, v) for k, v in locals().items() if not k.startswith('_'))
@@ -178,7 +224,7 @@ async def execute_code(
 					namespace[k] = v
 		else:
 			# Execute directly for synchronous code
-			compiled = compile(code, '<python>', 'exec')
+			compiled = compile(tree, '<python>', 'exec')
 			exec(compiled, namespace)  # noqa: S102
 
 		stdout_output = captured_stdout.getvalue()
@@ -223,6 +269,7 @@ def get_changed_variables(
 		're',
 		'csv',
 		'Path',
+		'asyncio',
 		'save_json',
 		'save_csv',
 		'read_file',

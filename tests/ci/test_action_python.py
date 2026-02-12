@@ -270,6 +270,23 @@ async def test_execute_code_async():
 	assert 'ok' in output
 
 
+async def test_execute_code_asyncio_run_rewrite():
+	"""asyncio.run() should be rewritten to await inside the running loop."""
+	code = '''
+import asyncio
+
+async def my_coro():
+    await asyncio.sleep(0)
+    return 42
+
+result = asyncio.run(my_coro())
+print(f"result={result}")
+'''
+	output, error = await execute_code(code, {})
+	assert error is None
+	assert 'result=42' in output
+
+
 async def test_execute_code_preserves_namespace():
 	"""Variables set during execution should persist in the namespace."""
 	ns: dict = {}
