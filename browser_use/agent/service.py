@@ -200,7 +200,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		enable_planning: bool = True,
 		planning_replan_on_stall: int = 3,
 		planning_exploration_limit: int = 5,
-		loop_detection_window: int = 20,
+		loop_detection_window: int = 30,
 		loop_detection_enabled: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
