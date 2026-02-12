@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Self-Referencing Iframe Test</title>
+</head>
+<body>
+    <h1>Self-Referencing Iframe Test Page</h1>
+    <p>This page contains an iframe that references itself, which should be handled gracefully.</p>
+    <button id="main-btn" onclick="window.mainClicked = true">Main Button</button>
+    <input id="main-input" type="text" placeholder="Main input" />
+
+    <!-- Self-referencing iframe: src is set dynamically to the current page URL -->
+    <iframe id="self-ref-iframe" style="width: 300px; height: 200px; border: 1px solid red;"></iframe>
+
+    <script>
+        // Set the iframe src to the current page URL to create a self-referencing iframe
+        document.getElementById('self-ref-iframe').src = window.location.href;
+    </script>
+</body>
+</html>
