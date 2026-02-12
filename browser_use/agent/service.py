@@ -181,6 +181,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		page_extraction_llm: BaseChatModel | None = None,
 		fallback_llm: BaseChatModel | None = None,
 		use_judge: bool = True,
+		use_simple_judge: bool = False,
 		ground_truth: str | None = None,
 		judge_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
@@ -402,6 +403,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 			use_judge=use_judge,
+			use_simple_judge=use_simple_judge,
 			ground_truth=ground_truth,
 			enable_planning=enable_planning,
 			planning_replan_on_stall=planning_replan_on_stall,
@@ -2225,8 +2227,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self.step(step_info)
 
 		if self.history.is_done():
-			# Always run simple judge to align agent success with reality
-			await self._run_simple_judge()
+			# Run simple judge to align agent success with reality (if enabled)
+			if self.settings.use_simple_judge:
+				await self._run_simple_judge()
 
 			await self.log_completion()
 
@@ -2429,8 +2432,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await on_step_end(self)
 
 		if self.history.is_done():
-			# Always run simple judge to align agent success with reality
-			await self._run_simple_judge()
+			# Run simple judge to align agent success with reality (if enabled)
+			if self.settings.use_simple_judge:
+				await self._run_simple_judge()
 
 			await self.log_completion()
 
