@@ -167,7 +167,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		use_vision: bool | Literal['auto'] = True,
 		save_conversation_path: str | Path | None = None,
 		save_conversation_path_encoding: str | None = 'utf-8',
-		max_failures: int = 3,
+		max_failures: int = 5,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		generate_gif: bool | str = False,
@@ -1185,7 +1185,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Record executed actions for loop detection
 		self._update_loop_detector_actions()
 
-		# check for action errors  and len more than 1
+		# check for action errors - only count single-action steps toward consecutive failures;
+		# multi-action steps with errors are handled by loop detection and replan nudges instead
 		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
 			self.state.consecutive_failures += 1
 			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
@@ -1249,8 +1250,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		return None
 
 	def _is_browser_closed_error(self, error: Exception) -> bool:
-		"""Check if the browser has been closed or disconnected."""
-		return self.browser_session._cdp_client_root is None
+		"""Check if the browser has been closed or disconnected.
+
+		Only returns True when the error itself is a CDP/WebSocket connection failure
+		AND the CDP client is gone. Avoids false positives on unrelated errors
+		(element not found, timeouts, parse errors) that happen to coincide with
+		a transient None state during reconnects or resets.
+		"""
+		error_str = str(error).lower()
+		is_connection_error = (
+			isinstance(error, ConnectionError)
+			or 'websocket connection closed' in error_str
+			or 'connection closed' in error_str
+			or 'browser has been closed' in error_str
+			or 'browser closed' in error_str
+			or 'no browser' in error_str
+		)
+		return is_connection_error and self.browser_session._cdp_client_root is None
 
 	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
 		"""Finalize the step with history, logging, and events"""
@@ -1514,7 +1530,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.info(f'⚠️  Simple judge overriding success to failure: {reason}')
 				last_result.success = False
 				note = f'[Simple judge: {reason}]'
-				if last_result.extracted_content:
+				# When structured output is expected, don't append judge text to extracted_content
+				# as it would corrupt the JSON and break end-user parsers
+				if self.output_model_schema is not None:
+					if last_result.metadata is None:
+						last_result.metadata = {}
+					last_result.metadata['simple_judge'] = note
+				elif last_result.extracted_content:
 					last_result.extracted_content += f'\n\n{note}'
 				else:
 					last_result.extracted_content = note

@@ -389,8 +389,14 @@ class MessageManager:
 
 		if placeholders:
 			placeholder_list = sorted(list(placeholders))
-			info = f'Here are placeholders for sensitive data:\n{placeholder_list}\n'
-			info += 'To use them, write <secret>the placeholder name</secret>'
+			# Format as bullet points for clarity
+			formatted_placeholders = '\n'.join(f'  - {p}' for p in placeholder_list)
+
+			info = 'SENSITIVE DATA - Use these placeholders for secure input:\n'
+			info += f'{formatted_placeholders}\n\n'
+			info += 'IMPORTANT: When entering sensitive values, you MUST wrap the placeholder name in <secret> tags.\n'
+			info += f'Example: To enter the value for "{placeholder_list[0]}", use: <secret>{placeholder_list[0]}</secret>\n'
+			info += 'The system will automatically replace these tags with the actual secret values.'
 			return info
 
 		return ''

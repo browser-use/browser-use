@@ -456,8 +456,8 @@ class Registry(Generic[Context]):
 
 		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
 			if isinstance(value, str):
+				# 1. Handle tagged secrets: <secret>label</secret>
 				matches = secret_pattern.findall(value)
-				# check if the placeholder key, like x_password is in the output parameters of the LLM and replace it with the sensitive data
 				for placeholder in matches:
 					if placeholder in applicable_secrets:
 						# generate a totp code if secret is suffixed with bu_2fa_code
@@ -472,7 +472,17 @@ class Registry(Generic[Context]):
 					else:
 						# Keep track of missing placeholders
 						all_missing_placeholders.add(placeholder)
-						# Don't replace the tag, keep it as is
+
+				# 2. Handle literal secrets: "user_name" (no tags)
+				# This handles cases where the LLM forgets to use tags but uses the exact placeholder name
+				if value in applicable_secrets:
+					placeholder_name = value
+					if placeholder_name.endswith('bu_2fa_code'):
+						totp = pyotp.TOTP(applicable_secrets[placeholder_name], digits=6)
+						value = totp.now()
+					else:
+						value = applicable_secrets[placeholder_name]
+					replaced_placeholders.add(placeholder_name)
 
 				return value
 			elif isinstance(value, dict):
