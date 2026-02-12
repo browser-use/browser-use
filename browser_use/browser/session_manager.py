@@ -378,6 +378,15 @@ class SessionManager:
 		target_info = event['targetInfo']
 		waiting_for_debugger = event.get('waitingForDebugger', False)
 
+		# Idempotency: in rare races we can see duplicate attach events for the same
+		# session (or manual attach paths that then later receive the real event).
+		# Avoid duplicating bookkeeping/monitoring.
+		if session_id in self._session_to_target:
+			self.logger.debug(
+				f'[SessionManager] Duplicate attach ignored: target={target_id[:8]}... session={session_id[:8]}... type={target_type}'
+			)
+			return
+
 		self.logger.debug(
 			f'[SessionManager] Target attached: {target_id[:8]}... (session={session_id[:8]}..., '
 			f'type={target_type}, waitingForDebugger={waiting_for_debugger})'
@@ -402,6 +411,10 @@ class SessionManager:
 				self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
 
 		async with self._lock:
+			# Re-check under lock to avoid a race where another attach handler won.
+			if session_id in self._session_to_target:
+				return
+
 			# Track this session for the target
 			if target_id not in self._target_sessions:
 				self._target_sessions[target_id] = set()
