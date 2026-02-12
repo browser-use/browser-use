@@ -53,16 +53,31 @@ def create_namespace(
 	# Helper functions bound to file_system
 	if file_system is not None:
 
-		def _save_json(data: Any, path: str) -> str:
-			"""Save data as JSON. Returns the absolute path."""
+		def _save_json(data: Any, path: str | None = None) -> str:
+			"""Save data as JSON. Returns the absolute path.
+
+			Args:
+				data: Data to serialize as JSON.
+				path: Filename/relative path (must be a string). Defaults to 'output.json'.
+			"""
+			if path is None or not isinstance(path, str):
+				# Model sometimes passes (data, data) or forgets the path
+				path = 'output.json'
 			file_path = file_system.get_dir() / path
 			file_path.parent.mkdir(parents=True, exist_ok=True)
 			with open(file_path, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2, ensure_ascii=False)
 			return str(file_path)
 
-		def _save_csv(data: list[dict], path: str) -> str:
-			"""Save list of dicts as CSV. Returns the absolute path."""
+		def _save_csv(data: list[dict], path: str | None = None) -> str:
+			"""Save list of dicts as CSV. Returns the absolute path.
+
+			Args:
+				data: List of dicts to write as CSV rows.
+				path: Filename/relative path (must be a string). Defaults to 'output.csv'.
+			"""
+			if path is None or not isinstance(path, str):
+				path = 'output.csv'
 			file_path = file_system.get_dir() / path
 			file_path.parent.mkdir(parents=True, exist_ok=True)
 			if not data:
@@ -132,15 +147,27 @@ def create_namespace(
 	return namespace
 
 
-class _AsyncioRunTransformer(ast.NodeTransformer):
-	"""Rewrite asyncio.run(coro) → (await coro) so it works inside a running loop."""
+class _AsyncAutoAwaitTransformer(ast.NodeTransformer):
+	"""AST transformer that auto-inserts await for common async patterns.
+
+	Handles:
+	- asyncio.run(coro) → await coro
+	- loop.run_until_complete(coro) → await coro
+	- browser.method(...) → await browser.method(...) (all BrowserWrapper methods are async)
+	"""
+
+	# All async methods on BrowserWrapper
+	_BROWSER_ASYNC_METHODS = {
+		'get_html', 'evaluate', 'navigate', 'click', 'input',
+		'scroll', 'wait', 'send_keys', 'go_back',
+	}
 
 	def __init__(self) -> None:
 		self.transformed = False
 
 	def visit_Call(self, node: ast.Call) -> ast.AST:
 		self.generic_visit(node)
-		# Match asyncio.run(x) or asyncio.run(x, ...)
+		# Match asyncio.run(x)
 		if (
 			isinstance(node.func, ast.Attribute)
 			and isinstance(node.func.value, ast.Name)
@@ -158,6 +185,34 @@ class _AsyncioRunTransformer(ast.NodeTransformer):
 		):
 			self.transformed = True
 			return ast.copy_location(ast.Await(value=node.args[0]), node)
+		# Match browser.method(...) — all BrowserWrapper methods are async
+		if (
+			isinstance(node.func, ast.Attribute)
+			and isinstance(node.func.value, ast.Name)
+			and node.func.value.id == 'browser'
+			and node.func.attr in self._BROWSER_ASYNC_METHODS
+		):
+			# Only add await if not already inside an Await node
+			# (the parent check is handled by _visit_Await below)
+			self.transformed = True
+			return ast.copy_location(ast.Await(value=node), node)
+		return node
+
+	def visit_Await(self, node: ast.Await) -> ast.AST:
+		"""Prevent double-await: if user already wrote `await browser.get_html()`,
+		don't wrap it again."""
+		# Process the inner value WITHOUT the browser auto-await
+		if (
+			isinstance(node.value, ast.Call)
+			and isinstance(node.value.func, ast.Attribute)
+			and isinstance(node.value.func.value, ast.Name)
+			and node.value.func.value.id == 'browser'
+			and node.value.func.attr in self._BROWSER_ASYNC_METHODS
+		):
+			# Already awaited — just visit args/kwargs but don't transform the call
+			self.generic_visit(node.value)
+			return node
+		self.generic_visit(node)
 		return node
 
 
@@ -189,23 +244,21 @@ async def execute_code(
 		except SyntaxError as e:
 			return None, f'SyntaxError: {e}'
 
-		# Rewrite asyncio.run(coro) → await coro (we're already in an event loop)
-		transformer = _AsyncioRunTransformer()
+		# Auto-await async patterns: asyncio.run(), browser.method(), etc.
+		transformer = _AsyncAutoAwaitTransformer()
 		tree = transformer.visit(tree)
 		ast.fix_missing_locations(tree)
 
-		# Check if code contains await/async constructs (including after transform)
-		has_await = transformer.transformed or any(
+		# Check if code needs async wrapping (explicit await/async OR transformer added awaits)
+		needs_async = transformer.transformed or any(
 			isinstance(node, (ast.Await, ast.AsyncWith, ast.AsyncFor)) for node in ast.walk(tree)
 		)
 
-		if has_await:
-			# Wrap in async function to handle await
-			# Re-unparse the (possibly transformed) AST back to source
+		if needs_async:
+			# Re-unparse the transformed AST back to source for async wrapping
 			try:
 				transformed_code = ast.unparse(tree)
 			except Exception:
-				# Fallback to original code if unparse fails
 				transformed_code = code
 			indented_code = textwrap.indent(transformed_code, '    ')
 			wrapped = f'''async def __python_exec_async__():

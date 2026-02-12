@@ -287,6 +287,62 @@ print(f"result={result}")
 	assert 'result=42' in output
 
 
+async def test_execute_code_browser_auto_await():
+	"""browser.method() calls should be auto-awaited even without explicit await."""
+	import asyncio
+
+	class FakeBrowser:
+		async def get_html(self, selector=None):
+			return '<html><body>hello</body></html>'
+
+		async def evaluate(self, js, variables=None):
+			return 'eval_result'
+
+	code = '''
+html = browser.get_html()
+print(f"got={len(html)} chars")
+'''
+	ns: dict = {'browser': FakeBrowser()}
+	output, error = await execute_code(code, ns)
+	assert error is None
+	assert 'got=' in output
+	assert 'chars' in output
+
+
+async def test_execute_code_browser_explicit_await_no_double():
+	"""Explicit await browser.method() should not double-await."""
+	class FakeBrowser:
+		async def get_html(self, selector=None):
+			return '<html>ok</html>'
+
+	code = '''
+html = await browser.get_html()
+print(f"len={len(html)}")
+'''
+	ns: dict = {'browser': FakeBrowser()}
+	output, error = await execute_code(code, ns)
+	assert error is None
+	assert 'len=' in output
+
+
+async def test_save_json_wrong_path_type():
+	"""save_json should handle non-string path gracefully."""
+	tools = _make_tools_with_python()
+	fs = _make_file_system()
+
+	# Model passes a dict as path instead of string
+	result = await _execute_python(tools, '''
+data = {"key": "value"}
+path = save_json(data, {"wrong": "type"})
+print(f"saved to {path}")
+''', file_system=fs)
+
+	assert result.error is None
+	assert 'saved to' in result.extracted_content
+	# Should fallback to output.json
+	assert (fs.get_dir() / 'output.json').exists()
+
+
 async def test_execute_code_preserves_namespace():
 	"""Variables set during execution should persist in the namespace."""
 	ns: dict = {}
