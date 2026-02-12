@@ -67,6 +67,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.vercel.chat import ChatVercel
 	from browser_use.sandbox import sandbox
 	from browser_use.tools.service import Controller, Tools
+	from browser_use.webmcp.service import WebMCPService
 
 	# Lazy imports mapping - only import when actually accessed
 _LAZY_IMPORTS = {
@@ -104,6 +105,8 @@ _LAZY_IMPORTS = {
 	'models': ('browser_use.llm.models', None),
 	# Sandbox execution
 	'sandbox': ('browser_use.sandbox', 'sandbox'),
+	# WebMCP
+	'WebMCPService': ('browser_use.webmcp.service', 'WebMCPService'),
 }
 
 
@@ -159,4 +162,6 @@ __all__ = [
 	'models',
 	# Sandbox execution
 	'sandbox',
+	# WebMCP
+	'WebMCPService',
 ]
