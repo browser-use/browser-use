@@ -11,9 +11,9 @@ from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.langchain.serializer import LangChainMessageSerializer
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
-from browser_use.llm.langchain.serializer import LangChainMessageSerializer
 
 if TYPE_CHECKING:
 	from langchain_core.language_models.chat_models import BaseChatModel as LangChainBaseChatModel  # type: ignore
@@ -72,13 +72,13 @@ class ChatLangchain(BaseChatModel):
 
 	Example:
 		```python
-		from langchain_anthropic import ChatAnthropic
-		from browser_use.llm.langchain import ChatLangchain
+	        from langchain_anthropic import ChatAnthropic
+	        from browser_use.llm.langchain import ChatLangchain
 
-		langchain_model = ChatAnthropic(model="claude-3-5-sonnet-20241022")
-		llm = ChatLangchain(chat=langchain_model)
+	        langchain_model = ChatAnthropic(model='claude-3-5-sonnet-20241022')
+	        llm = ChatLangchain(chat=langchain_model)
 
-		agent = Agent(task="...", llm=llm)
+	        agent = Agent(task='...', llm=llm)
 		```
 
 	Note:
@@ -159,9 +159,7 @@ class ChatLangchain(BaseChatModel):
 	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any
-	) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any

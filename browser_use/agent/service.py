@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
 
+import anyio
+
 if TYPE_CHECKING:
 	from browser_use.skills.views import Skill
 
@@ -2641,7 +2643,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				create_history_gif(task=self.task, history=self.history, output_path=output_path)
 
 				# Only emit output file event if GIF was actually created
-				if Path(output_path).exists():
+				if await anyio.Path(output_path).exists():
 					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 					self.eventbus.dispatch(output_event)
 
