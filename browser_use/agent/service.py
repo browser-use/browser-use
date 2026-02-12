@@ -36,7 +36,7 @@ from pydantic import BaseModel, ValidationError
 from uuid_extensions import uuid7str
 
 from browser_use import Browser, BrowserProfile, BrowserSession
-from browser_use.agent.judge import construct_judge_messages, construct_simple_judge_messages
+from browser_use.agent.judge import construct_judge_messages
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
@@ -59,7 +59,6 @@ from browser_use.agent.views import (
 	JudgementResult,
 	MessageCompactionSettings,
 	PlanItem,
-	SimpleJudgeResult,
 	StepMetadata,
 )
 from browser_use.browser.events import _get_timeout
@@ -181,7 +180,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		page_extraction_llm: BaseChatModel | None = None,
 		fallback_llm: BaseChatModel | None = None,
 		use_judge: bool = True,
-		use_simple_judge: bool = False,
 		ground_truth: str | None = None,
 		judge_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
@@ -403,7 +401,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 			use_judge=use_judge,
-			use_simple_judge=use_simple_judge,
 			ground_truth=ground_truth,
 			enable_planning=enable_planning,
 			planning_replan_on_stall=planning_replan_on_stall,
@@ -1506,46 +1503,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
 
-	async def _run_simple_judge(self) -> None:
-		"""Lightweight always-on judge that overrides agent success when it overclaims.
-
-		Runs regardless of use_judge setting. Only checks tasks where the agent
-		claimed success — if the agent already reports failure, there's nothing to correct.
-		"""
-		last_result = self.history.history[-1].result[-1]
-		if not last_result.is_done or not last_result.success:
-			return
-
-		task = self.task
-		final_result = self.history.final_result() or ''
-
-		messages = construct_simple_judge_messages(
-			task=task,
-			final_result=final_result,
-		)
-
-		try:
-			response = await self.llm.ainvoke(messages, output_format=SimpleJudgeResult)
-			result: SimpleJudgeResult = response.completion  # type: ignore[assignment]
-			if not result.is_correct:
-				reason = result.reason or 'Task requirements not fully met'
-				self.logger.info(f'⚠️  Simple judge overriding success to failure: {reason}')
-				last_result.success = False
-				note = f'[Simple judge: {reason}]'
-				# When structured output is expected, don't append judge text to extracted_content
-				# as it would corrupt the JSON and break end-user parsers
-				if self.output_model_schema is not None:
-					if last_result.metadata is None:
-						last_result.metadata = {}
-					last_result.metadata['simple_judge'] = note
-				elif last_result.extracted_content:
-					last_result.extracted_content += f'\n\n{note}'
-				else:
-					last_result.extracted_content = note
-		except Exception as e:
-			self.logger.warning(f'Simple judge failed with error: {e}')
-			# Don't override on error — keep the agent's self-report
-
 	@observe(ignore_input=True, ignore_output=False)
 	async def _judge_trace(self) -> JudgementResult | None:
 		"""Judge the trace of the agent"""
@@ -2227,10 +2184,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self.step(step_info)
 
 		if self.history.is_done():
-			# Run simple judge to align agent success with reality (if enabled)
-			if self.settings.use_simple_judge:
-				await self._run_simple_judge()
-
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled
@@ -2432,10 +2385,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await on_step_end(self)
 
 		if self.history.is_done():
-			# Run simple judge to align agent success with reality (if enabled)
-			if self.settings.use_simple_judge:
-				await self._run_simple_judge()
-
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled
