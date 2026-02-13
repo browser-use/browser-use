@@ -1524,11 +1524,20 @@ class BrowserSession(BaseModel):
 			)
 
 			# Run a tiny HTTP client to query for the WebSocket URL from the /json/version endpoint
-			async with httpx.AsyncClient() as client:
+			# Use trust_env=False to prevent system proxy from intercepting local CDP requests
+			async with httpx.AsyncClient(trust_env=False) as client:
 				headers = self.browser_profile.headers or {}
-				version_info = await client.get(url, headers=headers)
-				self.logger.debug(f'Raw version info: {str(version_info)}')
-				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+				try:
+					version_info = await client.get(url, headers=headers)
+					self.logger.debug(f'Raw version info: {str(version_info)}')
+					version_data = version_info.json()
+					self.browser_profile.cdp_url = version_data['webSocketDebuggerUrl']
+				except (json.JSONDecodeError, KeyError) as e:
+					raise RuntimeError(
+						f'Failed to get CDP WebSocket URL from {url}: '
+						f'status={version_info.status_code}, body={version_info.text[:200]!r}. '
+						f'If you have HTTP_PROXY/HTTPS_PROXY set, the proxy may be intercepting local requests.'
+					) from e
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
 
