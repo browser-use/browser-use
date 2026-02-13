@@ -17,9 +17,16 @@ class Mouse:
 		self._client = browser_session.cdp_client
 		self._session_id = session_id
 		self._target_id = target_id
+		self._last_x = 0
+		self._last_y = 0
 
 	async def click(self, x: int, y: int, button: 'MouseButton' = 'left', click_count: int = 1) -> None:
 		"""Click at the specified coordinates."""
+		# Move to coordinates first if stealth is enabled
+		stealth = self._browser_session.browser_profile.stealth
+		if stealth and stealth.enabled:
+			await self.move(x, y)
+
 		# Mouse press
 		press_params: 'DispatchMouseEventParameters' = {
 			'type': 'mousePressed',
@@ -76,11 +83,20 @@ class Mouse:
 
 	async def move(self, x: int, y: int, steps: int = 1) -> None:
 		"""Move mouse to the specified coordinates."""
-		# TODO: Implement smooth movement with multiple steps if needed
-		_ = steps  # Acknowledge parameter for future use
+		stealth = self._browser_session.browser_profile.stealth
+		if stealth and stealth.enabled and stealth.mouse_smoothing:
+			from browser_use.browser.stealth import BezierMouse
 
-		params: 'DispatchMouseEventParameters' = {'type': 'mouseMoved', 'x': x, 'y': y}
-		await self._client.send.Input.dispatchMouseEvent(params, session_id=self._session_id)
+			await BezierMouse.move(self, self._last_x, self._last_y, x, y)
+		else:
+			# TODO: Implement smooth movement with multiple steps if needed
+			_ = steps  # Acknowledge parameter for future use
+
+			params: 'DispatchMouseEventParameters' = {'type': 'mouseMoved', 'x': x, 'y': y}
+			await self._client.send.Input.dispatchMouseEvent(params, session_id=self._session_id)
+
+		self._last_x = x
+		self._last_y = y
 
 	async def scroll(self, x: int = 0, y: int = 0, delta_x: int | None = None, delta_y: int | None = None) -> None:
 		"""Scroll the page using robust CDP methods."""
