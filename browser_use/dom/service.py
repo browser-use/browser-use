@@ -38,7 +38,6 @@ class DomService:
 
 	Either browser or page must be provided.
 
-	TODO: currently we start a new websocket connection PER STEP, we should definitely keep this persistent
 	"""
 
 	logger: logging.Logger
