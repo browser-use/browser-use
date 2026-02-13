@@ -577,7 +577,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Event bus with WAL persistence
 		# Default to ~/.config/browseruse/events/{agent_session_id}.jsonl
 		# wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
-		self.eventbus = EventBus(name=f'Agent_{str(self.id)[-4:]}')
+		self.eventbus = EventBus(name=f'Agent_{str(self.id).replace("-", "_")}')
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
