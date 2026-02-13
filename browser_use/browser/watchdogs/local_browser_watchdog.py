@@ -106,8 +106,8 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				# Get launch args from profile
 				launch_args = profile.get_args()
 
-				# Add debugging port
-				debug_port = self._find_free_port()
+				# Add debugging port (use configured port or find a free one)
+				debug_port = profile.remote_debugging_port or self._find_free_port()
 				launch_args.extend(
 					[
 						f'--remote-debugging-port={debug_port}',
