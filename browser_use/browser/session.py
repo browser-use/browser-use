@@ -919,7 +919,10 @@ class BrowserSession(BaseModel):
 		# Visually switch to the tab in the browser
 		# The Force Background Tab extension prevents Chrome from auto-switching when links create new tabs,
 		# but we still want the agent to be able to explicitly switch tabs when needed
-		await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': event.target_id})
+		# Use retry logic to handle race condition where session is detached between retrieval and usage
+		await self._send_cdp_with_retry(
+			cdp_session, lambda s: s.cdp_client.send.Target.activateTarget(params={'targetId': event.target_id})
+		)
 
 		# Get target to access url
 		target = self.session_manager.get_target(event.target_id)
@@ -1296,6 +1299,65 @@ class BrowserSession(BaseModel):
 				pass  # May fail if not waiting
 
 		return session
+
+	async def _send_cdp_with_retry(
+		self,
+		cdp_session: CDPSession,
+		command_fn,
+		max_retries: int = 3,
+	) -> Any:
+		"""Send CDP command with automatic retry on session detachment.
+
+		Handles race conditions where a CDP session is detached between retrieval
+		and usage. Implements exponential backoff (100ms, 200ms, 400ms).
+
+		Args:
+			cdp_session: The CDP session to use for the command
+			command_fn: Async callable that takes a CDPSession and executes the CDP command
+			max_retries: Maximum number of retry attempts (default: 3)
+
+		Returns:
+			The result from the CDP command
+
+		Raises:
+			RuntimeError: If all retries are exhausted
+			Other exceptions from command_fn if not session-related
+
+		Example:
+			>>> result = await self._send_cdp_with_retry(cdp_session, lambda s: s.cdp_client.send.Target.activateTarget(params={'targetId': target_id}))
+		"""
+		for attempt in range(max_retries):
+			try:
+				return await command_fn(cdp_session)
+			except Exception as e:
+				error_str = str(e)
+				# Check if this is a session detachment error
+				if '-32001' in error_str or 'Session with given id not found' in error_str:
+					if attempt < max_retries - 1:
+						# Session detached, wait and refresh
+						wait_time = 0.1 * (2**attempt)  # Exponential backoff
+						self.logger.debug(
+							f'CDP session detached during command, retrying in {wait_time * 1000:.0f}ms '
+							f'(attempt {attempt + 1}/{max_retries})'
+						)
+						await asyncio.sleep(wait_time)
+
+						# Refresh session from pool
+						try:
+							cdp_session = await self.get_or_create_cdp_session(target_id=cdp_session.target_id, focus=False)
+							self.logger.debug(f'Refreshed CDP session for target {cdp_session.target_id[:8]}...')
+						except ValueError as refresh_error:
+							# Target no longer exists
+							raise RuntimeError(
+								f'CDP session detached and target no longer exists: {refresh_error}'
+							) from refresh_error
+						# Retry with refreshed session
+						continue
+					else:
+						# All retries exhausted
+						raise RuntimeError(f'CDP session detached and all {max_retries} retries failed') from e
+				# Different error, propagate immediately
+				raise
 
 	# endregion - ========== CDP-based ... ==========
 
