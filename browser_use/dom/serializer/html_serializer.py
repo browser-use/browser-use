@@ -263,7 +263,9 @@ class HTMLSerializer:
 			# Skip data-* attributes as they often contain JSON payloads
 			# These are used by modern SPAs (React, Vue, Angular) for state management
 			if key.startswith('data-'):
-				continue
+				_KEEP_DATA_ATTRS = {'data-testid', 'data-cy', 'data-test', 'data-qa', 'data-id'}
+				if key not in _KEEP_DATA_ATTRS:
+					continue
 
 			# Handle boolean attributes
 			if value == '' or value is None:
