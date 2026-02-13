@@ -30,6 +30,7 @@ def http_server():
 
 	# Load HTML templates from files
 	test_dir = Path(__file__).parent
+
 	main_page_html = (test_dir / 'test_page_template.html').read_text()
 	iframe_html = (test_dir / 'iframe_template.html').read_text()
 	stacked_page_html = (test_dir / 'test_page_stacked_template.html').read_text()
@@ -116,7 +117,7 @@ class TestDOMSerializer:
 
 		import asyncio
 
-		await asyncio.sleep(1)
+		await asyncio.sleep(5)
 
 		# Get the browser state to access selector_map
 		browser_state_summary = await browser_session.get_browser_state_summary(
@@ -130,14 +131,14 @@ class TestDOMSerializer:
 		selector_map = browser_state_summary.dom_state.selector_map
 		print(f'   Selector map: {selector_map.keys()}')
 
-		print('\n📊 DOM Serializer Analysis:')
+		print('\n- DOM Serializer Analysis:')
 		print(f'   Total interactive elements found: {len(selector_map)}')
 		serilized_text = browser_state_summary.dom_state.llm_representation()
 		print(f'   Serialized text: {serilized_text}')
 		# assume all selector map keys are as text in the serialized text
 		# for idx, element in selector_map.items():
 		# 	assert str(idx) in serilized_text, f'Element {idx} should be in serialized text'
-		# 	print(f'   ✓ Element {idx} found in serialized text')
+		# 	print(f'     Element {idx} found in serialized text')
 
 		# assume at least 10 interactive elements are in the selector map
 		assert len(selector_map) >= 10, f'Should find at least 10 interactive elements, found {len(selector_map)}'

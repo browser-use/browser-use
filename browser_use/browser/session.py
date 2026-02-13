@@ -153,6 +153,7 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		event_bus_timeout: float | None = None,
 	) -> None: ...
 
 	# Overload 2: Local browser mode (use local browser params)
@@ -186,6 +187,7 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		event_bus_timeout: float | None = None,
 		# All other local params
 		env: dict[str, str | float | bool] | None = None,
 		ignore_default_args: list[str] | Literal[True] | None = None,
@@ -294,6 +296,7 @@ class BrowserSession(BaseModel):
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		event_bus_timeout: float | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
@@ -311,6 +314,7 @@ class BrowserSession(BaseModel):
 				'profile_id',
 				'proxy_country_code',
 				'timeout',
+				'event_bus_timeout',
 			]
 			and v is not None
 		}
@@ -359,10 +363,12 @@ class BrowserSession(BaseModel):
 		super().__init__(
 			id=id or str(uuid7str()),
 			browser_profile=resolved_browser_profile,
+			event_bus_timeout=event_bus_timeout if event_bus_timeout is not None else 5.0,
 		)
 
 	# Session configuration (session identity only)
 	id: str = Field(default_factory=lambda: str(uuid7str()), description='Unique identifier for this browser session')
+	event_bus_timeout: float = Field(default=5.0, description='Timeout for event bus to be idle before stopping')
 
 	# Browser configuration (reusable profile)
 	browser_profile: BrowserProfile = Field(
@@ -520,7 +526,7 @@ class BrowserSession(BaseModel):
 			self._demo_mode.reset()
 			self._demo_mode = None
 
-		self.logger.info('✅ Browser session reset complete')
+		self.logger.info('Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
@@ -570,7 +576,7 @@ class BrowserSession(BaseModel):
 		# Dispatch stop event to kill the browser
 		await self.event_bus.dispatch(BrowserStopEvent(force=True))
 		# Stop the event bus
-		await self.event_bus.stop(clear=True, timeout=5)
+		await self.event_bus.stop(clear=True, timeout=self.event_bus_timeout)
 		# Reset all state
 		await self.reset()
 		# Create fresh event bus
@@ -594,7 +600,7 @@ class BrowserSession(BaseModel):
 		await self.event_bus.dispatch(BrowserStopEvent(force=False))
 
 		# Stop the event bus
-		await self.event_bus.stop(clear=True, timeout=5)
+		await self.event_bus.stop(clear=True, timeout=self.event_bus_timeout)
 		# Reset all state
 		await self.reset()
 		# Create fresh event bus

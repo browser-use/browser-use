@@ -155,7 +155,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				process = psutil.Process(subprocess.pid)
 
 				# Wait for CDP to be ready and get the URL
-				cdp_url = await self._wait_for_cdp_url(debug_port)
+				cdp_url = await self._wait_for_cdp_url(debug_port, subprocess)
 
 				# Success! Clean up only the temp dirs we created but didn't use
 				currently_used_dir = str(profile.user_data_dir)
@@ -229,7 +229,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		"""
 		import glob
 		import platform
-		from pathlib import Path
 
 		system = platform.system()
 		patterns = []
@@ -248,76 +247,44 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
 				f'{playwright_path}/chromium_headless_shell-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium',
 			]
-		elif system == 'Linux':
+		elif system == 'Windows':
+			if not playwright_path:
+				playwright_path = '~\\AppData\\Local\\ms-playwright'
+			patterns = [
+				'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+				'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+				f'{playwright_path}\\chromium-*\\chrome-win\\chrome.exe',
+				f'{playwright_path}\\chromium_headless_shell-*\\chrome-win\\headless_shell.exe',
+			]
+		else:  # Linux
 			if not playwright_path:
 				playwright_path = '~/.cache/ms-playwright'
 			patterns = [
-				'/usr/bin/google-chrome-stable',
 				'/usr/bin/google-chrome',
-				'/usr/local/bin/google-chrome',
-				f'{playwright_path}/chromium-*/chrome-linux*/chrome',
+				'/usr/bin/google-chrome-stable',
 				'/usr/bin/chromium',
 				'/usr/bin/chromium-browser',
-				'/usr/local/bin/chromium',
-				'/snap/bin/chromium',
-				'/usr/bin/google-chrome-beta',
-				'/usr/bin/google-chrome-dev',
-				'/usr/bin/brave-browser',
-				f'{playwright_path}/chromium_headless_shell-*/chrome-linux*/chrome',
-			]
-		elif system == 'Windows':
-			if not playwright_path:
-				playwright_path = r'%LOCALAPPDATA%\ms-playwright'
-			patterns = [
-				r'C:\Program Files\Google\Chrome\Application\chrome.exe',
-				r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
-				r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe',
-				r'%PROGRAMFILES%\Google\Chrome\Application\chrome.exe',
-				r'%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe',
-				f'{playwright_path}\\chromium-*\\chrome-win\\chrome.exe',
-				r'C:\Program Files\Chromium\Application\chrome.exe',
-				r'C:\Program Files (x86)\Chromium\Application\chrome.exe',
-				r'%LOCALAPPDATA%\Chromium\Application\chrome.exe',
-				r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
-				r'C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe',
-				r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
-				r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
-				r'%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe',
-				f'{playwright_path}\\chromium_headless_shell-*\\chrome-win\\chrome.exe',
+				f'{playwright_path}/chromium-*/chrome-linux/chrome',
+				f'{playwright_path}/chromium_headless_shell-*/chrome-linux/headless_shell',
 			]
 
 		for pattern in patterns:
 			# Expand user home directory
-			expanded_pattern = Path(pattern).expanduser()
+			pattern = os.path.expanduser(pattern)
 
-			# Handle Windows environment variables
-			if system == 'Windows':
-				pattern_str = str(expanded_pattern)
-				for env_var in ['%LOCALAPPDATA%', '%PROGRAMFILES%', '%PROGRAMFILES(X86)%']:
-					if env_var in pattern_str:
-						env_key = env_var.strip('%').replace('(X86)', ' (x86)')
-						env_value = os.environ.get(env_key, '')
-						if env_value:
-							pattern_str = pattern_str.replace(env_var, env_value)
-				expanded_pattern = Path(pattern_str)
-
-			# Convert to string for glob
-			pattern_str = str(expanded_pattern)
+			# Expand glob patterns
+			# Handle simplified playwright path globs if necessary
+			# But globs are handled by glob.glob
 
 			# Check if pattern contains wildcards
-			if '*' in pattern_str:
-				# Use glob to expand the pattern
-				matches = glob.glob(pattern_str)
+			if '*' in pattern:
+				matches = glob.glob(pattern)
 				if matches:
-					# Sort matches and take the last one (alphanumerically highest version)
 					matches.sort()
-					browser_path = matches[-1]
-					if Path(browser_path).exists() and Path(browser_path).is_file():
-						return browser_path
+					return matches[-1]
 			else:
-				# Direct path check
-				if expanded_pattern.exists() and expanded_pattern.is_file():
-					return str(expanded_pattern)
+				if os.path.exists(pattern):
+					return pattern
 
 		return None
 
@@ -369,13 +336,24 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		return port
 
 	@staticmethod
-	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
+	async def _wait_for_cdp_url(port: int, process: asyncio.subprocess.Process | None = None, timeout: float = 30) -> str:
 		"""Wait for the browser to start and return the CDP URL."""
 		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
+			# Check if process crashed
+			if process and process.returncode is not None:
+				# Try to read stderr if available
+				stderr_output = ''
+				if process.stderr:
+					try:
+						stderr_output = (await process.stderr.read()).decode()
+					except Exception:
+						pass
+				raise RuntimeError(f'Browser process crashed with exit code {process.returncode}: {stderr_output}')
+
 			try:
 				async with aiohttp.ClientSession() as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
