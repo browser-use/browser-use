@@ -48,6 +48,8 @@ dependencies = [
     "markdownify>=1.2.0",
     "python-docx>=1.2.0",
     "browser-use-sdk>=2.0.12",
+    "speechrecognition>=3.14.5",
+    "pyaudio>=0.2.14",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
