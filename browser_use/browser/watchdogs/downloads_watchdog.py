@@ -3,10 +3,11 @@
 import asyncio
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import anyio
 from bubus import BaseEvent
@@ -530,8 +531,6 @@ class DownloadsWatchdog(BaseWatchdog):
 						suggested_filename = None
 						if content_disposition:
 							# Try RFC 6266 filename* parameter first (supports UTF-8)
-							import re
-							from urllib.parse import unquote
 							
 							filename_star_match = re.search(
 								r"filename\*=([^']+)'([^']*)'(.+)",
@@ -549,7 +548,7 @@ class DownloadsWatchdog(BaseWatchdog):
 									content_disposition
 								)
 								if filename_match:
-									suggested_filename = filename_match.group(1).strip('\'"\')
+									suggested_filename = filename_match.group(1).strip('\'"')
 						self.logger.debug(
 							f'[DownloadsWatchdog]   Content-Type: {content_type}, Is PDF: {is_pdf}, Is Attachment: {is_download_attachment}'
 						)
