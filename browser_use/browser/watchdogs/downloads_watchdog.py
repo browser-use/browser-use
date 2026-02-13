@@ -528,15 +528,28 @@ class DownloadsWatchdog(BaseWatchdog):
 
 						# Extract filename from Content-Disposition if available
 						suggested_filename = None
-						if 'filename=' in content_disposition:
-							# Parse filename from Content-Disposition header
+						if content_disposition:
+							# Try RFC 6266 filename* parameter first (supports UTF-8)
 							import re
-
-							filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
-							if filename_match:
-								suggested_filename = filename_match.group(1).strip('\'"')
-
-						self.logger.info(f'[DownloadsWatchdog] 🔍 Detected downloadable content via network: {url[:80]}...')
+							from urllib.parse import unquote
+							
+							filename_star_match = re.search(
+								r"filename\*=([^']+)'([^']*)'(.+)",
+								content_disposition
+							)
+							if filename_star_match:
+								encoding = filename_star_match.group(1) or 'utf-8'
+								filename_encoded = filename_star_match.group(3)
+								suggested_filename = unquote(filename_encoded, encoding=encoding)
+							
+							# Fallback to standard filename parameter
+							elif 'filename=' in content_disposition:
+								filename_match = re.search(
+									r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)',
+									content_disposition
+								)
+								if filename_match:
+									suggested_filename = filename_match.group(1).strip('\'"\')
 						self.logger.debug(
 							f'[DownloadsWatchdog]   Content-Type: {content_type}, Is PDF: {is_pdf}, Is Attachment: {is_download_attachment}'
 						)
