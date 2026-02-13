@@ -431,6 +431,8 @@ class DomService:
 		js_click_listener_backend_ids: set[int] = set()
 		try:
 			# Step 1: Run JS to find elements with click listeners and return them by reference
+			# Note: We temporarily suppress focus ring visibility during iteration to prevent
+			# the distracting visual flicker reported in GitHub issue #3949
 			js_listener_result = await cdp_session.cdp_client.send.Runtime.evaluate(
 				params={
 					'expression': """
@@ -440,22 +442,35 @@ class DomService:
 							return null;
 						}
 
-						const elementsWithListeners = [];
-						const allElements = document.querySelectorAll('*');
+						// Suppress focus ring visibility during iteration to prevent visual flicker
+						// This addresses GitHub issue #3949 where the native focus ring rapidly
+						// cycles across all elements during DOM scanning
+						const style = document.createElement('style');
+						style.id = '__browser_use_focus_suppress__';
+						style.textContent = '*:focus, *:focus-visible { outline: none !important; box-shadow: none !important; }';
+						document.head.appendChild(style);
 
-						for (const el of allElements) {
-							try {
-								const listeners = getEventListeners(el);
-								// Check for click-related event listeners
-								if (listeners.click || listeners.mousedown || listeners.mouseup || listeners.pointerdown || listeners.pointerup) {
-									elementsWithListeners.push(el);
+						try {
+							const elementsWithListeners = [];
+							const allElements = document.querySelectorAll('*');
+
+							for (const el of allElements) {
+								try {
+									const listeners = getEventListeners(el);
+									// Check for click-related event listeners
+									if (listeners.click || listeners.mousedown || listeners.mouseup || listeners.pointerdown || listeners.pointerup) {
+										elementsWithListeners.push(el);
+									}
+								} catch (e) {
+									// Ignore errors for individual elements (e.g., cross-origin)
 								}
-							} catch (e) {
-								// Ignore errors for individual elements (e.g., cross-origin)
 							}
-						}
 
-						return elementsWithListeners;
+							return elementsWithListeners;
+						} finally {
+							// Always remove the suppression style, even if an error occurs
+							style.remove();
+						}
 					})()
 					""",
 					'includeCommandLineAPI': True,  # enables getEventListeners()
