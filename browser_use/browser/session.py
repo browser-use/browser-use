@@ -440,6 +440,10 @@ class BrowserSession(BaseModel):
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
 
+	# Cloudflare Markdown for Agents: track main document content-type per target
+	# When server returns text/markdown, we use raw content directly (skip HTML→markdown conversion)
+	_main_document_content_types: dict[TargetID, str] = PrivateAttr(default_factory=dict)
+
 	_logger: Any = PrivateAttr(default=None)
 
 	@property
