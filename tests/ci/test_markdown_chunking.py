@@ -1,5 +1,7 @@
 """Tests for structure-aware markdown chunking."""
 
+import asyncio
+
 from markdownify import markdownify as md
 from pytest_httpserver import HTTPServer
 
@@ -356,3 +358,27 @@ class TestTableNormalizationIntegration:
 				s = line.strip()
 				if s.startswith('|') and s.endswith('|'):
 					assert s.count('|') >= 3, f'Incomplete table row: {s}'
+
+	async def test_cloudflare_markdown_for_agents_raw_path(self, browser_session, httpserver: HTTPServer):
+		"""Cloudflare Markdown for Agents: when server returns text/markdown, use raw body directly."""
+		markdown_body = '# Hello Markdown\n\nThis is **bold** and *italic*.\n\n- Item 1\n- Item 2'
+		httpserver.expect_request('/markdown-page').respond_with_data(markdown_body, content_type='text/markdown')
+		url = httpserver.url_for('/markdown-page')
+
+		await browser_session.navigate_to(url)
+		# Allow responseReceived to fire and store content-type
+		await asyncio.sleep(0.5)
+
+		# Simulate our handler having detected markdown (in real flow, responseReceived does this)
+		target_id = browser_session.agent_focus_target_id
+		assert target_id
+		browser_session._main_document_content_types[target_id] = 'text/markdown'
+
+		from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+		content, stats = await extract_clean_markdown(browser_session=browser_session)
+
+		assert stats.get('method') == 'cloudflare_markdown_raw'
+		# Raw markdown should be preserved (browser displays as plain text, innerText gives it)
+		assert 'Hello Markdown' in content
+		assert 'bold' in content or 'italic' in content or 'Item 1' in content
