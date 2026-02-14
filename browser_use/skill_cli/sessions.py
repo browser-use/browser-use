@@ -81,6 +81,10 @@ class SessionRegistry:
 
 		session = self._sessions.pop(name)
 		logger.info(f'Closing session: {name}')
+
+		# Note: Tunnels are managed independently via tunnel.py
+		# They persist across session close/open cycles
+
 		try:
 			await session.browser_session.kill()
 		except Exception as e:
@@ -104,7 +108,16 @@ async def create_browser_session(
 	- chromium: Playwright-managed Chromium (default)
 	- real: User's Chrome with profile
 	- remote: Browser-Use Cloud (requires API key)
+
+	Raises:
+		RuntimeError: If the requested mode is not available based on installation config
 	"""
+	from browser_use.skill_cli.install_config import get_mode_unavailable_error, is_mode_available
+
+	# Validate mode is available based on installation config
+	if not is_mode_available(mode):
+		raise RuntimeError(get_mode_unavailable_error(mode))
+
 	if mode == 'chromium':
 		return BrowserSession(
 			headless=not headed,

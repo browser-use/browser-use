@@ -62,7 +62,7 @@ class AgentSettings(BaseModel):
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
-	max_failures: int = 3
+	max_failures: int = 5
 	generate_gif: bool | str = False
 	override_system_message: str | None = None
 	extend_system_message: str | None = None

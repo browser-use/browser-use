@@ -13,6 +13,9 @@ import os
 import signal
 import sys
 from pathlib import Path
+from typing import IO
+
+import portalocker
 
 # Configure logging before imports
 logging.basicConfig(
@@ -40,6 +43,7 @@ class SessionServer:
 		self.running = True
 		self._server: asyncio.Server | None = None
 		self._shutdown_event: asyncio.Event | None = None
+		self._lock_file: IO | None = None
 
 		# Lazy import to avoid loading everything at startup
 		from browser_use.skill_cli.sessions import SessionRegistry
@@ -165,9 +169,25 @@ class SessionServer:
 
 	async def run(self) -> None:
 		"""Run the server."""
-		from browser_use.skill_cli.utils import get_pid_path, get_socket_path
+		from browser_use.skill_cli.utils import get_lock_path, get_pid_path, get_socket_path
 
-		# Write PID file
+		# Acquire exclusive lock BEFORE writing PID - this prevents race conditions
+		lock_path = get_lock_path(self.session_name)
+		lock_path.parent.mkdir(parents=True, exist_ok=True)
+		lock_path.touch(exist_ok=True)
+
+		self._lock_file = open(lock_path, 'r+')  # noqa: ASYNC230 - blocking ok at startup
+		try:
+			portalocker.lock(self._lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
+		except portalocker.LockException:
+			logger.error(f'Another server is already running for session: {self.session_name}')
+			self._lock_file.close()
+			self._lock_file = None
+			sys.exit(1)
+
+		logger.info(f'Acquired exclusive lock for session: {self.session_name}')
+
+		# NOW safe to write PID file
 		pid_path = get_pid_path(self.session_name)
 		pid_path.write_text(str(os.getpid()))
 		logger.info(f'PID file: {pid_path}')
@@ -205,6 +225,7 @@ class SessionServer:
 				self.handle_connection,
 				host,
 				int(port),
+				reuse_address=True,  # Allow rebinding ports in TIME_WAIT state
 			)
 			logger.info(f'Listening on TCP {host}:{port}')
 		else:
@@ -228,6 +249,14 @@ class SessionServer:
 		except asyncio.CancelledError:
 			pass
 		finally:
+			# Release lock on shutdown
+			if self._lock_file:
+				try:
+					portalocker.unlock(self._lock_file)
+					self._lock_file.close()
+				except Exception:
+					pass
+				self._lock_file = None
 			logger.info('Server stopped')
 
 

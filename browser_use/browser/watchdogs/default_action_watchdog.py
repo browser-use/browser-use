@@ -3400,6 +3400,46 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				selection_result = result.get('result', {}).get('value', {})
 
+				# If selection failed and all options are empty, the dropdown may be lazily populated.
+				# Focus the element (triggers lazy loaders) and retry once after a wait.
+				if not selection_result.get('success'):
+					available_options = selection_result.get('availableOptions', [])
+					all_empty = available_options and all(
+						(not opt.get('text', '').strip() and not opt.get('value', '').strip())
+						if isinstance(opt, dict)
+						else not str(opt).strip()
+						for opt in available_options
+					)
+					if all_empty:
+						self.logger.info(
+							'⚠️ All dropdown options are empty — options may be lazily loaded. Focusing element and retrying...'
+						)
+
+						# Use element.focus() only — no synthetic mouse events that leak isTrusted=false
+						try:
+							await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+								params={
+									'functionDeclaration': 'function() { this.focus(); }',
+									'objectId': object_id,
+								},
+								session_id=cdp_session.session_id,
+							)
+						except Exception:
+							pass  # non-fatal, best-effort
+
+						await asyncio.sleep(1.0)
+
+						retry_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': selection_script,
+								'arguments': [{'value': target_text}],
+								'objectId': object_id,
+								'returnByValue': True,
+							},
+							session_id=cdp_session.session_id,
+						)
+						selection_result = retry_result.get('result', {}).get('value', {})
+
 				# Check if selection was reverted by framework - try clicking as fallback
 				if selection_result.get('selectionReverted'):
 					self.logger.info('⚠️ Selection was reverted by page framework, trying click fallback...')
