@@ -5,7 +5,7 @@ events, ensuring the session pool always reflects the current browser state.
 """
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from cdp_use.cdp.network import ResponseReceivedEvent
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
@@ -874,8 +874,9 @@ class SessionManager:
 
 			# Cloudflare Markdown for Agents: prefer Markdown over HTML when server supports it
 			# Reduces token consumption ~80% for supported sites, fully backward compatible
+			# cast: cdp-use Headers type is strict; CDP protocol accepts arbitrary header dict
 			await cdp_session.cdp_client.send.Network.setExtraHTTPHeaders(
-				params={'headers': {'Accept': 'text/markdown, text/html'}},
+				params=cast(Any, {'headers': {'Accept': 'text/markdown, text/html'}}),
 				session_id=cdp_session.session_id,
 			)
 

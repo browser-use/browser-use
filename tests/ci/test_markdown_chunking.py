@@ -362,9 +362,7 @@ class TestTableNormalizationIntegration:
 	async def test_cloudflare_markdown_for_agents_raw_path(self, browser_session, httpserver: HTTPServer):
 		"""Cloudflare Markdown for Agents: when server returns text/markdown, use raw body directly."""
 		markdown_body = '# Hello Markdown\n\nThis is **bold** and *italic*.\n\n- Item 1\n- Item 2'
-		httpserver.expect_request('/markdown-page').respond_with_data(
-			markdown_body, content_type='text/markdown'
-		)
+		httpserver.expect_request('/markdown-page').respond_with_data(markdown_body, content_type='text/markdown')
 		url = httpserver.url_for('/markdown-page')
 
 		await browser_session.navigate_to(url)
