@@ -531,22 +531,16 @@ class DownloadsWatchdog(BaseWatchdog):
 						suggested_filename = None
 						if content_disposition:
 							# Try RFC 6266 filename* parameter first (supports UTF-8)
-							
-							filename_star_match = re.search(
-								r"filename\*=([^']+)'([^']*)'(.+)",
-								content_disposition
-							)
+
+							filename_star_match = re.search(r"filename\*=([^']+)'([^']*)'([^;]+)", content_disposition)
 							if filename_star_match:
 								encoding = filename_star_match.group(1) or 'utf-8'
 								filename_encoded = filename_star_match.group(3)
 								suggested_filename = unquote(filename_encoded, encoding=encoding)
-							
+
 							# Fallback to standard filename parameter
 							elif 'filename=' in content_disposition:
-								filename_match = re.search(
-									r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)',
-									content_disposition
-								)
+								filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
 								if filename_match:
 									suggested_filename = filename_match.group(1).strip('\'"')
 						self.logger.debug(
