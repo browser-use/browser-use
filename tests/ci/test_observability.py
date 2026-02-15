@@ -3,9 +3,8 @@
 Regression tests for https://github.com/browser-use/browser-use/issues/4046
 """
 
-import importlib
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestLmnrImportFallback:
