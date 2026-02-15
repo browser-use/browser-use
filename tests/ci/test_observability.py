@@ -98,5 +98,5 @@ class TestLmnrImportFallback:
 		async def my_async_func(x, y):
 			return x + y
 
-		result = asyncio.get_event_loop().run_until_complete(my_async_func(3, 4))
+		result = asyncio.run(my_async_func(3, 4))
 		assert result == 7
