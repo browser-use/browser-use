@@ -177,6 +177,24 @@ class BaseWatchdog(BaseModel):
 
 		event_bus.on(event_class, unique_handler)
 
+	@staticmethod
+	def detach_handler_from_session(browser_session: 'BrowserSession', event_class: type[BaseEvent[Any]], handler) -> None:
+		"""Detach a single event handler from a browser session."""
+		event_bus = browser_session.event_bus
+
+		# Get the watchdog instance if this is a bound method
+		watchdog_instance = getattr(handler, '__self__', None)
+		watchdog_class_name = watchdog_instance.__class__.__name__ if watchdog_instance else 'Unknown'
+
+		# Find and remove the handler by its unique name pattern
+		unique_handler_name = f'{watchdog_class_name}.{handler.__name__}'
+
+		existing_handlers = event_bus.handlers.get(event_class.__name__, [])
+		for existing_handler in existing_handlers[:]:  # copy list to allow modification during iteration
+			if getattr(existing_handler, '__name__', '') == unique_handler_name:
+				existing_handlers.remove(existing_handler)
+				break
+
 	def attach_to_session(self) -> None:
 		"""Attach watchdog to its browser session and start monitoring.
 

@@ -122,13 +122,9 @@ class ChatOpenAI(BaseChatModel):
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		if response.usage is not None:
-			completion_tokens = response.usage.completion_tokens
-			completion_token_details = response.usage.completion_tokens_details
-			if completion_token_details is not None:
-				reasoning_tokens = completion_token_details.reasoning_tokens
-				if reasoning_tokens is not None:
-					completion_tokens += reasoning_tokens
-
+			# Note: completion_tokens already includes reasoning_tokens per OpenAI API docs.
+			# Unlike Google Gemini where thinking_tokens are reported separately,
+			# OpenAI's reasoning_tokens are a subset of completion_tokens.
 			usage = ChatInvokeUsage(
 				prompt_tokens=response.usage.prompt_tokens,
 				prompt_cached_tokens=response.usage.prompt_tokens_details.cached_tokens
@@ -137,7 +133,7 @@ class ChatOpenAI(BaseChatModel):
 				prompt_cache_creation_tokens=None,
 				prompt_image_tokens=None,
 				# Completion
-				completion_tokens=completion_tokens,
+				completion_tokens=response.usage.completion_tokens,
 				total_tokens=response.usage.total_tokens,
 			)
 		else:
@@ -203,11 +199,26 @@ class ChatOpenAI(BaseChatModel):
 					**model_params,
 				)
 
+				choice = response.choices[0] if response.choices else None
+				if choice is None:
+					base_url = str(self.base_url) if self.base_url is not None else None
+					hint = f' (base_url={base_url})' if base_url is not None else ''
+					raise ModelProviderError(
+						message=(
+							'Invalid OpenAI chat completion response: missing or empty `choices`.'
+							' If you are using a proxy via `base_url`, ensure it implements the OpenAI'
+							' `/v1/chat/completions` schema and returns `choices` as a non-empty list.'
+							f'{hint}'
+						),
+						status_code=502,
+						model=self.name,
+					)
+
 				usage = self._get_usage(response)
 				return ChatInvokeCompletion(
-					completion=response.choices[0].message.content or '',
+					completion=choice.message.content or '',
 					usage=usage,
-					stop_reason=response.choices[0].finish_reason if response.choices else None,
+					stop_reason=choice.finish_reason,
 				)
 
 			else:
@@ -246,7 +257,22 @@ class ChatOpenAI(BaseChatModel):
 						**model_params,
 					)
 
-				if response.choices[0].message.content is None:
+				choice = response.choices[0] if response.choices else None
+				if choice is None:
+					base_url = str(self.base_url) if self.base_url is not None else None
+					hint = f' (base_url={base_url})' if base_url is not None else ''
+					raise ModelProviderError(
+						message=(
+							'Invalid OpenAI chat completion response: missing or empty `choices`.'
+							' If you are using a proxy via `base_url`, ensure it implements the OpenAI'
+							' `/v1/chat/completions` schema and returns `choices` as a non-empty list.'
+							f'{hint}'
+						),
+						status_code=502,
+						model=self.name,
+					)
+
+				if choice.message.content is None:
 					raise ModelProviderError(
 						message='Failed to parse structured output from model response',
 						status_code=500,
@@ -255,13 +281,17 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(response.choices[0].message.content)
+				parsed = output_format.model_validate_json(choice.message.content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
 					usage=usage,
-					stop_reason=response.choices[0].finish_reason if response.choices else None,
+					stop_reason=choice.finish_reason,
 				)
+
+		except ModelProviderError:
+			# Preserve status_code and message from validation errors
+			raise
 
 		except RateLimitError as e:
 			raise ModelRateLimitError(message=e.message, model=self.name) from e
