@@ -43,6 +43,7 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.browser.web_bot_auth import WebBotAuthConfig
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
@@ -210,6 +211,7 @@ class BrowserSession(BaseModel):
 		disable_security: bool | None = None,
 		deterministic_rendering: bool | None = None,
 		proxy: ProxySettings | None = None,
+		web_bot_auth: WebBotAuthConfig | None = None,
 		enable_default_extensions: bool | None = None,
 		window_size: dict | None = None,
 		window_position: dict | None = None,
@@ -276,6 +278,7 @@ class BrowserSession(BaseModel):
 		prohibited_domains: list[str] | None = None,
 		keep_alive: bool | None = None,
 		proxy: ProxySettings | None = None,
+		web_bot_auth: WebBotAuthConfig | None = None,
 		enable_default_extensions: bool | None = None,
 		window_size: dict | None = None,
 		window_position: dict | None = None,
@@ -436,6 +439,7 @@ class BrowserSession(BaseModel):
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_web_bot_auth_signer: Any | None = PrivateAttr(default=None)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
@@ -516,6 +520,7 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		self._web_bot_auth_signer = None
 		if self._demo_mode:
 			self._demo_mode.reset()
 			self._demo_mode = None
@@ -1607,6 +1612,9 @@ class BrowserSession(BaseModel):
 			# Note: Lifecycle monitoring is enabled automatically in SessionManager._handle_target_attached()
 			# when targets attach, so no manual enablement needed!
 
+			# Enable Web Bot Auth request signing if configured
+			await self._setup_web_bot_auth()
+
 			# Enable proxy authentication handling if configured
 			await self._setup_proxy_auth()
 
@@ -1657,6 +1665,153 @@ class BrowserSession(BaseModel):
 
 		return self
 
+	async def _setup_web_bot_auth(self) -> None:
+		"""Enable Web Bot Auth request signing if configured
+
+		Uses CDP Fetch domain to intercept outgoing requests and add
+		Signature / Signature-Input headers per RFC 9421
+		"""
+		config = self.browser_profile.web_bot_auth
+		if not config:
+			return
+
+		assert self._cdp_client_root, 'CDP client must be connected before setting up Web Bot Auth'
+
+		from cdp_use.cdp.fetch import ContinueRequestParameters, EnableParameters, HeaderEntry, RequestPattern
+
+		from browser_use.browser.web_bot_auth import WebBotAuthSigner
+
+		self._web_bot_auth_signer = WebBotAuthSigner(config)
+		self.logger.info(f'🔑 Web Bot Auth enabled (keyid={self._web_bot_auth_signer.keyid[:12]}...)')
+
+		signer = self._web_bot_auth_signer
+
+		try:
+			# Enable Fetch domain with request interception for all URLs
+			proxy_cfg = self.browser_profile.proxy
+			handle_auth = bool(proxy_cfg and proxy_cfg.username and proxy_cfg.password)
+			fetch_params = EnableParameters(
+				patterns=[RequestPattern(urlPattern='*')],
+				handleAuthRequests=handle_auth,
+			)
+
+			await self._cdp_client_root.send.Fetch.enable(params=fetch_params)
+			self.logger.debug('Fetch.enable (web_bot_auth) on root client')
+
+			if self.agent_focus_target_id:
+				try:
+					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+					await cdp_session.cdp_client.send.Fetch.enable(
+						params=fetch_params,
+						session_id=cdp_session.session_id,
+					)
+				except Exception as e:
+					self.logger.debug(f'Fetch.enable (web_bot_auth) on focused session failed: {type(e).__name__}: {e}')
+
+			# Handler: sign every paused request and continue it
+			def _on_request_paused(event: RequestPausedEvent, session_id: SessionID | None = None):
+				request_id = event.get('requestId') or event.get('request_id')
+				if not request_id:
+					return
+
+				request = event.get('request', {})
+				url = request.get('url', '')
+
+				# Only sign http(s) requests
+				if not url.startswith(('http://', 'https://')):
+
+					async def _continue_unsigned():
+						assert self._cdp_client_root
+						try:
+							await self._cdp_client_root.send.Fetch.continueRequest(
+								params=ContinueRequestParameters(requestId=request_id),
+								session_id=session_id,
+							)
+						except Exception:
+							pass
+
+					create_task_with_error_handling(
+						_continue_unsigned(), name='wba_continue', logger_instance=self.logger, suppress_exceptions=True
+					)
+					return
+
+				# Compute signature headers
+				try:
+					sig_headers = signer.sign_request_headers(url)
+				except Exception as e:
+					self.logger.debug(f'Web Bot Auth signing failed for {url}: {e}')
+
+					async def _continue_unsigned_err():
+						assert self._cdp_client_root
+						try:
+							await self._cdp_client_root.send.Fetch.continueRequest(
+								params=ContinueRequestParameters(requestId=request_id),
+								session_id=session_id,
+							)
+						except Exception:
+							pass
+
+					create_task_with_error_handling(
+						_continue_unsigned_err(), name='wba_continue_err', logger_instance=self.logger, suppress_exceptions=True
+					)
+					return
+
+				# Merge signature headers with original request headers
+				original_headers = request.get('headers', {})
+				merged_headers = [HeaderEntry(name=k, value=str(v)) for k, v in original_headers.items()]
+				for hdr_name, hdr_value in sig_headers.items():
+					merged_headers.append(HeaderEntry(name=hdr_name, value=hdr_value))
+
+				async def _continue_signed():
+					assert self._cdp_client_root
+					try:
+						await self._cdp_client_root.send.Fetch.continueRequest(
+							params=ContinueRequestParameters(requestId=request_id, headers=merged_headers),
+							session_id=session_id,
+						)
+					except Exception:
+						pass
+
+				create_task_with_error_handling(
+					_continue_signed(), name='wba_sign', logger_instance=self.logger, suppress_exceptions=True
+				)
+
+			# Register handler on root client
+			self._cdp_client_root.register.Fetch.requestPaused(_on_request_paused)
+			if self.agent_focus_target_id:
+				try:
+					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+					cdp_session.cdp_client.register.Fetch.requestPaused(_on_request_paused)
+				except Exception:
+					pass
+			self.logger.debug('Registered Fetch.requestPaused handler for Web Bot Auth')
+
+			# Auto-enable Fetch on newly attached targets
+			def _on_attached(event: AttachedToTargetEvent, session_id: SessionID | None = None):
+				sid = event.get('sessionId') or event.get('session_id') or session_id
+				if not sid:
+					return
+
+				async def _enable():
+					assert self._cdp_client_root
+					try:
+						await self._cdp_client_root.send.Fetch.enable(
+							params=fetch_params,
+							session_id=sid,
+						)
+					except Exception:
+						pass
+
+				create_task_with_error_handling(
+					_enable(), name='wba_fetch_enable_attached', logger_instance=self.logger, suppress_exceptions=True
+				)
+
+			self._cdp_client_root.register.Target.attachedToTarget(_on_attached)
+			self.logger.debug('Registered Target.attachedToTarget handler for Web Bot Auth Fetch.enable')
+
+		except Exception as e:
+			self.logger.warning(f'Failed to set up Web Bot Auth: {type(e).__name__}: {e}')
+
 	async def _setup_proxy_auth(self) -> None:
 		"""Enable CDP Fetch auth handling for authenticated proxy, if credentials provided.
 
@@ -1674,24 +1829,27 @@ class BrowserSession(BaseModel):
 				self.logger.debug('Proxy credentials not provided; skipping proxy auth setup')
 				return
 
-			# Enable Fetch domain with auth handling (do not pause all requests)
-			try:
-				await self._cdp_client_root.send.Fetch.enable(params={'handleAuthRequests': True})
-				self.logger.debug('Fetch.enable(handleAuthRequests=True) enabled on root client')
-			except Exception as e:
-				self.logger.debug(f'Fetch.enable on root failed: {type(e).__name__}: {e}')
+			web_bot_auth_active = self._web_bot_auth_signer is not None
 
-			# Also enable on the focused target's session if available to ensure events are delivered
-			try:
-				if self.agent_focus_target_id:
-					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
-					await cdp_session.cdp_client.send.Fetch.enable(
-						params={'handleAuthRequests': True},
-						session_id=cdp_session.session_id,
-					)
-					self.logger.debug('Fetch.enable(handleAuthRequests=True) enabled on focused session')
-			except Exception as e:
-				self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
+			# Enable Fetch domain with auth handling — skip if web bot auth already
+			# enabled Fetch with handleAuthRequests=True and patterns
+			if not web_bot_auth_active:
+				try:
+					await self._cdp_client_root.send.Fetch.enable(params={'handleAuthRequests': True})
+					self.logger.debug('Fetch.enable(handleAuthRequests=True) enabled on root client')
+				except Exception as e:
+					self.logger.debug(f'Fetch.enable on root failed: {type(e).__name__}: {e}')
+
+				try:
+					if self.agent_focus_target_id:
+						cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+						await cdp_session.cdp_client.send.Fetch.enable(
+							params={'handleAuthRequests': True},
+							session_id=cdp_session.session_id,
+						)
+						self.logger.debug('Fetch.enable(handleAuthRequests=True) enabled on focused session')
+				except Exception as e:
+					self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
 
 			def _on_auth_required(event: AuthRequiredEvent, session_id: SessionID | None = None):
 				# event keys may be snake_case or camelCase depending on generator; handle both
@@ -1742,76 +1900,85 @@ class BrowserSession(BaseModel):
 							_default(), name='auth_default', logger_instance=self.logger, suppress_exceptions=True
 						)
 
-			def _on_request_paused(event: RequestPausedEvent, session_id: SessionID | None = None):
-				# Continue all paused requests to avoid stalling the network
-				request_id = event.get('requestId') or event.get('request_id')
-				if not request_id:
-					return
-
-				async def _continue():
-					assert self._cdp_client_root
-					try:
-						await self._cdp_client_root.send.Fetch.continueRequest(
-							params={'requestId': request_id},
-							session_id=session_id,
-						)
-					except Exception:
-						pass
-
-				create_task_with_error_handling(
-					_continue(), name='request_continue', logger_instance=self.logger, suppress_exceptions=True
-				)
-
-			# Register event handler on root client
+			# Register authRequired handler (always needed for proxy auth)
 			try:
 				self._cdp_client_root.register.Fetch.authRequired(_on_auth_required)
-				self._cdp_client_root.register.Fetch.requestPaused(_on_request_paused)
 				if self.agent_focus_target_id:
 					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
 					cdp_session.cdp_client.register.Fetch.authRequired(_on_auth_required)
-					cdp_session.cdp_client.register.Fetch.requestPaused(_on_request_paused)
 				self.logger.debug('Registered Fetch.authRequired handlers')
 			except Exception as e:
 				self.logger.debug(f'Failed to register authRequired handlers: {type(e).__name__}: {e}')
 
-			# Auto-enable Fetch on every newly attached target to ensure auth callbacks fire
-			def _on_attached(event: AttachedToTargetEvent, session_id: SessionID | None = None):
-				sid = event.get('sessionId') or event.get('session_id') or session_id
-				if not sid:
-					return
+			# requestPaused passthrough + attachedToTarget + Fetch.enable on focused session
+			# are only needed when web bot auth is not active (it handles request continuation)
+			if not web_bot_auth_active:
 
-				async def _enable():
-					assert self._cdp_client_root
-					try:
-						await self._cdp_client_root.send.Fetch.enable(
-							params={'handleAuthRequests': True},
-							session_id=sid,
-						)
-						self.logger.debug(f'Fetch.enable(handleAuthRequests=True) enabled on attached session {sid}')
-					except Exception as e:
-						self.logger.debug(f'Fetch.enable on attached session failed: {type(e).__name__}: {e}')
+				def _on_request_paused(event: RequestPausedEvent, session_id: SessionID | None = None):
+					# Continue all paused requests to avoid stalling the network
+					request_id = event.get('requestId') or event.get('request_id')
+					if not request_id:
+						return
 
-				create_task_with_error_handling(
-					_enable(), name='fetch_enable_attached', logger_instance=self.logger, suppress_exceptions=True
-				)
+					async def _continue():
+						assert self._cdp_client_root
+						try:
+							await self._cdp_client_root.send.Fetch.continueRequest(
+								params={'requestId': request_id},
+								session_id=session_id,
+							)
+						except Exception:
+							pass
 
-			try:
-				self._cdp_client_root.register.Target.attachedToTarget(_on_attached)
-				self.logger.debug('Registered Target.attachedToTarget handler for Fetch.enable')
-			except Exception as e:
-				self.logger.debug(f'Failed to register attachedToTarget handler: {type(e).__name__}: {e}')
-
-			# Ensure Fetch is enabled for the current focused target's session, too
-			try:
-				if self.agent_focus_target_id:
-					# Use safe API with focus=False to avoid changing focus
-					cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
-					await cdp_session.cdp_client.send.Fetch.enable(
-						params={'handleAuthRequests': True, 'patterns': [{'urlPattern': '*'}]},
-						session_id=cdp_session.session_id,
+					create_task_with_error_handling(
+						_continue(), name='request_continue', logger_instance=self.logger, suppress_exceptions=True
 					)
-			except Exception as e:
-				self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
+
+				try:
+					self._cdp_client_root.register.Fetch.requestPaused(_on_request_paused)
+					if self.agent_focus_target_id:
+						cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+						cdp_session.cdp_client.register.Fetch.requestPaused(_on_request_paused)
+				except Exception as e:
+					self.logger.debug(f'Failed to register requestPaused handlers: {type(e).__name__}: {e}')
+
+				# Auto-enable Fetch on every newly attached target to ensure auth callbacks fire
+				def _on_attached(event: AttachedToTargetEvent, session_id: SessionID | None = None):
+					sid = event.get('sessionId') or event.get('session_id') or session_id
+					if not sid:
+						return
+
+					async def _enable():
+						assert self._cdp_client_root
+						try:
+							await self._cdp_client_root.send.Fetch.enable(
+								params={'handleAuthRequests': True},
+								session_id=sid,
+							)
+							self.logger.debug(f'Fetch.enable(handleAuthRequests=True) enabled on attached session {sid}')
+						except Exception as e:
+							self.logger.debug(f'Fetch.enable on attached session failed: {type(e).__name__}: {e}')
+
+					create_task_with_error_handling(
+						_enable(), name='fetch_enable_attached', logger_instance=self.logger, suppress_exceptions=True
+					)
+
+				try:
+					self._cdp_client_root.register.Target.attachedToTarget(_on_attached)
+					self.logger.debug('Registered Target.attachedToTarget handler for Fetch.enable')
+				except Exception as e:
+					self.logger.debug(f'Failed to register attachedToTarget handler: {type(e).__name__}: {e}')
+
+				# Ensure Fetch is enabled for the current focused target's session, too
+				try:
+					if self.agent_focus_target_id:
+						cdp_session = await self.get_or_create_cdp_session(self.agent_focus_target_id, focus=False)
+						await cdp_session.cdp_client.send.Fetch.enable(
+							params={'handleAuthRequests': True, 'patterns': [{'urlPattern': '*'}]},
+							session_id=cdp_session.session_id,
+						)
+				except Exception as e:
+					self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
 		except Exception as e:
 			self.logger.debug(f'Skipping proxy auth setup: {type(e).__name__}: {e}')
 

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from browser_use.browser.cloud.views import CloudBrowserParams
+from browser_use.browser.web_bot_auth import WebBotAuthConfig
 from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
@@ -601,6 +602,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	enable_default_extensions: bool = Field(
 		default_factory=_get_enable_default_extensions_default,
 		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled. Can be disabled via BROWSER_USE_DISABLE_EXTENSIONS=1 environment variable.",
+	)
+	web_bot_auth: WebBotAuthConfig | None = Field(
+		default=None,
+		description='Web Bot Auth config for cryptographic bot identity signing on outgoing requests (RFC 9421). Disabled by default.',
 	)
 	demo_mode: bool = Field(
 		default=False,
