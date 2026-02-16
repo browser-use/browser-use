@@ -67,6 +67,7 @@ class DownloadsWatchdog(BaseWatchdog):
 	_network_monitored_targets: set[str] = PrivateAttr(default_factory=set)  # Track targets with network monitoring enabled
 	_detected_downloads: set[str] = PrivateAttr(default_factory=set)  # Track detected download URLs to avoid duplicates
 	_network_callback_registered: bool = PrivateAttr(default=False)  # Track if global network callback is registered
+	_use_js_fetch_for_local: bool = PrivateAttr(default=False)  # Guard for JS fetch fallback path (local browsers only)
 
 	# Direct callback support for download waiting (bypasses event bus for synchronization)
 	_download_start_callbacks: list[Any] = PrivateAttr(default_factory=list)  # Callbacks for download start
@@ -924,9 +925,7 @@ class DownloadsWatchdog(BaseWatchdog):
 						except ValueError:
 							pass
 					if cdp_session is None:
-						cdp_session = await self.browser_session.get_or_create_cdp_session(
-							target_id=target_id, focus=False
-						)
+						cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 					assert cdp_session
 
 					result = await cdp_session.cdp_client.send.Runtime.evaluate(
