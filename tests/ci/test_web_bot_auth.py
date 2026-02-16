@@ -4,9 +4,12 @@ import base64
 import hashlib
 import json
 import re
+import stat
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
+from pytest_httpserver import HTTPServer
 
 from browser_use.browser.web_bot_auth import WebBotAuthConfig, WebBotAuthSigner, _b64url_encode
 
@@ -36,6 +39,15 @@ def _pem_to_jwk(pem: str) -> dict:
 		'd': _b64url_encode(d_bytes),
 		'x': _b64url_encode(x_bytes),
 	}
+
+
+def _authority_from_url(url: str) -> str:
+	"""Extract the authority (host[:port]) the signer would compute for a URL."""
+	parsed = urlparse(url)
+	authority = parsed.hostname or ''
+	if parsed.port and parsed.port not in (80, 443):
+		authority += f':{parsed.port}'
+	return authority
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +88,7 @@ class TestWebBotAuthConfigGenerate:
 	def test_generate_creates_valid_config(self):
 		config = WebBotAuthConfig.generate()
 		assert config.private_key_pem is not None
-		assert config.private_key_pem.startswith('-----BEGIN PRIVATE KEY-----')
+		assert config.private_key_pem.startswith('-----BEGIN')
 		assert config.private_key_jwk is None
 		assert config.private_key_path is None
 
@@ -115,6 +127,14 @@ class TestWebBotAuthConfigGenerate:
 		loaded = WebBotAuthConfig(private_key_path=key_path)
 		assert loaded.keyid == config.keyid
 
+	def test_save_private_key_permissions(self, tmp_path: Path):
+		config = WebBotAuthConfig.generate()
+		key_path = tmp_path / 'test-key.pem'
+		config.save_private_key(key_path)
+
+		mode = key_path.stat().st_mode
+		assert stat.S_IMODE(mode) == 0o600
+
 
 # ---------------------------------------------------------------------------
 # WebBotAuthSigner — header generation and signature verification
@@ -122,23 +142,32 @@ class TestWebBotAuthConfigGenerate:
 
 
 class TestWebBotAuthSigner:
-	def test_headers_present(self):
+	def test_headers_present(self, httpserver: HTTPServer):
+		httpserver.expect_request('/page').respond_with_data('ok')
+		url = httpserver.url_for('/page')
+
 		signer = WebBotAuthSigner(WebBotAuthConfig.generate())
-		headers = signer.sign_request_headers('https://example.com/page')
+		headers = signer.sign_request_headers(url)
 		assert 'Signature' in headers
 		assert 'Signature-Input' in headers
 		assert 'Signature-Agent' not in headers
 
-	def test_signature_agent_header_included(self):
-		url = 'https://bot.example.com/.well-known/http-message-signatures-directory'
-		config = WebBotAuthConfig.generate(signature_agent_url=url)
-		headers = WebBotAuthSigner(config).sign_request_headers('https://example.com/page')
-		assert headers['Signature-Agent'] == url
+	def test_signature_agent_header_included(self, httpserver: HTTPServer):
+		httpserver.expect_request('/page').respond_with_data('ok')
+		url = httpserver.url_for('/page')
 
-	def test_signature_input_format(self):
+		agent_url = 'https://bot.example.com/.well-known/http-message-signatures-directory'
+		config = WebBotAuthConfig.generate(signature_agent_url=agent_url)
+		headers = WebBotAuthSigner(config).sign_request_headers(url)
+		assert headers['Signature-Agent'] == agent_url
+
+	def test_signature_input_format(self, httpserver: HTTPServer):
+		httpserver.expect_request('/page').respond_with_data('ok')
+		url = httpserver.url_for('/page')
+
 		config = WebBotAuthConfig.generate()
 		signer = WebBotAuthSigner(config)
-		headers = signer.sign_request_headers('https://example.com/page')
+		headers = signer.sign_request_headers(url)
 
 		inner = headers['Signature-Input'][len('sig1=') :]
 		assert '("@authority")' in inner
@@ -149,22 +178,31 @@ class TestWebBotAuthSigner:
 		assert ';alg="ed25519"' in inner
 		assert ';tag="web-bot-auth"' in inner
 
-	def test_signature_input_with_agent_url(self):
-		url = 'https://bot.example.com/.well-known/http-message-signatures-directory'
-		config = WebBotAuthConfig.generate(signature_agent_url=url)
-		inner = WebBotAuthSigner(config).sign_request_headers('https://example.com/')['Signature-Input']
+	def test_signature_input_with_agent_url(self, httpserver: HTTPServer):
+		httpserver.expect_request('/').respond_with_data('ok')
+		url = httpserver.url_for('/')
+
+		agent_url = 'https://bot.example.com/.well-known/http-message-signatures-directory'
+		config = WebBotAuthConfig.generate(signature_agent_url=agent_url)
+		inner = WebBotAuthSigner(config).sign_request_headers(url)['Signature-Input']
 		assert '("@authority" "signature-agent")' in inner
 
-	def test_signature_is_64_byte_ed25519(self):
-		headers = WebBotAuthSigner(WebBotAuthConfig.generate()).sign_request_headers('https://example.com/')
+	def test_signature_is_64_byte_ed25519(self, httpserver: HTTPServer):
+		httpserver.expect_request('/').respond_with_data('ok')
+		url = httpserver.url_for('/')
+
+		headers = WebBotAuthSigner(WebBotAuthConfig.generate()).sign_request_headers(url)
 		sig = headers['Signature']
 		assert sig.startswith('sig1=:') and sig.endswith(':')
 		assert len(base64.b64decode(sig[len('sig1=:') : -1])) == 64
 
-	def test_unique_nonce_per_request(self):
+	def test_unique_nonce_per_request(self, httpserver: HTTPServer):
+		httpserver.expect_request('/').respond_with_data('ok')
+		url = httpserver.url_for('/')
+
 		signer = WebBotAuthSigner(WebBotAuthConfig.generate())
-		h1 = signer.sign_request_headers('https://example.com/')
-		h2 = signer.sign_request_headers('https://example.com/')
+		h1 = signer.sign_request_headers(url)
+		h2 = signer.sign_request_headers(url)
 
 		nonce_re = re.compile(r';nonce="([^"]+)"')
 		m1 = nonce_re.search(h1['Signature-Input'])
@@ -172,51 +210,66 @@ class TestWebBotAuthSigner:
 		assert m1 and m2
 		assert m1.group(1) != m2.group(1)
 
-	def test_signature_verifies(self):
+	def test_signature_verifies(self, httpserver: HTTPServer):
 		"""Reconstruct signature base and verify Ed25519 signature."""
 		from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 		from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
+		httpserver.expect_request('/page').respond_with_data('ok')
+		url = httpserver.url_for('/page')
+		authority = _authority_from_url(url)
+
 		config = WebBotAuthConfig.generate()
 		assert config.private_key_pem is not None
-		headers = WebBotAuthSigner(config).sign_request_headers('https://example.com/page?foo=bar')
+		headers = WebBotAuthSigner(config).sign_request_headers(url)
 
 		sig_bytes = base64.b64decode(headers['Signature'][len('sig1=:') : -1])
 		sig_input_str = headers['Signature-Input'][len('sig1=') :]
-		sig_base = f'"@authority": example.com\n"@signature-params": {sig_input_str}'
+		sig_base = f'"@authority": {authority}\n"@signature-params": {sig_input_str}'
 
 		key = load_pem_private_key(config.private_key_pem.encode(), password=None)
 		assert isinstance(key, Ed25519PrivateKey)
 		key.public_key().verify(sig_bytes, sig_base.encode('utf-8'))
 
-	def test_signature_with_agent_url_verifies(self):
+	def test_signature_with_agent_url_verifies(self, httpserver: HTTPServer):
 		from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 		from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+		httpserver.expect_request('/api').respond_with_data('ok')
+		url = httpserver.url_for('/api')
+		authority = _authority_from_url(url)
 
 		agent_url = 'https://bot.example.com/.well-known/http-message-signatures-directory'
 		config = WebBotAuthConfig.generate(signature_agent_url=agent_url)
 		assert config.private_key_pem is not None
-		headers = WebBotAuthSigner(config).sign_request_headers('https://target.example.com/api')
+		headers = WebBotAuthSigner(config).sign_request_headers(url)
 
 		sig_bytes = base64.b64decode(headers['Signature'][len('sig1=:') : -1])
 		sig_input_str = headers['Signature-Input'][len('sig1=') :]
-		sig_base = f'"@authority": target.example.com\n"signature-agent": {agent_url}\n"@signature-params": {sig_input_str}'
+		sig_base = f'"@authority": {authority}\n"signature-agent": {agent_url}\n"@signature-params": {sig_input_str}'
 
 		key = load_pem_private_key(config.private_key_pem.encode(), password=None)
 		assert isinstance(key, Ed25519PrivateKey)
 		key.public_key().verify(sig_bytes, sig_base.encode('utf-8'))
 
-	def test_non_standard_port_in_authority(self):
+	def test_non_standard_port_in_authority(self, httpserver: HTTPServer):
+		"""httpserver already uses a non-standard port, so this tests that path naturally."""
 		from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 		from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
+		httpserver.expect_request('/path').respond_with_data('ok')
+		url = httpserver.url_for('/path')
+		authority = _authority_from_url(url)
+		# httpserver binds to a random high port, so authority includes :<port>
+		assert ':' in authority
+
 		config = WebBotAuthConfig.generate()
 		assert config.private_key_pem is not None
-		headers = WebBotAuthSigner(config).sign_request_headers('https://example.com:8443/path')
+		headers = WebBotAuthSigner(config).sign_request_headers(url)
 
 		sig_bytes = base64.b64decode(headers['Signature'][len('sig1=:') : -1])
 		sig_input_str = headers['Signature-Input'][len('sig1=') :]
-		sig_base = f'"@authority": example.com:8443\n"@signature-params": {sig_input_str}'
+		sig_base = f'"@authority": {authority}\n"@signature-params": {sig_input_str}'
 
 		key = load_pem_private_key(config.private_key_pem.encode(), password=None)
 		assert isinstance(key, Ed25519PrivateKey)

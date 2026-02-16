@@ -115,7 +115,8 @@ class WebBotAuthConfig(BaseModel):
 				self.private_key_jwk is not None,
 			]
 		)
-		assert sources == 1, 'Exactly one of private_key_pem, private_key_path, or private_key_jwk must be provided'
+		if sources != 1:
+			raise ValueError('Exactly one of private_key_pem, private_key_path, or private_key_jwk must be provided')
 		return self
 
 	# ── Factory methods ───────────────────────────────────────────────
@@ -169,7 +170,11 @@ class WebBotAuthConfig(BaseModel):
 
 		key = _load_ed25519_private_key(self)
 		pem_bytes = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
-		Path(path).write_bytes(pem_bytes)
+		fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+		try:
+			os.write(fd, pem_bytes)
+		finally:
+			os.close(fd)
 
 
 class WebBotAuthSigner:

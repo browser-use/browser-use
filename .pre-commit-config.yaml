@@ -55,6 +55,7 @@ repos:
       - id: end-of-file-fixer
       # best practices enforcement
       - id: detect-private-key
+        exclude: tests/scripts/test_web_bot_auth_e2e\.py
       # - id: check-docstring-first
       - id: debug-statements
       - id: forbid-submodules
