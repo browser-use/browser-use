@@ -285,8 +285,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if browser and browser_session:
 			raise ValueError('Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.')
 		browser_session = browser or browser_session
-		# Track BrowserSession ownership so we don't break reuse/teardown for injected sessions.
-		self._owns_browser_session: bool = browser_session is None
 
 		if browser_session is not None and demo_mode is not None and browser_session.browser_profile.demo_mode != demo_mode:
 			browser_session.browser_profile = browser_session.browser_profile.model_copy(update={'demo_mode': demo_mode})
@@ -3913,24 +3911,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
 				else:
-					# keep_alive=True sessions are commonly injected for reuse (e.g. sequential agents
-					# or test fixtures). Stopping their EventBus here can break subsequent
-					# BrowserSession.kill()/dispatch calls and cause teardown hangs.
-					#
-					# If this Agent created the session internally, we can stop the session EventBus
-					# runloop to avoid leaving pending tasks that keep asyncio.run() alive.
-					if self._owns_browser_session:
-						await self.browser_session.event_bus.stop(
-							clear=False,
-							timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
-						)
-						# bubus.EventBus.stop() shuts down its queue, which prevents future dispatch()
-						# from restarting the runloop. Reset internal async primitives so it can restart.
-						try:
-							self.browser_session.event_bus.event_queue = None  # type: ignore[attr-defined]
-							self.browser_session.event_bus._on_idle = None  # type: ignore[attr-defined]
-						except Exception:
-							pass
+					# keep_alive=True sessions should not keep the event loop alive after agent.run().
+					# Stop the session EventBus runloop, then reset its async primitives so it can
+					# restart on the next dispatch (e.g. reuse or teardown).
+					await self.browser_session.event_bus.stop(
+						clear=False,
+						timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
+					)
+					# bubus.EventBus.stop() shuts down its queue, which prevents future dispatch()
+					# from restarting the runloop. Reset internal async primitives so it can restart.
+					try:
+						self.browser_session.event_bus.event_queue = None  # type: ignore[attr-defined]
+						self.browser_session.event_bus._on_idle = None  # type: ignore[attr-defined]
+					except Exception:
+						pass
 
 			# Close skill service if configured
 			if self.skill_service is not None:
