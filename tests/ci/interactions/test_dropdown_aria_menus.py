@@ -70,7 +70,7 @@ def http_server():
 						<span class="menu-item-title-wrap"><span class="menu-item-title">Sort</span></span>
 					</a>
 					<div class="menu-panel-wrapper">
-						<ul class="menu menu-format-standard menu-regular" role="menu" id="$P{ARIA_MENU_ID}$ppyElements$l2">
+						<ul class="menu menu-format-standard menu-regular" role="menu" id="$P{ARIA_MENU_ID}$ppyElements$l2" tabindex="0">
 							<li class="menu-item menu-item-enabled" role="presentation">
 								<a href="#" onclick="pd(event);" class="menu-item-anchor" tabindex="0" role="menuitem">
 									<span class="menu-item-title-wrap"><span class="menu-item-title">Lowest to highest</span></span>
@@ -186,8 +186,8 @@ async def _wait_for_menu_element(browser_session: BrowserSession, menu_id: str) 
 	menu_index = None
 	max_menu_attempts = 20
 	for _ in range(max_menu_attempts):
-		# Initialize or refresh the DOM state to populate the selector map
-		await browser_session.get_browser_state_summary()
+		# Initialize or refresh the DOM state to populate the selector map without taking screenshots
+		await browser_session.get_browser_state_summary(include_screenshot=False)
 		# Attempt to find the ARIA menu element by ID
 		menu_index = await browser_session.get_index_by_id(menu_id)
 		if menu_index is not None:
@@ -268,27 +268,24 @@ class TestARIAMenuDropdown:
 
 		# Find the nested ARIA menu element in the selector map
 		nested_menu_index = None
+		nested_menu_id = f'$P{ARIA_MENU_ID}$ppyElements$l2'
 		for idx, element in selector_map.items():
-			# Look for the nested UL with id containing "$PpyNavigation"
+			# Look for the nested UL with the specific nested menu ID
 			if (
 				element.tag_name.lower() == 'ul'
-				and '$PpyNavigation' in str(element.attributes.get('id', ''))
+				and element.attributes.get('id') == nested_menu_id
 				and element.attributes.get('role') == 'menu'
 			):
 				nested_menu_index = idx
 				break
 
-		# The nested menu might not be in the selector map initially if it's hidden
-		# In that case, we should test the main menu
-		if nested_menu_index is None:
-			# Find the main menu instead
-			for idx, element in selector_map.items():
-				if element.tag_name.lower() == 'ul' and element.attributes.get('id') == ARIA_MENU_ID:
-					nested_menu_index = idx
-					break
-
+		# Assert that the nested menu was actually found (not just fall back to main menu)
+		available_elements = [
+			f'{idx}: {element.tag_name} (id={element.attributes.get("id", "none")})' for idx, element in selector_map.items()
+		]
 		assert nested_menu_index is not None, (
-			f'Could not find any ARIA menu element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
+			f'Could not find nested ARIA menu element with id="{nested_menu_id}" in selector map. '
+			f'Available elements: {available_elements}'
 		)
 
 		# Execute the action with the menu index
