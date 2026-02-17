@@ -262,8 +262,34 @@ class SecurityWatchdog(BaseWatchdog):
 			# Extract domain part from patterns like "https://*.example.com" or "*.example.com"
 			pattern_scheme, domain_pattern = self._parse_url_pattern(pattern)
 
+			# Check for path wildcards (e.g., "https://*.example.com/*")
+			# Handle patterns with both domain wildcard and path wildcard
+			if pattern.endswith('/*'):
+				# For patterns like "https://*.example.com/*", check domain match first
+				if domain_pattern and domain_pattern.startswith('*.') and '/' in domain_pattern:
+					# Extract domain part before the path (e.g., "*.example.com" from "*.example.com/*")
+					domain_only = domain_pattern.split('/', 1)[0]
+					domain_part = domain_only[2:]  # Remove *.
+					# Check if host matches (subdomain or main domain)
+					if host == domain_part or host.endswith('.' + domain_part):
+						# Check scheme match if pattern specified one
+						if pattern_scheme:
+							if scheme == pattern_scheme:
+								# Domain matches and scheme matches, path wildcard /* matches any path
+								return True
+						else:
+							# Only match http/https URLs for domain-only patterns
+							if scheme in ['http', 'https']:
+								# Domain matches, path wildcard /* matches any path
+								return True
+				else:
+					# Pattern like brave://* or http*://example.com/* (no domain wildcard)
+					if fnmatch.fnmatch(url, pattern):
+						return True
+
 			# Check if pattern matches the host (handles both "*.example.com" and "https://*.example.com")
-			if domain_pattern and domain_pattern.startswith('*.'):
+			# Only apply this shortcut for domain-only patterns (no path component)
+			if domain_pattern and domain_pattern.startswith('*.') and '/' not in domain_pattern:
 				# Pattern like *.example.com should match subdomains and main domain
 				domain_part = domain_pattern[2:]  # Remove *.
 				if host == domain_part or host.endswith('.' + domain_part):
@@ -275,10 +301,6 @@ class SecurityWatchdog(BaseWatchdog):
 						# Only match http/https URLs for domain-only patterns
 						if scheme in ['http', 'https']:
 							return True
-			elif pattern.endswith('/*'):
-				# Pattern like brave://* or http*://example.com/*
-				if fnmatch.fnmatch(url, pattern):
-					return True
 			else:
 				# Use fnmatch for other glob patterns
 				if fnmatch.fnmatch(

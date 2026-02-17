@@ -23,7 +23,7 @@ def http_server():
 	server = HTTPServer()
 	server.start()
 
-	# Build HTML with ARIA_MENU_ID interpolated for single source of truth
+	# Build HTML with TEST_MENU_ID interpolated for single source of truth
 	aria_menu_html = f"""
 		<!DOCTYPE html>
 		<html>

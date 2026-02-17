@@ -111,6 +111,21 @@ class TestBrowserContext:
 		assert watchdog2._is_url_allowed('http://example.com:8080') is True
 		assert watchdog2._is_url_allowed('https://example.com:443') is True
 
+		# Test wildcard+scheme patterns (e.g., "https://*.example.com/*")
+		allowed_wildcard = ['https://*.example.com/*', 'http://*.test.org/path/*']
+		config3 = BrowserProfile(allowed_domains=allowed_wildcard, headless=True, user_data_dir=None)
+		context3 = BrowserSession(browser_profile=config3)
+		event_bus3 = EventBus()
+		watchdog3 = SecurityWatchdog(browser_session=context3, event_bus=event_bus3)
+		# Should match subdomain with path
+		assert watchdog3._is_url_allowed('https://sub.example.com/page') is True
+		# Should match main domain with path
+		assert watchdog3._is_url_allowed('https://example.com/page') is True
+		# Should not match different scheme
+		assert watchdog3._is_url_allowed('http://sub.example.com/page') is False
+		# Should match http scheme for http pattern
+		assert watchdog3._is_url_allowed('http://sub.test.org/path/anything') is True
+
 		# Scenario 3: Malformed URL or empty domain
 		# urlparse will return an empty netloc for some malformed URLs.
 		assert watchdog2._is_url_allowed('notaurl') is False
