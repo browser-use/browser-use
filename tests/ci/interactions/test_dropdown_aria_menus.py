@@ -18,40 +18,39 @@ def http_server():
 	server = HTTPServer()
 	server.start()
 
-	# Add route for ARIA menu test page
-	server.expect_request('/aria-menu').respond_with_data(
-		"""
+	# Build HTML with ARIA_MENU_ID interpolated for single source of truth
+	aria_menu_html = f"""
 		<!DOCTYPE html>
 		<html>
 		<head>
 			<title>ARIA Menu Test</title>
 			<style>
-				.menu {
+				.menu {{
 					list-style: none;
 					padding: 0;
 					margin: 0;
 					border: 1px solid #ccc;
 					background: white;
 					width: 200px;
-				}
-				.menu-item {
+				}}
+				.menu-item {{
 					padding: 10px 20px;
 					border-bottom: 1px solid #eee;
-				}
-				.menu-item:hover {
+				}}
+				.menu-item:hover {{
 					background: #f0f0f0;
-				}
-				.menu-item-anchor {
+				}}
+				.menu-item-anchor {{
 					text-decoration: none;
 					color: #333;
 					display: block;
-				}
-				#result {
+				}}
+				#result {{
 					margin-top: 20px;
 					padding: 10px;
 					border: 1px solid #ddd;
 					min-height: 20px;
-				}
+				}}
 			</style>
 		</head>
 		<body>
@@ -60,18 +59,18 @@ def http_server():
 			
 			<!-- Exactly like the HTML provided in the issue -->
 			<!-- Add tabindex to make menu focusable and detectable by selector map -->
-			<ul class="menu menu-format-standard menu-regular" role="menu" id="pyNavigation1752753375773" tabindex="0" style="display: block;">
+			<ul class="menu menu-format-standard menu-regular" role="menu" id="{ARIA_MENU_ID}" tabindex="0" style="display: block;">
 				<li class="menu-item menu-item-enabled" role="presentation">
 					<a href="#" onclick="pd(event);" class="menu-item-anchor" tabindex="0" role="menuitem">
 						<span class="menu-item-title-wrap"><span class="menu-item-title">Filter</span></span>
 					</a>
 				</li>
-				<li class="menu-item menu-item-enabled" role="presentation" id="menu-item-$PpyNavigation1752753375773$ppyElements$l2">
+				<li class="menu-item menu-item-enabled" role="presentation" id="menu-item-$P{ARIA_MENU_ID}$ppyElements$l2">
 					<a href="#" onclick="pd(event);" class="menu-item-anchor menu-item-expand" tabindex="0" role="menuitem" aria-haspopup="true">
 						<span class="menu-item-title-wrap"><span class="menu-item-title">Sort</span></span>
 					</a>
 					<div class="menu-panel-wrapper">
-						<ul class="menu menu-format-standard menu-regular" role="menu" id="$PpyNavigation1752753375773$ppyElements$l2">
+						<ul class="menu menu-format-standard menu-regular" role="menu" id="$P{ARIA_MENU_ID}$ppyElements$l2">
 							<li class="menu-item menu-item-enabled" role="presentation">
 								<a href="#" onclick="pd(event);" class="menu-item-anchor" tabindex="0" role="menuitem">
 									<span class="menu-item-title-wrap"><span class="menu-item-title">Lowest to highest</span></span>
@@ -106,17 +105,18 @@ def http_server():
 			
 			<script>
 				// Mock the pd function that prevents default
-				function pd(event) {
+				function pd(event) {{
 					event.preventDefault();
 					const text = event.target.closest('[role="menuitem"]').textContent.trim();
 					document.getElementById('result').textContent = 'Clicked: ' + text;
-				}
+				}}
 			</script>
 		</body>
 		</html>
-		""",
-		content_type='text/html',
-	)
+		"""
+
+	# Add route for ARIA menu test page
+	server.expect_request('/aria-menu').respond_with_data(aria_menu_html, content_type='text/html')
 
 	yield server
 	server.stop()
@@ -161,29 +161,41 @@ async def _wait_for_menu_element(browser_session: BrowserSession, menu_id: str) 
 		The index of the menu element in the selector map
 
 	Raises:
-		AssertionError: If menu element is not found
+		AssertionError: If the document never becomes ready or the menu element is not found
 	"""
 	# Wait for document to be ready using CDP
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
 	# Wait for document ready state instead of hardcoded sleep
 	max_attempts = 10
+	document_ready = False
 	for attempt in range(max_attempts):
 		ready_state = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': 'document.readyState', 'returnByValue': True},
 			session_id=cdp_session.session_id,
 		)
 		if ready_state.get('result', {}).get('value') == 'complete':
+			document_ready = True
 			break
 		await asyncio.sleep(0.1)
 
-	# Initialize the DOM state to populate the selector map
-	await browser_session.get_browser_state_summary()
+	# Fail deterministically if the document never reaches the complete state
+	assert document_ready, 'Timed out waiting for document.readyState == "complete"'
 
-	# Find the ARIA menu element by ID
-	menu_index = await browser_session.get_index_by_id(menu_id)
+	# Retry until the ARIA menu element is available in the selector map
+	menu_index = None
+	max_menu_attempts = 20
+	for _ in range(max_menu_attempts):
+		# Initialize or refresh the DOM state to populate the selector map
+		await browser_session.get_browser_state_summary()
+		# Attempt to find the ARIA menu element by ID
+		menu_index = await browser_session.get_index_by_id(menu_id)
+		if menu_index is not None:
+			break
+		# Allow some time for the element/selector map to become available
+		await asyncio.sleep(0.1)
 
-	assert menu_index is not None, f'Could not find ARIA menu element with id="{menu_id}"'
+	assert menu_index is not None, f'Could not find ARIA menu element with id="{menu_id}" after {max_menu_attempts} attempts'
 	return menu_index
 
 
