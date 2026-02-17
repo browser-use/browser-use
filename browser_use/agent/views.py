@@ -337,6 +337,9 @@ class ActionResult(BaseModel):
 	extracted_content: str | None = None
 	include_extracted_content_only_once: bool = False  # Whether the extracted content should be used to update the read_state
 
+	# Simple judge override note — stored separately so extracted_content stays pure (e.g. JSON for structured output)
+	judge_note: str | None = None
+
 	# Metadata for observability (e.g., click coordinates)
 	metadata: dict | None = None
 
