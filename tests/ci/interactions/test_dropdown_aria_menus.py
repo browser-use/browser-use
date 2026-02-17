@@ -8,8 +8,13 @@ from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
 
-# ARIA menu element ID used in test HTML fixture
-ARIA_MENU_ID = 'pyNavigation1752753375773'
+# Test fixture menu element ID used in HTML fixture
+TEST_MENU_ID = 'pyNavigation1752753375773'
+
+# Retry configuration constants
+MAX_DOCUMENT_READY_ATTEMPTS = 10
+MAX_MENU_DETECTION_ATTEMPTS = 20
+RETRY_INTERVAL_SECONDS = 0.1
 
 
 @pytest.fixture(scope='session')
@@ -59,18 +64,18 @@ def http_server():
 			
 			<!-- Exactly like the HTML provided in the issue -->
 			<!-- Add tabindex to make menu focusable and detectable by selector map -->
-			<ul class="menu menu-format-standard menu-regular" role="menu" id="{ARIA_MENU_ID}" tabindex="0" style="display: block;">
+			<ul class="menu menu-format-standard menu-regular" role="menu" id="{TEST_MENU_ID}" tabindex="0" style="display: block;">
 				<li class="menu-item menu-item-enabled" role="presentation">
 					<a href="#" onclick="pd(event);" class="menu-item-anchor" tabindex="0" role="menuitem">
 						<span class="menu-item-title-wrap"><span class="menu-item-title">Filter</span></span>
 					</a>
 				</li>
-				<li class="menu-item menu-item-enabled" role="presentation" id="menu-item-$P{ARIA_MENU_ID}$ppyElements$l2">
+				<li class="menu-item menu-item-enabled" role="presentation" id="menu-item-$P{TEST_MENU_ID}$ppyElements$l2">
 					<a href="#" onclick="pd(event);" class="menu-item-anchor menu-item-expand" tabindex="0" role="menuitem" aria-haspopup="true">
 						<span class="menu-item-title-wrap"><span class="menu-item-title">Sort</span></span>
 					</a>
 					<div class="menu-panel-wrapper">
-						<ul class="menu menu-format-standard menu-regular" role="menu" id="$P{ARIA_MENU_ID}$ppyElements$l2" tabindex="0">
+						<ul class="menu menu-format-standard menu-regular" role="menu" id="$P{TEST_MENU_ID}$ppyElements$l2" tabindex="0">
 							<li class="menu-item menu-item-enabled" role="presentation">
 								<a href="#" onclick="pd(event);" class="menu-item-anchor" tabindex="0" role="menuitem">
 									<span class="menu-item-title-wrap"><span class="menu-item-title">Lowest to highest</span></span>
@@ -167,9 +172,8 @@ async def _wait_for_menu_element(browser_session: BrowserSession, menu_id: str) 
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
 	# Wait for document ready state instead of hardcoded sleep
-	max_attempts = 10
 	document_ready = False
-	for attempt in range(max_attempts):
+	for attempt in range(MAX_DOCUMENT_READY_ATTEMPTS):
 		ready_state = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': 'document.readyState', 'returnByValue': True},
 			session_id=cdp_session.session_id,
@@ -177,15 +181,14 @@ async def _wait_for_menu_element(browser_session: BrowserSession, menu_id: str) 
 		if ready_state.get('result', {}).get('value') == 'complete':
 			document_ready = True
 			break
-		await asyncio.sleep(0.1)
+		await asyncio.sleep(RETRY_INTERVAL_SECONDS)
 
 	# Fail deterministically if the document never reaches the complete state
 	assert document_ready, 'Timed out waiting for document.readyState == "complete"'
 
 	# Retry until the ARIA menu element is available in the selector map
 	menu_index = None
-	max_menu_attempts = 20
-	for _ in range(max_menu_attempts):
+	for _ in range(MAX_MENU_DETECTION_ATTEMPTS):
 		# Initialize or refresh the DOM state to populate the selector map without taking screenshots
 		await browser_session.get_browser_state_summary(include_screenshot=False)
 		# Attempt to find the ARIA menu element by ID
@@ -193,9 +196,11 @@ async def _wait_for_menu_element(browser_session: BrowserSession, menu_id: str) 
 		if menu_index is not None:
 			break
 		# Allow some time for the element/selector map to become available
-		await asyncio.sleep(0.1)
+		await asyncio.sleep(RETRY_INTERVAL_SECONDS)
 
-	assert menu_index is not None, f'Could not find ARIA menu element with id="{menu_id}" after {max_menu_attempts} attempts'
+	assert menu_index is not None, (
+		f'Could not find ARIA menu element with id="{menu_id}" after {MAX_MENU_DETECTION_ATTEMPTS} attempts'
+	)
 	return menu_index
 
 
@@ -208,7 +213,7 @@ class TestARIAMenuDropdown:
 		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
 		# Wait for menu element to be available in selector map
-		menu_index = await _wait_for_menu_element(browser_session, ARIA_MENU_ID)
+		menu_index = await _wait_for_menu_element(browser_session, TEST_MENU_ID)
 
 		# Execute the action with the menu index
 		result = await tools.dropdown_options(index=menu_index, browser_session=browser_session)
@@ -233,7 +238,7 @@ class TestARIAMenuDropdown:
 		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
 		# Wait for menu element to be available in selector map
-		menu_index = await _wait_for_menu_element(browser_session, ARIA_MENU_ID)
+		menu_index = await _wait_for_menu_element(browser_session, TEST_MENU_ID)
 
 		# Execute the action with the menu index to select "Filter"
 		result = await tools.select_dropdown(index=menu_index, text='Filter', browser_session=browser_session)
@@ -261,14 +266,14 @@ class TestARIAMenuDropdown:
 		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
 		# Wait for menu element to be available in selector map
-		await _wait_for_menu_element(browser_session, ARIA_MENU_ID)
+		await _wait_for_menu_element(browser_session, TEST_MENU_ID)
 
 		# Get the selector map
 		selector_map = await browser_session.get_selector_map()
 
 		# Find the nested ARIA menu element in the selector map
 		nested_menu_index = None
-		nested_menu_id = f'$P{ARIA_MENU_ID}$ppyElements$l2'
+		nested_menu_id = f'$P{TEST_MENU_ID}$ppyElements$l2'
 		for idx, element in selector_map.items():
 			# Look for the nested UL with the specific nested menu ID
 			if (

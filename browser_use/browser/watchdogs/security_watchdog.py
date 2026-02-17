@@ -232,6 +232,22 @@ class SecurityWatchdog(BaseWatchdog):
 
 		return True
 
+	def _parse_url_pattern(self, pattern: str) -> tuple[str | None, str]:
+		"""Parse a URL pattern into scheme and domain parts.
+
+		Args:
+			pattern: URL pattern like "https://*.example.com" or "*.example.com"
+
+		Returns:
+			Tuple of (pattern_scheme, domain_pattern) where pattern_scheme may be None
+		"""
+		if '://' in pattern:
+			# Pattern has scheme, extract it
+			parts = pattern.split('://', 1)
+			return parts[0], parts[1]
+		else:
+			return None, pattern
+
 	def _is_url_match(self, url: str, host: str, scheme: str, pattern: str) -> bool:
 		"""Check if a URL matches a pattern."""
 
@@ -244,15 +260,7 @@ class SecurityWatchdog(BaseWatchdog):
 			import fnmatch
 
 			# Extract domain part from patterns like "https://*.example.com" or "*.example.com"
-			domain_pattern = None
-			pattern_scheme = None
-			if '://' in pattern:
-				# Pattern has scheme, extract it
-				parts = pattern.split('://', 1)
-				pattern_scheme = parts[0]
-				domain_pattern = parts[1]
-			else:
-				domain_pattern = pattern
+			pattern_scheme, domain_pattern = self._parse_url_pattern(pattern)
 
 			# Check if pattern matches the host (handles both "*.example.com" and "https://*.example.com")
 			if domain_pattern and domain_pattern.startswith('*.'):
