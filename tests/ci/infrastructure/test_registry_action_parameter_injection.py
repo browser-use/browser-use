@@ -74,7 +74,6 @@ class TestBrowserContext:
 		# Ensure event bus is properly stopped
 		await browser_session.event_bus.stop(clear=True, timeout=5)
 
-	@pytest.mark.skip(reason='TODO: fix')
 	def test_is_url_allowed(self):
 		"""
 		Test the _is_url_allowed method to verify that it correctly checks URLs against

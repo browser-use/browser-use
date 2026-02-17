@@ -243,14 +243,30 @@ class SecurityWatchdog(BaseWatchdog):
 			self._log_glob_warning()
 			import fnmatch
 
-			# Check if pattern matches the host
-			if pattern.startswith('*.'):
+			# Extract domain part from patterns like "https://*.example.com" or "*.example.com"
+			domain_pattern = None
+			pattern_scheme = None
+			if '://' in pattern:
+				# Pattern has scheme, extract it
+				parts = pattern.split('://', 1)
+				pattern_scheme = parts[0]
+				domain_pattern = parts[1]
+			else:
+				domain_pattern = pattern
+
+			# Check if pattern matches the host (handles both "*.example.com" and "https://*.example.com")
+			if domain_pattern and domain_pattern.startswith('*.'):
 				# Pattern like *.example.com should match subdomains and main domain
-				domain_part = pattern[2:]  # Remove *.
+				domain_part = domain_pattern[2:]  # Remove *.
 				if host == domain_part or host.endswith('.' + domain_part):
-					# Only match http/https URLs for domain-only patterns
-					if scheme in ['http', 'https']:
-						return True
+					# Check scheme match if pattern specified one
+					if pattern_scheme:
+						if scheme == pattern_scheme:
+							return True
+					else:
+						# Only match http/https URLs for domain-only patterns
+						if scheme in ['http', 'https']:
+							return True
 			elif pattern.endswith('/*'):
 				# Pattern like brave://* or http*://example.com/*
 				if fnmatch.fnmatch(url, pattern):
