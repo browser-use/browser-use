@@ -73,6 +73,26 @@ def _safe_exec(code: str, parent_namespace: dict[str, Any]) -> None:
 		ast.Invert,
 	)
 	_DANGEROUS_NAMES = frozenset({'__import__', 'open', 'exec', 'eval', 'compile', 'globals', 'locals', 'vars'})
+	# Block introspection attributes that enable sandbox escape (e.g. __class__.__subclasses__)
+	_DANGEROUS_ATTRS = frozenset(
+		{
+			'__class__',
+			'__bases__',
+			'__base__',
+			'__mro__',
+			'__subclasses__',
+			'__globals__',
+			'__builtins__',
+			'__code__',
+			'__closure__',
+			'__self__',
+			'func_globals',
+			'f_globals',
+			'f_locals',
+			'__doc__',
+			'__dict__',
+		}
+	)
 
 	def _get_call_name(n: ast.AST) -> str | None:
 		if isinstance(n, ast.Name):
@@ -88,16 +108,28 @@ def _safe_exec(code: str, parent_namespace: dict[str, Any]) -> None:
 			name = _get_call_name(node.func)
 			if name in _DANGEROUS_NAMES:
 				raise ValueError(f'Disallowed function: {name}')
+		if isinstance(node, ast.Attribute):
+			if node.attr in _DANGEROUS_ATTRS:
+				raise ValueError(f'Disallowed attribute: {node.attr}')
 
-	# Isolated namespace — no os, Path, json, etc. from parent
+	# Build safe namespace: browser (if present) + user vars from previous runs
+	_DANGEROUS_PARENT_KEYS = frozenset({'__name__', '__doc__', 'json', 're', 'os', 'Path', 'asyncio'})
+	_SAFE_VALUE_TYPES = (type(None), bool, int, float, str, bytes, tuple, list, dict, set, range)
+
 	safe_locals: dict[str, object] = {}
+	for k, v in parent_namespace.items():
+		if k == 'browser':
+			safe_locals[k] = v
+		elif k not in _DANGEROUS_PARENT_KEYS and not k.startswith('_'):
+			if isinstance(v, _SAFE_VALUE_TYPES):
+				safe_locals[k] = v
 	# Fresh builtins per execution to avoid cross-call mutation
 	safe_globals = {'__builtins__': dict(SAFE_BUILTINS)}
 	exec(compile(tree, '<safe>', 'exec'), safe_globals, safe_locals)
 
-	# Copy back non-underscore variables only
+	# Persist user vars for next run; only copy safe types to avoid leaking objects
 	for k, v in safe_locals.items():
-		if not k.startswith('_'):
+		if k != 'browser' and not k.startswith('_') and isinstance(v, _SAFE_VALUE_TYPES):
 			parent_namespace[k] = v
 
 

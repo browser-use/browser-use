@@ -49,6 +49,19 @@ class TestSafeCodeExecution:
 		with pytest.raises((NameError, ValueError)):
 			_safe_exec('os.system("echo pwned")', ns)
 
+	def test_safe_exec_blocks_attribute_introspection_bypass(self):
+		"""Block __class__, __subclasses__, etc. that enable sandbox escape."""
+		with pytest.raises(ValueError, match='Disallowed attribute'):
+			_safe_exec('().__class__.__base__.__subclasses__()', {})
+
+	def test_safe_exec_preserves_browser_and_session(self):
+		"""browser and user vars from parent namespace are visible in safe exec."""
+		fake_browser = object()
+		ns: dict = {'browser': fake_browser, 'prior_x': 42}
+		_safe_exec('browser; x = prior_x + 1', ns)
+		assert ns['x'] == 43
+		assert ns['browser'] is fake_browser
+
 
 def test_safe_code_execution_flag_default_off():
 	"""SAFE_CODE_EXECUTION defaults to False when env not set."""
