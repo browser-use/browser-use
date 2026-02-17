@@ -157,6 +157,7 @@ class TestARIAMenuDropdown:
 
 		# Small delay to ensure DOM is fully ready
 		import asyncio
+
 		await asyncio.sleep(0.5)
 
 		# Make the menu element focusable so it gets included in the selector map
@@ -173,7 +174,7 @@ class TestARIAMenuDropdown:
 					return menu !== null;
 				})()
 				""",
-				'returnByValue': True
+				'returnByValue': True,
 			},
 			session_id=cdp_session.session_id,
 		)
@@ -210,6 +211,7 @@ class TestARIAMenuDropdown:
 
 		# Make the menu element focusable so it gets included in the selector map
 		import asyncio
+
 		await asyncio.sleep(0.5)
 		cdp_session = await browser_session.get_or_create_cdp_session()
 		await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -224,7 +226,7 @@ class TestARIAMenuDropdown:
 					return menu !== null;
 				})()
 				""",
-				'returnByValue': True
+				'returnByValue': True,
 			},
 			session_id=cdp_session.session_id,
 		)
@@ -264,6 +266,7 @@ class TestARIAMenuDropdown:
 
 		# Make the menu element focusable so it gets included in the selector map
 		import asyncio
+
 		await asyncio.sleep(0.5)
 		cdp_session = await browser_session.get_or_create_cdp_session()
 		await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -278,7 +281,7 @@ class TestARIAMenuDropdown:
 					return menu !== null;
 				})()
 				""",
-				'returnByValue': True
+				'returnByValue': True,
 			},
 			session_id=cdp_session.session_id,
 		)
