@@ -7,11 +7,20 @@ Sets up environment variables to ensure tests never connect to production servic
 import os
 import socketserver
 import tempfile
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from dotenv import load_dotenv
-from pytest_httpserver import HTTPServer
+
+try:
+	from pytest_httpserver import HTTPServer  # type: ignore
+
+	HAS_HTTPSERVER = True
+except ImportError:
+	HTTPServer = Any  # type: ignore
+	HAS_HTTPSERVER = False
+
 
 # Fix for httpserver hanging on shutdown - prevent blocking on socket close
 # This prevents tests from hanging when shutting down HTTP servers
@@ -172,27 +181,34 @@ async def browser_session():
 	await session.event_bus.stop(clear=True, timeout=5)
 
 
-@pytest.fixture(scope='function')
-def cloud_sync(httpserver: HTTPServer):
-	"""
-	Create a CloudSync instance configured for testing.
+if HAS_HTTPSERVER:
 
-	This fixture creates a real CloudSync instance and sets up the test environment
-	to use the httpserver URLs.
-	"""
+	@pytest.fixture(scope='function')
+	def cloud_sync(httpserver: HTTPServer):  # type: ignore[valid-type]
+		"""
+		Create a CloudSync instance configured for testing.
 
-	# Set up test environment
-	test_http_server_url = httpserver.url_for('')
-	os.environ['BROWSER_USE_CLOUD_API_URL'] = test_http_server_url
-	os.environ['BROWSER_USE_CLOUD_UI_URL'] = test_http_server_url
-	os.environ['BROWSER_USE_CLOUD_SYNC'] = 'true'
+		This fixture creates a real CloudSync instance and sets up the test environment
+		to use the httpserver URLs.
+		"""
 
-	# Create CloudSync with test server URL
-	cloud_sync = CloudSync(
-		base_url=test_http_server_url,
-	)
+		# Set up test environment
+		test_http_server_url = httpserver.url_for('')
+		os.environ['BROWSER_USE_CLOUD_API_URL'] = test_http_server_url
+		os.environ['BROWSER_USE_CLOUD_UI_URL'] = test_http_server_url
+		os.environ['BROWSER_USE_CLOUD_SYNC'] = 'true'
 
-	return cloud_sync
+		# Create CloudSync with test server URL
+		cloud_sync = CloudSync(
+			base_url=test_http_server_url,
+		)
+
+		return cloud_sync
+else:
+
+	@pytest.fixture(scope='function')
+	def cloud_sync():
+		pytest.skip('pytest-httpserver not installed')
 
 
 @pytest.fixture(scope='function')
