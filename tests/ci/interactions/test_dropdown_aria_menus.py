@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from pytest_httpserver import HTTPServer
 
@@ -5,6 +7,9 @@ from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
+
+# ARIA menu element ID used in test HTML fixture
+ARIA_MENU_ID = 'pyNavigation1752753375773'
 
 
 @pytest.fixture(scope='session')
@@ -54,7 +59,8 @@ def http_server():
 			<p>This menu uses ARIA roles instead of native select elements</p>
 			
 			<!-- Exactly like the HTML provided in the issue -->
-			<ul class="menu menu-format-standard menu-regular" role="menu" id="pyNavigation1752753375773" style="display: block;">
+			<!-- Add tabindex to make menu focusable and detectable by selector map -->
+			<ul class="menu menu-format-standard menu-regular" role="menu" id="pyNavigation1752753375773" tabindex="0" style="display: block;">
 				<li class="menu-item menu-item-enabled" role="presentation">
 					<a href="#" onclick="pd(event);" class="menu-item-anchor" tabindex="0" role="menuitem">
 						<span class="menu-item-title-wrap"><span class="menu-item-title">Filter</span></span>
@@ -144,6 +150,43 @@ def tools():
 	return Tools()
 
 
+async def _wait_for_menu_element(browser_session: BrowserSession, menu_id: str) -> int:
+	"""Wait for ARIA menu element to be available in selector map and return its index.
+
+	Args:
+		browser_session: The browser session to use
+		menu_id: The ID of the menu element to find
+
+	Returns:
+		The index of the menu element in the selector map
+
+	Raises:
+		AssertionError: If menu element is not found
+	"""
+	# Wait for document to be ready using CDP
+	cdp_session = await browser_session.get_or_create_cdp_session()
+
+	# Wait for document ready state instead of hardcoded sleep
+	max_attempts = 10
+	for attempt in range(max_attempts):
+		ready_state = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'document.readyState', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		if ready_state.get('result', {}).get('value') == 'complete':
+			break
+		await asyncio.sleep(0.1)
+
+	# Initialize the DOM state to populate the selector map
+	await browser_session.get_browser_state_summary()
+
+	# Find the ARIA menu element by ID
+	menu_index = await browser_session.get_index_by_id(menu_id)
+
+	assert menu_index is not None, f'Could not find ARIA menu element with id="{menu_id}"'
+	return menu_index
+
+
 class TestARIAMenuDropdown:
 	"""Test ARIA menu support for get_dropdown_options and select_dropdown_option."""
 
@@ -152,40 +195,8 @@ class TestARIAMenuDropdown:
 		# Navigate to the ARIA menu test page
 		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
-		# Initialize the DOM state to populate the selector map
-		await browser_session.get_browser_state_summary()
-
-		# Small delay to ensure DOM is fully ready
-		import asyncio
-
-		await asyncio.sleep(0.5)
-
-		# Make the menu element focusable so it gets included in the selector map
-		cdp_session = await browser_session.get_or_create_cdp_session()
-		await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={
-				'expression': """
-				(function() {
-					const menu = document.getElementById('pyNavigation1752753375773');
-					if (menu) {
-						menu.setAttribute('tabindex', '0');
-						menu.style.outline = 'none';
-					}
-					return menu !== null;
-				})()
-				""",
-				'returnByValue': True,
-			},
-			session_id=cdp_session.session_id,
-		)
-
-		# Refresh the selector map to include the now-focusable menu
-		await browser_session.get_browser_state_summary()
-
-		# Find the ARIA menu element by ID
-		menu_index = await browser_session.get_index_by_id('pyNavigation1752753375773')
-
-		assert menu_index is not None, 'Could not find ARIA menu element'
+		# Wait for menu element to be available in selector map
+		menu_index = await _wait_for_menu_element(browser_session, ARIA_MENU_ID)
 
 		# Execute the action with the menu index
 		result = await tools.dropdown_options(index=menu_index, browser_session=browser_session)
@@ -209,35 +220,8 @@ class TestARIAMenuDropdown:
 		# Navigate to the ARIA menu test page
 		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
-		# Make the menu element focusable so it gets included in the selector map
-		import asyncio
-
-		await asyncio.sleep(0.5)
-		cdp_session = await browser_session.get_or_create_cdp_session()
-		await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={
-				'expression': """
-				(function() {
-					const menu = document.getElementById('pyNavigation1752753375773');
-					if (menu) {
-						menu.setAttribute('tabindex', '0');
-						menu.style.outline = 'none';
-					}
-					return menu !== null;
-				})()
-				""",
-				'returnByValue': True,
-			},
-			session_id=cdp_session.session_id,
-		)
-
-		# Refresh the selector map to include the now-focusable menu
-		await browser_session.get_browser_state_summary()
-
-		# Find the ARIA menu element by ID
-		menu_index = await browser_session.get_index_by_id('pyNavigation1752753375773')
-
-		assert menu_index is not None, 'Could not find ARIA menu element'
+		# Wait for menu element to be available in selector map
+		menu_index = await _wait_for_menu_element(browser_session, ARIA_MENU_ID)
 
 		# Execute the action with the menu index to select "Filter"
 		result = await tools.select_dropdown(index=menu_index, text='Filter', browser_session=browser_session)
@@ -264,30 +248,8 @@ class TestARIAMenuDropdown:
 		# Navigate to the ARIA menu test page
 		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
-		# Make the menu element focusable so it gets included in the selector map
-		import asyncio
-
-		await asyncio.sleep(0.5)
-		cdp_session = await browser_session.get_or_create_cdp_session()
-		await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={
-				'expression': """
-				(function() {
-					const menu = document.getElementById('pyNavigation1752753375773');
-					if (menu) {
-						menu.setAttribute('tabindex', '0');
-						menu.style.outline = 'none';
-					}
-					return menu !== null;
-				})()
-				""",
-				'returnByValue': True,
-			},
-			session_id=cdp_session.session_id,
-		)
-
-		# Refresh the selector map to include the now-focusable menu
-		await browser_session.get_browser_state_summary()
+		# Wait for menu element to be available in selector map
+		await _wait_for_menu_element(browser_session, ARIA_MENU_ID)
 
 		# Get the selector map
 		selector_map = await browser_session.get_selector_map()
@@ -309,7 +271,7 @@ class TestARIAMenuDropdown:
 		if nested_menu_index is None:
 			# Find the main menu instead
 			for idx, element in selector_map.items():
-				if element.tag_name.lower() == 'ul' and element.attributes.get('id') == 'pyNavigation1752753375773':
+				if element.tag_name.lower() == 'ul' and element.attributes.get('id') == ARIA_MENU_ID:
 					nested_menu_index = idx
 					break
 
