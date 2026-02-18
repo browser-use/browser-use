@@ -503,6 +503,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				is_anthropic=is_anthropic,
 				is_browser_use_model=is_browser_use_model,
 				model_name=self.llm.model,
+				enable_planning=self.settings.enable_planning,
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
