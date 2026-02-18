@@ -3,22 +3,27 @@
 import hashlib
 import os
 import platform
+import signal
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import IO
+
+import portalocker
 
 
 def get_socket_path(session: str) -> str:
 	"""Get socket path for session.
 
-	On Windows, returns a TCP address (tcp://localhost:PORT).
+	On Windows, returns a TCP address (tcp://127.0.0.1:PORT).
 	On Unix, returns a Unix socket path.
 	"""
 	if sys.platform == 'win32':
 		# Windows: use TCP on deterministic port (49152-65535)
+		# Use 127.0.0.1 explicitly (not localhost) to avoid IPv6 binding issues
 		port = 49152 + (int(hashlib.md5(session.encode()).hexdigest()[:4], 16) % 16383)
-		return f'tcp://localhost:{port}'
+		return f'tcp://127.0.0.1:{port}'
 	return str(Path(tempfile.gettempdir()) / f'browser-use-{session}.sock')
 
 
@@ -32,6 +37,34 @@ def get_log_path(session: str) -> Path:
 	return Path(tempfile.gettempdir()) / f'browser-use-{session}.log'
 
 
+def get_lock_path(session: str) -> Path:
+	"""Get lock file path for session."""
+	return Path(tempfile.gettempdir()) / f'browser-use-{session}.lock'
+
+
+def _pid_exists(pid: int) -> bool:
+	"""Check if a process with given PID exists.
+
+	On Windows, uses ctypes to call OpenProcess (os.kill doesn't work reliably).
+	On Unix, uses os.kill(pid, 0) which is the standard approach.
+	"""
+	if sys.platform == 'win32':
+		import ctypes
+
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		if handle:
+			ctypes.windll.kernel32.CloseHandle(handle)
+			return True
+		return False
+	else:
+		try:
+			os.kill(pid, 0)
+			return True
+		except OSError:
+			return False
+
+
 def is_server_running(session: str) -> bool:
 	"""Check if server is running for session."""
 	pid_path = get_pid_path(session)
@@ -39,12 +72,89 @@ def is_server_running(session: str) -> bool:
 		return False
 	try:
 		pid = int(pid_path.read_text().strip())
-		# Check if process exists
-		os.kill(pid, 0)
-		return True
+		return _pid_exists(pid)
 	except (OSError, ValueError):
-		# Process doesn't exist or invalid PID
+		# Can't read PID file or invalid PID
 		return False
+
+
+def try_acquire_server_lock(session: str) -> IO | None:
+	"""Try to acquire the server lock non-blocking.
+
+	Returns:
+		Lock file handle if acquired (caller must keep in scope to maintain lock),
+		None if lock is already held by another process.
+	"""
+	lock_path = get_lock_path(session)
+	lock_path.parent.mkdir(parents=True, exist_ok=True)
+	lock_path.touch(exist_ok=True)
+
+	lock_file = open(lock_path, 'r+')
+	try:
+		portalocker.lock(lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
+		return lock_file
+	except portalocker.LockException:
+		lock_file.close()
+		return None
+
+
+def is_session_locked(session: str) -> bool:
+	"""Check if session has an active lock (server is holding it)."""
+	lock_path = get_lock_path(session)
+	if not lock_path.exists():
+		return False
+
+	try:
+		with open(lock_path, 'r+') as f:
+			portalocker.lock(f, portalocker.LOCK_EX | portalocker.LOCK_NB)
+			portalocker.unlock(f)
+			return False  # Lock acquired = no one holding it
+	except portalocker.LockException:
+		return True  # Lock failed = someone holding it
+	except OSError:
+		return False  # File access error
+
+
+def kill_orphaned_server(session: str) -> bool:
+	"""Kill an orphaned server (has PID file but no lock).
+
+	An orphaned server is one where the process is running but it doesn't
+	hold the session lock (e.g., because a newer server took over the lock
+	file but didn't kill the old process).
+
+	Returns:
+		True if an orphan was found and killed.
+	"""
+	pid_path = get_pid_path(session)
+	if not pid_path.exists():
+		return False
+
+	# Check if session is locked (server alive and holding lock)
+	if is_session_locked(session):
+		return False  # Not an orphan - server is healthy
+
+	# PID exists but no lock - orphan situation
+	try:
+		pid = int(pid_path.read_text().strip())
+		if _pid_exists(pid):
+			# Kill the orphaned process
+			if sys.platform == 'win32':
+				import ctypes
+
+				PROCESS_TERMINATE = 1
+				handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+				if handle:
+					ctypes.windll.kernel32.TerminateProcess(handle, 1)
+					ctypes.windll.kernel32.CloseHandle(handle)
+			else:
+				os.kill(pid, signal.SIGKILL)
+			return True
+	except (OSError, ValueError):
+		pass
+
+	# Clean up stale files even if we couldn't kill (process may be gone)
+	cleanup_session_files(session)
+	return False
 
 
 def find_all_sessions() -> list[str]:
@@ -60,9 +170,11 @@ def find_all_sessions() -> list[str]:
 
 
 def cleanup_session_files(session: str) -> None:
-	"""Remove session socket and PID files."""
+	"""Remove session socket, PID, lock, and metadata files."""
 	sock_path = get_socket_path(session)
 	pid_path = get_pid_path(session)
+	lock_path = get_lock_path(session)
+	meta_path = Path(tempfile.gettempdir()) / f'browser-use-{session}.meta'
 
 	# Remove socket file (Unix only)
 	if not sock_path.startswith('tcp://'):
@@ -74,6 +186,18 @@ def cleanup_session_files(session: str) -> None:
 	# Remove PID file
 	try:
 		pid_path.unlink()
+	except OSError:
+		pass
+
+	# Remove lock file
+	try:
+		lock_path.unlink()
+	except OSError:
+		pass
+
+	# Remove metadata file
+	try:
+		meta_path.unlink()
 	except OSError:
 		pass
 

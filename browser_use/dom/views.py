@@ -47,6 +47,8 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'multiple',  # Whether multiple files/selections are allowed
 	'inputmode',  # Virtual keyboard hint (numeric, tel, email, url, etc.)
 	'autocomplete',  # Autocomplete behavior hint
+	'aria-autocomplete',  # ARIA autocomplete type (list, inline, both)
+	'list',  # Associated datalist element ID
 	'data-mask',  # Input mask format (e.g., phone numbers, credit cards)
 	'data-inputmask',  # Alternative input mask attribute
 	'data-datepicker',  # jQuery datepicker indicator
@@ -114,8 +116,10 @@ STATIC_ATTRIBUTES = {
 	'aria-disabled',
 	'aria-hidden',
 	'aria-pressed',
+	'aria-autocomplete',
 	'aria-checked',
 	'aria-selected',
+	'list',
 	'tabindex',
 	'alt',
 	'src',
@@ -443,6 +447,18 @@ class EnhancedDOMTreeNode:
 	"""
 	Whether this element has JS click/mouse event listeners attached (detected via CDP getEventListeners)
 	Used to identify clicks that don't use native interactive HTML tags
+	"""
+
+	hidden_elements_info: list[dict[str, Any]] = field(default_factory=list)
+	"""
+	Details of interactive elements hidden due to viewport threshold (for iframes).
+	Each dict contains: tag, text, pages (scroll distance in viewport pages).
+	Used to show specific element info in the LLM representation.
+	"""
+
+	has_hidden_content: bool = False
+	"""
+	Whether this iframe has hidden non-interactive content below the viewport threshold.
 	"""
 
 	uuid: str = field(default_factory=uuid7str)
@@ -895,6 +911,19 @@ class EnhancedDOMTreeNode:
 
 
 DOMSelectorMap = dict[int, EnhancedDOMTreeNode]
+
+
+@dataclass(slots=True)
+class MarkdownChunk:
+	"""A structure-aware chunk of markdown content."""
+
+	content: str
+	chunk_index: int
+	total_chunks: int
+	char_offset_start: int  # in original content
+	char_offset_end: int  # in original content
+	overlap_prefix: str  # context from prev chunk (e.g. table headers)
+	has_more: bool
 
 
 @dataclass

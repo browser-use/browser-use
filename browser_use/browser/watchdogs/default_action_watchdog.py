@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
@@ -39,6 +40,186 @@ UploadFileEvent.model_rebuild()
 
 class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
+
+	async def _execute_click_with_download_detection(
+		self,
+		click_coro,
+		download_start_timeout: float = 0.5,
+		download_complete_timeout: float = 30.0,
+	) -> dict | None:
+		"""Execute a click operation and automatically wait for any triggered download
+
+		Args:
+			click_coro: Coroutine that performs the click (should return click_metadata dict or None)
+			download_start_timeout: Time to wait for download to start after click (seconds)
+			download_complete_timeout: Time to wait for download to complete once started (seconds)
+
+		Returns:
+			Click metadata dict, potentially with 'download' key containing download info.
+			If a download times out but is still in progress, includes 'download_in_progress' with status.
+		"""
+		import time
+
+		download_started = asyncio.Event()
+		download_completed = asyncio.Event()
+		download_info: dict = {}
+		progress_info: dict = {'last_update': 0.0, 'received_bytes': 0, 'total_bytes': 0, 'state': ''}
+
+		def on_download_start(info: dict) -> None:
+			"""Direct callback when download starts (called from CDP handler)."""
+			if info.get('auto_download'):
+				return  # ignore auto-downloads
+			download_info['guid'] = info.get('guid', '')
+			download_info['url'] = info.get('url', '')
+			download_info['suggested_filename'] = info.get('suggested_filename', 'download')
+			download_started.set()
+			self.logger.debug(f'[ClickWithDownload] Download started: {download_info["suggested_filename"]}')
+
+		def on_download_progress(info: dict) -> None:
+			"""Direct callback when download progress updates (called from CDP handler)."""
+			# Match by guid if available
+			if download_info.get('guid') and info.get('guid') != download_info['guid']:
+				return  # different download
+			progress_info['last_update'] = time.time()
+			progress_info['received_bytes'] = info.get('received_bytes', 0)
+			progress_info['total_bytes'] = info.get('total_bytes', 0)
+			progress_info['state'] = info.get('state', '')
+			self.logger.debug(
+				f'[ClickWithDownload] Progress: {progress_info["received_bytes"]}/{progress_info["total_bytes"]} bytes ({progress_info["state"]})'
+			)
+
+		def on_download_complete(info: dict) -> None:
+			"""Direct callback when download completes (called from CDP handler)."""
+			if info.get('auto_download'):
+				return  # ignore auto-downloads
+			# Match by guid if available, otherwise accept any non-auto download
+			if download_info.get('guid') and info.get('guid') and info.get('guid') != download_info['guid']:
+				return  # different download
+			download_info['path'] = info.get('path', '')
+			download_info['file_name'] = info.get('file_name', '')
+			download_info['file_size'] = info.get('file_size', 0)
+			download_info['file_type'] = info.get('file_type')
+			download_info['mime_type'] = info.get('mime_type')
+			download_completed.set()
+			self.logger.debug(f'[ClickWithDownload] Download completed: {download_info["file_name"]}')
+
+		# Get the downloads watchdog and register direct callbacks
+		downloads_watchdog = self.browser_session._downloads_watchdog
+		self.logger.debug(f'[ClickWithDownload] downloads_watchdog={downloads_watchdog is not None}')
+		if downloads_watchdog:
+			self.logger.debug('[ClickWithDownload] Registering download callbacks...')
+			downloads_watchdog.register_download_callbacks(
+				on_start=on_download_start,
+				on_progress=on_download_progress,
+				on_complete=on_download_complete,
+			)
+		else:
+			self.logger.warning('[ClickWithDownload] No downloads_watchdog available!')
+
+		try:
+			# Perform the click
+			click_metadata = await click_coro
+
+			# Check for validation errors - return them immediately without waiting for downloads
+			if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
+				return click_metadata
+
+			# Wait briefly to see if a download starts
+			try:
+				await asyncio.wait_for(download_started.wait(), timeout=download_start_timeout)
+
+				# Download started!
+				self.logger.info(f'📥 Download started: {download_info.get("suggested_filename", "unknown")}')
+
+				# Now wait for it to complete with longer timeout
+				try:
+					await asyncio.wait_for(download_completed.wait(), timeout=download_complete_timeout)
+
+					# Download completed successfully
+					msg = f'Downloaded file: {download_info["file_name"]} ({download_info["file_size"]} bytes) saved to {download_info["path"]}'
+					self.logger.info(f'💾 {msg}')
+
+					# Merge download info into click_metadata
+					if click_metadata is None:
+						click_metadata = {}
+					click_metadata['download'] = {
+						'path': download_info['path'],
+						'file_name': download_info['file_name'],
+						'file_size': download_info['file_size'],
+						'file_type': download_info.get('file_type'),
+						'mime_type': download_info.get('mime_type'),
+					}
+				except TimeoutError:
+					# Download timed out - check if it's still in progress
+					if click_metadata is None:
+						click_metadata = {}
+
+					filename = download_info.get('suggested_filename', 'unknown')
+					received = progress_info.get('received_bytes', 0)
+					total = progress_info.get('total_bytes', 0)
+					state = progress_info.get('state', 'unknown')
+					last_update = progress_info.get('last_update', 0.0)
+					time_since_update = time.time() - last_update if last_update > 0 else float('inf')
+
+					# Check if download is still actively progressing (received update in last 5 seconds)
+					is_still_active = time_since_update < 5.0 and state == 'inProgress'
+
+					if is_still_active:
+						# Download is still progressing - suggest waiting
+						if total > 0:
+							percent = (received / total) * 100
+							progress_str = f'{percent:.1f}% ({received:,}/{total:,} bytes)'
+						else:
+							progress_str = f'{received:,} bytes downloaded (total size unknown)'
+
+						msg = (
+							f'Download timed out after {download_complete_timeout}s but is still in progress: '
+							f'{filename} - {progress_str}. '
+							f'The download appears to be progressing normally. Consider using the wait action '
+							f'to allow more time for the download to complete.'
+						)
+						self.logger.warning(f'⏱️ {msg}')
+						click_metadata['download_in_progress'] = {
+							'file_name': filename,
+							'received_bytes': received,
+							'total_bytes': total,
+							'state': state,
+							'message': msg,
+						}
+					else:
+						# Download may be stalled or completed
+						if received > 0:
+							msg = (
+								f'Download timed out after {download_complete_timeout}s: {filename}. '
+								f'Last progress: {received:,} bytes received. '
+								f'The download may have stalled or completed - check the downloads folder.'
+							)
+						else:
+							msg = (
+								f'Download timed out after {download_complete_timeout}s: {filename}. '
+								f'No progress data received - the download may have failed to start properly.'
+							)
+						self.logger.warning(f'⏱️ {msg}')
+						click_metadata['download_timeout'] = {
+							'file_name': filename,
+							'received_bytes': received,
+							'total_bytes': total,
+							'message': msg,
+						}
+			except TimeoutError:
+				# No download started within grace period
+				pass
+
+			return click_metadata if isinstance(click_metadata, dict) else None
+
+		finally:
+			# Unregister download callbacks
+			if downloads_watchdog:
+				downloads_watchdog.unregister_download_callbacks(
+					on_start=on_download_start,
+					on_progress=on_download_progress,
+					on_complete=on_download_complete,
+				)
 
 	def _is_print_related_element(self, element_node: EnhancedDOMTreeNode) -> bool:
 		"""Check if an element is related to printing (print buttons, print dialogs, etc.).
@@ -154,7 +335,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='click_element_event')
 	async def on_ClickElementEvent(self, event: ClickElementEvent) -> dict | None:
-		"""Handle click request with CDP."""
+		"""Handle click request with CDP. Automatically waits for file downloads if triggered."""
 		try:
 			# Check if session is alive before attempting any operations
 			if not self.browser_session.agent_focus_target_id:
@@ -165,13 +346,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Use the provided node
 			element_node = event.node
 			index_for_logging = element_node.backend_node_id or 'unknown'
-			starting_target_id = self.browser_session.agent_focus_target_id
 
 			# Check if element is a file input (should not be clicked)
 			if self.browser_session.is_file_input(element_node):
 				msg = f'Index {index_for_logging} - has an element which opens file upload dialog. To upload files please use a specific function to upload files'
 				self.logger.info(f'{msg}')
-				# Return validation error instead of raising to avoid ERROR logs
 				return {'validation_error': msg}
 
 			# Detect print-related elements and handle them specially
@@ -180,42 +359,35 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.info(
 					f'🖨️ Detected print button (index {index_for_logging}), generating PDF directly instead of opening dialog...'
 				)
-
-				# Instead of clicking, directly generate PDF via CDP
 				click_metadata = await self._handle_print_button_click(element_node)
-
 				if click_metadata and click_metadata.get('pdf_generated'):
 					msg = f'Generated PDF: {click_metadata.get("path")}'
 					self.logger.info(f'💾 {msg}')
 					return click_metadata
 				else:
-					# Fallback to regular click if PDF generation failed
 					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
 
-			# Perform the actual click using internal implementation
-			click_metadata = await self._click_element_node_impl(element_node)
-			download_path = None  # moved to downloads_watchdog.py
+			# Execute click with automatic download detection
+			click_metadata = await self._execute_click_with_download_detection(self._click_element_node_impl(element_node))
 
-			# Check for validation errors - return them without raising to avoid ERROR logs
+			# Check for validation errors
 			if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
 				self.logger.info(f'{click_metadata["validation_error"]}')
 				return click_metadata
 
-			# Build success message
-			if download_path:
-				msg = f'Downloaded file to {download_path}'
-				self.logger.info(f'💾 {msg}')
-			else:
+			# Build success message for non-download clicks
+			if 'download' not in (click_metadata or {}):
 				msg = f'Clicked button {element_node.node_name}: {element_node.get_all_children_text(max_depth=2)}'
 				self.logger.debug(f'🖱️ {msg}')
 			self.logger.debug(f'Element xpath: {element_node.xpath}')
 
-			return click_metadata if isinstance(click_metadata, dict) else None
-		except Exception as e:
+			return click_metadata
+
+		except Exception:
 			raise
 
 	async def on_ClickCoordinateEvent(self, event: ClickCoordinateEvent) -> dict | None:
-		"""Handle click at coordinates with CDP."""
+		"""Handle click at coordinates with CDP. Automatically waits for file downloads if triggered."""
 		try:
 			# Check if session is alive before attempting any operations
 			if not self.browser_session.agent_focus_target_id:
@@ -223,19 +395,23 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.error(f'{error_msg}')
 				raise BrowserError(error_msg)
 
-			# If force=True, skip safety checks and click directly
+			# If force=True, skip safety checks and click directly (with download detection)
 			if event.force:
 				self.logger.debug(f'Force clicking at coordinates ({event.coordinate_x}, {event.coordinate_y})')
-				return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True)
+				return await self._execute_click_with_download_detection(
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True)
+				)
 
 			# Get element at coordinates for safety checks
 			element_node = await self.browser_session.get_dom_element_at_coordinates(event.coordinate_x, event.coordinate_y)
 			if element_node is None:
-				# No element found, click directly
+				# No element found, click directly (with download detection)
 				self.logger.debug(
 					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
 				)
-				return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+				return await self._execute_click_with_download_detection(
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+				)
 
 			# Safety check: file input
 			if self.browser_session.is_file_input(element_node):
@@ -264,8 +440,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 				else:
 					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
 
-			# All safety checks passed, click at coordinates
-			return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+			# All safety checks passed, click at coordinates (with download detection)
+			return await self._execute_click_with_download_detection(
+				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+			)
 
 		except Exception:
 			raise
@@ -1549,22 +1727,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 			else:
 				self.logger.debug(f'🎯 Typing text character by character: "{text}"')
 
-			# Detect Draft.js editors, and prepend a "sacrifice" space so the first char isn't dropped
-
-			# Draft.js detection: Check for Draft.js-specific class names and data attributes
+			# Detect contenteditable elements (may have leaf-start bug where first char is dropped)
 			_attrs = element_node.attributes or {}
-			_class_name = _attrs.get('class', '')
-			_is_draftjs = (
-				'DraftEditor' in _class_name  # Draft.js editor class (e.g., public-DraftEditor-content)
-				or _attrs.get('data-contents') == 'true'  # Draft.js content container
-				or _attrs.get('data-block') == 'true'  # Draft.js block element
-				or 'data-offset-key' in _attrs  # Draft.js offset key for content tracking
+			_is_contenteditable = _attrs.get('contenteditable') in ('true', '') or (
+				_attrs.get('role') == 'textbox' and element_node.tag_name not in ('input', 'textarea')
 			)
 
-			if _is_draftjs and len(text) > 0 and clear:
-				# Prepend a space as sacrifice when clear=True (cursor at leaf start) - dropped by Draft.js
-				text = ' ' + text
-				self.logger.debug('🎯 Draft.js detected, prepending sacrifice space')
+			# For contenteditable: after typing first char, check if dropped and retype if needed
+			_check_first_char = _is_contenteditable and len(text) > 0 and clear
+			_first_char = text[0] if _check_first_char else None
 
 			for i, char in enumerate(text):
 				# Handle newline characters as Enter key
@@ -1648,6 +1819,44 @@ class DefaultActionWatchdog(BaseWatchdog):
 						session_id=cdp_session.session_id,
 					)
 
+				# After first char on contenteditable: check if dropped and retype if needed
+				if i == 0 and _check_first_char and _first_char:
+					check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': 'document.activeElement.textContent'},
+						session_id=cdp_session.session_id,
+					)
+					content = check_result.get('result', {}).get('value', '')
+					if _first_char not in content:
+						self.logger.debug(f'🎯 First char "{_first_char}" was dropped (leaf-start bug), retyping')
+						# Retype the first character - cursor now past leaf-start
+						modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(_first_char)
+						key_code = self._get_key_code_for_char(base_key)
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
+						await asyncio.sleep(0.005)
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={'type': 'char', 'text': _first_char, 'key': _first_char},
+							session_id=cdp_session.session_id,
+						)
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
+
 				# Small delay between characters to look human (realistic typing speed)
 				await asyncio.sleep(0.001)
 
@@ -1655,6 +1864,79 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Modern JavaScript frameworks (React, Vue, Angular) rely on these events
 			# to update their internal state and trigger re-renders
 			await self._trigger_framework_events(object_id=object_id, cdp_session=cdp_session)
+
+			# Step 5: Read back actual value for verification (skip for sensitive data)
+			if not is_sensitive:
+				try:
+					await asyncio.sleep(0.05)  # let autocomplete/formatter JS settle
+					readback_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'objectId': object_id,
+							'functionDeclaration': 'function() { return this.value !== undefined ? this.value : this.textContent; }',
+							'returnByValue': True,
+						},
+						session_id=cdp_session.session_id,
+					)
+					actual_value = readback_result.get('result', {}).get('value')
+					if actual_value is not None:
+						if input_coordinates is None:
+							input_coordinates = {}
+						input_coordinates['actual_value'] = actual_value
+				except Exception as e:
+					self.logger.debug(f'Value readback failed (non-critical): {e}')
+
+			# Step 6: Auto-retry on concatenation mismatch (only when clear was requested)
+			# If we asked to clear but the readback value contains the typed text as a substring
+			# yet is longer, the field had pre-existing text that wasn't cleared. Set directly.
+			if clear and not is_sensitive and input_coordinates and 'actual_value' in input_coordinates:
+				actual_value = input_coordinates['actual_value']
+				if (
+					isinstance(actual_value, str)
+					and actual_value != text
+					and len(actual_value) > len(text)
+					and (actual_value.endswith(text) or actual_value.startswith(text))
+				):
+					self.logger.info(f'🔄 Concatenation detected: got "{actual_value}", expected "{text}" — auto-retrying')
+					try:
+						# Clear + set value via native setter in one JS call (works with React/Vue)
+						retry_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'objectId': object_id,
+								'functionDeclaration': """
+									function(newValue) {
+										if (this.value !== undefined) {
+											var desc = Object.getOwnPropertyDescriptor(
+												HTMLInputElement.prototype, 'value'
+											) || Object.getOwnPropertyDescriptor(
+												HTMLTextAreaElement.prototype, 'value'
+											);
+											if (desc && desc.set) {
+												desc.set.call(this, newValue);
+											} else {
+												this.value = newValue;
+											}
+										} else if (this.isContentEditable) {
+											this.textContent = newValue;
+										}
+										this.dispatchEvent(new Event('input', { bubbles: true }));
+										this.dispatchEvent(new Event('change', { bubbles: true }));
+										return this.value !== undefined ? this.value : this.textContent;
+									}
+								""",
+								'arguments': [{'value': text}],
+								'returnByValue': True,
+							},
+							session_id=cdp_session.session_id,
+						)
+						retry_value = retry_result.get('result', {}).get('value')
+						if retry_value is not None:
+							input_coordinates['actual_value'] = retry_value
+							if retry_value == text:
+								self.logger.info('✅ Auto-retry fixed concatenation')
+							else:
+								self.logger.warning(f'⚠️ Auto-retry value still differs: "{retry_value}"')
+					except Exception as e:
+						self.logger.debug(f'Auto-retry failed (non-critical): {e}')
 
 			# Return coordinates metadata if available
 			return input_coordinates
@@ -2268,6 +2550,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Get CDP client and session
 			cdp_client = self.browser_session.cdp_client
 			session_id = await self._get_session_id_for_element(element_node)
+
+			# Validate file before upload
+			if os.path.exists(event.file_path):
+				file_size = os.path.getsize(event.file_path)
+				if file_size == 0:
+					msg = f'Upload failed - file {event.file_path} is empty (0 bytes).'
+					raise BrowserError(message=msg, long_term_memory=msg)
+				self.logger.debug(f'📎 File {event.file_path} validated ({file_size} bytes)')
 
 			# Set file(s) to upload
 			backend_node_id = element_node.backend_node_id
@@ -3109,6 +3399,46 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 
 				selection_result = result.get('result', {}).get('value', {})
+
+				# If selection failed and all options are empty, the dropdown may be lazily populated.
+				# Focus the element (triggers lazy loaders) and retry once after a wait.
+				if not selection_result.get('success'):
+					available_options = selection_result.get('availableOptions', [])
+					all_empty = available_options and all(
+						(not opt.get('text', '').strip() and not opt.get('value', '').strip())
+						if isinstance(opt, dict)
+						else not str(opt).strip()
+						for opt in available_options
+					)
+					if all_empty:
+						self.logger.info(
+							'⚠️ All dropdown options are empty — options may be lazily loaded. Focusing element and retrying...'
+						)
+
+						# Use element.focus() only — no synthetic mouse events that leak isTrusted=false
+						try:
+							await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+								params={
+									'functionDeclaration': 'function() { this.focus(); }',
+									'objectId': object_id,
+								},
+								session_id=cdp_session.session_id,
+							)
+						except Exception:
+							pass  # non-fatal, best-effort
+
+						await asyncio.sleep(1.0)
+
+						retry_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': selection_script,
+								'arguments': [{'value': target_text}],
+								'objectId': object_id,
+								'returnByValue': True,
+							},
+							session_id=cdp_session.session_id,
+						)
+						selection_result = retry_result.get('result', {}).get('value', {})
 
 				# Check if selection was reverted by framework - try clicking as fallback
 				if selection_result.get('selectionReverted'):

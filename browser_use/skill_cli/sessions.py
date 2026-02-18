@@ -18,7 +18,6 @@ class SessionInfo:
 	browser_mode: str
 	headed: bool
 	profile: str | None
-	cdp_url: str | None
 	browser_session: BrowserSession
 	python_session: PythonSession = field(default_factory=PythonSession)
 
@@ -39,15 +38,14 @@ class SessionRegistry:
 		browser_mode: str,
 		headed: bool,
 		profile: str | None,
-		cdp_url: str | None = None,
 	) -> SessionInfo:
 		"""Get existing session or create new one."""
 		if name in self._sessions:
 			return self._sessions[name]
 
-		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed}, cdp_url={cdp_url})')
+		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed})')
 
-		browser_session = await create_browser_session(browser_mode, headed, profile, cdp_url)
+		browser_session = await create_browser_session(browser_mode, headed, profile)
 		await browser_session.start()
 
 		session_info = SessionInfo(
@@ -55,7 +53,6 @@ class SessionRegistry:
 			browser_mode=browser_mode,
 			headed=headed,
 			profile=profile,
-			cdp_url=cdp_url,
 			browser_session=browser_session,
 		)
 		self._sessions[name] = session_info
@@ -84,6 +81,10 @@ class SessionRegistry:
 
 		session = self._sessions.pop(name)
 		logger.info(f'Closing session: {name}')
+
+		# Note: Tunnels are managed independently via tunnel.py
+		# They persist across session close/open cycles
+
 		try:
 			await session.browser_session.kill()
 		except Exception as e:
@@ -100,7 +101,6 @@ async def create_browser_session(
 	mode: str,
 	headed: bool,
 	profile: str | None,
-	cdp_url: str | None = None,
 ) -> BrowserSession:
 	"""Create BrowserSession based on mode.
 
@@ -108,11 +108,15 @@ async def create_browser_session(
 	- chromium: Playwright-managed Chromium (default)
 	- real: User's Chrome with profile
 	- remote: Browser-Use Cloud (requires API key)
-	- cdp_url: Connect to existing browser via CDP URL (takes precedence)
+
+	Raises:
+		RuntimeError: If the requested mode is not available based on installation config
 	"""
-	# CDP URL takes precedence over other modes
-	if cdp_url:
-		return BrowserSession(cdp_url=cdp_url)
+	from browser_use.skill_cli.install_config import get_mode_unavailable_error, is_mode_available
+
+	# Validate mode is available based on installation config
+	if not is_mode_available(mode):
+		raise RuntimeError(get_mode_unavailable_error(mode))
 
 	if mode == 'chromium':
 		return BrowserSession(
@@ -126,20 +130,26 @@ async def create_browser_session(
 		if not chrome_path:
 			raise RuntimeError('Could not find Chrome executable. Please install Chrome or specify --browser chromium')
 
-		user_data_dir = get_chrome_profile_path(profile)
+		# Always get the Chrome user data directory (not the profile subdirectory)
+		user_data_dir = get_chrome_profile_path(None)
+		# Profile directory defaults to 'Default', or use the specified profile name
+		profile_directory = profile if profile else 'Default'
 
 		return BrowserSession(
 			executable_path=chrome_path,
 			user_data_dir=user_data_dir,
-			headless=False,  # Real browser always visible
+			profile_directory=profile_directory,
+			headless=not headed,  # Headless by default, --headed for visible
 		)
 
 	elif mode == 'remote':
 		from browser_use.skill_cli.api_key import require_api_key
 
 		require_api_key('Remote browser')
+		# Profile is used as cloud_profile_id for remote mode
 		return BrowserSession(
 			use_cloud=True,
+			cloud_profile_id=profile,
 		)
 
 	else:
