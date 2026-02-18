@@ -564,7 +564,11 @@ class SessionManager:
 		if target_fully_removed:
 			if target_type in ('page', 'tab'):
 				from browser_use.browser.events import TabClosedEvent
-
+				# NOTE(logic risk): there is no await here.
+				# Many other call sites use `await event_bus.dispatch(...)`, which suggests dispatch may be async.
+				# If dispatch is a coroutine, this could lead to the event not running / ordering issues,
+				# or "coroutine was never awaited" warnings.
+				# Consider standardizing whether event_bus.dispatch is sync/async, and await or create_task as appropriate.
 				self.browser_session.event_bus.dispatch(TabClosedEvent(target_id=target_id))
 				self.logger.debug(f'[SessionManager] Dispatched TabClosedEvent for page target {target_id[:8]}...')
 			elif target_type:

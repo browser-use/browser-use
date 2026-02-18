@@ -138,7 +138,13 @@ class SessionServer:
 				result = await agent.handle(session_info, params)
 			else:
 				return {'id': req_id, 'success': False, 'error': f'Unknown action: {action}'}
-
+			# NOTE(logic risk): we always return success=True here, but some handlers (especially browser.handle)
+			# may return payloads like {"error": "..."} on failure.
+			# This makes the protocol semantics inconsistent: callers see success=True but still have to inspect data.error.
+			# Consider standardizing later:
+			# - handlers raise on failure, server converts to success=False
+			# or
+			# - server detects an error field in result and converts to success=False
 			return {'id': req_id, 'success': True, 'data': result}
 
 		except Exception as e:

@@ -140,6 +140,11 @@ def get_socket_path(session: str) -> str:
 	"""Get socket path for session."""
 	if sys.platform == 'win32':
 		# Use 127.0.0.1 explicitly (not localhost) to avoid IPv6 binding issues
+		# NOTE(logic risk): On Windows we hash the session name into a TCP port.
+		# Using only the first 4 hex chars of md5 (16-bit) has a non-trivial collision risk,
+		# which can cause different sessions to share a port or fail due to port already in use.
+		# More robust approaches include: choose a random free port and persist it in a meta file for the CLI,
+		# or increase the hash space to reduce collisions.
 		port = 49152 + (int(hashlib.md5(session.encode()).hexdigest()[:4], 16) % 16383)
 		return f'tcp://127.0.0.1:{port}'
 	return str(Path(tempfile.gettempdir()) / f'browser-use-{session}.sock')
@@ -222,6 +227,10 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 		try:
 			sock = connect_to_server(session, timeout=0.5)  # Increased from 0.1s
 			sock.close()
+			# NOTE(logic risk): "able to connect" is not the same as "fully initialized".
+			# For example, the first BrowserSession creation may be slow even though the server is accepting sockets.
+			# Also, the broad `except Exception: pass` below can swallow the root cause and make debugging hard.
+			# Consider adding an explicit ping/health action and preserving debug-level exception details.
 
 			# Check browser mode matches existing session
 			if meta_path.exists():

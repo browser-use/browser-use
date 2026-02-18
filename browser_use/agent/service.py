@@ -3911,6 +3911,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			# Only close browser if keep_alive is False (or not set)
 			if self.browser_session is not None:
+				# NOTE(logic risk): Agent.close() decides whether to kill the browser based on browser_profile.keep_alive.
+				# In this project, Agent often receives an *injected* browser_session (e.g. skill_cli session server
+				# reuses a shared BrowserSession). With unclear ownership semantics:
+				# - If keep_alive is not explicitly set, it may be False/None and trigger kill(), breaking reuse.
+				# - If keep_alive=True, we only stop the event_bus (clear=False); we must ensure reuse won't suffer
+				#   from residual state/queues.
+				# Consider explicitly tracking whether the Agent *owns* the BrowserSession (e.g. self._owns_browser_session),
+				# and only have the owner perform kill(); otherwise do lightweight cleanup only.
 				if not self.browser_session.browser_profile.keep_alive:
 					# Kill the browser session - this dispatches BrowserStopEvent,
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
