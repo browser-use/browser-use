@@ -8,7 +8,6 @@ server which loads once and stays running.
 
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import socket
@@ -132,58 +131,16 @@ if '--template' in sys.argv:
 	sys.exit(0)
 
 # =============================================================================
-# Utility functions (inlined to avoid imports)
+# Utility imports
 # =============================================================================
 
-
-def get_socket_path(session: str) -> str:
-	"""Get socket path for session."""
-	if sys.platform == 'win32':
-		# Use 127.0.0.1 explicitly (not localhost) to avoid IPv6 binding issues
-		port = 49152 + (int(hashlib.md5(session.encode()).hexdigest()[:4], 16) % 16383)
-		return f'tcp://127.0.0.1:{port}'
-	return str(Path(tempfile.gettempdir()) / f'browser-use-{session}.sock')
-
-
-def get_pid_path(session: str) -> Path:
-	"""Get PID file path for session."""
-	return Path(tempfile.gettempdir()) / f'browser-use-{session}.pid'
-
-
-def _pid_exists(pid: int) -> bool:
-	"""Check if a process with given PID exists.
-
-	On Windows, uses ctypes to call OpenProcess (os.kill doesn't work reliably).
-	On Unix, uses os.kill(pid, 0) which is the standard approach.
-	"""
-	if sys.platform == 'win32':
-		import ctypes
-
-		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-		if handle:
-			ctypes.windll.kernel32.CloseHandle(handle)
-			return True
-		return False
-	else:
-		try:
-			os.kill(pid, 0)
-			return True
-		except OSError:
-			return False
-
-
-def is_server_running(session: str) -> bool:
-	"""Check if server is running for session."""
-	pid_path = get_pid_path(session)
-	if not pid_path.exists():
-		return False
-	try:
-		pid = int(pid_path.read_text().strip())
-		return _pid_exists(pid)
-	except (OSError, ValueError):
-		# Can't read PID file or invalid PID
-		return False
+from browser_use.skill_cli.utils import (
+	find_all_sessions,
+	get_socket_path,
+	is_server_running,
+	is_session_locked,
+	kill_orphaned_server,
+)
 
 
 def connect_to_server(session: str, timeout: float = 60.0) -> socket.socket:
@@ -213,8 +170,6 @@ def get_session_metadata_path(session: str) -> Path:
 
 def ensure_server(session: str, browser: str, headed: bool, profile: str | None, api_key: str | None) -> bool:
 	"""Start server if not running. Returns True if started."""
-	from browser_use.skill_cli.utils import is_session_locked, kill_orphaned_server
-
 	meta_path = get_session_metadata_path(session)
 
 	# Check if server is already running AND holding its lock (healthy server)
@@ -229,22 +184,16 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 					meta = json.loads(meta_path.read_text())
 					existing_mode = meta.get('browser_mode', 'chromium')
 					if existing_mode != browser:
-						# Only error if user explicitly requested 'remote' but session is local
-						# This prevents losing cloud features (live_url, etc.)
-						# The reverse case (requesting local but having remote) is fine -
-						# user still gets a working browser, just with more features
-						if browser == 'remote' and existing_mode != 'remote':
-							print(
-								f"Error: Session '{session}' is running with --browser {existing_mode}, "
-								f'but --browser remote was requested.\n\n'
-								f'Cloud browser features (live_url) require a remote session.\n\n'
-								f'Options:\n'
-								f'  1. Close and restart: browser-use close && browser-use --browser remote open <url>\n'
-								f'  2. Use different session: browser-use --browser remote --session other <command>\n'
-								f'  3. Use existing local browser: browser-use --browser {existing_mode} <command>',
-								file=sys.stderr,
-							)
-							sys.exit(1)
+						print(
+							f"Error: Session '{session}' is running with --browser {existing_mode}, "
+							f'but --browser {browser} was requested.\n\n'
+							f'Options:\n'
+							f'  1. Close and restart: browser-use close && browser-use --browser {browser} open <url>\n'
+							f'  2. Use different session: browser-use --browser {browser} --session other <command>\n'
+							f'  3. Use existing session as-is: browser-use --browser {existing_mode} <command>',
+							file=sys.stderr,
+						)
+						sys.exit(1)
 				except (json.JSONDecodeError, OSError):
 					pass  # Metadata file corrupt, ignore
 
@@ -425,8 +374,8 @@ Setup:
 		'--browser',
 		'-b',
 		choices=available_modes,
-		default=default_mode,
-		help=f'Browser mode (available: {", ".join(available_modes)})',
+		default=None,
+		help=f'Browser mode (default: {default_mode}, available: {", ".join(available_modes)})',
 	)
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
 	parser.add_argument('--profile', help='Browser profile (local name or cloud ID)')
@@ -683,7 +632,7 @@ Setup:
 		p.add_argument('--limit', type=int, default=10, help='Maximum number of tasks to list')
 		p.add_argument('--status', choices=['running', 'finished', 'stopped', 'failed'], help='Filter by status')
 		p.add_argument('--session', help='Filter by session ID')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 		# task status <task_id>
 		p = task_sub.add_parser('status', help='Get task status')
@@ -693,17 +642,17 @@ Setup:
 		p.add_argument('--last', '-n', type=int, metavar='N', help='Show only the last N steps')
 		p.add_argument('--reverse', '-r', action='store_true', help='Show steps newest first (100, 99, 98...)')
 		p.add_argument('--step', '-s', type=int, metavar='N', help='Show specific step number')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 		# task stop <task_id>
 		p = task_sub.add_parser('stop', help='Stop running task')
 		p.add_argument('task_id', help='Task ID')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 		# task logs <task_id>
 		p = task_sub.add_parser('logs', help='Get task logs')
 		p.add_argument('task_id', help='Task ID')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 	# -------------------------------------------------------------------------
 	# Cloud Session Management - only available if remote mode is installed
@@ -717,18 +666,18 @@ Setup:
 		p = session_sub.add_parser('list', help='List cloud sessions')
 		p.add_argument('--limit', type=int, default=10, help='Maximum number of sessions to list')
 		p.add_argument('--status', choices=['active', 'stopped'], help='Filter by status')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 		# session get <session_id>
 		p = session_sub.add_parser('get', help='Get session details')
 		p.add_argument('session_id', help='Session ID')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 		# session stop <session_id> or session stop --all
 		p = session_sub.add_parser('stop', help='Stop cloud session(s)')
 		p.add_argument('session_id', nargs='?', help='Session ID (or use --all)')
 		p.add_argument('--all', action='store_true', help='Stop all active sessions')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 		# session create - Create session without task
 		p = session_sub.add_parser('create', help='Create a new cloud session')
@@ -740,13 +689,13 @@ Setup:
 		p.add_argument('--no-keep-alive', dest='keep_alive', action='store_false', help='Do not keep session alive')
 		p.add_argument('--persist-memory', action='store_true', default=None, help='Persist memory between tasks')
 		p.add_argument('--no-persist-memory', dest='persist_memory', action='store_false', help='Do not persist memory')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 		# session share <session_id> - Create or delete public share
 		p = session_sub.add_parser('share', help='Manage public share URL')
 		p.add_argument('session_id', help='Session ID')
 		p.add_argument('--delete', action='store_true', help='Delete the public share')
-		p.add_argument('--json', action='store_true', help='Output as JSON')
+		p.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help='Output as JSON')
 
 	# -------------------------------------------------------------------------
 	# Tunnel Commands
@@ -821,6 +770,13 @@ Setup:
 	p.add_argument('--from', dest='from_profile', help='Local profile name (e.g. "Default", "Profile 1")')
 	p.add_argument('--name', help='Cloud profile name (default: auto-generated)')
 	p.add_argument('--domain', help='Only sync cookies for this domain (e.g. "youtube.com")')
+
+	# Ensure --json works in any position (before or after subcommand)
+	for sp in subparsers.choices.values():
+		try:
+			sp.add_argument('--json', action='store_true', default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+		except argparse.ArgumentError:
+			pass
 
 	return parser
 
@@ -952,6 +908,173 @@ def _handle_remote_run_with_wait(args: argparse.Namespace) -> int:
 		return 1
 
 
+def handle_sessions_command(args: argparse.Namespace) -> int:
+	"""Handle 'sessions' command — list all running sessions."""
+	session_names = find_all_sessions()
+	sessions = [{'name': name, 'status': 'running'} for name in session_names]
+
+	if args.json:
+		print(json.dumps(sessions))
+	else:
+		if sessions:
+			for s in sessions:
+				print(f'  {s["name"]}: {s["status"]}')
+		else:
+			print('No active sessions')
+	return 0
+
+
+def handle_close_all(args: argparse.Namespace) -> int:
+	"""Handle 'close --all' — close all running sessions."""
+	session_names = find_all_sessions()
+	closed = []
+	for name in session_names:
+		try:
+			response = send_command(name, 'close', {})
+			if response.get('success'):
+				closed.append(name)
+				# Clean up metadata file
+				meta_path = get_session_metadata_path(name)
+				if meta_path.exists():
+					meta_path.unlink()
+		except Exception:
+			pass  # Server may already be stopping
+
+	if args.json:
+		print(json.dumps({'closed': closed, 'count': len(closed)}))
+	else:
+		if closed:
+			print(f'Closed {len(closed)} session(s): {", ".join(closed)}')
+		else:
+			print('No active sessions')
+	return 0
+
+
+def handle_setup_command(args: argparse.Namespace) -> int:
+	"""Handle 'setup' command — first-time configuration."""
+	from browser_use.skill_cli.commands import setup
+
+	loop = asyncio.get_event_loop()
+	result = loop.run_until_complete(
+		setup.handle(
+			'setup',
+			{
+				'mode': args.mode,
+				'api_key': args.api_key,
+				'yes': args.yes,
+				'json': args.json,
+			},
+		)
+	)
+
+	if args.json:
+		print(json.dumps(result))
+	elif 'error' in result:
+		print(f'Error: {result["error"]}', file=sys.stderr)
+		return 1
+	else:
+		if result.get('status') == 'success':
+			print('\n✓ Setup complete!')
+			print(f'\nMode: {result["mode"]}')
+			print('Next: browser-use open https://example.com')
+	return 0
+
+
+def handle_doctor_command(args: argparse.Namespace) -> int:
+	"""Handle 'doctor' command — installation diagnostics."""
+	from browser_use.skill_cli.commands import doctor
+
+	loop = asyncio.get_event_loop()
+	result = loop.run_until_complete(doctor.handle())
+
+	if args.json:
+		print(json.dumps(result))
+	else:
+		checks = result.get('checks', {})
+		print('\nDiagnostics:\n')
+		for name, check in checks.items():
+			status = check.get('status', 'unknown')
+			message = check.get('message', '')
+			note = check.get('note', '')
+			fix = check.get('fix', '')
+
+			if status == 'ok':
+				icon = '✓'
+			elif status == 'warning':
+				icon = '⚠'
+			elif status == 'missing':
+				icon = '○'
+			else:
+				icon = '✗'
+
+			print(f'  {icon} {name}: {message}')
+			if note:
+				print(f'      {note}')
+			if fix:
+				print(f'      Fix: {fix}')
+
+		print('')
+		if result.get('status') == 'healthy':
+			print('✓ All checks passed!')
+		else:
+			print(f'⚠ {result.get("summary", "Some checks need attention")}')
+	return 0
+
+
+def handle_tunnel_command(args: argparse.Namespace) -> int:
+	"""Handle 'tunnel' command — Cloudflare tunnel management."""
+	from browser_use.skill_cli import tunnel
+
+	pos = getattr(args, 'port_or_subcommand', None)
+
+	if pos == 'list':
+		result = tunnel.list_tunnels()
+	elif pos == 'stop':
+		port_arg = getattr(args, 'port_arg', None)
+		if getattr(args, 'all', False):
+			result = asyncio.get_event_loop().run_until_complete(tunnel.stop_all_tunnels())
+		elif port_arg is not None:
+			result = asyncio.get_event_loop().run_until_complete(tunnel.stop_tunnel(port_arg))
+		else:
+			print('Usage: browser-use tunnel stop <port> | --all', file=sys.stderr)
+			return 1
+	elif pos is not None:
+		try:
+			port = int(pos)
+		except ValueError:
+			print(f'Unknown tunnel subcommand: {pos}', file=sys.stderr)
+			return 1
+		result = asyncio.get_event_loop().run_until_complete(tunnel.start_tunnel(port))
+	else:
+		print('Usage: browser-use tunnel <port> | list | stop <port>', file=sys.stderr)
+		return 0
+
+	if args.json:
+		print(json.dumps(result))
+	else:
+		if 'error' in result:
+			print(f'Error: {result["error"]}', file=sys.stderr)
+			return 1
+		elif 'url' in result:
+			existing = ' (existing)' if result.get('existing') else ''
+			print(f'url: {result["url"]}{existing}')
+		elif 'tunnels' in result:
+			if result['tunnels']:
+				for t in result['tunnels']:
+					print(f'  port {t["port"]}: {t["url"]}')
+			else:
+				print('No active tunnels')
+		elif 'stopped' in result:
+			if isinstance(result['stopped'], list):
+				if result['stopped']:
+					print(f'Stopped {len(result["stopped"])} tunnel(s): {", ".join(map(str, result["stopped"]))}')
+				else:
+					print('No tunnels to stop')
+			else:
+				print(f'Stopped tunnel on port {result["stopped"]}')
+	return 0
+
+
 def main() -> int:
 	"""Main entry point."""
 	parser = build_parser()
@@ -971,186 +1094,44 @@ def main() -> int:
 
 		return handle_profile_command(args)
 
-	# Handle sessions list - find all running sessions
 	if args.command == 'sessions':
-		from browser_use.skill_cli.utils import find_all_sessions
+		return handle_sessions_command(args)
 
-		session_names = find_all_sessions()
-		sessions = [{'name': name, 'status': 'running'} for name in session_names]
-
-		if args.json:
-			print(json.dumps(sessions))
-		else:
-			if sessions:
-				for s in sessions:
-					print(f'  {s["name"]}: {s["status"]}')
-			else:
-				print('No active sessions')
-		return 0
-
-	# Handle close --all by closing all running sessions
 	if args.command == 'close' and getattr(args, 'all', False):
-		from browser_use.skill_cli.utils import find_all_sessions
+		return handle_close_all(args)
 
-		session_names = find_all_sessions()
-		closed = []
-		for name in session_names:
-			try:
-				response = send_command(name, 'close', {})
-				if response.get('success'):
-					closed.append(name)
-					# Clean up metadata file
-					meta_path = get_session_metadata_path(name)
-					if meta_path.exists():
-						meta_path.unlink()
-			except Exception:
-				pass  # Server may already be stopping
-
-		if args.json:
-			print(json.dumps({'closed': closed, 'count': len(closed)}))
-		else:
-			if closed:
-				print(f'Closed {len(closed)} session(s): {", ".join(closed)}')
-			else:
-				print('No active sessions')
-		return 0
-
-	# Handle setup command
 	if args.command == 'setup':
-		from browser_use.skill_cli.commands import setup
+		return handle_setup_command(args)
 
-		loop = asyncio.get_event_loop()
-		result = loop.run_until_complete(
-			setup.handle(
-				'setup',
-				{
-					'mode': args.mode,
-					'api_key': args.api_key,
-					'yes': args.yes,
-					'json': args.json,
-				},
-			)
-		)
-
-		if args.json:
-			print(json.dumps(result))
-		elif 'error' in result:
-			print(f'Error: {result["error"]}', file=sys.stderr)
-			return 1
-		else:
-			if result.get('status') == 'success':
-				print('\n✓ Setup complete!')
-				print(f'\nMode: {result["mode"]}')
-				print('Next: browser-use open https://example.com')
-		return 0
-
-	# Handle doctor command
 	if args.command == 'doctor':
-		from browser_use.skill_cli.commands import doctor
+		return handle_doctor_command(args)
 
-		loop = asyncio.get_event_loop()
-		result = loop.run_until_complete(doctor.handle())
-
-		if args.json:
-			print(json.dumps(result))
-		else:
-			# Print check results
-			checks = result.get('checks', {})
-			print('\nDiagnostics:\n')
-			for name, check in checks.items():
-				status = check.get('status', 'unknown')
-				message = check.get('message', '')
-				note = check.get('note', '')
-				fix = check.get('fix', '')
-
-				if status == 'ok':
-					icon = '✓'
-				elif status == 'warning':
-					icon = '⚠'
-				elif status == 'missing':
-					icon = '○'
-				else:
-					icon = '✗'
-
-				print(f'  {icon} {name}: {message}')
-				if note:
-					print(f'      {note}')
-				if fix:
-					print(f'      Fix: {fix}')
-
-			print('')
-			if result.get('status') == 'healthy':
-				print('✓ All checks passed!')
-			else:
-				print(f'⚠ {result.get("summary", "Some checks need attention")}')
-		return 0
-
-	# Handle task command - cloud task management
 	if args.command == 'task':
 		from browser_use.skill_cli.commands.cloud_task import handle_task_command
 
 		return handle_task_command(args)
 
-	# Handle session command - cloud session management
 	if args.command == 'session':
 		from browser_use.skill_cli.commands.cloud_session import handle_session_command
 
 		return handle_session_command(args)
 
-	# Handle tunnel command - runs independently of browser session
 	if args.command == 'tunnel':
-		from browser_use.skill_cli import tunnel
+		return handle_tunnel_command(args)
 
-		pos = getattr(args, 'port_or_subcommand', None)
-
-		if pos == 'list':
-			result = tunnel.list_tunnels()
-		elif pos == 'stop':
-			port_arg = getattr(args, 'port_arg', None)
-			if getattr(args, 'all', False):
-				# stop --all
-				result = asyncio.get_event_loop().run_until_complete(tunnel.stop_all_tunnels())
-			elif port_arg is not None:
-				result = asyncio.get_event_loop().run_until_complete(tunnel.stop_tunnel(port_arg))
-			else:
-				print('Usage: browser-use tunnel stop <port> | --all', file=sys.stderr)
-				return 1
-		elif pos is not None:
+	# Resolve browser mode: auto-detect from existing session if not explicitly passed
+	if args.browser is None:
+		meta_path = get_session_metadata_path(args.session)
+		if meta_path.exists():
 			try:
-				port = int(pos)
-			except ValueError:
-				print(f'Unknown tunnel subcommand: {pos}', file=sys.stderr)
-				return 1
-			result = asyncio.get_event_loop().run_until_complete(tunnel.start_tunnel(port))
-		else:
-			print('Usage: browser-use tunnel <port> | list | stop <port>', file=sys.stderr)
-			return 0
+				meta = json.loads(meta_path.read_text())
+				args.browser = meta.get('browser_mode')
+			except (json.JSONDecodeError, OSError):
+				pass
+		if args.browser is None:
+			from browser_use.skill_cli.install_config import get_default_mode
 
-		# Output result
-		if args.json:
-			print(json.dumps(result))
-		else:
-			if 'error' in result:
-				print(f'Error: {result["error"]}', file=sys.stderr)
-				return 1
-			elif 'url' in result:
-				existing = ' (existing)' if result.get('existing') else ''
-				print(f'url: {result["url"]}{existing}')
-			elif 'tunnels' in result:
-				if result['tunnels']:
-					for t in result['tunnels']:
-						print(f'  port {t["port"]}: {t["url"]}')
-				else:
-					print('No active tunnels')
-			elif 'stopped' in result:
-				if isinstance(result['stopped'], list):
-					if result['stopped']:
-						print(f'Stopped {len(result["stopped"])} tunnel(s): {", ".join(map(str, result["stopped"]))}')
-					else:
-						print('No tunnels to stop')
-				else:
-					print(f'Stopped tunnel on port {result["stopped"]}')
-		return 0
+			args.browser = get_default_mode()
 
 	# Validate requested mode is available based on installation config
 	from browser_use.skill_cli.install_config import get_mode_unavailable_error, is_mode_available

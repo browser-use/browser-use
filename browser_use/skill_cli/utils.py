@@ -10,8 +10,6 @@ import tempfile
 from pathlib import Path
 from typing import IO
 
-import portalocker
-
 
 def get_socket_path(session: str) -> str:
 	"""Get socket path for session.
@@ -89,6 +87,8 @@ def try_acquire_server_lock(session: str) -> IO | None:
 	lock_path.parent.mkdir(parents=True, exist_ok=True)
 	lock_path.touch(exist_ok=True)
 
+	import portalocker
+
 	lock_file = open(lock_path, 'r+')
 	try:
 		portalocker.lock(lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
@@ -103,6 +103,8 @@ def is_session_locked(session: str) -> bool:
 	lock_path = get_lock_path(session)
 	if not lock_path.exists():
 		return False
+
+	import portalocker
 
 	try:
 		with open(lock_path, 'r+') as f:

@@ -81,8 +81,17 @@ def get_default_mode() -> str:
 
 
 def get_available_modes() -> list[str]:
-	"""Get list of available browser modes."""
-	return get_config().get('installed_modes', ['chromium', 'real', 'remote'])
+	"""Get list of available browser modes.
+	If any local mode is installed, both chromium and real are available.
+	"""
+	installed = set(get_config().get('installed_modes', ['chromium', 'real', 'remote']))
+
+	# If any local mode is installed, both are available
+	if installed & LOCAL_MODES:
+		installed |= LOCAL_MODES
+
+	# Return in stable order
+	return [m for m in ('chromium', 'real', 'remote') if m in installed]
 
 
 def get_mode_unavailable_error(mode: str) -> str:
@@ -95,17 +104,11 @@ def get_mode_unavailable_error(mode: str) -> str:
 		A formatted error message with instructions for reinstalling
 	"""
 	available = get_available_modes()
-
-	if mode in LOCAL_MODES:
-		install_flag = '--full'
-		mode_desc = 'Local browser mode'
-	else:
-		install_flag = '--full'
-		mode_desc = 'Remote browser mode'
+	mode_desc = 'Local browser mode' if mode in LOCAL_MODES else 'Remote browser mode'
 
 	return (
 		f"Error: {mode_desc} '{mode}' not installed.\n"
 		f'Available modes: {", ".join(available)}\n\n'
 		f'To install all modes, reinstall with:\n'
-		f'  curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- {install_flag}'
+		f'  curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --full'
 	)

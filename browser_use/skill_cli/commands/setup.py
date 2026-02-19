@@ -325,6 +325,6 @@ def _log_validation(validation: dict[str, Any]) -> None:
 	"""Log validation results."""
 	print('\n✓ Validation:\n')
 	for name, result in validation.items():
-		icon = '✓' if result == 'ok' else '✗'
+		icon = '✓' if result in ('ok', True) else '✗'
 		print(f'  {icon} {name.replace("_", " ")}: {result}')
 	print()
