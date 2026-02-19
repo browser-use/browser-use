@@ -34,7 +34,7 @@ async def find(item: str = 'Used iPhone 12'):
 	"""
 	browser = Browser(cdp_url='http://localhost:9222')
 
-	llm = ChatBrowserUse()
+	llm = ChatBrowserUse(model='bu-2-0')
 
 	# Task prompt
 	task = f"""

@@ -521,9 +521,32 @@ class StorageStateLoadedEvent(BaseEvent):
 # ============================================================================
 
 
+class DownloadStartedEvent(BaseEvent):
+	"""A file download has started (CDP downloadWillBegin received)."""
+
+	guid: str  # CDP download GUID to correlate with FileDownloadedEvent
+	url: str
+	suggested_filename: str
+	auto_download: bool = False  # Whether this was triggered automatically
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_DownloadStartedEvent', 5.0))  # seconds
+
+
+class DownloadProgressEvent(BaseEvent):
+	"""A file download progress update (CDP downloadProgress received)."""
+
+	guid: str  # CDP download GUID to correlate with other download events
+	received_bytes: int
+	total_bytes: int  # 0 if unknown
+	state: str  # 'inProgress', 'completed', or 'canceled'
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_DownloadProgressEvent', 5.0))  # seconds
+
+
 class FileDownloadedEvent(BaseEvent):
 	"""A file has been downloaded."""
 
+	guid: str | None = None  # CDP download GUID to correlate with DownloadStartedEvent
 	url: str
 	path: str
 	file_name: str

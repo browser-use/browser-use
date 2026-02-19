@@ -125,3 +125,43 @@ def get_api_key() -> str | None:
 		return require_api_key('API key check')
 	except APIKeyRequired:
 		return None
+
+
+def check_api_key() -> dict[str, bool | str | None]:
+	"""Check API key availability without interactive prompts.
+
+	Returns:
+		Dict with keys:
+		- 'available': bool - whether API key is configured
+		- 'source': str | None - where it came from ('env', 'config', or None)
+		- 'key_prefix': str | None - first 8 chars of key (for display)
+	"""
+	# Check environment
+	key = os.environ.get('BROWSER_USE_API_KEY')
+	if key:
+		return {
+			'available': True,
+			'source': 'env',
+			'key_prefix': key[:8] if len(key) >= 8 else key,
+		}
+
+	# Check config file
+	config_path = get_config_path()
+	if config_path.exists():
+		try:
+			config = json.loads(config_path.read_text())
+			if key := config.get('api_key'):
+				return {
+					'available': True,
+					'source': 'config',
+					'key_prefix': key[:8] if len(key) >= 8 else key,
+				}
+		except Exception:
+			pass
+
+	# Not available
+	return {
+		'available': False,
+		'source': None,
+		'key_prefix': None,
+	}

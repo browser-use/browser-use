@@ -1297,6 +1297,29 @@ class BrowserSession(BaseModel):
 
 		return session
 
+	async def set_extra_headers(self, headers: dict[str, str], target_id: TargetID | None = None) -> None:
+		"""Set extra HTTP headers using CDP Network.setExtraHTTPHeaders.
+
+		These headers will be sent with every HTTP request made by the target.
+		Network domain must be enabled first (done automatically for page targets
+		in SessionManager._enable_page_monitoring).
+
+		Args:
+			headers: Dictionary of header name -> value pairs to inject into every request.
+			target_id: Target to set headers on. Defaults to the current agent focus target.
+		"""
+		if target_id is None:
+			if not self.agent_focus_target_id:
+				return
+			target_id = self.agent_focus_target_id
+
+		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+		# Ensure Network domain is enabled (idempotent - safe to call multiple times)
+		await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
+		await cdp_session.cdp_client.send.Network.setExtraHTTPHeaders(
+			params={'headers': cast(Any, headers)}, session_id=cdp_session.session_id
+		)
+
 	# endregion - ========== CDP-based ... ==========
 
 	# region - ========== Helper Methods ==========
@@ -1359,6 +1382,7 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
 		from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
 		from browser_use.browser.watchdogs.downloads_watchdog import DownloadsWatchdog
+		from browser_use.browser.watchdogs.har_recording_watchdog import HarRecordingWatchdog
 		from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 		from browser_use.browser.watchdogs.permissions_watchdog import PermissionsWatchdog
 		from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog
@@ -1479,6 +1503,12 @@ class BrowserSession(BaseModel):
 		RecordingWatchdog.model_rebuild()
 		self._recording_watchdog = RecordingWatchdog(event_bus=self.event_bus, browser_session=self)
 		self._recording_watchdog.attach_to_session()
+
+		# Initialize HarRecordingWatchdog if record_har_path is configured (handles HTTPS HAR capture)
+		if self.browser_profile.record_har_path:
+			HarRecordingWatchdog.model_rebuild()
+			self._har_recording_watchdog = HarRecordingWatchdog(event_bus=self.event_bus, browser_session=self)
+			self._har_recording_watchdog.attach_to_session()
 
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True
@@ -2894,15 +2924,6 @@ class BrowserSession(BaseModel):
 		"""Clear all cookies using CDP Network.clearBrowserCookies."""
 		cdp_session = await self.get_or_create_cdp_session()
 		await cdp_session.cdp_client.send.Storage.clearCookies(session_id=cdp_session.session_id)
-
-	async def _cdp_set_extra_headers(self, headers: dict[str, str]) -> None:
-		"""Set extra HTTP headers using CDP Network.setExtraHTTPHeaders."""
-		if not self.agent_focus_target_id:
-			return
-
-		cdp_session = await self.get_or_create_cdp_session()
-		# await cdp_session.cdp_client.send.Network.setExtraHTTPHeaders(params={'headers': headers}, session_id=cdp_session.session_id)
-		raise NotImplementedError('Not implemented yet')
 
 	async def _cdp_grant_permissions(self, permissions: list[str], origin: str | None = None) -> None:
 		"""Grant permissions using CDP Browser.grantPermissions."""
