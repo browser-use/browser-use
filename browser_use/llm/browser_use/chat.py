@@ -82,7 +82,7 @@ class ChatBrowserUse(BaseChatModel):
 
 		self.fast = False
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
-		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://browser-use-production-llm-alb-547470421.us-east-2.elb.amazonaws.com/')
+		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://test-llm.api.browser-use.com')
 		self.timeout = timeout
 		self.max_retries = max_retries
 		self.retry_base_delay = retry_base_delay
