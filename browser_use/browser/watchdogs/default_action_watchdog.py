@@ -488,12 +488,48 @@ class DefaultActionWatchdog(BaseWatchdog):
 					self.logger.debug(f'Element xpath: {element_node.xpath}')
 					return input_metadata  # Return coordinates if available
 				except Exception as e:
-					# Element not found or error - fall back to typing to the page
+					# Element not found or error - fall back to clicking element then typing to page
 					self.logger.warning(f'Failed to type to element {index_for_logging}: {e}. Falling back to page typing.')
 					try:
-						await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=10.0)
-					except Exception as e:
-						pass
+						click_result = await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=10.0)
+						# If click returned a validation_error (e.g. for <select> elements),
+						# try to find and click an inner input element instead
+						if isinstance(click_result, dict) and 'validation_error' in click_result:
+							self.logger.debug(f'Click returned validation error: {click_result["validation_error"]}. Trying to find inner input.')
+							try:
+								cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+								resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+									params={'backendNodeId': element_node.backend_node_id},
+									session_id=cdp_session.session_id,
+								)
+								wrapper_object_id = resolve_result.get('object', {}).get('objectId')
+								if wrapper_object_id:
+									inner_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+										params={
+											'functionDeclaration': """
+											function() {
+												// Search in self, parent, and grandparent for an input
+												let scope = this;
+												for (let i = 0; i < 3 && scope; i++) {
+													const input = scope.querySelector('input:not([type="hidden"]):not([type="file"]), textarea');
+													if (input) { input.focus(); input.click(); return true; }
+													scope = scope.parentElement;
+												}
+												return false;
+											}
+											""",
+											'objectId': wrapper_object_id,
+											'returnByValue': True,
+										},
+										session_id=cdp_session.session_id,
+									)
+									if inner_result.get('result', {}).get('value'):
+										self.logger.debug('Found and focused inner input element for typing fallback')
+										await asyncio.sleep(0.1)
+							except Exception as inner_e:
+								self.logger.debug(f'Inner input fallback failed: {inner_e}')
+					except Exception as click_e:
+						self.logger.debug(f'Fallback click failed: {click_e}')
 					await self._type_to_page(event.text)
 					# Log with sensitive data protection
 					if event.is_sensitive:
@@ -1671,6 +1707,83 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 			object_id = result['object']['objectId']
 
+			# Check if element is a non-editable wrapper (div, span, etc.) that contains an inner input
+			# This handles custom dropdown/select components (e.g., Element UI el-select, Ant Design, etc.)
+			# where the agent targets the wrapper but needs to type into the inner input
+			tag_name = element_node.tag_name.lower() if element_node.tag_name else ''
+			non_editable_wrappers = {'div', 'span', 'section', 'li', 'ul', 'label'}
+			is_contenteditable = (element_node.attributes or {}).get('contenteditable') in ('true', '')
+
+			if tag_name in non_editable_wrappers and not is_contenteditable:
+				try:
+					find_input_script = """
+					function() {
+						const el = this;
+						// Search for the nearest input/textarea inside this element
+						const inner = el.querySelector('input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]), textarea');
+						if (inner) {
+							return { found: true, tag: inner.tagName.toLowerCase(), type: inner.type || '' };
+						}
+						// Also check if a sibling or nearby element is the actual input
+						// (some components render input next to the wrapper)
+						const parent = el.parentElement;
+						if (parent) {
+							const siblingInput = parent.querySelector('input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]), textarea');
+							if (siblingInput && siblingInput !== el) {
+								return { found: true, tag: siblingInput.tagName.toLowerCase(), type: siblingInput.type || '', fromParent: true };
+							}
+						}
+						return { found: false };
+					}
+					"""
+					check_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': find_input_script,
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=cdp_session.session_id,
+					)
+					inner_info = check_result.get('result', {}).get('value', {})
+
+					if inner_info.get('found'):
+						# Found an inner input - resolve it and redirect all operations to it
+						search_scope = 'parent' if inner_info.get('fromParent') else 'self'
+						resolve_inner_script = f"""
+						function() {{
+							const scope = '{search_scope}' === 'parent' ? this.parentElement : this;
+							const inner = scope.querySelector('input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]), textarea');
+							return inner;
+						}}
+						"""
+						inner_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': resolve_inner_script,
+								'objectId': object_id,
+								'returnByValue': False,
+							},
+							session_id=cdp_session.session_id,
+						)
+						inner_object_id = inner_result.get('result', {}).get('objectId')
+						if inner_object_id:
+							# Get the backendNodeId for the inner input
+							inner_describe = await cdp_session.cdp_client.send.DOM.describeNode(
+								params={'objectId': inner_object_id},
+								session_id=cdp_session.session_id,
+							)
+							inner_backend_id = inner_describe.get('node', {}).get('backendNodeId')
+							if inner_backend_id:
+								self.logger.info(
+									f'Found inner input element (tag={inner_info.get("tag")}, type={inner_info.get("type")}) '
+									f'inside wrapper <{tag_name}>, redirecting input to inner element'
+								)
+								# Redirect to the inner input element
+								backend_node_id = inner_backend_id
+								object_id = inner_object_id
+				except Exception as e:
+					self.logger.debug(f'Inner input detection failed (non-critical): {type(e).__name__}: {e}')
+
+
 			# Get current coordinates using unified method
 			coords = await self.browser_session.get_element_coordinates(backend_node_id, cdp_session)
 			if coords:
@@ -2803,6 +2916,91 @@ class DefaultActionWatchdog(BaseWatchdog):
 						}
 					}
 
+					// Check for popular UI framework custom dropdowns (Element UI, Ant Design, MUI, etc.)
+					// These use class names with patterns like el-select, ant-select, v-select, etc.
+					const classStr = (element.className || '').toString().toLowerCase();
+					const isCustomSelect = /(?:el-|ant-|v-|mui|n-)select|select-?(?:box|wrapper|dropdown|trigger|control)/i.test(classStr)
+						|| element.hasAttribute('data-select')
+						|| element.hasAttribute('data-dropdown');
+
+					if (isCustomSelect) {
+						// Look for visible dropdown popup options in the document (custom selects
+						// often render their dropdown list in a portal/teleport at document body level)
+						const popupSelectors = [
+							// Element UI / Element Plus
+							'.el-select-dropdown .el-select-dropdown__item',
+							'.el-scrollbar .el-select-dropdown__item',
+							// Ant Design
+							'.ant-select-dropdown .ant-select-item-option',
+							'.ant-select-dropdown .ant-select-item',
+							// MUI (Material UI)
+							'.MuiMenu-list .MuiMenuItem-root',
+							'[role=listbox] [role=option]',
+							// Vuetify
+							'.v-list .v-list-item',
+							// Naive UI
+							'.n-base-select-option',
+							// Generic patterns
+							'[class*=select-dropdown] [class*=option]',
+							'[class*=select-menu] [class*=option]',
+							'[class*=dropdown-menu] [class*=item]',
+						];
+
+						const allOptions = [];
+						for (const selector of popupSelectors) {
+							const items = document.querySelectorAll(selector);
+							if (items.length > 0) {
+								items.forEach((item, idx) => {
+									const text = item.textContent ? item.textContent.trim() : '';
+									if (text) {
+										allOptions.push({
+											text: text,
+											value: item.getAttribute('data-value') || item.getAttribute('value') || text,
+											index: idx,
+											selected: item.classList.contains('selected') || item.classList.contains('is-selected')
+												|| item.classList.contains('active') || item.getAttribute('aria-selected') === 'true'
+										});
+									}
+								});
+								if (allOptions.length > 0) {
+									return {
+										type: 'custom',
+										options: allOptions,
+										id: element.id || '',
+										name: element.getAttribute('aria-label') || element.getAttribute('placeholder') || '',
+										source: 'target'
+									};
+								}
+							}
+						}
+
+						// Also check for options inside the element itself
+						const innerItems = element.querySelectorAll('[class*=option], [class*=item], li');
+						const innerOptions = [];
+						innerItems.forEach((item, idx) => {
+							const text = item.textContent ? item.textContent.trim() : '';
+							if (text && !item.querySelector('[class*=option], [class*=item]')) {
+								innerOptions.push({
+									text: text,
+									value: item.getAttribute('data-value') || item.getAttribute('value') || text,
+									index: idx,
+									selected: item.classList.contains('selected') || item.classList.contains('is-selected')
+										|| item.classList.contains('active') || item.getAttribute('aria-selected') === 'true'
+								});
+							}
+						});
+
+						if (innerOptions.length > 0) {
+							return {
+								type: 'custom',
+								options: innerOptions,
+								id: element.id || '',
+								name: element.getAttribute('aria-label') || element.getAttribute('placeholder') || '',
+								source: 'target'
+							};
+						}
+					}
+
 					return null;
 				}
 
@@ -3340,6 +3538,78 @@ class DefaultActionWatchdog(BaseWatchdog):
 								error: `Custom dropdown item with text or value '${targetText}' not found`,
 								availableOptions: availableOptions
 							};
+						}
+
+						// Check for popular UI framework custom dropdowns (Element UI, Ant Design, MUI, etc.)
+						const classStr = (element.className || '').toString().toLowerCase();
+						const isCustomSelect = /(?:el-|ant-|v-|mui|n-)select|select-?(?:box|wrapper|dropdown|trigger|control)/i.test(classStr)
+							|| element.hasAttribute('data-select')
+							|| element.hasAttribute('data-dropdown');
+
+						if (isCustomSelect) {
+							const targetTextLower = targetText.toLowerCase();
+
+							// Look for visible dropdown popup options in the document
+							// (custom selects often render their dropdown in a portal at body level)
+							const popupSelectors = [
+								'.el-select-dropdown .el-select-dropdown__item',
+								'.el-scrollbar .el-select-dropdown__item',
+								'.ant-select-dropdown .ant-select-item-option',
+								'.ant-select-dropdown .ant-select-item',
+								'.MuiMenu-list .MuiMenuItem-root',
+								'[role="listbox"] [role="option"]',
+								'.v-list .v-list-item',
+								'.n-base-select-option',
+								'[class*="select-dropdown"] [class*="option"]',
+								'[class*="select-menu"] [class*="option"]',
+								'[class*="dropdown-menu"] [class*="item"]',
+							];
+
+							for (const selector of popupSelectors) {
+								const items = document.querySelectorAll(selector);
+								for (const item of items) {
+									const itemText = item.textContent ? item.textContent.trim() : '';
+									const itemValue = item.getAttribute('data-value') || item.getAttribute('value') || '';
+									if (itemText.toLowerCase() === targetTextLower || itemValue.toLowerCase() === targetTextLower) {
+										// Click the matching option
+										item.click();
+										item.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+										return {
+											success: true,
+											message: 'Selected custom framework dropdown item: ' + itemText
+										};
+									}
+								}
+								// If we found items but no match, collect available options
+								if (items.length > 0) {
+									const availableOptions = Array.from(items).map(item => ({
+										text: item.textContent ? item.textContent.trim() : '',
+										value: item.getAttribute('data-value') || item.getAttribute('value') || ''
+									})).filter(opt => opt.text || opt.value);
+									if (availableOptions.length > 0) {
+										return {
+											success: false,
+											error: "Custom framework dropdown item with text or value '" + targetText + "' not found",
+											availableOptions: availableOptions
+										};
+									}
+								}
+							}
+
+							// Also check inner items
+							const innerItems = element.querySelectorAll('[class*="option"], [class*="item"], li');
+							for (const item of innerItems) {
+								const itemText = item.textContent ? item.textContent.trim() : '';
+								const itemValue = item.getAttribute('data-value') || item.getAttribute('value') || '';
+								if (itemText.toLowerCase() === targetTextLower || itemValue.toLowerCase() === targetTextLower) {
+									item.click();
+									item.dispatchEvent(new MouseEvent('click', { view: window, bubbles: true, cancelable: true }));
+									return {
+										success: true,
+										message: 'Selected custom dropdown item: ' + itemText
+									};
+								}
+							}
 						}
 
 						return null; // Not a dropdown element
