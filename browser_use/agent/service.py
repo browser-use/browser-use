@@ -1533,16 +1533,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.info(f'⚠️  Simple judge overriding success to failure: {reason}')
 				last_result.success = False
 				note = f'[Simple judge: {reason}]'
-				# When structured output is expected, don't append judge text to extracted_content
-				# as it would corrupt the JSON and break end-user parsers
-				if self.output_model_schema is not None:
-					if last_result.metadata is None:
-						last_result.metadata = {}
-					last_result.metadata['simple_judge'] = note
-				elif last_result.extracted_content:
-					last_result.extracted_content += f'\n\n{note}'
-				else:
-					last_result.extracted_content = note
+				# Store judge note separately so structured output JSON stays parseable
+				last_result.judge_note = note
+				# For plain-text mode, also append to extracted_content (preserves existing behavior)
+				if self.output_model_schema is None:
+					if last_result.extracted_content:
+						last_result.extracted_content += f'\n\n{note}'
+					else:
+						last_result.extracted_content = note
 		except Exception as e:
 			self.logger.warning(f'Simple judge failed with error: {e}')
 			# Don't override on error — keep the agent's self-report
