@@ -49,55 +49,72 @@
 
 # 👋 Human Quickstart
 
-**1. Create environment with [uv](https://docs.astral.sh/uv/) (Python>=3.11):**
+**1. Create environment with [uv](https://docs.astral.sh/uv/) (Python>=3.11) and install Browser-Use:**
 ```bash
 uv init
-```
-
-**2. Install Browser-Use package:**
-```bash
-#  We ship every day - use the latest version!
 uv add browser-use
 uv sync
+# uvx browser-use install  # if you don't have chromium installed
 ```
 
-**3. Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) and add it to your `.env` file (new signups get $10 free credits):**
+**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) and add it to your `.env` file (new signups get $10 free credits):**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
+# GOOGLE_API_KEY=your-key
+# ANTHROPIC_API_KEY=your-key
 ```
 
-**4. Install Chromium browser:**
-```bash
-uvx browser-use install
-```
-
-**5. Run your first agent:**
+**3. Run your first agent:**
 ```python
 from browser_use import Agent, Browser, ChatBrowserUse
+# from browser_use import ChatGoogle  # pip install browser-use[google]
+# from browser_use import ChatAnthropic  # pip install browser-use[anthropic]
 import asyncio
 
-async def example():
-    browser = Browser(
-        # use_cloud=True,  # Uncomment to use a stealth browser on Browser Use Cloud
-    )
-
-    llm = ChatBrowserUse()
-
+async def main():
     agent = Agent(
         task="Find the number of stars of the browser-use repo",
-        llm=llm,
-        browser=browser,
+        llm=ChatBrowserUse(),
+        # llm=ChatGoogle(model='gemini-3-flash-preview'),
+        # llm=ChatAnthropic(model='claude-sonnet-4-0'),
     )
-
-    history = await agent.run()
-    return history
+    await agent.run()
 
 if __name__ == "__main__":
-    history = asyncio.run(example())
+    asyncio.run(main())
 ```
 
 Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
+
+<br/>
+
+# Demos
+
+
+### 📋 Form-Filling
+#### Task = "Fill in this job application with my resume and information."
+![Job Application Demo](https://github.com/user-attachments/assets/57865ee6-6004-49d5-b2c2-6dff39ec2ba9)
+[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/apply_to_job.py)
+
+
+### 🍎 Grocery-Shopping
+#### Task = "Put this list of items into my instacart."
+
+https://github.com/user-attachments/assets/a6813fa7-4a7c-40a6-b4aa-382bf88b1850
+
+[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/buy_groceries.py)
+
+
+### 💻 Personal-Assistant.
+#### Task = "Help me find parts for a custom PC."
+
+https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
+
+[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/pcpartpicker.py)
+
+
+### 💡See [more examples here ↗](https://docs.browser-use.com/examples) and give us a star!
 
 <br/>
 
@@ -145,35 +162,6 @@ mkdir -p ~/.claude/skills/browser-use
 curl -o ~/.claude/skills/browser-use/SKILL.md \
   https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md
 ```
-
-<br/>
-
-# Demos
-
-
-### 📋 Form-Filling
-#### Task = "Fill in this job application with my resume and information."
-![Job Application Demo](https://github.com/user-attachments/assets/57865ee6-6004-49d5-b2c2-6dff39ec2ba9)
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/apply_to_job.py)
-
-
-### 🍎 Grocery-Shopping
-#### Task = "Put this list of items into my instacart."
-
-https://github.com/user-attachments/assets/a6813fa7-4a7c-40a6-b4aa-382bf88b1850
-
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/buy_groceries.py)
-
-
-### 💻 Personal-Assistant.
-#### Task = "Help me find parts for a custom PC."
-
-https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
-
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/pcpartpicker.py)
-
-
-### 💡See [more examples here ↗](https://docs.browser-use.com/examples) and give us a star!
 
 <br/>
 
