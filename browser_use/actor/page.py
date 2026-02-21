@@ -299,28 +299,69 @@ class Page:
 		return result['targetInfo']
 
 	async def get_url(self) -> str:
-		"""Get the current URL."""
+		"""Get the current URL of this page.
+
+		Retrieves the URL from the target info via CDP.
+
+		Returns:
+			The current URL as a string, or empty string if unavailable.
+		"""
 		info = await self.get_target_info()
 		return info.get('url', '')
 
 	async def get_title(self) -> str:
-		"""Get the current title."""
+		"""Get the current title of this page.
+
+		Retrieves the title from the target info via CDP.
+
+		Returns:
+			The page title as a string, or empty string if unavailable.
+		"""
 		info = await self.get_target_info()
 		return info.get('title', '')
 
 	async def goto(self, url: str) -> None:
-		"""Navigate this target to a URL."""
+		"""Navigate this page to a specific URL.
+
+		Uses CDP Page.navigate to load the specified URL in this page/target.
+		This is a low-level method; for higher-level navigation with error
+		handling, use the navigate action via Tools.
+
+		Args:
+			url: The URL to navigate to. Must be a valid URL string.
+
+		Raises:
+			RuntimeError: If the CDP session is not available or navigation
+				fails due to network errors or invalid URLs.
+		"""
 		session_id = await self._ensure_session()
 
 		params: 'NavigateParameters' = {'url': url}
 		await self._client.send.Page.navigate(params, session_id=session_id)
 
 	async def navigate(self, url: str) -> None:
-		"""Alias for goto."""
+		"""Navigate this page to a specific URL.
+
+		This is an alias for the goto() method for API consistency.
+
+		Args:
+			url: The URL to navigate to.
+
+		Raises:
+			RuntimeError: If navigation fails.
+		"""
 		await self.goto(url)
 
 	async def go_back(self) -> None:
-		"""Navigate back in history."""
+		"""Navigate back in the browser history.
+
+		Retrieves the navigation history and navigates to the previous entry.
+		Requires that there is at least one previous entry in the history.
+
+		Raises:
+			RuntimeError: If there is no previous entry in history, or if
+				the CDP session is unavailable or the navigation fails.
+		"""
 		session_id = await self._ensure_session()
 
 		try:
@@ -338,11 +379,21 @@ class Page:
 			params: 'NavigateToHistoryEntryParameters' = {'entryId': previous_entry_id}
 			await self._client.send.Page.navigateToHistoryEntry(params, session_id=session_id)
 
+		except RuntimeError:
+			raise
 		except Exception as e:
-			raise RuntimeError(f'Failed to navigate back: {e}')
+			raise RuntimeError(f'Failed to navigate back: {e}') from e
 
 	async def go_forward(self) -> None:
-		"""Navigate forward in history."""
+		"""Navigate forward in the browser history.
+
+		Retrieves the navigation history and navigates to the next entry.
+		Requires that there is a next entry available in the history.
+
+		Raises:
+			RuntimeError: If there is no next entry in history, or if
+				the CDP session is unavailable or the navigation fails.
+		"""
 		session_id = await self._ensure_session()
 
 		try:
@@ -360,8 +411,10 @@ class Page:
 			params: 'NavigateToHistoryEntryParameters' = {'entryId': next_entry_id}
 			await self._client.send.Page.navigateToHistoryEntry(params, session_id=session_id)
 
+		except RuntimeError:
+			raise
 		except Exception as e:
-			raise RuntimeError(f'Failed to navigate forward: {e}')
+			raise RuntimeError(f'Failed to navigate forward: {e}') from e
 
 	# Element finding methods (these would need to be implemented based on DOM queries)
 	async def get_elements_by_css_selector(self, selector: str) -> list['Element']:
