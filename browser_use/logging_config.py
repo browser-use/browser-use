@@ -112,7 +112,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 			return super().format(record)
 
 	# Setup single handler for all loggers
-	console = logging.StreamHandler(stream or sys.stdout)
+	console = logging.StreamHandler(stream or sys.stderr)
 
 	# Determine the log level to use first
 	if log_type == 'result':
@@ -184,7 +184,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 		# Use the CDP-specific logging level
 		setup_cdp_logging(
 			level=cdp_level,
-			stream=stream or sys.stdout,
+			stream=stream or sys.stderr,
 			format_string='%(levelname)-8s [%(name)s] %(message)s' if log_type != 'result' else '%(message)s',
 		)
 	except ImportError:
