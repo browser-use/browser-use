@@ -262,6 +262,34 @@ class ChatVercel(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _is_reasoning_model(self) -> bool:
+		"""
+		Check if the current model is a reasoning model.
+
+		Uses exact matching or prefix matching with hyphen delimiter to avoid
+		false positives. For example, 'gpt-5' should match 'gpt-5' and 'gpt-5-mini'
+		but NOT 'gpt-5.2' (which is a different model series with different API behavior).
+
+		For Vercel models with provider prefix (e.g., 'openai/gpt-5'), the check is
+		performed against the model name portion after the slash.
+		"""
+		if not self.reasoning_models:
+			return False
+
+		model_str = str(self.model).lower()
+		# Extract model name after provider prefix if present (e.g., 'openai/gpt-5' -> 'gpt-5')
+		if '/' in model_str:
+			model_name = model_str.split('/', 1)[1]
+		else:
+			model_name = model_str
+
+		for pattern in self.reasoning_models:
+			pattern_lower = str(pattern).lower()
+			# Exact match or prefix match with hyphen (e.g., 'gpt-5' matches 'gpt-5-mini')
+			if model_name == pattern_lower or model_name.startswith(f'{pattern_lower}-'):
+				return True
+		return False
+
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		"""Extract usage information from the Vercel response."""
 		if response.usage is None:
@@ -408,9 +436,7 @@ class ChatVercel(BaseChatModel):
 			else:
 				is_google_model = self.model.startswith('google/')
 				is_anthropic_model = self.model.startswith('anthropic/')
-				is_reasoning_model = self.reasoning_models and any(
-					str(pattern).lower() in str(self.model).lower() for pattern in self.reasoning_models
-				)
+				is_reasoning_model = self._is_reasoning_model()
 
 				if is_google_model or is_anthropic_model or is_reasoning_model:
 					modified_messages = [m.model_copy(deep=True) for m in messages]

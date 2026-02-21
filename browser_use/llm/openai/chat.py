@@ -120,6 +120,25 @@ class ChatOpenAI(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _is_reasoning_model(self) -> bool:
+		"""
+		Check if the current model is a reasoning model.
+
+		Uses exact matching or prefix matching with hyphen delimiter to avoid
+		false positives. For example, 'gpt-5' should match 'gpt-5' and 'gpt-5-mini'
+		but NOT 'gpt-5.2' (which is a different model series with different API behavior).
+		"""
+		if not self.reasoning_models:
+			return False
+
+		model_lower = str(self.model).lower()
+		for reasoning_model in self.reasoning_models:
+			pattern = str(reasoning_model).lower()
+			# Exact match or prefix match with hyphen (e.g., 'gpt-5' matches 'gpt-5-mini')
+			if model_lower == pattern or model_lower.startswith(f'{pattern}-'):
+				return True
+		return False
+
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		if response.usage is not None:
 			# Note: completion_tokens already includes reasoning_tokens per OpenAI API docs.
@@ -186,7 +205,7 @@ class ChatOpenAI(BaseChatModel):
 			if self.service_tier is not None:
 				model_params['service_tier'] = self.service_tier
 
-			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
+			if self.reasoning_models and self._is_reasoning_model():
 				model_params['reasoning_effort'] = self.reasoning_effort
 				model_params.pop('temperature', None)
 				model_params.pop('frequency_penalty', None)

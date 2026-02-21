@@ -179,7 +179,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 				model_params['service_tier'] = self.service_tier
 
 			# Handle reasoning models
-			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
+			if self.reasoning_models and self._is_reasoning_model():
 				# For reasoning models, use reasoning parameter instead of reasoning_effort
 				model_params['reasoning'] = {'effort': self.reasoning_effort}
 				model_params.pop('temperature', None)
