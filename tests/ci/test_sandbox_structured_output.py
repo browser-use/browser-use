@@ -225,3 +225,34 @@ class TestStructuredOutputPropertyFallback:
 		explicit_result = history.get_structured_output(ExtractedData)
 		assert explicit_result is not None
 		assert explicit_result.title == 'Test'
+
+	def test_structured_output_parses_when_simple_judge_overrides(self):
+		"""When simple judge overrides success, judge_note is stored separately — extracted_content stays pure JSON."""
+		json_result = '{"title": "Product", "price": 19.99, "in_stock": true}'
+
+		history = AgentHistoryList(
+			history=[
+				AgentHistory(
+					model_output=None,
+					result=[
+						ActionResult(
+							extracted_content=json_result,
+							is_done=True,
+							success=False,  # Judge overrode to failure
+							judge_note='[Simple judge: Task requirements not fully met]',
+						)
+					],
+					state=BrowserStateHistory(url='https://example.com', title='Test', tabs=[], interacted_element=[]),
+				)
+			]
+		)
+		history._output_model_schema = ExtractedData
+
+		# structured_output must parse — extracted_content is clean JSON, judge note is separate
+		output = history.structured_output
+		assert output is not None
+		assert output.title == 'Product'
+		assert output.price == 19.99
+
+		last_result = history.history[-1].result[-1]
+		assert last_result.judge_note == '[Simple judge: Task requirements not fully met]'
