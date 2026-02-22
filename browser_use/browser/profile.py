@@ -808,16 +808,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def _configure_typing_speed(self) -> None:
 		"""Configure typing speed based on environment variable if not already set."""
-		# If user hasn't explicitly set typing delays (checks if they match defaults)
-		# stricter check: only override if env var is set
+		# Only override if env var is set AND user hasn't explicitly changed the defaults
 		if os.getenv('BROWSER_USE_REALISTIC_TYPING', '').lower() in ('true', '1', 'yes', 'on'):
-			# Check if defaults are still in place (roughly)
 			if self.typing_delay_min == 0.001 and self.typing_delay_max == 0.010:
 				logger.info('⌨️  Enabling realistic typing speed (50-150ms) via BROWSER_USE_REALISTIC_TYPING')
 				self.typing_delay_min = 0.05
 				self.typing_delay_max = 0.15
-
-
 	def _copy_profile(self) -> None:
 		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
 		if self.user_data_dir is None:

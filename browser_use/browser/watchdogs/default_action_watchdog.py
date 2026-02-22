@@ -2,9 +2,9 @@
 
 import asyncio
 import json
-import random
-
+import math
 import os
+import random
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
@@ -44,10 +44,17 @@ class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
 
 	def _sample_typing_delay(self) -> float:
-		return random.uniform(
-			self.browser_session.browser_profile.typing_delay_min,
-			self.browser_session.browser_profile.typing_delay_max,
-		)
+		"""Sample a typing delay from profile settings using lognormal for realistic variance."""
+		min_d = self.browser_session.browser_profile.typing_delay_min
+		max_d = self.browser_session.browser_profile.typing_delay_max
+		# If range is very small (fast mode), just use uniform
+		if max_d - min_d < 0.02:
+			return random.uniform(min_d, max_d)
+		# Lognormal for realistic human-like variance, clamped to [min, max*3.3]
+		mu = math.log((min_d + max_d) / 2)
+		sigma = 0.4
+		delay = random.lognormvariate(mu, sigma)
+		return max(min_d, min(delay, max_d * 3.3))
 	async def _execute_click_with_download_detection(
 		self,
 		click_coro,
@@ -1105,7 +1112,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=cdp_session.session_id,
 					)
-				# Add 10ms delay between keystrokes
+				# Add delay between keystrokes
 				await asyncio.sleep(self._sample_typing_delay())
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
@@ -1848,7 +1855,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=cdp_session.session_id,
 						)
-						await asyncio.sleep(0.005)
+						await asyncio.sleep(self._sample_typing_delay())
 						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
 							params={'type': 'char', 'text': _first_char, 'key': _first_char},
 							session_id=cdp_session.session_id,
@@ -2530,7 +2537,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							session_id=cdp_session.session_id,
 						)
 
-						# Small delay between characters (10ms)
+						# Small delay between characters
 						await asyncio.sleep(self._sample_typing_delay())
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
