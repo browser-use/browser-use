@@ -98,7 +98,7 @@ class TestSampleTypingDelay:
 		mock_session.browser_profile.typing_delay_max = max_d
 
 		watchdog = DefaultActionWatchdog.__new__(DefaultActionWatchdog)
-		watchdog.browser_session = mock_session
+		object.__setattr__(watchdog, 'browser_session', mock_session)
 		return watchdog
 
 	def test_fast_mode_returns_in_range(self):
