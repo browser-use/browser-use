@@ -1604,6 +1604,15 @@ class BrowserSession(BaseModel):
 			self._har_recording_watchdog = HarRecordingWatchdog(event_bus=self.event_bus, browser_session=self)
 			self._har_recording_watchdog.attach_to_session()
 
+		# Initialize WebMCPWatchdog (discovers tools registered via navigator.modelContext)
+		if self.browser_profile.webmcp_enabled:
+			from browser_use.browser.watchdogs.webmcp_watchdog import WebMCPWatchdog
+
+			WebMCPWatchdog.model_rebuild()
+			self._webmcp_watchdog = WebMCPWatchdog(event_bus=self.event_bus, browser_session=self)
+			self._webmcp_watchdog.attach_to_session()
+			self.logger.debug('WebMCP tool discovery enabled')
+
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True
 
