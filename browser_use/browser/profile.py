@@ -814,6 +814,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				logger.info('⌨️  Enabling realistic typing speed (50-150ms) via BROWSER_USE_REALISTIC_TYPING')
 				self.typing_delay_min = 0.05
 				self.typing_delay_max = 0.15
+
 	def _copy_profile(self) -> None:
 		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
 		if self.user_data_dir is None:

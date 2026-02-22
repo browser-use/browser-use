@@ -55,6 +55,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		sigma = 0.4
 		delay = random.lognormvariate(mu, sigma)
 		return max(min_d, min(delay, max_d * 3.3))
+
 	async def _execute_click_with_download_detection(
 		self,
 		click_coro,

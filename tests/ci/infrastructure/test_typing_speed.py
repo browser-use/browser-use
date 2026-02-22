@@ -1,11 +1,7 @@
 """Tests for realistic typing speed configuration."""
 
 import os
-import math
-import random
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from browser_use.browser.profile import BrowserProfile
 
