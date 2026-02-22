@@ -24,7 +24,7 @@ class GroceryCart(BaseModel):
 async def add_to_cart(items: list[str] = ['milk', 'eggs', 'bread']):
 	browser = Browser(cdp_url='http://localhost:9222')
 
-	llm = ChatBrowserUse()
+	llm = ChatBrowserUse(model='bu-2-0')
 
 	# Task prompt
 	task = f"""

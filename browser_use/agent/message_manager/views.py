@@ -94,5 +94,8 @@ class MessageManagerState(BaseModel):
 	read_state_description: str = ''
 	# Images to include in the next state message (cleared after each step)
 	read_state_images: list[dict[str, Any]] = Field(default_factory=list)
+	compacted_memory: str | None = None
+	compaction_count: int = 0
+	last_compaction_step: int | None = None
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)

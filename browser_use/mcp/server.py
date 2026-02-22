@@ -26,8 +26,6 @@ Or as an MCP server in Claude Desktop or other MCP clients:
 import os
 import sys
 
-from browser_use.llm import ChatAWSBedrock
-
 # Set environment variables BEFORE any browser_use imports to prevent early logging
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
 os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
@@ -38,6 +36,8 @@ import logging
 import time
 from pathlib import Path
 from typing import Any
+
+from browser_use.llm import ChatAWSBedrock
 
 # Configure logging for MCP mode - redirect to stderr but preserve critical diagnostics
 logging.basicConfig(
@@ -232,13 +232,21 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_click',
-					description='Click an element on the page by its index',
+					description='Click an element by index or at specific viewport coordinates. Use index for elements from browser_get_state, or coordinate_x/coordinate_y for pixel-precise clicking.',
 					inputSchema={
 						'type': 'object',
 						'properties': {
 							'index': {
 								'type': 'integer',
-								'description': 'The index of the link or element to click (from browser_get_state)',
+								'description': 'The index of the element to click (from browser_get_state). Use this OR coordinates.',
+							},
+							'coordinate_x': {
+								'type': 'integer',
+								'description': 'X coordinate (pixels from left edge of viewport). Use with coordinate_y.',
+							},
+							'coordinate_y': {
+								'type': 'integer',
+								'description': 'Y coordinate (pixels from top edge of viewport). Use with coordinate_x.',
 							},
 							'new_tab': {
 								'type': 'boolean',
@@ -246,7 +254,10 @@ class BrowserUseServer:
 								'default': False,
 							},
 						},
-						'required': ['index'],
+						'oneOf': [
+							{'required': ['index']},
+							{'required': ['coordinate_x', 'coordinate_y']},
+						],
 					},
 				),
 				types.Tool(
@@ -292,6 +303,33 @@ class BrowserUseServer:
 							},
 						},
 						'required': ['query'],
+					},
+				),
+				types.Tool(
+					name='browser_get_html',
+					description='Get the raw HTML of the current page or a specific element by CSS selector',
+					inputSchema={
+						'type': 'object',
+						'properties': {
+							'selector': {
+								'type': 'string',
+								'description': 'Optional CSS selector to get HTML of a specific element. If omitted, returns full page HTML.',
+							},
+						},
+					},
+				),
+				types.Tool(
+					name='browser_screenshot',
+					description='Take a screenshot of the current page. Returns base64-encoded image with viewport dimensions.',
+					inputSchema={
+						'type': 'object',
+						'properties': {
+							'full_page': {
+								'type': 'boolean',
+								'description': 'Whether to capture the full scrollable page or just the visible viewport',
+								'default': False,
+							},
+						},
 					},
 				),
 				types.Tool(
@@ -474,13 +512,24 @@ class BrowserUseServer:
 				return await self._navigate(arguments['url'], arguments.get('new_tab', False))
 
 			elif tool_name == 'browser_click':
-				return await self._click(arguments['index'], arguments.get('new_tab', False))
+				return await self._click(
+					index=arguments.get('index'),
+					coordinate_x=arguments.get('coordinate_x'),
+					coordinate_y=arguments.get('coordinate_y'),
+					new_tab=arguments.get('new_tab', False),
+				)
 
 			elif tool_name == 'browser_type':
 				return await self._type_text(arguments['index'], arguments['text'])
 
 			elif tool_name == 'browser_get_state':
 				return await self._get_browser_state(arguments.get('include_screenshot', False))
+
+			elif tool_name == 'browser_get_html':
+				return await self._get_html(arguments.get('selector'))
+
+			elif tool_name == 'browser_screenshot':
+				return await self._screenshot(arguments.get('full_page', False))
 
 			elif tool_name == 'browser_extract_content':
 				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
@@ -693,13 +742,33 @@ class BrowserUseServer:
 			await event
 			return f'Navigated to: {url}'
 
-	async def _click(self, index: int, new_tab: bool = False) -> str:
-		"""Click an element by index."""
+	async def _click(
+		self,
+		index: int | None = None,
+		coordinate_x: int | None = None,
+		coordinate_y: int | None = None,
+		new_tab: bool = False,
+	) -> str:
+		"""Click an element by index or at viewport coordinates."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
 		# Update session activity
 		self._update_session_activity(self.browser_session.id)
+
+		# Coordinate-based clicking
+		if coordinate_x is not None and coordinate_y is not None:
+			from browser_use.browser.events import ClickCoordinateEvent
+
+			event = self.browser_session.event_bus.dispatch(
+				ClickCoordinateEvent(coordinate_x=coordinate_x, coordinate_y=coordinate_y)
+			)
+			await event
+			return f'Clicked at coordinates ({coordinate_x}, {coordinate_y})'
+
+		# Index-based clicking
+		if index is None:
+			return 'Error: Provide either index or both coordinate_x and coordinate_y'
 
 		# Get the element
 		element = await self.browser_session.get_dom_element_by_index(index)
@@ -730,7 +799,6 @@ class BrowserUseServer:
 				return f'Clicked element {index} and opened in new tab {full_url[:20]}...'
 			else:
 				# For non-link elements, just do a normal click
-				# Opening in new tab without href is not reliably supported
 				from browser_use.browser.events import ClickElementEvent
 
 				event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
@@ -797,16 +865,32 @@ class BrowserUseServer:
 
 		state = await self.browser_session.get_browser_state_summary()
 
-		result = {
+		result: dict[str, Any] = {
 			'url': state.url,
 			'title': state.title,
 			'tabs': [{'url': tab.url, 'title': tab.title} for tab in state.tabs],
 			'interactive_elements': [],
 		}
 
+		# Add viewport info so the LLM knows the coordinate space
+		if state.page_info:
+			pi = state.page_info
+			result['viewport'] = {
+				'width': pi.viewport_width,
+				'height': pi.viewport_height,
+			}
+			result['page'] = {
+				'width': pi.page_width,
+				'height': pi.page_height,
+			}
+			result['scroll'] = {
+				'x': pi.scroll_x,
+				'y': pi.scroll_y,
+			}
+
 		# Add interactive elements with their indices
 		for index, element in state.dom_state.selector_map.items():
-			elem_info = {
+			elem_info: dict[str, Any] = {
 				'index': index,
 				'tag': element.tag_name,
 				'text': element.get_all_children_text(max_depth=2)[:100],
@@ -819,8 +903,66 @@ class BrowserUseServer:
 
 		if include_screenshot and state.screenshot:
 			result['screenshot'] = state.screenshot
+			# Include viewport dimensions with screenshot so LLM can map pixels to coordinates
+			if state.page_info:
+				result['screenshot_dimensions'] = {
+					'width': state.page_info.viewport_width,
+					'height': state.page_info.viewport_height,
+				}
 
 		return json.dumps(result, indent=2)
+
+	async def _get_html(self, selector: str | None = None) -> str:
+		"""Get raw HTML of the page or a specific element."""
+		if not self.browser_session:
+			return 'Error: No browser session active'
+
+		self._update_session_activity(self.browser_session.id)
+
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
+		if not cdp_session:
+			return 'Error: No active CDP session'
+
+		if selector:
+			js = (
+				f'(function(){{ const el = document.querySelector({json.dumps(selector)}); return el ? el.outerHTML : null; }})()'
+			)
+		else:
+			js = 'document.documentElement.outerHTML'
+
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': js, 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		html = result.get('result', {}).get('value')
+		if html is None:
+			return f'No element found for selector: {selector}' if selector else 'Error: Could not get page HTML'
+		return html
+
+	async def _screenshot(self, full_page: bool = False) -> str:
+		"""Take a screenshot and return base64 with dimensions."""
+		if not self.browser_session:
+			return 'Error: No browser session active'
+
+		import base64
+
+		self._update_session_activity(self.browser_session.id)
+
+		data = await self.browser_session.take_screenshot(full_page=full_page)
+		b64 = base64.b64encode(data).decode()
+
+		# Get viewport dimensions
+		state = await self.browser_session.get_browser_state_summary()
+		result: dict[str, Any] = {
+			'screenshot': b64,
+			'size_bytes': len(data),
+		}
+		if state.page_info:
+			result['viewport'] = {
+				'width': state.page_info.viewport_width,
+				'height': state.page_info.viewport_height,
+			}
+		return json.dumps(result)
 
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
 		"""Extract content from current page."""

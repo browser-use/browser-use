@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.11.2"
+version = "0.11.11"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -11,7 +11,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiohttp==3.12.15",
+    "aiohttp>=3.13.3",
     "anyio>=4.9.0",
     "bubus>=1.5.6",
     "click>=8.1.8",
@@ -92,8 +92,11 @@ all = ["browser-use[cli,examples,aws,oci]"]
 Repository = "https://github.com/browser-use/browser-use"
 
 [project.scripts]
-browseruse = "browser_use.cli:main"
-browser-use = "browser_use.cli:main"
+browser-use = "browser_use.skill_cli.main:main"  # Fast CLI for browser automation
+browseruse = "browser_use.skill_cli.main:main"  # Alias for browser-use
+bu = "browser_use.skill_cli.main:main"  # Alias for browser-use
+browser = "browser_use.skill_cli.main:main"  # Alias for browser-use
+browser-use-tui = "browser_use.cli:main"  # Legacy TUI interface
 
 [build-system]
 requires = ["hatchling"]

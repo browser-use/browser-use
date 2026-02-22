@@ -37,7 +37,7 @@ async def pydantic_example(browser: Browser):
 	agent = Agent(
 		"""go and check my ip address and the location. return the result in json format""",
 		browser=browser,
-		llm=ChatBrowserUse(),
+		llm=ChatBrowserUse(model='bu-2-0'),
 	)
 	res = await agent.run()
 

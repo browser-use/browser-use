@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Generic, TypeVar
 
+import anyio
+
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
@@ -40,12 +42,16 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	ExtractAction,
+	FindElementsAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	ReadContentAction,
+	ScreenshotAction,
 	ScrollAction,
 	SearchAction,
+	SearchPageAction,
 	SelectDropdownOptionAction,
 	SendKeysAction,
 	StructuredOutputAction,
@@ -102,6 +108,240 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 	raise e
 
 
+# --- JS templates for search_page and find_elements ---
+
+_SEARCH_PAGE_JS_BODY = """\
+try {
+	var scope = CSS_SCOPE ? document.querySelector(CSS_SCOPE) : document.body;
+	if (!scope) {
+		return {error: 'CSS scope selector not found: ' + CSS_SCOPE, matches: [], total: 0};
+	}
+	var walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+	var fullText = '';
+	var nodeOffsets = [];
+	while (walker.nextNode()) {
+		var node = walker.currentNode;
+		var text = node.textContent;
+		if (text && text.trim()) {
+			nodeOffsets.push({offset: fullText.length, length: text.length, node: node});
+			fullText += text;
+		}
+	}
+	var re;
+	try {
+		var flags = CASE_SENSITIVE ? 'g' : 'gi';
+		if (IS_REGEX) {
+			re = new RegExp(PATTERN, flags);
+		} else {
+			re = new RegExp(PATTERN.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'), flags);
+		}
+	} catch (e) {
+		return {error: 'Invalid regex pattern: ' + e.message, matches: [], total: 0};
+	}
+	var matches = [];
+	var match;
+	var totalFound = 0;
+	while ((match = re.exec(fullText)) !== null) {
+		totalFound++;
+		if (matches.length < MAX_RESULTS) {
+			var start = Math.max(0, match.index - CONTEXT_CHARS);
+			var end = Math.min(fullText.length, match.index + match[0].length + CONTEXT_CHARS);
+			var context = fullText.slice(start, end);
+			var elementPath = '';
+			for (var i = 0; i < nodeOffsets.length; i++) {
+				var no = nodeOffsets[i];
+				if (no.offset <= match.index && no.offset + no.length > match.index) {
+					elementPath = _getPath(no.node.parentElement);
+					break;
+				}
+			}
+			matches.push({
+				match_text: match[0],
+				context: (start > 0 ? '...' : '') + context + (end < fullText.length ? '...' : ''),
+				element_path: elementPath,
+				char_position: match.index
+			});
+		}
+		if (match[0].length === 0) re.lastIndex++;
+	}
+	return {matches: matches, total: totalFound, has_more: totalFound > MAX_RESULTS};
+} catch (e) {
+	return {error: 'search_page error: ' + e.message, matches: [], total: 0};
+}
+function _getPath(el) {
+	var parts = [];
+	var current = el;
+	while (current && current !== document.body && current !== document) {
+		var desc = current.tagName ? current.tagName.toLowerCase() : '';
+		if (!desc) break;
+		if (current.id) desc += '#' + current.id;
+		else if (current.className && typeof current.className === 'string') {
+			var classes = current.className.trim().split(/\\s+/).slice(0, 2).join('.');
+			if (classes) desc += '.' + classes;
+		}
+		parts.unshift(desc);
+		current = current.parentElement;
+	}
+	return parts.join(' > ');
+}
+"""
+
+_FIND_ELEMENTS_JS_BODY = """\
+try {
+	var elements;
+	try {
+		elements = document.querySelectorAll(SELECTOR);
+	} catch (e) {
+		return {error: 'Invalid CSS selector: ' + e.message, elements: [], total: 0};
+	}
+	var total = elements.length;
+	var limit = Math.min(total, MAX_RESULTS);
+	var results = [];
+	for (var i = 0; i < limit; i++) {
+		var el = elements[i];
+		var item = {index: i, tag: el.tagName.toLowerCase()};
+		if (INCLUDE_TEXT) {
+			var text = (el.textContent || '').trim();
+			item.text = text.length > 300 ? text.slice(0, 300) + '...' : text;
+		}
+		if (ATTRIBUTES && ATTRIBUTES.length > 0) {
+			item.attrs = {};
+			for (var j = 0; j < ATTRIBUTES.length; j++) {
+				var val = el.getAttribute(ATTRIBUTES[j]);
+				if (val !== null) {
+					item.attrs[ATTRIBUTES[j]] = val.length > 500 ? val.slice(0, 500) + '...' : val;
+				}
+			}
+		}
+		item.children_count = el.children.length;
+		results.push(item);
+	}
+	return {elements: results, total: total, showing: limit};
+} catch (e) {
+	return {error: 'find_elements error: ' + e.message, elements: [], total: 0};
+}
+"""
+
+
+def _build_search_page_js(
+	pattern: str,
+	regex: bool,
+	case_sensitive: bool,
+	context_chars: int,
+	css_scope: str | None,
+	max_results: int,
+) -> str:
+	"""Build JS IIFE for search_page with safe parameter injection."""
+	params_js = (
+		f'var PATTERN = {json.dumps(pattern)};\n'
+		f'var IS_REGEX = {json.dumps(regex)};\n'
+		f'var CASE_SENSITIVE = {json.dumps(case_sensitive)};\n'
+		f'var CONTEXT_CHARS = {json.dumps(context_chars)};\n'
+		f'var CSS_SCOPE = {json.dumps(css_scope)};\n'
+		f'var MAX_RESULTS = {json.dumps(max_results)};\n'
+	)
+	return '(function() {\n' + params_js + _SEARCH_PAGE_JS_BODY + '\n})()'
+
+
+def _build_find_elements_js(
+	selector: str,
+	attributes: list[str] | None,
+	max_results: int,
+	include_text: bool,
+) -> str:
+	"""Build JS IIFE for find_elements with safe parameter injection."""
+	params_js = (
+		f'var SELECTOR = {json.dumps(selector)};\n'
+		f'var ATTRIBUTES = {json.dumps(attributes)};\n'
+		f'var MAX_RESULTS = {json.dumps(max_results)};\n'
+		f'var INCLUDE_TEXT = {json.dumps(include_text)};\n'
+	)
+	return '(function() {\n' + params_js + _FIND_ELEMENTS_JS_BODY + '\n})()'
+
+
+def _format_search_results(data: dict, pattern: str) -> str:
+	"""Format search_page CDP result into human-readable text for the agent."""
+	if not isinstance(data, dict):
+		return f'search_page returned unexpected result: {data}'
+
+	matches = data.get('matches', [])
+	total = data.get('total', 0)
+	has_more = data.get('has_more', False)
+
+	if total == 0:
+		return f'No matches found for "{pattern}" on page.'
+
+	lines = [f'Found {total} match{"es" if total != 1 else ""} for "{pattern}" on page:']
+	lines.append('')
+	for i, m in enumerate(matches):
+		context = m.get('context', '')
+		path = m.get('element_path', '')
+		loc = f' (in {path})' if path else ''
+		lines.append(f'[{i + 1}] {context}{loc}')
+
+	if has_more:
+		lines.append(f'\n... showing {len(matches)} of {total} total matches. Increase max_results to see more.')
+
+	return '\n'.join(lines)
+
+
+def _format_find_results(data: dict, selector: str) -> str:
+	"""Format find_elements CDP result into human-readable text for the agent."""
+	if not isinstance(data, dict):
+		return f'find_elements returned unexpected result: {data}'
+
+	elements = data.get('elements', [])
+	total = data.get('total', 0)
+	showing = data.get('showing', 0)
+
+	if total == 0:
+		return f'No elements found matching "{selector}".'
+
+	lines = [f'Found {total} element{"s" if total != 1 else ""} matching "{selector}":']
+	lines.append('')
+	for el in elements:
+		idx = el.get('index', 0)
+		tag = el.get('tag', '?')
+		text = el.get('text', '')
+		attrs = el.get('attrs', {})
+		children = el.get('children_count', 0)
+
+		# Build element description
+		parts = [f'[{idx}] <{tag}>']
+		if text:
+			# Collapse whitespace for readability
+			display_text = ' '.join(text.split())
+			if len(display_text) > 120:
+				display_text = display_text[:120] + '...'
+			parts.append(f'"{display_text}"')
+		if attrs:
+			attr_strs = [f'{k}="{v}"' for k, v in attrs.items()]
+			parts.append('{' + ', '.join(attr_strs) + '}')
+		parts.append(f'({children} children)')
+		lines.append(' '.join(parts))
+
+	if showing < total:
+		lines.append(f'\nShowing {showing} of {total} total elements. Increase max_results to see more.')
+
+	return '\n'.join(lines)
+
+
+def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
+	"""Detect if a node is an autocomplete/combobox field from its attributes."""
+	attrs = node.attributes or {}
+	if attrs.get('role') == 'combobox':
+		return True
+	aria_ac = attrs.get('aria-autocomplete', '')
+	if aria_ac and aria_ac != 'none':
+		return True
+	if attrs.get('list'):
+		return True
+	haspopup = attrs.get('aria-haspopup', '')
+	if haspopup and haspopup != 'false' and (attrs.get('aria-controls') or attrs.get('aria-owns')):
+		return True
+	return False
+
+
 class Tools(Generic[Context]):
 	def __init__(
 		self,
@@ -122,6 +362,7 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			'',
 			param_model=SearchAction,
+			terminates_sequence=True,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
 			import urllib.parse
@@ -165,6 +406,7 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			'',
 			param_model=NavigateAction,
+			terminates_sequence=True,
 		)
 		async def navigate(params: NavigateAction, browser_session: BrowserSession):
 			try:
@@ -209,7 +451,7 @@ class Tools(Generic[Context]):
 					# Return error in ActionResult instead of re-raising
 					return ActionResult(error=f'Navigation failed: {str(e)}')
 
-		@self.registry.action('Go back', param_model=NoParamsAction)
+		@self.registry.action('Go back', param_model=NoParamsAction, terminates_sequence=True)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
@@ -255,6 +497,27 @@ class Tools(Generic[Context]):
 			return llm_x, llm_y
 
 		# Element Interaction Actions
+		async def _detect_new_tab_opened(
+			browser_session: BrowserSession,
+			tabs_before: set[str],
+		) -> str:
+			"""Detect if a click opened a new tab, and return a note for the agent.
+			Waits briefly for CDP events to propagate, then checks if any new tabs appeared.
+			"""
+			try:
+				# Brief delay to allow CDP Target.attachedToTarget events to propagate
+				# and be processed by SessionManager._handle_target_attached
+				await asyncio.sleep(0.05)
+
+				tabs_after = await browser_session.get_tabs()
+				new_tabs = [t for t in tabs_after if t.target_id not in tabs_before]
+				if new_tabs:
+					new_tab_id = new_tabs[0].target_id[-4:]
+					return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+			except Exception:
+				pass
+			return ''
+
 		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
 			# Ensure coordinates are provided (type safety)
 			if params.coordinate_x is None or params.coordinate_y is None:
@@ -265,6 +528,9 @@ class Tools(Generic[Context]):
 				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
 					params.coordinate_x, params.coordinate_y, browser_session
 				)
+
+				# Capture tab IDs before click to detect new tabs
+				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
 
 				# Highlight the coordinate being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
@@ -283,8 +549,8 @@ class Tools(Generic[Context]):
 					return ActionResult(error=error_msg)
 
 				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}'
-				msg = f'🖱️ {memory}'
-				logger.info(msg)
+				memory += await _detect_new_tab_opened(browser_session, tabs_before)
+				logger.info(f'🖱️ {memory}')
 
 				return ActionResult(
 					extracted_content=memory,
@@ -315,6 +581,9 @@ class Tools(Generic[Context]):
 				# Get description of clicked element
 				element_desc = get_click_description(node)
 
+				# Capture tab IDs before click to detect new tabs
+				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
+
 				# Highlight the element being clicked (truly non-blocking)
 				create_task_with_error_handling(
 					browser_session.highlight_interaction_element(node), name='highlight_click_element', suppress_exceptions=True
@@ -342,6 +611,7 @@ class Tools(Generic[Context]):
 
 				# Build memory with element info
 				memory = f'Clicked {element_desc}'
+				memory += await _detect_new_tab_opened(browser_session, tabs_before)
 				logger.info(f'🖱️ {memory}')
 
 				# Include click coordinates in metadata if available
@@ -417,6 +687,23 @@ class Tools(Generic[Context]):
 
 				logger.debug(log_msg)
 
+				# Check for value mismatch (non-sensitive only)
+				actual_value = None
+				if isinstance(input_metadata, dict):
+					actual_value = input_metadata.pop('actual_value', None)
+
+				if not has_sensitive_data and actual_value is not None and actual_value != params.text:
+					msg += f"\n⚠️ Note: the field's actual value '{actual_value}' differs from typed text '{params.text}'. The page may have reformatted or autocompleted your input."
+
+				# Check for autocomplete/combobox field — add mechanical delay for dropdown
+				if _is_autocomplete_field(node):
+					msg += '\n💡 This is an autocomplete field. Wait for suggestions to appear, then click the correct suggestion instead of pressing Enter.'
+					# Only delay for true JS-driven autocomplete (combobox / aria-autocomplete),
+					# not native <datalist> or loose aria-haspopup which the browser handles instantly
+					attrs = node.attributes or {}
+					if attrs.get('role') == 'combobox' or (attrs.get('aria-autocomplete', '') not in ('', 'none')):
+						await asyncio.sleep(0.4)  # let JS dropdown populate before next action
+
 				# Include input coordinates in metadata if available
 				return ActionResult(
 					extracted_content=msg,
@@ -469,10 +756,14 @@ class Tools(Generic[Context]):
 							msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
 							raise BrowserError(message=msg, long_term_memory=msg)
 
-			# For local browsers, ensure the file exists on the local filesystem
+			# For local browsers, ensure the file exists and has content
 			if browser_session.is_local:
 				if not os.path.exists(params.path):
 					msg = f'File {params.path} does not exist'
+					return ActionResult(error=msg)
+				file_size = os.path.getsize(params.path)
+				if file_size == 0:
+					msg = f'File {params.path} is empty (0 bytes). The file may not have been saved correctly.'
 					return ActionResult(error=msg)
 
 			# Get the selector map to find the node
@@ -601,6 +892,7 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			'Switch to another open tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use when you need to work with content in a different tab.',
 			param_model=SwitchTabAction,
+			terminates_sequence=True,
 		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
@@ -661,12 +953,29 @@ class Tools(Generic[Context]):
 			browser_session: BrowserSession,
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
+			extraction_schema: dict | None = None,
 		):
 			# Constants
-			MAX_CHAR_LIMIT = 30000
+			MAX_CHAR_LIMIT = 100000
 			query = params['query'] if isinstance(params, dict) else params.query
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
+			output_schema: dict | None = params.get('output_schema') if isinstance(params, dict) else params.output_schema
+
+			# If the LLM didn't provide an output_schema, use the agent-injected extraction_schema
+			if output_schema is None and extraction_schema is not None:
+				output_schema = extraction_schema
+
+			# Attempt to convert output_schema to a pydantic model upfront; fall back to free-text on failure
+			structured_model: type[BaseModel] | None = None
+			if output_schema is not None:
+				try:
+					from browser_use.tools.extraction.schema_utils import schema_dict_to_pydantic_model
+
+					structured_model = schema_dict_to_pydantic_model(output_schema)
+				except (ValueError, TypeError) as exc:
+					logger.warning(f'Invalid output_schema, falling back to free-text extraction: {exc}')
+					output_schema = None
 
 			# Extract clean markdown using the unified method
 			try:
@@ -681,35 +990,29 @@ class Tools(Generic[Context]):
 			# Original content length for processing
 			final_filtered_length = content_stats['final_filtered_chars']
 
+			# Structure-aware chunking replaces naive char-based truncation
+			from browser_use.dom.markdown_extractor import chunk_markdown_by_structure
+
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=MAX_CHAR_LIMIT, start_from_char=start_from_char)
+			if not chunks:
+				return ActionResult(
+					error=f'start_from_char ({start_from_char}) exceeds content length {final_filtered_length} characters.'
+				)
+			chunk = chunks[0]
+			content = chunk.content
+			truncated = chunk.has_more
+
+			# Prepend overlap context for continuation chunks (e.g. table headers)
+			if chunk.overlap_prefix:
+				content = chunk.overlap_prefix + '\n' + content
+
 			if start_from_char > 0:
-				if start_from_char >= len(content):
-					return ActionResult(
-						error=f'start_from_char ({start_from_char}) exceeds content length {final_filtered_length} characters.'
-					)
-				content = content[start_from_char:]
 				content_stats['started_from_char'] = start_from_char
-
-			# Smart truncation with context preservation
-			truncated = False
-			if len(content) > MAX_CHAR_LIMIT:
-				# Try to truncate at a natural break point (paragraph, sentence)
-				truncate_at = MAX_CHAR_LIMIT
-
-				# Look for paragraph break within last 500 chars of limit
-				paragraph_break = content.rfind('\n\n', MAX_CHAR_LIMIT - 500, MAX_CHAR_LIMIT)
-				if paragraph_break > 0:
-					truncate_at = paragraph_break
-				else:
-					# Look for sentence break within last 200 chars of limit
-					sentence_break = content.rfind('.', MAX_CHAR_LIMIT - 200, MAX_CHAR_LIMIT)
-					if sentence_break > 0:
-						truncate_at = sentence_break + 1
-
-				content = content[:truncate_at]
-				truncated = True
-				next_start = (start_from_char or 0) + truncate_at
-				content_stats['truncated_at_char'] = truncate_at
-				content_stats['next_start_char'] = next_start
+			if truncated:
+				content_stats['truncated_at_char'] = chunk.char_offset_end
+				content_stats['next_start_char'] = chunk.char_offset_end
+				content_stats['chunk_index'] = chunk.chunk_index
+				content_stats['total_chunks'] = chunk.total_chunks
 
 			# Add content statistics to the result
 			original_html_length = content_stats['original_html_chars']
@@ -720,10 +1023,89 @@ class Tools(Generic[Context]):
 			if start_from_char > 0:
 				stats_summary += f' (started from char {start_from_char:,})'
 			if truncated:
-				stats_summary += f' → {len(content):,} final chars (truncated, use start_from_char={content_stats["next_start_char"]} to continue)'
+				chunk_info = f'chunk {chunk.chunk_index + 1} of {chunk.total_chunks}, '
+				stats_summary += f' → {len(content):,} final chars ({chunk_info}use start_from_char={content_stats["next_start_char"]} to continue)'
 			elif chars_filtered > 0:
 				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
 
+			# Sanitize surrogates from content to prevent UTF-8 encoding errors
+			content = sanitize_surrogates(content)
+			query = sanitize_surrogates(query)
+
+			# --- Structured extraction path ---
+			if structured_model is not None:
+				assert output_schema is not None
+				system_prompt = """
+You are an expert at extracting structured data from the markdown of a webpage.
+
+<input>
+You will be given a query, a JSON Schema, and the markdown of a webpage that has been filtered to remove noise and advertising content.
+</input>
+
+<instructions>
+- Extract ONLY information present in the webpage. Do not guess or fabricate values.
+- Your response MUST conform to the provided JSON Schema exactly.
+- If a required field's value cannot be found on the page, use null (if the schema allows it) or an empty string / empty array as appropriate.
+- If the content was truncated, extract what is available from the visible portion.
+</instructions>
+""".strip()
+
+				schema_json = json.dumps(output_schema, indent=2)
+				prompt = (
+					f'<query>\n{query}\n</query>\n\n'
+					f'<output_schema>\n{schema_json}\n</output_schema>\n\n'
+					f'<content_stats>\n{stats_summary}\n</content_stats>\n\n'
+					f'<webpage_content>\n{content}\n</webpage_content>'
+				)
+
+				try:
+					response = await asyncio.wait_for(
+						page_extraction_llm.ainvoke(
+							[SystemMessage(content=system_prompt), UserMessage(content=prompt)],
+							output_format=structured_model,
+						),
+						timeout=120.0,
+					)
+
+					# response.completion is a pydantic model instance
+					result_data: dict = response.completion.model_dump(mode='json')  # type: ignore[union-attr]
+					result_json = json.dumps(result_data)
+
+					current_url = await browser_session.get_current_page_url()
+					extracted_content = f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<structured_result>\n{result_json}\n</structured_result>'
+
+					from browser_use.tools.extraction.views import ExtractionResult
+
+					extraction_meta = ExtractionResult(
+						data=result_data,
+						schema_used=output_schema,
+						is_partial=truncated,
+						source_url=current_url,
+						content_stats=content_stats,
+					)
+
+					# Simple memory handling
+					MAX_MEMORY_LENGTH = 10000
+					if len(extracted_content) < MAX_MEMORY_LENGTH:
+						memory = extracted_content
+						include_extracted_content_only_once = False
+					else:
+						file_name = await file_system.save_extracted_content(extracted_content)
+						memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
+						include_extracted_content_only_once = True
+
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=extracted_content,
+						include_extracted_content_only_once=include_extracted_content_only_once,
+						long_term_memory=memory,
+						metadata={'structured_extraction': True, 'extraction_result': extraction_meta.model_dump(mode='json')},
+					)
+				except Exception as e:
+					logger.debug(f'Error in structured extraction: {e}')
+					raise RuntimeError(str(e))
+
+			# --- Free-text extraction path (default) ---
 			system_prompt = """
 You are an expert at extracting data from the markdown of a webpage.
 
@@ -745,10 +1127,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 </output>
 """.strip()
 
-			# Sanitize surrogates from content to prevent UTF-8 encoding errors
-			content = sanitize_surrogates(content)
-			query = sanitize_surrogates(query)
-
 			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
 
 			try:
@@ -763,7 +1141,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 				# Simple memory handling
-				MAX_MEMORY_LENGTH = 1000
+				MAX_MEMORY_LENGTH = 10000
 				if len(extracted_content) < MAX_MEMORY_LENGTH:
 					memory = extracted_content
 					include_extracted_content_only_once = False
@@ -782,8 +1160,82 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				logger.debug(f'Error extracting content: {e}')
 				raise RuntimeError(str(e))
 
+		# --- Page search and exploration tools (zero LLM cost) ---
+
 		@self.registry.action(
-			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
+			"""Search page text for a pattern (like grep). Zero LLM cost, instant. Returns matches with surrounding context. Use to find specific text, verify content exists, or locate data on the page. Set regex=True for regex patterns. Use css_scope to search within a specific section.""",
+			param_model=SearchPageAction,
+		)
+		async def search_page(params: SearchPageAction, browser_session: BrowserSession):
+			js_code = _build_search_page_js(
+				pattern=params.pattern,
+				regex=params.regex,
+				case_sensitive=params.case_sensitive,
+				context_chars=params.context_chars,
+				css_scope=params.css_scope,
+				max_results=params.max_results,
+			)
+
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': js_code, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
+
+			if result.get('exceptionDetails'):
+				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
+				return ActionResult(error=f'search_page failed: {error_text}')
+
+			data = result.get('result', {}).get('value')
+			if data is None:
+				return ActionResult(error='search_page returned no result')
+
+			if isinstance(data, dict) and data.get('error'):
+				return ActionResult(error=f'search_page: {data["error"]}')
+
+			formatted = _format_search_results(data, params.pattern)
+			total = data.get('total', 0)
+			memory = f'Searched page for "{params.pattern}": {total} match{"es" if total != 1 else ""} found.'
+			logger.info(f'🔎 {memory}')
+			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+
+		@self.registry.action(
+			"""Query DOM elements by CSS selector (like find). Zero LLM cost, instant. Returns matching elements with tag, text, and attributes. Use to explore page structure, count items, get links/attributes. Use attributes=["href","src"] to extract specific attributes.""",
+			param_model=FindElementsAction,
+		)
+		async def find_elements(params: FindElementsAction, browser_session: BrowserSession):
+			js_code = _build_find_elements_js(
+				selector=params.selector,
+				attributes=params.attributes,
+				max_results=params.max_results,
+				include_text=params.include_text,
+			)
+
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': js_code, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
+
+			if result.get('exceptionDetails'):
+				error_text = result['exceptionDetails'].get('text', 'Unknown JS error')
+				return ActionResult(error=f'find_elements failed: {error_text}')
+
+			data = result.get('result', {}).get('value')
+			if data is None:
+				return ActionResult(error='find_elements returned no result')
+
+			if isinstance(data, dict) and data.get('error'):
+				return ActionResult(error=f'find_elements: {data["error"]}')
+
+			formatted = _format_find_results(data, params.selector)
+			total = data.get('total', 0)
+			memory = f'Found {total} element{"s" if total != 1 else ""} matching "{params.selector}".'
+			logger.info(f'🔍 {memory}')
+			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+
+		@self.registry.action(
+			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -928,20 +1380,42 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 		@self.registry.action(
-			'Get a screenshot of the current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot is included in the next browser_state No parameters are needed.',
-			param_model=NoParamsAction,
+			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
+			'Otherwise, screenshot is included in the next browser_state observation.',
+			param_model=ScreenshotAction,
 		)
-		async def screenshot(_: NoParamsAction):
-			"""Request that a screenshot be included in the next observation"""
-			memory = 'Requested screenshot for next observation'
-			msg = f'📸 {memory}'
-			logger.info(msg)
+		async def screenshot(
+			params: ScreenshotAction,
+			browser_session: BrowserSession,
+			file_system: FileSystem,
+		):
+			"""Take screenshot, optionally saving to file."""
+			if params.file_name:
+				# Save screenshot to file
+				file_name = params.file_name
+				if not file_name.lower().endswith('.png'):
+					file_name = f'{file_name}.png'
+				file_name = FileSystem.sanitize_filename(file_name)
 
-			# Return flag in metadata to signal that screenshot should be included
-			return ActionResult(
-				extracted_content=memory,
-				metadata={'include_screenshot': True},
-			)
+				screenshot_bytes = await browser_session.take_screenshot(full_page=False)
+				file_path = file_system.get_dir() / file_name
+				file_path.write_bytes(screenshot_bytes)
+
+				result = f'Screenshot saved to {file_name}'
+				logger.info(f'📸 {result}. Full path: {file_path}')
+				return ActionResult(
+					extracted_content=result,
+					long_term_memory=f'{result}. Full path: {file_path}',
+					attachments=[str(file_path)],
+				)
+			else:
+				# Flag for next observation
+				memory = 'Requested screenshot for next observation'
+				logger.info(f'📸 {memory}')
+				return ActionResult(
+					extracted_content=memory,
+					metadata={'include_screenshot': True},
+				)
 
 		# Dropdown Actions
 
@@ -1021,7 +1495,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# File System Actions
 
 		@self.registry.action(
-			'Write content to a file in the local file system. Use this to create new files or overwrite entire file contents. For targeted edits within existing files, use replace_file instead. Supports alphanumeric filename and file extension formats: .txt, .md, .json, .jsonl, .csv, .pdf. For PDF files, write content in markdown format and it will be automatically converted to a properly formatted PDF document.'
+			'Write content to a file. By default this OVERWRITES the entire file - use append=true to add to an existing file, or use replace_file for targeted edits within a file. '
+			'FILENAME RULES: Use only letters, numbers, underscores, hyphens, dots, parentheses. Spaces are auto-converted to hyphens. '
+			'SUPPORTED EXTENSIONS: .txt, .md, .json, .jsonl, .csv, .html, .xml, .pdf, .docx. '
+			'CANNOT write binary/image files (.png, .jpg, .mp4, etc.) - do not attempt to save screenshots as files. '
+			'For PDF files, write content in markdown format and it will be auto-converted to PDF.'
 		)
 		async def write_file(
 			file_name: str,
@@ -1040,8 +1518,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			else:
 				result = await file_system.write_file(file_name, content)
 
-			# Log the full path where the file is stored
-			file_path = file_system.get_dir() / file_name
+			# Log the full path where the file is stored (use resolved name)
+			resolved_name, _ = file_system._resolve_filename(file_name)
+			file_path = file_system.get_dir() / resolved_name
 			logger.info(f'💾 {result} File location: {file_path}')
 
 			return ActionResult(extracted_content=result, long_term_memory=result)
@@ -1092,8 +1571,278 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				include_extracted_content_only_once=True,
 			)
 
+		# Intelligent content reading
+
 		@self.registry.action(
-			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
+			'Intelligently read long content to find specific information. Works on current page (source="page") or files. For large content, uses search to identify relevant sections. Best for long articles, documents, or any content where you know what you are looking for.',
+			param_model=ReadContentAction,
+		)
+		async def read_long_content(
+			params: ReadContentAction,
+			browser_session: BrowserSession,
+			page_extraction_llm: BaseChatModel,
+			available_file_paths: list[str],
+		):
+			import re
+
+			from browser_use.llm.messages import UserMessage
+
+			goal = params.goal
+			context = params.context
+			source = params.source
+			max_chars = 50000
+
+			async def extract_search_terms(goal: str, context: str) -> list[str]:
+				"""Use LLM to extract search terms from goal."""
+				prompt = f"""Extract 3-5 key search terms from this goal that would help find relevant sections.
+Return only the terms, one per line, no numbering or bullets.
+
+Goal: {goal}
+
+Context: {context}"""
+				response = await page_extraction_llm.ainvoke([UserMessage(content=prompt)])
+				return [term.strip() for term in response.completion.strip().split('\n') if term.strip()][:5]
+
+			def search_text(content: str, pattern: str, context_chars: int = 100) -> list[dict]:
+				"""Search content for pattern, return matches with positions."""
+				try:
+					regex = re.compile(pattern, re.IGNORECASE)
+				except re.error:
+					regex = re.compile(re.escape(pattern), re.IGNORECASE)
+
+				matches = []
+				for match in regex.finditer(content):
+					start = max(0, match.start() - context_chars)
+					end = min(len(content), match.end() + context_chars)
+					matches.append(
+						{
+							'position': match.start(),
+							'snippet': content[start:end],
+						}
+					)
+				return matches
+
+			def chunk_content(content: str, chunk_size: int = 2000) -> list[dict]:
+				"""Split content into chunks with positions."""
+				chunks = []
+				for i in range(0, len(content), chunk_size):
+					chunks.append(
+						{
+							'start': i,
+							'end': min(i + chunk_size, len(content)),
+							'text': content[i : i + chunk_size],
+						}
+					)
+				return chunks
+
+			try:
+				if source.lower() == 'page':
+					# Read from current webpage
+					from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+					# Clear DOM cache and wait for page to settle before extracting
+					if browser_session._dom_watchdog:
+						browser_session._dom_watchdog.clear_cache()
+
+					wait_time = browser_session.browser_profile.wait_for_network_idle_page_load_time
+					await asyncio.sleep(wait_time)
+
+					content, _ = await extract_clean_markdown(browser_session=browser_session, extract_links=False)
+					source_name = 'current page'
+
+					if not content:
+						return ActionResult(
+							extracted_content='Error: No page content available',
+							long_term_memory='Failed to read page: no content',
+						)
+
+				else:
+					# Read from file
+					file_path = source
+
+					# Validate file path against whitelist (available_file_paths + downloaded files)
+					allowed_paths = set(available_file_paths or [])
+					allowed_paths.update(browser_session.downloaded_files)
+					if file_path not in allowed_paths:
+						return ActionResult(
+							extracted_content=f'Error: File path not in available_file_paths: {file_path}. '
+							f'The user must add this path to available_file_paths when creating the Agent.',
+							long_term_memory=f'Failed to read: file path not allowed: {file_path}',
+						)
+
+					if not os.path.exists(file_path):
+						return ActionResult(
+							extracted_content=f'Error: File not found: {file_path}',
+							long_term_memory='Failed to read: file not found',
+						)
+
+					ext = os.path.splitext(file_path)[1].lower()
+					source_name = os.path.basename(file_path)
+
+					if ext == '.pdf':
+						# Read PDF directly using pypdf
+						import pypdf
+
+						reader = pypdf.PdfReader(file_path)
+						num_pages = len(reader.pages)
+
+						# Extract all page text
+						page_texts: list[str] = []
+						total_chars = 0
+						for page in reader.pages:
+							text = page.extract_text() or ''
+							page_texts.append(text)
+							total_chars += len(text)
+
+						# If PDF is small enough, return it all
+						if total_chars <= max_chars:
+							content_parts = []
+							for i, text in enumerate(page_texts, 1):
+								if text.strip():
+									content_parts.append(f'--- Page {i} ---\n{text}')
+							content = '\n\n'.join(content_parts)
+
+							memory = f'Read {source_name} ({num_pages} pages, {total_chars:,} chars) for goal: {goal[:50]}'
+							logger.info(f'📄 {memory}')
+							return ActionResult(
+								extracted_content=f'PDF: {source_name} ({num_pages} pages)\n\n{content}',
+								long_term_memory=memory,
+								include_extracted_content_only_once=True,
+							)
+
+						# PDF too large - use intelligent extraction
+						logger.info(f'PDF has {total_chars:,} chars across {num_pages} pages, using intelligent extraction')
+
+						# Extract search terms from goal
+						search_terms = await extract_search_terms(goal, context)
+
+						# Search and score pages by relevance
+						page_scores: dict[int, int] = {}  # 1-indexed page -> score
+						for term in search_terms:
+							try:
+								term_pattern = re.compile(re.escape(term), re.IGNORECASE)
+							except re.error:
+								continue
+							for i, text in enumerate(page_texts, 1):
+								if term_pattern.search(text):
+									page_scores[i] = page_scores.get(i, 0) + 1
+
+						# Select pages: always include page 1, then most relevant
+						pages_to_read = [1]
+						sorted_pages = sorted(page_scores.items(), key=lambda x: -x[1])
+						for page_num, _ in sorted_pages:
+							if page_num not in pages_to_read:
+								pages_to_read.append(page_num)
+
+						# Build result respecting char limit, truncating pages if needed
+						content_parts = []
+						chars_used = 0
+						pages_included = []
+						for page_num in sorted(set(pages_to_read)):
+							text = page_texts[page_num - 1]
+							page_header = f'--- Page {page_num} ---\n'
+							remaining = max_chars - chars_used
+							if remaining < len(page_header) + 50:
+								break  # no room for meaningful content
+							page_content = page_header + text
+							if len(page_content) > remaining:
+								page_content = page_content[: remaining - len('\n[...truncated]')] + '\n[...truncated]'
+							content_parts.append(page_content)
+							chars_used += len(page_content)
+							pages_included.append(page_num)
+
+						content = '\n\n'.join(content_parts)
+						memory = f'Read {source_name} ({len(pages_included)} relevant pages of {num_pages}) for goal: {goal[:50]}'
+						logger.info(f'📄 {memory}')
+						return ActionResult(
+							extracted_content=f'PDF: {source_name} ({num_pages} pages, showing {len(pages_included)} relevant)\n\n{content}',
+							long_term_memory=memory,
+							include_extracted_content_only_once=True,
+						)
+
+					else:
+						# Text file
+						async with await anyio.open_file(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+							content = await f.read()
+
+				# Check if content fits in budget
+				if len(content) <= max_chars:
+					memory = f'Read {source_name} ({len(content):,} chars) for goal: {goal[:50]}'
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=f'Content from {source_name} ({len(content):,} chars):\n\n{content}',
+						long_term_memory=memory,
+						include_extracted_content_only_once=True,
+					)
+
+				# Content too large - use intelligent extraction
+				logger.info(f'Content has {len(content):,} chars, using intelligent extraction')
+
+				# Extract search terms from goal
+				search_terms = await extract_search_terms(goal, context)
+
+				# Search for each term and score chunks
+				chunks = chunk_content(content, chunk_size=2000)
+				chunk_scores: dict[int, int] = {}  # chunk index -> relevance score
+
+				for term in search_terms:
+					matches = search_text(content, term)
+					for match in matches:
+						# Find which chunk this match belongs to
+						for i, chunk in enumerate(chunks):
+							if chunk['start'] <= match['position'] < chunk['end']:
+								chunk_scores[i] = chunk_scores.get(i, 0) + 1
+								break
+
+				if not chunk_scores:
+					# No matches - return first max_chars
+					truncated = content[:max_chars]
+					memory = f'Read {source_name} (truncated to {max_chars:,} chars, no matches for search terms)'
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=f'Content from {source_name} (first {max_chars:,} of {len(content):,} chars):\n\n{truncated}',
+						long_term_memory=memory,
+						include_extracted_content_only_once=True,
+					)
+
+				# Sort chunks by relevance and collect most relevant ones
+				sorted_chunks = sorted(chunk_scores.items(), key=lambda x: -x[1])
+
+				# Always include first chunk for context
+				selected_indices = {0}  # Start with first chunk
+				for chunk_idx, _ in sorted_chunks:
+					selected_indices.add(chunk_idx)
+
+				# Build result from selected chunks in order
+				result_parts = []
+				total_chars = 0
+				for i in sorted(selected_indices):
+					chunk = chunks[i]
+					if total_chars + len(chunk['text']) > max_chars:
+						break
+					if i > 0 and (i - 1) not in selected_indices:
+						result_parts.append('\n[...]\n')  # Indicate gap
+					result_parts.append(chunk['text'])
+					total_chars += len(chunk['text'])
+
+				result_content = ''.join(result_parts)
+				memory = f'Read {source_name} ({len(selected_indices)} relevant sections of {len(chunks)}) for goal: {goal[:50]}'
+				logger.info(f'📄 {memory}')
+
+				return ActionResult(
+					extracted_content=f'Content from {source_name} (relevant sections, {total_chars:,} of {len(content):,} chars):\n\n{result_content}',
+					long_term_memory=memory,
+					include_extracted_content_only_once=True,
+				)
+
+			except Exception as e:
+				error_msg = f'Error reading content: {str(e)}'
+				logger.error(error_msg)
+				return ActionResult(extracted_content=error_msg, long_term_memory=error_msg)
+
+		@self.registry.action(
+			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",
+			terminates_sequence=True,
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
@@ -1179,7 +1928,7 @@ Validated Code (after quote fixing):
 
 				# Memory handling: keep full result in extracted_content for current step,
 				# but use truncated version in long_term_memory if too large
-				MAX_MEMORY_LENGTH = 1000
+				MAX_MEMORY_LENGTH = 10000
 				if len(result_text) < MAX_MEMORY_LENGTH:
 					memory = result_text
 					include_extracted_content_only_once = False
@@ -1274,16 +2023,35 @@ Validated Code (after quote fixing):
 				'Complete task with structured output.',
 				param_model=StructuredOutputAction[output_model],
 			)
-			async def done(params: StructuredOutputAction):
-				# Exclude success from the output JSON since it's an internal parameter
+			async def done(params: StructuredOutputAction, file_system: FileSystem, browser_session: BrowserSession):
+				# Exclude success from the output JSON
 				# Use mode='json' to properly serialize enums at all nesting levels
 				output_dict = params.data.model_dump(mode='json')
+
+				attachments: list[str] = []
+
+				# 1. Resolve any explicitly requested files via files_to_display
+				if params.files_to_display:
+					for file_name in params.files_to_display:
+						file_content = file_system.display_file(file_name)
+						if file_content:
+							attachments.append(str(file_system.get_dir() / file_name))
+
+				# 2. Auto-attach actual session downloads (CDP-tracked browser downloads)
+				#    but NOT user-supplied whitelist paths from available_file_paths
+				session_downloads = browser_session.downloaded_files
+				if session_downloads:
+					existing = set(attachments)
+					for file_path in session_downloads:
+						if file_path not in existing:
+							attachments.append(file_path)
 
 				return ActionResult(
 					is_done=True,
 					success=params.success,
 					extracted_content=json.dumps(output_dict, ensure_ascii=False),
 					long_term_memory=f'Task completed. Success Status: {params.success}',
+					attachments=attachments,
 				)
 
 		else:
@@ -1424,6 +2192,7 @@ Validated Code (after quote fixing):
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		file_system: FileSystem | None = None,
+		extraction_schema: dict | None = None,
 	) -> ActionResult:
 		"""Execute an action"""
 
@@ -1455,6 +2224,7 @@ Validated Code (after quote fixing):
 							file_system=file_system,
 							sensitive_data=sensitive_data,
 							available_file_paths=available_file_paths,
+							extraction_schema=extraction_schema,
 						)
 					except BrowserError as e:
 						logger.error(f'❌ Action {action_name} failed with BrowserError: {str(e)}')
@@ -1505,6 +2275,7 @@ Validated Code (after quote fixing):
 					'file_system',
 					'available_file_paths',
 					'sensitive_data',
+					'extraction_schema',
 				}
 
 				# Extract action params (params for the action itself)
