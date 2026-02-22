@@ -100,15 +100,26 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return result
 
 	elif action == 'click':
-		from browser_use.browser.events import ClickElementEvent
+		args = params.get('args', [])
+		if len(args) == 2:
+			# Coordinate click: browser-use click <x> <y>
+			from browser_use.browser.events import ClickCoordinateEvent
 
-		index = params['index']
-		# Look up node from selector map
-		node = await bs.get_element_by_index(index)
-		if node is None:
-			return {'error': f'Element index {index} not found - page may have changed'}
-		await bs.event_bus.dispatch(ClickElementEvent(node=node))
-		return {'clicked': index}
+			x, y = args
+			await bs.event_bus.dispatch(ClickCoordinateEvent(coordinate_x=x, coordinate_y=y))
+			return {'clicked_coordinate': {'x': x, 'y': y}}
+		elif len(args) == 1:
+			# Index click: browser-use click <index>
+			from browser_use.browser.events import ClickElementEvent
+
+			index = args[0]
+			node = await bs.get_element_by_index(index)
+			if node is None:
+				return {'error': f'Element index {index} not found - page may have changed'}
+			await bs.event_bus.dispatch(ClickElementEvent(node=node))
+			return {'clicked': index}
+		else:
+			return {'error': 'Usage: click <index> or click <x> <y>'}
 
 	elif action == 'type':
 		# Type into currently focused element using CDP directly
@@ -161,8 +172,19 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'screenshot': base64.b64encode(data).decode(), 'size': len(data)}
 
 	elif action == 'state':
-		# Return the same LLM representation that browser-use agents see
-		state_text = await bs.get_state_as_text()
+		# Return the LLM representation with viewport info for coordinate clicking
+		state = await bs.get_browser_state_summary()
+		assert state.dom_state is not None
+		state_text = state.dom_state.llm_representation()
+
+		# Prepend viewport dimensions so LLMs know the coordinate space
+		if state.page_info:
+			pi = state.page_info
+			viewport_text = f'viewport: {pi.viewport_width}x{pi.viewport_height}\n'
+			viewport_text += f'page: {pi.page_width}x{pi.page_height}\n'
+			viewport_text += f'scroll: ({pi.scroll_x}, {pi.scroll_y})\n'
+			state_text = viewport_text + state_text
+
 		return {'_raw_text': state_text}
 
 	elif action == 'switch':

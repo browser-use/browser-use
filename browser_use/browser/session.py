@@ -379,6 +379,57 @@ class BrowserSession(BaseModel):
 	# Cache of original viewport size for coordinate conversion (set when browser state is captured)
 	_original_viewport_size: tuple[int, int] | None = PrivateAttr(default=None)
 
+	@classmethod
+	def from_system_chrome(cls, profile_directory: str | None = None, **kwargs: Any) -> Self:
+		"""Create a BrowserSession using system's Chrome installation and profile"""
+		from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
+
+		executable_path = find_chrome_executable()
+		if executable_path is None:
+			raise RuntimeError(
+				'Chrome not found. Please install Chrome or use Browser() with explicit executable_path.\n'
+				'Expected locations:\n'
+				'  macOS: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n'
+				'  Linux: /usr/bin/google-chrome or /usr/bin/chromium\n'
+				'  Windows: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+			)
+
+		user_data_dir = get_chrome_profile_path(None)
+		if user_data_dir is None:
+			raise RuntimeError(
+				'Could not detect Chrome profile directory for your platform.\n'
+				'Expected locations:\n'
+				'  macOS: ~/Library/Application Support/Google/Chrome\n'
+				'  Linux: ~/.config/google-chrome\n'
+				'  Windows: %LocalAppData%\\Google\\Chrome\\User Data'
+			)
+
+		# Auto-select profile if not specified
+		profiles = list_chrome_profiles()
+		if profile_directory is None:
+			if profiles:
+				# Use first available profile
+				profile_directory = profiles[0]['directory']
+				logging.getLogger('browser_use').info(
+					f'Auto-selected Chrome profile: {profiles[0]["name"]} ({profile_directory})'
+				)
+			else:
+				profile_directory = 'Default'
+
+		return cls(
+			executable_path=executable_path,
+			user_data_dir=user_data_dir,
+			profile_directory=profile_directory,
+			**kwargs,
+		)
+
+	@classmethod
+	def list_chrome_profiles(cls) -> list[dict[str, str]]:
+		"""List available Chrome profiles on the system"""
+		from browser_use.skill_cli.utils import list_chrome_profiles
+
+		return list_chrome_profiles()
+
 	# Convenience properties for common browser settings
 	@property
 	def cdp_url(self) -> str | None:
@@ -389,6 +440,23 @@ class BrowserSession(BaseModel):
 	def is_local(self) -> bool:
 		"""Whether this is a local browser instance from browser profile."""
 		return self.browser_profile.is_local
+
+	@property
+	def is_cdp_connected(self) -> bool:
+		"""Check if the CDP WebSocket connection is alive and usable.
+
+		Returns True only if the root CDP client exists and its WebSocket is in OPEN state.
+		A dead/closing/closed WebSocket returns False, preventing handlers from dispatching
+		CDP commands that would hang until timeout on a broken connection.
+		"""
+		if self._cdp_client_root is None or self._cdp_client_root.ws is None:
+			return False
+		try:
+			from websockets.protocol import State
+
+			return self._cdp_client_root.ws.state is State.OPEN
+		except Exception:
+			return False
 
 	@property
 	def cloud_browser(self) -> bool:
@@ -657,7 +725,33 @@ class BrowserSession(BaseModel):
 				# Only connect if not already connected
 				if self._cdp_client_root is None:
 					# Setup browser via CDP (for both local and remote cases)
-					await self.connect(cdp_url=self.cdp_url)
+					# Global timeout prevents connect() from hanging indefinitely on
+					# slow/broken WebSocket connections (common on Lambda → remote browser)
+					try:
+						await asyncio.wait_for(self.connect(cdp_url=self.cdp_url), timeout=15.0)
+					except TimeoutError:
+						# Timeout cancels connect() via CancelledError, which bypasses
+						# connect()'s `except Exception` cleanup (CancelledError is BaseException).
+						# Clean up the partially-initialized client so future start attempts
+						# don't skip reconnection due to _cdp_client_root being non-None.
+						cdp_client = cast(CDPClient | None, self._cdp_client_root)
+						if cdp_client is not None:
+							try:
+								await cdp_client.stop()
+							except Exception:
+								pass
+							self._cdp_client_root = None
+						manager = self.session_manager
+						if manager is not None:
+							try:
+								await manager.clear()
+							except Exception:
+								pass
+							self.session_manager = None
+						self.agent_focus_target_id = None
+						raise RuntimeError(
+							f'connect() timed out after 15s — CDP connection to {self.cdp_url} is too slow or unresponsive'
+						)
 					assert self.cdp_client is not None
 
 					# Notify that browser is connected (single place)
@@ -1301,6 +1395,29 @@ class BrowserSession(BaseModel):
 
 		return session
 
+	async def set_extra_headers(self, headers: dict[str, str], target_id: TargetID | None = None) -> None:
+		"""Set extra HTTP headers using CDP Network.setExtraHTTPHeaders.
+
+		These headers will be sent with every HTTP request made by the target.
+		Network domain must be enabled first (done automatically for page targets
+		in SessionManager._enable_page_monitoring).
+
+		Args:
+			headers: Dictionary of header name -> value pairs to inject into every request.
+			target_id: Target to set headers on. Defaults to the current agent focus target.
+		"""
+		if target_id is None:
+			if not self.agent_focus_target_id:
+				return
+			target_id = self.agent_focus_target_id
+
+		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+		# Ensure Network domain is enabled (idempotent - safe to call multiple times)
+		await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
+		await cdp_session.cdp_client.send.Network.setExtraHTTPHeaders(
+			params={'headers': cast(Any, headers)}, session_id=cdp_session.session_id
+		)
+
 	# endregion - ========== CDP-based ... ==========
 
 	# region - ========== Helper Methods ==========
@@ -1573,22 +1690,27 @@ class BrowserSession(BaseModel):
 			# SessionManager has already discovered all targets via start_monitoring()
 			page_targets_from_manager = self.session_manager.get_all_page_targets()
 
-			# Check for chrome://newtab pages and redirect them to about:blank
+			# Check for chrome://newtab pages and redirect them to about:blank (in parallel)
 			from browser_use.utils import is_new_tab_page
 
-			for target in page_targets_from_manager:
+			async def _redirect_newtab(target):
 				target_url = target.url
-				if is_new_tab_page(target_url) and target_url != 'about:blank':
-					target_id = target.target_id
-					self.logger.debug(f'🔄 Redirecting {target_url} to about:blank for target {target_id}')
-					try:
-						# Use public API with focus=False to avoid changing focus during init
-						session = await self.get_or_create_cdp_session(target_id, focus=False)
-						await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
-						# Update target url
-						target.url = 'about:blank'
-					except Exception as e:
-						self.logger.warning(f'Failed to redirect {target_url}: {e}')
+				target_id = target.target_id
+				self.logger.debug(f'🔄 Redirecting {target_url} to about:blank for target {target_id}')
+				try:
+					session = await self.get_or_create_cdp_session(target_id, focus=False)
+					await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
+					target.url = 'about:blank'
+				except Exception as e:
+					self.logger.warning(f'Failed to redirect {target_url}: {e}')
+
+			redirect_tasks = [
+				_redirect_newtab(target)
+				for target in page_targets_from_manager
+				if is_new_tab_page(target.url) and target.url != 'about:blank'
+			]
+			if redirect_tasks:
+				await asyncio.gather(*redirect_tasks, return_exceptions=True)
 
 			# Ensure we have at least one page
 			if not page_targets_from_manager:
@@ -2905,15 +3027,6 @@ class BrowserSession(BaseModel):
 		"""Clear all cookies using CDP Network.clearBrowserCookies."""
 		cdp_session = await self.get_or_create_cdp_session()
 		await cdp_session.cdp_client.send.Storage.clearCookies(session_id=cdp_session.session_id)
-
-	async def _cdp_set_extra_headers(self, headers: dict[str, str]) -> None:
-		"""Set extra HTTP headers using CDP Network.setExtraHTTPHeaders."""
-		if not self.agent_focus_target_id:
-			return
-
-		cdp_session = await self.get_or_create_cdp_session()
-		# await cdp_session.cdp_client.send.Network.setExtraHTTPHeaders(params={'headers': headers}, session_id=cdp_session.session_id)
-		raise NotImplementedError('Not implemented yet')
 
 	async def _cdp_grant_permissions(self, permissions: list[str], origin: str | None = None) -> None:
 		"""Grant permissions using CDP Browser.grantPermissions."""

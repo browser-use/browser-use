@@ -114,6 +114,7 @@ class MessageManager:
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		max_clickable_elements_length: int = 40000,
 	):
 		self.task = task
 		self.state = state
@@ -127,6 +128,7 @@ class MessageManager:
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images
 		self.llm_screenshot_size = llm_screenshot_size
+		self.max_clickable_elements_length = max_clickable_elements_length
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -470,6 +472,7 @@ class MessageManager:
 			include_attributes=self.include_attributes,
 			step_info=step_info,
 			page_filtered_actions=page_filtered_actions,
+			max_clickable_elements_length=self.max_clickable_elements_length,
 			sensitive_data=self.sensitive_data_description,
 			available_file_paths=available_file_paths,
 			screenshots=screenshots,

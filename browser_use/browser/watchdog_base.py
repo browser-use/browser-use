@@ -73,10 +73,31 @@ class BaseWatchdog(BaseModel):
 		watchdog_instance = getattr(handler, '__self__', None)
 		watchdog_class_name = watchdog_instance.__class__.__name__ if watchdog_instance else 'Unknown'
 
+		# Events that should always run even when CDP is disconnected (lifecycle management)
+		LIFECYCLE_EVENT_NAMES = frozenset(
+			{
+				'BrowserStartEvent',
+				'BrowserStopEvent',
+				'BrowserStoppedEvent',
+				'BrowserLaunchEvent',
+				'BrowserErrorEvent',
+				'BrowserKillEvent',
+			}
+		)
+
 		# Create a wrapper function with unique name to avoid duplicate handler warnings
 		# Capture handler by value to avoid closure issues
 		def make_unique_handler(actual_handler):
 			async def unique_handler(event):
+				# Circuit breaker: skip handler if CDP WebSocket is dead
+				# (prevents handlers from hanging on broken connections until timeout)
+				# Lifecycle events are exempt — they manage browser start/stop
+				if event.event_type not in LIFECYCLE_EVENT_NAMES and not browser_session.is_cdp_connected:
+					browser_session.logger.debug(
+						f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⚡ Skipped — CDP not connected'
+					)
+					return None
+
 				# just for debug logging, not used for anything else
 				parent_event = event_bus.event_history.get(event.event_parent_id) if event.event_parent_id else None
 				grandparent_event = (

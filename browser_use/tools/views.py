@@ -87,16 +87,19 @@ class DoneAction(BaseModel):
 T = TypeVar('T', bound=BaseModel)
 
 
-def _hide_success_from_schema(schema: dict) -> None:
-	"""Remove 'success' from the JSON schema to avoid field name collisions with user models."""
-	schema.get('properties', {}).pop('success', None)
+def _hide_internal_fields_from_schema(schema: dict) -> None:
+	"""Remove internal fields from the JSON schema to avoid collisions with user models."""
+	props = schema.get('properties', {})
+	props.pop('success', None)
+	props.pop('files_to_display', None)
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
-	model_config = ConfigDict(json_schema_extra=_hide_success_from_schema)
+	model_config = ConfigDict(json_schema_extra=_hide_internal_fields_from_schema)
 
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	data: T = Field(description='The actual output data matching the requested schema')
+	files_to_display: list[str] | None = Field(default=[])
 
 
 class SwitchTabAction(BaseModel):

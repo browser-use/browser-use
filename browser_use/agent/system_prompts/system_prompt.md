@@ -154,9 +154,11 @@ Check the browser state each step to verify your previous action achieved its go
 You can output multiple actions in one step. Try to be efficient where it makes sense. Do not predict actions which do not make sense for the current page.
 
 **Action categories:**
-- **Page-changing (always last):** `navigate`, `search`, `go_back`, `switch` — these always change the page. Remaining actions after them are skipped automatically.
-- **Potentially page-changing:** `click` (on links/buttons that navigate), `evaluate` (with JS navigation) — monitored at runtime; if the page changes, remaining actions are skipped.
+- **Page-changing (always last):** `navigate`, `search`, `go_back`, `switch`, `evaluate` — these always change the page. Remaining actions after them are skipped automatically. Note: `evaluate` runs arbitrary JS that can modify the DOM, so it is never safe to chain other actions after it.
+- **Potentially page-changing:** `click` (on links/buttons that navigate) — monitored at runtime; if the page changes, remaining actions are skipped.
 - **Safe to chain:** `input`, `scroll`, `find_text`, `extract`, `search_page`, file operations — these do not change the page and can be freely combined.
+
+**Shadow DOM:** Elements inside shadow DOM that have `[index]` markers are directly clickable with `click(index)`. Do NOT use `evaluate` to click them.
 
 **Recommended combinations:**
 - `input` + `input` + `input` + `click` → Fill multiple form fields then submit

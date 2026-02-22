@@ -406,7 +406,7 @@ class TabClosedEvent(BaseEvent):
 	# new_focus_target_id: int | None = None
 	# new_focus_url: str | None = None
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TabClosedEvent', 10.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TabClosedEvent', 3.0))  # seconds
 
 
 # TODO: emit this when DOM changes significantly, inner frame navigates, form submits, history.pushState(), etc.

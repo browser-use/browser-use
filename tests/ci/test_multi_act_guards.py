@@ -146,6 +146,13 @@ class TestTerminatesSequenceMetadata:
 		assert action is not None
 		assert action.terminates_sequence is False
 
+	def test_evaluate_terminates(self, tools):
+		"""evaluate() can mutate the DOM in unpredictable ways (e.g. dismiss cookie overlays),
+		so any actions queued after it should be skipped to avoid stale element references."""
+		action = tools.registry.registry.actions.get('evaluate')
+		assert action is not None
+		assert action.terminates_sequence is True
+
 
 # ---------------------------------------------------------------------------
 # 2. Static guard — navigate as non-last action skips remaining

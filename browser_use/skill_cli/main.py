@@ -468,9 +468,9 @@ Setup:
 	p = subparsers.add_parser('open', help='Navigate to URL')
 	p.add_argument('url', help='URL to navigate to')
 
-	# click <index>
-	p = subparsers.add_parser('click', help='Click element by index')
-	p.add_argument('index', type=int, help='Element index from state')
+	# click <index> OR click <x> <y>
+	p = subparsers.add_parser('click', help='Click element by index or coordinates (x y)')
+	p.add_argument('args', nargs='+', type=int, help='Element index OR x y coordinates')
 
 	# type <text>
 	p = subparsers.add_parser('type', help='Type text')
