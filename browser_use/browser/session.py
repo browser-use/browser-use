@@ -784,11 +784,27 @@ class BrowserSession(BaseModel):
 			raise
 
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:
-		"""Handle navigation requests - core browser functionality."""
+		"""Handle navigation requests - core browser functionality.
+
+		Processes NavigateToUrlEvent requests and performs the actual browser
+		navigation. Handles both same-tab and new-tab navigation, manages
+		target selection and creation, and dispatches appropriate lifecycle
+		events.
+
+		For new_tab requests, first attempts to reuse an existing about:blank
+		tab before creating a new one. Ensures proper tab activation and
+		dispatches navigation started/complete events.
+
+		Args:
+			event: NavigateToUrlEvent containing the target URL and new_tab flag.
+
+		Raises:
+			RuntimeError: If the browser is not connected, navigation fails,
+				or CDP operations fail.
+		"""
 		self.logger.debug(f'[on_NavigateToUrlEvent] Received NavigateToUrlEvent: url={event.url}, new_tab={event.new_tab}')
 		if not self.agent_focus_target_id:
-			self.logger.warning('Cannot navigate - browser not connected')
-			return
+			raise RuntimeError('Cannot navigate - browser not connected (no agent focus target)')
 
 		target_id = None
 		current_target_id = self.agent_focus_target_id
@@ -890,14 +906,24 @@ class BrowserSession(BaseModel):
 	async def _navigate_and_wait(self, url: str, target_id: str, timeout: float | None = None) -> None:
 		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
 
-		Two-strategy approach optimized for speed with robust fallback:
-		1. networkIdle - Returns ASAP when no network activity (~50-200ms for cached pages)
-		2. load - Fallback when page has ongoing network activity (all resources loaded)
+		Performs browser navigation and waits for the page to reach a ready state
+		using CDP lifecycle events. Uses a two-strategy approach optimized for speed:
 
-		This gives us instant returns for cached content while being robust for dynamic pages.
+		1. networkIdle - Returns ASAP when no network activity (~50-200ms for cached)
+		2. load - Fallback when page has ongoing network activity
 
-		NO handler registration here - handlers are registered ONCE per session in SessionManager.
-		We poll stored events instead to avoid handler accumulation.
+		This provides instant returns for cached content while remaining robust
+		for dynamic pages with ongoing network requests.
+
+		Args:
+			url: The URL to navigate to.
+			target_id: The CDP target ID to navigate in.
+			timeout: Optional timeout in seconds. If not provided, uses 2.0s for
+				same-domain navigations and 4.0s for cross-domain.
+
+		Raises:
+			RuntimeError: If navigation fails with an error, lifecycle monitoring
+				is not enabled, or the operation times out.
 		"""
 		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
 
@@ -984,7 +1010,25 @@ class BrowserSession(BaseModel):
 			self.logger.warning(f'⚠️ Page readiness timeout ({timeout}s, {duration_ms:.0f}ms) for {url}')
 
 	async def on_SwitchTabEvent(self, event: SwitchTabEvent) -> TargetID:
-		"""Handle tab switching - core browser functionality."""
+		"""Handle tab switching - core browser functionality.
+
+		Switches the browser focus to a different tab/page. If no target_id is
+		specified, switches to the most recently opened page. If no pages exist,
+		creates a new about:blank page and switches to it.
+
+		Updates the agent focus, activates the target visually in the browser,
+		and dispatches an AgentFocusChangedEvent to notify other components.
+
+		Args:
+			event: SwitchTabEvent containing the optional target_id to switch to.
+
+		Returns:
+			The target_id of the tab that was switched to.
+
+		Raises:
+			RuntimeError: If the browser is not connected or the CDP client
+				is not initialized.
+		"""
 		if not self.agent_focus_target_id:
 			raise RuntimeError('Cannot switch tabs - browser not connected')
 
@@ -1028,7 +1072,18 @@ class BrowserSession(BaseModel):
 		return target.target_id
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
-		"""Handle tab closure - update focus if needed."""
+		"""Handle tab closure request - update focus if needed.
+
+		Processes a request to close a specific tab. Dispatches a TabClosedEvent
+		to notify other components and attempts to close the target via CDP.
+		Handles gracefully if the target has already been closed.
+
+		Args:
+			event: CloseTabEvent containing the target_id of the tab to close.
+
+		Raises:
+			RuntimeError: If CDP operations fail unexpectedly (non-closure errors).
+		"""
 		try:
 			# Dispatch tab closed event
 			await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
@@ -1039,13 +1094,26 @@ class BrowserSession(BaseModel):
 				await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': event.target_id})
 			except Exception as e:
 				self.logger.debug(f'Target may already be closed: {e}')
+		except RuntimeError:
+			raise
 		except Exception as e:
 			self.logger.warning(f'Error during tab close cleanup: {e}')
+			raise RuntimeError(f'Failed to close tab {event.target_id}: {e}') from e
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
-		"""Handle tab creation - apply viewport settings to new tab."""
-		# Note: Tab switching prevention is handled by the Force Background Tab extension
-		# The extension automatically keeps focus on the current tab when new tabs are created
+		"""Handle tab creation - apply viewport settings to new tab.
+
+		Processes tab creation events and applies configured viewport settings
+		to the newly created tab. This ensures consistent viewport dimensions
+		across all tabs in the session.
+
+		Note: Tab switching prevention is handled by the Force Background Tab
+		extension, which automatically keeps focus on the current tab when
+		new tabs are created.
+
+		Args:
+			event: TabCreatedEvent containing the target_id and URL of the new tab.
+		"""
 
 		# Apply viewport settings if configured
 		if self.browser_profile.viewport and not self.browser_profile.no_viewport:
@@ -1065,7 +1133,15 @@ class BrowserSession(BaseModel):
 				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
-		"""Handle tab closure - update focus if needed."""
+		"""Handle tab closure - update focus if needed.
+
+		Processes tab closed events. If the closed tab was the currently focused
+		tab, automatically switches focus to another available tab by dispatching
+		a SwitchTabEvent with target_id=None.
+
+		Args:
+			event: TabClosedEvent containing the target_id of the closed tab.
+		"""
 		if not self.agent_focus_target_id:
 			return
 
@@ -2032,15 +2108,32 @@ class BrowserSession(BaseModel):
 	async def navigate_to(self, url: str, new_tab: bool = False) -> None:
 		"""Navigate to a URL using the standard event system.
 
+		Dispatches a NavigateToUrlEvent through the event bus, which triggers
+		the full navigation pipeline including tab creation, page lifecycle
+		waiting, and event dispatching.
+
+		This is the preferred method for programmatic navigation within the
+		browser session, as it integrates with the event-driven architecture.
+
 		Args:
-			url: URL to navigate to
-			new_tab: Whether to open in a new tab
+			url: The URL to navigate to. Must be a valid URL string.
+			new_tab: If True, opens the URL in a new tab. If False (default),
+				navigates in the current tab.
+
+		Raises:
+			RuntimeError: If the browser is not connected, navigation fails,
+				or the event handler encounters an error.
 		"""
 		from browser_use.browser.events import NavigateToUrlEvent
 
-		event = self.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=new_tab))
-		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
+		try:
+			event = self.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=new_tab))
+			await event
+			await event.event_result(raise_if_any=True, raise_if_none=False)
+		except RuntimeError:
+			raise
+		except Exception as e:
+			raise RuntimeError(f'Navigation to {url} failed: {e}') from e
 
 	# endregion - ========== ID Lookup Methods ==========
 

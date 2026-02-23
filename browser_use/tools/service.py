@@ -365,6 +365,22 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
+			"""Execute a web search using the specified search engine.
+
+			Navigates to the search engine's results page with the given query.
+			Supports DuckDuckGo (default), Google, and Bing search engines.
+
+			Args:
+				params: SearchAction containing the query and engine selection.
+				browser_session: The active browser session for navigation.
+
+			Returns:
+				ActionResult with search status and memory of the search operation.
+
+			Raises:
+				RuntimeError: If navigation fails due to browser disconnection or
+					network errors.
+			"""
 			import urllib.parse
 
 			# Encode query for URL safety
@@ -399,9 +415,11 @@ class Tools(Generic[Context]):
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			except RuntimeError:
+				raise
 			except Exception as e:
 				logger.error(f'Failed to search {params.engine}: {e}')
-				return ActionResult(error=f'Failed to search {params.engine} for "{params.query}": {str(e)}')
+				raise RuntimeError(f'Search failed for "{params.query}" on {params.engine}: {str(e)}') from e
 
 		@self.registry.action(
 			'',
@@ -409,6 +427,23 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def navigate(params: NavigateAction, browser_session: BrowserSession):
+			"""Navigate to a specific URL in the browser.
+
+			Opens the specified URL either in the current tab or a new tab based on
+			the new_tab parameter. Handles various navigation failures including
+			network errors, DNS resolution failures, and browser disconnections.
+
+			Args:
+				params: NavigateAction containing the target URL and new_tab flag.
+				browser_session: The active browser session for navigation.
+
+			Returns:
+				ActionResult with navigation status and URL information.
+
+			Raises:
+				RuntimeError: If navigation fails due to CDP client issues,
+					network errors, or site unavailability.
+			"""
 			try:
 				# Dispatch navigation event
 				event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=params.new_tab))
@@ -424,6 +459,8 @@ class Tools(Generic[Context]):
 
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, long_term_memory=memory)
+			except RuntimeError:
+				raise
 			except Exception as e:
 				error_msg = str(e)
 				# Always log the actual error first for debugging
@@ -432,7 +469,7 @@ class Tools(Generic[Context]):
 				# Check if it's specifically a RuntimeError about CDP client
 				if isinstance(e, RuntimeError) and 'CDP client not initialized' in error_msg:
 					browser_session.logger.error('❌ Browser connection failed - CDP client not properly initialized')
-					return ActionResult(error=f'Browser connection error: {error_msg}')
+					raise RuntimeError(f'Browser connection error - CDP client not initialized: {error_msg}') from e
 				# Check for network-related errors
 				elif any(
 					err in error_msg
@@ -444,15 +481,29 @@ class Tools(Generic[Context]):
 						'net::',
 					]
 				):
-					site_unavailable_msg = f'Navigation failed - site unavailable: {params.url}'
-					browser_session.logger.warning(f'⚠️ {site_unavailable_msg} - {error_msg}')
-					return ActionResult(error=site_unavailable_msg)
+					raise RuntimeError(f'Navigation failed - site unavailable: {params.url} ({error_msg})') from e
 				else:
-					# Return error in ActionResult instead of re-raising
-					return ActionResult(error=f'Navigation failed: {str(e)}')
+					raise RuntimeError(f'Navigation failed to {params.url}: {str(e)}') from e
 
 		@self.registry.action('Go back', param_model=NoParamsAction, terminates_sequence=True)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
+			"""Navigate back in the browser history.
+
+			Returns to the previous page in the browser's navigation history.
+			Requires that the browser session is connected and has a valid
+			navigation history with at least one previous entry.
+
+			Args:
+				_: NoParamsAction placeholder (no parameters needed).
+				browser_session: The active browser session for navigation.
+
+			Returns:
+				ActionResult with the navigation status.
+
+			Raises:
+				RuntimeError: If the browser is not connected, has no history,
+					or the navigation fails.
+			"""
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
 				await event
@@ -460,10 +511,11 @@ class Tools(Generic[Context]):
 				msg = f'🔙  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory)
+			except RuntimeError:
+				raise
 			except Exception as e:
 				logger.error(f'Failed to dispatch GoBackEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to go back: {str(e)}'
-				return ActionResult(error=error_msg)
+				raise RuntimeError(f'Failed to go back in browser history: {str(e)}') from e
 
 		@self.registry.action('Wait for x seconds.')
 		async def wait(seconds: int = 3):
@@ -895,6 +947,23 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
+			"""Switch browser focus to a different tab by its ID.
+
+			Changes the agent's focus to a specified tab using its tab_id
+			(the last 4 characters of the target_id). The tab must exist
+			and be accessible in the current browser session.
+
+			Args:
+				params: SwitchTabAction containing the tab_id to switch to.
+				browser_session: The active browser session for tab management.
+
+			Returns:
+				ActionResult with the switch status and new tab information.
+
+			Raises:
+				RuntimeError: If the browser is not connected, the tab_id is
+					invalid, or the tab no longer exists.
+			"""
 			# Simple switch tab logic
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
@@ -910,16 +979,34 @@ class Tools(Generic[Context]):
 
 				logger.info(f'🔄  {memory}')
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			except RuntimeError:
+				raise
 			except Exception as e:
 				logger.warning(f'Tab switch may have failed: {e}')
-				memory = f'Attempted to switch to tab #{params.tab_id}'
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
+				raise RuntimeError(f'Failed to switch to tab #{params.tab_id}: {str(e)}') from e
 
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
 			param_model=CloseTabAction,
 		)
 		async def close(params: CloseTabAction, browser_session: BrowserSession):
+			"""Close a browser tab by its ID.
+
+			Closes the specified tab using its tab_id (the last 4 characters
+			of the target_id). Handles gracefully if the tab has already been
+			closed or no longer exists.
+
+			Args:
+				params: CloseTabAction containing the tab_id to close.
+				browser_session: The active browser session for tab management.
+
+			Returns:
+				ActionResult with the close status and tab information.
+
+			Raises:
+				RuntimeError: If the browser is not connected or the close
+					operation fails unexpectedly.
+			"""
 			# Simple close tab logic
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
@@ -935,14 +1022,12 @@ class Tools(Generic[Context]):
 					extracted_content=memory,
 					long_term_memory=memory,
 				)
+			except RuntimeError:
+				raise
 			except Exception as e:
 				# Handle stale target IDs gracefully
 				logger.warning(f'Tab {params.tab_id} may already be closed: {e}')
-				memory = f'Tab #{params.tab_id} closed (was already closed or invalid)'
-				return ActionResult(
-					extracted_content=memory,
-					long_term_memory=memory,
-				)
+				raise RuntimeError(f'Failed to close tab #{params.tab_id}: {str(e)}') from e
 
 		@self.registry.action(
 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page.""",
@@ -1239,6 +1324,25 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
+			"""Scroll the page or a specific scrollable element by a specified amount.
+
+			Performs scrolling in the specified direction (up or down) by a number
+			of viewport pages. Can scroll the entire page or a specific scrollable
+			element if an index is provided. Uses viewport height for accurate
+			scrolling with a fallback to 1000px.
+
+			Args:
+				params: ScrollAction containing direction (down), pages amount,
+					and optional element index.
+				browser_session: The active browser session for DOM access.
+
+			Returns:
+				ActionResult with scroll status and direction/amount information.
+
+			Raises:
+				RuntimeError: If the scroll operation fails due to CDP errors
+					or browser disconnection.
+			"""
 			try:
 				# Look up the node from the selector map if index is provided
 				# Special case: index 0 means scroll the whole page (root/body element)
@@ -1334,10 +1438,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				msg = f'🔍 {long_term_memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
+			except RuntimeError:
+				raise
 			except Exception as e:
 				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
-				error_msg = 'Failed to execute scroll action.'
-				return ActionResult(error=error_msg)
+				raise RuntimeError(f'Failed to execute scroll action: {str(e)}') from e
 
 		@self.registry.action(
 			'',
