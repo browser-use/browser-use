@@ -53,6 +53,10 @@ class SessionManager:
 		self._recovery_complete_event: asyncio.Event | None = None
 		self._recovery_task: asyncio.Task | None = None
 
+		# Set to True after _initialize_existing_targets() completes so that
+		# _handle_target_attached() can distinguish organic new tabs from startup targets
+		self._is_initialized: bool = False
+
 	async def start_monitoring(self) -> None:
 		"""Start monitoring Target attach/detach events.
 
@@ -410,7 +414,8 @@ class SessionManager:
 			self._session_to_target[session_id] = target_id
 
 		# Create or update Target (source of truth for url/title)
-		if target_id not in self._targets:
+		is_new_target = target_id not in self._targets
+		if is_new_target:
 			from browser_use.browser.session import Target
 
 			target = Target(
@@ -426,6 +431,16 @@ class SessionManager:
 			existing_target = self._targets[target_id]
 			existing_target.url = target_info.get('url', existing_target.url)
 			existing_target.title = target_info.get('title', existing_target.title)
+
+		# Dispatch TabCreatedEvent for organic new page tabs (opened by interactions like
+		# target="_blank" or window.open). The _is_initialized guard prevents duplicate
+		# dispatches during startup — session.py handles those explicitly at lines 1741-1745.
+		if is_new_target and target_type in ('page', 'tab') and self._is_initialized:
+			from browser_use.browser.events import TabCreatedEvent
+
+			url = target_info.get('url', 'about:blank')
+			self.browser_session.event_bus.dispatch(TabCreatedEvent(url=url, target_id=target_id))
+			self.logger.debug(f'[SessionManager] Dispatched TabCreatedEvent for organic tab {target_id[:8]}...')
 
 		# Create CDPSession (communication channel)
 		from browser_use.browser.session import CDPSession
@@ -826,6 +841,10 @@ class SessionManager:
 				await check_task
 			except asyncio.CancelledError:
 				pass
+
+		# Mark initialization complete — _handle_target_attached will now dispatch
+		# TabCreatedEvent for any page targets that attach after this point
+		self._is_initialized = True
 
 	async def _enable_page_monitoring(self, cdp_session: 'CDPSession') -> None:
 		"""Enable lifecycle events and network monitoring for a page target.

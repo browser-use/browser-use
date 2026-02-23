@@ -502,18 +502,19 @@ class Tools(Generic[Context]):
 			tabs_before: set[str],
 		) -> str:
 			"""Detect if a click opened a new tab, and return a note for the agent.
-			Waits briefly for CDP events to propagate, then checks if any new tabs appeared.
+			Polls up to 300ms for CDP Target.attachedToTarget events to propagate and be
+			processed by SessionManager._handle_target_attached. The longer window handles
+			cases where proxy auth is active (extra Fetch.enable work delays the task).
+			Returns early as soon as the new tab is detected.
 			"""
 			try:
-				# Brief delay to allow CDP Target.attachedToTarget events to propagate
-				# and be processed by SessionManager._handle_target_attached
-				await asyncio.sleep(0.05)
-
-				tabs_after = await browser_session.get_tabs()
-				new_tabs = [t for t in tabs_after if t.target_id not in tabs_before]
-				if new_tabs:
-					new_tab_id = new_tabs[0].target_id[-4:]
-					return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+				for _ in range(6):  # up to 300ms total (6 × 50ms), returns early on detection
+					await asyncio.sleep(0.05)
+					tabs_after = await browser_session.get_tabs()
+					new_tabs = [t for t in tabs_after if t.target_id not in tabs_before]
+					if new_tabs:
+						new_tab_id = new_tabs[0].target_id[-4:]
+						return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
 			except Exception:
 				pass
 			return ''
