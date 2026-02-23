@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
+	from browser_use.browser.web_bot_auth import WebBotAuthConfig
 	from browser_use.code_use.service import CodeAgent
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
@@ -84,6 +85,7 @@ _LAZY_IMPORTS = {
 	'BrowserSession': ('browser_use.browser', 'BrowserSession'),
 	'Browser': ('browser_use.browser', 'BrowserSession'),  # Alias for BrowserSession
 	'BrowserProfile': ('browser_use.browser', 'BrowserProfile'),
+	'WebBotAuthConfig': ('browser_use.browser.web_bot_auth', 'WebBotAuthConfig'),
 	# Tools (moderate weight)
 	'Tools': ('browser_use.tools.service', 'Tools'),
 	'Controller': ('browser_use.tools.service', 'Controller'),  # alias
@@ -136,6 +138,7 @@ __all__ = [
 	'BrowserSession',
 	'Browser',  # Alias for BrowserSession
 	'BrowserProfile',
+	'WebBotAuthConfig',
 	'Controller',
 	'DomService',
 	'SystemPrompt',
