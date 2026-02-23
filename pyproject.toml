@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.11.11"
+version = "0.11.12"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -75,7 +75,7 @@ examples = [
     "langchain-openai>=0.3.26",
 ]
 eval = [
-    "lmnr[all]==0.7.17",
+    "lmnr[all]==0.7.42",
     "anyio>=4.9.0",
     "psutil>=7.0.0",
     "datamodel-code-generator>=0.26.0",
@@ -89,7 +89,12 @@ all = ["browser-use[cli,examples,aws,oci]"]
 
 
 [project.urls]
+Homepage = "https://browser-use.com"
+Documentation = "https://docs.browser-use.com"
 Repository = "https://github.com/browser-use/browser-use"
+Telemetry = "https://docs.browser-use.com/development/monitoring/telemetry"
+"Terms of Service" = "https://browser-use.com/legal/terms-of-service"
+"Privacy Policy" = "https://browser-use.com/privacy/"
 
 [project.scripts]
 browser-use = "browser_use.skill_cli.main:main"  # Fast CLI for browser automation
@@ -227,7 +232,7 @@ dev-dependencies = [
     "pyright>=1.1.403",
     "ty>=0.0.1a1",
     "pytest-xdist>=3.7.0",
-    "lmnr[all]==0.7.17",
+    "lmnr[all]==0.7.42",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
     "pydantic_settings>=2.10.1",
