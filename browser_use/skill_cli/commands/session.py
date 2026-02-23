@@ -8,19 +8,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-COMMANDS = {'sessions', 'close'}
+COMMANDS = {'close'}
 
 
 async def handle(action: str, session_name: str, registry: 'SessionRegistry', params: dict[str, Any]) -> Any:
 	"""Handle session management command."""
-	if action == 'sessions':
-		sessions = registry.list_sessions()
-		return {
-			'sessions': sessions,
-			'count': len(sessions),
-		}
-
-	elif action == 'close':
+	if action == 'close':
 		if params.get('all'):
 			# Close all sessions and signal shutdown
 			sessions = registry.list_sessions()

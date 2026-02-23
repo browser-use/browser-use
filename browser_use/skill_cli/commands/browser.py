@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 COMMANDS = {
 	'open',
 	'click',
-	'type',
+	'type-text',
 	'input',
 	'scroll',
 	'back',
@@ -24,7 +24,6 @@ COMMANDS = {
 	'keys',
 	'select',
 	'eval',
-	'extract',
 	'cookies',
 	'wait',
 	'hover',
@@ -110,7 +109,7 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		await bs.event_bus.dispatch(ClickElementEvent(node=node))
 		return {'clicked': index}
 
-	elif action == 'type':
+	elif action == 'type-text':
 		# Type into currently focused element using CDP directly
 		text = params['text']
 		cdp_session = await bs.get_or_create_cdp_session(target_id=None, focus=False)
@@ -219,12 +218,6 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		# Execute JavaScript via CDP
 		result = await _execute_js(session, js)
 		return {'result': result}
-
-	elif action == 'extract':
-		query = params['query']
-		# This requires LLM integration
-		# For now, return a placeholder
-		return {'query': query, 'error': 'extract requires agent mode - use: browser-use run "extract ..."'}
 
 	elif action == 'hover':
 		index = params['index']

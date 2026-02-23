@@ -421,8 +421,8 @@ Setup:
 	p = subparsers.add_parser('click', help='Click element by index')
 	p.add_argument('index', type=int, help='Element index from state')
 
-	# type <text>
-	p = subparsers.add_parser('type', help='Type text')
+	# type-text <text>
+	p = subparsers.add_parser('type-text', help='Type text into focused element (no click)')
 	p.add_argument('text', help='Text to type')
 
 	# input <index> <text>
@@ -467,10 +467,6 @@ Setup:
 	p = subparsers.add_parser('eval', help='Execute JavaScript')
 	p.add_argument('js', help='JavaScript code to execute')
 
-	# extract <query>
-	p = subparsers.add_parser('extract', help='Extract data using LLM')
-	p.add_argument('query', help='What to extract')
-
 	# hover <index>
 	p = subparsers.add_parser('hover', help='Hover over element')
 	p.add_argument('index', type=int, help='Element index')
@@ -487,7 +483,7 @@ Setup:
 	# Cookies Commands
 	# -------------------------------------------------------------------------
 
-	cookies_p = subparsers.add_parser('cookies', help='Cookie operations')
+	cookies_p = subparsers.add_parser('cookies', help='Cookie operations (live browser session via CDP)')
 	cookies_sub = cookies_p.add_subparsers(dest='cookies_command')
 
 	# cookies get [--url URL]
@@ -715,22 +711,9 @@ Setup:
 	# Session Management
 	# -------------------------------------------------------------------------
 
-	# sessions
-	subparsers.add_parser('sessions', help='List active sessions')
-
 	# close
-	p = subparsers.add_parser('close', help='Close session')
+	p = subparsers.add_parser('close', help='Close local browser session')
 	p.add_argument('--all', action='store_true', help='Close all sessions')
-
-	# -------------------------------------------------------------------------
-	# Server Control
-	# -------------------------------------------------------------------------
-
-	server_p = subparsers.add_parser('server', help='Server control')
-	server_sub = server_p.add_subparsers(dest='server_command')
-	server_sub.add_parser('status', help='Check server status')
-	server_sub.add_parser('stop', help='Stop server')
-	server_sub.add_parser('logs', help='View server logs')
 
 	# -------------------------------------------------------------------------
 	# Profile Management (mode-aware: use -b real or -b remote)
@@ -762,7 +745,9 @@ Setup:
 	p.add_argument('id', help='Profile ID')
 
 	# profile cookies <id> - list cookies by domain (local only)
-	p = profile_sub.add_parser('cookies', help='List cookies by domain (local only, requires -b real)')
+	p = profile_sub.add_parser(
+		'cookies', help='List cookies by domain from on-disk Chrome profile (local only, requires -b real)'
+	)
 	p.add_argument('id', help='Profile ID or name (e.g. "Default", "Profile 1")')
 
 	# profile sync - sync local profile to cloud
@@ -779,39 +764,6 @@ Setup:
 			pass
 
 	return parser
-
-
-def handle_server_command(args: argparse.Namespace) -> int:
-	"""Handle server subcommands."""
-	if args.server_command == 'status':
-		if is_server_running(args.session):
-			print(f'Server for session "{args.session}" is running')
-			return 0
-		else:
-			print(f'Server for session "{args.session}" is not running')
-			return 1
-
-	elif args.server_command == 'stop':
-		if not is_server_running(args.session):
-			print(f'Server for session "{args.session}" is not running')
-			return 0
-		response = send_command(args.session, 'shutdown', {})
-		if response.get('success'):
-			print(f'Server for session "{args.session}" stopped')
-			return 0
-		else:
-			print(f'Error: {response.get("error")}', file=sys.stderr)
-			return 1
-
-	elif args.server_command == 'logs':
-		log_path = Path(tempfile.gettempdir()) / f'browser-use-{args.session}.log'
-		if log_path.exists():
-			print(log_path.read_text())
-		else:
-			print('No logs found')
-		return 0
-
-	return 0
 
 
 def _parse_key_value_list(items: list[str] | None) -> dict[str, str | None] | None:
@@ -906,22 +858,6 @@ def _handle_remote_run_with_wait(args: argparse.Namespace) -> int:
 	except Exception as e:
 		print(f'Error: {e}', file=sys.stderr)
 		return 1
-
-
-def handle_sessions_command(args: argparse.Namespace) -> int:
-	"""Handle 'sessions' command — list all running sessions."""
-	session_names = find_all_sessions()
-	sessions = [{'name': name, 'status': 'running'} for name in session_names]
-
-	if args.json:
-		print(json.dumps(sessions))
-	else:
-		if sessions:
-			for s in sessions:
-				print(f'  {s["name"]}: {s["status"]}')
-		else:
-			print('No active sessions')
-	return 0
 
 
 def handle_close_all(args: argparse.Namespace) -> int:
@@ -1084,18 +1020,11 @@ def main() -> int:
 		parser.print_help()
 		return 0
 
-	# Handle server subcommands without starting server
-	if args.command == 'server':
-		return handle_server_command(args)
-
 	# Handle profile subcommands without starting server
 	if args.command == 'profile':
 		from browser_use.skill_cli.commands.profile import handle_profile_command
 
 		return handle_profile_command(args)
-
-	if args.command == 'sessions':
-		return handle_sessions_command(args)
 
 	if args.command == 'close' and getattr(args, 'all', False):
 		return handle_close_all(args)
@@ -1198,7 +1127,7 @@ def main() -> int:
 	# Output response
 	if args.json:
 		# Add mode to JSON output for browser-related commands
-		if args.command in ('open', 'run', 'state', 'click', 'type', 'input', 'scroll', 'screenshot'):
+		if args.command in ('open', 'run', 'state', 'click', 'type-text', 'input', 'scroll', 'screenshot'):
 			response['mode'] = args.browser
 		print(json.dumps(response))
 	else:

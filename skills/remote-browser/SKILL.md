@@ -60,7 +60,7 @@ browser-use open https://example.com
 # Step 2+: All subsequent commands use the existing session
 browser-use state                   # Get page elements with indices
 browser-use click 5                 # Click element by index
-browser-use type "Hello World"      # Type into focused element
+browser-use type-text "Hello World"      # Type into focused element
 browser-use input 3 "text"          # Click element, then type
 browser-use screenshot              # Take screenshot (base64)
 browser-use screenshot page.png     # Save screenshot to file
@@ -130,7 +130,7 @@ browser-use screenshot --full p.png # Full page screenshot
 ### Interactions (use indices from `state`)
 ```bash
 browser-use click <index>           # Click element
-browser-use type "text"             # Type into focused element
+browser-use type-text "text"             # Type into focused element
 browser-use input <index> "text"    # Click element, then type
 browser-use keys "Enter"            # Send keyboard keys
 browser-use keys "Control+a"        # Key combination
@@ -143,7 +143,6 @@ browser-use rightclick <index>      # Right-click
 ### JavaScript & Data
 ```bash
 browser-use eval "document.title"   # Execute JavaScript
-browser-use extract "all prices"    # Extract data using LLM
 browser-use get title               # Get page title
 browser-use get html                # Get page HTML
 browser-use get html --selector "h1"  # Scoped HTML
@@ -161,7 +160,10 @@ browser-use wait text "Success"                        # Wait for text
 browser-use wait selector "#btn" --timeout 5000        # Custom timeout (ms)
 ```
 
-### Cookies
+### Cookies (Live Browser Session)
+
+These operate on the running browser session via CDP.
+
 ```bash
 browser-use cookies get             # Get all cookies
 browser-use cookies get --url <url> # Get cookies for specific URL
@@ -205,7 +207,6 @@ The Python session maintains state across commands. The `browser` object provide
 - `browser.scroll(direction, amount)` - Scroll page
 - `browser.back()` - Go back in history
 - `browser.wait(seconds)` - Sleep/pause execution
-- `browser.extract(query)` - Extract data using LLM
 
 ### Agent Tasks
 ```bash
@@ -550,11 +551,13 @@ browser-use session list --status active  # See lingering sessions
 browser-use session stop --all            # Clean up
 ```
 
-### Session Management
+### Local Session Management
+
+`close` shuts down the local browser process. For cloud sessions, use `session stop` instead.
+
 ```bash
-browser-use sessions                # List active sessions
-browser-use close                   # Close current session
-browser-use close --all             # Close all sessions
+browser-use close                   # Close local browser session
+browser-use close --all             # Close all local sessions
 ```
 
 ### Global Options

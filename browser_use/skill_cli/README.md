@@ -84,8 +84,8 @@ browser-use state
 # Click an element by index
 browser-use click 5
 
-# Type text into focused element
-browser-use type "Hello World"
+# Type text into focused element (no click)
+browser-use type-text "Hello World"
 
 # Fill a specific input field (click + type)
 browser-use input 3 "john@example.com"
@@ -135,7 +135,7 @@ browser-use --browser remote open https://example.com
 | Command | Description |
 |---------|-------------|
 | `click <index>` | Click element by index |
-| `type "text"` | Type into focused element |
+| `type-text "text"` | Type into focused element (no click) |
 | `input <index> "text"` | Click element, then type |
 | `keys "Enter"` | Send keyboard keys |
 | `keys "Control+a"` | Send key combination |
@@ -184,11 +184,10 @@ browser-use --browser remote open https://example.com
 | `get attributes <index>` | Get all attributes of element |
 | `get bbox <index>` | Get bounding box (x, y, width, height) |
 
-### JavaScript & Data
+### JavaScript
 | Command | Description |
 |---------|-------------|
 | `eval "js code"` | Execute JavaScript |
-| `extract "query"` | Extract data with LLM |
 
 ### Python (Persistent Session)
 ```bash
@@ -324,14 +323,12 @@ browser-use -b remote open https://abc.trycloudflare.com
 
 ## Local Session Management
 
+`close` shuts down the local browser process. For cloud sessions, use `session stop` instead.
+
 | Command | Description |
 |---------|-------------|
-| `sessions` | List active sessions |
-| `close` | Close browser session |
-| `close --all` | Close all sessions |
-| `server status` | Check if server is running |
-| `server stop` | Stop server |
-| `server logs` | View server logs |
+| `close` | Close local browser session |
+| `close --all` | Close all local sessions |
 
 ## Global Options
 
@@ -415,7 +412,7 @@ The CLI uses a session server architecture:
 1. First command starts a background server (browser stays open)
 2. Subsequent commands communicate via Unix socket (or TCP on Windows)
 3. Browser persists across commands for fast interaction
-4. Server auto-starts when needed, stops with `browser-use server stop`
+4. Server auto-starts when needed, stops with `browser-use close`
 
 This gives you ~50ms command latency instead of waiting for browser startup each time.
 

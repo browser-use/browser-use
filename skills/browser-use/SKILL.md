@@ -92,7 +92,7 @@ winget install Cloudflare.cloudflared
 browser-use open https://example.com           # Navigate to URL
 browser-use state                              # Get page elements with indices
 browser-use click 5                            # Click element by index
-browser-use type "Hello World"                 # Type text
+browser-use type-text "Hello World"                 # Type text
 browser-use screenshot                         # Take screenshot
 browser-use close                              # Close browser
 ```
@@ -140,7 +140,7 @@ browser-use screenshot --full path.png    # Full page screenshot
 ### Interactions (use indices from `browser-use state`)
 ```bash
 browser-use click <index>                 # Click element
-browser-use type "text"                   # Type text into focused element
+browser-use type-text "text"                   # Type text into focused element
 browser-use input <index> "text"          # Click element, then type text
 browser-use keys "Enter"                  # Send keyboard keys
 browser-use keys "Control+a"              # Send key combination
@@ -154,13 +154,15 @@ browser-use close-tab                     # Close current tab
 browser-use close-tab <tab>               # Close specific tab
 ```
 
-### JavaScript & Data
+### JavaScript
 ```bash
 browser-use eval "document.title"         # Execute JavaScript, return result
-browser-use extract "all product prices"  # Extract data using LLM (requires API key)
 ```
 
-### Cookies
+### Cookies (Live Browser Session)
+
+These operate on the running browser session via CDP. For reading cookies from Chrome's on-disk profile without a running browser, use `profile cookies` instead.
+
 ```bash
 browser-use cookies get                   # Get all cookies
 browser-use cookies get --url <url>       # Get cookies for specific URL
@@ -225,7 +227,6 @@ The Python session maintains state across commands. The `browser` object provide
 - `browser.scroll(direction, amount)` - Scroll page
 - `browser.back()` - Go back in history
 - `browser.wait(seconds)` - Sleep/pause execution
-- `browser.extract(query)` - Extract data using LLM
 
 ### Agent Tasks (Requires API Key)
 ```bash
@@ -575,11 +576,13 @@ browser-use session list --status active  # See lingering sessions
 browser-use session stop --all            # Clean up
 ```
 
-### Session Management
+### Local Session Management
+
+`close` shuts down the local browser process. For cloud sessions, use `session stop` instead.
+
 ```bash
-browser-use sessions                      # List active sessions
-browser-use close                         # Close current session
-browser-use close --all                   # Close all sessions
+browser-use close                         # Close local browser session
+browser-use close --all                   # Close all local sessions
 ```
 
 ### Profile Management
@@ -700,13 +703,6 @@ browser-use profile update <id> --name "New Name"  # Rename
 browser-use profile delete <id>                    # Delete
 ```
 
-### Server Control
-```bash
-browser-use server status                 # Check if server is running
-browser-use server stop                   # Stop server
-browser-use server logs                   # View server logs
-```
-
 ### Setup
 ```bash
 browser-use install                       # Install Chromium and system dependencies
@@ -728,7 +724,7 @@ browser-use install                       # Install Chromium and system dependen
 
 ## API Key Configuration
 
-Some features (`run`, `extract`, `--browser remote`) require an API key. The CLI checks these locations in order:
+Some features (`run`, `--browser remote`) require an API key. The CLI checks these locations in order:
 
 1. `--api-key` command line flag
 2. `BROWSER_USE_API_KEY` environment variable
@@ -830,7 +826,7 @@ browser-use doctor                    # Check installation status
 **Browser won't start?**
 ```bash
 browser-use install                   # Install/reinstall Chromium
-browser-use server stop               # Stop any stuck server
+browser-use close                     # Close any stuck session
 browser-use --headed open <url>       # Try with visible window
 ```
 
@@ -843,7 +839,6 @@ browser-use state                     # Check again
 
 **Session issues?**
 ```bash
-browser-use sessions                  # Check active sessions
 browser-use close --all               # Clean slate
 browser-use open <url>                # Fresh start
 ```
