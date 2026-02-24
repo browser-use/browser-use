@@ -119,7 +119,7 @@ class NavigateToUrlEvent(BaseEvent[None]):
 	# existing_tab: PageHandle | None = None  # TODO
 
 	# time limits enforced by bubus, not exposed to LLM:
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_NavigateToUrlEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_NavigateToUrlEvent', 30.0))  # seconds
 
 
 class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):

@@ -850,7 +850,7 @@ class BrowserSession(BaseModel):
 			await self.event_bus.dispatch(NavigationStartedEvent(target_id=target_id, url=event.url))
 
 			# Navigate to URL with proper lifecycle waiting
-			await self._navigate_and_wait(event.url, target_id)
+			await self._navigate_and_wait(event.url, target_id, wait_until=event.wait_until)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
@@ -887,17 +887,17 @@ class BrowserSession(BaseModel):
 				await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
 			raise
 
-	async def _navigate_and_wait(self, url: str, target_id: str, timeout: float | None = None) -> None:
+	async def _navigate_and_wait(
+		self,
+		url: str,
+		target_id: str,
+		timeout: float | None = None,
+		wait_until: str = 'load',
+	) -> None:
 		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
 
-		Two-strategy approach optimized for speed with robust fallback:
-		1. networkIdle - Returns ASAP when no network activity (~50-200ms for cached pages)
-		2. load - Fallback when page has ongoing network activity (all resources loaded)
-
-		This gives us instant returns for cached content while being robust for dynamic pages.
-
-		NO handler registration here - handlers are registered ONCE per session in SessionManager.
-		We poll stored events instead to avoid handler accumulation.
+		Polls stored lifecycle events (registered once per session in SessionManager).
+		wait_until controls the minimum acceptable signal: 'commit', 'domcontentloaded', 'load', 'networkidle'.
 		"""
 		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
 
@@ -909,28 +909,36 @@ class BrowserSession(BaseModel):
 				if url.startswith('http') and current_url.startswith('http')
 				else False
 			)
-			timeout = 2.0 if same_domain else 4.0
+			timeout = 3.0 if same_domain else 8.0
 
-		# Start performance tracking
 		nav_start_time = asyncio.get_event_loop().time()
 
-		nav_result = await cdp_session.cdp_client.send.Page.navigate(
-			params={'url': url, 'transitionType': 'address_bar'},
-			session_id=cdp_session.session_id,
-		)
+		# Wrap Page.navigate() with timeout — heavy sites can block here for 10s+
+		nav_timeout = 20.0
+		try:
+			nav_result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Page.navigate(
+					params={'url': url, 'transitionType': 'address_bar'},
+					session_id=cdp_session.session_id,
+				),
+				timeout=nav_timeout,
+			)
+		except TimeoutError:
+			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			raise RuntimeError(f'Page.navigate() timed out after {nav_timeout}s ({duration_ms:.0f}ms) for {url}')
 
-		# Check for immediate navigation errors
 		if nav_result.get('errorText'):
 			raise RuntimeError(f'Navigation failed: {nav_result["errorText"]}')
 
-		# Track this specific navigation
+		if wait_until == 'commit':
+			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			self.logger.debug(f'✅ Page ready for {url} (commit, {duration_ms:.0f}ms)')
+			return
+
 		navigation_id = nav_result.get('loaderId')
 		start_time = asyncio.get_event_loop().time()
+		seen_events = []
 
-		# Poll stored lifecycle events
-		seen_events = []  # Track events for timeout diagnostics
-
-		# Check if session has lifecycle monitoring enabled
 		if not hasattr(cdp_session, '_lifecycle_events'):
 			raise RuntimeError(
 				f'❌ Lifecycle monitoring not enabled for {cdp_session.target_id[:8]}! '
@@ -938,42 +946,37 @@ class BrowserSession(BaseModel):
 				f'Session: {cdp_session}'
 			)
 
-		# Poll for lifecycle events until timeout
-		poll_interval = 0.05  # Poll every 50ms
+		# Acceptable events by readiness level (higher is always acceptable)
+		acceptable_events: set[str] = {'networkIdle'}
+		if wait_until in ('load', 'domcontentloaded'):
+			acceptable_events.add('load')
+		if wait_until == 'domcontentloaded':
+			acceptable_events.add('DOMContentLoaded')
+
+		poll_interval = 0.05
 		while (asyncio.get_event_loop().time() - start_time) < timeout:
-			# Check stored events
 			try:
-				# Get recent events matching our navigation
 				for event_data in list(cdp_session._lifecycle_events):
 					event_name = event_data.get('name')
 					event_loader_id = event_data.get('loaderId')
 
-					# Track events
 					event_str = f'{event_name}(loader={event_loader_id[:8] if event_loader_id else "none"})'
 					if event_str not in seen_events:
 						seen_events.append(event_str)
 
-					# Only respond to events from our navigation (or accept all if no loaderId)
 					if event_loader_id and navigation_id and event_loader_id != navigation_id:
 						continue
 
-					if event_name == 'networkIdle':
+					if event_name in acceptable_events:
 						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
-						self.logger.debug(f'✅ Page ready for {url} (networkIdle, {duration_ms:.0f}ms)')
-						return
-
-					elif event_name == 'load':
-						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
-						self.logger.debug(f'✅ Page ready for {url} (load, {duration_ms:.0f}ms)')
+						self.logger.debug(f'✅ Page ready for {url} ({event_name}, {duration_ms:.0f}ms)')
 						return
 
 			except Exception as e:
 				self.logger.debug(f'Error polling lifecycle events: {e}')
 
-			# Wait before next poll
 			await asyncio.sleep(poll_interval)
 
-		# Timeout - continue anyway with detailed diagnostics
 		duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
 		if not seen_events:
 			self.logger.error(
