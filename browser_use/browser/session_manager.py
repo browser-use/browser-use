@@ -5,8 +5,9 @@ events, ensuring the session pool always reflects the current browser state.
 """
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
+from cdp_use.cdp.network import ResponseReceivedEvent
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
 
 from browser_use.utils import create_task_with_error_handling
@@ -105,6 +106,28 @@ class SessionManager:
 		cdp_client.register.Target.attachedToTarget(on_attached)
 		cdp_client.register.Target.detachedFromTarget(on_detached)
 		cdp_client.register.Target.targetInfoChanged(on_target_info_changed)
+
+		# Cloudflare Markdown for Agents: track main document content-type for markdown detection
+		def on_response_received(params: ResponseReceivedEvent, session_id: SessionID | None = None) -> None:
+			try:
+				resp_type = params.get('type') if hasattr(params, 'get') else getattr(params, 'type', None)
+				if resp_type != 'Document':
+					return
+				target_id = self.get_target_id_from_session_id(session_id) if session_id else None
+				if not target_id:
+					return
+				response = params.get('response', {}) if hasattr(params, 'get') else getattr(params, 'response', {})
+				mime_type = response.get('mimeType') if isinstance(response, dict) else getattr(response, 'mimeType', None)
+				if mime_type and 'markdown' in str(mime_type).lower():
+					self.browser_session._main_document_content_types[target_id] = str(mime_type)
+					self.logger.debug(f'[SessionManager] Main document markdown detected for target {target_id[:8]}...')
+				else:
+					# Clear or don't set - HTML is the default path
+					self.browser_session._main_document_content_types.pop(target_id, None)
+			except Exception as e:
+				self.logger.debug(f'[SessionManager] responseReceived markdown tracking: {e}')
+
+		cdp_client.register.Network.responseReceived(on_response_received)
 
 		self.logger.debug('[SessionManager] Event monitoring started')
 
@@ -542,6 +565,7 @@ class SessionManager:
 
 					# Clean up tracking
 					del self._target_sessions[target_id]
+					self.browser_session._main_document_content_types.pop(target_id, None)
 			else:
 				# Target not tracked - already removed or never attached
 				self.logger.debug(
@@ -847,6 +871,14 @@ class SessionManager:
 
 			# Enable network monitoring for networkIdle detection
 			await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
+
+			# Cloudflare Markdown for Agents: prefer Markdown over HTML when server supports it
+			# Reduces token consumption ~80% for supported sites, fully backward compatible
+			# cast: cdp-use Headers type is strict; CDP protocol accepts arbitrary header dict
+			await cdp_session.cdp_client.send.Network.setExtraHTTPHeaders(
+				params=cast(Any, {'headers': {'Accept': 'text/markdown, text/html'}}),
+				session_id=cdp_session.session_id,
+			)
 
 			# Initialize lifecycle event storage for this session (thread-safe)
 			from collections import deque

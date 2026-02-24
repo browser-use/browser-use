@@ -46,15 +46,27 @@ async def extract_clean_markdown(
 	if browser_session is not None:
 		if dom_service is not None or target_id is not None:
 			raise ValueError('Cannot specify both browser_session and dom_service/target_id')
-		# Browser session path (tools service)
-		enhanced_dom_tree = await _get_enhanced_dom_tree_from_browser_session(browser_session)
+		target_id_for_check = browser_session.agent_focus_target_id
 		current_url = await browser_session.get_current_page_url()
+	else:
+		target_id_for_check = target_id
+		current_url = None
+
+	# Cloudflare Markdown for Agents: when server returned text/markdown, use raw body text directly
+	# Skips HTML→markdown conversion, ~80% token reduction for supported sites
+	bs = browser_session or (dom_service.browser_session if dom_service else None)
+	if target_id_for_check and bs and 'markdown' in bs._main_document_content_types.get(target_id_for_check, '').lower():
+		content, stats = await _extract_raw_markdown_from_page(
+			browser_session=browser_session, dom_service=dom_service, target_id=target_id_for_check, current_url=current_url
+		)
+		return content, stats
+
+	# Standard path: HTML DOM → markdownify
+	if browser_session is not None:
+		enhanced_dom_tree = await _get_enhanced_dom_tree_from_browser_session(browser_session)
 		method = 'enhanced_dom_tree'
 	elif dom_service is not None and target_id is not None:
-		# DOM service path (page actor)
-		# Lazy fetch all_frames inside get_dom_tree if needed (for cross-origin iframes)
 		enhanced_dom_tree, _ = await dom_service.get_dom_tree(target_id=target_id, all_frames=None)
-		current_url = None  # Not available via DOM service
 		method = 'dom_service'
 	else:
 		raise ValueError('Must provide either browser_session or both dom_service and target_id')
@@ -105,6 +117,48 @@ async def extract_clean_markdown(
 	if current_url:
 		stats['url'] = current_url
 
+	return content, stats
+
+
+async def _extract_raw_markdown_from_page(
+	browser_session: 'BrowserSession | None' = None,
+	dom_service: DomService | None = None,
+	target_id: str | None = None,
+	current_url: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+	"""Extract raw markdown when server returned text/markdown (Cloudflare Markdown for Agents).
+
+	Uses document.body.innerText - browser displays markdown as plain text, no HTML parsing needed.
+	"""
+	bs = browser_session or (dom_service.browser_session if dom_service else None)
+	assert bs is not None and target_id is not None
+
+	cdp_session = await bs.get_or_create_cdp_session(target_id=target_id, focus=False)
+	result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': "document.body ? document.body.innerText : document.documentElement?.innerText || ''",
+			'returnByValue': True,
+		},
+		session_id=cdp_session.session_id,
+	)
+	if result.get('exceptionDetails'):
+		# Fallback to empty - caller can handle
+		content = ''
+	else:
+		content = result.get('result', {}).get('value') or ''
+		if not isinstance(content, str):
+			content = str(content)
+
+	content, chars_filtered = _preprocess_markdown_content(content)
+	stats = {
+		'method': 'cloudflare_markdown_raw',
+		'original_html_chars': 0,
+		'initial_markdown_chars': len(content) + chars_filtered,
+		'filtered_chars_removed': chars_filtered,
+		'final_filtered_chars': len(content),
+	}
+	if current_url:
+		stats['url'] = current_url
 	return content, stats
 
 
