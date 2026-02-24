@@ -155,6 +155,7 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		cleanup_on_close: bool | None = None,
 	) -> None: ...
 
 	# Overload 2: Local browser mode (use local browser params)
@@ -188,6 +189,7 @@ class BrowserSession(BaseModel):
 		paint_order_filtering: bool | None = None,
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		cleanup_on_close: bool | None = None,
 		# All other local params
 		env: dict[str, str | float | bool] | None = None,
 		ignore_default_args: list[str] | Literal[True] | None = None,
@@ -298,6 +300,7 @@ class BrowserSession(BaseModel):
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		cleanup_on_close: bool | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
@@ -605,6 +608,46 @@ class BrowserSession(BaseModel):
 		if self._demo_mode:
 			self._demo_mode.reset()
 			self._demo_mode = None
+
+		if self.browser_profile.cleanup_on_close:
+			import asyncio
+			import shutil
+
+			from browser_use.utils import _log_pretty_path
+
+			async def _robust_cleanup(path: str | Path, name: str):
+				path_obj = Path(path)
+				if not path_obj.exists():
+					return
+
+				self.logger.debug(f'🗑️ Cleaning up auto-generated {name}: {_log_pretty_path(path)}')
+
+				# Retry loop for Windows file locks
+				max_retries = 3
+				for i in range(max_retries):
+					try:
+						if i > 0:
+							await asyncio.sleep(0.5)
+						shutil.rmtree(path_obj, ignore_errors=False)
+						return
+					except Exception as e:
+						if i == max_retries - 1:
+							# Last attempt failed
+							self.logger.warning(f'Failed to cleanup {name} after {max_retries} attempts: {e}')
+							# Try one last time with ignore_errors to get partial cleanup
+							shutil.rmtree(path_obj, ignore_errors=True)
+
+			# 1. Cleanup user_data_dir if it was auto-generated
+			if self.browser_profile.user_data_dir:
+				path_str = str(self.browser_profile.user_data_dir)
+				if 'browser-use-user-data-dir-' in path_str:
+					await _robust_cleanup(self.browser_profile.user_data_dir, 'user_data_dir')
+
+			# 2. Cleanup downloads_path if it was auto-generated
+			if self.browser_profile.downloads_path:
+				path_str = str(self.browser_profile.downloads_path)
+				if 'browser-use-downloads-' in path_str:
+					await _robust_cleanup(self.browser_profile.downloads_path, 'downloads_path')
 
 		self.logger.info('✅ Browser session reset complete')
 
