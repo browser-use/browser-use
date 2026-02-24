@@ -50,6 +50,7 @@ from browser_use.utils import _log_pretty_url, create_task_with_error_handling, 
 if TYPE_CHECKING:
 	from browser_use.actor.page import Page
 	from browser_use.browser.demo_mode import DemoMode
+	from browser_use.browser.watchdogs.captcha_watchdog import CaptchaWaitResult
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
@@ -145,6 +146,7 @@ class BrowserSession(BaseModel):
 		minimum_wait_page_load_time: float | None = None,
 		wait_for_network_idle_page_load_time: float | None = None,
 		wait_between_actions: float | None = None,
+		captcha_solver: bool | None = None,
 		auto_download_pdfs: bool | None = None,
 		cookie_whitelist_domains: list[str] | None = None,
 		cross_origin_iframes: bool | None = None,
@@ -211,6 +213,7 @@ class BrowserSession(BaseModel):
 		deterministic_rendering: bool | None = None,
 		proxy: ProxySettings | None = None,
 		enable_default_extensions: bool | None = None,
+		captcha_solver: bool | None = None,
 		window_size: dict | None = None,
 		window_position: dict | None = None,
 		filter_highlight_ids: bool | None = None,
@@ -277,6 +280,7 @@ class BrowserSession(BaseModel):
 		keep_alive: bool | None = None,
 		proxy: ProxySettings | None = None,
 		enable_default_extensions: bool | None = None,
+		captcha_solver: bool | None = None,
 		window_size: dict | None = None,
 		window_position: dict | None = None,
 		minimum_wait_page_load_time: float | None = None,
@@ -458,6 +462,16 @@ class BrowserSession(BaseModel):
 		except Exception:
 			return False
 
+	async def wait_if_captcha_solving(self, timeout: float | None = None) -> 'CaptchaWaitResult | None':
+		"""Wait if a captcha is currently being solved by the browser proxy.
+
+		Returns:
+			A CaptchaWaitResult if we had to wait, or None if no captcha was in progress.
+		"""
+		if self._captcha_watchdog is not None:
+			return await self._captcha_watchdog.wait_if_captcha_solving(timeout=timeout)
+		return None
+
 	@property
 	def cloud_browser(self) -> bool:
 		"""Whether to use cloud browser service from browser profile."""
@@ -504,6 +518,8 @@ class BrowserSession(BaseModel):
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_captcha_watchdog: Any | None = PrivateAttr(default=None)
+	_watchdogs_attached: bool = PrivateAttr(default=False)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
@@ -588,6 +604,8 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		self._captcha_watchdog = None
+		self._watchdogs_attached = False
 		if self._demo_mode:
 			self._demo_mode.reset()
 			self._demo_mode = None
@@ -854,7 +872,7 @@ class BrowserSession(BaseModel):
 			await self.event_bus.dispatch(NavigationStartedEvent(target_id=target_id, url=event.url))
 
 			# Navigate to URL with proper lifecycle waiting
-			await self._navigate_and_wait(event.url, target_id)
+			await self._navigate_and_wait(event.url, target_id, wait_until=event.wait_until)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
@@ -891,17 +909,17 @@ class BrowserSession(BaseModel):
 				await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
 			raise
 
-	async def _navigate_and_wait(self, url: str, target_id: str, timeout: float | None = None) -> None:
+	async def _navigate_and_wait(
+		self,
+		url: str,
+		target_id: str,
+		timeout: float | None = None,
+		wait_until: str = 'load',
+	) -> None:
 		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
 
-		Two-strategy approach optimized for speed with robust fallback:
-		1. networkIdle - Returns ASAP when no network activity (~50-200ms for cached pages)
-		2. load - Fallback when page has ongoing network activity (all resources loaded)
-
-		This gives us instant returns for cached content while being robust for dynamic pages.
-
-		NO handler registration here - handlers are registered ONCE per session in SessionManager.
-		We poll stored events instead to avoid handler accumulation.
+		Polls stored lifecycle events (registered once per session in SessionManager).
+		wait_until controls the minimum acceptable signal: 'commit', 'domcontentloaded', 'load', 'networkidle'.
 		"""
 		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
 
@@ -913,28 +931,36 @@ class BrowserSession(BaseModel):
 				if url.startswith('http') and current_url.startswith('http')
 				else False
 			)
-			timeout = 2.0 if same_domain else 4.0
+			timeout = 3.0 if same_domain else 8.0
 
-		# Start performance tracking
 		nav_start_time = asyncio.get_event_loop().time()
 
-		nav_result = await cdp_session.cdp_client.send.Page.navigate(
-			params={'url': url, 'transitionType': 'address_bar'},
-			session_id=cdp_session.session_id,
-		)
+		# Wrap Page.navigate() with timeout — heavy sites can block here for 10s+
+		nav_timeout = 20.0
+		try:
+			nav_result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Page.navigate(
+					params={'url': url, 'transitionType': 'address_bar'},
+					session_id=cdp_session.session_id,
+				),
+				timeout=nav_timeout,
+			)
+		except TimeoutError:
+			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			raise RuntimeError(f'Page.navigate() timed out after {nav_timeout}s ({duration_ms:.0f}ms) for {url}')
 
-		# Check for immediate navigation errors
 		if nav_result.get('errorText'):
 			raise RuntimeError(f'Navigation failed: {nav_result["errorText"]}')
 
-		# Track this specific navigation
+		if wait_until == 'commit':
+			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			self.logger.debug(f'✅ Page ready for {url} (commit, {duration_ms:.0f}ms)')
+			return
+
 		navigation_id = nav_result.get('loaderId')
 		start_time = asyncio.get_event_loop().time()
+		seen_events = []
 
-		# Poll stored lifecycle events
-		seen_events = []  # Track events for timeout diagnostics
-
-		# Check if session has lifecycle monitoring enabled
 		if not hasattr(cdp_session, '_lifecycle_events'):
 			raise RuntimeError(
 				f'❌ Lifecycle monitoring not enabled for {cdp_session.target_id[:8]}! '
@@ -942,42 +968,37 @@ class BrowserSession(BaseModel):
 				f'Session: {cdp_session}'
 			)
 
-		# Poll for lifecycle events until timeout
-		poll_interval = 0.05  # Poll every 50ms
+		# Acceptable events by readiness level (higher is always acceptable)
+		acceptable_events: set[str] = {'networkIdle'}
+		if wait_until in ('load', 'domcontentloaded'):
+			acceptable_events.add('load')
+		if wait_until == 'domcontentloaded':
+			acceptable_events.add('DOMContentLoaded')
+
+		poll_interval = 0.05
 		while (asyncio.get_event_loop().time() - start_time) < timeout:
-			# Check stored events
 			try:
-				# Get recent events matching our navigation
 				for event_data in list(cdp_session._lifecycle_events):
 					event_name = event_data.get('name')
 					event_loader_id = event_data.get('loaderId')
 
-					# Track events
 					event_str = f'{event_name}(loader={event_loader_id[:8] if event_loader_id else "none"})'
 					if event_str not in seen_events:
 						seen_events.append(event_str)
 
-					# Only respond to events from our navigation (or accept all if no loaderId)
 					if event_loader_id and navigation_id and event_loader_id != navigation_id:
 						continue
 
-					if event_name == 'networkIdle':
+					if event_name in acceptable_events:
 						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
-						self.logger.debug(f'✅ Page ready for {url} (networkIdle, {duration_ms:.0f}ms)')
-						return
-
-					elif event_name == 'load':
-						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
-						self.logger.debug(f'✅ Page ready for {url} (load, {duration_ms:.0f}ms)')
+						self.logger.debug(f'✅ Page ready for {url} ({event_name}, {duration_ms:.0f}ms)')
 						return
 
 			except Exception as e:
 				self.logger.debug(f'Error polling lifecycle events: {e}')
 
-			# Wait before next poll
 			await asyncio.sleep(poll_interval)
 
-		# Timeout - continue anyway with detailed diagnostics
 		duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
 		if not seen_events:
 			self.logger.error(
@@ -1470,11 +1491,12 @@ class BrowserSession(BaseModel):
 	async def attach_all_watchdogs(self) -> None:
 		"""Initialize and attach all watchdogs with explicit handler registration."""
 		# Prevent duplicate watchdog attachment
-		if hasattr(self, '_watchdogs_attached') and self._watchdogs_attached:
+		if self._watchdogs_attached:
 			self.logger.debug('Watchdogs already attached, skipping duplicate attachment')
 			return
 
 		from browser_use.browser.watchdogs.aboutblank_watchdog import AboutBlankWatchdog
+		from browser_use.browser.watchdogs.captcha_watchdog import CaptchaWatchdog
 
 		# from browser_use.browser.crash_watchdog import CrashWatchdog
 		from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
@@ -1607,6 +1629,12 @@ class BrowserSession(BaseModel):
 			HarRecordingWatchdog.model_rebuild()
 			self._har_recording_watchdog = HarRecordingWatchdog(event_bus=self.event_bus, browser_session=self)
 			self._har_recording_watchdog.attach_to_session()
+
+		# Initialize CaptchaWatchdog (listens for captcha solver events from the browser proxy)
+		if self.browser_profile.captcha_solver:
+			CaptchaWatchdog.model_rebuild()
+			self._captcha_watchdog = CaptchaWatchdog(event_bus=self.event_bus, browser_session=self)
+			self._captcha_watchdog.attach_to_session()
 
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True

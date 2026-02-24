@@ -1024,6 +1024,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_state_summary = None
 
 		try:
+			if self.browser_session:
+				try:
+					captcha_wait = await self.browser_session.wait_if_captcha_solving()
+					if captcha_wait and captcha_wait.waited:
+						# Reset step timing to exclude the captcha wait from step duration metrics
+						self.step_start_time = time.time()
+						duration_s = captcha_wait.duration_ms / 1000
+						outcome = captcha_wait.result  # 'success' | 'failed' | 'timeout'
+						msg = f'Waited {duration_s:.1f}s for {captcha_wait.vendor} CAPTCHA to be solved. Result: {outcome}.'
+						self.logger.info(f'🔒 {msg}')
+						# Inject the outcome so the LLM sees what happened
+						captcha_result = ActionResult(long_term_memory=msg)
+						if self.state.last_result:
+							self.state.last_result.append(captcha_result)
+						else:
+							self.state.last_result = [captcha_result]
+				except Exception as e:
+					self.logger.warning(f'Phase 0 captcha wait failed (non-fatal): {e}')
+
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
 

@@ -219,6 +219,12 @@ Yes! Browser-Use is open source and free to use. You only need to choose an LLM 
 </details>
 
 <details>
+<summary><b>Terms of Service</b></summary>
+
+This open-source library is licensed under the MIT License. For Browser Use services & data policy, see our [Terms of Service](https://browser-use.com/legal/terms-of-service) and [Privacy Policy](https://browser-use.com/privacy/).
+</details>
+
+<details>
 <summary><b>How do I handle authentication?</b></summary>
 
 Check out our authentication examples:

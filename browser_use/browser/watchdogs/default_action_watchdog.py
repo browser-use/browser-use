@@ -612,9 +612,47 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 
 						// Simple containment-based clickability logic
-						const isClickable = this === elementAtPoint ||
+						let isClickable = this === elementAtPoint ||
 							this.contains(elementAtPoint) ||
 							elementAtPoint.contains(this);
+
+						// Check label-input associations when containment check fails
+						if (!isClickable) {
+							const target = this;
+							const atPoint = elementAtPoint;
+
+							// Case 1: target is <input>, atPoint is its associated <label> (or child of that label)
+							if (target.tagName === 'INPUT' && target.id) {
+								const escapedId = CSS.escape(target.id);
+								const assocLabel = document.querySelector('label[for="' + escapedId + '"]');
+								if (assocLabel && (assocLabel === atPoint || assocLabel.contains(atPoint))) {
+									isClickable = true;
+								}
+							}
+
+							// Case 2: target is <input>, atPoint is inside a <label> ancestor that wraps the target
+							if (!isClickable && target.tagName === 'INPUT') {
+								let ancestor = atPoint;
+								for (let i = 0; i < 3 && ancestor; i++) {
+									if (ancestor.tagName === 'LABEL' && ancestor.contains(target)) {
+										isClickable = true;
+										break;
+									}
+									ancestor = ancestor.parentElement;
+								}
+							}
+
+							// Case 3: target is <label>, atPoint is the associated <input>
+							if (!isClickable && target.tagName === 'LABEL') {
+								if (target.htmlFor && atPoint.tagName === 'INPUT' && atPoint.id === target.htmlFor) {
+									isClickable = true;
+								}
+								// Also check if atPoint is an input inside the label
+								if (!isClickable && atPoint.tagName === 'INPUT' && target.contains(atPoint)) {
+									isClickable = true;
+								}
+							}
+						}
 
 						return {
 							targetInfo: getElementInfo(this),
