@@ -430,14 +430,14 @@ class BrowserLaunchArgs(BaseModel):
 		if self.downloads_path is None:
 			import uuid
 
-			# Create unique directory in /tmp for downloads
+			# Create unique directory in system temp for downloads (cross-platform)
 			unique_id = str(uuid.uuid4())[:8]  # 8 characters
-			downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+			downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			# Ensure path doesn't already exist (extremely unlikely but possible)
 			while downloads_path.exists():
 				unique_id = str(uuid.uuid4())[:8]
-				downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			self.downloads_path = downloads_path
 			self.downloads_path.mkdir(parents=True, exist_ok=True)
