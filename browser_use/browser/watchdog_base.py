@@ -1,5 +1,6 @@
 """Base watchdog class for browser monitoring components."""
 
+import asyncio
 import inspect
 import time
 from collections.abc import Iterable
@@ -82,6 +83,8 @@ class BaseWatchdog(BaseModel):
 				'BrowserLaunchEvent',
 				'BrowserErrorEvent',
 				'BrowserKillEvent',
+				'BrowserReconnectingEvent',
+				'BrowserReconnectedEvent',
 			}
 		)
 
@@ -93,10 +96,31 @@ class BaseWatchdog(BaseModel):
 				# (prevents handlers from hanging on broken connections until timeout)
 				# Lifecycle events are exempt — they manage browser start/stop
 				if event.event_type not in LIFECYCLE_EVENT_NAMES and not browser_session.is_cdp_connected:
-					browser_session.logger.debug(
-						f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⚡ Skipped — CDP not connected'
-					)
-					return None
+					# If reconnection is in progress, wait for it instead of silently skipping
+					if browser_session.is_reconnecting:
+						wait_timeout = browser_session.RECONNECT_WAIT_TIMEOUT
+						browser_session.logger.debug(
+							f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⏳ Waiting for reconnection ({wait_timeout}s)...'
+						)
+						try:
+							await asyncio.wait_for(browser_session._reconnect_event.wait(), timeout=wait_timeout)
+						except TimeoutError:
+							raise ConnectionError(
+								f'[{watchdog_class_name}.{actual_handler.__name__}] '
+								f'Reconnection wait timed out after {wait_timeout}s'
+							)
+						# After wait: check if reconnection actually succeeded
+						if not browser_session.is_cdp_connected:
+							raise ConnectionError(
+								f'[{watchdog_class_name}.{actual_handler.__name__}] Reconnection failed — CDP still not connected'
+							)
+						# Reconnection succeeded — fall through to execute handler normally
+					else:
+						# Not reconnecting — intentional stop, backward compat silent skip
+						browser_session.logger.debug(
+							f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⚡ Skipped — CDP not connected'
+						)
+						return None
 
 				# just for debug logging, not used for anything else
 				parent_event = event_bus.event_history.get(event.event_parent_id) if event.event_parent_id else None

@@ -1241,12 +1241,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning(f'{error_msg}')
 			return
 
-		# Handle browser closed/disconnected errors - stop immediately instead of retrying
-		if self._is_browser_closed_error(error):
-			self.logger.warning(f'🛑 Browser closed or disconnected: {error}')
-			self.state.stopped = True
-			self._external_pause_event.set()
-			return
+		# Handle browser closed/disconnected errors
+		if self._is_connection_like_error(error):
+			# If reconnection is in progress, wait for it instead of stopping
+			if self.browser_session.is_reconnecting:
+				wait_timeout = self.browser_session.RECONNECT_WAIT_TIMEOUT
+				self.logger.warning(
+					f'🔄 Connection error during reconnection, waiting up to {wait_timeout}s for reconnect: {error}'
+				)
+				try:
+					await asyncio.wait_for(self.browser_session._reconnect_event.wait(), timeout=wait_timeout)
+				except TimeoutError:
+					pass
+
+				# Check if reconnection succeeded
+				if self.browser_session.is_cdp_connected:
+					self.logger.info('🔄 Reconnection succeeded, retrying step...')
+					self.state.last_result = [ActionResult(error=f'Connection lost and recovered: {error}')]
+					return
+
+			# Not reconnecting or reconnection failed — check if truly terminal
+			if self._is_browser_closed_error(error):
+				self.logger.warning(f'🛑 Browser closed or disconnected: {error}')
+				self.state.stopped = True
+				self._external_pause_event.set()
+				return
 
 		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
@@ -1270,14 +1289,35 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.last_result = [ActionResult(error=error_msg)]
 		return None
 
+	def _is_connection_like_error(self, error: Exception) -> bool:
+		"""Check if the error looks like a CDP/WebSocket connection failure.
+
+		Unlike _is_browser_closed_error(), this does NOT check if the CDP client is None
+		or if reconnection is in progress — it purely looks at the error signature.
+		"""
+		error_str = str(error).lower()
+		return (
+			isinstance(error, ConnectionError)
+			or 'websocket connection closed' in error_str
+			or 'connection closed' in error_str
+			or 'browser has been closed' in error_str
+			or 'browser closed' in error_str
+			or 'no browser' in error_str
+		)
+
 	def _is_browser_closed_error(self, error: Exception) -> bool:
 		"""Check if the browser has been closed or disconnected.
 
 		Only returns True when the error itself is a CDP/WebSocket connection failure
-		AND the CDP client is gone. Avoids false positives on unrelated errors
-		(element not found, timeouts, parse errors) that happen to coincide with
-		a transient None state during reconnects or resets.
+		AND the CDP client is gone AND we're not actively reconnecting.
+		Avoids false positives on unrelated errors (element not found, timeouts,
+		parse errors) that happen to coincide with a transient None state during
+		reconnects or resets.
 		"""
+		# During reconnection, don't treat connection errors as terminal
+		if self.browser_session.is_reconnecting:
+			return False
+
 		error_str = str(error).lower()
 		is_connection_error = (
 			isinstance(error, ConnectionError)

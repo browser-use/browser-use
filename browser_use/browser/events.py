@@ -471,6 +471,26 @@ class BrowserErrorEvent(BaseEvent):
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_BrowserErrorEvent', 30.0))  # seconds
 
 
+class BrowserReconnectingEvent(BaseEvent):
+	"""WebSocket reconnection attempt is starting."""
+
+	cdp_url: str
+	attempt: int
+	max_attempts: int
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_BrowserReconnectingEvent', 30.0))  # seconds
+
+
+class BrowserReconnectedEvent(BaseEvent):
+	"""WebSocket reconnection succeeded."""
+
+	cdp_url: str
+	attempt: int
+	downtime_seconds: float
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_BrowserReconnectedEvent', 30.0))  # seconds
+
+
 # ============================================================================
 # Storage State Events
 # ============================================================================

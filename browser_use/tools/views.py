@@ -141,6 +141,20 @@ class ScreenshotAction(BaseModel):
 	)
 
 
+class SaveAsPdfAction(BaseModel):
+	file_name: str | None = Field(
+		default=None,
+		description='Output PDF filename (without path). Defaults to page title. Extension .pdf is added automatically if missing.',
+	)
+	print_background: bool = Field(default=True, description='Include background graphics and colors')
+	landscape: bool = Field(default=False, description='Use landscape orientation')
+	scale: float = Field(default=1.0, ge=0.1, le=2.0, description='Scale of the webpage rendering (0.1 to 2.0)')
+	paper_format: str = Field(
+		default='Letter',
+		description='Paper size: Letter, Legal, A4, A3, or Tabloid',
+	)
+
+
 class ReadContentAction(BaseModel):
 	"""Action for intelligent reading of long content."""
 
