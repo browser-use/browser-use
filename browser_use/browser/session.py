@@ -1669,11 +1669,20 @@ class BrowserSession(BaseModel):
 			)
 
 			# Run a tiny HTTP client to query for the WebSocket URL from the /json/version endpoint
-			async with httpx.AsyncClient() as client:
+			# Use trust_env=False to avoid proxy issues with localhost on Windows
+			async with httpx.AsyncClient(trust_env=False) as client:
 				headers = self.browser_profile.headers or {}
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
-				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+				if version_info.status_code != 200:
+					raise RuntimeError(
+						f'Failed to fetch CDP version info from {url}: HTTP {version_info.status_code}'
+					)
+				try:
+					self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+				except Exception as e:
+					self.logger.error(f'Failed to parse CDP version info: {version_info.text[:500]}')
+					raise
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
 
