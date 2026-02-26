@@ -369,10 +369,11 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		return port
 
 	@staticmethod
-	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
+	async def _wait_for_cdp_url(port: int, timeout: float = 60) -> str:
 		"""Wait for the browser to start and return the CDP URL."""
 		import aiohttp
 
+		# Wait for up to 60 seconds for the browser to start (CI can be slow)
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
