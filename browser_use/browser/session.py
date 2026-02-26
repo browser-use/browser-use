@@ -14,7 +14,7 @@ from bubus import EventBus
 from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.network import Cookie
-from cdp_use.cdp.target import AttachedToTargetEvent, SessionID, TargetID
+from cdp_use.cdp.target import SessionID, TargetID
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
@@ -1965,33 +1965,6 @@ class BrowserSession(BaseModel):
 				self.logger.debug('Registered Fetch.authRequired handlers')
 			except Exception as e:
 				self.logger.debug(f'Failed to register authRequired handlers: {type(e).__name__}: {e}')
-
-			# Auto-enable Fetch on every newly attached target to ensure auth callbacks fire
-			def _on_attached(event: AttachedToTargetEvent, session_id: SessionID | None = None):
-				sid = event.get('sessionId') or event.get('session_id') or session_id
-				if not sid:
-					return
-
-				async def _enable():
-					assert self._cdp_client_root
-					try:
-						await self._cdp_client_root.send.Fetch.enable(
-							params={'handleAuthRequests': True},
-							session_id=sid,
-						)
-						self.logger.debug(f'Fetch.enable(handleAuthRequests=True) enabled on attached session {sid}')
-					except Exception as e:
-						self.logger.debug(f'Fetch.enable on attached session failed: {type(e).__name__}: {e}')
-
-				create_task_with_error_handling(
-					_enable(), name='fetch_enable_attached', logger_instance=self.logger, suppress_exceptions=True
-				)
-
-			try:
-				self._cdp_client_root.register.Target.attachedToTarget(_on_attached)
-				self.logger.debug('Registered Target.attachedToTarget handler for Fetch.enable')
-			except Exception as e:
-				self.logger.debug(f'Failed to register attachedToTarget handler: {type(e).__name__}: {e}')
 
 			# Ensure Fetch is enabled for the current focused target's session, too
 			try:
