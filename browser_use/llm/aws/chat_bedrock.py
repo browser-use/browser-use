@@ -9,9 +9,8 @@ from browser_use.llm.aws.serializer import AWSBedrockMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
-from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 from browser_use.llm.schema import SchemaOptimizer
-
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 if TYPE_CHECKING:
 	from boto3 import client as AwsClient  # type: ignore
