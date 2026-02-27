@@ -545,7 +545,7 @@ class DomService:
 		}
 
 		# Wait for all tasks with timeout
-		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
+		done, pending = await asyncio.wait(tasks.values(), timeout=80.0)
 
 		# Retry any failed or timed out tasks
 		if pending:
