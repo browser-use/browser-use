@@ -802,7 +802,9 @@ class BrowserSession(BaseModel):
 					assert self.cdp_client is not None
 
 					# Notify that browser is connected (single place)
-					self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
+					# Ensure BrowserConnected handlers (storage_state restore) complete before
+					# start() returns so cookies/storage are applied before navigation.
+					await self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
 
 					if self.browser_profile.demo_mode:
 						try:
