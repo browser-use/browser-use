@@ -532,7 +532,8 @@ class DomService:
 		def create_dom_tree_request():
 			return cdp_session.cdp_client.send.DOM.getDocument(
 				# Avoid unbounded iframe recursion in CDP (self-referencing iframes can overflow CBOR stack)
-				params={'depth': -1, 'pierce': False}, session_id=cdp_session.session_id
+				params={'depth': -1, 'pierce': False},
+				session_id=cdp_session.session_id,
 			)
 
 		start_cdp_calls = time.time()
