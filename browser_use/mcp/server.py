@@ -643,6 +643,8 @@ class BrowserUseServer:
 			aws_region = llm_config.get('region') or os.getenv('REGION')
 			if not aws_region:
 				aws_region = 'us-east-1'
+			from browser_use.llm import ChatAWSBedrock
+
 			llm = ChatAWSBedrock(
 				model=llm_model,  # or any Bedrock model
 				aws_region=aws_region,
