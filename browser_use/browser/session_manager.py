@@ -465,6 +465,18 @@ class SessionManager:
 		if target_type in ('page', 'tab'):
 			await self._enable_page_monitoring(cdp_session)
 
+			# Dispatch TabCreatedEvent so watchdogs can initialize for this tab.
+			# This is critical for popups created by window.open() — without it,
+			# PopupsWatchdog never registers dialog handlers, AboutBlankWatchdog
+			# never processes the tab, and viewport settings are never applied.
+			# Internally-created tabs may also dispatch TabCreatedEvent from the
+			# caller; all watchdog handlers are idempotent so duplicates are safe.
+			from browser_use.browser.events import TabCreatedEvent
+
+			self.browser_session.event_bus.dispatch(
+				TabCreatedEvent(target_id=target_id, url=target_info.get('url', 'about:blank'))
+			)
+
 		# Resume execution if waiting for debugger
 		if waiting_for_debugger:
 			try:
