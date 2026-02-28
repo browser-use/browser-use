@@ -474,7 +474,7 @@ class SessionManager:
 			from browser_use.browser.events import TabCreatedEvent
 
 			self.browser_session.event_bus.dispatch(
-				TabCreatedEvent(target_id=target_id, url=target_info.get('url', 'about:blank'))
+				TabCreatedEvent(target_id=target_id, url=target_info.get('url') or 'about:blank')
 			)
 
 		# Resume execution if waiting for debugger
