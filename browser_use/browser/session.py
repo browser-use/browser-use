@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from functools import cached_property
 from pathlib import Path
@@ -1178,6 +1179,14 @@ class BrowserSession(BaseModel):
 			else:
 				self.logger.debug(f'File already tracked: {event.path}')
 
+	def _cloud_session_id_from_cdp_url(self) -> str | None:
+		"""Derive cloud browser session ID from a Browser Use CDP URL."""
+		if not self.cdp_url:
+			return None
+		host = urlparse(self.cdp_url).hostname or ''
+		match = re.match(r'^([0-9a-fA-F-]{36})\.cdp\d+\.browser-use\.com$', host)
+		return match.group(1) if match else None
+
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Handle browser stop request."""
 
@@ -1187,13 +1196,16 @@ class BrowserSession(BaseModel):
 				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
 				return
 
-			# Clean up cloud browser session if using cloud browser
-			if self.browser_profile.use_cloud:
+			# Clean up cloud browser session for both:
+			# 1) native use_cloud sessions (current_session_id set by create_browser)
+			# 2) reconnected cdp_url sessions (derive UUID from host)
+			cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
+			if cloud_session_id:
 				try:
-					await self._cloud_browser_client.stop_browser()
-					self.logger.info('🌤️ Cloud browser session cleaned up')
+					await self._cloud_browser_client.stop_browser(cloud_session_id)
+					self.logger.info(f'🌤️ Cloud browser session cleaned up: {cloud_session_id}')
 				except Exception as e:
-					self.logger.debug(f'Failed to cleanup cloud browser session: {e}')
+					self.logger.debug(f'Failed to cleanup cloud browser session {cloud_session_id}: {e}')
 
 			# Clear CDP session cache before stopping
 			self.logger.info(
