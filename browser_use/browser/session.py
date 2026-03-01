@@ -3205,6 +3205,16 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_create_new_page(self, url: str = 'about:blank', background: bool = False, new_window: bool = False) -> str:
 		"""Create a new page/tab using CDP Target.createTarget. Returns target ID."""
+
+		# Fix for Issue #3908: If no proper page targets exist, we MUST create a new window
+		# regardless of new_window=False preference, otherwise CDP fails with "no browser is open"
+		if not new_window and self.session_manager:
+			# Check if we have any living pages
+			page_targets = self.session_manager.get_all_page_targets()
+			if not page_targets:
+				self.logger.info('No active pages found, forcing newWindow=True to avoid CDP error')
+				new_window = True
+
 		# Use the root CDP client to create tabs at the browser level
 		if self._cdp_client_root:
 			result = await self._cdp_client_root.send.Target.createTarget(
