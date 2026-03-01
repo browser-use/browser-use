@@ -1,5 +1,6 @@
 """Base watchdog class for browser monitoring components."""
 
+import asyncio
 import inspect
 import time
 from collections.abc import Iterable
@@ -73,10 +74,54 @@ class BaseWatchdog(BaseModel):
 		watchdog_instance = getattr(handler, '__self__', None)
 		watchdog_class_name = watchdog_instance.__class__.__name__ if watchdog_instance else 'Unknown'
 
+		# Events that should always run even when CDP is disconnected (lifecycle management)
+		LIFECYCLE_EVENT_NAMES = frozenset(
+			{
+				'BrowserStartEvent',
+				'BrowserStopEvent',
+				'BrowserStoppedEvent',
+				'BrowserLaunchEvent',
+				'BrowserErrorEvent',
+				'BrowserKillEvent',
+				'BrowserReconnectingEvent',
+				'BrowserReconnectedEvent',
+			}
+		)
+
 		# Create a wrapper function with unique name to avoid duplicate handler warnings
 		# Capture handler by value to avoid closure issues
 		def make_unique_handler(actual_handler):
 			async def unique_handler(event):
+				# Circuit breaker: skip handler if CDP WebSocket is dead
+				# (prevents handlers from hanging on broken connections until timeout)
+				# Lifecycle events are exempt — they manage browser start/stop
+				if event.event_type not in LIFECYCLE_EVENT_NAMES and not browser_session.is_cdp_connected:
+					# If reconnection is in progress, wait for it instead of silently skipping
+					if browser_session.is_reconnecting:
+						wait_timeout = browser_session.RECONNECT_WAIT_TIMEOUT
+						browser_session.logger.debug(
+							f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⏳ Waiting for reconnection ({wait_timeout}s)...'
+						)
+						try:
+							await asyncio.wait_for(browser_session._reconnect_event.wait(), timeout=wait_timeout)
+						except TimeoutError:
+							raise ConnectionError(
+								f'[{watchdog_class_name}.{actual_handler.__name__}] '
+								f'Reconnection wait timed out after {wait_timeout}s'
+							)
+						# After wait: check if reconnection actually succeeded
+						if not browser_session.is_cdp_connected:
+							raise ConnectionError(
+								f'[{watchdog_class_name}.{actual_handler.__name__}] Reconnection failed — CDP still not connected'
+							)
+						# Reconnection succeeded — fall through to execute handler normally
+					else:
+						# Not reconnecting — intentional stop, backward compat silent skip
+						browser_session.logger.debug(
+							f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⚡ Skipped — CDP not connected'
+						)
+						return None
+
 				# just for debug logging, not used for anything else
 				parent_event = event_bus.event_history.get(event.event_parent_id) if event.event_parent_id else None
 				grandparent_event = (
@@ -176,6 +221,24 @@ class BaseWatchdog(BaseModel):
 			)
 
 		event_bus.on(event_class, unique_handler)
+
+	@staticmethod
+	def detach_handler_from_session(browser_session: 'BrowserSession', event_class: type[BaseEvent[Any]], handler) -> None:
+		"""Detach a single event handler from a browser session."""
+		event_bus = browser_session.event_bus
+
+		# Get the watchdog instance if this is a bound method
+		watchdog_instance = getattr(handler, '__self__', None)
+		watchdog_class_name = watchdog_instance.__class__.__name__ if watchdog_instance else 'Unknown'
+
+		# Find and remove the handler by its unique name pattern
+		unique_handler_name = f'{watchdog_class_name}.{handler.__name__}'
+
+		existing_handlers = event_bus.handlers.get(event_class.__name__, [])
+		for existing_handler in existing_handlers[:]:  # copy list to allow modification during iteration
+			if getattr(existing_handler, '__name__', '') == unique_handler_name:
+				existing_handlers.remove(existing_handler)
+				break
 
 	def attach_to_session(self) -> None:
 		"""Attach watchdog to its browser session and start monitoring.

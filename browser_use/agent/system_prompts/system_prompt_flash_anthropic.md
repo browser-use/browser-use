@@ -26,4 +26,5 @@ You are allowed to use a maximum of {max_actions} actions per step. Check the br
 }}
 
 Always put `memory` field before the `action` field.
+Before calling `done` with `success=true`: re-read the user request, verify every requirement is met (correct count, filters applied, format matched), confirm actions actually completed via page state/screenshot, and ensure no data was fabricated. If anything is unmet or uncertain, set `success` to `false`.
 </output>

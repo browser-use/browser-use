@@ -133,3 +133,59 @@ browser = Browser(browser_profile=profile)
 
 `Browser` is an alias for `BrowserSession` - they are exactly the same class:
 Use `Browser` for cleaner, more intuitive code.
+
+---
+
+## Class Methods
+
+### `Browser.from_system_chrome()`
+
+Creates a Browser instance using your system's Chrome installation and profile. Automatically detects Chrome executable and user data directory for your platform.
+
+```python
+from browser_use import Browser
+
+# Auto-select first available profile
+browser = Browser.from_system_chrome()
+
+# Or specify a profile
+browser = Browser.from_system_chrome(profile_directory='Profile 1')
+```
+
+**Parameters:**
+- `profile_directory` (default: `None`): Chrome profile to use (`'Default'`, `'Profile 1'`, etc.). If `None`, auto-selects the first available profile.
+- `**kwargs`: Additional arguments passed to `Browser()` constructor (e.g., `headless=False`)
+
+**Returns:** `Browser` instance configured to use your system Chrome
+
+**Raises:** `RuntimeError` if Chrome is not found on your system
+
+**Note:** You may need to fully close Chrome before using this, so Chrome profiles aren't used by multiple instances simultaneously.
+
+---
+
+### `Browser.list_chrome_profiles()`
+
+Lists available Chrome profiles on the system.
+
+```python
+from browser_use import Browser
+
+profiles = Browser.list_chrome_profiles()
+for p in profiles:
+    print(f"{p['directory']}: {p['name']}")
+# Output:
+# Profile 1: Work
+# Profile 5: Personal
+```
+
+**Returns:** List of dicts with `'directory'` and `'name'` keys
+
+**Example return value:**
+```python
+[
+    {'directory': 'Default', 'name': 'Person 1'},
+    {'directory': 'Profile 1', 'name': 'Work'},
+    {'directory': 'Profile 5', 'name': 'Personal'}
+]
+```

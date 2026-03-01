@@ -1,10 +1,13 @@
 ---
 title: "Real Browser"
-description: ""
+description: "Connect your existing Chrome browser to preserve authentication"
 icon: "arrow-right-to-bracket"
 ---
+This allows you to automate your existing Chrome browser, so you're already logged into your websites.
 
-Connect your existing Chrome browser to preserve authentication.
+<Warning>
+You may need to fully close Chrome before running these examples. Additionally, if Google search blocks automated browsers, use DuckDuckGo or other search engines instead.
+</Warning>
 
 ## Basic Example
 
@@ -12,49 +15,62 @@ Connect your existing Chrome browser to preserve authentication.
 import asyncio
 from browser_use import Agent, Browser, ChatOpenAI
 
-# Connect to your existing Chrome browser
-browser = Browser(
-    executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    user_data_dir='~/Library/Application Support/Google/Chrome',
-    profile_directory='Default',
-)
+# Auto-selects first available Chrome profile
+browser = Browser.from_system_chrome()
 
 agent = Agent(
     task='Visit https://duckduckgo.com and search for "browser-use founders"',
     browser=browser,
     llm=ChatOpenAI(model='gpt-4.1-mini'),
 )
+
 async def main():
-	await agent.run()
+    await agent.run()
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-> **Note:** You need to fully close chrome before running this example. Also, Google blocks this approach currently so we use DuckDuckGo instead.
+
+## Choosing a Profile
+
+Chrome supports multiple profiles. List and select the one you want:
+
+```python
+from browser_use import Browser
+
+# List available profiles
+profiles = Browser.list_chrome_profiles()
+for p in profiles:
+    print(f"{p['directory']}: {p['name']}")
+# Output:
+# Profile 1: Work
+# Profile 5: Personal
+
+# Use a specific profile
+browser = Browser.from_system_chrome(profile_directory='Profile 5')
+```
 
 
+## Manual Path Configuration
+
+If auto-detection doesn't work, specify paths manually:
+
+```python
+browser = Browser(
+    executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    user_data_dir='~/Library/Application Support/Google/Chrome',
+    profile_directory='Default',
+)
+```
 
 
 ## How it Works
 
-1. **`executable_path`** - Path to your Chrome installation
-2. **`user_data_dir`** - Your Chrome profile folder (keeps cookies, extensions, bookmarks)
-3. **`profile_directory`** - Specific profile name (Default, Profile 1, etc.)
+`Browser.from_system_chrome()` automatically detects:
 
-
-## Platform Paths
-
-```python
-# macOS
-executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-user_data_dir='~/Library/Application Support/Google/Chrome'
-
-# Windows
-executable_path='C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
-user_data_dir='%LOCALAPPDATA%\\Google\\Chrome\\User Data'
-
-# Linux
-executable_path='/usr/bin/google-chrome'
-user_data_dir='~/.config/google-chrome'
-```
+| Platform | Executable Path | User Data Directory |
+|----------|-----------------|---------------------|
+| macOS | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` | `~/Library/Application Support/Google/Chrome` |
+| Windows | `C:\Program Files\Google\Chrome\Application\chrome.exe` | `%LocalAppData%\Google\Chrome\User Data` |
+| Linux | `/usr/bin/google-chrome` or `/usr/bin/chromium` | `~/.config/google-chrome` |

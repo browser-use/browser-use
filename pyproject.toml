@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.11.2"
+version = "0.12.0"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -11,43 +11,43 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiohttp==3.12.15",
-    "anyio>=4.9.0",
-    "bubus>=1.5.6",
-    "click>=8.1.8",
-    "InquirerPy>=0.3.4",
-    "rich>=14.0.0",
-    "google-api-core>=2.25.0",
-    "httpx>=0.28.1",
-    "portalocker>=2.7.0,<3.0.0",
-    "posthog>=3.7.0",
-    "psutil>=7.0.0",
-    "pydantic>=2.11.5",
-    "pyobjc>=11.0; platform_system == 'darwin'",
-    "python-dotenv>=1.0.1",
-    "requests>=2.32.3",
-    "screeninfo>=0.8.1; platform_system != 'darwin'",
-    "typing-extensions>=4.12.2",
-    "uuid7>=0.1.0",
-    "authlib>=1.6.0",
-    "google-genai>=1.50.0,<2.0.0",
-    "openai>=2.7.2,<3.0.0",
-    "anthropic>=0.72.1,<1.0.0",
-    "groq>=0.30.0",
-    "ollama>=0.5.1",
-    "google-api-python-client>=2.174.0",
-    "google-auth>=2.40.3",
-    "google-auth-oauthlib>=1.2.2",
-    "mcp>=1.10.1",
-    "pypdf>=5.7.0",
-    "reportlab>=4.0.0",
-    "cdp-use>=1.4.4",
-    "pyotp>=2.9.0",
-    "pillow>=11.2.1",
-    "cloudpickle>=3.1.1",
-    "markdownify>=1.2.0",
-    "python-docx>=1.2.0",
-    "browser-use-sdk>=2.0.12",
+    "aiohttp==3.13.3",
+    "anyio==4.12.1",
+    "bubus==1.5.6",
+    "click==8.3.1",
+    "InquirerPy==0.3.4",
+    "rich==14.3.1",
+    "google-api-core==2.29.0",
+    "httpx==0.28.1",
+    "portalocker==2.10.1",
+    "posthog==7.7.0",
+    "psutil==7.2.2",
+    "pydantic==2.12.5",
+    "pyobjc==12.1; platform_system == 'darwin'",
+    "python-dotenv==1.2.1",
+    "requests==2.32.5",
+    "screeninfo==0.8.1; platform_system != 'darwin'",
+    "typing-extensions==4.15.0",
+    "uuid7==0.1.0",
+    "authlib==1.6.6",
+    "google-genai==1.65.0",
+    "openai==2.16.0",
+    "anthropic==0.76.0",
+    "groq==1.0.0",
+    "ollama==0.6.1",
+    "google-api-python-client==2.188.0",
+    "google-auth==2.48.0",
+    "google-auth-oauthlib==1.2.4",
+    "mcp==1.26.0",
+    "pypdf==6.6.2",
+    "reportlab==4.4.9",
+    "cdp-use==1.4.5",
+    "pyotp==2.9.0",
+    "pillow==12.1.0",
+    "cloudpickle==3.1.2",
+    "markdownify==1.2.2",
+    "python-docx==1.2.0",
+    "browser-use-sdk==2.0.15",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -60,25 +60,25 @@ dependencies = [
 # textual: used for terminal UI
 
 [project.optional-dependencies]
-cli = ["textual>=3.2.0"]
-code = ["matplotlib>=3.9.0", "numpy>=2.3.2", "pandas>=2.2.0", "tabulate>=0.9.0"]
-aws = ["boto3>=1.38.45"]
-oci = ["oci>=2.126.4"]
-video = ["imageio[ffmpeg]>=2.37.0", "numpy>=2.3.2"]
+cli = ["textual==7.4.0"]
+code = ["matplotlib==3.10.8", "numpy==2.4.1", "pandas==3.0.0", "tabulate==0.9.0"]
+aws = ["boto3==1.42.37"]
+oci = ["oci==2.166.0"]
+video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
 examples = [
     "agentmail==0.0.59",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
-    "botocore>=1.37.23",
-    "imgcat>=0.6.0",
+    "botocore==1.42.37",
+    "imgcat==0.6.0",
     # "stagehand-py>=0.3.6",
     # "browserbase>=0.4.0",
-    "langchain-openai>=0.3.26",
+    "langchain-openai==1.1.7",
 ]
 eval = [
-    "lmnr[all]==0.7.17",
-    "anyio>=4.9.0",
-    "psutil>=7.0.0",
-    "datamodel-code-generator>=0.26.0",
+    "lmnr[all]==0.7.42",
+    "anyio==4.12.1",
+    "psutil==7.2.2",
+    "datamodel-code-generator==0.53.0",
 ]
 cli-oci = ["browser-use[cli,oci]"]
 all = ["browser-use[cli,examples,aws,oci]"]
@@ -89,11 +89,19 @@ all = ["browser-use[cli,examples,aws,oci]"]
 
 
 [project.urls]
+Homepage = "https://browser-use.com"
+Documentation = "https://docs.browser-use.com"
 Repository = "https://github.com/browser-use/browser-use"
+Telemetry = "https://docs.browser-use.com/development/monitoring/telemetry"
+"Terms of Service" = "https://browser-use.com/legal/terms-of-service"
+"Privacy Policy" = "https://browser-use.com/privacy/"
 
 [project.scripts]
-browseruse = "browser_use.cli:main"
-browser-use = "browser_use.cli:main"
+browser-use = "browser_use.skill_cli.main:main"  # Fast CLI for browser automation
+browseruse = "browser_use.skill_cli.main:main"  # Alias for browser-use
+bu = "browser_use.skill_cli.main:main"  # Alias for browser-use
+browser = "browser_use.skill_cli.main:main"  # Alias for browser-use
+browser-use-tui = "browser_use.cli:main"  # Legacy TUI interface
 
 [build-system]
 requires = ["hatchling"]
@@ -209,23 +217,23 @@ allow-direct-references = true
 #     # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
 # ]
 dev-dependencies = [
-    "ruff>=0.11.2",
-    "tokencost>=0.1.16",
-    "build>=1.2.2",
-    "pytest>=8.3.5",
-    "pytest-asyncio>=1.0.0",
-    "pytest-httpserver>=1.0.8",
-    "fastapi>=0.115.8",
-    "inngest>=0.4.19",
-    "uvicorn>=0.34.0",
-    "ipdb>=0.13.13",
-    "pre-commit>=4.2.0",
-    "codespell>=2.4.1",
-    "pyright>=1.1.403",
-    "ty>=0.0.1a1",
-    "pytest-xdist>=3.7.0",
-    "lmnr[all]==0.7.17",
+    "ruff==0.14.14",
+    "tokencost==0.1.26",
+    "build==1.4.0",
+    "pytest==9.0.2",
+    "pytest-asyncio==1.3.0",
+    "pytest-httpserver==1.1.3",
+    "fastapi==0.128.0",
+    "inngest==0.5.15",
+    "uvicorn==0.40.0",
+    "ipdb==0.13.13",
+    "pre-commit==4.5.1",
+    "codespell==2.4.1",
+    "pyright==1.1.408",
+    "ty==0.0.14",
+    "pytest-xdist==3.8.0",
+    "lmnr[all]==0.7.42",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
-    "pytest-timeout>=2.4.0",
-    "pydantic_settings>=2.10.1",
+    "pytest-timeout==2.4.0",
+    "pydantic_settings==2.12.0",
 ]

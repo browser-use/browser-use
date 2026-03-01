@@ -169,7 +169,9 @@ try:
 	from textual.containers import Container, HorizontalGroup, VerticalScroll
 	from textual.widgets import Footer, Header, Input, Label, Link, RichLog, Static
 except ImportError:
-	print('⚠️ CLI addon is not installed. Please install it with: `pip install "browser-use[cli]"` and try again.')
+	print(
+		'⚠️ CLI addon is not installed. Please install it with: `pip install "browser-use[cli]"` and try again.', file=sys.stderr
+	)
 	sys.exit(1)
 
 
@@ -292,8 +294,8 @@ def save_user_config(config: dict[str, Any]) -> None:
 
 		# Save to separate history file
 		history_file = CONFIG.BROWSER_USE_CONFIG_DIR / 'command_history.json'
-		with open(history_file, 'w') as f:
-			json.dump(history, f, indent=2)
+		with open(history_file, 'w', encoding='utf-8') as f:
+			json.dump(history, f, indent=2, ensure_ascii=False)
 
 
 def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) -> dict[str, Any]:

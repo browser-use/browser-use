@@ -1,3 +1,7 @@
+"""
+Connect to your existing Chrome browser so it's logged into your websites
+"""
+
 import asyncio
 import os
 import sys
@@ -10,20 +14,30 @@ load_dotenv()
 
 from browser_use import Agent, Browser, ChatGoogle
 
-# Connect to your existing Chrome browser
-browser = Browser(
-	executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	user_data_dir='~/Library/Application Support/Google/Chrome',
-	profile_directory='Default',
-)
+
+def select_chrome_profile() -> str | None:
+	"""Prompt user to select a Chrome profile."""
+	profiles = Browser.list_chrome_profiles()
+	if not profiles:
+		return None
+
+	print('Available Chrome profiles:')
+	for i, p in enumerate(profiles, 1):
+		print(f'  {i}. {p["name"]}')
+
+	while True:
+		choice = input(f'\nSelect profile (1-{len(profiles)}): ').strip()
+		if choice.isdigit() and 1 <= int(choice) <= len(profiles):
+			return profiles[int(choice) - 1]['directory']
+		print('Invalid choice, try again.')
 
 
-# NOTE: You have to close all Chrome browsers before running this example so that we can launch chrome in debug mode.
 async def main():
-	# save storage state
+	profile = select_chrome_profile()
+	browser = Browser.from_system_chrome(profile_directory=profile)
+
 	agent = Agent(
 		llm=ChatGoogle(model='gemini-flash-latest'),
-		# Google blocks this approach, so we use a different search engine
 		task='go to amazon.com and search for pens to draw on whiteboards',
 		browser=browser,
 	)

@@ -13,6 +13,17 @@ if TYPE_CHECKING:
 	from browser_use.filesystem.file_system import FileSystem
 
 
+def _is_anthropic_4_5_model(model_name: str | None) -> bool:
+	"""Check if the model is Claude Opus 4.5 or Haiku 4.5 (requires 4096+ token prompts for caching)."""
+	if not model_name:
+		return False
+	model_lower = model_name.lower()
+	# Check for Opus 4.5 or Haiku 4.5 variants
+	is_opus_4_5 = 'opus' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	is_haiku_4_5 = 'haiku' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	return is_opus_4_5 or is_haiku_4_5
+
+
 class SystemPrompt:
 	def __init__(
 		self,
@@ -23,12 +34,16 @@ class SystemPrompt:
 		flash_mode: bool = False,
 		is_anthropic: bool = False,
 		is_browser_use_model: bool = False,
+		model_name: str | None = None,
 	):
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
 		self.is_anthropic = is_anthropic
 		self.is_browser_use_model = is_browser_use_model
+		self.model_name = model_name
+		# Check if this is an Anthropic 4.5 model that needs longer prompts for caching
+		self.is_anthropic_4_5 = _is_anthropic_4_5_model(model_name)
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
@@ -53,6 +68,9 @@ class SystemPrompt:
 					template_filename = 'system_prompt_browser_use.md'
 				else:
 					template_filename = 'system_prompt_browser_use_no_thinking.md'
+			# Anthropic 4.5 models (Opus 4.5, Haiku 4.5) need 4096+ token prompts for caching
+			elif self.is_anthropic_4_5 and self.flash_mode:
+				template_filename = 'system_prompt_anthropic_flash.md'
 			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
@@ -105,6 +123,7 @@ class AgentMessagePrompt:
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
+		plan_description: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -123,6 +142,7 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
+		self.plan_description: str | None = plan_description
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
@@ -321,6 +341,9 @@ Available tabs:
 {_todo_contents}
 </todo_contents>
 """
+		if self.plan_description:
+			agent_state += f'<plan>\n{self.plan_description}\n</plan>\n'
+
 		if self.sensitive_data:
 			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
 

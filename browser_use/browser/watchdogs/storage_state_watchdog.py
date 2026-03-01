@@ -202,7 +202,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 				# Write atomically
 				temp_path = json_path.with_suffix('.json.tmp')
-				temp_path.write_text(json.dumps(merged_state, indent=4))
+				temp_path.write_text(json.dumps(merged_state, indent=4, ensure_ascii=False), encoding='utf-8')
 
 				# Backup existing file
 				if json_path.exists():
@@ -249,25 +249,60 @@ class StorageStateWatchdog(BaseWatchdog):
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
-				await self.browser_session._cdp_set_cookies(storage['cookies'])
+				# Playwright exports session cookies with expires=0/-1. CDP treats expires=0 as expired.
+				# Normalize session cookies by omitting expires
+				normalized_cookies: list[Cookie] = []
+				for cookie in storage['cookies']:
+					if not isinstance(cookie, dict):
+						normalized_cookies.append(cookie)  # type: ignore[arg-type]
+						continue
+					c = dict(cookie)
+					expires = c.get('expires')
+					if expires in (0, 0.0, -1, -1.0):
+						c.pop('expires', None)
+					normalized_cookies.append(Cookie(**c))
+
+				await self.browser_session._cdp_set_cookies(normalized_cookies)
 				self._last_cookie_state = storage['cookies'].copy()
 				self.logger.debug(f'[StorageStateWatchdog] Added {len(storage["cookies"])} cookies from storage state')
 
 			# Apply origins (localStorage/sessionStorage) if present
 			if 'origins' in storage and storage['origins']:
 				for origin in storage['origins']:
-					if 'localStorage' in origin:
+					origin_value = origin.get('origin')
+					if not origin_value:
+						continue
+
+					# Scope storage restoration to its origin to avoid cross-site pollution.
+					if origin.get('localStorage'):
+						lines = []
 						for item in origin['localStorage']:
-							script = f"""
-								window.localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
-							"""
-							await self.browser_session._cdp_add_init_script(script)
-					if 'sessionStorage' in origin:
+							lines.append(f'window.localStorage.setItem({json.dumps(item["name"])}, {json.dumps(item["value"])});')
+						script = (
+							'(function(){\n'
+							f'  if (window.location && window.location.origin !== {json.dumps(origin_value)}) return;\n'
+							'  try {\n'
+							f'    {" ".join(lines)}\n'
+							'  } catch (e) {}\n'
+							'})();'
+						)
+						await self.browser_session._cdp_add_init_script(script)
+
+					if origin.get('sessionStorage'):
+						lines = []
 						for item in origin['sessionStorage']:
-							script = f"""
-								window.sessionStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
-							"""
-							await self.browser_session._cdp_add_init_script(script)
+							lines.append(
+								f'window.sessionStorage.setItem({json.dumps(item["name"])}, {json.dumps(item["value"])});'
+							)
+						script = (
+							'(function(){\n'
+							f'  if (window.location && window.location.origin !== {json.dumps(origin_value)}) return;\n'
+							'  try {\n'
+							f'    {" ".join(lines)}\n'
+							'  } catch (e) {}\n'
+							'})();'
+						)
+						await self.browser_session._cdp_add_init_script(script)
 				self.logger.debug(
 					f'[StorageStateWatchdog] Applied localStorage/sessionStorage from {len(storage["origins"])} origins'
 				)

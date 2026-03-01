@@ -10,14 +10,14 @@ mode: "wide"
 
 
 ```python
-from browser_use import Tools, ActionResult, Browser
+from browser_use import Tools, ActionResult, BrowserSession
 
 tools = Tools()
 
 @tools.action('Ask human for help with a question')
-def ask_human(question: str, browser: Browser) -> ActionResult:
+async def ask_human(question: str, browser_session: BrowserSession) -> ActionResult:
     answer = input(f'{question} > ')
-    return f'The human responded with: {answer}'
+    return ActionResult(extracted_content=f'The human responded with: {answer}')
 
 agent = Agent(
     task='Ask human for help',
@@ -26,6 +26,11 @@ agent = Agent(
 )
 ```
 
+<Warning>
+**Important**: The parameter must be named exactly `browser_session` with type `BrowserSession` (not `browser: Browser`). 
+The agent injects parameters by name matching, so using the wrong name will cause your tool to fail silently.
+</Warning>
+
 <Note>
-Use `browser` parameter in tools for deterministic [Actor](/customize/actor/basics) actions.
+Use `browser_session` parameter in tools for deterministic [Actor](/customize/actor/basics) actions.
 </Note>
