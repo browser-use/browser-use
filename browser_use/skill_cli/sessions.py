@@ -18,6 +18,7 @@ class SessionInfo:
 	browser_mode: str
 	headed: bool
 	profile: str | None
+	user_data_dir: str | None
 	browser_session: BrowserSession
 	python_session: PythonSession = field(default_factory=PythonSession)
 
@@ -38,6 +39,7 @@ class SessionRegistry:
 		browser_mode: str,
 		headed: bool,
 		profile: str | None,
+		user_data_dir: str | None = None,
 	) -> SessionInfo:
 		"""Get existing session or create new one."""
 		if name in self._sessions:
@@ -45,7 +47,7 @@ class SessionRegistry:
 
 		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed})')
 
-		browser_session = await create_browser_session(browser_mode, headed, profile)
+		browser_session = await create_browser_session(browser_mode, headed, profile, user_data_dir)
 		await browser_session.start()
 
 		session_info = SessionInfo(
@@ -53,6 +55,7 @@ class SessionRegistry:
 			browser_mode=browser_mode,
 			headed=headed,
 			profile=profile,
+			user_data_dir=user_data_dir,
 			browser_session=browser_session,
 		)
 		self._sessions[name] = session_info
@@ -101,6 +104,7 @@ async def create_browser_session(
 	mode: str,
 	headed: bool,
 	profile: str | None,
+	user_data_dir: str | None = None,
 ) -> BrowserSession:
 	"""Create BrowserSession based on mode.
 
@@ -121,6 +125,7 @@ async def create_browser_session(
 	if mode == 'chromium':
 		return BrowserSession(
 			headless=not headed,
+			user_data_dir=user_data_dir,
 		)
 
 	elif mode == 'real':
@@ -130,14 +135,14 @@ async def create_browser_session(
 		if not chrome_path:
 			raise RuntimeError('Could not find Chrome executable. Please install Chrome or specify --browser chromium')
 
-		# Always get the Chrome user data directory (not the profile subdirectory)
-		user_data_dir = get_chrome_profile_path(None)
+		# Use provided user_data_dir or get the default Chrome user data directory
+		final_user_data_dir = user_data_dir if user_data_dir else get_chrome_profile_path(None)
 		# Profile directory defaults to 'Default', or use the specified profile name
 		profile_directory = profile if profile else 'Default'
 
 		return BrowserSession(
 			executable_path=chrome_path,
-			user_data_dir=user_data_dir,
+			user_data_dir=final_user_data_dir,
 			profile_directory=profile_directory,
 			headless=not headed,  # Headless by default, --headed for visible
 		)
