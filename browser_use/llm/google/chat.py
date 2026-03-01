@@ -157,6 +157,32 @@ class ChatGoogle(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	@property
+	def is_gemini_3(self) -> bool:
+		"""Check if this is a Gemini 3 model (Pro or Flash)."""
+		return 'gemini-3-pro' in self.model or 'gemini-3-flash' in self.model
+
+	def _extract_thinking_and_signature(self, response: types.GenerateContentResponse) -> tuple[str | None, bytes | None]:
+		"""Extract thinking text and thought signature from Gemini 3 response parts."""
+		thinking_parts: list[str] = []
+		thought_signature: bytes | None = None
+
+		if not response.candidates or not response.candidates[0].content:
+			return None, None
+
+		parts = response.candidates[0].content.parts
+		if parts is None:
+			return None, None
+
+		for part in parts:
+			if hasattr(part, 'thought') and part.thought and hasattr(part, 'text') and part.text:
+				thinking_parts.append(part.text)
+			if hasattr(part, 'thought_signature') and part.thought_signature:
+				thought_signature = part.thought_signature
+
+		thinking = '\n\n'.join(thinking_parts) if thinking_parts else None
+		return thinking, thought_signature
+
 	def _get_stop_reason(self, response: types.GenerateContentResponse) -> str | None:
 		"""Extract stop_reason from Google response."""
 		if hasattr(response, 'candidates') and response.candidates:
@@ -262,19 +288,25 @@ class ChatGoogle(BaseChatModel):
 
 			# Map to ThinkingLevel enum (SDK accepts string values)
 			level = types.ThinkingLevel(self.thinking_level.upper())
-			config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+			config['thinking_config'] = types.ThinkingConfigDict(
+				thinking_level=level, include_thoughts=True
+			)
 		elif is_gemini_3_flash:
 			# Gemini 3 Flash supports both thinking_level and thinking_budget
 			# If user set thinking_level, use that; otherwise default to thinking_budget=-1
 			if self.thinking_level is not None:
 				level = types.ThinkingLevel(self.thinking_level.upper())
-				config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+				config['thinking_config'] = types.ThinkingConfigDict(
+					thinking_level=level, include_thoughts=True
+				)
 			else:
 				if self.thinking_budget is None:
 					self.thinking_budget = -1
-				config['thinking_config'] = types.ThinkingConfigDict(thinking_budget=self.thinking_budget)
+				config['thinking_config'] = types.ThinkingConfigDict(
+					thinking_budget=self.thinking_budget, include_thoughts=True
+				)
 		else:
-			# Gemini 2.5 and earlier: use thinking_budget only
+			# Gemini 2.5 and earlier: use thinking_budget only (no include_thoughts support)
 			if self.thinking_level is not None:
 				self.logger.warning(
 					f'thinking_level="{self.thinking_level}" is not supported for this model. '
@@ -313,9 +345,12 @@ class ChatGoogle(BaseChatModel):
 						self.logger.warning('⚠️ Empty text response received')
 
 					usage = self._get_usage(response)
+					thinking, thought_signature = self._extract_thinking_and_signature(response)
 
 					return ChatInvokeCompletion(
 						completion=text,
+						thinking=thinking,
+						thought_signature=thought_signature,
 						usage=usage,
 						stop_reason=self._get_stop_reason(response),
 					)
@@ -342,6 +377,7 @@ class ChatGoogle(BaseChatModel):
 						self.logger.debug(f'✅ Got structured response in {elapsed:.2f}s')
 
 						usage = self._get_usage(response)
+						thinking, thought_signature = self._extract_thinking_and_signature(response)
 
 						# Handle case where response.parsed might be None
 						if response.parsed is None:
@@ -362,6 +398,8 @@ class ChatGoogle(BaseChatModel):
 									parsed_data = json.loads(text)
 									return ChatInvokeCompletion(
 										completion=output_format.model_validate(parsed_data),
+										thinking=thinking,
+										thought_signature=thought_signature,
 										usage=usage,
 										stop_reason=self._get_stop_reason(response),
 									)
@@ -385,6 +423,8 @@ class ChatGoogle(BaseChatModel):
 						if isinstance(response.parsed, output_format):
 							return ChatInvokeCompletion(
 								completion=response.parsed,
+								thinking=thinking,
+								thought_signature=thought_signature,
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -392,6 +432,8 @@ class ChatGoogle(BaseChatModel):
 							# If it's not the expected type, try to validate it
 							return ChatInvokeCompletion(
 								completion=output_format.model_validate(response.parsed),
+								thinking=thinking,
+								thought_signature=thought_signature,
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -426,6 +468,7 @@ class ChatGoogle(BaseChatModel):
 						self.logger.debug(f'✅ Got fallback response in {elapsed:.2f}s')
 
 						usage = self._get_usage(response)
+						thinking, thought_signature = self._extract_thinking_and_signature(response)
 
 						# Try to extract JSON from the text response
 						if response.text:
@@ -443,6 +486,8 @@ class ChatGoogle(BaseChatModel):
 								parsed_data = json.loads(text)
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(parsed_data),
+									thinking=thinking,
+									thought_signature=thought_signature,
 									usage=usage,
 									stop_reason=self._get_stop_reason(response),
 								)

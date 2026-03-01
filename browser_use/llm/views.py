@@ -37,9 +37,11 @@ class ChatInvokeCompletion(BaseModel, Generic[T]):
 	completion: T
 	"""The completion of the response."""
 
-	# Thinking stuff
+	# Thinking
 	thinking: str | None = None
 	redacted_thinking: str | None = None
+	thought_signature: bytes | None = None
+	"""Gemini 3: Encrypted signature for multi-turn reasoning continuity."""
 
 	usage: ChatInvokeUsage | None
 	"""The usage of the response."""
