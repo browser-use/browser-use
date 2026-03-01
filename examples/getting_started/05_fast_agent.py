@@ -35,7 +35,7 @@ async def main():
 
 	# 2. Create speed-optimized browser profile
 	browser_profile = BrowserProfile(
-		minimum_wait_page_load_time=0.1,
+		page_load_timeout=0,  # Skip page load waiting for maximum speed
 		wait_between_actions=0.1,
 		headless=False,
 	)
