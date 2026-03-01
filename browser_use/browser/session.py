@@ -3114,7 +3114,7 @@ class BrowserSession(BaseModel):
 		"""Close any extension options/welcome pages that have opened."""
 		try:
 			# Get all page targets from SessionManager
-			page_targets = self.session_manager.get_all_page_targets()
+			page_targets = self.session_manager.get_all_page_targets(include_chrome_extensions=True)
 
 			for target in page_targets:
 				target_url = target.url
