@@ -303,13 +303,6 @@ class JudgementResult(BaseModel):
 	)
 
 
-class SimpleJudgeResult(BaseModel):
-	"""Result of lightweight always-on judge that validates agent success claims."""
-
-	is_correct: bool = Field(description='True if the agent response genuinely satisfies the task requirements')
-	reason: str = Field(default='', description='Brief explanation if not correct')
-
-
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 

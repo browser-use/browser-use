@@ -1,5 +1,7 @@
 import asyncio
 import base64
+import csv
+import io
 import os
 import re
 import shutil
@@ -164,11 +166,67 @@ class JsonFile(BaseFile):
 
 
 class CsvFile(BaseFile):
-	"""CSV file implementation"""
+	"""CSV file implementation with automatic RFC 4180 normalization.
+
+	LLMs frequently produce malformed CSV (missing quotes around fields with commas,
+	inconsistent empty fields, unescaped internal quotes). This class parses the raw
+	content through Python's csv module on every write to guarantee well-formed output.
+	"""
 
 	@property
 	def extension(self) -> str:
 		return 'csv'
+
+	@staticmethod
+	def _normalize_csv(raw: str) -> str:
+		"""Parse and re-serialize CSV content to fix quoting, empty fields, and escaping.
+
+		Handles common LLM mistakes: unquoted fields containing commas,
+		unescaped quotes inside fields, inconsistent empty fields,
+		trailing/leading blank lines, and double-escaped JSON output
+		(literal backslash-n and backslash-quote instead of real newlines/quotes).
+		"""
+		stripped = raw.strip('\n\r')
+		if not stripped:
+			return raw
+
+		# Detect double-escaped LLM tool call output: if the content has no real
+		# newlines but contains literal \n sequences, the entire string is likely
+		# double-escaped JSON. Unescape \" → " first, then \n → newline.
+		if '\n' not in stripped and '\\n' in stripped:
+			stripped = stripped.replace('\\"', '"')
+			stripped = stripped.replace('\\n', '\n')
+
+		reader = csv.reader(io.StringIO(stripped))
+		rows: list[list[str]] = []
+		for row in reader:
+			# Skip completely empty rows (artifacts of blank lines)
+			if row:
+				rows.append(row)
+
+		if not rows:
+			return raw
+
+		out = io.StringIO()
+		writer = csv.writer(out, lineterminator='\n')
+		writer.writerows(rows)
+		# Strip trailing newline so callers (write_file action) control line endings
+		return out.getvalue().rstrip('\n')
+
+	def write_file_content(self, content: str) -> None:
+		"""Normalize CSV content before storing."""
+		self.update_content(self._normalize_csv(content))
+
+	def append_file_content(self, content: str) -> None:
+		"""Normalize the appended CSV rows and merge with existing content."""
+		normalized_new = self._normalize_csv(content)
+		if not normalized_new.strip('\n\r'):
+			return
+		existing = self.content
+		if existing and not existing.endswith('\n'):
+			existing += '\n'
+		combined = existing + normalized_new
+		self.update_content(self._normalize_csv(combined))
 
 
 class JsonlFile(BaseFile):

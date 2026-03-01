@@ -36,7 +36,7 @@ from pydantic import BaseModel, ValidationError
 from uuid_extensions import uuid7str
 
 from browser_use import Browser, BrowserProfile, BrowserSession
-from browser_use.agent.judge import construct_judge_messages, construct_simple_judge_messages
+from browser_use.agent.judge import construct_judge_messages
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
@@ -59,7 +59,6 @@ from browser_use.agent.views import (
 	JudgementResult,
 	MessageCompactionSettings,
 	PlanItem,
-	SimpleJudgeResult,
 	StepMetadata,
 )
 from browser_use.browser.events import _get_timeout
@@ -1025,6 +1024,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_state_summary = None
 
 		try:
+			if self.browser_session:
+				try:
+					captcha_wait = await self.browser_session.wait_if_captcha_solving()
+					if captcha_wait and captcha_wait.waited:
+						# Reset step timing to exclude the captcha wait from step duration metrics
+						self.step_start_time = time.time()
+						duration_s = captcha_wait.duration_ms / 1000
+						outcome = captcha_wait.result  # 'success' | 'failed' | 'timeout'
+						msg = f'Waited {duration_s:.1f}s for {captcha_wait.vendor} CAPTCHA to be solved. Result: {outcome}.'
+						self.logger.info(f'🔒 {msg}')
+						# Inject the outcome so the LLM sees what happened
+						captcha_result = ActionResult(long_term_memory=msg)
+						if self.state.last_result:
+							self.state.last_result.append(captcha_result)
+						else:
+							self.state.last_result = [captcha_result]
+				except Exception as e:
+					self.logger.warning(f'Phase 0 captcha wait failed (non-fatal): {e}')
+
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
 
@@ -1223,12 +1241,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning(f'{error_msg}')
 			return
 
-		# Handle browser closed/disconnected errors - stop immediately instead of retrying
-		if self._is_browser_closed_error(error):
-			self.logger.warning(f'🛑 Browser closed or disconnected: {error}')
-			self.state.stopped = True
-			self._external_pause_event.set()
-			return
+		# Handle browser closed/disconnected errors
+		if self._is_connection_like_error(error):
+			# If reconnection is in progress, wait for it instead of stopping
+			if self.browser_session.is_reconnecting:
+				wait_timeout = self.browser_session.RECONNECT_WAIT_TIMEOUT
+				self.logger.warning(
+					f'🔄 Connection error during reconnection, waiting up to {wait_timeout}s for reconnect: {error}'
+				)
+				try:
+					await asyncio.wait_for(self.browser_session._reconnect_event.wait(), timeout=wait_timeout)
+				except TimeoutError:
+					pass
+
+				# Check if reconnection succeeded
+				if self.browser_session.is_cdp_connected:
+					self.logger.info('🔄 Reconnection succeeded, retrying step...')
+					self.state.last_result = [ActionResult(error=f'Connection lost and recovered: {error}')]
+					return
+
+			# Not reconnecting or reconnection failed — check if truly terminal
+			if self._is_browser_closed_error(error):
+				self.logger.warning(f'🛑 Browser closed or disconnected: {error}')
+				self.state.stopped = True
+				self._external_pause_event.set()
+				return
 
 		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
@@ -1252,14 +1289,35 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.last_result = [ActionResult(error=error_msg)]
 		return None
 
+	def _is_connection_like_error(self, error: Exception) -> bool:
+		"""Check if the error looks like a CDP/WebSocket connection failure.
+
+		Unlike _is_browser_closed_error(), this does NOT check if the CDP client is None
+		or if reconnection is in progress — it purely looks at the error signature.
+		"""
+		error_str = str(error).lower()
+		return (
+			isinstance(error, ConnectionError)
+			or 'websocket connection closed' in error_str
+			or 'connection closed' in error_str
+			or 'browser has been closed' in error_str
+			or 'browser closed' in error_str
+			or 'no browser' in error_str
+		)
+
 	def _is_browser_closed_error(self, error: Exception) -> bool:
 		"""Check if the browser has been closed or disconnected.
 
 		Only returns True when the error itself is a CDP/WebSocket connection failure
-		AND the CDP client is gone. Avoids false positives on unrelated errors
-		(element not found, timeouts, parse errors) that happen to coincide with
-		a transient None state during reconnects or resets.
+		AND the CDP client is gone AND we're not actively reconnecting.
+		Avoids false positives on unrelated errors (element not found, timeouts,
+		parse errors) that happen to coincide with a transient None state during
+		reconnects or resets.
 		"""
+		# During reconnection, don't treat connection errors as terminal
+		if self.browser_session.is_reconnecting:
+			return False
+
 		error_str = str(error).lower()
 		is_connection_error = (
 			isinstance(error, ConnectionError)
@@ -1506,46 +1564,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug('Force done action, because we reached max_failures.')
 			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
-
-	async def _run_simple_judge(self) -> None:
-		"""Lightweight always-on judge that overrides agent success when it overclaims.
-
-		Runs regardless of use_judge setting. Only checks tasks where the agent
-		claimed success — if the agent already reports failure, there's nothing to correct.
-		"""
-		last_result = self.history.history[-1].result[-1]
-		if not last_result.is_done or not last_result.success:
-			return
-
-		task = self.task
-		final_result = self.history.final_result() or ''
-
-		messages = construct_simple_judge_messages(
-			task=task,
-			final_result=final_result,
-		)
-
-		try:
-			response = await self.llm.ainvoke(messages, output_format=SimpleJudgeResult)
-			result: SimpleJudgeResult = response.completion  # type: ignore[assignment]
-			if not result.is_correct:
-				reason = result.reason or 'Task requirements not fully met'
-				self.logger.info(f'⚠️  Simple judge overriding success to failure: {reason}')
-				last_result.success = False
-				note = f'[Simple judge: {reason}]'
-				# When structured output is expected, don't append judge text to extracted_content
-				# as it would corrupt the JSON and break end-user parsers
-				if self.output_model_schema is not None:
-					if last_result.metadata is None:
-						last_result.metadata = {}
-					last_result.metadata['simple_judge'] = note
-				elif last_result.extracted_content:
-					last_result.extracted_content += f'\n\n{note}'
-				else:
-					last_result.extracted_content = note
-		except Exception as e:
-			self.logger.warning(f'Simple judge failed with error: {e}')
-			# Don't override on error — keep the agent's self-report
 
 	@observe(ignore_input=True, ignore_output=False)
 	async def _judge_trace(self) -> JudgementResult | None:
@@ -2228,9 +2246,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self.step(step_info)
 
 		if self.history.is_done():
-			# Always run simple judge to align agent success with reality
-			await self._run_simple_judge()
-
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled
@@ -2432,9 +2447,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await on_step_end(self)
 
 		if self.history.is_done():
-			# Always run simple judge to align agent success with reality
-			await self._run_simple_judge()
-
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled

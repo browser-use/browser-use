@@ -430,14 +430,14 @@ class BrowserLaunchArgs(BaseModel):
 		if self.downloads_path is None:
 			import uuid
 
-			# Create unique directory in /tmp for downloads
+			# Create unique directory in system temp folder for downloads
 			unique_id = str(uuid.uuid4())[:8]  # 8 characters
-			downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+			downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			# Ensure path doesn't already exist (extremely unlikely but possible)
 			while downloads_path.exists():
 				unique_id = str(uuid.uuid4())[:8]
-				downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			self.downloads_path = downloads_path
 			self.downloads_path.mkdir(parents=True, exist_ok=True)
@@ -601,6 +601,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	enable_default_extensions: bool = Field(
 		default_factory=_get_enable_default_extensions_default,
 		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled. Can be disabled via BROWSER_USE_DISABLE_EXTENSIONS=1 environment variable.",
+	)
+	captcha_solver: bool = Field(
+		default=True,
+		description='Enable the captcha solver watchdog that listens for captcha events from the browser proxy. Automatically pauses agent steps while a CAPTCHA is being solved. Only active when the browser emits BrowserUse CDP events (e.g. Browser Use cloud browsers). Harmless when disabled or when events are not emitted.',
 	)
 	demo_mode: bool = Field(
 		default=False,
@@ -1149,7 +1153,6 @@ async function initialize(checkInitialized, magic) {{
 				zip_data = f.read()
 
 			# Write ZIP data to temp file and extract
-			import tempfile
 
 			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
 				temp_zip.write(zip_data)

@@ -263,6 +263,41 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 	return None
 
 
+def list_chrome_profiles() -> list[dict[str, str]]:
+	"""List available Chrome profiles with their names.
+
+	Returns:
+		List of dicts with 'directory' and 'name' keys, ex:
+		[{'directory': 'Default', 'name': 'Person 1'}, {'directory': 'Profile 1', 'name': 'Work'}]
+	"""
+	import json
+
+	user_data_dir = get_chrome_profile_path(None)
+	if user_data_dir is None:
+		return []
+
+	local_state_path = Path(user_data_dir) / 'Local State'
+	if not local_state_path.exists():
+		return []
+
+	try:
+		with open(local_state_path) as f:
+			local_state = json.load(f)
+
+		info_cache = local_state.get('profile', {}).get('info_cache', {})
+		profiles = []
+		for directory, info in info_cache.items():
+			profiles.append(
+				{
+					'directory': directory,
+					'name': info.get('name', directory),
+				}
+			)
+		return sorted(profiles, key=lambda p: p['directory'])
+	except (json.JSONDecodeError, KeyError, OSError):
+		return []
+
+
 def get_config_dir() -> Path:
 	"""Get browser-use config directory."""
 	if sys.platform == 'win32':

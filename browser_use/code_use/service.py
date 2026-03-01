@@ -6,6 +6,7 @@ import html
 import json
 import logging
 import re
+import tempfile
 import traceback
 from pathlib import Path
 from typing import Any
@@ -175,7 +176,7 @@ class CodeAgent:
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
 		timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-		base_tmp = Path('/tmp')
+		base_tmp = Path(tempfile.gettempdir())
 		self.agent_directory = base_tmp / f'browser_use_code_agent_{self.id}_{timestamp}'
 		self.screenshot_service = ScreenshotService(agent_directory=self.agent_directory)
 
