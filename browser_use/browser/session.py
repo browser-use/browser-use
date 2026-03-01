@@ -17,6 +17,7 @@ from cdp_use.cdp.network import Cookie
 from cdp_use.cdp.target import SessionID, TargetID
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
+from websockets.protocol import OPEN as WS_OPEN
 
 from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, CloudBrowserError
 
@@ -769,8 +770,13 @@ class BrowserSession(BaseModel):
 
 			# Use lock to prevent concurrent connection attempts (race condition protection)
 			async with self._connection_lock:
-				# Only connect if not already connected
-				if self._cdp_client_root is None:
+				# Check if WebSocket connection is alive (Issue #3069 fix)
+				is_disconnected = (
+					self._cdp_client_root is None or self._cdp_client_root.ws is None or self._cdp_client_root.ws.state != WS_OPEN
+				)
+
+				# Only connect if not already connected with active WebSocket
+				if is_disconnected:
 					# Setup browser via CDP (for both local and remote cases)
 					# Global timeout prevents connect() from hanging indefinitely on
 					# slow/broken WebSocket connections (common on Lambda → remote browser)
