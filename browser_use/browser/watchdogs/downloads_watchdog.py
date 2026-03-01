@@ -504,7 +504,8 @@ class DownloadsWatchdog(BaseWatchdog):
 						is_pdf = 'application/pdf' in content_type
 
 						# Check if it's marked as download via Content-Disposition header
-						content_disposition = str(headers.get('content-disposition', '')).lower()
+						content_disposition_raw = str(headers.get('content-disposition', ''))
+						content_disposition = content_disposition_raw.lower()
 						is_download_attachment = 'attachment' in content_disposition
 
 						# Filter out image/video/audio files even if marked as attachment
@@ -572,15 +573,29 @@ class DownloadsWatchdog(BaseWatchdog):
 						# Mark as detected to avoid duplicates
 						self._detected_downloads.add(url)
 
-						# Extract filename from Content-Disposition if available
+						# Extract filename from Content-Disposition if available (RFC 5987/RFC 6266)
 						suggested_filename = None
-						if 'filename=' in content_disposition:
-							# Parse filename from Content-Disposition header
+						if 'filename' in content_disposition:
 							import re
+							from urllib.parse import unquote
 
-							filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
-							if filename_match:
-								suggested_filename = filename_match.group(1).strip('\'"')
+							# First try RFC 5987 filename*= (handles non-ASCII chars like Japanese)
+							filename_star_match = re.search(
+								r"filename\*\s*=\s*(?:UTF-8|utf-8)''(.+?)(?:;|$)",
+								content_disposition_raw,
+								re.IGNORECASE,
+							)
+							if filename_star_match:
+								suggested_filename = unquote(filename_star_match.group(1).strip())
+							else:
+								# Fall back to regular filename= parameter (use raw to preserve casing)
+								filename_match = re.search(
+									r'filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;\s]+)',
+									content_disposition_raw,
+									re.IGNORECASE,
+								)
+								if filename_match:
+									suggested_filename = (filename_match.group(1) or filename_match.group(2)).strip()
 
 						self.logger.info(f'[DownloadsWatchdog] 🔍 Detected downloadable content via network: {url[:80]}...')
 						self.logger.debug(
