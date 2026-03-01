@@ -48,6 +48,9 @@ class SessionManager:
 		self._lock = asyncio.Lock()
 		self._recovery_lock = asyncio.Lock()
 
+		# Per-target locks for explicit CDP attachment to prevent race conditions during fallback
+		self._attachment_locks: dict[TargetID, asyncio.Lock] = {}
+
 		# Focus recovery coordination - event-driven instead of polling
 		self._recovery_in_progress: bool = False
 		self._recovery_complete_event: asyncio.Event | None = None
@@ -253,6 +256,16 @@ class SessionManager:
 		"""
 		return self._sessions.get(session_id)
 
+	def _get_attachment_lock(self, target_id: TargetID) -> asyncio.Lock:
+		"""Internal: Get or create a lock for explicit CDP attachment of a specific target.
+
+		Prevents race conditions where multiple concurrent get_or_create_cdp_session()
+		calls all try to Target.attachToTarget at the same time.
+		"""
+		if target_id not in self._attachment_locks:
+			self._attachment_locks[target_id] = asyncio.Lock()
+		return self._attachment_locks[target_id]
+
 	def get_all_sessions_for_target(self, target_id: TargetID) -> list['CDPSession']:
 		"""Get ALL sessions attached to a target from owned data.
 
@@ -402,6 +415,15 @@ class SessionManager:
 				self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
 
 		async with self._lock:
+			# Idempotency check: if session already exists, just update target info and return
+			if session_id in self._sessions:
+				self.logger.debug(f'[SessionManager] Session {session_id[:8]}... already exists, updating target info only')
+				if target_id in self._targets:
+					target = self._targets[target_id]
+					target.url = target_info.get('url', target.url)
+					target.title = target_info.get('title', target.title)
+				return
+
 			# Track this session for the target
 			if target_id not in self._target_sessions:
 				self._target_sessions[target_id] = set()
@@ -438,7 +460,7 @@ class SessionManager:
 			session_id=session_id,
 		)
 
-		# Add to sessions dict
+		# Add to sessions dict (final step, makes session "active" for discovery)
 		self._sessions[session_id] = cdp_session
 
 		self.logger.debug(
