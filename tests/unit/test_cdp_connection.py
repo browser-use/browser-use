@@ -82,3 +82,41 @@ async def test_wait_for_cdp_url_retries_on_invalid_json():
 
 		assert ws_url == expected_ws_url
 		assert mock_session.get.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_wait_for_cdp_url_retries_on_missing_url():
+	"""Verify that _wait_for_cdp_url retries if webSocketDebuggerUrl is missing."""
+
+	expected_ws_url = 'ws://127.0.0.1:9222/devtools/browser/uuid'
+
+	# Setup mocks for Missing URL case
+	mock_response_missing = MagicMock()
+	mock_response_missing.status = 200
+	mock_response_missing.json = AsyncMock(return_value={'otherKey': 'noUrl'})
+
+	mock_ctx_missing = MagicMock()
+	mock_ctx_missing.__aenter__ = AsyncMock(return_value=mock_response_missing)
+	mock_ctx_missing.__aexit__ = AsyncMock(return_value=None)
+
+	# Setup mocks for Success case
+	mock_response_success = MagicMock()
+	mock_response_success.status = 200
+	mock_response_success.json = AsyncMock(return_value={'webSocketDebuggerUrl': expected_ws_url})
+
+	mock_ctx_success = MagicMock()
+	mock_ctx_success.__aenter__ = AsyncMock(return_value=mock_response_success)
+	mock_ctx_success.__aexit__ = AsyncMock(return_value=None)
+
+	# Session mock
+	mock_session = MagicMock()
+	mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+	mock_session.__aexit__ = AsyncMock(return_value=None)
+	# get() returns missing context then success context
+	mock_session.get = MagicMock(side_effect=[mock_ctx_missing, mock_ctx_success])
+
+	with patch('aiohttp.ClientSession', return_value=mock_session):
+		ws_url = await LocalBrowserWatchdog._wait_for_cdp_url(port=9222, process=None, timeout=2)
+
+		assert ws_url == expected_ws_url
+		assert mock_session.get.call_count == 2

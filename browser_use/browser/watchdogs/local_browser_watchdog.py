@@ -155,7 +155,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				process = psutil.Process(subprocess.pid)
 
 				# Wait for CDP to be ready and get the URL
-				cdp_url = await self._wait_for_cdp_url(debug_port)
+				cdp_url = await self._wait_for_cdp_url(debug_port, subprocess)
 
 				# Success! Clean up only the temp dirs we created but didn't use
 				currently_used_dir = str(profile.user_data_dir)
@@ -370,7 +370,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	@staticmethod
 	async def _wait_for_cdp_url(port: int, process: asyncio.subprocess.Process | None = None, timeout: float = 30) -> str:
-		"""Wait for the browser to start and return the CDP URL.
+		"""Wait for the browser to start and return the WebSocket CDP URL.
 
 		Args:
 			port: Debugging port
@@ -401,7 +401,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 							try:
 								version_info = await resp.json()
 								# Return the WebSocket URL directly so BrowserSession doesn't have to query it again
-								return version_info['webSocketDebuggerUrl']
+								cdp_url = version_info.get('webSocketDebuggerUrl')
+								if cdp_url:
+									return cdp_url
 							except Exception:
 								# JSON parsing failed, Chrome might be returning partial response
 								pass
