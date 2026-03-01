@@ -29,6 +29,12 @@ def _format_image_url(url: str, max_length: int = 50) -> str:
 class ContentPartTextParam(BaseModel):
 	text: str
 	type: Literal['text'] = 'text'
+	thought_signature: bytes | None = None
+	"""Google Gemini 3 thought signature for this text part.
+
+	Required by Gemini 3 to maintain conversation coherence when sending
+	text parts back in the history. Other providers ignore this field.
+	"""
 
 	def __str__(self) -> str:
 		return f'Text: {_truncate(self.text)}'
