@@ -1928,6 +1928,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
 
+			# If the result is a string, we need to parse it (e.g. from custom LLM implementation/DeepSeek R1)
+			if isinstance(parsed, str):
+				try:
+					parsed = self.AgentOutput.model_validate_json(parsed)
+				except ValidationError:
+					# If we can't parse it, we remove the think tags and try again
+					# This is common for DeepSeek R1 to put the thought in <think> tags
+					cleaned_parsed = self._remove_think_tags(parsed)
+					parsed = self.AgentOutput.model_validate_json(cleaned_parsed)
+
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
 				self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
