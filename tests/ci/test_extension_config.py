@@ -121,3 +121,23 @@ class TestDisableExtensionsEnvVar:
 				os.environ['BROWSER_USE_DISABLE_EXTENSIONS'] = original
 			else:
 				os.environ.pop('BROWSER_USE_DISABLE_EXTENSIONS', None)
+
+	def test_extension_args_skipped_when_no_extensions_available(self, monkeypatch: pytest.MonkeyPatch):
+		"""When extension downloads/caches are unavailable, skip extension launch args entirely."""
+		from browser_use.browser.profile import BrowserProfile
+
+		profile = BrowserProfile(headless=True, enable_default_extensions=True)
+		monkeypatch.setattr(profile, '_ensure_default_extensions_downloaded', lambda: [])
+
+		assert profile._get_extension_args() == []
+
+	def test_extension_args_include_load_extension_when_available(self, monkeypatch: pytest.MonkeyPatch):
+		"""When extensions are available, extension launch args should be included."""
+		from browser_use.browser.profile import BrowserProfile
+
+		profile = BrowserProfile(headless=True, enable_default_extensions=True)
+		monkeypatch.setattr(profile, '_ensure_default_extensions_downloaded', lambda: ['/tmp/ext-a', '/tmp/ext-b'])
+
+		args = profile._get_extension_args()
+		assert '--enable-extensions' in args
+		assert '--load-extension=/tmp/ext-a,/tmp/ext-b' in args

@@ -925,15 +925,20 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Get Chrome args for enabling default extensions (ad blocker and cookie handler)."""
 		extension_paths = self._ensure_default_extensions_downloaded()
 
+		if not extension_paths:
+			logger.warning(
+				'[BrowserProfile] ⚠️ Default extensions are enabled but none are available locally; '
+				'skipping extension launch args.'
+			)
+			return []
+
 		args = [
 			'--enable-extensions',
 			'--disable-extensions-file-access-check',
 			'--disable-extensions-http-throttling',
 			'--enable-extension-activity-logging',
+			f'--load-extension={",".join(extension_paths)}',
 		]
-
-		if extension_paths:
-			args.append(f'--load-extension={",".join(extension_paths)}')
 
 		return args
 
