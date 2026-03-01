@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
 
+import anyio
+
 if TYPE_CHECKING:
 	from browser_use.skills.views import Skill
 
@@ -228,6 +230,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				from browser_use import ChatBrowserUse
 
 				llm = ChatBrowserUse()
+
+		# Auto-wrap LangChain models for compatibility
+		# This allows users to pass langchain_anthropic.ChatAnthropic, langchain_openai.ChatOpenAI, etc.
+		# directly without manual wrapping
+		from browser_use.llm.langchain.chat import is_langchain_model, wrap_langchain_model
+
+		if is_langchain_model(llm):
+			original_model_name = getattr(llm, 'model', getattr(llm, 'model_name', llm.__class__.__name__))
+			llm = wrap_langchain_model(llm)
+			self.logger.info(f'🔄 Auto-wrapped LangChain model ({original_model_name}) for browser-use compatibility')
 
 		# set flashmode = True if llm is ChatBrowserUse
 		if llm.provider == 'browser-use':
@@ -2662,7 +2674,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				create_history_gif(task=self.task, history=self.history, output_path=output_path)
 
 				# Only emit output file event if GIF was actually created
-				if Path(output_path).exists():
+				if await anyio.Path(output_path).exists():
 					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 					self.eventbus.dispatch(output_event)
 
