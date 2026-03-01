@@ -94,6 +94,32 @@ def _detect_sensitive_key_name(text: str, sensitive_data: dict[str, str | dict[s
 	return None
 
 
+def _is_path_allowed(file_path: str, allowed_paths: list[str] | set[str]) -> bool:
+	"""Check if a file path is allowed by the available_file_paths list.
+
+	Entries in allowed_paths can be either:
+	  - Exact file paths: matched directly against file_path
+	  - Directory paths (ending with os.sep or '/'): any file under this directory is allowed
+
+	Directories that don't end with a separator are also detected via os.path.isdir().
+	"""
+	if not allowed_paths:
+		return False
+	resolved = os.path.abspath(file_path)
+	for entry in allowed_paths:
+		abs_entry = os.path.abspath(entry)
+		# Exact match
+		if resolved == abs_entry:
+			return True
+		# Directory match: entry is a directory and file_path is under it
+		if entry.endswith(('/', os.sep)) or os.path.isdir(entry):
+			# Ensure the directory path ends with separator for proper prefix matching
+			dir_prefix = abs_entry.rstrip(os.sep) + os.sep
+			if resolved.startswith(dir_prefix):
+				return True
+	return False
+
+
 def handle_browser_error(e: BrowserError) -> ActionResult:
 	if e.long_term_memory is not None:
 		if e.short_term_memory is not None:
@@ -727,8 +753,9 @@ class Tools(Generic[Context]):
 			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
 		):
 			# Check if file is in available_file_paths (user-provided or downloaded files)
+			# available_file_paths entries can be exact file paths or directories
 			# For remote browsers (is_local=False), we allow absolute remote paths even if not tracked locally
-			if params.path not in available_file_paths:
+			if not _is_path_allowed(params.path, available_file_paths):
 				# Also check if it's a recently downloaded file that might not be in available_file_paths yet
 				downloaded_files = browser_session.downloaded_files
 				if params.path not in downloaded_files:
@@ -1628,7 +1655,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).'
 		)
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
-			if available_file_paths and file_name in available_file_paths:
+			if available_file_paths and _is_path_allowed(file_name, available_file_paths):
 				structured_result = await file_system.read_file_structured(file_name, external_file=True)
 			else:
 				structured_result = await file_system.read_file_structured(file_name)
@@ -1752,9 +1779,9 @@ Context: {context}"""
 					file_path = source
 
 					# Validate file path against whitelist (available_file_paths + downloaded files)
-					allowed_paths = set(available_file_paths or [])
-					allowed_paths.update(browser_session.downloaded_files)
-					if file_path not in allowed_paths:
+					# available_file_paths entries can be exact file paths or directories
+					allowed_paths = list(available_file_paths or []) + list(browser_session.downloaded_files)
+					if not _is_path_allowed(file_path, allowed_paths):
 						return ActionResult(
 							extracted_content=f'Error: File path not in available_file_paths: {file_path}. '
 							f'The user must add this path to available_file_paths when creating the Agent.',
@@ -2547,8 +2574,9 @@ class CodeAgentTools(Tools[Context]):
 			# 3. For remote browsers, allow any path (assume it exists remotely)
 
 			# If whitelist provided, validate path is in it
+			# available_file_paths entries can be exact file paths or directories
 			if available_file_paths:
-				if params.path not in available_file_paths:
+				if not _is_path_allowed(params.path, available_file_paths):
 					# Also check if it's a recently downloaded file
 					downloaded_files = browser_session.downloaded_files
 					if params.path not in downloaded_files:
