@@ -590,14 +590,21 @@ class DomService:
 				self.logger.warning(f'CDP request {key} timed out')
 				failed.append(key)
 
-		# If any required tasks failed, raise an exception
+		# Only snapshot and dom_tree are required — without them we can't build the DOM at all.
+		# ax_tree (accessibility annotations) and device_pixel_ratio (coordinate scaling) are
+		# optional and degrade gracefully: empty ax_tree = no role/name info, missing ratio = 1.0.
+		required_tasks = {'snapshot', 'dom_tree'}
+		required_failed = [key for key in failed if key in required_tasks]
+		if required_failed:
+			raise TimeoutError(f'CDP requests failed or timed out: {", ".join(required_failed)}')
+
 		if failed:
-			raise TimeoutError(f'CDP requests failed or timed out: {", ".join(failed)}')
+			self.logger.warning(f'Optional CDP requests failed (degraded): {", ".join(failed)}')
 
 		snapshot = results['snapshot']
 		dom_tree = results['dom_tree']
-		ax_tree = results['ax_tree']
-		device_pixel_ratio = results['device_pixel_ratio']
+		ax_tree = results.get('ax_tree', {'nodes': []})
+		device_pixel_ratio = results.get('device_pixel_ratio', 1.0)
 		end_cdp_calls = time.time()
 		cdp_calls_ms = (end_cdp_calls - start_cdp_calls) * 1000
 

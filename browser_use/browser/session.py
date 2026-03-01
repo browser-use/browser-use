@@ -1032,9 +1032,9 @@ class BrowserSession(BaseModel):
 
 		duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
 		if not seen_events:
-			self.logger.error(
-				f'❌ No lifecycle events received for {url} after {duration_ms:.0f}ms! '
-				f'Monitoring may have failed. Target: {cdp_session.target_id[:8]}'
+			self.logger.warning(
+				f'⚠️ No lifecycle events received for {url} after {duration_ms:.0f}ms. '
+				f'Page may have loaded before monitoring started. Target: {cdp_session.target_id[:8]}'
 			)
 		else:
 			self.logger.warning(f'⚠️ Page readiness timeout ({timeout}s, {duration_ms:.0f}ms) for {url}')
