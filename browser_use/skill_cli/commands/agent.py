@@ -199,7 +199,7 @@ async def _handle_local_task(session: SessionInfo, params: dict[str, Any]) -> An
 		from browser_use.agent.service import Agent
 
 		# Try to get LLM from environment (with optional model override)
-		llm = await get_llm(model=model)
+		llm = get_llm(model=model)
 		if llm is None:
 			if model:
 				return {
