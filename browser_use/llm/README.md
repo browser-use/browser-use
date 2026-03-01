@@ -4,6 +4,7 @@ We officially support the following LLMs:
 
 - OpenAI
 - Anthropic
+- Avian
 - Google
 - Groq
 - Ollama
