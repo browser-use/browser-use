@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -47,6 +48,9 @@ class ChatOpenAI(BaseChatModel):
 	)
 	remove_defaults_from_schema: bool = (
 		False  # If True, remove default values from JSON schema (for compatibility with some providers)
+	)
+	strip_thinking_blocks: bool = (
+		False  # If True, strip <think>...</think> blocks before JSON parsing (for providers like Minimax)
 	)
 
 	# Client initialization parameters
@@ -140,6 +144,22 @@ class ChatOpenAI(BaseChatModel):
 			usage = None
 
 		return usage
+
+	# Compiled regex patterns for stripping thinking blocks
+	_THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
+	_STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
+
+	def _strip_thinking_blocks(self, text: str) -> str:
+		"""Remove <think>...</think> thinking blocks from text.
+
+		Some providers (e.g., Minimax) return thinking blocks in their responses.
+		This method strips them before JSON parsing.
+		"""
+		# Step 1: Remove well-formed <think>...</think>
+		text = self._THINK_TAGS.sub('', text)
+		# Step 2: If there's an unmatched closing tag, remove everything up to and including that.
+		text = self._STRAY_CLOSE_TAG.sub('', text)
+		return text.strip()
 
 	@overload
 	async def ainvoke(
@@ -281,7 +301,11 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				# Strip thinking blocks if enabled (for providers like Minimax)
+				content = choice.message.content
+				if self.strip_thinking_blocks:
+					content = self._strip_thinking_blocks(content)
+				parsed = output_format.model_validate_json(content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
