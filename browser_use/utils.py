@@ -725,6 +725,15 @@ def create_task_with_error_handling(
 
 	def _handle_task_exception(t: asyncio.Task[T]) -> None:
 		"""Callback to handle task exceptions"""
+		# NOTE(logic risk): asyncio done callbacks are not an await context.
+		# Raising inside a callback usually only shows up as an event loop
+		# "Exception in callback" log, and does NOT reliably propagate back
+		# to the creator of the task.
+		# If the intent is:
+		# - fire-and-forget: only log + swallow (suppress_exceptions=True)
+		# - caller must observe: the caller should explicitly await the task,
+		#   or report exceptions via a Future/Queue
+		# then we should not rely on raising inside this callback.
 		exc_to_raise = None
 		try:
 			# This will raise if the task had an exception
@@ -749,6 +758,10 @@ def create_task_with_error_handling(
 			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {e}')
 
 		# Re-raise outside the try-except block so it propagates to the event loop
+		# NOTE(logic risk): this raise happens inside the done callback;
+		# it typically only pollutes the event loop logs and does not let
+		# the task creator observe the exception (unless they await the task).
+		# Consider standardizing the exception semantics later.
 		if exc_to_raise is not None:
 			raise exc_to_raise
 

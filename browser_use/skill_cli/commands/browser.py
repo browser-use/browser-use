@@ -554,6 +554,11 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 			elapsed = 0.0
 
 			while elapsed < timeout_seconds:
+				# NOTE(logic risk): this loop repeatedly executes CDP Runtime.evaluate.
+				# During navigation / execution-context destruction / session changes, _execute_js may raise.
+				# The current implementation does not catch those errors, so `wait` may fail early
+				# instead of waiting until the timeout.
+				# Consider retrying common transient errors until timeout, and/or triggering/awaiting focus/session recovery.
 				# Build JS check based on state
 				if state == 'attached':
 					js = f'document.querySelector({json_module.dumps(selector)}) !== null'
@@ -608,6 +613,8 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 			elapsed = 0.0
 
 			while elapsed < timeout_seconds:
+				# NOTE(logic risk): same as selector wait: navigation/context changes can make evaluate raise and fail early.
+				# Consider tolerating transient CDP errors and retrying until timeout.
 				js = f"""
 					(function() {{
 						const text = {json_module.dumps(text)};
