@@ -34,6 +34,8 @@
 <a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
 <img width="4" height="1" alt="">
 <a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
+<img width="4" height="1" alt="">
+<a href="https://www.producthunt.com/products/browser-use?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-bu" target="_blank" rel="noopener noreferrer"><img alt="BU - Openclaw in the cloud | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1087770&amp;theme=light&amp;t=1772349539172"></a>
 </div>
 
 </br>

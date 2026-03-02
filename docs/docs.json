@@ -3,9 +3,9 @@
   "theme": "aspen",
   "name": "Browser Use",
   "colors": {
-    "primary": "#FE750E",
-    "light": "#FE750E",
-    "dark": "#FE750E"
+    "primary": "#2563EB",
+    "light": "#2563EB",
+    "dark": "#2563EB"
   },
   "background": {
     "color": {
@@ -29,6 +29,14 @@
     }
   },
   "redirects": [
+    {
+      "source": "/use-claude",
+      "destination": "https://docs.cloud.browser-use.com/introduction"
+    },
+    {
+      "source": "/production",
+      "destination": "/customize/sandbox/quickstart"
+    },
     {
       "source": "/customize/supported-models",
       "destination": "/supported-models"
@@ -145,17 +153,17 @@
   "navigation": {
     "groups": [
       {
-        "group": "Get Started",
+        "group": "Get Started with Open Source",
         "pages": [
           "introduction",
           "quickstart",
           "quickstart_llm",
           "supported-models",
-          "production"
+          "use-claude"
         ]
       },
       {
-        "group": "Customize",
+        "group": "Customize OS",
         "pages": [
           {
             "group": "Agent",
@@ -244,7 +252,7 @@
         ]
       },
       {
-        "group": "Examples",
+        "group": "Examples OS",
         "pages": [
           {
             "group": "Templates",
@@ -272,7 +280,7 @@
         ]
       },
       {
-        "group": "Development",
+        "group": "Development OS",
         "pages": [
           {
             "group": "Contribution",

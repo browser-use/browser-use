@@ -1357,7 +1357,7 @@ class BrowserSession(BaseModel):
 
 			output_file = Path(output_path).expanduser().resolve()
 			output_file.parent.mkdir(parents=True, exist_ok=True)
-			output_file.write_text(json.dumps(storage_state, indent=2))
+			output_file.write_text(json.dumps(storage_state, indent=2, ensure_ascii=False), encoding='utf-8')
 			self.logger.info(f'💾 Exported {len(cookies)} cookies to {output_file}')
 
 		return storage_state
@@ -1709,7 +1709,11 @@ class BrowserSession(BaseModel):
 			# Run a tiny HTTP client to query for the WebSocket URL from the /json/version endpoint
 			# Default httpx timeout is 5s which can race the global wait_for(connect(), 15s).
 			# Use 30s as a safety net for direct connect() callers; the wait_for is the real deadline.
-			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+			# For localhost/127.0.0.1, disable trust_env to prevent proxy env vars (HTTP_PROXY, HTTPS_PROXY)
+			# from routing local requests through a proxy, which causes 502 errors on Windows.
+			# Remote CDP URLs should still respect proxy settings.
+			is_localhost = parsed_url.hostname in ('localhost', '127.0.0.1', '::1')
+			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
 				headers = self.browser_profile.headers or {}
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')

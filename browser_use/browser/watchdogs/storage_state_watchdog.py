@@ -202,7 +202,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 				# Write atomically
 				temp_path = json_path.with_suffix('.json.tmp')
-				temp_path.write_text(json.dumps(merged_state, indent=4))
+				temp_path.write_text(json.dumps(merged_state, indent=4, ensure_ascii=False), encoding='utf-8')
 
 				# Backup existing file
 				if json_path.exists():
