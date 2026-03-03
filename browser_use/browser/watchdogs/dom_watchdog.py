@@ -20,7 +20,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import create_task_with_error_handling, time_execution_async
 
 if TYPE_CHECKING:
-	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo, PaginationButton
+	from browser_use.browser.views import BrowserStateSummary, NetworkStatus, PageInfo, PaginationButton
 
 
 class DOMWatchdog(BaseWatchdog):
@@ -88,16 +88,16 @@ class DOMWatchdog(BaseWatchdog):
 
 		return json.dumps([])  # Return empty JSON array on error
 
-	async def _get_pending_network_requests(self) -> list['NetworkRequest']:
-		"""Get list of currently pending network requests.
+	async def _get_network_status(self) -> 'NetworkStatus':
+		"""Get current network and document loading status.
 
 		Uses document.readyState and performance API to detect pending requests.
 		Filters out ads, tracking, and other noise.
 
 		Returns:
-			List of NetworkRequest objects representing currently loading resources
+			NetworkStatus with pending_requests, document_loading, and document_ready_state
 		"""
-		from browser_use.browser.views import NetworkRequest
+		from browser_use.browser.views import NetworkRequest, NetworkStatus
 
 		try:
 			# get_or_create_cdp_session() now handles focus validation automatically
@@ -231,12 +231,72 @@ class DOMWatchdog(BaseWatchdog):
 						)
 					)
 
-				return network_requests
+				return NetworkStatus(
+					pending_requests=network_requests,
+					document_loading=doc_loading,
+					document_ready_state=doc_state,
+				)
 
 		except Exception as e:
-			self.logger.debug(f'Failed to get pending network requests: {e}')
+			self.logger.debug(f'Failed to get network status: {e}')
 
-		return []
+		# Fallback: assume loading complete
+		return NetworkStatus(
+			pending_requests=[],
+			document_loading=False,
+			document_ready_state='complete',
+		)
+
+	async def _wait_for_page_load(self) -> 'NetworkStatus':
+		"""Wait for page to finish loading with configurable timeout.
+
+		Polls until document.readyState='complete' AND no pending requests,
+		or until page_load_timeout is reached.
+
+		Returns:
+			Final NetworkStatus when ready or timeout reached
+		"""
+		from browser_use.browser.views import NetworkStatus
+
+		timeout = self.browser_session.browser_profile.page_load_timeout
+		poll_interval = 0.1  # 100ms polling
+
+		# If timeout is 0, skip polling entirely
+		if timeout <= 0:
+			self.logger.debug('⏭️ page_load_timeout=0, skipping page load wait')
+			return await self._get_network_status()
+
+		# Poll until ready or timeout
+		start_time = time.time()
+		status: NetworkStatus | None = None
+
+		while True:
+			elapsed = time.time() - start_time
+
+			if elapsed >= timeout:
+				self.logger.debug(
+					f'⚠️ Page load timeout after {timeout}s (state: {status.document_ready_state if status else "unknown"})'
+				)
+				break
+
+			status = await self._get_network_status()
+			# Check if page is fully loaded
+			if not status.document_loading and len(status.pending_requests) == 0:
+				self.logger.debug(f'✅ Page load complete after {elapsed:.2f}s (state: {status.document_ready_state})')
+				return status
+
+			# Log progress periodically (every ~0.5s)
+			if int(elapsed * 10) % 5 == 0:
+				self.logger.debug(
+					f'🔄 Waiting for page load... '
+					f'elapsed={elapsed:.1f}s, '
+					f'document_loading={status.document_loading}, '
+					f'pending_requests={len(status.pending_requests)}'
+				)
+
+			await asyncio.sleep(poll_interval)
+
+		return status if status else await self._get_network_status()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
@@ -263,27 +323,17 @@ class DOMWatchdog(BaseWatchdog):
 		# check if we should skip DOM tree build for pointless pages
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
 
-		# Check for pending network requests BEFORE waiting (so we can see what's loading)
-		pending_requests_before_wait = []
+		# Wait for page to finish loading (document.readyState='complete' and no pending requests)
+		pending_requests = []
 		if not not_a_meaningful_website:
+			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page load...')
 			try:
-				pending_requests_before_wait = await self._get_pending_network_requests()
-				if pending_requests_before_wait:
-					self.logger.debug(f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait')
-			except Exception as e:
-				self.logger.debug(f'Failed to get pending requests before wait: {e}')
-		pending_requests = pending_requests_before_wait
-		# Wait for page stability using browser profile settings (main branch pattern)
-		if not not_a_meaningful_website:
-			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
-			try:
-				if pending_requests_before_wait:
-					# Reduced from 1s to 0.3s for faster DOM builds while still allowing critical resources to load
-					await asyncio.sleep(0.3)
-				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
+				network_status = await self._wait_for_page_load()
+				pending_requests = network_status.pending_requests
+				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page load wait complete')
 			except Exception as e:
 				self.logger.warning(
-					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Network waiting failed: {e}, continuing anyway...'
+					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Page load waiting failed: {e}, continuing anyway...'
 				)
 
 		# Get tabs info once at the beginning for all paths
