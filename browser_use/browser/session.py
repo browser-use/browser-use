@@ -3470,6 +3470,11 @@ class BrowserSession(BaseModel):
 
 		if target_type in ('iframe', 'webview') and include_iframes:
 			type_allowed = True
+			# Chrome often reports empty URLs for cross-origin iframe targets (OOPIFs)
+			# initially via attachedToTarget, but they are still valid and accessible via CDP.
+			# Allow them through so get_all_frames() can resolve their frame trees.
+			if not url:
+				url_allowed = True
 
 		return url_allowed and type_allowed
 
