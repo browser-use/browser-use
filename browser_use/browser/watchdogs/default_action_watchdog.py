@@ -1461,10 +1461,78 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.debug(f'All clearing strategies failed: {e}')
 			return False
 
+	@staticmethod
+	def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
+		"""Detect if a node is an autocomplete/combobox field that needs mouse events to open its dropdown."""
+		attrs = node.attributes or {}
+		if attrs.get('role') == 'combobox':
+			return True
+		aria_ac = attrs.get('aria-autocomplete', '')
+		if aria_ac and aria_ac != 'none':
+			return True
+		haspopup = attrs.get('aria-haspopup', '')
+		if haspopup and haspopup != 'false' and (attrs.get('aria-controls') or attrs.get('aria-owns')):
+			return True
+		return False
+
+	async def _click_to_focus(self, cdp_session, input_coordinates: dict) -> bool:
+		"""Focus an element by dispatching mouse press/release events at its coordinates."""
+		try:
+			click_x = input_coordinates['input_x']
+			click_y = input_coordinates['input_y']
+
+			self.logger.debug(f'🎯 Attempting click-to-focus at ({click_x:.1f}, {click_y:.1f})')
+
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mousePressed',
+					'x': click_x,
+					'y': click_y,
+					'button': 'left',
+					'clickCount': 1,
+				},
+				session_id=cdp_session.session_id,
+			)
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseReleased',
+					'x': click_x,
+					'y': click_y,
+					'button': 'left',
+					'clickCount': 1,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			self.logger.debug('✅ Element focused using click method')
+			return True
+
+		except Exception as e:
+			self.logger.debug(f'Click focus failed: {e}')
+			return False
+
 	async def _focus_element_simple(
-		self, backend_node_id: int, object_id: str, cdp_session, input_coordinates: dict | None = None
+		self,
+		backend_node_id: int,
+		object_id: str,
+		cdp_session,
+		input_coordinates: dict | None = None,
+		element_node: EnhancedDOMTreeNode | None = None,
 	) -> bool:
-		"""Simple focus strategy: CDP first, then click if failed."""
+		"""Simple focus strategy: CDP first, then click if failed.
+
+		For autocomplete/combobox fields, prefer click-to-focus so that mouse events
+		fire and JS-driven dropdowns open properly. DOM.focus() only sets focus without
+		dispatching mousedown/mouseup/click events that many autocomplete widgets need.
+		"""
+
+		# For autocomplete fields, prefer click-to-focus to fire mouse events that open dropdowns
+		if element_node and self._is_autocomplete_field(element_node):
+			if input_coordinates and 'input_x' in input_coordinates:
+				self.logger.debug('🔍 Autocomplete field detected — using click-to-focus to fire mouse events')
+				if await self._click_to_focus(cdp_session, input_coordinates):
+					return True
+			# Fall through to DOM.focus if coordinates aren't available
 
 		# Strategy 1: Try CDP DOM.focus first
 		try:
@@ -1480,39 +1548,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 		# Strategy 2: Try click to focus if CDP failed
 		if input_coordinates and 'input_x' in input_coordinates and 'input_y' in input_coordinates:
-			try:
-				click_x = input_coordinates['input_x']
-				click_y = input_coordinates['input_y']
-
-				self.logger.debug(f'🎯 Attempting click-to-focus at ({click_x:.1f}, {click_y:.1f})')
-
-				# Click to focus
-				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-					params={
-						'type': 'mousePressed',
-						'x': click_x,
-						'y': click_y,
-						'button': 'left',
-						'clickCount': 1,
-					},
-					session_id=cdp_session.session_id,
-				)
-				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-					params={
-						'type': 'mouseReleased',
-						'x': click_x,
-						'y': click_y,
-						'button': 'left',
-						'clickCount': 1,
-					},
-					session_id=cdp_session.session_id,
-				)
-
-				self.logger.debug('✅ Element focused using click method')
+			if await self._click_to_focus(cdp_session, input_coordinates):
 				return True
-
-			except Exception as e:
-				self.logger.debug(f'Click focus failed: {e}')
 
 		# Both strategies failed
 		self.logger.debug('Focus strategies failed, will attempt typing anyway')
@@ -1734,7 +1771,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Step 1: Focus the element using simple strategy
 			focused_successfully = await self._focus_element_simple(
-				backend_node_id=backend_node_id, object_id=object_id, cdp_session=cdp_session, input_coordinates=input_coordinates
+				backend_node_id=backend_node_id,
+				object_id=object_id,
+				cdp_session=cdp_session,
+				input_coordinates=input_coordinates,
+				element_node=element_node,
 			)
 
 			# Step 2: Check if this element requires direct value assignment (date/time inputs)

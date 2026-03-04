@@ -146,6 +146,47 @@ def http_server():
 		content_type='text/html',
 	)
 
+	# Page 7: Combobox that only opens its dropdown on mouse click events (not on focus alone).
+	# This simulates real-world autocomplete widgets (Select2, MUI Autocomplete, etc.)
+	# that bind their dropdown logic to mousedown/click, not the focus event.
+	server.expect_request('/combobox-click-required').respond_with_data(
+		"""
+		<!DOCTYPE html>
+		<html>
+		<head><title>Combobox Click Required Test</title></head>
+		<body>
+			<input id="combo-click" type="text" role="combobox"
+				aria-autocomplete="list" aria-controls="click-suggestions"
+				aria-expanded="false" />
+			<ul id="click-suggestions" role="listbox" style="display:none;">
+				<li role="option">Alpha</li>
+				<li role="option">Beta</li>
+			</ul>
+			<div id="status">closed</div>
+			<script>
+				const input = document.getElementById('combo-click');
+				const listbox = document.getElementById('click-suggestions');
+				const status = document.getElementById('status');
+
+				// Only open dropdown on mouse events, NOT on focus
+				input.addEventListener('mousedown', function() {
+					listbox.style.display = 'block';
+					input.setAttribute('aria-expanded', 'true');
+					status.textContent = 'open';
+				});
+				// Also listen for click as a backup (some widgets use click instead)
+				input.addEventListener('click', function() {
+					listbox.style.display = 'block';
+					input.setAttribute('aria-expanded', 'true');
+					status.textContent = 'open';
+				});
+			</script>
+		</body>
+		</html>
+		""",
+		content_type='text/html',
+	)
+
 	yield server
 	server.stop()
 
@@ -380,3 +421,35 @@ class TestAutocompleteInteraction:
 		# Datalist fields should complete without the 400ms tax.
 		# Normal typing for 3 chars takes well under 400ms.
 		assert duration < 0.4, f'Datalist field got unexpected delay: {duration:.3f}s (should be < 0.4s)'
+
+	async def test_combobox_input_triggers_dropdown_via_click(self, tools: Tools, browser_session: BrowserSession, base_url: str):
+		"""Typing into a combobox field should fire mouse events so JS-driven dropdowns open.
+
+		Many real-world autocomplete widgets (Select2, MUI Autocomplete, etc.) bind their
+		dropdown-open logic to mousedown/click, not the focus event. When the input action
+		uses DOM.focus() instead of a real click, the dropdown never opens.
+		"""
+		await tools.navigate(url=f'{base_url}/combobox-click-required', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.3)
+		await browser_session.get_browser_state_summary()
+
+		combo_idx = await browser_session.get_index_by_id('combo-click')
+		assert combo_idx is not None, 'Could not find combobox input'
+
+		# Type into the combobox — this should trigger mouse events that open the dropdown
+		result = await tools.input(index=combo_idx, text='test', browser_session=browser_session)
+		assert isinstance(result, ActionResult)
+		assert result.error is None, f'Input action failed: {result.error}'
+
+		# Check that the dropdown was opened by reading the status div.
+		# The JS only sets status to "open" on mousedown/click events, not on focus.
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': "document.getElementById('status').textContent"},
+			session_id=cdp_session.session_id,
+		)
+		status = readback.get('result', {}).get('value', '')
+		assert status == 'open', (
+			f'Dropdown did not open (status="{status}"). '
+			'The input action likely used DOM.focus() instead of click-to-focus for this combobox field.'
+		)
