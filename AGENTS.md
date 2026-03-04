@@ -300,6 +300,7 @@ Check out all customizable parameters <a href="https://docs.browser-use.com/cust
 ### Actions & Behavior
 
 * `initial_actions`: List of actions to run before the main task without LLM. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py)
+* `final_actions`: List of actions to run after task completion without LLM. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/final_actions.py)
 * `max_actions_per_step` (default: `3`): Maximum actions per step, e.g. for form filling the agent can output 3 fields at once. We execute the actions until the page changes.
 * `max_failures` (default: `3`): Maximum retries for steps with errors
 * `final_response_after_failure` (default: `True`): If True, attempt to force one final model call with intermediate output after max\_failures is reached
