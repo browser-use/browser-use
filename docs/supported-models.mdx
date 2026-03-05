@@ -58,6 +58,13 @@ ChatBrowserUse offers competitive pricing per 1 million tokens:
 | Cached tokens | $0.06 |
 | Output tokens | $3.50 |
 
+#### Open-source Browser Use models (e.g. `browser-use/bu-30b-a3b-preview`)
+
+<Info>
+If you are using an open-source Browser Use fine-tuned model, keep the Browser Use system prompt enabled. The fine-tuning and prompt are designed to work together for stable action formatting and tool use.
+</Info>
+
+For non-fine-tuned/general models, use the same Browser Use system prompt and validate behavior with a short smoke task first. If action formatting is unstable, add explicit action-schema examples in your prompt (as noted in the Qwen section below).
 
 ### Google Gemini [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gemini.py)
 
