@@ -481,9 +481,12 @@ Available tabs:
 					)
 				)
 
-			return UserMessage(content=content_parts, cache=True)
+			# Don't cache user state messages - they change every step, so caching
+			# would just pay the 25% cache creation premium without ever getting cache hits
+			return UserMessage(content=content_parts, cache=False)
 
-		return UserMessage(content=state_description, cache=True)
+		# Don't cache user state messages - they change every step
+		return UserMessage(content=state_description, cache=False)
 
 
 def get_rerun_summary_prompt(original_task: str, total_steps: int, success_count: int, error_count: int) -> str:
