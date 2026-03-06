@@ -315,7 +315,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 			self.event_bus.dispatch(
 				StorageStateLoadedEvent(
-					path=str(load_source),
+					path='<dict>' if isinstance(load_source, dict) else str(load_source),
 					cookies_count=len(storage.get('cookies', [])),
 					origins_count=len(storage.get('origins', [])),
 				)
