@@ -1092,6 +1092,7 @@ class Element:
 					session_id=session_id,
 				)
 				import asyncio
+
 				await asyncio.sleep(0.05)
 
 				# Click on the element to focus it
