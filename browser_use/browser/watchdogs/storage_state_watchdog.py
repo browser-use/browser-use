@@ -231,21 +231,29 @@ class StorageStateWatchdog(BaseWatchdog):
 				self.logger.error(f'[StorageStateWatchdog] Failed to save storage state: {e}')
 
 	async def _load_storage_state(self, path: str | None = None) -> None:
-		"""Load browser storage state from file."""
+		"""Load browser storage state from file or dict."""
 		if not self.browser_session.cdp_client:
 			self.logger.warning('[StorageStateWatchdog] No CDP client available for loading')
 			return
 
-		load_path = path or self.browser_session.browser_profile.storage_state
-		if not load_path or not os.path.exists(str(load_path)):
+		load_source = path or self.browser_session.browser_profile.storage_state
+		if not load_source:
 			return
 
 		try:
-			# Read the storage state file asynchronously
-			import anyio
+			# If the source is already a dict, use it directly
+			if isinstance(load_source, dict):
+				storage = load_source
+				load_path = '<dict>'
+			else:
+				load_path = str(load_source)
+				if not os.path.exists(load_path):
+					return
+				# Read the storage state file asynchronously
+				import anyio
 
-			content = await anyio.Path(str(load_path)).read_text()
-			storage = json.loads(content)
+				content = await anyio.Path(load_path).read_text()
+				storage = json.loads(content)
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
