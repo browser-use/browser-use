@@ -694,6 +694,14 @@ class DomService:
 		snapshot_lookup = build_snapshot_lookup(snapshot, device_pixel_ratio)
 		timing_info['build_snapshot_lookup_ms'] = (time.time() - start_snapshot) * 1000
 
+		# Pre-fetch CDP session once for the entire tree construction (used for iframe resolution)
+		try:
+			cdp_session_for_tree = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+			session_id_for_tree = cdp_session_for_tree.session_id
+		except ValueError:
+			cdp_session_for_tree = None
+			session_id_for_tree = None
+
 		async def _construct_enhanced_node(
 			node: Node,
 			html_frames: list[EnhancedDOMTreeNode] | None,
@@ -777,13 +785,6 @@ class DomService:
 					height=snapshot_data.bounds.height,
 				)
 
-			try:
-				session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
-				session_id = session.session_id
-			except ValueError:
-				# Target may have detached during DOM construction
-				session_id = None
-
 			dom_tree_node = EnhancedDOMTreeNode(
 				node_id=node['nodeId'],
 				backend_node_id=node['backendNodeId'],
@@ -793,7 +794,7 @@ class DomService:
 				attributes=attributes or {},
 				is_scrollable=node.get('isScrollable', None),
 				frame_id=node.get('frameId', None),
-				session_id=session_id,
+				session_id=session_id_for_tree,
 				target_id=target_id,
 				content_document=None,
 				shadow_root_type=shadow_root_type,
@@ -862,18 +863,18 @@ class DomService:
 						f'Skipping iframe content at depth {iframe_depth} to prevent infinite recursion '
 						f'(max depth: {self.max_iframe_depth})'
 					)
-				elif session_id is not None:
+				elif cdp_session_for_tree is not None:
 					try:
-						resolved_iframe = await session.cdp_client.send.DOM.describeNode(
+						resolved_iframe = await cdp_session_for_tree.cdp_client.send.DOM.describeNode(
 							params={'backendNodeId': node['backendNodeId'], 'pierce': True, 'depth': 1},
-							session_id=session_id,
+							session_id=session_id_for_tree,
 						)
 						content_doc = resolved_iframe.get('node', {}).get('contentDocument')
 						content_doc_id = content_doc.get('nodeId') if content_doc else None
 						if content_doc_id:
-							full_content_doc_response = await session.cdp_client.send.DOM.describeNode(
+							full_content_doc_response = await cdp_session_for_tree.cdp_client.send.DOM.describeNode(
 								params={'nodeId': content_doc_id, 'depth': -1, 'pierce': False},
-								session_id=session_id,
+								session_id=session_id_for_tree,
 							)
 							root_node = full_content_doc_response.get('node') if full_content_doc_response else None
 							if root_node:
