@@ -155,10 +155,13 @@ def _is_process_alive(pid: int) -> bool:
 		import ctypes
 
 		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		STILL_ACTIVE = 259
 		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
 		if handle:
+			exit_code = ctypes.c_ulong(0)
+			got_code = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
 			ctypes.windll.kernel32.CloseHandle(handle)
-			return True
+			return bool(got_code and exit_code.value == STILL_ACTIVE)
 		return False
 	else:
 		try:
@@ -177,9 +180,9 @@ def _kill_process(pid: int) -> bool:
 			PROCESS_TERMINATE = 0x0001
 			handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
 			if handle:
-				ctypes.windll.kernel32.TerminateProcess(handle, 1)
+				result = ctypes.windll.kernel32.TerminateProcess(handle, 1)
 				ctypes.windll.kernel32.CloseHandle(handle)
-				return True
+				return bool(result)
 			return False
 		else:
 			os.kill(pid, signal.SIGTERM)
