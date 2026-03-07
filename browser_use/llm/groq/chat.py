@@ -170,17 +170,28 @@ class ChatGroq(BaseChatModel):
 
 		if self.model in ToolCallingModels:
 			response = await self._invoke_with_tool_calling(groq_messages, output_format, schema)
+			# Tool-calling responses place the structured data in
+			# tool_calls[…].function.arguments, not in message.content.
+			tool_calls = response.choices[0].message.tool_calls
+			if not tool_calls:
+				raise ModelProviderError(
+					message='No tool calls in response',
+					status_code=500,
+					model=self.name,
+				)
+			raw_json = tool_calls[0].function.arguments
 		else:
 			response = await self._invoke_with_json_schema(groq_messages, output_format, schema)
+			raw_json = response.choices[0].message.content
 
-		if not response.choices[0].message.content:
+		if not raw_json:
 			raise ModelProviderError(
 				message='No content in response',
 				status_code=500,
 				model=self.name,
 			)
 
-		parsed_response = output_format.model_validate_json(response.choices[0].message.content)
+		parsed_response = output_format.model_validate_json(raw_json)
 		usage = self._get_usage(response)
 
 		return ChatInvokeCompletion(
