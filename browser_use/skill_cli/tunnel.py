@@ -155,11 +155,13 @@ def _is_process_alive(pid: int) -> bool:
 		import ctypes
 
 		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		ERROR_ACCESS_DENIED = 5
 		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
 		if handle:
 			ctypes.windll.kernel32.CloseHandle(handle)
 			return True
-		return False
+		# Access denied means the process exists but we lack permissions.
+		return ctypes.windll.kernel32.GetLastError() == ERROR_ACCESS_DENIED
 	else:
 		try:
 			os.kill(pid, 0)
@@ -177,9 +179,9 @@ def _kill_process(pid: int) -> bool:
 			PROCESS_TERMINATE = 0x0001
 			handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
 			if handle:
-				ctypes.windll.kernel32.TerminateProcess(handle, 1)
+				result = ctypes.windll.kernel32.TerminateProcess(handle, 1)
 				ctypes.windll.kernel32.CloseHandle(handle)
-				return True
+				return bool(result)
 			return False
 		else:
 			os.kill(pid, signal.SIGTERM)
