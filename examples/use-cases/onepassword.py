@@ -73,13 +73,13 @@ async def main():
 			success = result.get('result', {}).get('value', False)
 			if success:
 				print('[BLUR] Applied CSS blur to page')
-				return ActionResult(extracted_content='Successfully applied CSS blur to page', include_in_memory=True)
+				return ActionResult(extracted_content='Successfully applied CSS blur to page')
 			else:
-				return ActionResult(error='Failed to apply blur', include_in_memory=True)
+				return ActionResult(error='Failed to apply blur')
 
 		except Exception as e:
 			print(f'[BLUR ERROR] {e}')
-			return ActionResult(error=f'Failed to blur page: {str(e)}', include_in_memory=True)
+			return ActionResult(error=f'Failed to blur page: {str(e)}')
 
 	@tools.registry.action('Remove CSS blur filter from page')
 	async def unblur_page(browser_session: BrowserSession):
@@ -117,16 +117,14 @@ async def main():
 			removed = result.get('result', {}).get('value', False)
 			if removed:
 				print('[BLUR] Removed CSS blur from page')
-				return ActionResult(extracted_content='Successfully removed CSS blur from page', include_in_memory=True)
+				return ActionResult(extracted_content='Successfully removed CSS blur from page')
 			else:
 				print('[BLUR] Page was not blurred')
-				return ActionResult(
-					extracted_content='Page was not blurred (may have already been removed)', include_in_memory=True
-				)
+				return ActionResult(extracted_content='Page was not blurred (may have already been removed)')
 
 		except Exception as e:
 			print(f'[BLUR ERROR] {e}')
-			return ActionResult(error=f'Failed to unblur page: {str(e)}', include_in_memory=True)
+			return ActionResult(error=f'Failed to unblur page: {str(e)}')
 
 	# LLM can call this action to use actors to fill in sensitive fields using 1Password values.
 	@tools.registry.action('Fill in a specific field for a website using value from 1Password vault')
@@ -146,11 +144,9 @@ async def main():
 			target_field = await page.must_get_element_by_prompt(f'{field_name} input field', llm)
 			await target_field.fill(field_value)
 
-			return ActionResult(
-				extracted_content=f'Successfully filled {field_name} field for {vault_name}/{item_name}', include_in_memory=True
-			)
+			return ActionResult(extracted_content=f'Successfully filled {field_name} field for {vault_name}/{item_name}')
 		except Exception as e:
-			return ActionResult(error=f'Failed to fill {field_name} field: {str(e)}', include_in_memory=True)
+			return ActionResult(error=f'Failed to fill {field_name} field: {str(e)}')
 
 	browser_session = Browser()
 

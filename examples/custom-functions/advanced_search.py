@@ -62,7 +62,7 @@ async def search_web(query: str):
 	# to string
 	organic_str = json.dumps(organic)
 
-	return ActionResult(extracted_content=organic_str, include_in_memory=False, include_extracted_content_only_once=True)
+	return ActionResult(extracted_content=organic_str, include_extracted_content_only_once=True)
 
 
 names = [

@@ -58,7 +58,7 @@ async def upload_file(index: int, path: str, browser_session: BrowserSession, av
 
 		msg = f'Successfully uploaded file to index {index}'
 		logger.info(msg)
-		return ActionResult(extracted_content=msg, include_in_memory=True)
+		return ActionResult(extracted_content=msg)
 
 	except Exception as e:
 		msg = f'Failed to upload file to index {index}: {str(e)}'
@@ -93,8 +93,7 @@ async def main():
 		llm=llm,
 		browser_session=browser_session,
 		tools=tools,
-		# Pass the available file paths to the tools context
-		custom_context={'available_file_paths': available_file_paths},
+		available_file_paths=available_file_paths,
 	)
 
 	# Run the agent

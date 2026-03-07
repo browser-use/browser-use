@@ -84,7 +84,7 @@ from browser_use.utils import (
 logger = logging.getLogger(__name__)
 
 
-def log_response(response: AgentOutput, registry=None, logger=None) -> None:
+def log_response(response: AgentOutput, logger=None) -> None:
 	"""Utility function to log the model's response."""
 
 	# Use module logger if no logger provided
@@ -205,7 +205,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
-		**kwargs,
 	):
 		# Validate llm_screenshot_size
 		if llm_screenshot_size is not None:
@@ -1381,7 +1380,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_event = CreateAgentStepEvent.from_agent_step(
 				self,
 				self.state.last_model_output,
-				self.state.last_result,
 				actions_data,
 				browser_state_summary,
 			)
@@ -1937,7 +1935,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
 			if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-				log_response(parsed, self.tools.registry.registry, self.logger)
+				log_response(parsed, self.logger)
 				await self._broadcast_model_state(parsed)
 
 			self._log_next_action_summary(parsed)
@@ -2073,7 +2071,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			param_str = f'({", ".join(param_summary)})' if param_summary else ''
 			action_details.append(f'{action_name}{param_str}')
 
-	def _prepare_demo_message(self, message: str, limit: int = 600) -> str:
+	def _prepare_demo_message(self, message: str) -> str:
 		# Previously truncated long entries; keep full text for better context in demo panel
 		return message.strip()
 
@@ -2587,7 +2585,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.history.add_item(
 					AgentHistory(
 						model_output=None,
-						result=[ActionResult(error=agent_run_error, include_in_memory=True)],
+						result=[ActionResult(error=agent_run_error)],
 						state=BrowserStateHistory(
 							url='',
 							title='',
@@ -3154,7 +3152,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					results.append(
 						ActionResult(
 							extracted_content='Skipped - redundant retry of previous step',
-							include_in_memory=False,
 						)
 					)
 					# Don't update previous_item/previous_step_succeeded - keep tracking the original step
@@ -3985,15 +3982,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
 
-	async def authenticate_cloud_sync(self, show_instructions: bool = True) -> bool:
+	async def authenticate_cloud_sync(self) -> bool:
 		"""
 		Authenticate with cloud service for future runs.
 
 		This is useful when users want to authenticate after a task has completed
 		so that future runs will sync to the cloud.
-
-		Args:
-			show_instructions: Whether to show authentication instructions to user
 
 		Returns:
 			bool: True if authentication was successful

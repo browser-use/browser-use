@@ -144,9 +144,7 @@ class CreateAgentStepEvent(BaseEvent):
 		return v
 
 	@classmethod
-	def from_agent_step(
-		cls, agent, model_output, result: list, actions_data: list[dict], browser_state_summary
-	) -> 'CreateAgentStepEvent':
+	def from_agent_step(cls, agent, model_output, actions_data: list[dict], browser_state_summary) -> 'CreateAgentStepEvent':
 		"""Create a CreateAgentStepEvent from agent step data"""
 		# Get first action details if available
 		first_action = model_output.action[0] if model_output.action else None

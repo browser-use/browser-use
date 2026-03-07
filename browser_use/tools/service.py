@@ -1566,7 +1566,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				msg = selection_data.get('message', f'Selected option: {params.text}')
 				return ActionResult(
 					extracted_content=msg,
-					include_in_memory=True,
 					long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
 				)
 			else:

@@ -200,9 +200,7 @@ async def playwright_fill_form(params: PlaywrightFillFormAction, browser_session
 
 		success_msg = f'✅ Form filled successfully with Playwright: {form_data}'
 
-		return ActionResult(
-			extracted_content=success_msg, include_in_memory=True, long_term_memory=f'Filled form with: {form_data}'
-		)
+		return ActionResult(extracted_content=success_msg, long_term_memory=f'Filled form with: {form_data}')
 
 	except Exception as e:
 		error_msg = f'❌ Playwright form filling failed: {str(e)}'
@@ -234,9 +232,7 @@ async def playwright_screenshot(params: PlaywrightScreenshotAction, browser_sess
 
 		success_msg = f'✅ Screenshot saved as {params.filename} using Playwright'
 
-		return ActionResult(
-			extracted_content=success_msg, include_in_memory=True, long_term_memory=f'Screenshot saved: {params.filename}'
-		)
+		return ActionResult(extracted_content=success_msg, long_term_memory=f'Screenshot saved: {params.filename}')
 
 	except Exception as e:
 		error_msg = f'❌ Playwright screenshot failed: {str(e)}'
@@ -294,7 +290,6 @@ async def playwright_get_text(params: PlaywrightGetTextAction, browser_session: 
 
 		return ActionResult(
 			extracted_content=str(result_data),
-			include_in_memory=True,
 			long_term_memory=f'Extracted from {params.selector}: {result_data["text_content"]}',
 		)
 

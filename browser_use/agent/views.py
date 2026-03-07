@@ -333,9 +333,6 @@ class ActionResult(BaseModel):
 	# Metadata for observability (e.g., click coordinates)
 	metadata: dict | None = None
 
-	# Deprecated
-	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
-
 	@model_validator(mode='after')
 	def validate_success_requires_done(self):
 		"""Ensure success=True can only be set when is_done=True"""

@@ -59,7 +59,7 @@ async def search_web(query: str):
 	# print(json.dumps(final_results, indent=4))
 	result_text = json.dumps(final_results, indent=4)
 	print(result_text)
-	return ActionResult(extracted_content=result_text, include_in_memory=True)
+	return ActionResult(extracted_content=result_text)
 
 
 async def main():

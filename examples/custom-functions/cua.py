@@ -83,7 +83,7 @@ async def handle_model_action(browser_session: BrowserSession, action) -> Action
 					session_id=cdp_session.session_id,
 				)
 				msg = f'Clicked at ({x}, {y}) with button {button}'
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+				return ActionResult(extracted_content=msg, long_term_memory=msg)
 
 			case 'scroll':
 				x, y = action.x, action.y
@@ -108,7 +108,7 @@ async def handle_model_action(browser_session: BrowserSession, action) -> Action
 					session_id=cdp_session.session_id,
 				)
 				msg = f'Scrolled at ({x}, {y}) with offsets (scroll_x={scroll_x}, scroll_y={scroll_y})'
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+				return ActionResult(extracted_content=msg, long_term_memory=msg)
 
 			case 'keypress':
 				keys = action.keys
@@ -137,7 +137,7 @@ async def handle_model_action(browser_session: BrowserSession, action) -> Action
 						session_id=cdp_session.session_id,
 					)
 				msg = f'Pressed keys: {keys}'
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+				return ActionResult(extracted_content=msg, long_term_memory=msg)
 
 			case 'type':
 				text = action.text
@@ -153,13 +153,13 @@ async def handle_model_action(browser_session: BrowserSession, action) -> Action
 						session_id=cdp_session.session_id,
 					)
 				msg = f'Typed text: {text}'
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+				return ActionResult(extracted_content=msg, long_term_memory=msg)
 
 			case 'wait':
 				print('Action: wait')
 				await asyncio.sleep(2)
 				msg = 'Waited for 2 seconds'
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+				return ActionResult(extracted_content=msg, long_term_memory=msg)
 
 			case 'screenshot':
 				# Nothing to do as screenshot is taken at each turn

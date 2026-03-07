@@ -25,7 +25,6 @@ class ActionResult:
 	is_done: bool
 	extracted_content: str | None
 	error: str | None
-	include_in_memory: bool
 
 
 @dataclass
