@@ -45,9 +45,7 @@ class SecureVault:
 			vault_url: URL of the AgentVault server
 			api_key: API key for authentication
 		"""
-		self.vault_url = vault_url or os.getenv(
-			'AGENTVAULT_URL', 'https://vault.agentvault.io'
-		)
+		self.vault_url = vault_url or os.getenv('AGENTVAULT_URL', 'https://vault.agentvault.io')
 		self.api_key = api_key or os.getenv('AGENTVAULT_API_KEY')
 
 	def get_credential(self, credential_id: str) -> Credential:
@@ -69,7 +67,7 @@ class SecureVault:
 		if not username or not password:
 			cred_upper = credential_id.upper()
 			raise CredentialNotFoundError(
-				f'Credential \'{credential_id}\' not found in vault. '
+				f"Credential '{credential_id}' not found in vault. "
 				f'Please ensure AGENTVAULT_{cred_upper}_USERNAME and '
 				f'AGENTVAULT_{cred_upper}_PASSWORD are set.'
 			)
@@ -114,12 +112,10 @@ class Credential:
 
 class CredentialNotFoundError(Exception):
 	"""Raised when a credential is not found in the vault."""
-	pass
 
 
 class CredentialRotationError(Exception):
 	"""Raised when credential rotation fails."""
-	pass
 
 
 def main() -> None:
@@ -150,8 +146,8 @@ def main() -> None:
 	gh_user = credentials.username
 	gh_pass = credentials.password
 	task_parts = [
-		f'Login to GitHub (github.com) with username \'{gh_user}\' ',
-		f'and password \'{gh_pass}\'. ',
+		f"Login to GitHub (github.com) with username '{gh_user}' ",
+		f"and password '{gh_pass}'. ",
 		'Navigate to the login page, enter the credentials, ',
 		'and click the Sign in button. ',
 		'After login, go to the profile page and verify successful authentication.',
