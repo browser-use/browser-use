@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 COMMANDS = {
 	'open',
+	'new-tab',
 	'click',
 	'type',
 	'input',
@@ -98,6 +99,14 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 
 			result['live_url'] = f'https://live.browser-use.com/?wss={quote(bs.cdp_url, safe="")}'
 		return result
+
+	elif action == 'new-tab':
+		from browser_use.browser.events import AgentFocusChangedEvent, SwitchTabEvent
+
+		page = await bs.new_page('about:blank')
+		await bs.event_bus.dispatch(SwitchTabEvent(target_id=page._target_id))
+		await bs.event_bus.dispatch(AgentFocusChangedEvent(target_id=page._target_id, url='about:blank'))
+		return {'url': 'about:blank'}
 
 	elif action == 'click':
 		args = params.get('args', [])
