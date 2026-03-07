@@ -232,32 +232,27 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_click',
-					description='Click an element by index or at specific viewport coordinates. Use index for elements from browser_get_state, or coordinate_x/coordinate_y for pixel-precise clicking.',
+					description='Click on an element by its index from browser_get_state.',
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'index': {
-								'type': 'integer',
-								'description': 'The index of the element to click (from browser_get_state). Use this OR coordinates.',
-							},
-							'coordinate_x': {
-								'type': 'integer',
-								'description': 'X coordinate (pixels from left edge of viewport). Use with coordinate_y.',
-							},
-							'coordinate_y': {
-								'type': 'integer',
-								'description': 'Y coordinate (pixels from top edge of viewport). Use with coordinate_x.',
-							},
-							'new_tab': {
-								'type': 'boolean',
-								'description': 'Whether to open any resulting navigation in a new tab',
-								'default': False,
-							},
+							'index': {'type': 'integer', 'description': 'The index of the element to click (from browser_get_state).'},
+							'new_tab': {'type': 'boolean', 'description': 'Open link in a new tab.', 'default': False},
 						},
-						'oneOf': [
-							{'required': ['index']},
-							{'required': ['coordinate_x', 'coordinate_y']},
-						],
+						'required': ['index'],
+					},
+				),
+				types.Tool(
+					name='browser_click_at_coordinates',
+					description='Click at specific viewport pixel coordinates. Use when no element index is available.',
+					inputSchema={
+						'type': 'object',
+						'properties': {
+							'coordinate_x': {'type': 'integer', 'description': 'X coordinate in pixels from left edge of viewport.'},
+							'coordinate_y': {'type': 'integer', 'description': 'Y coordinate in pixels from top edge of viewport.'},
+							'new_tab': {'type': 'boolean', 'description': 'Open link in a new tab.', 'default': False},
+						},
+						'required': ['coordinate_x', 'coordinate_y'],
 					},
 				),
 				types.Tool(
@@ -517,6 +512,11 @@ class BrowserUseServer:
 			elif tool_name == 'browser_click':
 				return await self._click(
 					index=arguments.get('index'),
+					new_tab=arguments.get('new_tab', False),
+				)
+
+			elif tool_name == 'browser_click_at_coordinates':
+				return await self._click(
 					coordinate_x=arguments.get('coordinate_x'),
 					coordinate_y=arguments.get('coordinate_y'),
 					new_tab=arguments.get('new_tab', False),
