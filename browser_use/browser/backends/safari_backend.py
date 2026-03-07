@@ -29,6 +29,15 @@ PROFILE_TITLE_SEPARATOR = ' — '
 SCREENSHOT_TIMEOUT_SECONDS = 10.0
 
 
+def _safe_process_output(value: str | bytes | None) -> str:
+	"""Normalize subprocess output for BrowserError details."""
+	if value is None:
+		return ''
+	if isinstance(value, bytes):
+		return value.decode('utf-8', errors='replace').strip()
+	return value.strip()
+
+
 def _run_jxa_sync(script: str, timeout: float = 15) -> str:
 	try:
 		result = subprocess.run(
@@ -40,10 +49,24 @@ def _run_jxa_sync(script: str, timeout: float = 15) -> str:
 			timeout=timeout,
 		)
 		return result.stdout.strip()
+	except subprocess.TimeoutExpired as exc:
+		raise BrowserError(
+			'Safari automation command timed out.',
+			details={
+				'timeout_seconds': timeout,
+				'stderr': _safe_process_output(exc.stderr),
+				'stdout': _safe_process_output(exc.stdout),
+			},
+		) from exc
 	except subprocess.CalledProcessError as exc:
 		raise BrowserError(
 			'Safari automation command failed.',
-			details={'stderr': exc.stderr.strip(), 'stdout': exc.stdout.strip()},
+			details={'stderr': _safe_process_output(exc.stderr), 'stdout': _safe_process_output(exc.stdout)},
+		) from exc
+	except OSError as exc:
+		raise BrowserError(
+			'Safari automation command could not be launched.',
+			details={'error': str(exc)},
 		) from exc
 
 
@@ -275,7 +298,12 @@ class SafariRealProfileBackend(BrowserBackend):
 		if quality is not None:
 			self.logger.debug('Safari backend ignores JPEG quality because screenshots are captured as PNG.')
 
-		output_path = Path(path) if path else Path(tempfile.mkstemp(prefix='browser-use-safari-', suffix='.png')[1])
+		if path:
+			output_path = Path(path)
+		else:
+			fd, temp_path = tempfile.mkstemp(prefix='browser-use-safari-', suffix='.png')
+			os.close(fd)
+			output_path = Path(temp_path)
 		try:
 			await asyncio.to_thread(
 				subprocess.run,
@@ -458,6 +486,62 @@ class SafariRealProfileBackend(BrowserBackend):
 					}} else {{
 						el.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, button: 0, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }}));
 					}}
+				}}
+				return {{ ok: true }};
+			}})()
+			"""
+		)
+		await asyncio.sleep(0.25)
+		await self._refresh_focus_target()
+		return result if isinstance(result, dict) else None
+
+	async def hover_element(self, node: EnhancedDOMTreeNode) -> dict[str, Any] | None:
+		"""Dispatch hover events for an indexed DOM element."""
+		await self._ensure_profile_window()
+		result = await self.evaluate_javascript(
+			f"""
+			(() => {{
+				const el = document.querySelector('[data-browser-use-safari-id="{node.backend_node_id}"]');
+				if (!el) return {{ ok: false, error: 'not_found' }};
+				el.scrollIntoView({{ block: 'center', inline: 'center' }});
+				const rect = el.getBoundingClientRect();
+				const clientX = rect.left + rect.width / 2;
+				const clientY = rect.top + rect.height / 2;
+				for (const type of ['pointerover', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']) {{
+					el.dispatchEvent(new MouseEvent(type, {{ bubbles: true, cancelable: true, clientX, clientY }}));
+				}}
+				return {{ ok: true }};
+			}})()
+			"""
+		)
+		return result if isinstance(result, dict) else None
+
+	async def double_click_element(self, node: EnhancedDOMTreeNode) -> dict[str, Any] | None:
+		"""Dispatch a double-click for an indexed DOM element."""
+		await self._ensure_profile_window()
+		result = await self.evaluate_javascript(
+			f"""
+			(() => {{
+				const el = document.querySelector('[data-browser-use-safari-id="{node.backend_node_id}"]');
+				if (!el) return {{ ok: false, error: 'not_found' }};
+				el.scrollIntoView({{ block: 'center', inline: 'center' }});
+				if (typeof el.focus === 'function') {{
+					el.focus({{ preventScroll: true }});
+				}}
+				const rect = el.getBoundingClientRect();
+				const clientX = rect.left + rect.width / 2;
+				const clientY = rect.top + rect.height / 2;
+				for (const type of ['mousedown', 'mouseup', 'click', 'mousedown', 'mouseup', 'click', 'dblclick']) {{
+					el.dispatchEvent(
+						new MouseEvent(type, {{
+							bubbles: true,
+							cancelable: true,
+							button: 0,
+							detail: type === 'dblclick' ? 2 : 1,
+							clientX,
+							clientY,
+						}})
+					);
 				}}
 				return {{ ok: true }};
 			}})()

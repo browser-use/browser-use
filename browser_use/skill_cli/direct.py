@@ -56,6 +56,13 @@ def _clear_state() -> None:
 	STATE_FILE.unlink(missing_ok=True)
 
 
+def _invalidate_selector_cache() -> None:
+	"""Clear the cached selector map after actions that may mutate the page."""
+	state = _load_state()
+	state.pop('selector_map', None)
+	_save_state(state)
+
+
 # ---------------------------------------------------------------------------
 # Selector map cache (persisted in state file under "selector_map" key)
 # ---------------------------------------------------------------------------
@@ -112,6 +119,54 @@ class LightCDP:
 	target_id: str
 
 
+async def _attach_to_live_page_target(client: 'CDPClient', preferred_target_id: str | None) -> tuple[str, str]:
+	"""Attach to a live page target, recovering from stale saved target ids.
+
+	Prefers the previously saved target when it is still present, then prefers
+	HTTP(S)/file pages, and finally falls back to any remaining page target such
+	as ``about:blank``.
+	"""
+	targets = await client.send.Target.getTargets()
+	page_targets = [t for t in targets.get('targetInfos', []) if t.get('type') == 'page' and t.get('targetId')]
+	if not page_targets:
+		raise RuntimeError('No page target found in browser')
+
+	candidates: list[str] = []
+	seen: set[str] = set()
+
+	def add_candidate(target_id: str | None) -> None:
+		if target_id and target_id not in seen:
+			candidates.append(target_id)
+			seen.add(target_id)
+
+	if preferred_target_id and any(t.get('targetId') == preferred_target_id for t in page_targets):
+		add_candidate(preferred_target_id)
+
+	for target in page_targets:
+		url = target.get('url', '')
+		if url.startswith(('http://', 'https://', 'file://')):
+			add_candidate(target.get('targetId'))
+
+	for target in page_targets:
+		add_candidate(target.get('targetId'))
+
+	last_error: Exception | None = None
+	for target_id in candidates:
+		try:
+			attach_result = await client.send.Target.attachToTarget(params={'targetId': target_id, 'flatten': True})
+		except Exception as exc:
+			last_error = exc
+			continue
+
+		session_id = attach_result.get('sessionId')
+		if session_id:
+			return session_id, target_id
+
+	if last_error is not None:
+		raise RuntimeError(f'Failed to attach to any live page target: {last_error}') from last_error
+	raise RuntimeError('Failed to attach to any live page target')
+
+
 @asynccontextmanager
 async def _lightweight_cdp():
 	"""Connect to the browser via raw CDP. ~200ms total.
@@ -131,29 +186,22 @@ async def _lightweight_cdp():
 	except Exception as e:
 		raise RuntimeError(f'Cannot connect to browser at {cdp_url}: {e}') from e
 
-	target_id = state.get('target_id')
+	try:
+		session_id, target_id = await _attach_to_live_page_target(client, state.get('target_id'))
 
-	# If no saved target, discover one
-	if not target_id:
-		targets = await client.send.Target.getTargets()
-		for t in targets.get('targetInfos', []):
-			if t.get('type') == 'page' and t.get('url', '').startswith(('http://', 'https://')):
-				target_id = t['targetId']
-				break
-		if not target_id:
+		if state.get('target_id') != target_id:
+			state['target_id'] = target_id
+			_save_state(state)
+
+		# Enable required domains
+		await client.send.Page.enable(session_id=session_id)
+		await client.send.Runtime.enable(session_id=session_id)
+	except Exception:
+		try:
 			await client.stop()
-			raise RuntimeError('No page target found in browser')
-
-	# Attach to the target
-	attach_result = await client.send.Target.attachToTarget(params={'targetId': target_id, 'flatten': True})
-	session_id = attach_result.get('sessionId')
-	if not session_id:
-		await client.stop()
-		raise RuntimeError(f'Failed to attach to target {target_id}')
-
-	# Enable required domains
-	await client.send.Page.enable(session_id=session_id)
-	await client.send.Runtime.enable(session_id=session_id)
+		except Exception:
+			pass
+		raise
 
 	try:
 		yield LightCDP(client=client, session_id=session_id, target_id=target_id)
@@ -245,10 +293,7 @@ async def browser(use_remote: bool = False):
 async def _cdp_navigate(cdp: LightCDP, url: str) -> None:
 	"""Navigate to URL and invalidate selector cache."""
 	await cdp.client.send.Page.navigate(params={'url': url}, session_id=cdp.session_id)
-	# Invalidate selector cache — page changed, elements are gone
-	state = _load_state()
-	state.pop('selector_map', None)
-	_save_state(state)
+	_invalidate_selector_cache()
 
 
 async def _cdp_screenshot(cdp: LightCDP, path: str | None) -> None:
@@ -293,6 +338,7 @@ async def _cdp_click_coordinate(cdp: LightCDP, x: int, y: int) -> None:
 		params={'type': 'mouseReleased', 'x': x, 'y': y, 'button': 'left', 'clickCount': 1},
 		session_id=sid,
 	)
+	_invalidate_selector_cache()
 
 
 async def _get_scroll_offset(cdp: LightCDP) -> tuple[float, float]:
@@ -362,10 +408,7 @@ async def _cdp_back(cdp: LightCDP) -> None:
 	if current_index > 0:
 		prev_entry = entries[current_index - 1]
 		await cdp.client.send.Page.navigateToHistoryEntry(params={'entryId': prev_entry['id']}, session_id=cdp.session_id)
-		# Invalidate selector cache on navigation
-		state = _load_state()
-		state.pop('selector_map', None)
-		_save_state(state)
+		_invalidate_selector_cache()
 	else:
 		print('Already at the beginning of history', file=sys.stderr)
 

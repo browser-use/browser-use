@@ -43,15 +43,16 @@ class SessionRegistry:
 		if name in self._sessions:
 			return self._sessions[name]
 
-		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed})')
+		effective_headed = _effective_headed(browser_mode, headed)
+		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={effective_headed})')
 
-		browser_session = await create_browser_session(browser_mode, headed, profile)
+		browser_session = await create_browser_session(browser_mode, effective_headed, profile)
 		await browser_session.start()
 
 		session_info = SessionInfo(
 			name=name,
 			browser_mode=browser_mode,
-			headed=headed,
+			headed=effective_headed,
 			profile=profile,
 			browser_session=browser_session,
 		)
@@ -160,3 +161,10 @@ async def create_browser_session(
 
 	else:
 		raise ValueError(f'Unknown browser mode: {mode}')
+
+
+def _effective_headed(mode: str, headed: bool) -> bool:
+	"""Normalize session visibility for modes that cannot run headless."""
+	if mode == 'safari':
+		return True
+	return headed

@@ -1053,7 +1053,14 @@ class DownloadsWatchdog(BaseWatchdog):
 		"""
 		self.logger.debug(f'[DownloadsWatchdog] Checking if target {target_id} is PDF viewer...')
 
-		target = self.browser_session.session_manager.get_target(target_id)
+		session_manager = self.browser_session.session_manager
+		if not session_manager:
+			self.logger.debug(
+				f'[DownloadsWatchdog] Skipping PDF detection for {target_id}: session manager is unavailable during shutdown'
+			)
+			return False
+
+		target = session_manager.get_target(target_id)
 		if not target:
 			self.logger.debug(
 				f'[DownloadsWatchdog] Target {target_id} is no longer available during PDF detection; likely closed or detached'
@@ -1071,7 +1078,14 @@ class DownloadsWatchdog(BaseWatchdog):
 			return False
 
 		# Get URL from target
-		target = self.browser_session.session_manager.get_target(target_id)
+		session_manager = self.browser_session.session_manager
+		if not session_manager:
+			self.logger.debug(
+				f'[DownloadsWatchdog] Skipping PDF detection for {target_id}: session manager disappeared after session lookup'
+			)
+			return False
+
+		target = session_manager.get_target(target_id)
 		if not target:
 			self.logger.debug(
 				f'[DownloadsWatchdog] Target {target_id} disappeared after session lookup; likely detached during close'

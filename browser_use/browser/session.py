@@ -399,8 +399,9 @@ class BrowserSession(BaseModel):
 		if browser_backend == 'safari':
 			from browser_use.browser.safari.session import SafariBrowserSession
 
-			profile = kwargs.get('profile', 'active')
-			return SafariBrowserSession(profile=profile, **kwargs)
+			safari_kwargs = dict(kwargs)
+			profile = safari_kwargs.pop('profile', 'active')
+			return SafariBrowserSession(profile=profile, **safari_kwargs)
 		return cls(**kwargs)
 
 	@classmethod
@@ -961,7 +962,11 @@ class BrowserSession(BaseModel):
 
 		# If new_tab=True but we're already in a new tab, set new_tab=False
 		current_target = self.session_manager.get_target(current_target_id)
-		if event.new_tab and is_new_tab_page(current_target.url):
+		if current_target is None:
+			self.logger.debug(
+				f'[on_NavigateToUrlEvent] Focus target {current_target_id[-4:]} is stale; skipping current-tab reuse check'
+			)
+		elif event.new_tab and is_new_tab_page(current_target.url):
 			self.logger.debug(f'[on_NavigateToUrlEvent] Already on blank tab ({current_target.url}), reusing')
 			event.new_tab = False
 
@@ -1069,7 +1074,7 @@ class BrowserSession(BaseModel):
 
 		if timeout is None:
 			target = self.session_manager.get_target(target_id)
-			current_url = target.url
+			current_url = target.url if target else 'about:blank'
 			same_domain = (
 				url.split('/')[2] == current_url.split('/')[2]
 				if url.startswith('http') and current_url.startswith('http')
@@ -1204,15 +1209,17 @@ class BrowserSession(BaseModel):
 
 		# Get target to access url
 		target = self.session_manager.get_target(event.target_id)
+		target_id = target.target_id if target else event.target_id
+		target_url = target.url if target else 'about:blank'
 
 		# dispatch focus changed event
 		await self.event_bus.dispatch(
 			AgentFocusChangedEvent(
-				target_id=target.target_id,
-				url=target.url,
+				target_id=target_id,
+				url=target_url,
 			)
 		)
-		return target.target_id
+		return target_id
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
@@ -1506,9 +1513,6 @@ class BrowserSession(BaseModel):
 		return storage_state
 
 	async def get_or_create_cdp_session(self, target_id: TargetID | None = None, focus: bool = True) -> CDPSession:
-		if self.is_safari_backend:
-			raise BrowserError('CDP sessions are not available when using the Safari real-profile backend.')
-
 		"""Get CDP session for a target from the event-driven pool.
 
 		With autoAttach=True, sessions are created automatically by Chrome and added
@@ -1524,6 +1528,8 @@ class BrowserSession(BaseModel):
 		Raises:
 			ValueError: If target doesn't exist or session is not available.
 		"""
+		if self.is_safari_backend:
+			raise BrowserError('CDP sessions are not available when using the Safari real-profile backend.')
 		assert self._cdp_client_root is not None, 'Root CDP client not initialized'
 		assert self.session_manager is not None, 'SessionManager not initialized'
 
@@ -1981,7 +1987,7 @@ class BrowserSession(BaseModel):
 			# Verify the target is working
 			if self.agent_focus_target_id:
 				target = self.session_manager.get_target(self.agent_focus_target_id)
-				if target.title == 'Unknown title':
+				if target and target.title == 'Unknown title':
 					self.logger.warning('Target created but title is unknown (may be normal for about:blank)')
 
 			# Dispatch TabCreatedEvent for all initial tabs (so watchdogs can initialize)
@@ -2397,10 +2403,12 @@ class BrowserSession(BaseModel):
 	# region - ========== ID Lookup Methods ==========
 	async def get_current_target_info(self) -> TargetInfo | None:
 		"""Get info about the current active target using cached session data."""
-		if not self.agent_focus_target_id:
+		if not self.agent_focus_target_id or not self.session_manager:
 			return None
 
 		target = self.session_manager.get_target(self.agent_focus_target_id)
+		if target is None:
+			return None
 
 		return {
 			'targetId': target.target_id,
@@ -2417,9 +2425,10 @@ class BrowserSession(BaseModel):
 			assert self._backend is not None
 			return await self._backend.get_current_page_url()
 
-		if self.agent_focus_target_id:
+		if self.agent_focus_target_id and self.session_manager:
 			target = self.session_manager.get_target(self.agent_focus_target_id)
-			return target.url
+			if target is not None:
+				return target.url
 		return 'about:blank'
 
 	async def get_current_page_title(self) -> str:
@@ -2428,7 +2437,7 @@ class BrowserSession(BaseModel):
 			assert self._backend is not None
 			return await self._backend.get_current_page_title()
 
-		if self.agent_focus_target_id:
+		if self.agent_focus_target_id and self.session_manager:
 			target = self.session_manager.get_target(self.agent_focus_target_id)
 			fallback_title = target.title if target else 'Unknown page title'
 			try:
@@ -4138,14 +4147,13 @@ class BrowserSession(BaseModel):
 		raise ValueError(f"Frame with ID '{frame_id}' not found in any target")
 
 	async def cdp_client_for_node(self, node: EnhancedDOMTreeNode) -> CDPSession:
-		if self.is_safari_backend:
-			raise BrowserError('CDP client lookup is not available when using the Safari real-profile backend.')
-
 		"""Get CDP client for a specific DOM node based on its frame.
 
 		IMPORTANT: backend_node_id is only valid in the session where the DOM was captured.
 		We trust the node's session_id/frame_id/target_id instead of searching all sessions.
 		"""
+		if self.is_safari_backend:
+			raise BrowserError('CDP client lookup is not available when using the Safari real-profile backend.')
 
 		# Strategy 1: If node has session_id, try to use that exact session (most specific)
 		if node.session_id and self.session_manager:
@@ -4155,7 +4163,8 @@ class BrowserSession(BaseModel):
 				if cdp_session:
 					# Get target to log URL
 					target = self.session_manager.get_target(cdp_session.target_id)
-					self.logger.debug(f'✅ Using session from node.session_id for node {node.backend_node_id}: {target.url}')
+					target_url = target.url if target else f'<detached target {cdp_session.target_id[:8]}>'
+					self.logger.debug(f'✅ Using session from node.session_id for node {node.backend_node_id}: {target_url}')
 					return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session by session_id {node.session_id}: {e}')
@@ -4165,7 +4174,8 @@ class BrowserSession(BaseModel):
 			try:
 				cdp_session = await self.cdp_client_for_frame(node.frame_id)
 				target = self.session_manager.get_target(cdp_session.target_id)
-				self.logger.debug(f'✅ Using session from node.frame_id for node {node.backend_node_id}: {target.url}')
+				target_url = target.url if target else f'<detached target {cdp_session.target_id[:8]}>'
+				self.logger.debug(f'✅ Using session from node.frame_id for node {node.backend_node_id}: {target_url}')
 				return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session for frame {node.frame_id}: {e}')
@@ -4175,7 +4185,8 @@ class BrowserSession(BaseModel):
 			try:
 				cdp_session = await self.get_or_create_cdp_session(target_id=node.target_id, focus=False)
 				target = self.session_manager.get_target(cdp_session.target_id)
-				self.logger.debug(f'✅ Using session from node.target_id for node {node.backend_node_id}: {target.url}')
+				target_url = target.url if target else f'<detached target {cdp_session.target_id[:8]}>'
+				self.logger.debug(f'✅ Using session from node.target_id for node {node.backend_node_id}: {target_url}')
 				return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session for target {node.target_id}: {e}')

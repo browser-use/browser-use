@@ -10,9 +10,11 @@ import pytest
 
 def _patch_safari_available():
 	"""Patch install config as if Safari is available on macOS."""
-	return patch('browser_use.skill_cli.install_config.platform.system', return_value='Darwin'), patch(
-		'browser_use.skill_cli.install_config.SAFARI_APP_PATH',
-		Path(tempfile.gettempdir()),
+	return (
+		patch('browser_use.skill_cli.install_config.platform.system', return_value='Darwin'),
+		patch('browser_use.skill_cli.install_config.SAFARI_APP_PATH', Path(tempfile.gettempdir())),
+		patch('browser_use.skill_cli.install_config._read_safari_version', return_value='26.3.1'),
+		patch('browser_use.skill_cli.install_config._read_macos_version', return_value='26.0'),
 	)
 
 
@@ -33,8 +35,8 @@ class TestInstallConfig:
 		# Config file doesn't exist
 		assert not temp_config_dir.exists()
 
-		patch_system, patch_exists = _patch_safari_available()
-		with patch_system, patch_exists:
+		patch_system, patch_exists, patch_safari_version, patch_macos_version = _patch_safari_available()
+		with patch_system, patch_exists, patch_safari_version, patch_macos_version:
 			config = get_config()
 		assert config['installed_modes'] == ['chromium', 'real', 'remote', 'safari']
 		assert config['default_mode'] == 'chromium'
@@ -59,8 +61,8 @@ class TestInstallConfig:
 		temp_config_dir.parent.mkdir(parents=True, exist_ok=True)
 		temp_config_dir.write_text('not valid json {{{')
 
-		patch_system, patch_exists = _patch_safari_available()
-		with patch_system, patch_exists:
+		patch_system, patch_exists, patch_safari_version, patch_macos_version = _patch_safari_available()
+		with patch_system, patch_exists, patch_safari_version, patch_macos_version:
 			config = get_config()
 		# Should return default
 		assert config['installed_modes'] == ['chromium', 'real', 'remote', 'safari']
@@ -106,10 +108,12 @@ class TestInstallConfig:
 
 		save_config(['chromium', 'real', 'safari'], 'chromium')
 
-		assert is_mode_available('chromium') is True
-		assert is_mode_available('real') is True
-		assert is_mode_available('safari') is True
-		assert is_mode_available('remote') is False
+		patch_system, patch_exists, patch_safari_version, patch_macos_version = _patch_safari_available()
+		with patch_system, patch_exists, patch_safari_version, patch_macos_version:
+			assert is_mode_available('chromium') is True
+			assert is_mode_available('real') is True
+			assert is_mode_available('safari') is True
+			assert is_mode_available('remote') is False
 
 	def test_is_mode_available_full_install(self, temp_config_dir: Path):
 		"""Config with all modes allows everything."""
@@ -117,8 +121,8 @@ class TestInstallConfig:
 
 		save_config(['chromium', 'real', 'safari', 'remote'], 'chromium')
 
-		patch_system, patch_exists = _patch_safari_available()
-		with patch_system, patch_exists:
+		patch_system, patch_exists, patch_safari_version, patch_macos_version = _patch_safari_available()
+		with patch_system, patch_exists, patch_safari_version, patch_macos_version:
 			assert is_mode_available('chromium') is True
 			assert is_mode_available('real') is True
 			assert is_mode_available('safari') is True
@@ -130,8 +134,8 @@ class TestInstallConfig:
 
 		save_config(['safari'], 'safari')
 
-		patch_system, patch_exists = _patch_safari_available()
-		with patch_system, patch_exists:
+		patch_system, patch_exists, patch_safari_version, patch_macos_version = _patch_safari_available()
+		with patch_system, patch_exists, patch_safari_version, patch_macos_version:
 			assert is_mode_available('safari') is True
 			assert is_mode_available('chromium') is False
 			assert is_mode_available('real') is False
@@ -165,6 +169,18 @@ class TestInstallConfig:
 		save_config(['chromium', 'real'], 'chromium')
 		assert get_default_mode() == 'chromium'
 
+	def test_get_default_mode_falls_back_when_runtime_unavailable(self, temp_config_dir: Path):
+		"""Configured defaults should fall back if runtime checks reject the mode."""
+		from browser_use.skill_cli.install_config import get_default_mode, save_config
+
+		save_config(['chromium', 'safari', 'remote'], 'safari')
+
+		with (
+			patch('browser_use.skill_cli.install_config.platform.system', return_value='Darwin'),
+			patch('browser_use.skill_cli.install_config.SAFARI_APP_PATH', temp_config_dir.parent / 'MissingSafari.app'),
+		):
+			assert get_default_mode() == 'chromium'
+
 	def test_get_available_modes(self, temp_config_dir: Path):
 		"""get_available_modes returns list from config."""
 		from browser_use.skill_cli.install_config import get_available_modes, save_config
@@ -173,7 +189,35 @@ class TestInstallConfig:
 		assert get_available_modes() == ['remote']
 
 		save_config(['chromium', 'real', 'safari', 'remote'], 'chromium')
-		assert get_available_modes() == ['chromium', 'real', 'safari', 'remote']
+		patch_system, patch_exists, patch_safari_version, patch_macos_version = _patch_safari_available()
+		with patch_system, patch_exists, patch_safari_version, patch_macos_version:
+			assert get_available_modes() == ['chromium', 'real', 'safari', 'remote']
+
+	def test_get_available_modes_filters_runtime_unavailable_safari(self, temp_config_dir: Path):
+		"""Safari should be hidden when runtime checks reject it."""
+		from browser_use.skill_cli.install_config import get_available_modes, save_config
+
+		save_config(['chromium', 'safari', 'remote'], 'safari')
+
+		with (
+			patch('browser_use.skill_cli.install_config.platform.system', return_value='Darwin'),
+			patch('browser_use.skill_cli.install_config.SAFARI_APP_PATH', temp_config_dir.parent / 'MissingSafari.app'),
+		):
+			assert get_available_modes() == ['chromium', 'remote']
+
+	def test_is_mode_available_rejects_old_safari_runtime(self, temp_config_dir: Path):
+		"""Safari should stay unavailable until the host meets the backend minimum versions."""
+		from browser_use.skill_cli.install_config import is_mode_available, save_config
+
+		save_config(['safari'], 'safari')
+
+		with (
+			patch('browser_use.skill_cli.install_config.platform.system', return_value='Darwin'),
+			patch('browser_use.skill_cli.install_config.SAFARI_APP_PATH', Path(tempfile.gettempdir())),
+			patch('browser_use.skill_cli.install_config._read_safari_version', return_value='26.2.9'),
+			patch('browser_use.skill_cli.install_config._read_macos_version', return_value='26.0'),
+		):
+			assert is_mode_available('safari') is False
 
 	def test_get_mode_unavailable_error_message(self, temp_config_dir: Path):
 		"""Clear error when requesting unavailable mode."""
@@ -199,8 +243,8 @@ class TestInstallConfig:
 		assert not temp_config_dir.exists()
 
 		# All modes should be available
-		patch_system, patch_exists = _patch_safari_available()
-		with patch_system, patch_exists:
+		patch_system, patch_exists, patch_safari_version, patch_macos_version = _patch_safari_available()
+		with patch_system, patch_exists, patch_safari_version, patch_macos_version:
 			assert is_mode_available('chromium') is True
 			assert is_mode_available('real') is True
 			assert is_mode_available('safari') is True

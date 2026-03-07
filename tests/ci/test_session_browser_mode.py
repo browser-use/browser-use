@@ -8,6 +8,9 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
+from browser_use.skill_cli import main as cli_main
 from browser_use.skill_cli.main import get_session_metadata_path
 
 
@@ -232,3 +235,121 @@ def test_different_sessions_independent():
 			session1_meta.unlink()
 		if session2_meta.exists():
 			session2_meta.unlink()
+
+
+def test_session_reuse_normalizes_real_default_profile():
+	"""Explicit Default should match an existing real-browser session with no explicit profile."""
+	error = cli_main._session_reuse_mismatch_error(
+		session='test-real-default',
+		requested_mode='real',
+		existing_mode='real',
+		requested_headed=False,
+		existing_headed=False,
+		requested_profile='Default',
+		existing_profile=None,
+	)
+	assert error is None
+
+
+def test_session_reuse_normalizes_safari_visibility():
+	"""Safari sessions should compare as headed even if older metadata recorded headed=False."""
+	error = cli_main._session_reuse_mismatch_error(
+		session='test-safari-visibility',
+		requested_mode='safari',
+		existing_mode='safari',
+		requested_headed=True,
+		existing_headed=False,
+		requested_profile=None,
+		existing_profile=None,
+	)
+	assert error is None
+
+
+def test_ensure_server_rejects_profile_mismatch(monkeypatch, capsys):
+	"""Requesting a different profile should not silently reuse the existing session."""
+	session_name = 'test-profile-mismatch'
+	meta_path = get_session_metadata_path(session_name)
+
+	class _FakeSocket:
+		def close(self):
+			return None
+
+	try:
+		meta_path.write_text(json.dumps({'browser_mode': 'safari', 'headed': True, 'profile': None}))
+
+		monkeypatch.setattr(cli_main, 'is_server_running', lambda session: True)
+		monkeypatch.setattr(cli_main, 'connect_to_server', lambda session, timeout=0.5: _FakeSocket())
+		monkeypatch.setattr('browser_use.skill_cli.utils.is_session_locked', lambda session: True)
+		monkeypatch.setattr('browser_use.skill_cli.utils.kill_orphaned_server', lambda session: None)
+
+		with pytest.raises(SystemExit) as exc:
+			cli_main.ensure_server(session_name, 'safari', True, 'Work', None)
+
+		assert exc.value.code == 1
+		assert 'profile active' in capsys.readouterr().err
+	finally:
+		if meta_path.exists():
+			meta_path.unlink()
+
+
+def test_ensure_server_normalizes_safari_headed_metadata(monkeypatch):
+	"""Starting a Safari session without --headed should still persist headed=True."""
+	session_name = 'test-safari-headed-normalized'
+	meta_path = get_session_metadata_path(session_name)
+	launch_state = {'running': False}
+	popen_calls: list[list[str]] = []
+
+	class _FakeSocket:
+		def close(self):
+			return None
+
+	def _fake_popen(cmd, **kwargs):
+		launch_state['running'] = True
+		popen_calls.append(cmd)
+		return object()
+
+	try:
+		monkeypatch.setattr(cli_main, 'is_server_running', lambda session: launch_state['running'])
+		monkeypatch.setattr('browser_use.skill_cli.utils.is_session_locked', lambda session: launch_state['running'])
+		monkeypatch.setattr('browser_use.skill_cli.utils.kill_orphaned_server', lambda session: None)
+		monkeypatch.setattr(cli_main, 'connect_to_server', lambda session, timeout=0.5: _FakeSocket())
+		monkeypatch.setattr(cli_main.subprocess, 'Popen', _fake_popen)
+
+		assert cli_main.ensure_server(session_name, 'safari', False, None, None) is True
+
+		meta = json.loads(meta_path.read_text())
+		assert meta['browser_mode'] == 'safari'
+		assert meta['headed'] is True
+		assert meta['profile'] is None
+		assert popen_calls, 'Expected ensure_server to launch a background server'
+		assert '--headed' in popen_calls[0]
+	finally:
+		if meta_path.exists():
+			meta_path.unlink()
+
+
+def test_ensure_server_rejects_headed_mismatch(monkeypatch, capsys):
+	"""Requesting --headed should not silently reuse a headless session."""
+	session_name = 'test-headed-mismatch'
+	meta_path = get_session_metadata_path(session_name)
+
+	class _FakeSocket:
+		def close(self):
+			return None
+
+	try:
+		meta_path.write_text(json.dumps({'browser_mode': 'chromium', 'headed': False, 'profile': None}))
+
+		monkeypatch.setattr(cli_main, 'is_server_running', lambda session: True)
+		monkeypatch.setattr(cli_main, 'connect_to_server', lambda session, timeout=0.5: _FakeSocket())
+		monkeypatch.setattr('browser_use.skill_cli.utils.is_session_locked', lambda session: True)
+		monkeypatch.setattr('browser_use.skill_cli.utils.kill_orphaned_server', lambda session: None)
+
+		with pytest.raises(SystemExit) as exc:
+			cli_main.ensure_server(session_name, 'chromium', True, None, None)
+
+		assert exc.value.code == 1
+		assert 'running headless, but --headed was requested' in capsys.readouterr().err
+	finally:
+		if meta_path.exists():
+			meta_path.unlink()
