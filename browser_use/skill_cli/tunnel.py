@@ -161,7 +161,8 @@ def _is_process_alive(pid: int) -> bool:
 			ctypes.windll.kernel32.CloseHandle(handle)
 			return True
 		# Access denied means the process exists but we lack permissions.
-		return ctypes.windll.kernel32.GetLastError() == ERROR_ACCESS_DENIED
+		last_error = ctypes.windll.kernel32.GetLastError()
+		return last_error == ERROR_ACCESS_DENIED
 	else:
 		try:
 			os.kill(pid, 0)
@@ -323,7 +324,8 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 
 	url = info['url']
 	pid = info['pid']
-	_kill_process(pid)
+	if not _kill_process(pid):
+		logger.warning(f'Failed to kill tunnel process {pid} for port {port}')
 	_delete_tunnel_info(port)
 	# Clean up log file
 	log_file = _TUNNELS_DIR / f'{port}.log'
