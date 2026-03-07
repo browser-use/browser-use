@@ -237,15 +237,23 @@ class StorageStateWatchdog(BaseWatchdog):
 			return
 
 		load_path = path or self.browser_session.browser_profile.storage_state
-		if not load_path or not os.path.exists(str(load_path)):
+		
+		# Check if storage_state is a dict (not a file path)
+		if isinstance(load_path, dict):
+			# Use the dict directly
+			storage = load_path
+		elif load_path and os.path.exists(str(load_path)):
+			# Read from file
+			try:
+				import anyio
+				content = await anyio.Path(str(load_path)).read_text()
+				storage = json.loads(content)
+			except Exception as e:
+				self.logger.error(f'[StorageStateWatchdog] Failed to load storage state file: {e}')
+				return
+		else:
+			# storage_state is a dict but doesn't exist, or invalid path
 			return
-
-		try:
-			# Read the storage state file asynchronously
-			import anyio
-
-			content = await anyio.Path(str(load_path)).read_text()
-			storage = json.loads(content)
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
