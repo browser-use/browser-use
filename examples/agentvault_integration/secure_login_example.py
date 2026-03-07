@@ -12,8 +12,11 @@ This example demonstrates:
 
 import asyncio
 import os
-from browser_use import Agent, Browser, BrowserConfig
+from datetime import datetime
+
 from browser_use.browser.context import BrowserContextConfig
+
+from browser_use import Agent, Browser, BrowserConfig
 
 # AgentVault imports (simulated for example - actual implementation would use
 # agentvault library)
@@ -27,7 +30,7 @@ class SecureVault:
 	In production, use: from agentvault import SecureVault
 	"""
 
-	def __init__(self, vault_url: str = None, api_key: str = None):
+	def __init__(self, vault_url: str | None = None, api_key: str | None = None):
 		"""Initialize connection to AgentVault.
 
 		Args:
@@ -39,7 +42,7 @@ class SecureVault:
 		)
 		self.api_key = api_key or os.getenv('AGENTVAULT_API_KEY')
 
-	def get_credential(self, credential_id: str):
+	def get_credential(self, credential_id: str) -> 'Credential':
 		"""Retrieve credentials from the vault.
 
 		Args:
@@ -71,7 +74,7 @@ class SecureVault:
 			expires_at=os.getenv(f'{prefix}EXPIRES_AT'),
 		)
 
-	def list_credentials(self) -> list:
+	def list_credentials(self) -> list[str]:
 		"""List all available credential IDs in the vault."""
 		# In production, this would query the vault API
 		return ['github_login', 'twitter_login', 'linkedin_login']
@@ -85,8 +88,8 @@ class Credential:
 		id: str,
 		username: str,
 		password: str,
-		url: str = None,
-		expires_at: str = None,
+		url: str | None = None,
+		expires_at: str | None = None,
 	):
 		self.id = id
 		self.username = username
@@ -98,7 +101,6 @@ class Credential:
 		"""Check if the credential has expired."""
 		if not self.expires_at:
 			return False
-		from datetime import datetime
 		return datetime.now() > datetime.fromisoformat(self.expires_at)
 
 
@@ -112,7 +114,7 @@ class CredentialRotationError(Exception):
 	pass
 
 
-async def secure_login_example():
+async def secure_login_example() -> None:
 	"""Example: Secure GitHub login using AgentVault credentials.
 
 	This demonstrates how to:
@@ -173,7 +175,7 @@ async def secure_login_example():
 		raise
 
 
-async def multi_site_login_example():
+async def multi_site_login_example() -> None:
 	"""Example: Login to multiple sites using different credentials."""
 	vault = SecureVault()
 	available_creds = vault.list_credentials()
@@ -204,7 +206,7 @@ async def multi_site_login_example():
 		print('Twitter credentials not configured, skipping...')
 
 
-async def credential_rotation_handler():
+async def credential_rotation_handler() -> None:
 	"""Example: Handle automatic credential rotation.
 
 	AgentVault can rotate credentials automatically. This shows how to
@@ -239,7 +241,7 @@ async def credential_rotation_handler():
 	await agent.run()
 
 
-def setup_environment():
+def setup_environment() -> None:
 	"""Display required environment variables.
 
 	Run this to see what needs to be configured.
