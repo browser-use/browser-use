@@ -8,18 +8,21 @@ This example demonstrates:
 - Using them to login to websites without hardcoding passwords
 - Handling credential rotation automatically
 - Maintaining audit trails for compliance
+
+Setup:
+    export AGENTVAULT_GITHUB_LOGIN_USERNAME='your_username'
+    export AGENTVAULT_GITHUB_LOGIN_PASSWORD='your_password'
+    export BROWSER_USE_API_KEY='your-key'
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 from datetime import datetime
 
 from dotenv import load_dotenv
 
-from browser_use import Agent, Browser
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatBrowserUse
 
 load_dotenv()
 
@@ -119,7 +122,7 @@ class CredentialRotationError(Exception):
 	pass
 
 
-async def secure_login_example() -> None:
+def main() -> None:
 	"""Example: Secure GitHub login using AgentVault credentials.
 
 	This demonstrates how to:
@@ -142,10 +145,6 @@ async def secure_login_example() -> None:
 		print("  export AGENTVAULT_GITHUB_LOGIN_PASSWORD='your_password'")
 		return
 
-	# Configure browser
-	browser = Browser(keep_alive=True)
-	await browser.start()
-
 	# Build task message with credentials
 	# The credentials are used in the task but never logged or stored
 	gh_user = credentials.username
@@ -159,104 +158,13 @@ async def secure_login_example() -> None:
 	]
 	task_msg = ''.join(task_parts)
 
-	llm = ChatOpenAI(model='gpt-4')
 	agent = Agent(
 		task=task_msg,
-		llm=llm,
-		browser_session=browser,
+		llm=ChatBrowserUse(model='bu-2-0'),
 	)
 
-	try:
-		# Execute the secure login task
-		await agent.run()
-		print('Login task completed successfully')
-	except Exception as e:
-		print(f'Login task failed: {e}')
-		raise
-	finally:
-		await browser.kill()
-
-
-async def multi_site_login_example() -> None:
-	"""Example: Login to multiple sites using different credentials."""
-	vault = SecureVault()
-	available_creds = vault.list_credentials()
-
-	print(f'Available credentials: {available_creds}')
-
-	# Example: Login to Twitter
-	try:
-		twitter_creds = vault.get_credential('twitter_login')
-		print(f'Retrieved Twitter credentials for: {twitter_creds.username}')
-
-		tw_user = twitter_creds.username
-		tw_pass = twitter_creds.password
-		twitter_task = (
-			f'Login to Twitter/X with username \'{tw_user}\' '
-			f'and password \'{tw_pass}\'. '
-			'Navigate to twitter.com, enter credentials, and complete login.'
-		)
-
-		browser = Browser(keep_alive=True)
-		await browser.start()
-
-		llm = ChatOpenAI(model='gpt-4')
-		agent = Agent(
-			task=twitter_task,
-			llm=llm,
-			browser_session=browser,
-		)
-
-		await agent.run()
-		print('Twitter login completed successfully')
-		await browser.kill()
-
-	except CredentialNotFoundError:
-		print('Twitter credentials not configured, skipping...')
-
-
-async def credential_rotation_handler() -> None:
-	"""Example: Handle automatic credential rotation.
-
-	AgentVault can rotate credentials automatically. This shows how to
-	detect and handle rotated credentials.
-	"""
-	vault = SecureVault()
-
-	# Check credential status before use
-	credentials = vault.get_credential('github_login')
-
-	if credentials.is_expired():
-		print('Credential has expired. Attempting to fetch new credential...')
-		# In production, AgentVault would handle this automatically
-		# and return the new rotated credential
-		print('New credential obtained (simulated)')
-	else:
-		expires = credentials.expires_at or 'never'
-		print(f'Credential is valid (expires: {expires})')
-
-	# Proceed with login using the (potentially rotated) credentials
-	gh_user = credentials.username
-	gh_pass = credentials.password
-	rotation_task = (
-		f'Login to GitHub with username \'{gh_user}\' '
-		f'and password \'{gh_pass}\''
-	)
-
-	browser = Browser(keep_alive=True)
-	await browser.start()
-
-	llm = ChatOpenAI(model='gpt-4')
-	agent = Agent(
-		task=rotation_task,
-		llm=llm,
-		browser_session=browser,
-	)
-
-	try:
-		await agent.run()
-	finally:
-		await browser.kill()
+	agent.run_sync()
+	print('Login task completed successfully')
 
 
 def setup_environment() -> None:
@@ -270,6 +178,7 @@ def setup_environment() -> None:
 	print('\nRequired environment variables:')
 	print('  AGENTVAULT_URL - AgentVault server URL (optional)')
 	print('  AGENTVAULT_API_KEY - Your AgentVault API key')
+	print('  BROWSER_USE_API_KEY - Your browser-use API key')
 	print('\nFor GitHub login example:')
 	print('  AGENTVAULT_GITHUB_LOGIN_USERNAME')
 	print('  AGENTVAULT_GITHUB_LOGIN_PASSWORD')
@@ -288,10 +197,4 @@ if __name__ == '__main__':
 	else:
 		print('Running secure login example with AgentVault...\n')
 		print('Note: Set environment variables or run with --setup for instructions\n')
-
-		# Run the main example
-		asyncio.run(secure_login_example())
-
-		# Uncomment to run additional examples:
-		# asyncio.run(multi_site_login_example())
-		# asyncio.run(credential_rotation_handler())
+		main()
