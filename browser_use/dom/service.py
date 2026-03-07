@@ -694,7 +694,7 @@ class DomService:
 		snapshot_lookup = build_snapshot_lookup(snapshot, device_pixel_ratio)
 		timing_info['build_snapshot_lookup_ms'] = (time.time() - start_snapshot) * 1000
 
-		# Pre-fetch CDP session once for the entire tree construction (used for iframe resolution)
+		# CDP session for iframe/shadow root resolution (hoisted out of per-node function)
 		try:
 			cdp_session_for_tree = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 			session_id_for_tree = cdp_session_for_tree.session_id
@@ -732,7 +732,7 @@ class DomService:
 				)
 
 			# memoize the mf (I don't know if some nodes are duplicated)
-			if node['nodeId'] in enhanced_dom_tree_node_lookup:
+			if node['nodeId'] != 0 and node['nodeId'] in enhanced_dom_tree_node_lookup:
 				return enhanced_dom_tree_node_lookup[node['nodeId']]
 
 			ax_node = ax_tree_lookup.get(node['backendNodeId'])
@@ -808,9 +808,10 @@ class DomService:
 				absolute_position=absolute_position,
 			)
 
-			enhanced_dom_tree_node_lookup[node['nodeId']] = dom_tree_node
+			if node['nodeId'] != 0:
+				enhanced_dom_tree_node_lookup[node['nodeId']] = dom_tree_node
 
-			if 'parentId' in node and node['parentId']:
+			if 'parentId' in node and node['parentId'] and node['parentId'] in enhanced_dom_tree_node_lookup:
 				dom_tree_node.parent_node = enhanced_dom_tree_node_lookup[
 					node['parentId']
 				]  # parents should always be in the lookup
@@ -841,16 +842,16 @@ class DomService:
 					total_frame_offset.x += snapshot_data.bounds.x
 					total_frame_offset.y += snapshot_data.bounds.y
 
-			if 'contentDocument' in node and node['contentDocument']:
+			content_doc_raw = node.get('contentDocument')
+			if content_doc_raw and content_doc_raw.get('children'):
 				dom_tree_node.content_document = await _construct_enhanced_node(
-					node['contentDocument'],
+					content_doc_raw,
 					updated_html_frames,
 					total_frame_offset,
 					all_frames,
 					iframe_depth=iframe_depth + 1,
 				)
 				dom_tree_node.content_document.parent_node = dom_tree_node
-				# forcefully set the parent node to the content document node (helps traverse the tree)
 
 			# Same-origin iframe traversal for pierce=False to avoid losing iframe content
 			if (
@@ -870,10 +871,10 @@ class DomService:
 							session_id=session_id_for_tree,
 						)
 						content_doc = resolved_iframe.get('node', {}).get('contentDocument')
-						content_doc_id = content_doc.get('nodeId') if content_doc else None
-						if content_doc_id:
+						content_doc_backend_id = content_doc.get('backendNodeId') if content_doc else None
+						if content_doc_backend_id:
 							full_content_doc_response = await cdp_session_for_tree.cdp_client.send.DOM.describeNode(
-								params={'nodeId': content_doc_id, 'depth': -1, 'pierce': False},
+								params={'backendNodeId': content_doc_backend_id, 'depth': -1, 'pierce': False},
 								session_id=session_id_for_tree,
 							)
 							root_node = full_content_doc_response.get('node') if full_content_doc_response else None
@@ -893,8 +894,21 @@ class DomService:
 			if 'shadowRoots' in node and node['shadowRoots']:
 				dom_tree_node.shadow_roots = []
 				for shadow_root in node['shadowRoots']:
+					resolved_shadow = shadow_root
+					# pierce=False returns shadow roots without children, fetch full subtree manually
+					if not shadow_root.get('children') and shadow_root.get('backendNodeId') and cdp_session_for_tree:
+						try:
+							full_shadow = await cdp_session_for_tree.cdp_client.send.DOM.describeNode(
+								params={'backendNodeId': shadow_root['backendNodeId'], 'depth': -1, 'pierce': False},
+								session_id=session_id_for_tree,
+							)
+							if full_shadow and full_shadow.get('node'):
+								resolved_shadow = full_shadow['node']
+						except Exception as e:
+							self.logger.debug(f'Failed to resolve shadow root content: {e}')
+
 					shadow_root_node = await _construct_enhanced_node(
-						shadow_root,
+						resolved_shadow,
 						updated_html_frames,
 						total_frame_offset,
 						all_frames,
