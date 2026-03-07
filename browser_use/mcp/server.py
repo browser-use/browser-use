@@ -37,8 +37,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from browser_use.llm import ChatAWSBedrock
-
 # Configure logging for MCP mode - redirect to stderr but preserve critical diagnostics
 logging.basicConfig(
 	stream=sys.stderr, level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True
@@ -655,6 +653,8 @@ class BrowserUseServer:
 			if not aws_region:
 				aws_region = 'us-east-1'
 			aws_sso_auth = llm_config.get('aws_sso_auth', False)
+			from browser_use.llm import ChatAWSBedrock
+
 			llm = ChatAWSBedrock(
 				model=llm_model,  # or any Bedrock model
 				aws_region=aws_region,
