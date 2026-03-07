@@ -19,6 +19,7 @@ from cdp_use.cdp.target.commands import CreateTargetParameters
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
+from browser_use.browser.backends.base import BackendCapabilityReport, BrowserBackend, BrowserBackendCapabilities
 from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, CloudBrowserError
 
 # CDP logging is now handled by setup_logging() in logging_config.py
@@ -46,7 +47,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
-from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.browser.views import BrowserError, BrowserStateSummary, PageInfo, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
@@ -94,6 +95,7 @@ class CDPSession(BaseModel):
 	# Lifecycle monitoring (populated by SessionManager)
 	_lifecycle_events: Any = PrivateAttr(default=None)
 	_lifecycle_lock: Any = PrivateAttr(default=None)
+	_attached_at: float = PrivateAttr(default=0.0)
 
 
 class BrowserSession(BaseModel):
@@ -170,6 +172,8 @@ class BrowserSession(BaseModel):
 		id: str | None = None,
 		cdp_url: str | None = None,
 		browser_profile: BrowserProfile | None = None,
+		automation_backend: Literal['chromium', 'safari'] | None = None,
+		safari_profile: str | None = None,
 		# Local browser launch params
 		executable_path: str | Path | None = None,
 		headless: bool | None = None,
@@ -231,6 +235,8 @@ class BrowserSession(BaseModel):
 		cdp_url: str | None = None,
 		is_local: bool = False,
 		browser_profile: BrowserProfile | None = None,
+		automation_backend: Literal['chromium', 'safari'] | None = None,
+		safari_profile: str | None = None,
 		# Cloud browser params (don't mix with local browser params)
 		cloud_profile_id: UUID | str | None = None,
 		cloud_proxy_country_code: ProxyCountryCode | None = None,
@@ -388,6 +394,24 @@ class BrowserSession(BaseModel):
 	_original_viewport_size: tuple[int, int] | None = PrivateAttr(default=None)
 
 	@classmethod
+	def from_backend(cls, browser_backend: Literal['chromium', 'safari'] = 'chromium', **kwargs: Any) -> 'BrowserSession':
+		"""Create a browser session for the requested backend."""
+		if browser_backend == 'safari':
+			from browser_use.browser.safari.session import SafariBrowserSession
+
+			safari_kwargs = dict(kwargs)
+			profile = safari_kwargs.pop('profile', 'active')
+			return SafariBrowserSession(profile=profile, **safari_kwargs)
+		return cls(**kwargs)
+
+	@classmethod
+	def from_system_safari(cls, profile: str = 'active', **kwargs: Any) -> 'BrowserSession':
+		"""Create a BrowserSession using the Safari real-profile backend."""
+		from browser_use.browser.safari.session import SafariBrowserSession
+
+		return SafariBrowserSession(profile=profile, **kwargs)
+
+	@classmethod
 	def from_system_chrome(cls, profile_directory: str | None = None, **kwargs: Any) -> Self:
 		"""Create a BrowserSession using system's Chrome installation and profile"""
 		from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
@@ -440,9 +464,81 @@ class BrowserSession(BaseModel):
 
 	# Convenience properties for common browser settings
 	@property
+	def backend_name(self) -> str:
+		"""Stable identifier for the active browser backend."""
+		return self.automation_backend
+
+	def get_backend_capabilities(self) -> BrowserBackendCapabilities:
+		"""Capabilities advertised by the configured browser backend."""
+		if self.is_safari_backend:
+			report = cast(BackendCapabilityReport | None, self._backend_capabilities)
+			if report is None:
+				from browser_use.browser.backends.safari_backend import probe_local_safari_backend
+
+				report = probe_local_safari_backend(self.browser_profile.safari_profile or 'active')
+
+			details = report.details if report else {}
+			issues = [report.reason] if report and report.reason else []
+			return BrowserBackendCapabilities(
+				backend_name='safari',
+				browser_name='Safari',
+				browser_version=cast(str | None, details.get('safari_version')),
+				supported=report.available if report is not None else False,
+				requires_native_host=False,
+				supports_real_profile=True,
+				supports_named_profile_selection=True,
+				supports_dom_state=True,
+				supports_screenshots=True,
+				supports_downloads=True,
+				supports_uploads=True,
+				supports_cookie_access=False,
+				accessibility_permission='granted'
+				if details.get('gui_scripting_available') is True
+				else 'missing'
+				if report is not None
+				else 'unknown',
+				screen_recording_permission='granted'
+				if details.get('screen_capture_available') is True
+				else 'missing'
+				if report is not None
+				else 'unknown',
+				issues=issues,
+			)
+
+		return BrowserBackendCapabilities(
+			backend_name='chromium',
+			browser_name='Chromium',
+			browser_version=None,
+			supported=True,
+			requires_native_host=False,
+			supports_real_profile=True,
+			supports_named_profile_selection=True,
+			supports_dom_state=True,
+			supports_screenshots=True,
+			supports_downloads=True,
+			supports_uploads=True,
+			supports_cookie_access=True,
+		)
+
+	@property
 	def cdp_url(self) -> str | None:
 		"""CDP URL from browser profile."""
 		return self.browser_profile.cdp_url
+
+	@property
+	def automation_backend(self) -> Literal['chromium', 'safari']:
+		"""Configured automation backend."""
+		return self.browser_profile.automation_backend
+
+	@property
+	def is_safari_backend(self) -> bool:
+		"""Whether this session uses the Safari real-profile backend."""
+		return self.automation_backend == 'safari'
+
+	@property
+	def backend_capabilities(self) -> Any:
+		"""Last recorded runtime capability report for the active backend."""
+		return self._backend_capabilities
 
 	@property
 	def is_local(self) -> bool:
@@ -514,6 +610,8 @@ class BrowserSession(BaseModel):
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
+	_backend: BrowserBackend | None = PrivateAttr(default=None)
+	_backend_capabilities: Any = PrivateAttr(default=None)
 
 	# Watchdogs
 	_crash_watchdog: Any | None = PrivateAttr(default=None)
@@ -528,6 +626,7 @@ class BrowserSession(BaseModel):
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
 	_captcha_watchdog: Any | None = PrivateAttr(default=None)
+	_safari_watchdog: Any | None = PrivateAttr(default=None)
 	_watchdogs_attached: bool = PrivateAttr(default=False)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
@@ -629,6 +728,8 @@ class BrowserSession(BaseModel):
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
 		self._captcha_watchdog = None
+		self._safari_watchdog = None
+		self._backend_capabilities = None
 		self._watchdogs_attached = False
 		if self._demo_mode:
 			self._demo_mode.reset()
@@ -643,6 +744,11 @@ class BrowserSession(BaseModel):
 		# Initialize reconnect event as set (no reconnection pending)
 		self._reconnect_event = asyncio.Event()
 		self._reconnect_event.set()
+
+		if self.is_safari_backend:
+			from browser_use.browser.backends.safari_backend import SafariRealProfileBackend
+
+			self._backend = SafariRealProfileBackend(self)
 
 		# Check if handlers are already registered to prevent duplicates
 		from browser_use.browser.watchdog_base import BaseWatchdog
@@ -659,13 +765,14 @@ class BrowserSession(BaseModel):
 
 		BaseWatchdog.attach_handler_to_session(self, BrowserStartEvent, self.on_BrowserStartEvent)
 		BaseWatchdog.attach_handler_to_session(self, BrowserStopEvent, self.on_BrowserStopEvent)
-		BaseWatchdog.attach_handler_to_session(self, NavigateToUrlEvent, self.on_NavigateToUrlEvent)
-		BaseWatchdog.attach_handler_to_session(self, SwitchTabEvent, self.on_SwitchTabEvent)
-		BaseWatchdog.attach_handler_to_session(self, TabCreatedEvent, self.on_TabCreatedEvent)
-		BaseWatchdog.attach_handler_to_session(self, TabClosedEvent, self.on_TabClosedEvent)
-		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
-		BaseWatchdog.attach_handler_to_session(self, CloseTabEvent, self.on_CloseTabEvent)
+		if not self.is_safari_backend:
+			BaseWatchdog.attach_handler_to_session(self, NavigateToUrlEvent, self.on_NavigateToUrlEvent)
+			BaseWatchdog.attach_handler_to_session(self, SwitchTabEvent, self.on_SwitchTabEvent)
+			BaseWatchdog.attach_handler_to_session(self, TabCreatedEvent, self.on_TabCreatedEvent)
+			BaseWatchdog.attach_handler_to_session(self, TabClosedEvent, self.on_TabClosedEvent)
+			BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
+			BaseWatchdog.attach_handler_to_session(self, CloseTabEvent, self.on_CloseTabEvent)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
@@ -734,6 +841,12 @@ class BrowserSession(BaseModel):
 
 		# Initialize and attach all watchdogs FIRST so LocalBrowserWatchdog can handle BrowserLaunchEvent
 		await self.attach_all_watchdogs()
+
+		if self.is_safari_backend:
+			assert self._backend is not None
+			self._backend_capabilities = await self._backend.start()
+			await self.event_bus.dispatch(BrowserConnectedEvent(cdp_url='safari://real-profile'))
+			return {'cdp_url': 'safari://real-profile'}
 
 		try:
 			# If no CDP URL, launch local browser or cloud browser
@@ -849,7 +962,11 @@ class BrowserSession(BaseModel):
 
 		# If new_tab=True but we're already in a new tab, set new_tab=False
 		current_target = self.session_manager.get_target(current_target_id)
-		if event.new_tab and is_new_tab_page(current_target.url):
+		if current_target is None:
+			self.logger.debug(
+				f'[on_NavigateToUrlEvent] Focus target {current_target_id[-4:]} is stale; skipping current-tab reuse check'
+			)
+		elif event.new_tab and is_new_tab_page(current_target.url):
 			self.logger.debug(f'[on_NavigateToUrlEvent] Already on blank tab ({current_target.url}), reusing')
 			event.new_tab = False
 
@@ -957,7 +1074,7 @@ class BrowserSession(BaseModel):
 
 		if timeout is None:
 			target = self.session_manager.get_target(target_id)
-			current_url = target.url
+			current_url = target.url if target else 'about:blank'
 			same_domain = (
 				url.split('/')[2] == current_url.split('/')[2]
 				if url.startswith('http') and current_url.startswith('http')
@@ -966,6 +1083,18 @@ class BrowserSession(BaseModel):
 			timeout = 3.0 if same_domain else 8.0
 
 		nav_start_time = asyncio.get_event_loop().time()
+
+		if not hasattr(cdp_session, '_lifecycle_events'):
+			raise RuntimeError(
+				f'❌ Lifecycle monitoring not enabled for {cdp_session.target_id[:8]}! '
+				f'This is a bug - SessionManager should have initialized it. '
+				f'Session: {cdp_session}'
+			)
+
+		# Reset lifecycle buffer so readiness checks observe only the current navigation.
+		# Page.navigate() loaderIds are not always the same ids surfaced by lifecycle events,
+		# so stale events from previous navigations must be excluded up front.
+		cdp_session._lifecycle_events.clear()
 
 		# Wrap Page.navigate() with timeout — heavy sites can block here for 10s+
 		nav_timeout = 20.0
@@ -992,13 +1121,7 @@ class BrowserSession(BaseModel):
 		navigation_id = nav_result.get('loaderId')
 		start_time = asyncio.get_event_loop().time()
 		seen_events = []
-
-		if not hasattr(cdp_session, '_lifecycle_events'):
-			raise RuntimeError(
-				f'❌ Lifecycle monitoring not enabled for {cdp_session.target_id[:8]}! '
-				f'This is a bug - SessionManager should have initialized it. '
-				f'Session: {cdp_session}'
-			)
+		active_loader_id = navigation_id
 
 		# Acceptable events by readiness level (higher is always acceptable)
 		acceptable_events: set[str] = {'networkIdle'}
@@ -1013,12 +1136,24 @@ class BrowserSession(BaseModel):
 				for event_data in list(cdp_session._lifecycle_events):
 					event_name = event_data.get('name')
 					event_loader_id = event_data.get('loaderId')
+					event_timestamp = event_data.get('timestamp', 0.0)
+
+					if event_timestamp < nav_start_time:
+						continue
 
 					event_str = f'{event_name}(loader={event_loader_id[:8] if event_loader_id else "none"})'
 					if event_str not in seen_events:
 						seen_events.append(event_str)
 
-					if event_loader_id and navigation_id and event_loader_id != navigation_id:
+					if navigation_id and event_loader_id == navigation_id:
+						active_loader_id = navigation_id
+					elif active_loader_id == navigation_id and event_loader_id:
+						# Some Chromium targets report a different loaderId in lifecycle events than
+						# the one returned by Page.navigate(). Once the first post-navigation loader
+						# is observed, use that loader consistently for readiness gating.
+						active_loader_id = event_loader_id
+
+					if active_loader_id and event_loader_id and event_loader_id != active_loader_id:
 						continue
 
 					if event_name in acceptable_events:
@@ -1074,18 +1209,21 @@ class BrowserSession(BaseModel):
 
 		# Get target to access url
 		target = self.session_manager.get_target(event.target_id)
+		target_id = target.target_id if target else event.target_id
+		target_url = target.url if target else 'about:blank'
 
 		# dispatch focus changed event
 		await self.event_bus.dispatch(
 			AgentFocusChangedEvent(
-				target_id=target.target_id,
-				url=target.url,
+				target_id=target_id,
+				url=target_url,
 			)
 		)
-		return target.target_id
+		return target_id
 
 	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
+		closed_focused_tab = self.agent_focus_target_id == event.target_id
 		try:
 			# Dispatch tab closed event
 			await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
@@ -1094,8 +1232,16 @@ class BrowserSession(BaseModel):
 			try:
 				cdp_session = await self.get_or_create_cdp_session(target_id=None, focus=False)
 				await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': event.target_id})
+				await self._wait_for_target_closed(event.target_id)
 			except Exception as e:
 				self.logger.debug(f'Target may already be closed: {e}')
+
+			if closed_focused_tab and self.is_cdp_connected:
+				focus_recovered = await self.session_manager.ensure_valid_focus(timeout=5.0)
+				if not focus_recovered and self.is_cdp_connected:
+					self.logger.warning(
+						f'Closed focused tab {event.target_id[:8]}... but no replacement focus was recovered before returning'
+					)
 		except Exception as e:
 			self.logger.warning(f'Error during tab close cleanup: {e}')
 
@@ -1187,6 +1333,9 @@ class BrowserSession(BaseModel):
 			if self.browser_profile.keep_alive and not event.force:
 				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
 				return
+
+			if self.is_safari_backend and self._backend is not None:
+				await self._backend.stop(force=event.force)
 
 			# Clean up cloud browser session if using cloud browser
 			if self.browser_profile.use_cloud:
@@ -1379,6 +1528,8 @@ class BrowserSession(BaseModel):
 		Raises:
 			ValueError: If target doesn't exist or session is not available.
 		"""
+		if self.is_safari_backend:
+			raise BrowserError('CDP sessions are not available when using the Safari real-profile backend.')
 		assert self._cdp_client_root is not None, 'Root CDP client not initialized'
 		assert self.session_manager is not None, 'SessionManager not initialized'
 
@@ -1484,6 +1635,21 @@ class BrowserSession(BaseModel):
 		cached: bool = False,
 		include_recent_events: bool = False,
 	) -> BrowserStateSummary:
+		if self.is_safari_backend:
+			assert self._backend is not None
+			if cached and self._cached_browser_state_summary is not None and self._cached_browser_state_summary.dom_state:
+				if include_screenshot and not self._cached_browser_state_summary.screenshot:
+					self.logger.debug('⚠️ Cached Safari state has no screenshot, fetching fresh state')
+				else:
+					return self._cached_browser_state_summary
+
+			result = await self._backend.get_browser_state_summary(
+				include_screenshot=include_screenshot,
+				include_recent_events=include_recent_events,
+			)
+			self._cached_browser_state_summary = result
+			return result
+
 		if cached and self._cached_browser_state_summary is not None and self._cached_browser_state_summary.dom_state:
 			# Don't use cached state if it has 0 interactive elements
 			selector_map = self._cached_browser_state_summary.dom_state.selector_map
@@ -1528,6 +1694,15 @@ class BrowserSession(BaseModel):
 		# Prevent duplicate watchdog attachment
 		if self._watchdogs_attached:
 			self.logger.debug('Watchdogs already attached, skipping duplicate attachment')
+			return
+
+		if self.is_safari_backend:
+			from browser_use.browser.watchdogs.safari_watchdog import SafariWatchdog
+
+			SafariWatchdog.model_rebuild()
+			self._safari_watchdog = SafariWatchdog(event_bus=self.event_bus, browser_session=self)
+			self._safari_watchdog.attach_to_session()
+			self._watchdogs_attached = True
 			return
 
 		from browser_use.browser.watchdogs.aboutblank_watchdog import AboutBlankWatchdog
@@ -1812,7 +1987,7 @@ class BrowserSession(BaseModel):
 			# Verify the target is working
 			if self.agent_focus_target_id:
 				target = self.session_manager.get_target(self.agent_focus_target_id)
-				if target.title == 'Unknown title':
+				if target and target.title == 'Unknown title':
 					self.logger.warning('Target created but title is unknown (may be normal for about:blank)')
 
 			# Dispatch TabCreatedEvent for all initial tabs (so watchdogs can initialize)
@@ -2162,6 +2337,10 @@ class BrowserSession(BaseModel):
 
 	async def get_tabs(self) -> list[TabInfo]:
 		"""Get information about all open tabs using cached target data."""
+		if self.is_safari_backend:
+			assert self._backend is not None
+			return await self._backend.get_tabs()
+
 		tabs = []
 
 		# Safety check - return empty list if browser not connected yet
@@ -2224,10 +2403,12 @@ class BrowserSession(BaseModel):
 	# region - ========== ID Lookup Methods ==========
 	async def get_current_target_info(self) -> TargetInfo | None:
 		"""Get info about the current active target using cached session data."""
-		if not self.agent_focus_target_id:
+		if not self.agent_focus_target_id or not self.session_manager:
 			return None
 
 		target = self.session_manager.get_target(self.agent_focus_target_id)
+		if target is None:
+			return None
 
 		return {
 			'targetId': target.target_id,
@@ -2240,16 +2421,32 @@ class BrowserSession(BaseModel):
 
 	async def get_current_page_url(self) -> str:
 		"""Get the URL of the current page."""
-		if self.agent_focus_target_id:
+		if self.is_safari_backend:
+			assert self._backend is not None
+			return await self._backend.get_current_page_url()
+
+		if self.agent_focus_target_id and self.session_manager:
 			target = self.session_manager.get_target(self.agent_focus_target_id)
-			return target.url
+			if target is not None:
+				return target.url
 		return 'about:blank'
 
 	async def get_current_page_title(self) -> str:
 		"""Get the title of the current page."""
-		if self.agent_focus_target_id:
+		if self.is_safari_backend:
+			assert self._backend is not None
+			return await self._backend.get_current_page_title()
+
+		if self.agent_focus_target_id and self.session_manager:
 			target = self.session_manager.get_target(self.agent_focus_target_id)
-			return target.title
+			fallback_title = target.title if target else 'Unknown page title'
+			try:
+				title = await self.evaluate_javascript('document.title')
+				if isinstance(title, str) and title.strip():
+					return title
+			except Exception as e:
+				self.logger.debug(f'Failed to evaluate current page title via DOM: {type(e).__name__}: {e}')
+			return fallback_title
 		return 'Unknown page title'
 
 	async def navigate_to(self, url: str, new_tab: bool = False) -> None:
@@ -2262,6 +2459,186 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.events import NavigateToUrlEvent
 
 		event = self.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=new_tab))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
+
+	async def create_new_tab(self, url: str = 'about:blank') -> str | None:
+		"""Backward-compatible alias for opening a URL in a new foreground tab."""
+		await self.navigate_to(url, new_tab=True)
+		return self.agent_focus_target_id
+
+	async def evaluate_javascript(self, expression: str) -> Any:
+		"""Evaluate JavaScript in the current page."""
+		if self.is_safari_backend:
+			assert self._backend is not None
+			return await self._backend.evaluate_javascript(expression)
+
+		cdp_session = await self.get_or_create_cdp_session(target_id=None, focus=False)
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': expression, 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		return result.get('result', {}).get('value')
+
+	async def execute_javascript(self, expression: str) -> Any:
+		"""Backward-compatible alias for evaluate_javascript()."""
+		return await self.evaluate_javascript(expression)
+
+	async def refresh(self) -> None:
+		"""Refresh the active page via the event system."""
+		from browser_use.browser.events import RefreshEvent
+
+		event = self.event_bus.dispatch(RefreshEvent())
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
+
+	async def _enhanced_css_selector_for_element(self, element: Any) -> str | None:
+		"""Backward-compatible helper to generate a CSS selector for an element-like object.
+
+		Supports modern ``EnhancedDOMTreeNode`` instances, actor ``Element`` objects,
+		and raw backend-node IDs from the selector map.
+		"""
+		from types import SimpleNamespace
+
+		from browser_use.dom.utils import generate_css_selector_for_element
+
+		node: Any = element if isinstance(element, EnhancedDOMTreeNode) else None
+
+		if node is None:
+			backend_node_id = element if isinstance(element, int) else getattr(element, 'backend_node_id', None)
+			if backend_node_id is None:
+				backend_node_id = getattr(element, '_backend_node_id', None)
+
+			if backend_node_id is not None:
+				selector_map = await self.get_selector_map()
+				if not selector_map:
+					await self.get_browser_state_summary(include_screenshot=False, cached=False)
+					selector_map = await self.get_selector_map()
+				node = selector_map.get(int(backend_node_id))
+
+			get_basic_info = getattr(element, 'get_basic_info', None)
+			if node is None and callable(get_basic_info):
+				basic_info = await cast(Any, get_basic_info)()
+				if not basic_info.get('error') and basic_info.get('nodeName'):
+					node = SimpleNamespace(
+						tag_name=basic_info['nodeName'].lower(),
+						attributes=basic_info.get('attributes', {}),
+					)
+
+		selector = generate_css_selector_for_element(node)
+		if selector:
+			return selector
+		return getattr(node, 'tag_name', None)
+
+	async def _get_page_info_for_target(self, target_id: TargetID | None = None) -> PageInfo:
+		"""Get viewport and scroll metrics for a specific target.
+
+		Args:
+			target_id: Optional target to inspect. Defaults to the active page.
+
+		Returns:
+			PageInfo with current scroll and viewport metrics.
+		"""
+		if self.is_safari_backend:
+			state = await self.get_browser_state_summary(include_screenshot=False)
+			if state.page_info is None:
+				raise RuntimeError('Safari backend did not return page metrics')
+			return state.page_info
+
+		target_id = target_id or self.agent_focus_target_id
+		cdp_session = await self.get_or_create_cdp_session(target_id=target_id, focus=target_id == self.agent_focus_target_id)
+		metrics = await asyncio.wait_for(
+			cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=cdp_session.session_id),
+			timeout=10.0,
+		)
+
+		layout_viewport = metrics.get('layoutViewport', {})
+		visual_viewport = metrics.get('visualViewport', {})
+		css_visual_viewport = metrics.get('cssVisualViewport', {})
+		css_layout_viewport = metrics.get('cssLayoutViewport', {})
+		content_size = metrics.get('contentSize', {})
+
+		css_width = css_visual_viewport.get('clientWidth', css_layout_viewport.get('clientWidth', 1280.0))
+		device_width = visual_viewport.get('clientWidth', css_width)
+		device_pixel_ratio = device_width / css_width if css_width > 0 else 1.0
+
+		viewport_width = int(css_layout_viewport.get('clientWidth') or layout_viewport.get('clientWidth', 1280))
+		viewport_height = int(css_layout_viewport.get('clientHeight') or layout_viewport.get('clientHeight', 720))
+
+		raw_page_width = content_size.get('width', viewport_width * device_pixel_ratio)
+		raw_page_height = content_size.get('height', viewport_height * device_pixel_ratio)
+		page_width = int(raw_page_width / device_pixel_ratio)
+		page_height = int(raw_page_height / device_pixel_ratio)
+
+		scroll_x = int(css_visual_viewport.get('pageX') or css_layout_viewport.get('pageX', 0))
+		scroll_y = int(css_visual_viewport.get('pageY') or css_layout_viewport.get('pageY', 0))
+
+		return PageInfo(
+			viewport_width=viewport_width,
+			viewport_height=viewport_height,
+			page_width=page_width,
+			page_height=page_height,
+			scroll_x=scroll_x,
+			scroll_y=scroll_y,
+			pixels_above=scroll_y,
+			pixels_below=max(0, page_height - viewport_height - scroll_y),
+			pixels_left=scroll_x,
+			pixels_right=max(0, page_width - viewport_width - scroll_x),
+		)
+
+	async def get_scroll_info(self, page: Any | None = None) -> tuple[int, int]:
+		"""Backward-compatible helper returning pixels above and below the viewport.
+
+		Args:
+			page: Optional actor Page object. When provided, its target is used.
+
+		Returns:
+			Tuple of (pixels_above, pixels_below).
+		"""
+		target_id = getattr(page, '_target_id', None) if page is not None else None
+		page_info = await self._get_page_info_for_target(target_id=target_id)
+		return page_info.pixels_above, page_info.pixels_below
+
+	async def get_tabs_info(self) -> list[TabInfo]:
+		"""Backward-compatible alias for get_tabs()."""
+		return await self.get_tabs()
+
+	async def _resolve_tab_reference(self, tab: int | str) -> TargetID:
+		"""Resolve an index or tab id suffix/full id to a TargetID."""
+		if isinstance(tab, int):
+			tabs = await self.get_tabs()
+			if tab < 0 or tab >= len(tabs):
+				raise ValueError(f'Tab index {tab} out of range for {len(tabs)} open tabs')
+			return tabs[tab].target_id
+		return await self.get_target_id_from_tab_id(tab)
+
+	async def switch_to_tab(self, tab: int | str) -> str:
+		"""Backward-compatible tab switching helper.
+
+		Args:
+			tab: Zero-based tab index or tab id suffix/full id.
+
+		Returns:
+			The resolved target id that received focus.
+		"""
+		from browser_use.browser.events import SwitchTabEvent
+
+		target_id = await self._resolve_tab_reference(tab)
+		event = self.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
+		return target_id
+
+	async def close_tab(self, tab: int | str) -> None:
+		"""Backward-compatible tab closing helper.
+
+		Args:
+			tab: Zero-based tab index or tab id suffix/full id.
+		"""
+		from browser_use.browser.events import CloseTabEvent
+
+		target_id = await self._resolve_tab_reference(tab)
+		event = self.event_bus.dispatch(CloseTabEvent(target_id=target_id))
 		await event
 		await event.event_result(raise_if_any=True, raise_if_none=False)
 
@@ -2283,6 +2660,10 @@ class BrowserSession(BaseModel):
 		#  Check cached selector map
 		if self._cached_selector_map and index in self._cached_selector_map:
 			return self._cached_selector_map[index]
+
+		if self.is_safari_backend:
+			assert self._backend is not None
+			return await self._backend.get_element_by_index(index)
 
 		return None
 
@@ -2413,19 +2794,56 @@ class BrowserSession(BaseModel):
 			return None
 
 	async def get_target_id_from_tab_id(self, tab_id: str) -> TargetID:
-		"""Get the full-length TargetID from the truncated 4-char tab_id using SessionManager."""
+		"""Resolve a tab reference to a full target id.
+
+		Resolution order:
+		1. Exact/suffix match against SessionManager target ids.
+		2. Exact/suffix match against the current tabs list.
+		3. Zero-padded numeric fallback, treating values like ``0001`` as a tab index.
+		"""
+		normalized_tab_id = tab_id.strip()
+		if not normalized_tab_id:
+			raise ValueError('tab_id cannot be empty')
+
+		if self.session_manager:
+			for full_target_id in self.session_manager.get_all_target_ids():
+				if full_target_id.endswith(normalized_tab_id):
+					if await self.session_manager.is_target_valid(full_target_id):
+						return full_target_id
+					# Stale target - Chrome should have sent detach event
+					# If we're here, event listener will clean it up
+					self.logger.debug(f'Found stale target {full_target_id}, skipping')
+
+		tabs = await self.get_tabs()
+		matching_tabs = [tab.target_id for tab in tabs if tab.target_id.endswith(normalized_tab_id)]
+		if len(matching_tabs) == 1:
+			return matching_tabs[0]
+		if len(matching_tabs) > 1:
+			raise ValueError(f'Ambiguous tab_id=...{normalized_tab_id}; matches {len(matching_tabs)} open tabs')
+
+		if normalized_tab_id.isdigit():
+			tab_index = int(normalized_tab_id)
+			if 0 <= tab_index < len(tabs):
+				target_id = tabs[tab_index].target_id
+				self.logger.debug(f'Resolved numeric tab reference {normalized_tab_id} to target {target_id}')
+				return target_id
+
+		raise ValueError(f'No TargetID found ending in tab_id=...{normalized_tab_id}')
+
+	async def _wait_for_target_closed(self, target_id: TargetID, timeout: float = 2.0) -> None:
+		"""Wait for SessionManager to observe a target detach after closeTarget."""
 		if not self.session_manager:
-			raise RuntimeError('SessionManager not initialized')
+			return
 
-		for full_target_id in self.session_manager.get_all_target_ids():
-			if full_target_id.endswith(tab_id):
-				if await self.session_manager.is_target_valid(full_target_id):
-					return full_target_id
-				# Stale target - Chrome should have sent detach event
-				# If we're here, event listener will clean it up
-				self.logger.debug(f'Found stale target {full_target_id}, skipping')
+		deadline = asyncio.get_running_loop().time() + timeout
+		while asyncio.get_running_loop().time() < deadline:
+			target_still_present = self.session_manager.get_target(target_id) is not None
+			target_still_valid = await self.session_manager.is_target_valid(target_id)
+			if not target_still_present or not target_still_valid:
+				return
+			await asyncio.sleep(0.05)
 
-		raise ValueError(f'No TargetID found ending in tab_id=...{tab_id}')
+		self.logger.debug(f'[SessionManager] Target {target_id[:8]}... still present after close wait timeout')
 
 	async def get_target_id_from_url(self, url: str) -> TargetID:
 		"""Get the TargetID from a URL using SessionManager (source of truth)."""
@@ -2532,8 +2950,13 @@ class BrowserSession(BaseModel):
 			# Remove highlights via JavaScript - be thorough
 			script = """
 			(function() {
-				// Remove all browser-use highlight elements
-				const highlights = document.querySelectorAll('[data-browser-use-highlight]');
+				// Remove all current browser-use highlight variants
+				const selectors = [
+					'[data-browser-use-highlight]',
+					'[data-browser-use-interaction-highlight]',
+					'[data-browser-use-coordinate-highlight]'
+				];
+				const highlights = document.querySelectorAll(selectors.join(', '));
 				console.log('Removing', highlights.length, 'browser-use highlight elements');
 				highlights.forEach(el => el.remove());
 
@@ -2688,6 +3111,11 @@ class BrowserSession(BaseModel):
 		Args:
 			node: The DOM node to highlight with backend_node_id for coordinate lookup
 		"""
+		if self.is_safari_backend:
+			if self._backend is not None:
+				await self._backend.highlight_interaction_element(node)
+			return
+
 		if not self.browser_profile.highlight_elements:
 			return
 
@@ -2827,6 +3255,11 @@ class BrowserSession(BaseModel):
 			x: Horizontal coordinate relative to viewport left edge
 			y: Vertical coordinate relative to viewport top edge
 		"""
+		if self.is_safari_backend:
+			if self._backend is not None:
+				await self._backend.highlight_coordinate_click(x, y)
+			return
+
 		if not self.browser_profile.highlight_elements:
 			return
 
@@ -3249,12 +3682,14 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_grant_permissions(self, permissions: list[str], origin: str | None = None) -> None:
 		"""Grant permissions using CDP Browser.grantPermissions."""
-		params = {'permissions': permissions}
-		# if origin:
-		# 	params['origin'] = origin
-		cdp_session = await self.get_or_create_cdp_session()
-		# await cdp_session.cdp_client.send.Browser.grantPermissions(params=params, session_id=cdp_session.session_id)
-		raise NotImplementedError('Not implemented yet')
+		if not permissions:
+			return
+
+		params: dict[str, Any] = {'permissions': permissions}
+		if origin:
+			params['origin'] = origin
+
+		await self.cdp_client.send.Browser.grantPermissions(params=params)  # type: ignore[arg-type]
 
 	async def _cdp_set_geolocation(self, latitude: float, longitude: float, accuracy: float = 100) -> None:
 		"""Set geolocation using CDP Emulation.setGeolocationOverride."""
@@ -3717,6 +4152,8 @@ class BrowserSession(BaseModel):
 		IMPORTANT: backend_node_id is only valid in the session where the DOM was captured.
 		We trust the node's session_id/frame_id/target_id instead of searching all sessions.
 		"""
+		if self.is_safari_backend:
+			raise BrowserError('CDP client lookup is not available when using the Safari real-profile backend.')
 
 		# Strategy 1: If node has session_id, try to use that exact session (most specific)
 		if node.session_id and self.session_manager:
@@ -3726,7 +4163,8 @@ class BrowserSession(BaseModel):
 				if cdp_session:
 					# Get target to log URL
 					target = self.session_manager.get_target(cdp_session.target_id)
-					self.logger.debug(f'✅ Using session from node.session_id for node {node.backend_node_id}: {target.url}')
+					target_url = target.url if target else f'<detached target {cdp_session.target_id[:8]}>'
+					self.logger.debug(f'✅ Using session from node.session_id for node {node.backend_node_id}: {target_url}')
 					return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session by session_id {node.session_id}: {e}')
@@ -3736,7 +4174,8 @@ class BrowserSession(BaseModel):
 			try:
 				cdp_session = await self.cdp_client_for_frame(node.frame_id)
 				target = self.session_manager.get_target(cdp_session.target_id)
-				self.logger.debug(f'✅ Using session from node.frame_id for node {node.backend_node_id}: {target.url}')
+				target_url = target.url if target else f'<detached target {cdp_session.target_id[:8]}>'
+				self.logger.debug(f'✅ Using session from node.frame_id for node {node.backend_node_id}: {target_url}')
 				return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session for frame {node.frame_id}: {e}')
@@ -3746,7 +4185,8 @@ class BrowserSession(BaseModel):
 			try:
 				cdp_session = await self.get_or_create_cdp_session(target_id=node.target_id, focus=False)
 				target = self.session_manager.get_target(cdp_session.target_id)
-				self.logger.debug(f'✅ Using session from node.target_id for node {node.backend_node_id}: {target.url}')
+				target_url = target.url if target else f'<detached target {cdp_session.target_id[:8]}>'
+				self.logger.debug(f'✅ Using session from node.target_id for node {node.backend_node_id}: {target_url}')
 				return cdp_session
 			except Exception as e:
 				self.logger.debug(f'Failed to get session for target {node.target_id}: {e}')
@@ -3790,6 +4230,16 @@ class BrowserSession(BaseModel):
 		Returns:
 			Screenshot data as bytes
 		"""
+		if self.is_safari_backend:
+			assert self._backend is not None
+			return await self._backend.take_screenshot(
+				path=path,
+				full_page=full_page,
+				format=format,
+				quality=quality,
+				clip=clip,
+			)
+
 		import base64
 
 		from cdp_use.cdp.page import CaptureScreenshotParameters

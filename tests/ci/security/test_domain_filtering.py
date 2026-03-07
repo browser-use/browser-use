@@ -98,6 +98,7 @@ class TestUrlAllowlistSecurity:
 		assert watchdog._is_url_allowed('https://anygoogle.com@evil.org') is False
 
 		# Test pattern matching
+		assert watchdog._is_url_allowed('https://test.com') is True
 		assert watchdog._is_url_allowed('https://www.test.com') is True
 		assert watchdog._is_url_allowed('https://www.testx.com') is False
 

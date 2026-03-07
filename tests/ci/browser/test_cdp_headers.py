@@ -160,3 +160,39 @@ async def test_headers_used_for_json_version_endpoint():
 				mock_client.get.assert_called_once()
 				call_kwargs = mock_client.get.call_args
 				assert call_kwargs[1].get('headers') == test_headers
+
+
+@pytest.mark.asyncio
+async def test_connect_tolerates_missing_focus_target_during_startup_verification():
+	"""connect() should not fail if the initial focus target disappears before title verification."""
+	session = BrowserSession(cdp_url='wss://remote-browser.example.com/cdp')
+
+	with patch('browser_use.browser.session.CDPClient') as mock_cdp_client_class:
+		mock_cdp_client = AsyncMock()
+		mock_cdp_client_class.return_value = mock_cdp_client
+		mock_cdp_client.start = AsyncMock()
+		mock_cdp_client.stop = AsyncMock()
+		mock_cdp_client.send = MagicMock()
+		mock_cdp_client.send.Target = MagicMock()
+		mock_cdp_client.send.Target.setAutoAttach = AsyncMock()
+		mock_cdp_client.send.Target.createTarget = AsyncMock(return_value={'targetId': 'new-target-id'})
+
+		with patch('browser_use.browser.session_manager.SessionManager') as mock_session_manager_class:
+			mock_session_manager = MagicMock()
+			mock_session_manager_class.return_value = mock_session_manager
+			mock_session_manager.start_monitoring = AsyncMock()
+			mock_session_manager.get_all_page_targets = MagicMock(return_value=[])
+			mock_session_manager.get_target = MagicMock(return_value=None)
+
+			async def _mock_focus(target_id: str | None = None, focus: bool = True):
+				session.agent_focus_target_id = target_id
+				return MagicMock(session_id='mock-session-id', cdp_client=MagicMock())
+
+			object.__setattr__(session, 'get_or_create_cdp_session', AsyncMock(side_effect=_mock_focus))
+			object.__setattr__(session, '_setup_proxy_auth', AsyncMock())
+			object.__setattr__(session, '_attach_ws_drop_callback', MagicMock())
+
+			await session.connect()
+
+			assert session.agent_focus_target_id == 'new-target-id'
+			mock_session_manager.get_target.assert_called_once_with('new-target-id')

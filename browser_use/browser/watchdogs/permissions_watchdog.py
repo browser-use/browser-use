@@ -31,12 +31,7 @@ class PermissionsWatchdog(BaseWatchdog):
 		self.logger.debug(f'🔓 Granting browser permissions: {permissions}')
 
 		try:
-			# Grant permissions using CDP Browser.grantPermissions
-			# origin=None means grant to all origins
-			# Browser domain commands don't use session_id
-			await self.browser_session.cdp_client.send.Browser.grantPermissions(
-				params={'permissions': permissions}  # type: ignore
-			)
+			await self.browser_session._cdp_grant_permissions(permissions, origin=None)
 			self.logger.debug(f'✅ Successfully granted permissions: {permissions}')
 		except Exception as e:
 			self.logger.error(f'❌ Failed to grant permissions: {str(e)}')

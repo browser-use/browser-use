@@ -211,11 +211,104 @@ def get_session_metadata_path(session: str) -> Path:
 	return Path(tempfile.gettempdir()) / f'browser-use-{session}.meta'
 
 
+def _is_browser_mode_compatible(requested_mode: str, existing_mode: str) -> bool:
+	"""Whether an existing session can satisfy a requested browser mode."""
+	chromium_family = {'chromium', 'real'}
+
+	if requested_mode == existing_mode:
+		return True
+	if requested_mode in chromium_family and existing_mode in chromium_family:
+		return True
+	if requested_mode in chromium_family and existing_mode == 'remote':
+		return True
+	return False
+
+
+def _browser_mode_mismatch_error(session: str, requested_mode: str, existing_mode: str) -> str:
+	"""Build a helpful session-mode mismatch error message."""
+	if requested_mode == 'remote':
+		reason = 'Cloud browser features (live_url, cloud session reuse, cloud profiles) require a remote session.'
+	elif requested_mode == 'safari':
+		reason = 'Safari mode requires a Safari-backed session and cannot reuse Chromium or remote sessions.'
+	else:
+		reason = f'Browser mode {requested_mode} cannot reuse an existing {existing_mode} session.'
+
+	return (
+		f"Error: Session '{session}' is running with --browser {existing_mode}, "
+		f'but --browser {requested_mode} was requested.\n\n'
+		f'{reason}\n\n'
+		f'Options:\n'
+		f'  1. Close and restart: browser-use close && browser-use --browser {requested_mode} open <url>\n'
+		f'  2. Use different session: browser-use --browser {requested_mode} --session other <command>\n'
+		f'  3. Keep using existing session: browser-use --browser {existing_mode} <command>'
+	)
+
+
+def _effective_session_profile(mode: str, profile: str | None) -> str | None:
+	"""Normalize implicit profile defaults for compatibility checks."""
+	if mode == 'real':
+		return profile or 'Default'
+	if mode == 'safari':
+		return profile or 'active'
+	return profile
+
+
+def _effective_headed(mode: str, headed: bool) -> bool:
+	"""Normalize session visibility for modes that cannot run headless."""
+	if mode == 'safari':
+		return True
+	return headed
+
+
+def _session_reuse_mismatch_error(
+	session: str,
+	requested_mode: str,
+	existing_mode: str,
+	requested_headed: bool,
+	existing_headed: bool,
+	requested_profile: str | None,
+	existing_profile: str | None,
+) -> str | None:
+	"""Build a helpful reuse error if the requested session config cannot be satisfied."""
+	if not _is_browser_mode_compatible(requested_mode, existing_mode):
+		return _browser_mode_mismatch_error(session, requested_mode, existing_mode)
+
+	requested_effective_headed = _effective_headed(requested_mode, requested_headed)
+	existing_effective_headed = _effective_headed(existing_mode, existing_headed)
+
+	if requested_effective_headed and not existing_effective_headed:
+		return (
+			f"Error: Session '{session}' is running headless, but --headed was requested.\n\n"
+			'Window visibility is fixed for an existing session.\n\n'
+			'Options:\n'
+			f'  1. Close and restart: browser-use close && browser-use --browser {requested_mode} --headed open <url>\n'
+			f'  2. Use different session: browser-use --browser {requested_mode} --headed --session other <command>\n'
+			f'  3. Keep using existing headless session: browser-use --browser {existing_mode} <command>'
+		)
+
+	if requested_profile is not None:
+		requested_effective = _effective_session_profile(requested_mode, requested_profile)
+		existing_effective = _effective_session_profile(existing_mode, existing_profile)
+		if requested_effective != existing_effective:
+			return (
+				f"Error: Session '{session}' is running with profile {existing_effective}, "
+				f'but profile {requested_effective} was requested.\n\n'
+				'Profile-backed sessions keep separate cookies and auth state, so an existing session cannot switch profiles.\n\n'
+				'Options:\n'
+				f'  1. Close and restart: browser-use close && browser-use --browser {requested_mode} --profile {requested_effective} open <url>\n'
+				f'  2. Use different session: browser-use --browser {requested_mode} --profile {requested_effective} --session other <command>\n'
+				f'  3. Keep using existing profile: browser-use --browser {existing_mode} <command>'
+			)
+
+	return None
+
+
 def ensure_server(session: str, browser: str, headed: bool, profile: str | None, api_key: str | None) -> bool:
 	"""Start server if not running. Returns True if started."""
 	from browser_use.skill_cli.utils import is_session_locked, kill_orphaned_server
 
 	meta_path = get_session_metadata_path(session)
+	effective_headed = _effective_headed(browser, headed)
 
 	# Check if server is already running AND holding its lock (healthy server)
 	if is_server_running(session) and is_session_locked(session):
@@ -228,23 +321,20 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 				try:
 					meta = json.loads(meta_path.read_text())
 					existing_mode = meta.get('browser_mode', 'chromium')
-					if existing_mode != browser:
-						# Only error if user explicitly requested 'remote' but session is local
-						# This prevents losing cloud features (live_url, etc.)
-						# The reverse case (requesting local but having remote) is fine -
-						# user still gets a working browser, just with more features
-						if browser == 'remote' and existing_mode != 'remote':
-							print(
-								f"Error: Session '{session}' is running with --browser {existing_mode}, "
-								f'but --browser remote was requested.\n\n'
-								f'Cloud browser features (live_url) require a remote session.\n\n'
-								f'Options:\n'
-								f'  1. Close and restart: browser-use close && browser-use --browser remote open <url>\n'
-								f'  2. Use different session: browser-use --browser remote --session other <command>\n'
-								f'  3. Use existing local browser: browser-use --browser {existing_mode} <command>',
-								file=sys.stderr,
-							)
-							sys.exit(1)
+					existing_headed = bool(meta.get('headed', False))
+					existing_profile = meta.get('profile')
+					error = _session_reuse_mismatch_error(
+						session=session,
+						requested_mode=browser,
+						existing_mode=existing_mode,
+						requested_headed=effective_headed,
+						existing_headed=existing_headed,
+						requested_profile=profile,
+						existing_profile=existing_profile,
+					)
+					if error:
+						print(error, file=sys.stderr)
+						sys.exit(1)
 				except (json.JSONDecodeError, OSError):
 					pass  # Metadata file corrupt, ignore
 
@@ -265,7 +355,7 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 		'--browser',
 		browser,
 	]
-	if headed:
+	if effective_headed:
 		cmd.append('--headed')
 	if profile:
 		cmd.extend(['--profile', profile])
@@ -308,7 +398,7 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 					json.dumps(
 						{
 							'browser_mode': browser,
-							'headed': headed,
+							'headed': effective_headed,
 							'profile': profile,
 						}
 					)
@@ -353,6 +443,18 @@ def send_command(session: str, action: str, params: dict) -> dict:
 		sock.close()
 
 
+def _command_error_from_response(response: dict) -> str | None:
+	"""Extract handler-level command errors from a successful server envelope."""
+	if not response.get('success'):
+		return None
+	data = response.get('data')
+	if isinstance(data, dict):
+		error = data.get('error')
+		if isinstance(error, str) and error:
+			return error
+	return None
+
+
 # =============================================================================
 # CLI Commands
 # =============================================================================
@@ -374,6 +476,12 @@ def build_parser() -> argparse.ArgumentParser:
   browser-use run "Fill the form"               # Uses local browser + your API keys
   browser-use run "task" --llm gpt-4o           # Specify model (requires API key)
   browser-use open https://example.com""")
+
+	if 'safari' in available_modes:
+		epilog_parts.append("""
+Safari Mode (--browser safari):
+  browser-use -b safari --headed open https://example.com  # Use your active Safari profile
+  browser-use -b safari --profile Personal open https://example.com""")
 
 	if 'remote' in available_modes:
 		if 'chromium' in available_modes:
@@ -429,7 +537,7 @@ Setup:
 		help=f'Browser mode (available: {", ".join(available_modes)})',
 	)
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
-	parser.add_argument('--profile', help='Browser profile (local name or cloud ID)')
+	parser.add_argument('--profile', help='Browser profile (Chrome profile name, Safari profile label, or cloud ID)')
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--api-key', help='Browser-Use API key')
 	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
@@ -518,9 +626,22 @@ Setup:
 	p = subparsers.add_parser('eval', help='Execute JavaScript')
 	p.add_argument('js', help='JavaScript code to execute')
 
+	def _parse_json_object(raw: str) -> dict:
+		"""Parse a CLI JSON object argument."""
+		try:
+			value = json.loads(raw)
+		except json.JSONDecodeError as exc:
+			raise argparse.ArgumentTypeError(f'Invalid JSON: {exc.msg}') from exc
+		if not isinstance(value, dict):
+			raise argparse.ArgumentTypeError('Expected a JSON object')
+		return value
+
 	# extract <query>
 	p = subparsers.add_parser('extract', help='Extract data using LLM')
 	p.add_argument('query', help='What to extract')
+	p.add_argument('--extract-links', action='store_true', help='Include links in the page extraction content')
+	p.add_argument('--start-from-char', type=int, default=0, help='Start extraction from this character offset')
+	p.add_argument('--output-schema', type=_parse_json_object, help='JSON object schema for structured extraction')
 
 	# hover <index>
 	p = subparsers.add_parser('hover', help='Hover over element')
@@ -539,7 +660,7 @@ Setup:
 	# -------------------------------------------------------------------------
 
 	cookies_p = subparsers.add_parser('cookies', help='Cookie operations')
-	cookies_sub = cookies_p.add_subparsers(dest='cookies_command')
+	cookies_sub = cookies_p.add_subparsers(dest='cookies_command', required=True)
 
 	# cookies get [--url URL]
 	p = cookies_sub.add_parser('get', help='Get all cookies')
@@ -574,7 +695,7 @@ Setup:
 	# -------------------------------------------------------------------------
 
 	wait_p = subparsers.add_parser('wait', help='Wait for conditions')
-	wait_sub = wait_p.add_subparsers(dest='wait_command')
+	wait_sub = wait_p.add_subparsers(dest='wait_command', required=True)
 
 	# wait selector <css>
 	p = wait_sub.add_parser('selector', help='Wait for CSS selector')
@@ -592,7 +713,7 @@ Setup:
 	# -------------------------------------------------------------------------
 
 	get_p = subparsers.add_parser('get', help='Get information')
-	get_sub = get_p.add_subparsers(dest='get_command')
+	get_sub = get_p.add_subparsers(dest='get_command', required=True)
 
 	# get title
 	get_sub.add_parser('title', help='Get page title')
@@ -1179,7 +1300,7 @@ def main() -> int:
 	if args.profile and args.browser == 'chromium':
 		print(
 			'Error: --profile is not supported in chromium mode.\n'
-			'Use -b real for local Chrome profiles or -b remote for cloud profiles.',
+			'Use -b real for local Chrome profiles, -b safari for Safari profiles, or -b remote for cloud profiles.',
 			file=sys.stderr,
 		)
 		return 1
@@ -1207,9 +1328,10 @@ def main() -> int:
 
 	# Send command to server
 	response = send_command(args.session, args.command, params)
+	command_error = _command_error_from_response(response)
 
 	# Clean up metadata file on successful close
-	if args.command == 'close' and response.get('success'):
+	if args.command == 'close' and response.get('success') and command_error is None:
 		meta_path = get_session_metadata_path(args.session)
 		if meta_path.exists():
 			meta_path.unlink()
@@ -1220,8 +1342,10 @@ def main() -> int:
 		if args.command in ('open', 'run', 'state', 'click', 'type', 'input', 'scroll', 'screenshot'):
 			response['mode'] = args.browser
 		print(json.dumps(response))
+		if command_error is not None:
+			return 1
 	else:
-		if response.get('success'):
+		if response.get('success') and command_error is None:
 			data = response.get('data')
 			# Show mode for browser-related commands (first line of output)
 			if args.command in ('open', 'run'):
@@ -1244,6 +1368,9 @@ def main() -> int:
 					print(data)
 				else:
 					print(data)
+		elif command_error is not None:
+			print(f'Error: {command_error}', file=sys.stderr)
+			return 1
 		else:
 			print(f'Error: {response.get("error")}', file=sys.stderr)
 			return 1

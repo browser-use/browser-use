@@ -9,6 +9,7 @@ Usage:
 """
 
 import asyncio
+import logging
 import time
 
 import pytest
@@ -186,3 +187,16 @@ class TestHeavyPageNavigation:
 		event = NavigateToUrlEvent(url='http://example.com')
 		assert event.event_timeout is not None
 		assert event.event_timeout >= 30.0, f'event_timeout={event.event_timeout}s is too low for heavy pages (need >= 30s)'
+
+	async def test_fast_navigation_does_not_wait_for_timeout(self, browser_session, heavy_base_url, caplog):
+		"""Fast pages should finish readiness checks promptly without timeout warnings."""
+		url = f'{heavy_base_url}/quick-page'
+		start = time.time()
+
+		with caplog.at_level(logging.WARNING):
+			event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
+			await asyncio.wait_for(event, timeout=5)
+			await event.event_result(raise_if_any=True, raise_if_none=False)
+
+		assert time.time() - start < 2.0
+		assert 'Page readiness timeout (8.0s' not in caplog.text

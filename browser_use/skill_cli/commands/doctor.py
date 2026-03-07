@@ -22,13 +22,16 @@ async def handle() -> dict[str, Any]:
 	# 2. Browser availability
 	checks['browser'] = _check_browser()
 
-	# 3. API key configuration
+	# 3. Safari backend readiness
+	checks['safari'] = _check_safari_backend()
+
+	# 4. API key configuration
 	checks['api_key'] = _check_api_key_config()
 
-	# 4. Cloudflared availability
+	# 5. Cloudflared availability
 	checks['cloudflared'] = _check_cloudflared()
 
-	# 5. Network connectivity (basic check)
+	# 6. Network connectivity (basic check)
 	checks['network'] = await _check_network()
 
 	# Determine overall status
@@ -76,6 +79,46 @@ def _check_browser() -> dict[str, Any]:
 			'message': f'Browser may not be available: {e}',
 			'note': 'Will be installed on first use',
 		}
+
+
+def _check_safari_backend() -> dict[str, Any]:
+	"""Check if the local Safari real-profile backend is ready."""
+	from browser_use.browser.backends.safari_backend import probe_local_safari_backend
+
+	report = probe_local_safari_backend()
+	details = report.details
+	version = details.get('safari_version') or 'unknown'
+	macos_version = details.get('macos_version') or 'unknown'
+
+	if not report.available:
+		result: dict[str, Any] = {
+			'status': 'warning',
+			'message': report.reason or 'Safari real-profile backend unavailable',
+			'note': f'Safari {version} on macOS {macos_version}',
+		}
+		if details:
+			result['details'] = details
+		return result
+
+	missing_features: list[str] = []
+	if not details.get('gui_scripting_available'):
+		missing_features.append('Accessibility / GUI scripting')
+	if not details.get('screen_capture_available'):
+		missing_features.append('Screen Recording screenshots')
+
+	if missing_features:
+		return {
+			'status': 'warning',
+			'message': f'Safari backend available with limitations ({", ".join(missing_features)} missing)',
+			'note': f'Safari {version} on macOS {macos_version}',
+			'details': details,
+		}
+
+	return {
+		'status': 'ok',
+		'message': f'Safari backend available (Safari {version}, macOS {macos_version})',
+		'details': details,
+	}
 
 
 def _check_api_key_config() -> dict[str, Any]:

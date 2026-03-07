@@ -561,9 +561,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# Session/connection configuration
 	cdp_url: str | None = Field(default=None, description='CDP URL for connecting to existing browser instance')
 	is_local: bool = Field(default=False, description='Whether this is a local browser instance')
+	automation_backend: Literal['chromium', 'safari'] = Field(
+		default='chromium',
+		description='Automation backend implementation. "chromium" uses CDP, "safari" uses the Safari real-profile backend.',
+	)
 	use_cloud: bool = Field(
 		default=False,
 		description='Use browser-use cloud browser service instead of local browser',
+	)
+	safari_profile: str = Field(
+		default='active',
+		description='Safari profile label to target when automation_backend="safari". Use "active" to control the current frontmost Safari profile window.',
 	)
 
 	@property
@@ -781,6 +789,24 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Ensure proxy configuration is consistent."""
 		if self.proxy and (self.proxy.bypass and not self.proxy.server):
 			logger.warning('BrowserProfile.proxy.bypass provided but proxy has no server; bypass will be ignored.')
+		return self
+
+	@model_validator(mode='after')
+	def validate_backend_configuration(self) -> Self:
+		"""Validate backend-specific configuration combinations."""
+		if self.automation_backend == 'safari':
+			if self.use_cloud or self.cloud_browser_params is not None:
+				raise ValueError('Safari backend does not support Browser Use Cloud. Remove use_cloud/cloud_browser_params.')
+			if self.cdp_url:
+				raise ValueError('Safari backend does not support cdp_url. Use the built-in Safari real-profile backend only.')
+			if self.headless:
+				logger.warning(
+					'Safari backend ignores headless=True because real Safari profile automation requires visible windows.'
+				)
+				self.headless = False
+			if self.enable_default_extensions:
+				logger.warning('Safari backend ignores Chromium extensions. Setting enable_default_extensions=False.')
+				self.enable_default_extensions = False
 		return self
 
 	@model_validator(mode='after')

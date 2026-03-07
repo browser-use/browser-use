@@ -199,7 +199,7 @@ async def _handle_local_task(session: SessionInfo, params: dict[str, Any]) -> An
 		from browser_use.agent.service import Agent
 
 		# Try to get LLM from environment (with optional model override)
-		llm = await get_llm(model=model)
+		llm = get_llm(model=model)
 		if llm is None:
 			if model:
 				return {
@@ -304,19 +304,21 @@ def get_llm(model: str | None = None) -> Any:
 	"""
 	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
 
-	if model:
-		provider = _get_provider_for_model(model)
+	configured_model = model or os.environ.get('BROWSER_USE_LLM_MODEL')
+
+	if configured_model:
+		provider = _get_provider_for_model(configured_model)
 
 		if provider == 'openai':
-			return ChatOpenAI(model=model)
+			return ChatOpenAI(model=configured_model)
 		elif provider == 'anthropic':
-			return ChatAnthropic(model=model)
+			return ChatAnthropic(model=configured_model)
 		elif provider == 'google':
-			return ChatGoogle(model=model)
+			return ChatGoogle(model=configured_model)
 		elif provider == 'browser-use':
-			return ChatBrowserUse(model=model)
+			return ChatBrowserUse(model=configured_model)
 		else:
-			logger.warning(f'Unknown model: {model}. Not in any verified model list.')
+			logger.warning(f'Unknown model: {configured_model}. Not in any verified model list.')
 			return None
 
 	# No model specified - auto-detect from available API keys

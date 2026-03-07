@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 # Type stubs for lazy imports
 if TYPE_CHECKING:
 	from .profile import BrowserProfile, ProxySettings
+	from .safari.session import SafariBrowserSession
 	from .session import BrowserSession
 
 
@@ -11,6 +12,7 @@ _LAZY_IMPORTS = {
 	'ProxySettings': ('.profile', 'ProxySettings'),
 	'BrowserProfile': ('.profile', 'BrowserProfile'),
 	'BrowserSession': ('.session', 'BrowserSession'),
+	'SafariBrowserSession': ('.safari.session', 'SafariBrowserSession'),
 }
 
 
@@ -36,6 +38,7 @@ def __getattr__(name: str):
 
 __all__ = [
 	'BrowserSession',
+	'SafariBrowserSession',
 	'BrowserProfile',
 	'ProxySettings',
 ]

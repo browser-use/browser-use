@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from typing import Literal
 
 from browser_use.agent.message_manager.views import (
@@ -18,8 +19,10 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import (
+	AssistantMessage,
 	BaseMessage,
 	ContentPartImageParam,
+	ContentPartRefusalParam,
 	ContentPartTextParam,
 	SystemMessage,
 	UserMessage,
@@ -53,9 +56,9 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 
 		# Get emoji and token info
 		emoji = _log_get_message_emoji(message)
-		# token_str = str(message.metadata.tokens).rjust(4)
-		# TODO: fix the token count
-		token_str = '??? (TODO)'
+		metadata = getattr(message, 'metadata', None)
+		token_count = getattr(metadata, 'tokens', None)
+		token_str = str(token_count).rjust(4) if isinstance(token_count, int) else ' n/a'
 		prefix = f'{emoji}[{token_str}]: '
 
 		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)
@@ -91,6 +94,31 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 		logger.warning(f'Failed to format message line for logging: {e}')
 		# Return a simple fallback line
 		return ['❓[   ?]: [Error formatting message]']
+
+
+def _log_extract_message_content(message: BaseMessage) -> str:
+	"""Extract a readable single-string preview for debug logging."""
+	parts: list[str] = []
+
+	content = getattr(message, 'content', None)
+	if isinstance(content, str):
+		if content:
+			parts.append(content)
+	elif isinstance(content, list):
+		for item in content:
+			if isinstance(item, ContentPartTextParam):
+				if item.text:
+					parts.append(item.text)
+			elif isinstance(item, ContentPartImageParam):
+				parts.append(str(item))
+			elif isinstance(item, ContentPartRefusalParam):
+				parts.append(f'[Refusal] {item.refusal}')
+
+	if isinstance(message, AssistantMessage) and message.tool_calls:
+		parts.extend(str(tool_call) for tool_call in message.tool_calls)
+
+	content_preview = ' '.join(part.strip() for part in parts if part and part.strip())
+	return ' '.join(content_preview.split())
 
 
 # ========== End of Logging Helper Functions ==========
@@ -493,40 +521,33 @@ class MessageManager:
 
 	def _log_history_lines(self) -> str:
 		"""Generate a formatted log string of message history for debugging / printing to terminal"""
-		# TODO: fix logging
+		try:
+			messages = self.state.history.get_messages()
+			terminal_width = shutil.get_terminal_size((80, 20)).columns
+			message_lines: list[str] = []
+			total_known_tokens = 0
+			has_known_token_counts = False
 
-		# try:
-		# 	total_input_tokens = 0
-		# 	message_lines = []
-		# 	terminal_width = shutil.get_terminal_size((80, 20)).columns
+			for i, message in enumerate(messages):
+				try:
+					metadata = getattr(message, 'metadata', None)
+					token_count = getattr(metadata, 'tokens', None)
+					if isinstance(token_count, int):
+						total_known_tokens += token_count
+						has_known_token_counts = True
 
-		# 	for i, m in enumerate(self.state.history.messages):
-		# 		try:
-		# 			total_input_tokens += m.metadata.tokens
-		# 			is_last_message = i == len(self.state.history.messages) - 1
+					content = _log_extract_message_content(message)
+					is_last_message = i == len(messages) - 1
+					message_lines.extend(_log_format_message_line(message, content, is_last_message, terminal_width))
+				except Exception as e:
+					logger.warning(f'Failed to format message {i} for logging: {e}')
+					message_lines.append('❓[   ?]: [Error formatting this message]')
 
-		# 			# Extract content for logging
-		# 			content = _log_extract_message_content(m.message, is_last_message, m.metadata)
-
-		# 			# Format the message line(s)
-		# 			lines = _log_format_message_line(m, content, is_last_message, terminal_width)
-		# 			message_lines.extend(lines)
-		# 		except Exception as e:
-		# 			logger.warning(f'Failed to format message {i} for logging: {e}')
-		# 			# Add a fallback line for this message
-		# 			message_lines.append('❓[   ?]: [Error formatting this message]')
-
-		# 	# Build final log message
-		# 	return (
-		# 		f'📜 LLM Message history ({len(self.state.history.messages)} messages, {total_input_tokens} tokens):\n'
-		# 		+ '\n'.join(message_lines)
-		# 	)
-		# except Exception as e:
-		# 	logger.warning(f'Failed to generate history log: {e}')
-		# 	# Return a minimal fallback message
-		# 	return f'📜 LLM Message history (error generating log: {e})'
-
-		return ''
+			token_summary = f'{total_known_tokens} tokens' if has_known_token_counts else 'token count unavailable'
+			return f'📜 LLM Message history ({len(messages)} messages, {token_summary}):\n' + '\n'.join(message_lines)
+		except Exception as e:
+			logger.warning(f'Failed to generate history log: {e}')
+			return f'📜 LLM Message history (error generating log: {e})'
 
 	@time_execution_sync('--get_messages')
 	def get_messages(self) -> list[BaseMessage]:

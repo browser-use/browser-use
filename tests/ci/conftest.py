@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from dotenv import load_dotenv
+from pydantic import ValidationError
 from pytest_httpserver import HTTPServer
 
 # Fix for httpserver hanging on shutdown - prevent blocking on socket close
@@ -19,7 +20,7 @@ socketserver.ThreadingMixIn.block_on_close = False
 # Also set daemon threads to prevent hanging
 socketserver.ThreadingMixIn.daemon_threads = True
 
-from browser_use.agent.views import AgentOutput
+from browser_use.agent.views import AgentOutput, JudgementResult
 from browser_use.llm import BaseChatModel
 from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.service import Tools
@@ -115,6 +116,14 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 	}
 	"""
 
+	default_judgement = {
+		'reasoning': 'Mock judge verified that the task was completed successfully.',
+		'verdict': True,
+		'failure_reason': '',
+		'impossible_task': False,
+		'reached_captcha': False,
+	}
+
 	# Unified logic for both cases
 	action_index = 0
 
@@ -146,7 +155,13 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 				parsed = AgentOutputWithActions.model_validate_json(action_json)
 			else:
 				# For other output formats, try to parse the JSON with that model
-				parsed = output_format.model_validate_json(action_json)
+				try:
+					parsed = output_format.model_validate_json(action_json)
+				except ValidationError:
+					if output_format is JudgementResult or 'verdict' in getattr(output_format, 'model_fields', {}):
+						parsed = output_format.model_validate(default_judgement)
+					else:
+						raise
 			return ChatInvokeCompletion(completion=parsed, usage=None)
 
 	llm.ainvoke.side_effect = mock_ainvoke
