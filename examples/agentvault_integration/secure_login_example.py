@@ -19,7 +19,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from browser_use import Agent, Browser
-from browser_use.llm.chat_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 load_dotenv()
 
@@ -143,7 +143,8 @@ async def secure_login_example() -> None:
 		return
 
 	# Configure browser
-	browser = Browser()
+	browser = Browser(keep_alive=True)
+	await browser.start()
 
 	# Build task message with credentials
 	# The credentials are used in the task but never logged or stored
@@ -158,9 +159,10 @@ async def secure_login_example() -> None:
 	]
 	task_msg = ''.join(task_parts)
 
+	llm = ChatOpenAI(model='gpt-4')
 	agent = Agent(
 		task=task_msg,
-		llm=ChatOpenAI(model='gpt-4'),
+		llm=llm,
 		browser_session=browser,
 	)
 
@@ -195,10 +197,13 @@ async def multi_site_login_example() -> None:
 			'Navigate to twitter.com, enter credentials, and complete login.'
 		)
 
-		browser = Browser()
+		browser = Browser(keep_alive=True)
+		await browser.start()
+
+		llm = ChatOpenAI(model='gpt-4')
 		agent = Agent(
 			task=twitter_task,
-			llm=ChatOpenAI(model='gpt-4'),
+			llm=llm,
 			browser_session=browser,
 		)
 
@@ -238,10 +243,13 @@ async def credential_rotation_handler() -> None:
 		f'and password \'{gh_pass}\''
 	)
 
-	browser = Browser()
+	browser = Browser(keep_alive=True)
+	await browser.start()
+
+	llm = ChatOpenAI(model='gpt-4')
 	agent = Agent(
 		task=rotation_task,
-		llm=ChatOpenAI(model='gpt-4'),
+		llm=llm,
 		browser_session=browser,
 	)
 
