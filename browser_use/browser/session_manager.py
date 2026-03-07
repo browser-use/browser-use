@@ -867,7 +867,6 @@ class SessionManager:
 			from collections import deque
 
 			cdp_session._lifecycle_events = deque(maxlen=50)  # Keep last 50 events
-			cdp_session._lifecycle_lock = asyncio.Lock()
 
 			# Register ONE handler per session that stores events
 			def on_lifecycle_event(event, session_id=None):
