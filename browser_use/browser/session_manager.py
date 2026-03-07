@@ -150,12 +150,16 @@ class SessionManager:
 	def get_all_page_targets(self) -> list:
 		"""Get all page/tab targets using owned data.
 
+		Filters out chrome-extension:// targets (e.g. side panels) which are
+		reported by CDP as type "page" but should not be treated as navigable
+		browser tabs.
+
 		Returns:
 			List of Target objects for all page/tab targets
 		"""
 		page_targets = []
 		for target in self._targets.values():
-			if target.target_type in ('page', 'tab'):
+			if target.target_type in ('page', 'tab') and not target.url.startswith('chrome-extension://'):
 				page_targets.append(target)
 		return page_targets
 
