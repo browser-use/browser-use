@@ -1464,27 +1464,26 @@ class DefaultActionWatchdog(BaseWatchdog):
 	async def _focus_element_simple(
 		self, backend_node_id: int, object_id: str, cdp_session, input_coordinates: dict | None = None
 	) -> bool:
-		"""Simple focus strategy: CDP first, then click if failed."""
+		"""Simple focus strategy: Click first (if coords available), then CDP if failed."""
 
-		# Strategy 1: Try CDP DOM.focus first
-		try:
-			result = await cdp_session.cdp_client.send.DOM.focus(
-				params={'backendNodeId': backend_node_id},
-				session_id=cdp_session.session_id,
-			)
-			self.logger.debug(f'Element focused using CDP DOM.focus (result: {result})')
-			return True
-
-		except Exception as e:
-			self.logger.debug(f'❌ CDP DOM.focus threw exception: {type(e).__name__}: {e}')
-
-		# Strategy 2: Try click to focus if CDP failed
+		# Strategy 1: Try click to focus if coordinates are available
 		if input_coordinates and 'input_x' in input_coordinates and 'input_y' in input_coordinates:
 			try:
 				click_x = input_coordinates['input_x']
 				click_y = input_coordinates['input_y']
 
 				self.logger.debug(f'🎯 Attempting click-to-focus at ({click_x:.1f}, {click_y:.1f})')
+
+				# Move mouse to element first for realism
+				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseMoved',
+						'x': click_x,
+						'y': click_y,
+					},
+					session_id=cdp_session.session_id,
+				)
+				await asyncio.sleep(0.05)
 
 				# Click to focus
 				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
@@ -1497,6 +1496,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					},
 					session_id=cdp_session.session_id,
 				)
+				await asyncio.sleep(0.05)
 				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
 					params={
 						'type': 'mouseReleased',
@@ -1513,6 +1513,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			except Exception as e:
 				self.logger.debug(f'Click focus failed: {e}')
+
+		# Strategy 2: Try CDP DOM.focus (fallback)
+		try:
+			result = await cdp_session.cdp_client.send.DOM.focus(
+				params={'backendNodeId': backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+			self.logger.debug(f'Element focused using CDP DOM.focus (result: {result})')
+			return True
+
+		except Exception as e:
+			self.logger.debug(f'❌ CDP DOM.focus threw exception: {type(e).__name__}: {e}')
 
 		# Both strategies failed
 		self.logger.debug('Focus strategies failed, will attempt typing anyway')
