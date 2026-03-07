@@ -447,11 +447,47 @@ Required environment variables:
 VERCEL_API_KEY=
 ```
 
+### Avian [example](https://github.com/browser-use/browser-use/blob/main/examples/models/avian.py)
+
+[Avian](https://avian.io) provides cost-effective LLM inference through an OpenAI-compatible API with access to models like DeepSeek-V3.2, Kimi-K2.5, GLM-5, and MiniMax-M2.5.
+
+```python
+from browser_use import Agent, ChatAvian
+from dotenv import load_dotenv
+
+load_dotenv()
+
+llm = ChatAvian(
+    model='deepseek/deepseek-v3.2',
+)
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+AVIAN_API_KEY=
+```
+
+#### Available Models
+
+| Model | Input Context | Output Context | Input Price (per 1M) | Output Price (per 1M) |
+|-------|--------------|----------------|---------------------|-----------------------|
+| `deepseek/deepseek-v3.2` | 164K | 65K | $0.26 | $0.38 |
+| `moonshotai/kimi-k2.5` | 131K | 8K | $0.45 | $2.20 |
+| `z-ai/glm-5` | 131K | 16K | $0.30 | $2.55 |
+| `minimax/minimax-m2.5` | 1M | 1M | $0.30 | $1.10 |
+
 ## Other models (DeepSeek, Novita, X...)
 
 We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.
 
 **Examples available:**
+- [Avian](https://github.com/browser-use/browser-use/blob/main/examples/models/avian.py)
 - [DeepSeek](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-chat.py)
 - [Novita](https://github.com/browser-use/browser-use/blob/main/examples/models/novita.py)
 - [OpenRouter](https://github.com/browser-use/browser-use/blob/main/examples/models/openrouter.py)
