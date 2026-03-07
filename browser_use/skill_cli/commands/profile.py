@@ -1,7 +1,7 @@
 """Profile management command handlers.
 
 Unified profile management that works with both local Chrome profiles and cloud profiles.
-The behavior is determined by the browser mode (-b real or -b remote).
+The behavior is determined by the browser mode (-b real, -b safari, or -b remote).
 """
 
 import argparse
@@ -17,7 +17,7 @@ from browser_use.skill_cli.commands.utils import get_sdk_client
 logger = logging.getLogger(__name__)
 
 
-ProfileMode = Literal['real', 'remote']
+ProfileMode = Literal['real', 'safari', 'remote']
 
 
 class ProfileModeError(Exception):
@@ -33,7 +33,7 @@ def get_profile_mode(args: argparse.Namespace) -> ProfileMode:
 		args: Parsed command-line arguments with browser attribute
 
 	Returns:
-		'real' for local Chrome profiles, 'remote' for cloud profiles
+		'real' for local Chrome profiles, 'safari' for Safari profile bindings, 'remote' for cloud profiles
 
 	Raises:
 		ProfileModeError: If mode cannot be determined or chromium mode is used
@@ -45,26 +45,31 @@ def get_profile_mode(args: argparse.Namespace) -> ProfileMode:
 	# Explicit mode specified
 	if browser_mode == 'real':
 		return 'real'
+	elif browser_mode == 'safari':
+		return 'safari'
 	elif browser_mode == 'remote':
 		return 'remote'
 	elif browser_mode == 'chromium':
 		raise ProfileModeError(
 			'Profile commands are not supported in chromium mode.\n'
-			'Use -b real for local Chrome profiles or -b remote for cloud profiles.'
+			'Use -b real for local Chrome profiles, -b safari for Safari profiles, or -b remote for cloud profiles.'
 		)
 
 	# No explicit mode - try to infer from install config
 	local_available = is_mode_available('real')
+	safari_available = is_mode_available('safari')
 	remote_available = is_mode_available('remote')
 
-	if local_available and not remote_available:
+	if local_available and not safari_available and not remote_available:
 		return 'real'
-	elif remote_available and not local_available:
+	elif safari_available and not local_available and not remote_available:
+		return 'safari'
+	elif remote_available and not local_available and not safari_available:
 		return 'remote'
-	elif local_available and remote_available:
+	elif local_available or safari_available or remote_available:
 		raise ProfileModeError(
-			'Both local and remote modes are available.\n'
-			'Specify -b real for local Chrome profiles or -b remote for cloud profiles.'
+			'Multiple profile systems are available.\n'
+			'Specify -b real for local Chrome profiles, -b safari for Safari profiles, or -b remote for cloud profiles.'
 		)
 	else:
 		raise ProfileModeError('No profile modes available. Run browser-use setup first.')
@@ -113,19 +118,20 @@ def handle_profile_command(args: argparse.Namespace) -> int:
 
 def _print_usage() -> None:
 	"""Print profile command usage."""
-	print('Usage: browser-use [-b real|remote] profile <command>')
+	print('Usage: browser-use [-b real|safari|remote] profile <command>')
 	print()
 	print('Commands:')
 	print('  list              List profiles')
 	print('  get <id>          Get profile details')
 	print('  create            Create a new profile (remote only)')
-	print('  update <id>       Update profile')
-	print('  delete <id>       Delete profile')
+	print('  update <id>       Update profile (remote only)')
+	print('  delete <id>       Delete profile (remote only)')
 	print('  cookies <id>      Show cookies by domain (real only)')
 	print('  sync              Sync local profile to cloud')
 	print()
 	print('The -b flag determines which profile system to use:')
 	print('  -b real           Local Chrome profiles')
+	print('  -b safari         Local Safari profile bindings')
 	print('  -b remote         Cloud profiles (requires API key)')
 
 
@@ -138,6 +144,8 @@ def _handle_list(args: argparse.Namespace, mode: ProfileMode) -> int:
 	"""Handle 'profile list' command."""
 	if mode == 'real':
 		return _list_local_profiles(args)
+	elif mode == 'safari':
+		return _list_local_safari_profiles(args)
 	else:
 		return _list_cloud_profiles(args)
 
@@ -155,6 +163,34 @@ def _list_local_profiles(args: argparse.Namespace) -> int:
 				print(f'  {p["id"]}: {p["name"]} ({p["email"]})')
 		else:
 			print('No Chrome profiles found')
+
+	return 0
+
+
+def _list_local_safari_profiles(args: argparse.Namespace) -> int:
+	"""List locally bound Safari profiles."""
+	from browser_use.browser.safari.profiles import SafariProfileStore
+
+	profiles = [
+		{
+			'id': binding.label,
+			'name': binding.label,
+			'profile_identifier': binding.profile_identifier,
+			'last_seen_target_id': binding.last_seen_target_id,
+		}
+		for binding in SafariProfileStore().list_bindings()
+	]
+
+	if getattr(args, 'json', False):
+		print(json.dumps({'profiles': profiles}))
+	else:
+		if profiles:
+			print('Safari profiles:')
+			for profile in profiles:
+				target_suffix = f' [{profile["last_seen_target_id"]}]' if profile['last_seen_target_id'] else ''
+				print(f'  {profile["id"]}: {profile["profile_identifier"]}{target_suffix}')
+		else:
+			print('No Safari profile bindings found')
 
 	return 0
 
@@ -206,6 +242,8 @@ def _handle_get(args: argparse.Namespace, mode: ProfileMode) -> int:
 	"""Handle 'profile get <id>' command."""
 	if mode == 'real':
 		return _get_local_profile(args)
+	elif mode == 'safari':
+		return _get_local_safari_profile(args)
 	else:
 		return _get_cloud_profile(args)
 
@@ -227,6 +265,32 @@ def _get_local_profile(args: argparse.Namespace) -> int:
 
 	print(f'Error: Profile "{profile_id}" not found', file=sys.stderr)
 	return 1
+
+
+def _get_local_safari_profile(args: argparse.Namespace) -> int:
+	"""Get a locally bound Safari profile."""
+	from browser_use.browser.safari.profiles import SafariProfileStore
+
+	profile_id = args.id
+	binding = SafariProfileStore().get_binding(profile_id)
+	if binding is None:
+		print(f'Error: Safari profile "{profile_id}" not found', file=sys.stderr)
+		return 1
+
+	data = {
+		'id': binding.label,
+		'name': binding.label,
+		'profile_identifier': binding.profile_identifier,
+		'last_seen_target_id': binding.last_seen_target_id,
+	}
+	if getattr(args, 'json', False):
+		print(json.dumps(data))
+	else:
+		print(f'Profile: {binding.label}')
+		print(f'  Identifier: {binding.profile_identifier}')
+		if binding.last_seen_target_id:
+			print(f'  Last seen tab: {binding.last_seen_target_id}')
+	return 0
 
 
 def _get_cloud_profile(args: argparse.Namespace) -> int:
@@ -274,6 +338,10 @@ def _handle_create(args: argparse.Namespace, mode: ProfileMode) -> int:
 		print('Error: Cannot create local Chrome profiles via CLI.', file=sys.stderr)
 		print('Use Chrome browser to create new profiles.', file=sys.stderr)
 		return 1
+	if mode == 'safari':
+		print('Error: Cannot create Safari profiles via CLI.', file=sys.stderr)
+		print('Create Safari profiles in Safari and then bind them through the Safari companion host.', file=sys.stderr)
+		return 1
 
 	return _create_cloud_profile(args)
 
@@ -313,6 +381,10 @@ def _handle_update(args: argparse.Namespace, mode: ProfileMode) -> int:
 	if mode == 'real':
 		print('Error: Cannot update local Chrome profiles via CLI.', file=sys.stderr)
 		print('Use Chrome browser settings to update profiles.', file=sys.stderr)
+		return 1
+	if mode == 'safari':
+		print('Error: Cannot rename Safari profile bindings via CLI yet.', file=sys.stderr)
+		print('Rebind the profile label from the Safari companion host instead.', file=sys.stderr)
 		return 1
 
 	return _update_cloud_profile(args)
@@ -354,6 +426,10 @@ def _handle_delete(args: argparse.Namespace, mode: ProfileMode) -> int:
 		print('Error: Cannot delete local Chrome profiles via CLI.', file=sys.stderr)
 		print('Use Chrome browser settings to remove profiles.', file=sys.stderr)
 		return 1
+	if mode == 'safari':
+		print('Error: Cannot delete Safari profile bindings via CLI yet.', file=sys.stderr)
+		print('Remove or update the binding from the Safari companion host or the local bindings file.', file=sys.stderr)
+		return 1
 
 	return _delete_cloud_profile(args)
 
@@ -390,6 +466,10 @@ def _handle_cookies(args: argparse.Namespace, mode: ProfileMode) -> int:
 	if mode == 'remote':
 		print('Error: Cookie listing is only available for local Chrome profiles.', file=sys.stderr)
 		print('Use -b real to access local profile cookies.', file=sys.stderr)
+		return 1
+	if mode == 'safari':
+		print('Error: Cookie listing is not available for Safari profile bindings.', file=sys.stderr)
+		print('Safari backend operates on real profile windows and does not expose cookies directly.', file=sys.stderr)
 		return 1
 
 	return _list_profile_cookies(args)

@@ -58,42 +58,34 @@ class TestBrowserSessionStart:
 		await browser_session.start()
 		assert browser_session._cdp_client_root is not None
 
-	# @pytest.mark.skip(reason="Race condition - DOMWatchdog tries to inject scripts into tab that's being closed")
-	# async def test_page_lifecycle_management(self, browser_session: BrowserSession):
-	# 	"""Test session handles page lifecycle correctly."""
-	# 	# logger.info('Testing page lifecycle management')
+	async def test_page_lifecycle_management(self, browser_session: BrowserSession):
+		"""Test session closes the focused tab and synchronously recovers a usable page."""
+		from browser_use.browser.events import CloseTabEvent, NavigateToUrlEvent
 
-	# 	# Start the session and get initial state
-	# 	await browser_session.start()
-	# 	initial_tabs = await browser_session.get_tabs()
-	# 	initial_count = len(initial_tabs)
+		await browser_session.start()
+		initial_tabs = await browser_session.get_tabs()
+		assert len(initial_tabs) >= 1
 
-	# 	# Get current tab info
-	# 	current_url = await browser_session.get_current_page_url()
-	# 	assert current_url is not None
+		current_url = await browser_session.get_current_page_url()
+		assert current_url is not None
 
-	# 	# Get current tab ID
-	# 	current_tab_id = browser_session.agent_focus.target_id if browser_session.agent_focus else None
-	# 	assert current_tab_id is not None
+		current_tab_id = browser_session.agent_focus_target_id
+		assert current_tab_id is not None
 
-	# 	# Close the current tab using the event system
-	# 	from browser_use.browser.events import CloseTabEvent
+		close_event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=current_tab_id))
+		await close_event
 
-	# 	close_event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=current_tab_id))
-	# 	await close_event
+		tabs_after_close = await browser_session.get_tabs()
+		assert isinstance(tabs_after_close, list)
+		assert len(tabs_after_close) >= 1
+		assert browser_session.agent_focus_target_id is not None
 
-	# 	# Operations should still work - may create new page or use existing
-	# 	tabs_after_close = await browser_session.get_tabs()
-	# 	assert isinstance(tabs_after_close, list)
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url='about:blank', new_tab=True))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 
-	# 	# Create a new tab explicitly
-	# 	event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url='about:blank', new_tab=True))
-	# 	await event
-	# 	await event.event_result(raise_if_any=True, raise_if_none=False)
-
-	# 	# Should have at least one tab now
-	# 	final_tabs = await browser_session.get_tabs()
-	# 	assert len(final_tabs) >= 1
+		final_tabs = await browser_session.get_tabs()
+		assert len(final_tabs) >= 1
 
 	async def test_user_data_dir_not_allowed_to_corrupt_default_profile(self):
 		"""Test user_data_dir handling for different browser channels and version mismatches."""

@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bubus import BaseEvent
-from cdp_use.cdp.target import TargetID
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer
 
+from browser_use.browser.types import BrowserTargetId
 from browser_use.dom.views import DOMInteractedElement, SerializedDOMState
 
 # Known placeholder image data for about:blank pages - a 4x4 white PNG
@@ -27,17 +27,17 @@ class TabInfo(BaseModel):
 	# Original fields
 	url: str
 	title: str
-	target_id: TargetID = Field(serialization_alias='tab_id', validation_alias=AliasChoices('tab_id', 'target_id'))
-	parent_target_id: TargetID | None = Field(
+	target_id: BrowserTargetId = Field(serialization_alias='tab_id', validation_alias=AliasChoices('tab_id', 'target_id'))
+	parent_target_id: BrowserTargetId | None = Field(
 		default=None, serialization_alias='parent_tab_id', validation_alias=AliasChoices('parent_tab_id', 'parent_target_id')
 	)  # parent page that contains this popup or cross-origin iframe
 
 	@field_serializer('target_id')
-	def serialize_target_id(self, target_id: TargetID, _info: Any) -> str:
+	def serialize_target_id(self, target_id: BrowserTargetId, _info: Any) -> str:
 		return target_id[-4:]
 
 	@field_serializer('parent_target_id')
-	def serialize_parent_target_id(self, parent_target_id: TargetID | None, _info: Any) -> str | None:
+	def serialize_parent_target_id(self, parent_target_id: BrowserTargetId | None, _info: Any) -> str | None:
 		return parent_target_id[-4:] if parent_target_id else None
 
 

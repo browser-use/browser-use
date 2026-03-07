@@ -6,9 +6,9 @@ from typing import Any, Literal
 
 from bubus import BaseEvent
 from bubus.models import T_EventResultType
-from cdp_use.cdp.target import TargetID
 from pydantic import BaseModel, Field, field_validator
 
+from browser_use.browser.types import BrowserTargetId
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import EnhancedDOMTreeNode
 
@@ -166,10 +166,10 @@ class ScrollEvent(ElementSelectedEvent[None]):
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ScrollEvent', 8.0))  # seconds
 
 
-class SwitchTabEvent(BaseEvent[TargetID]):
+class SwitchTabEvent(BaseEvent[BrowserTargetId]):
 	"""Switch to a different tab."""
 
-	target_id: TargetID | None = Field(default=None, description='None means switch to the most recently opened tab')
+	target_id: BrowserTargetId | None = Field(default=None, description='None means switch to the most recently opened tab')
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_SwitchTabEvent', 10.0))  # seconds
 
@@ -177,7 +177,7 @@ class SwitchTabEvent(BaseEvent[TargetID]):
 class CloseTabEvent(BaseEvent[None]):
 	"""Close a tab."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_CloseTabEvent', 10.0))  # seconds
 
@@ -391,7 +391,7 @@ class BrowserStoppedEvent(BaseEvent):
 class TabCreatedEvent(BaseEvent):
 	"""A new tab was created."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	url: str
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TabCreatedEvent', 30.0))  # seconds
@@ -400,7 +400,7 @@ class TabCreatedEvent(BaseEvent):
 class TabClosedEvent(BaseEvent):
 	"""A tab was closed."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 
 	# TODO:
 	# new_focus_target_id: int | None = None
@@ -420,7 +420,7 @@ class TabClosedEvent(BaseEvent):
 class AgentFocusChangedEvent(BaseEvent):
 	"""Agent focus changed to a different tab."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	url: str
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_AgentFocusChangedEvent', 10.0))  # seconds
@@ -429,7 +429,7 @@ class AgentFocusChangedEvent(BaseEvent):
 class TargetCrashedEvent(BaseEvent):
 	"""A target has crashed."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	error: str
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TargetCrashedEvent', 10.0))  # seconds
@@ -438,7 +438,7 @@ class TargetCrashedEvent(BaseEvent):
 class NavigationStartedEvent(BaseEvent):
 	"""Navigation started."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	url: str
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_NavigationStartedEvent', 30.0))  # seconds
@@ -447,7 +447,7 @@ class NavigationStartedEvent(BaseEvent):
 class NavigationCompleteEvent(BaseEvent):
 	"""Navigation completed."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	url: str
 	status: int | None = None
 	error_message: str | None = None  # Error/timeout message if navigation had issues
@@ -582,7 +582,7 @@ class FileDownloadedEvent(BaseEvent):
 class AboutBlankDVDScreensaverShownEvent(BaseEvent):
 	"""AboutBlankWatchdog has shown DVD screensaver animation on an about:blank tab."""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	error: str | None = None
 
 
@@ -608,7 +608,7 @@ class CaptchaSolverStartedEvent(BaseEvent):
 	The agent should wait for a corresponding CaptchaSolverFinishedEvent before proceeding.
 	"""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	vendor: str  # e.g. 'cloudflare', 'recaptcha', 'hcaptcha', 'datadome', 'perimeterx', 'geetest'
 	url: str
 	started_at: int  # Unix millis
@@ -622,7 +622,7 @@ class CaptchaSolverFinishedEvent(BaseEvent):
 	Emitted when the browser proxy finishes solving a CAPTCHA (successfully or not).
 	"""
 
-	target_id: TargetID
+	target_id: BrowserTargetId
 	vendor: str
 	url: str
 	duration_ms: int

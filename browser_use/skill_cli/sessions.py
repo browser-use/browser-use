@@ -107,6 +107,7 @@ async def create_browser_session(
 	Modes:
 	- chromium: Playwright-managed Chromium (default)
 	- real: User's Chrome with profile
+	- safari: Safari real-profile backend
 	- remote: Browser-Use Cloud (requires API key)
 
 	Raises:
@@ -141,6 +142,11 @@ async def create_browser_session(
 			profile_directory=profile_directory,
 			headless=not headed,  # Headless by default, --headed for visible
 		)
+
+	elif mode == 'safari':
+		from browser_use.browser.safari.session import SafariBrowserSession
+
+		return SafariBrowserSession(profile=profile or 'active')
 
 	elif mode == 'remote':
 		from browser_use.skill_cli.api_key import require_api_key

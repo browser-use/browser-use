@@ -72,6 +72,29 @@ def test_metadata_file_remote_mode():
 			meta_path.unlink()
 
 
+def test_metadata_file_safari_mode():
+	"""Test metadata file with Safari browser mode."""
+	meta_path = get_session_metadata_path('test-safari')
+	try:
+		meta_path.write_text(
+			json.dumps(
+				{
+					'browser_mode': 'safari',
+					'headed': True,
+					'profile': 'Work',
+				}
+			)
+		)
+
+		meta = json.loads(meta_path.read_text())
+		assert meta['browser_mode'] == 'safari'
+		assert meta['headed'] is True
+		assert meta['profile'] == 'Work'
+	finally:
+		if meta_path.exists():
+			meta_path.unlink()
+
+
 def test_metadata_cleanup():
 	"""Test that metadata file can be cleaned up."""
 	meta_path = get_session_metadata_path('test-cleanup')
@@ -106,6 +129,23 @@ def test_mode_mismatch_remote_on_local_should_error():
 			meta_path.unlink()
 
 
+def test_mode_mismatch_safari_on_chromium_should_error():
+	"""Test that requesting Safari on an existing Chromium session is rejected."""
+	meta_path = get_session_metadata_path('test-safari-mismatch-error')
+	try:
+		meta_path.write_text(json.dumps({'browser_mode': 'chromium'}))
+
+		meta = json.loads(meta_path.read_text())
+		existing_mode = meta.get('browser_mode', 'chromium')
+		requested_mode = 'safari'
+
+		should_error = requested_mode != existing_mode
+		assert should_error is True
+	finally:
+		if meta_path.exists():
+			meta_path.unlink()
+
+
 def test_mode_mismatch_local_on_remote_should_allow():
 	"""Test that requesting local on remote session is allowed.
 
@@ -127,6 +167,25 @@ def test_mode_mismatch_local_on_remote_should_allow():
 		# (user requested chromium, but session is remote - that's fine)
 		should_error = requested_mode == 'remote' and existing_mode != 'remote'
 		assert should_error is False
+	finally:
+		if meta_path.exists():
+			meta_path.unlink()
+
+
+def test_mode_mismatch_remote_on_safari_should_error():
+	"""Test that requesting remote on an existing Safari session is rejected."""
+	meta_path = get_session_metadata_path('test-remote-on-safari-error')
+	try:
+		meta_path.write_text(json.dumps({'browser_mode': 'safari'}))
+
+		meta = json.loads(meta_path.read_text())
+		existing_mode = meta.get('browser_mode')
+		assert existing_mode == 'safari'
+
+		requested_mode = 'remote'
+
+		should_error = requested_mode == 'remote' and existing_mode != 'remote'
+		assert should_error is True
 	finally:
 		if meta_path.exists():
 			meta_path.unlink()

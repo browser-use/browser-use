@@ -1053,17 +1053,29 @@ class DownloadsWatchdog(BaseWatchdog):
 		"""
 		self.logger.debug(f'[DownloadsWatchdog] Checking if target {target_id} is PDF viewer...')
 
+		target = self.browser_session.session_manager.get_target(target_id)
+		if not target:
+			self.logger.debug(
+				f'[DownloadsWatchdog] Target {target_id} is no longer available during PDF detection; likely closed or detached'
+			)
+			return False
+
 		# Use safe API - focus=False to avoid changing focus during PDF check
 		try:
 			session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 		except ValueError as e:
-			self.logger.warning(f'[DownloadsWatchdog] No session found for {target_id}: {e}')
+			if self._is_expected_target_detach_error(e):
+				self.logger.debug(f'[DownloadsWatchdog] Skipping PDF detection for detached target {target_id}: {e}')
+			else:
+				self.logger.warning(f'[DownloadsWatchdog] No session found for {target_id}: {e}')
 			return False
 
 		# Get URL from target
 		target = self.browser_session.session_manager.get_target(target_id)
 		if not target:
-			self.logger.warning(f'[DownloadsWatchdog] No target found for {target_id}')
+			self.logger.debug(
+				f'[DownloadsWatchdog] Target {target_id} disappeared after session lookup; likely detached during close'
+			)
 			return False
 		page_url = target.url
 
@@ -1094,6 +1106,19 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.warning(f'[DownloadsWatchdog] ❌ Error checking for PDF viewer: {e}')
 			self._pdf_viewer_cache[page_url] = False
 			return False
+
+	@staticmethod
+	def _is_expected_target_detach_error(error: ValueError) -> bool:
+		"""Return True for non-critical detach races during tab close/focus recovery."""
+		error_text = str(error)
+		return any(
+			message in error_text
+			for message in (
+				'not found - may have detached or never existed',
+				'has detached - no active sessions',
+				'No valid agent focus available - target may have detached and recovery failed',
+			)
+		)
 
 	def _check_url_for_pdf(self, url: str) -> bool:
 		"""Check if URL indicates a PDF file."""

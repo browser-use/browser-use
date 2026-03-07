@@ -264,9 +264,9 @@ def main() -> None:
 	"""Main entry point for server process."""
 	parser = argparse.ArgumentParser(description='Browser-use session server')
 	parser.add_argument('--session', required=True, help='Session name')
-	parser.add_argument('--browser', default='chromium', choices=['chromium', 'real', 'remote'])
+	parser.add_argument('--browser', default='chromium', choices=['chromium', 'real', 'safari', 'remote'])
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
-	parser.add_argument('--profile', help='Chrome profile (real browser mode)')
+	parser.add_argument('--profile', help='Browser profile (Chrome profile, Safari profile label, or cloud profile ID)')
 	args = parser.parse_args()
 
 	logger.info(f'Starting server for session: {args.session}')

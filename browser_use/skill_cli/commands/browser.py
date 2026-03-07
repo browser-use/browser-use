@@ -34,9 +34,16 @@ COMMANDS = {
 }
 
 
+def _is_safari_backend(browser_session: Any) -> bool:
+	"""Whether the current browser session uses the Safari backend."""
+	return bool(getattr(browser_session, 'is_safari_backend', False))
+
+
 async def _execute_js(session: SessionInfo, js: str) -> Any:
-	"""Execute JavaScript in the browser via CDP."""
+	"""Execute JavaScript in the browser."""
 	bs = session.browser_session
+	if hasattr(bs, 'evaluate_javascript'):
+		return await bs.evaluate_javascript(js)
 	# Get or create a CDP session for the focused target
 	cdp_session = await bs.get_or_create_cdp_session(target_id=None, focus=False)
 	if not cdp_session:
@@ -52,6 +59,9 @@ async def _execute_js(session: SessionInfo, js: str) -> Any:
 async def _get_element_center(session: SessionInfo, node: Any) -> tuple[float, float] | None:
 	"""Get the center coordinates of an element."""
 	bs = session.browser_session
+	absolute_position = getattr(node, 'absolute_position', None)
+	if absolute_position is not None:
+		return absolute_position.x + absolute_position.width / 2, absolute_position.y + absolute_position.height / 2
 	try:
 		cdp_session = await bs.cdp_client_for_node(node)
 		session_id = cdp_session.session_id
@@ -122,8 +132,14 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 			return {'error': 'Usage: click <index> or click <x> <y>'}
 
 	elif action == 'type':
-		# Type into currently focused element using CDP directly
 		text = params['text']
+		if _is_safari_backend(bs):
+			from browser_use.browser.events import SendKeysEvent
+
+			await bs.event_bus.dispatch(SendKeysEvent(keys=text))
+			return {'typed': text}
+
+		# Type into currently focused element using CDP directly
 		cdp_session = await bs.get_or_create_cdp_session(target_id=None, focus=False)
 		if not cdp_session:
 			return {'error': 'No active browser session'}
@@ -191,11 +207,10 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		from browser_use.browser.events import SwitchTabEvent
 
 		tab_index = params['tab']
-		# Get target_id from tab index
-		page_targets = bs.session_manager.get_all_page_targets() if bs.session_manager else []
-		if tab_index < 0 or tab_index >= len(page_targets):
-			return {'error': f'Invalid tab index {tab_index}. Available: 0-{len(page_targets) - 1}'}
-		target_id = page_targets[tab_index].target_id
+		tabs = await bs.get_tabs()
+		if tab_index < 0 or tab_index >= len(tabs):
+			return {'error': f'Invalid tab index {tab_index}. Available: 0-{len(tabs) - 1}'}
+		target_id = tabs[tab_index].target_id
 		await bs.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 		return {'switched': tab_index}
 
@@ -203,15 +218,14 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		from browser_use.browser.events import CloseTabEvent
 
 		tab_index = params.get('tab')
-		# Get target_id from tab index
-		page_targets = bs.session_manager.get_all_page_targets() if bs.session_manager else []
+		tabs = await bs.get_tabs()
 		if tab_index is not None:
-			if tab_index < 0 or tab_index >= len(page_targets):
-				return {'error': f'Invalid tab index {tab_index}. Available: 0-{len(page_targets) - 1}'}
-			target_id = page_targets[tab_index].target_id
+			if tab_index < 0 or tab_index >= len(tabs):
+				return {'error': f'Invalid tab index {tab_index}. Available: 0-{len(tabs) - 1}'}
+			target_id = tabs[tab_index].target_id
 		else:
 			# Close current/focused tab
-			target_id = bs.session_manager.get_focused_target().target_id if bs.session_manager else None
+			target_id = getattr(bs, 'agent_focus_target_id', None)
 			if not target_id:
 				return {'error': 'No focused tab to close'}
 		await bs.event_bus.dispatch(CloseTabEvent(target_id=target_id))
@@ -249,6 +263,9 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'query': query, 'error': 'extract requires agent mode - use: browser-use run "extract ..."'}
 
 	elif action == 'hover':
+		if _is_safari_backend(bs):
+			return {'error': 'Safari backend does not support hover via CLI yet'}
+
 		index = params['index']
 		node = await bs.get_element_by_index(index)
 		if node is None:
@@ -267,6 +284,9 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'hovered': index}
 
 	elif action == 'dblclick':
+		if _is_safari_backend(bs):
+			return {'error': 'Safari backend does not support double-click via CLI yet'}
+
 		index = params['index']
 		node = await bs.get_element_by_index(index)
 		if node is None:
@@ -313,6 +333,9 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'double_clicked': index}
 
 	elif action == 'rightclick':
+		if _is_safari_backend(bs):
+			return {'error': 'Safari backend does not support right-click via CLI yet'}
+
 		index = params['index']
 		node = await bs.get_element_by_index(index)
 		if node is None:
@@ -359,6 +382,9 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'right_clicked': index}
 
 	elif action == 'cookies':
+		if _is_safari_backend(bs):
+			return {'error': 'Safari backend does not expose cookies through the CLI'}
+
 		cookies_command = params.get('cookies_command')
 
 		if cookies_command == 'get':

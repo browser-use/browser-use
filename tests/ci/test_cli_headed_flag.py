@@ -44,3 +44,12 @@ def test_headed_flag_with_browser_mode():
 	args = parser.parse_args(['--headed', '--browser', 'chromium', 'open', 'http://example.com'])
 	assert args.headed is True
 	assert args.browser == 'chromium'
+
+
+def test_headed_flag_with_safari_browser_mode():
+	"""Test --headed works with Safari browser mode."""
+	parser = build_parser()
+
+	args = parser.parse_args(['--headed', '--browser', 'safari', 'open', 'http://example.com'])
+	assert args.headed is True
+	assert args.browser == 'safari'

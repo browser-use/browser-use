@@ -211,6 +211,39 @@ def get_session_metadata_path(session: str) -> Path:
 	return Path(tempfile.gettempdir()) / f'browser-use-{session}.meta'
 
 
+def _is_browser_mode_compatible(requested_mode: str, existing_mode: str) -> bool:
+	"""Whether an existing session can satisfy a requested browser mode."""
+	chromium_family = {'chromium', 'real'}
+
+	if requested_mode == existing_mode:
+		return True
+	if requested_mode in chromium_family and existing_mode in chromium_family:
+		return True
+	if requested_mode in chromium_family and existing_mode == 'remote':
+		return True
+	return False
+
+
+def _browser_mode_mismatch_error(session: str, requested_mode: str, existing_mode: str) -> str:
+	"""Build a helpful session-mode mismatch error message."""
+	if requested_mode == 'remote':
+		reason = 'Cloud browser features (live_url, cloud session reuse, cloud profiles) require a remote session.'
+	elif requested_mode == 'safari':
+		reason = 'Safari mode requires a Safari-backed session and cannot reuse Chromium or remote sessions.'
+	else:
+		reason = f'Browser mode {requested_mode} cannot reuse an existing {existing_mode} session.'
+
+	return (
+		f"Error: Session '{session}' is running with --browser {existing_mode}, "
+		f'but --browser {requested_mode} was requested.\n\n'
+		f'{reason}\n\n'
+		f'Options:\n'
+		f'  1. Close and restart: browser-use close && browser-use --browser {requested_mode} open <url>\n'
+		f'  2. Use different session: browser-use --browser {requested_mode} --session other <command>\n'
+		f'  3. Keep using existing session: browser-use --browser {existing_mode} <command>'
+	)
+
+
 def ensure_server(session: str, browser: str, headed: bool, profile: str | None, api_key: str | None) -> bool:
 	"""Start server if not running. Returns True if started."""
 	from browser_use.skill_cli.utils import is_session_locked, kill_orphaned_server
@@ -228,23 +261,9 @@ def ensure_server(session: str, browser: str, headed: bool, profile: str | None,
 				try:
 					meta = json.loads(meta_path.read_text())
 					existing_mode = meta.get('browser_mode', 'chromium')
-					if existing_mode != browser:
-						# Only error if user explicitly requested 'remote' but session is local
-						# This prevents losing cloud features (live_url, etc.)
-						# The reverse case (requesting local but having remote) is fine -
-						# user still gets a working browser, just with more features
-						if browser == 'remote' and existing_mode != 'remote':
-							print(
-								f"Error: Session '{session}' is running with --browser {existing_mode}, "
-								f'but --browser remote was requested.\n\n'
-								f'Cloud browser features (live_url) require a remote session.\n\n'
-								f'Options:\n'
-								f'  1. Close and restart: browser-use close && browser-use --browser remote open <url>\n'
-								f'  2. Use different session: browser-use --browser remote --session other <command>\n'
-								f'  3. Use existing local browser: browser-use --browser {existing_mode} <command>',
-								file=sys.stderr,
-							)
-							sys.exit(1)
+					if not _is_browser_mode_compatible(browser, existing_mode):
+						print(_browser_mode_mismatch_error(session, browser, existing_mode), file=sys.stderr)
+						sys.exit(1)
 				except (json.JSONDecodeError, OSError):
 					pass  # Metadata file corrupt, ignore
 
@@ -375,6 +394,12 @@ def build_parser() -> argparse.ArgumentParser:
   browser-use run "task" --llm gpt-4o           # Specify model (requires API key)
   browser-use open https://example.com""")
 
+	if 'safari' in available_modes:
+		epilog_parts.append("""
+Safari Mode (--browser safari):
+  browser-use -b safari --headed open https://example.com  # Use your active Safari profile
+  browser-use -b safari --profile Personal open https://example.com""")
+
 	if 'remote' in available_modes:
 		if 'chromium' in available_modes:
 			# Full install - show how to switch to remote
@@ -429,7 +454,7 @@ Setup:
 		help=f'Browser mode (available: {", ".join(available_modes)})',
 	)
 	parser.add_argument('--headed', action='store_true', help='Show browser window')
-	parser.add_argument('--profile', help='Browser profile (local name or cloud ID)')
+	parser.add_argument('--profile', help='Browser profile (Chrome profile name, Safari profile label, or cloud ID)')
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--api-key', help='Browser-Use API key')
 	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
@@ -1179,7 +1204,7 @@ def main() -> int:
 	if args.profile and args.browser == 'chromium':
 		print(
 			'Error: --profile is not supported in chromium mode.\n'
-			'Use -b real for local Chrome profiles or -b remote for cloud profiles.',
+			'Use -b real for local Chrome profiles, -b safari for Safari profiles, or -b remote for cloud profiles.',
 			file=sys.stderr,
 		)
 		return 1

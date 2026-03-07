@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import tempfile
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
@@ -252,7 +253,68 @@ class BrowserWrapper:
 
 		time.sleep(seconds)
 
-	def extract(self, query: str) -> Any:
-		"""Extract data using LLM (requires API key)."""
-		# This would need LLM integration
-		raise NotImplementedError('extract() requires LLM integration - use agent.run() instead')
+	def extract(
+		self,
+		query: str,
+		output_schema: dict[str, Any] | None = None,
+		extract_links: bool = False,
+		start_from_char: int = 0,
+	) -> Any:
+		"""Extract page data using the configured CLI LLM.
+
+		Returns structured data when ``output_schema`` is provided, otherwise returns
+		the extraction text payload from the page.
+		"""
+		return self._run(
+			self._extract_async(
+				query=query,
+				output_schema=output_schema,
+				extract_links=extract_links,
+				start_from_char=start_from_char,
+			)
+		)
+
+	async def _extract_async(
+		self,
+		query: str,
+		output_schema: dict[str, Any] | None = None,
+		extract_links: bool = False,
+		start_from_char: int = 0,
+	) -> Any:
+		from browser_use.agent.views import ActionResult
+		from browser_use.filesystem.file_system import FileSystem
+		from browser_use.skill_cli.commands.agent import get_llm
+		from browser_use.tools.service import Tools
+
+		page_extraction_llm = get_llm()
+		if page_extraction_llm is None:
+			raise RuntimeError(
+				'No LLM configured for browser.extract(). '
+				'Set BROWSER_USE_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
+			)
+
+		with tempfile.TemporaryDirectory(prefix='browser-use-python-extract-') as tmp:
+			file_system = FileSystem(tmp)
+			tools = Tools()
+			result = await tools.extract(
+				query=query,
+				extract_links=extract_links,
+				start_from_char=start_from_char,
+				output_schema=output_schema,
+				browser_session=self._session,
+				page_extraction_llm=page_extraction_llm,
+				file_system=file_system,
+			)
+
+		assert isinstance(result, ActionResult)
+		if result.error:
+			raise RuntimeError(result.error)
+
+		if output_schema is not None and result.metadata:
+			extraction_result = result.metadata.get('extraction_result')
+			if isinstance(extraction_result, dict) and 'data' in extraction_result:
+				return extraction_result['data']
+
+		if result.extracted_content is not None:
+			return result.extracted_content
+		return result.long_term_memory

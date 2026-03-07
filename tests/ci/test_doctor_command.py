@@ -1,5 +1,7 @@
 """Tests for doctor command."""
 
+from unittest.mock import patch
+
 import pytest
 
 from browser_use.skill_cli.commands import doctor
@@ -17,7 +19,7 @@ async def test_doctor_handle_returns_valid_structure():
 	assert 'summary' in result
 
 	# Verify all expected checks are present
-	expected_checks = ['package', 'browser', 'api_key', 'cloudflared', 'network']
+	expected_checks = ['package', 'browser', 'safari', 'api_key', 'cloudflared', 'network']
 	for check in expected_checks:
 		assert check in result['checks']
 		assert 'status' in result['checks'][check]
@@ -38,6 +40,49 @@ def test_check_browser_returns_valid_structure():
 	assert 'status' in result
 	assert result['status'] in ('ok', 'warning')
 	assert 'message' in result
+
+
+def test_check_safari_backend_available():
+	"""Safari doctor check should report ready when the backend probe passes cleanly."""
+	with patch(
+		'browser_use.browser.backends.safari_backend.probe_local_safari_backend',
+	) as probe:
+		probe.return_value = _make_safari_probe_result(available=True)
+		result = doctor._check_safari_backend()
+
+	assert result['status'] == 'ok'
+	assert 'available' in result['message'].lower()
+
+
+def test_check_safari_backend_with_limitations():
+	"""Safari doctor check should surface missing GUI/screenshot prerequisites as warnings."""
+	with patch(
+		'browser_use.browser.backends.safari_backend.probe_local_safari_backend',
+	) as probe:
+		probe.return_value = _make_safari_probe_result(
+			available=True,
+			gui_scripting_available=False,
+			screen_capture_available=False,
+		)
+		result = doctor._check_safari_backend()
+
+	assert result['status'] == 'warning'
+	assert 'limitations' in result['message'].lower()
+
+
+def test_check_safari_backend_unavailable():
+	"""Safari doctor check should warn when core backend prerequisites are missing."""
+	with patch(
+		'browser_use.browser.backends.safari_backend.probe_local_safari_backend',
+	) as probe:
+		probe.return_value = _make_safari_probe_result(
+			available=False,
+			reason='Safari 26.3.1 or newer is required',
+		)
+		result = doctor._check_safari_backend()
+
+	assert result['status'] == 'warning'
+	assert 'required' in result['message'].lower()
 
 
 def test_check_api_key_with_env_var(monkeypatch):
@@ -130,3 +175,27 @@ def test_summarize_checks_with_errors():
 	summary = doctor._summarize_checks(checks)
 	assert '1/2' in summary
 	assert '1 error' in summary
+
+
+def _make_safari_probe_result(
+	*,
+	available: bool,
+	reason: str | None = None,
+	gui_scripting_available: bool = True,
+	screen_capture_available: bool = True,
+):
+	"""Create a Safari backend probe result for doctor tests."""
+	from browser_use.browser.backends.base import BackendCapabilityReport
+
+	return BackendCapabilityReport(
+		backend='safari',
+		available=available,
+		reason=reason,
+		details={
+			'safari_version': '26.3.1',
+			'macos_version': '26.0',
+			'gui_scripting_available': gui_scripting_available,
+			'screen_capture_available': screen_capture_available,
+			'profile': 'active',
+		},
+	)

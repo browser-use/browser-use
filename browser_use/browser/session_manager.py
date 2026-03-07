@@ -112,7 +112,7 @@ class SessionManager:
 		await self._initialize_existing_targets()
 
 	def _get_session_for_target(self, target_id: TargetID) -> 'CDPSession | None':
-		"""Internal: Get ANY valid session for a target (picks first available).
+		"""Internal: Get the best available session for a target.
 
 		⚠️ INTERNAL API - Use browser_session.get_or_create_cdp_session() instead!
 		This method has no validation, no focus management, no recovery.
@@ -145,7 +145,30 @@ class SessionManager:
 						suppress_exceptions=False,
 					)
 			return None
-		return self._sessions.get(next(iter(session_ids)))
+
+		sessions = [self._sessions[session_id] for session_id in session_ids if session_id in self._sessions]
+		if not sessions:
+			return None
+
+		if len(sessions) == 1:
+			return sessions[0]
+
+		target = self._targets.get(target_id)
+		target_type = target.target_type if target else 'unknown'
+
+		def _session_sort_key(session: 'CDPSession') -> tuple[float, int, float]:
+			lifecycle_events = getattr(session, '_lifecycle_events', None)
+			last_event_timestamp = 0.0
+			if lifecycle_events:
+				last_event = lifecycle_events[-1]
+				last_event_timestamp = float(last_event.get('timestamp', 0.0))
+
+			has_lifecycle_signal = 1 if target_type in ('page', 'tab') and last_event_timestamp > 0 else 0
+			# Chrome can transiently expose multiple sessions for the same target.
+			# Prefer the most recently attached session first, then the freshest lifecycle signal.
+			return (float(getattr(session, '_attached_at', 0.0)), has_lifecycle_signal, last_event_timestamp)
+
+		return max(sessions, key=_session_sort_key)
 
 	def get_all_page_targets(self) -> list:
 		"""Get all page/tab targets using owned data.
@@ -437,6 +460,7 @@ class SessionManager:
 			target_id=target_id,
 			session_id=session_id,
 		)
+		cdp_session._attached_at = asyncio.get_event_loop().time()
 
 		# Add to sessions dict
 		self._sessions[session_id] = cdp_session

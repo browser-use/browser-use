@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import socketserver
 
 import pytest
@@ -50,6 +49,19 @@ class TestBrowserContext:
 			content_type='text/html',
 		)
 
+		server.expect_request('/selector_test').respond_with_data(
+			"""
+			<html>
+			<head><title>Selector Test</title></head>
+			<body>
+				<label for="search-box">Search</label>
+				<input id="search-box" class="search primary" name="search" placeholder="Search the site" />
+			</body>
+			</html>
+			""",
+			content_type='text/html',
+		)
+
 		yield server
 		server.stop()
 
@@ -74,7 +86,6 @@ class TestBrowserContext:
 		# Ensure event bus is properly stopped
 		await browser_session.event_bus.stop(clear=True, timeout=5)
 
-	@pytest.mark.skip(reason='TODO: fix')
 	def test_is_url_allowed(self):
 		"""
 		Test the _is_url_allowed method to verify that it correctly checks URLs against
@@ -116,16 +127,31 @@ class TestBrowserContext:
 		# urlparse will return an empty netloc for some malformed URLs.
 		assert watchdog2._is_url_allowed('notaurl') is False
 
-	# Method was removed from BrowserSession
+	@pytest.mark.asyncio
+	async def test_enhanced_css_selector_for_element(self, browser_session, base_url):
+		"""Test the backward-compatible selector helper for both actor and DOM-tree element forms."""
+		from browser_use.browser.events import NavigateToUrlEvent
 
-	def test_enhanced_css_selector_for_element(self):
-		"""
-		Test removed: _enhanced_css_selector_for_element method no longer exists.
-		"""
-		pass  # Method was removed from BrowserSession
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/selector_test'))
+		await event
+
+		page = await browser_session.get_current_page()
+		assert page is not None
+
+		elements = await page.get_elements_by_css_selector('#search-box')
+		assert len(elements) == 1
+
+		selector_from_actor = await browser_session._enhanced_css_selector_for_element(elements[0])
+		assert selector_from_actor == '#search-box'
+
+		await browser_session.get_browser_state_summary(include_screenshot=False)
+		backend_node_id = await browser_session.get_index_by_id('search-box')
+		assert backend_node_id is not None
+
+		selector_from_dom = await browser_session._enhanced_css_selector_for_element(backend_node_id)
+		assert selector_from_dom == '#search-box'
 
 	@pytest.mark.asyncio
-	@pytest.mark.skip(reason='TODO: fix')
 	async def test_navigate_and_get_current_page(self, browser_session, base_url):
 		"""Test that navigate method changes the URL and get_current_page returns the proper page."""
 		# Navigate to the test page
@@ -145,7 +171,6 @@ class TestBrowserContext:
 		assert title == 'Test Home Page'
 
 	@pytest.mark.asyncio
-	@pytest.mark.skip(reason='TODO: fix')
 	async def test_refresh_page(self, browser_session, base_url):
 		"""Test that refresh_page correctly reloads the current page."""
 		# Navigate to the test page
@@ -172,7 +197,6 @@ class TestBrowserContext:
 		assert title_after == 'Test Home Page'
 
 	@pytest.mark.asyncio
-	@pytest.mark.skip(reason='TODO: fix')
 	async def test_execute_javascript(self, browser_session, base_url):
 		"""Test that execute_javascript correctly executes JavaScript in the current page."""
 		# Navigate to a test page
@@ -195,8 +219,6 @@ class TestBrowserContext:
 		assert bg_color == 'red'
 
 	@pytest.mark.asyncio
-	@pytest.mark.skip(reason='TODO: fix')
-	@pytest.mark.skip(reason='get_scroll_info API changed - depends on page object that no longer exists')
 	async def test_get_scroll_info(self, browser_session, base_url):
 		"""Test that get_scroll_info returns the correct scroll position information."""
 		# Navigate to the scroll test page
@@ -226,9 +248,8 @@ class TestBrowserContext:
 		assert pixels_below_after_scroll < pixels_below_initial, 'Less content should be below viewport after scrolling'
 
 	@pytest.mark.asyncio
-	@pytest.mark.skip(reason='TODO: fix')
 	async def test_take_screenshot(self, browser_session, base_url):
-		"""Test that take_screenshot returns a valid base64 encoded image."""
+		"""Test that take_screenshot returns valid PNG bytes."""
 		# Navigate to the test page
 		from browser_use.browser.events import NavigateToUrlEvent
 
@@ -236,22 +257,19 @@ class TestBrowserContext:
 		await event
 
 		# Take a screenshot
-		screenshot_base64 = await browser_session.take_screenshot()
+		screenshot_bytes = await browser_session.take_screenshot()
 
-		# Verify the screenshot is a valid base64 string
-		assert isinstance(screenshot_base64, str)
-		assert len(screenshot_base64) > 0
+		# Verify the screenshot is PNG bytes
+		assert isinstance(screenshot_bytes, bytes)
+		assert len(screenshot_bytes) > 0
 
-		# Verify it can be decoded as base64
+		# Verify the data starts with a valid PNG image signature
 		try:
-			image_data = base64.b64decode(screenshot_base64)
-			# Verify the data starts with a valid image signature (PNG file header)
-			assert image_data[:8] == b'\x89PNG\r\n\x1a\n', 'Screenshot is not a valid PNG image'
+			assert screenshot_bytes[:8] == b'\x89PNG\r\n\x1a\n', 'Screenshot is not a valid PNG image'
 		except Exception as e:
-			pytest.fail(f'Failed to decode screenshot as base64: {e}')
+			pytest.fail(f'Failed to validate screenshot bytes as PNG: {e}')
 
 	@pytest.mark.asyncio
-	@pytest.mark.skip(reason='TODO: fix')
 	async def test_switch_tab_operations(self, browser_session, base_url):
 		"""Test tab creation, switching, and closing operations."""
 		# Navigate to home page in first tab
@@ -291,50 +309,56 @@ class TestBrowserContext:
 		)
 		assert base_url in non_blank_tabs[0].url, 'The remaining tab should be the home page'
 
-	# TODO: highlighting doesn't exist anymore
-	# @pytest.mark.asyncio
-	# async def test_remove_highlights(self, browser_session, base_url):
-	# 	"""Test that remove_highlights successfully removes highlight elements."""
-	# 	# Navigate to a test page
-	# 	from browser_use.browser.events import NavigateToUrlEvent; event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/')
+	@pytest.mark.asyncio
+	async def test_remove_highlights(self, browser_session, base_url):
+		"""Test that remove_highlights clears all current browser-use highlight variants."""
+		from browser_use.browser.events import NavigateToUrlEvent
 
-	# 	# Add a highlight via JavaScript
-	# 	await browser_session.execute_javascript("""
-	#         const container = document.createElement('div');
-	#         container.id = 'playwright-highlight-container';
-	#         document.body.appendChild(container);
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/'))
+		await event
 
-	#         const highlight = document.createElement('div');
-	#         highlight.id = 'playwright-highlight-1';
-	#         container.appendChild(highlight);
+		await browser_session.execute_javascript("""
+			(() => {
+				const domContainer = document.createElement('div');
+				domContainer.id = 'browser-use-debug-highlights';
+				domContainer.setAttribute('data-browser-use-highlight', 'container');
+				document.body.appendChild(domContainer);
 
-	#         const element = document.querySelector('h1');
-	#         element.setAttribute('browser-user-highlight-id', 'playwright-highlight-1');
-	#     """)
+				const domHighlight = document.createElement('div');
+				domHighlight.setAttribute('data-browser-use-highlight', 'element');
+				domContainer.appendChild(domHighlight);
 
-	# 	# Verify the highlight container exists
-	# 	container_exists = await browser_session.execute_javascript(
-	# 		"document.getElementById('playwright-highlight-container') !== null"
-	# 	)
-	# 	assert container_exists, 'Highlight container should exist before removal'
+				const interactionHighlight = document.createElement('div');
+				interactionHighlight.setAttribute('data-browser-use-interaction-highlight', 'true');
+				document.body.appendChild(interactionHighlight);
 
-	# 	# Call remove_highlights
-	# 	await browser_session.remove_highlights()
+				const coordinateHighlight = document.createElement('div');
+				coordinateHighlight.setAttribute('data-browser-use-coordinate-highlight', 'true');
+				document.body.appendChild(coordinateHighlight);
 
-	# 	# Verify the highlight container was removed
-	# 	container_exists_after = await browser_session.execute_javascript(
-	# 		"document.getElementById('playwright-highlight-container') !== null"
-	# 	)
-	# 	assert not container_exists_after, 'Highlight container should be removed'
+				const tooltip = document.createElement('div');
+				tooltip.setAttribute('data-browser-use-highlight', 'tooltip');
+				document.body.appendChild(tooltip);
+			})()
+		""")
 
-	# 	# Verify the highlight attribute was removed from the element
-	# 	attribute_exists = await browser_session.execute_javascript(
-	# 		"document.querySelector('h1').hasAttribute('browser-user-highlight-id')"
-	# 	)
-	# 	assert not attribute_exists, 'browser-user-highlight-id attribute should be removed'
+		highlight_count_before = await browser_session.execute_javascript("""
+			document.querySelectorAll(
+				'[data-browser-use-highlight], [data-browser-use-interaction-highlight], [data-browser-use-coordinate-highlight]'
+			).length
+		""")
+		assert highlight_count_before == 5
+
+		await browser_session.remove_highlights()
+
+		highlight_count_after = await browser_session.execute_javascript("""
+			document.querySelectorAll(
+				'[data-browser-use-highlight], [data-browser-use-interaction-highlight], [data-browser-use-coordinate-highlight]'
+			).length
+		""")
+		assert highlight_count_after == 0
 
 	@pytest.mark.asyncio
-	@pytest.mark.skip(reason='TODO: fix')
 	async def test_custom_action_with_no_arguments(self, browser_session, base_url):
 		"""Test that custom actions with no arguments are handled correctly"""
 		from browser_use.agent.views import ActionResult

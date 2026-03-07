@@ -1,7 +1,7 @@
 """Install configuration - tracks which browser modes are available.
 
 This module manages the installation configuration that determines which browser
-modes (chromium, real, remote) are available based on how browser-use was installed.
+modes (chromium, real, safari, remote) are available based on how browser-use was installed.
 
 Config file: ~/.browser-use/install-config.json
 
@@ -9,15 +9,29 @@ When no config file exists (e.g., pip install users), all modes are available by
 """
 
 import json
+import platform
 from pathlib import Path
 from typing import Literal
 
 CONFIG_PATH = Path.home() / '.browser-use' / 'install-config.json'
+SAFARI_APP_PATH = Path('/Applications/Safari.app')
 
-ModeType = Literal['chromium', 'real', 'remote']
+ModeType = Literal['chromium', 'real', 'safari', 'remote']
 
-# Local modes (both require Chromium to be installed)
-LOCAL_MODES: set[str] = {'chromium', 'real'}
+# Chromium-family local modes share the same install requirement.
+CHROMIUM_LOCAL_MODES: set[str] = {'chromium', 'real'}
+SAFARI_LOCAL_MODES: set[str] = {'safari'}
+LOCAL_MODES: set[str] = CHROMIUM_LOCAL_MODES | SAFARI_LOCAL_MODES
+
+DEFAULT_BROWSER_MODE = 'chromium'
+
+
+def _default_installed_modes() -> list[str]:
+	"""Return platform-aware default browser modes."""
+	modes = ['chromium', 'real', 'remote']
+	if platform.system() == 'Darwin' and SAFARI_APP_PATH.exists():
+		modes.append('safari')
+	return modes
 
 
 def get_config() -> dict:
@@ -27,8 +41,8 @@ def get_config() -> dict:
 	"""
 	if not CONFIG_PATH.exists():
 		return {
-			'installed_modes': ['chromium', 'real', 'remote'],
-			'default_mode': 'chromium',
+			'installed_modes': _default_installed_modes(),
+			'default_mode': DEFAULT_BROWSER_MODE,
 		}
 
 	try:
@@ -36,8 +50,8 @@ def get_config() -> dict:
 	except (json.JSONDecodeError, OSError):
 		# Config file corrupt, return default
 		return {
-			'installed_modes': ['chromium', 'real', 'remote'],
-			'default_mode': 'chromium',
+			'installed_modes': _default_installed_modes(),
+			'default_mode': DEFAULT_BROWSER_MODE,
 		}
 
 
@@ -59,7 +73,7 @@ def is_mode_available(mode: str) -> bool:
 	"""Check if a browser mode is available based on installation config.
 
 	Args:
-		mode: The browser mode to check ('chromium', 'real', or 'remote')
+		mode: The browser mode to check ('chromium', 'real', 'safari', or 'remote')
 
 	Returns:
 		True if the mode is available, False otherwise
@@ -67,22 +81,24 @@ def is_mode_available(mode: str) -> bool:
 	config = get_config()
 	installed = config.get('installed_modes', [])
 
-	# Map 'real' to same category as 'chromium' (both are local)
-	# If either local mode is installed, both are available
-	if mode in LOCAL_MODES:
-		return bool(LOCAL_MODES & set(installed))
+	# Map 'real' to same category as 'chromium' (both are Chromium-family local modes)
+	if mode in CHROMIUM_LOCAL_MODES:
+		return bool(CHROMIUM_LOCAL_MODES & set(installed))
+
+	if mode in SAFARI_LOCAL_MODES:
+		return platform.system() == 'Darwin' and SAFARI_APP_PATH.exists() and bool(SAFARI_LOCAL_MODES & set(installed))
 
 	return mode in installed
 
 
 def get_default_mode() -> str:
 	"""Get the default browser mode based on installation config."""
-	return get_config().get('default_mode', 'chromium')
+	return get_config().get('default_mode', DEFAULT_BROWSER_MODE)
 
 
 def get_available_modes() -> list[str]:
 	"""Get list of available browser modes."""
-	return get_config().get('installed_modes', ['chromium', 'real', 'remote'])
+	return get_config().get('installed_modes', _default_installed_modes())
 
 
 def get_mode_unavailable_error(mode: str) -> str:
@@ -96,16 +112,24 @@ def get_mode_unavailable_error(mode: str) -> str:
 	"""
 	available = get_available_modes()
 
-	if mode in LOCAL_MODES:
+	if mode in CHROMIUM_LOCAL_MODES:
 		install_flag = '--full'
-		mode_desc = 'Local browser mode'
+		mode_desc = 'Local Chromium browser mode'
+	elif mode in SAFARI_LOCAL_MODES:
+		install_flag = '--full'
+		mode_desc = 'Safari real-profile mode'
 	else:
 		install_flag = '--full'
 		mode_desc = 'Remote browser mode'
+
+	extra_help = ''
+	if mode == 'safari':
+		extra_help = '\nSafari mode also requires Safari 26.3.1+ and macOS 26+.'
 
 	return (
 		f"Error: {mode_desc} '{mode}' not installed.\n"
 		f'Available modes: {", ".join(available)}\n\n'
 		f'To install all modes, reinstall with:\n'
 		f'  curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- {install_flag}'
+		f'{extra_help}'
 	)

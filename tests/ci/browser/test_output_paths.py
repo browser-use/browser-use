@@ -1,7 +1,5 @@
 """Test all recording and save functionality for Agent and BrowserSession."""
 
-from pathlib import Path
-
 import pytest
 
 from browser_use import Agent, AgentHistoryList
@@ -173,13 +171,10 @@ class TestAgentRecordings:
 		finally:
 			await browser_session.kill()
 
-	@pytest.mark.skip(reason='TODO: fix')
 	@pytest.mark.parametrize('generate_gif', [False, True, 'custom_path'])
-	async def test_generate_gif(self, test_dir, httpserver_url, llm, generate_gif):
+	async def test_generate_gif(self, test_dir, httpserver_url, llm, generate_gif, monkeypatch):
 		"""Test GIF generation with different settings."""
-		# Clean up any existing GIFs first
-		for gif in Path.cwd().glob('agent_*.gif'):
-			gif.unlink()
+		monkeypatch.chdir(test_dir)
 
 		gif_param = generate_gif
 		expected_gif_path = None
@@ -187,6 +182,8 @@ class TestAgentRecordings:
 		if generate_gif == 'custom_path':
 			expected_gif_path = test_dir / 'custom_agent.gif'
 			gif_param = str(expected_gif_path)
+		elif generate_gif is True:
+			expected_gif_path = test_dir / 'agent_history.gif'
 
 		browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, disable_security=True, user_data_dir=None))
 		await browser_session.start()
@@ -204,16 +201,11 @@ class TestAgentRecordings:
 
 			# Check GIF creation
 			if generate_gif is False:
-				gif_files = list(Path.cwd().glob('*.gif'))
+				gif_files = list(test_dir.glob('*.gif'))
 				assert len(gif_files) == 0, 'GIF file was created when generate_gif=False'
-			elif generate_gif is True:
-				# With mock LLM that doesn't navigate, all screenshots will be about:blank placeholders
-				# So no GIF will be created (this is expected behavior)
-				gif_files = list(Path.cwd().glob('agent_history.gif'))
-				assert len(gif_files) == 0, 'GIF should not be created when all screenshots are placeholders'
-			else:  # custom_path
+			else:
 				assert expected_gif_path is not None, 'expected_gif_path should be set for custom_path'
-				# With mock LLM that doesn't navigate, no GIF will be created
-				assert not expected_gif_path.exists(), 'GIF should not be created when all screenshots are placeholders'
+				assert expected_gif_path.exists(), f'GIF should be created at {expected_gif_path}'
+				assert expected_gif_path.stat().st_size > 0, 'GIF file should not be empty'
 		finally:
 			await browser_session.kill()
