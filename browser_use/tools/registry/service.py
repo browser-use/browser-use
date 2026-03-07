@@ -74,7 +74,6 @@ class Registry(Generic[Context]):
 	def _normalize_action_function_signature(
 		self,
 		func: Callable,
-		description: str,
 		param_model: type[BaseModel] | None = None,
 	) -> tuple[Callable, type[BaseModel]]:
 		"""
@@ -174,7 +173,6 @@ class Registry(Generic[Context]):
 
 			# Prepare arguments for original function
 			call_args = []
-			call_kwargs = {}
 
 			# Handle Type 1 pattern (first arg is the param model)
 			if param_model_provided and parameters and parameters[0].name not in special_param_names:
@@ -308,7 +306,7 @@ class Registry(Generic[Context]):
 				return func
 
 			# Normalize the function signature
-			normalized_func, actual_param_model = self._normalize_action_function_signature(func, description, param_model)
+			normalized_func, actual_param_model = self._normalize_action_function_signature(func, param_model)
 
 			action = RegisteredAction(
 				name=func.__name__,
