@@ -236,7 +236,10 @@ class BrowserUseServer:
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'index': {'type': 'integer', 'description': 'The index of the element to click (from browser_get_state).'},
+							'index': {
+								'type': 'integer',
+								'description': 'The index of the element to click (from browser_get_state).',
+							},
 							'new_tab': {'type': 'boolean', 'description': 'Open link in a new tab.', 'default': False},
 						},
 						'required': ['index'],
@@ -248,9 +251,14 @@ class BrowserUseServer:
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'coordinate_x': {'type': 'integer', 'description': 'X coordinate in pixels from left edge of viewport.'},
-							'coordinate_y': {'type': 'integer', 'description': 'Y coordinate in pixels from top edge of viewport.'},
-							'new_tab': {'type': 'boolean', 'description': 'Open link in a new tab.', 'default': False},
+							'coordinate_x': {
+								'type': 'integer',
+								'description': 'X coordinate in pixels from left edge of viewport.',
+							},
+							'coordinate_y': {
+								'type': 'integer',
+								'description': 'Y coordinate in pixels from top edge of viewport.',
+							},
 						},
 						'required': ['coordinate_x', 'coordinate_y'],
 					},
@@ -519,7 +527,6 @@ class BrowserUseServer:
 				return await self._click(
 					coordinate_x=arguments.get('coordinate_x'),
 					coordinate_y=arguments.get('coordinate_y'),
-					new_tab=arguments.get('new_tab', False),
 				)
 
 			elif tool_name == 'browser_type':
@@ -767,6 +774,9 @@ class BrowserUseServer:
 
 		# Coordinate-based clicking
 		if coordinate_x is not None and coordinate_y is not None:
+			if new_tab:
+				return 'Error: new_tab is only supported for index-based browser_click, not browser_click_at_coordinates'
+
 			from browser_use.browser.events import ClickCoordinateEvent
 
 			event = self.browser_session.event_bus.dispatch(
