@@ -16,9 +16,12 @@ import asyncio
 import os
 from datetime import datetime
 
-from browser_use.browser.context import BrowserContextConfig
+from browser_use.llm.chat_openai import ChatOpenAI
+from dotenv import load_dotenv
 
-from browser_use import Agent, Browser, BrowserConfig
+from browser_use import Agent, Browser
+
+load_dotenv()
 
 # AgentVault imports (simulated for example - actual implementation would use
 # agentvault library)
@@ -44,7 +47,7 @@ class SecureVault:
 		)
 		self.api_key = api_key or os.getenv('AGENTVAULT_API_KEY')
 
-	def get_credential(self, credential_id: str) -> 'Credential':
+	def get_credential(self, credential_id: str) -> Credential:
 		"""Retrieve credentials from the vault.
 
 		Args:
@@ -140,13 +143,7 @@ async def secure_login_example() -> None:
 		return
 
 	# Configure browser
-	browser_config = BrowserConfig(
-		headless=False,  # Set to True for production
-	)
-
-	context_config = BrowserContextConfig(
-		wait_for_network_idle_page_load_time=3.0,
-	)
+	browser = Browser()
 
 	# Build task message with credentials
 	# The credentials are used in the task but never logged or stored
@@ -163,18 +160,19 @@ async def secure_login_example() -> None:
 
 	agent = Agent(
 		task=task_msg,
-		llm='gpt-4',  # Use appropriate model
-		browser=Browser(config=browser_config),
-		browser_context_config=context_config,
+		llm=ChatOpenAI(model='gpt-4'),
+		browser_session=browser,
 	)
 
 	try:
 		# Execute the secure login task
-		result = await agent.run()
-		print(f'Login task completed: {result}')
+		await agent.run()
+		print('Login task completed successfully')
 	except Exception as e:
 		print(f'Login task failed: {e}')
 		raise
+	finally:
+		await browser.kill()
 
 
 async def multi_site_login_example() -> None:
@@ -196,13 +194,17 @@ async def multi_site_login_example() -> None:
 			f'and password \'{tw_pass}\'. '
 			'Navigate to twitter.com, enter credentials, and complete login.'
 		)
-		twitter_agent = Agent(
+
+		browser = Browser()
+		agent = Agent(
 			task=twitter_task,
-			llm='gpt-4',
+			llm=ChatOpenAI(model='gpt-4'),
+			browser_session=browser,
 		)
 
-		result = await twitter_agent.run()
-		print(f'Twitter login completed: {result}')
+		await agent.run()
+		print('Twitter login completed successfully')
+		await browser.kill()
 
 	except CredentialNotFoundError:
 		print('Twitter credentials not configured, skipping...')
@@ -235,12 +237,18 @@ async def credential_rotation_handler() -> None:
 		f'Login to GitHub with username \'{gh_user}\' '
 		f'and password \'{gh_pass}\''
 	)
+
+	browser = Browser()
 	agent = Agent(
 		task=rotation_task,
-		llm='gpt-4',
+		llm=ChatOpenAI(model='gpt-4'),
+		browser_session=browser,
 	)
 
-	await agent.run()
+	try:
+		await agent.run()
+	finally:
+		await browser.kill()
 
 
 def setup_environment() -> None:
