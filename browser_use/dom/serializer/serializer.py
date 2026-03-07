@@ -416,8 +416,10 @@ class DOMTreeSerializer:
 
 	def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Cached version of clickable element detection to avoid redundant calls."""
+		# node_id can be 0 for describeNode results, backend_node_id is always unique
+		cache_key = node.backend_node_id
 
-		if node.node_id not in self._clickable_cache:
+		if cache_key not in self._clickable_cache:
 			import time
 
 			start_time = time.time()
@@ -428,9 +430,9 @@ class DOMTreeSerializer:
 				self.timing_info['clickable_detection_time'] = 0
 			self.timing_info['clickable_detection_time'] += end_time - start_time
 
-			self._clickable_cache[node.node_id] = result
+			self._clickable_cache[cache_key] = result
 
-		return self._clickable_cache[node.node_id]
+		return self._clickable_cache[cache_key]
 
 	def _create_simplified_tree(self, node: EnhancedDOMTreeNode, depth: int = 0) -> SimplifiedNode | None:
 		"""Step 1: Create a simplified tree with enhanced element detection."""

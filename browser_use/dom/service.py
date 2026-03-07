@@ -531,7 +531,9 @@ class DomService:
 
 		def create_dom_tree_request():
 			return cdp_session.cdp_client.send.DOM.getDocument(
-				params={'depth': -1, 'pierce': True}, session_id=cdp_session.session_id
+				# Avoid unbounded iframe recursion in CDP (self-referencing iframes can overflow CBOR stack)
+				params={'depth': -1, 'pierce': False},
+				session_id=cdp_session.session_id,
 			)
 
 		start_cdp_calls = time.time()
@@ -692,11 +694,20 @@ class DomService:
 		snapshot_lookup = build_snapshot_lookup(snapshot, device_pixel_ratio)
 		timing_info['build_snapshot_lookup_ms'] = (time.time() - start_snapshot) * 1000
 
+		# CDP session for iframe/shadow root resolution (hoisted out of per-node function)
+		try:
+			cdp_session_for_tree = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+			session_id_for_tree = cdp_session_for_tree.session_id
+		except ValueError:
+			cdp_session_for_tree = None
+			session_id_for_tree = None
+
 		async def _construct_enhanced_node(
 			node: Node,
 			html_frames: list[EnhancedDOMTreeNode] | None,
 			total_frame_offset: DOMRect | None,
 			all_frames: dict | None,
+			iframe_depth: int = 0,
 		) -> EnhancedDOMTreeNode:
 			"""
 			Recursively construct enhanced DOM tree nodes.
@@ -721,7 +732,7 @@ class DomService:
 				)
 
 			# memoize the mf (I don't know if some nodes are duplicated)
-			if node['nodeId'] in enhanced_dom_tree_node_lookup:
+			if node['nodeId'] != 0 and node['nodeId'] in enhanced_dom_tree_node_lookup:
 				return enhanced_dom_tree_node_lookup[node['nodeId']]
 
 			ax_node = ax_tree_lookup.get(node['backendNodeId'])
@@ -774,13 +785,6 @@ class DomService:
 					height=snapshot_data.bounds.height,
 				)
 
-			try:
-				session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
-				session_id = session.session_id
-			except ValueError:
-				# Target may have detached during DOM construction
-				session_id = None
-
 			dom_tree_node = EnhancedDOMTreeNode(
 				node_id=node['nodeId'],
 				backend_node_id=node['backendNodeId'],
@@ -790,7 +794,7 @@ class DomService:
 				attributes=attributes or {},
 				is_scrollable=node.get('isScrollable', None),
 				frame_id=node.get('frameId', None),
-				session_id=session_id,
+				session_id=session_id_for_tree,
 				target_id=target_id,
 				content_document=None,
 				shadow_root_type=shadow_root_type,
@@ -804,9 +808,10 @@ class DomService:
 				absolute_position=absolute_position,
 			)
 
-			enhanced_dom_tree_node_lookup[node['nodeId']] = dom_tree_node
+			if node['nodeId'] != 0:
+				enhanced_dom_tree_node_lookup[node['nodeId']] = dom_tree_node
 
-			if 'parentId' in node and node['parentId']:
+			if 'parentId' in node and node['parentId'] and node['parentId'] in enhanced_dom_tree_node_lookup:
 				dom_tree_node.parent_node = enhanced_dom_tree_node_lookup[
 					node['parentId']
 				]  # parents should always be in the lookup
@@ -837,18 +842,77 @@ class DomService:
 					total_frame_offset.x += snapshot_data.bounds.x
 					total_frame_offset.y += snapshot_data.bounds.y
 
-			if 'contentDocument' in node and node['contentDocument']:
+			content_doc_raw = node.get('contentDocument')
+			if content_doc_raw and content_doc_raw.get('children'):
 				dom_tree_node.content_document = await _construct_enhanced_node(
-					node['contentDocument'], updated_html_frames, total_frame_offset, all_frames
+					content_doc_raw,
+					updated_html_frames,
+					total_frame_offset,
+					all_frames,
+					iframe_depth=iframe_depth + 1,
 				)
 				dom_tree_node.content_document.parent_node = dom_tree_node
-				# forcefully set the parent node to the content document node (helps traverse the tree)
+
+			# Same-origin iframe traversal for pierce=False to avoid losing iframe content
+			if (
+				dom_tree_node.content_document is None
+				and node['nodeName'].upper() in ['IFRAME', 'FRAME']
+				and node.get('backendNodeId') is not None
+			):
+				if iframe_depth >= self.max_iframe_depth:
+					self.logger.debug(
+						f'Skipping iframe content at depth {iframe_depth} to prevent infinite recursion '
+						f'(max depth: {self.max_iframe_depth})'
+					)
+				elif cdp_session_for_tree is not None:
+					try:
+						resolved_iframe = await cdp_session_for_tree.cdp_client.send.DOM.describeNode(
+							params={'backendNodeId': node['backendNodeId'], 'pierce': True, 'depth': 1},
+							session_id=session_id_for_tree,
+						)
+						content_doc = resolved_iframe.get('node', {}).get('contentDocument')
+						content_doc_backend_id = content_doc.get('backendNodeId') if content_doc else None
+						if content_doc_backend_id:
+							full_content_doc_response = await cdp_session_for_tree.cdp_client.send.DOM.describeNode(
+								params={'backendNodeId': content_doc_backend_id, 'depth': -1, 'pierce': False},
+								session_id=session_id_for_tree,
+							)
+							root_node = full_content_doc_response.get('node') if full_content_doc_response else None
+							if root_node:
+								dom_tree_node.content_document = await _construct_enhanced_node(
+									root_node,
+									updated_html_frames,
+									total_frame_offset,
+									all_frames,
+									iframe_depth=iframe_depth + 1,
+								)
+								if dom_tree_node.content_document:
+									dom_tree_node.content_document.parent_node = dom_tree_node
+					except Exception as e:
+						self.logger.debug(f'Failed to resolve same-origin iframe content: {e}')
 
 			if 'shadowRoots' in node and node['shadowRoots']:
 				dom_tree_node.shadow_roots = []
 				for shadow_root in node['shadowRoots']:
+					resolved_shadow = shadow_root
+					# pierce=False returns shadow roots without children, fetch full subtree manually
+					if not shadow_root.get('children') and shadow_root.get('backendNodeId') and cdp_session_for_tree:
+						try:
+							full_shadow = await cdp_session_for_tree.cdp_client.send.DOM.describeNode(
+								params={'backendNodeId': shadow_root['backendNodeId'], 'depth': -1, 'pierce': False},
+								session_id=session_id_for_tree,
+							)
+							if full_shadow and full_shadow.get('node'):
+								resolved_shadow = full_shadow['node']
+						except Exception as e:
+							self.logger.debug(f'Failed to resolve shadow root content: {e}')
+
 					shadow_root_node = await _construct_enhanced_node(
-						shadow_root, updated_html_frames, total_frame_offset, all_frames
+						resolved_shadow,
+						updated_html_frames,
+						total_frame_offset,
+						all_frames,
+						iframe_depth=iframe_depth,
 					)
 					# forcefully set the parent node to the shadow root node (helps traverse the tree)
 					shadow_root_node.parent_node = dom_tree_node
@@ -867,7 +931,9 @@ class DomService:
 					if child['nodeId'] in shadow_root_node_ids:
 						continue
 					dom_tree_node.children_nodes.append(
-						await _construct_enhanced_node(child, updated_html_frames, total_frame_offset, all_frames)
+						await _construct_enhanced_node(
+							child, updated_html_frames, total_frame_offset, all_frames, iframe_depth=iframe_depth
+						)
 					)
 
 			# Set visibility using the collected HTML frames and viewport threshold
@@ -976,7 +1042,11 @@ class DomService:
 		# only if/when a cross-origin iframe is encountered
 		start_construct = time.time()
 		enhanced_dom_tree_node = await _construct_enhanced_node(
-			dom_tree['root'], initial_html_frames, initial_total_frame_offset, all_frames
+			dom_tree['root'],
+			initial_html_frames,
+			initial_total_frame_offset,
+			all_frames,
+			iframe_depth=iframe_depth,
 		)
 		timing_info['construct_enhanced_tree_ms'] = (time.time() - start_construct) * 1000
 
