@@ -16,10 +16,10 @@ import asyncio
 import os
 from datetime import datetime
 
-from browser_use.llm.chat_openai import ChatOpenAI
 from dotenv import load_dotenv
 
 from browser_use import Agent, Browser
+from browser_use.llm.chat_openai import ChatOpenAI
 
 load_dotenv()
 
