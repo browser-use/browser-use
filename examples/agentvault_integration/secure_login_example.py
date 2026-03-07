@@ -23,13 +23,13 @@ from browser_use.browser.context import BrowserContextConfig
 
 class SecureVault:
 	"""Simulated SecureVault class for demonstration.
-	
+
 	In production, use: from agentvault import SecureVault
 	"""
-	
+
 	def __init__(self, vault_url: str = None, api_key: str = None):
 		"""Initialize connection to AgentVault.
-		
+
 		Args:
 			vault_url: URL of the AgentVault server
 			api_key: API key for authentication
@@ -38,31 +38,31 @@ class SecureVault:
 			'AGENTVAULT_URL', 'https://vault.agentvault.io'
 		)
 		self.api_key = api_key or os.getenv('AGENTVAULT_API_KEY')
-		
+
 	def get_credential(self, credential_id: str):
 		"""Retrieve credentials from the vault.
-		
+
 		Args:
 			credential_id: Unique identifier for the credential
-			
+
 		Returns:
 			Credential object with username, password, and metadata
 		"""
 		# In production, this would make an API call to AgentVault
 		# For this example, we'll simulate with environment variables
 		prefix = f'AGENTVAULT_{credential_id.upper()}_'
-		
+
 		username = os.getenv(f'{prefix}USERNAME')
 		password = os.getenv(f'{prefix}PASSWORD')
-		
+
 		if not username or not password:
 			cred_upper = credential_id.upper()
 			raise CredentialNotFoundError(
-				f"Credential '{credential_id}' not found in vault. "
+				f'Credential \'{credential_id}\' not found in vault. '
 				f'Please ensure AGENTVAULT_{cred_upper}_USERNAME and '
 				f'AGENTVAULT_{cred_upper}_PASSWORD are set.'
 			)
-		
+
 		return Credential(
 			id=credential_id,
 			username=username,
@@ -70,7 +70,7 @@ class SecureVault:
 			url=os.getenv(f'{prefix}URL'),
 			expires_at=os.getenv(f'{prefix}EXPIRES_AT'),
 		)
-	
+
 	def list_credentials(self) -> list:
 		"""List all available credential IDs in the vault."""
 		# In production, this would query the vault API
@@ -79,7 +79,7 @@ class SecureVault:
 
 class Credential:
 	"""Represents a stored credential."""
-	
+
 	def __init__(
 		self,
 		id: str,
@@ -93,7 +93,7 @@ class Credential:
 		self.password = password
 		self.url = url
 		self.expires_at = expires_at
-	
+
 	def is_expired(self) -> bool:
 		"""Check if the credential has expired."""
 		if not self.expires_at:
@@ -114,130 +114,134 @@ class CredentialRotationError(Exception):
 
 async def secure_login_example():
 	"""Example: Secure GitHub login using AgentVault credentials.
-	
+
 	This demonstrates how to:
 	1. Retrieve credentials securely from AgentVault
 	2. Use them with browser-use Agent
 	3. Ensure no hardcoded credentials in the script
 	"""
-	
 	# Initialize secure vault connection
 	vault = SecureVault()
-	
+
 	# Retrieve credentials securely from vault
 	# No hardcoded passwords - credentials are fetched at runtime
 	try:
 		credentials = vault.get_credential('github_login')
-		print(f'✓ Retrieved credentials for: {credentials.username}')
+		print(f'Retrieved credentials for: {credentials.username}')
 	except CredentialNotFoundError as e:
-		print(f'✗ Credential error: {e}')
-		print("\nTo run this example, set these environment variables:")
+		print(f'Credential error: {e}')
+		print('\nTo run this example, set these environment variables:')
 		print("  export AGENTVAULT_GITHUB_LOGIN_USERNAME='your_username'")
 		print("  export AGENTVAULT_GITHUB_LOGIN_PASSWORD='your_password'")
 		return
-	
+
 	# Configure browser
 	browser_config = BrowserConfig(
 		headless=False,  # Set to True for production
-		# Add any other browser configuration here
 	)
-	
+
 	context_config = BrowserContextConfig(
 		wait_for_network_idle_page_load_time=3.0,
 	)
-	
-	# Create agent with secure credential injection
+
+	# Build task message with credentials
 	# The credentials are used in the task but never logged or stored
-	task_msg = (
-		f"Login to GitHub (github.com) with username '{credentials.username}' "
-		f"and password '{credentials.password}'. "
-		'Navigate to the login page, enter the credentials, '
-		'and click the Sign in button. '
-		'After login, go to the profile page and verify successful authentication.'
-	)
+	gh_user = credentials.username
+	gh_pass = credentials.password
+	task_parts = [
+		f'Login to GitHub (github.com) with username \'{gh_user}\' ',
+		f'and password \'{gh_pass}\'. ',
+		'Navigate to the login page, enter the credentials, ',
+		'and click the Sign in button. ',
+		'After login, go to the profile page and verify successful authentication.',
+	]
+	task_msg = ''.join(task_parts)
+
 	agent = Agent(
 		task=task_msg,
 		llm='gpt-4',  # Use appropriate model
 		browser=Browser(config=browser_config),
 		browser_context_config=context_config,
 	)
-	
+
 	try:
 		# Execute the secure login task
 		result = await agent.run()
-		print(f'✓ Login task completed: {result}')
+		print(f'Login task completed: {result}')
 	except Exception as e:
-		print(f'✗ Login task failed: {e}')
+		print(f'Login task failed: {e}')
 		raise
 
 
 async def multi_site_login_example():
 	"""Example: Login to multiple sites using different credentials."""
-	
 	vault = SecureVault()
 	available_creds = vault.list_credentials()
-	
+
 	print(f'Available credentials: {available_creds}')
-	
+
 	# Example: Login to Twitter
 	try:
 		twitter_creds = vault.get_credential('twitter_login')
-		print(f"\n✓ Retrieved Twitter credentials for: {twitter_creds.username}")
-		
+		print(f'Retrieved Twitter credentials for: {twitter_creds.username}')
+
+		tw_user = twitter_creds.username
+		tw_pass = twitter_creds.password
 		twitter_task = (
-			f"Login to Twitter/X with username '{twitter_creds.username}' "
-			f"and password '{twitter_creds.password}'. "
+			f'Login to Twitter/X with username \'{tw_user}\' '
+			f'and password \'{tw_pass}\'. '
 			'Navigate to twitter.com, enter credentials, and complete login.'
 		)
 		twitter_agent = Agent(
 			task=twitter_task,
 			llm='gpt-4',
 		)
-		
+
 		result = await twitter_agent.run()
-		print(f'✓ Twitter login completed: {result}')
-		
+		print(f'Twitter login completed: {result}')
+
 	except CredentialNotFoundError:
-		print('✗ Twitter credentials not configured, skipping...')
+		print('Twitter credentials not configured, skipping...')
 
 
 async def credential_rotation_handler():
 	"""Example: Handle automatic credential rotation.
-	
+
 	AgentVault can rotate credentials automatically. This shows how to
 	detect and handle rotated credentials.
 	"""
-	
 	vault = SecureVault()
-	
+
 	# Check credential status before use
 	credentials = vault.get_credential('github_login')
-	
+
 	if credentials.is_expired():
-		print('⚠ Credential has expired. Attempting to fetch new credential...')
+		print('Credential has expired. Attempting to fetch new credential...')
 		# In production, AgentVault would handle this automatically
 		# and return the new rotated credential
-		print('✓ New credential obtained (simulated)')
+		print('New credential obtained (simulated)')
 	else:
 		expires = credentials.expires_at or 'never'
-		print(f'✓ Credential is valid (expires: {expires})')
-	
+		print(f'Credential is valid (expires: {expires})')
+
 	# Proceed with login using the (potentially rotated) credentials
+	gh_user = credentials.username
+	gh_pass = credentials.password
 	rotation_task = (
-		f"Login to GitHub with username '{credentials.username}' "
-		f"and password '{credentials.password}'"
+		f'Login to GitHub with username \'{gh_user}\' '
+		f'and password \'{gh_pass}\''
 	)
 	agent = Agent(
 		task=rotation_task,
 		llm='gpt-4',
 	)
-	
+
 	await agent.run()
 
 
 def setup_environment():
 	"""Display required environment variables.
-	
+
 	Run this to see what needs to be configured.
 	"""
 	print('=' * 60)
@@ -258,16 +262,16 @@ def setup_environment():
 
 if __name__ == '__main__':
 	import sys
-	
+
 	if len(sys.argv) > 1 and sys.argv[1] == '--setup':
 		setup_environment()
 	else:
 		print('Running secure login example with AgentVault...\n')
 		print('Note: Set environment variables or run with --setup for instructions\n')
-		
+
 		# Run the main example
 		asyncio.run(secure_login_example())
-		
+
 		# Uncomment to run additional examples:
 		# asyncio.run(multi_site_login_example())
 		# asyncio.run(credential_rotation_handler())
