@@ -209,9 +209,9 @@ async def test_rerun_skips_steps_with_original_errors():
 	# Create a step that originally had an error (using navigate action which doesn't require element matching)
 	failed_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Trying to navigate',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': 'https://example.com/page'}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(error='Navigation failed - network error')],
@@ -291,9 +291,9 @@ async def test_rerun_does_not_skip_originally_failed_when_skip_failures_false():
 	# Create a step that originally had an error but uses navigate (which will work on rerun)
 	failed_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Trying to navigate',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': 'https://example.com/page'}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(error='Navigation failed - network error')],
@@ -357,9 +357,9 @@ async def test_rerun_cleanup_on_failure(httpserver):
 	# Step 1: Navigate to test page
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate to test page',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -380,9 +380,9 @@ async def test_rerun_cleanup_on_failure(httpserver):
 	# Step 2: Click on element that won't be found (different identifiers)
 	failing_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Trying to click non-existent button',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 100}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked button')],  # Original succeeded
@@ -486,9 +486,9 @@ async def test_rerun_records_errors_when_skip_failures_true(httpserver):
 	# Step 1: Navigate to test page
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate to test page',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -509,9 +509,9 @@ async def test_rerun_records_errors_when_skip_failures_true(httpserver):
 	# Step 2: Click on element that won't exist on current page (different hash/attributes)
 	failing_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Trying to click non-existent button',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 100}}],  # type: ignore[arg-type]  # Original index doesn't matter, matching will fail
 		),
 		result=[ActionResult(long_term_memory='Clicked button')],  # Original succeeded
@@ -636,9 +636,9 @@ async def test_rerun_skips_redundant_retry_steps(httpserver):
 	# Step 1: Navigate to test page
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate to test page',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -659,9 +659,9 @@ async def test_rerun_skips_redundant_retry_steps(httpserver):
 	# Step 2: Click login button (first click)
 	click_step_1 = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click login button',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked login button')],
@@ -682,9 +682,9 @@ async def test_rerun_skips_redundant_retry_steps(httpserver):
 	# Step 3: Click login button AGAIN (redundant retry - same element, same action)
 	click_step_2 = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Page did not change, clicking login button again',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]  # Same action type
 		),
 		result=[ActionResult(long_term_memory='Clicked login button')],
@@ -775,9 +775,9 @@ async def test_is_redundant_retry_step_detection():
 	# Step with click on button
 	click_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click button',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],
@@ -793,9 +793,9 @@ async def test_is_redundant_retry_step_detection():
 	# Same click on same button (redundant retry)
 	retry_click_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click button again',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],
@@ -811,9 +811,9 @@ async def test_is_redundant_retry_step_detection():
 	# Different action type on same element (not redundant)
 	input_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Type in button (weird but valid)',
-			next_goal=None,
+			next_goal='',
 			action=[{'input': {'index': 1, 'text': 'hello'}}],  # type: ignore[arg-type]  # Different action type
 		),
 		result=[ActionResult(long_term_memory='Typed')],
@@ -829,9 +829,9 @@ async def test_is_redundant_retry_step_detection():
 	# Same action type but different element (not redundant)
 	different_element_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click different element',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 2}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],
@@ -873,9 +873,9 @@ async def test_count_expected_elements_from_history():
 	# Test 1: Action with low index (5) -> needs at least 6 elements (index + 1)
 	step_low_index = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Test',
-			next_goal=None,
+			next_goal='',
 			action=[{'input': {'index': 5, 'text': 'test'}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Done')],
@@ -891,9 +891,9 @@ async def test_count_expected_elements_from_history():
 	# Test 2: Action with higher index (25) -> needs at least 26 elements
 	step_high_index = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Test',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 25}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Done')],
@@ -909,9 +909,9 @@ async def test_count_expected_elements_from_history():
 	# Test 3: Action with very high index (100) -> capped at 50
 	step_very_high_index = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Test',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 100}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Done')],
@@ -927,9 +927,9 @@ async def test_count_expected_elements_from_history():
 	# Test 4: Navigate action (no index) -> returns 0
 	step_no_index = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Test',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': 'http://test.com'}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Done')],
@@ -945,9 +945,9 @@ async def test_count_expected_elements_from_history():
 	# Test 5: Multiple actions - uses max index
 	step_multiple_actions = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Test',
-			next_goal=None,
+			next_goal='',
 			action=[
 				{'click': {'index': 3}},  # type: ignore[arg-type]
 				{'input': {'index': 10, 'text': 'test'}},  # type: ignore[arg-type]
@@ -967,9 +967,9 @@ async def test_count_expected_elements_from_history():
 	# Using input action because it allows index 0 (click requires ge=1)
 	step_index_zero = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Test',
-			next_goal=None,
+			next_goal='',
 			action=[{'input': {'index': 0, 'text': 'test'}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Done')],
@@ -1112,9 +1112,9 @@ async def test_rerun_waits_for_elements_before_matching(httpserver):
 	# Step 1: Navigate to test page
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate to test page',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -1135,9 +1135,9 @@ async def test_rerun_waits_for_elements_before_matching(httpserver):
 	# Step 2: Click button (needs element matching, should wait for elements)
 	click_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click button',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 5}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],
@@ -1216,9 +1216,9 @@ async def test_rerun_uses_exponential_backoff_retry_delays(httpserver):
 	# Step 1: Navigate
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -1234,9 +1234,9 @@ async def test_rerun_uses_exponential_backoff_retry_delays(httpserver):
 	# Step 2: Click non-matching element (will fail and retry)
 	failing_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],

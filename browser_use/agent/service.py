@@ -3246,15 +3246,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Skip browser state capture for initial actions (usually just URL navigation)
 			if self.settings.flash_mode:
 				model_output = self.AgentOutput(
-					evaluation_previous_goal=None,
+					evaluation_previous_goal='',
 					memory='Initial navigation',
-					next_goal=None,
+					next_goal='',
 					action=self.initial_actions,
 				)
 			else:
 				model_output = self.AgentOutput(
 					evaluation_previous_goal='Start',
-					memory=None,
+					memory='',
 					next_goal='Initial navigation',
 					action=self.initial_actions,
 				)

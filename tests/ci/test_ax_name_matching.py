@@ -81,9 +81,9 @@ async def test_ax_name_matching_succeeds_when_hash_fails(httpserver):
 	# Step 1: Navigate to test page
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate to test page',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -104,9 +104,9 @@ async def test_ax_name_matching_succeeds_when_hash_fails(httpserver):
 	# Step 2: Click on element that has different hash/xpath but same ax_name
 	click_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click New Contact menu',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 100}}],  # type: ignore[arg-type]  # Original index doesn't matter
 		),
 		result=[ActionResult(long_term_memory='Clicked New Contact')],
@@ -192,9 +192,9 @@ async def test_ax_name_matching_requires_same_node_type(httpserver):
 
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -209,9 +209,9 @@ async def test_ax_name_matching_requires_same_node_type(httpserver):
 
 	click_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click Submit',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],
@@ -306,9 +306,9 @@ async def test_ax_name_matching_before_attribute_matching(httpserver):
 
 	navigate_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Navigate',
-			next_goal=None,
+			next_goal='',
 			action=[{'navigate': {'url': test_url}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Navigated')],
@@ -323,9 +323,9 @@ async def test_ax_name_matching_before_attribute_matching(httpserver):
 
 	click_step = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click Contact',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],
@@ -387,9 +387,9 @@ def test_is_menu_opener_step_detects_aria_haspopup():
 
 	history_item = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click dropdown',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],
@@ -429,9 +429,9 @@ def test_is_menu_opener_step_detects_guidewire_toggle():
 
 	history_item = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Toggle menu',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Toggled')],
@@ -471,9 +471,9 @@ def test_is_menu_opener_step_returns_false_for_regular_element():
 
 	history_item = AgentHistory(
 		model_output=AgentOutput(
-			evaluation_previous_goal=None,
+			evaluation_previous_goal='',
 			memory='Click submit',
-			next_goal=None,
+			next_goal='',
 			action=[{'click': {'index': 1}}],  # type: ignore[arg-type]
 		),
 		result=[ActionResult(long_term_memory='Clicked')],

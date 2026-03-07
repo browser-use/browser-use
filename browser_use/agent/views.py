@@ -388,9 +388,9 @@ class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
 	thinking: str | None = None
-	evaluation_previous_goal: str | None = None
-	memory: str | None = None
-	next_goal: str | None = None
+	evaluation_previous_goal: str
+	memory: str
+	next_goal: str
 	current_plan_item: int | None = None
 	plan_update: list[str] | None = None
 	action: list[ActionModel] = Field(
@@ -398,20 +398,14 @@ class AgentOutput(BaseModel):
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
 	)
 
-	@classmethod
-	def model_json_schema(cls, **kwargs):
-		schema = super().model_json_schema(**kwargs)
-		schema['required'] = ['evaluation_previous_goal', 'memory', 'next_goal', 'action']
-		return schema
-
 	@property
 	def current_state(self) -> AgentBrain:
 		"""For backward compatibility - returns an AgentBrain with the flattened properties"""
 		return AgentBrain(
 			thinking=self.thinking,
-			evaluation_previous_goal=self.evaluation_previous_goal if self.evaluation_previous_goal else '',
-			memory=self.memory if self.memory else '',
-			next_goal=self.next_goal if self.next_goal else '',
+			evaluation_previous_goal=self.evaluation_previous_goal,
+			memory=self.memory,
+			next_goal=self.next_goal,
 		)
 
 	@staticmethod
