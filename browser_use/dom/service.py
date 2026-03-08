@@ -645,8 +645,6 @@ class DomService:
 		self,
 		target_id: TargetID,
 		all_frames: dict | None = None,
-		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
-		initial_total_frame_offset: DOMRect | None = None,
 		iframe_depth: int = 0,
 	) -> tuple[EnhancedDOMTreeNode, dict[str, float]]:
 		"""Get the DOM tree for a specific target.
@@ -654,8 +652,6 @@ class DomService:
 		Args:
 			target_id: Target ID of the page to get the DOM tree for.
 			all_frames: Pre-fetched frame hierarchy to avoid redundant CDP calls (optional, lazy fetch if None)
-			initial_html_frames: List of HTML frame nodes encountered so far
-			initial_total_frame_offset: Accumulated coordinate offset
 			iframe_depth: Current depth of iframe nesting to prevent infinite recursion
 
 		Returns:
@@ -959,10 +955,6 @@ class DomService:
 							content_document, _ = await self.get_dom_tree(
 								target_id=iframe_document_target['targetId'],
 								all_frames=all_frames,
-								# TODO: experiment with this values -> not sure whether the whole cross origin iframe should be ALWAYS included as soon as some part of it is visible or not.
-								# Current config: if the cross origin iframe is AT ALL visible, then just include everything inside of it!
-								# initial_html_frames=updated_html_frames,
-								initial_total_frame_offset=total_frame_offset,
 								iframe_depth=iframe_depth + 1,
 							)
 
@@ -975,9 +967,7 @@ class DomService:
 		# Note: all_frames stays None and will be lazily fetched inside _construct_enhanced_node
 		# only if/when a cross-origin iframe is encountered
 		start_construct = time.time()
-		enhanced_dom_tree_node = await _construct_enhanced_node(
-			dom_tree['root'], initial_html_frames, initial_total_frame_offset, all_frames
-		)
+		enhanced_dom_tree_node = await _construct_enhanced_node(dom_tree['root'], None, None, all_frames)
 		timing_info['construct_enhanced_tree_ms'] = (time.time() - start_construct) * 1000
 
 		# Count hidden elements per iframe for LLM hints
