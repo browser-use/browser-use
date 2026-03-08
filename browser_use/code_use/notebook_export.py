@@ -29,10 +29,11 @@ def export_to_ipynb(agent: CodeAgent, output_path: str | Path) -> Path:
 	        print(f'Notebook saved to {notebook_path}')
 		```
 	"""
-	assert isinstance(agent, CodeAgent), (
-		f'export_to_ipynb() requires a CodeAgent instance, got {type(agent).__name__}. '
-		'Use CodeAgent instead of Agent for notebook export functionality.'
-	)
+	if not isinstance(agent, CodeAgent):
+		raise TypeError(
+			f'export_to_ipynb() requires a CodeAgent instance, got {type(agent).__name__}. '
+			'Use CodeAgent instead of Agent for notebook export functionality.'
+		)
 
 	output_path = Path(output_path)
 
@@ -197,10 +198,11 @@ def session_to_python_script(agent: CodeAgent) -> str:
 	        print(script)
 		```
 	"""
-	assert isinstance(agent, CodeAgent), (
-		f'session_to_python_script() requires a CodeAgent instance, got {type(agent).__name__}. '
-		'Use CodeAgent instead of Agent for script export functionality.'
-	)
+	if not isinstance(agent, CodeAgent):
+		raise TypeError(
+			f'session_to_python_script() requires a CodeAgent instance, got {type(agent).__name__}. '
+			'Use CodeAgent instead of Agent for script export functionality.'
+		)
 
 	lines = []
 
