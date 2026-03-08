@@ -495,7 +495,7 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 				]
 
 			file_path = Path(params['file'])
-			file_path.write_text(json.dumps(cookie_list, indent=2))
+			file_path.write_text(json.dumps(cookie_list, indent=2, ensure_ascii=False), encoding='utf-8')
 			return {'exported': len(cookie_list), 'file': str(file_path)}
 
 		elif cookies_command == 'import':

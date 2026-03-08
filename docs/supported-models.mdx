@@ -215,7 +215,8 @@ AWS Bedrock provides access to multiple model providers through a single API. We
 #### General AWS Bedrock (supports all providers)
 
 ```python
-from browser_use import Agent, ChatAWSBedrock
+from browser_use import Agent
+from browser_use.llm import ChatAWSBedrock
 
 # Works with any Bedrock model (Anthropic, Meta, AI21, etc.)
 llm = ChatAWSBedrock(
@@ -233,7 +234,8 @@ agent = Agent(
 #### Anthropic Claude via AWS Bedrock (convenience class)
 
 ```python
-from browser_use import Agent, ChatAnthropicBedrock
+from browser_use import Agent
+from browser_use.llm import ChatAnthropicBedrock
 
 # Anthropic-specific class with Claude defaults
 llm = ChatAnthropicBedrock(

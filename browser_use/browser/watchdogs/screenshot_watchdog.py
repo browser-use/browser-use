@@ -53,7 +53,16 @@ class ScreenshotWatchdog(BaseWatchdog):
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=True)
 
 			# Prepare screenshot parameters
-			params = CaptureScreenshotParameters(format='png', captureBeyondViewport=False)
+			params_dict: dict[str, Any] = {'format': 'png', 'captureBeyondViewport': event.full_page}
+			if event.clip:
+				params_dict['clip'] = {
+					'x': event.clip['x'],
+					'y': event.clip['y'],
+					'width': event.clip['width'],
+					'height': event.clip['height'],
+					'scale': 1,
+				}
+			params = CaptureScreenshotParameters(**params_dict)
 
 			# Take screenshot using CDP
 			self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params}')

@@ -3,9 +3,9 @@
   "theme": "aspen",
   "name": "Browser Use",
   "colors": {
-    "primary": "#FE750E",
-    "light": "#FE750E",
-    "dark": "#FE750E"
+    "primary": "#2563EB",
+    "light": "#2563EB",
+    "dark": "#2563EB"
   },
   "background": {
     "color": {
@@ -29,6 +29,66 @@
     }
   },
   "redirects": [
+    {
+      "source": "/use-cloud",
+      "destination": "https://docs.cloud.browser-use.com/introduction"
+    },
+    {
+      "source": "/cloud",
+      "destination": "https://docs.cloud.browser-use.com/introduction"
+    },
+    {
+      "source": "/use-claude",
+      "destination": "/use-cloud"
+    },
+    {
+      "source": "/production",
+      "destination": "/legacy/sandbox/quickstart"
+    },
+    {
+      "source": "/customize/code-agent/basics",
+      "destination": "/legacy/code-agent/basics"
+    },
+    {
+      "source": "/customize/code-agent/output-format",
+      "destination": "/legacy/code-agent/output-format"
+    },
+    {
+      "source": "/customize/code-agent/exporting",
+      "destination": "/legacy/code-agent/exporting"
+    },
+    {
+      "source": "/customize/code-agent/all-parameters",
+      "destination": "/legacy/code-agent/all-parameters"
+    },
+    {
+      "source": "/customize/code-agent/example-products",
+      "destination": "/legacy/code-agent/example-products"
+    },
+    {
+      "source": "/customize/actor/basics",
+      "destination": "/legacy/actor/basics"
+    },
+    {
+      "source": "/customize/actor/examples",
+      "destination": "/legacy/actor/examples"
+    },
+    {
+      "source": "/customize/actor/all-parameters",
+      "destination": "/legacy/actor/all-parameters"
+    },
+    {
+      "source": "/customize/sandbox/quickstart",
+      "destination": "/legacy/sandbox/quickstart"
+    },
+    {
+      "source": "/customize/sandbox/events",
+      "destination": "/legacy/sandbox/events"
+    },
+    {
+      "source": "/customize/sandbox/all-parameters",
+      "destination": "/legacy/sandbox/all-parameters"
+    },
     {
       "source": "/customize/supported-models",
       "destination": "/supported-models"
@@ -143,19 +203,22 @@
     }
   ],
   "navigation": {
-    "groups": [
+    "versions": [
       {
-        "group": "Get Started",
+        "version": "Open Source",
+        "groups": [
+      {
+        "group": "Get Started with Open Source",
         "pages": [
           "introduction",
           "quickstart",
           "quickstart_llm",
           "supported-models",
-          "production"
+          "use-cloud"
         ]
       },
       {
-        "group": "Customize",
+        "group": "Customize OS",
         "pages": [
           {
             "group": "Agent",
@@ -166,18 +229,6 @@
               "customize/agent/prompting-guide",
               "customize/agent/output-format",
               "customize/agent/all-parameters"
-            ]
-          },
-          {
-            "group": "Code Agent",
-            "icon": "code",
-            "isDefaultOpen": false,
-            "pages": [
-              "customize/code-agent/basics",
-              "customize/code-agent/output-format",
-              "customize/code-agent/exporting",
-              "customize/code-agent/all-parameters",
-              "customize/code-agent/example-products"
             ]
           },
           {
@@ -213,16 +264,6 @@
             ]
           },
           {
-            "group": "Actor",
-            "icon": "terminal",
-            "isDefaultOpen": false,
-            "pages": [
-              "customize/actor/basics",
-              "customize/actor/examples",
-              "customize/actor/all-parameters"
-            ]
-          },
-          {
             "group": "Integration",
             "icon": "plug",
             "isDefaultOpen": false,
@@ -232,19 +273,42 @@
             ]
           },
           {
-            "group": "Sandbox",
-            "icon": "box",
+            "group": "Legacy",
+            "icon": "box-archive",
             "isDefaultOpen": false,
             "pages": [
-              "customize/sandbox/quickstart",
-              "customize/sandbox/events",
-              "customize/sandbox/all-parameters"
+              {
+                "group": "Code Agent",
+                "pages": [
+                  "legacy/code-agent/basics",
+                  "legacy/code-agent/output-format",
+                  "legacy/code-agent/exporting",
+                  "legacy/code-agent/all-parameters",
+                  "legacy/code-agent/example-products"
+                ]
+              },
+              {
+                "group": "Actor",
+                "pages": [
+                  "legacy/actor/basics",
+                  "legacy/actor/examples",
+                  "legacy/actor/all-parameters"
+                ]
+              },
+              {
+                "group": "Sandbox",
+                "pages": [
+                  "legacy/sandbox/quickstart",
+                  "legacy/sandbox/events",
+                  "legacy/sandbox/all-parameters"
+                ]
+              }
             ]
           }
         ]
       },
       {
-        "group": "Examples",
+        "group": "Examples OS",
         "pages": [
           {
             "group": "Templates",
@@ -272,7 +336,7 @@
         ]
       },
       {
-        "group": "Development",
+        "group": "Development OS",
         "pages": [
           {
             "group": "Contribution",
@@ -303,6 +367,19 @@
             ]
           },
           "development/get-help"
+        ]
+      }
+    ]
+      },
+      {
+        "version": "Cloud",
+        "groups": [
+          {
+            "group": "Cloud",
+            "pages": [
+              "cloud"
+            ]
+          }
         ]
       }
     ]

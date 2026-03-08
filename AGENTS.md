@@ -256,7 +256,7 @@ Your cloud browser is already logged in!
 
 ***
 
-For more sandbox parameters and events, see [Sandbox Quickstart](https://docs.browser-use.com/customize/sandbox/quickstart).
+For more sandbox parameters and events, see [Sandbox Quickstart](https://docs.browser-use.com/legacy/sandbox/quickstart).
 
 # Agent Basics
 ```python  theme={null}
@@ -538,7 +538,7 @@ async def main():
 > Complete reference for all browser configuration options
 
 <Note>
-  The `Browser` instance also provides all [Actor](https://docs.browser-use.com/customize/actor/all-parameters) methods for direct browser control (page management, element interactions, etc.).
+  The `Browser` instance also provides all [Actor](https://docs.browser-use.com/legacy/actor/all-parameters) methods for direct browser control (page management, element interactions, etc.).
 </Note>
 
 ## Core Settings
@@ -798,7 +798,7 @@ The agent injects parameters by name matching, so using the wrong name will caus
 </Warning>
 
 <Note>
-  Use `browser_session` parameter in tools for deterministic [Actor](https://docs.browser-use.com/customize/actor/basics) actions.
+  Use `browser_session` parameter in tools for deterministic [Actor](https://docs.browser-use.com/legacy/actor/basics) actions.
 </Note>
 
 
