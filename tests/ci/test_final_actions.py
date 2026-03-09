@@ -197,16 +197,16 @@ async def test_final_actions_before_done_callback(browser_session, base_url):
 	await browser_session.navigate_to(f'{base_url}/test')
 	await asyncio.sleep(0.5)
 
-	final_actions_ran_before_callback = False
+	# Capture agent._final_actions_executed at the moment the callback fires.
+	# If final_actions ran first, the flag will already be True inside the callback.
+	final_actions_done_when_callback_fired: bool | None = None
+	agent_ref: list[Agent] = []
 
 	llm = create_mock_llm()
 
 	async def done_callback(history):
-		nonlocal final_actions_ran_before_callback
-		# If final_actions already executed, the guard flag will be True
-		# We can't check history for final_actions entries (they're not appended)
-		# but we know the agent attribute is set
-		final_actions_ran_before_callback = True
+		nonlocal final_actions_done_when_callback_fired
+		final_actions_done_when_callback_fired = agent_ref[0]._final_actions_executed
 
 	agent = Agent(
 		task=f'Go to {base_url}/test',
@@ -216,11 +216,14 @@ async def test_final_actions_before_done_callback(browser_session, base_url):
 		register_done_callback=done_callback,
 		use_judge=False,
 	)
+	agent_ref.append(agent)
 
 	await agent.run(max_steps=3)
 
-	assert agent._final_actions_executed is True, 'final_actions should have executed'
-	assert final_actions_ran_before_callback, 'done_callback should have fired after final_actions'
+	assert final_actions_done_when_callback_fired is True, (
+		'_final_actions_executed must be True when done_callback fires, '
+		'proving final_actions ran before the callback'
+	)
 
 
 # ---------------------------------------------------------------------------
@@ -241,13 +244,24 @@ async def test_final_actions_fire_exactly_once(browser_session, base_url):
 		final_actions=[{'scroll': {'down': True, 'pages': 1}}],
 	)
 
+	# Wrap multi_act with a call counter (not a mock — real method still runs)
+	multi_act_call_count = 0
+	original_multi_act = agent.multi_act
+
+	async def counting_multi_act(*args, **kwargs):
+		nonlocal multi_act_call_count
+		multi_act_call_count += 1
+		return await original_multi_act(*args, **kwargs)
+
+	agent.multi_act = counting_multi_act  # type: ignore[assignment]
+
 	await agent._execute_final_actions()
 	assert agent._final_actions_executed is True
+	assert multi_act_call_count == 1
 
-	# Second call should be a no-op
-	history_len = len(agent.history.history)
+	# Second call should be a no-op — guard prevents re-execution
 	await agent._execute_final_actions()
-	assert len(agent.history.history) == history_len  # no change
+	assert multi_act_call_count == 1, 'multi_act must not be called again on second invocation'
 
 
 # ---------------------------------------------------------------------------
