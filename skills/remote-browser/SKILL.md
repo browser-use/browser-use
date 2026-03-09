@@ -1,6 +1,6 @@
 ---
 name: remote-browser
-description: Controls a cloud browser from a sandboxed remote machine. Use when the agent is running in a sandbox (no GUI) and needs to navigate websites, interact with web pages, fill forms, take screenshots, or expose local dev servers via tunnels.
+description: Controls a cloud browser from a sandboxed remote machine. Use when the agent is running in a sandbox (no GUI) and needs to browse the web, open a webpage, click buttons, navigate websites, interact with web pages, fill forms, take screenshots, perform web automation, or expose local dev servers via tunnels. Also useful for headless browser tasks in CI or cloud VM environments.
 allowed-tools: Bash(browser-use:*)
 ---
 
@@ -20,8 +20,6 @@ For more information, see https://github.com/browser-use/browser-use/blob/main/b
 
 ## Core Workflow
 
-Commands use the cloud browser:
-
 ```bash
 # Step 1: Start session (automatically uses remote mode)
 browser-use open https://example.com
@@ -37,43 +35,6 @@ browser-use screenshot page.png     # Save screenshot to file
 
 # Done: Close the session
 browser-use close                   # Close browser and release resources
-```
-
-## Essential Commands
-
-```bash
-# Navigation
-browser-use open <url>                    # Navigate to URL
-browser-use back                          # Go back
-browser-use scroll down                   # Scroll down (--amount N for pixels)
-
-# Page State (always run state first to get element indices)
-browser-use state                         # Get URL, title, clickable elements
-browser-use screenshot                    # Take screenshot (base64)
-browser-use screenshot path.png           # Save screenshot to file
-
-# Interactions (use indices from state)
-browser-use click <index>                 # Click element
-browser-use type "text"                   # Type into focused element
-browser-use input <index> "text"          # Click element, then type
-browser-use keys "Enter"                  # Send keyboard keys
-browser-use select <index> "option"       # Select dropdown option
-
-# Data Extraction
-browser-use eval "document.title"         # Execute JavaScript
-browser-use get text <index>              # Get element text
-browser-use get html --selector "h1"      # Get scoped HTML
-
-# Wait
-browser-use wait selector "h1"            # Wait for element
-browser-use wait text "Success"           # Wait for text
-
-# Session
-browser-use close                         # Close browser session
-
-# AI Agent
-browser-use run "task"                    # Run agent (async by default)
-browser-use task status <id>              # Check task progress
 ```
 
 ## Commands

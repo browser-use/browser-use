@@ -18,6 +18,19 @@ browser-use doctor
 
 For more information, see https://github.com/browser-use/browser-use/blob/main/browser_use/skill_cli/README.md
 
+## Quick Reference
+
+Most common commands for everyday use:
+
+```bash
+browser-use open <url>            # Navigate to a URL
+browser-use state                 # List clickable elements and their indices
+browser-use click <index>         # Click an element
+browser-use input <index> "text"  # Click element and type text
+browser-use screenshot            # Take a screenshot
+browser-use close                 # Close the browser session
+```
+
 ## Core Workflow
 
 1. **Navigate**: `browser-use open <url>` - Opens URL (starts browser if needed)
@@ -39,45 +52,6 @@ browser-use --browser remote open <url>        # Cloud browser
 - **chromium**: Fast, isolated, headless by default
 - **real**: Uses a real Chrome binary. Without `--profile`, uses a persistent but empty CLI profile at `~/.config/browseruse/profiles/cli/`. With `--profile "ProfileName"`, copies your actual Chrome profile (cookies, logins, extensions)
 - **remote**: Cloud-hosted browser with proxy support
-
-## Essential Commands
-
-```bash
-# Navigation
-browser-use open <url>                    # Navigate to URL
-browser-use back                          # Go back
-browser-use scroll down                   # Scroll down (--amount N for pixels)
-
-# Page State (always run state first to get element indices)
-browser-use state                         # Get URL, title, clickable elements
-browser-use screenshot                    # Take screenshot (base64)
-browser-use screenshot path.png           # Save screenshot to file
-
-# Interactions (use indices from state)
-browser-use click <index>                 # Click element
-browser-use type "text"                   # Type into focused element
-browser-use input <index> "text"          # Click element, then type
-browser-use keys "Enter"                  # Send keyboard keys
-browser-use select <index> "option"       # Select dropdown option
-
-# Data Extraction
-browser-use eval "document.title"         # Execute JavaScript
-browser-use get text <index>              # Get element text
-browser-use get html --selector "h1"      # Get scoped HTML
-
-# Wait
-browser-use wait selector "h1"            # Wait for element
-browser-use wait text "Success"           # Wait for text
-
-# Session
-browser-use sessions                      # List active sessions
-browser-use close                         # Close current session
-browser-use close --all                   # Close all sessions
-
-# AI Agent
-browser-use -b remote run "task"          # Run agent in cloud (async by default)
-browser-use task status <id>              # Check cloud task progress
-```
 
 ## Commands
 
