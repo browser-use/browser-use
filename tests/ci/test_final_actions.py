@@ -221,8 +221,7 @@ async def test_final_actions_before_done_callback(browser_session, base_url):
 	await agent.run(max_steps=3)
 
 	assert final_actions_done_when_callback_fired is True, (
-		'_final_actions_executed must be True when done_callback fires, '
-		'proving final_actions ran before the callback'
+		'_final_actions_executed must be True when done_callback fires, proving final_actions ran before the callback'
 	)
 
 
