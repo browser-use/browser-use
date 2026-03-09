@@ -148,21 +148,24 @@ def _delete_tunnel_info(port: int) -> None:
 def _is_process_alive(pid: int) -> bool:
 	"""Check if a process is still running.
 
-	On Windows, uses ctypes to call OpenProcess (os.kill doesn't work reliably).
+	On Windows, uses ctypes with use_last_error=True so the error code
+	is captured atomically by ctypes rather than read via GetLastError(),
+	which can return a stale value if the Python runtime calls other Win32
+	functions between OpenProcess and GetLastError.
 	On Unix, uses os.kill(pid, 0) which is the standard approach.
 	"""
 	if sys.platform == 'win32':
 		import ctypes
 
+		kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-		ERROR_ACCESS_DENIED = 5
-		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
 		if handle:
-			ctypes.windll.kernel32.CloseHandle(handle)
+			kernel32.CloseHandle(handle)
 			return True
 		# Access denied means the process exists but we lack permissions.
-		last_error = ctypes.windll.kernel32.GetLastError()
-		return last_error == ERROR_ACCESS_DENIED
+		ERROR_ACCESS_DENIED = 5
+		return ctypes.get_last_error() == ERROR_ACCESS_DENIED
 	else:
 		try:
 			os.kill(pid, 0)
@@ -176,13 +179,25 @@ def _kill_process(pid: int) -> bool:
 	try:
 		if sys.platform == 'win32':
 			import ctypes
+			import time
 
+			kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 			PROCESS_TERMINATE = 0x0001
-			handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+			handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
 			if handle:
-				result = ctypes.windll.kernel32.TerminateProcess(handle, 1)
-				ctypes.windll.kernel32.CloseHandle(handle)
-				return bool(result)
+				result = kernel32.TerminateProcess(handle, 1)
+				kernel32.CloseHandle(handle)
+				if not result:
+					err = ctypes.get_last_error()
+					logger.warning('TerminateProcess failed for PID %d (error %d)', pid, err)
+					return False
+				# Verify the process actually exited (TerminateProcess is async)
+				for _ in range(20):
+					if not _is_process_alive(pid):
+						return True
+					time.sleep(0.1)
+				logger.warning('Process %d still alive after TerminateProcess', pid)
+				return False
 			return False
 		else:
 			os.kill(pid, signal.SIGTERM)
