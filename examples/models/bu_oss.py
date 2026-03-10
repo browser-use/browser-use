@@ -17,9 +17,10 @@ try:
 except ImportError:
 	pass
 
-# Point to local llm-use server for testing
+# Use the Browser Use-tuned open-source preview like any other ChatBrowserUse model.
+# The Agent still supplies the Browser Use system prompt automatically.
 llm = ChatBrowserUse(
-	model='browser-use/bu-30b-a3b-preview',  # BU Open Source Model!!
+	model='browser-use/bu-30b-a3b-preview',
 )
 
 agent = Agent(

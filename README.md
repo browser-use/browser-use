@@ -179,6 +179,8 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
 
 We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
 
+If you want the open-source fine-tuned preview, use `ChatBrowserUse(model='browser-use/bu-30b-a3b-preview')`. You still use it with the normal `Agent(...)` flow — Browser Use adds its system prompt automatically, so you do **not** need to prepend a separate Browser Use system message yourself. Use `bu-latest` / `bu-2-0` when you want the newest hosted Browser Use models, and the preview model when you specifically want the Browser Use-tuned open-source option.
+
 **Pricing (per 1M tokens):**
 - Input tokens: $0.20
 - Cached input tokens: $0.02
