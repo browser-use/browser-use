@@ -15,6 +15,7 @@ from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.network import Cookie
 from cdp_use.cdp.target import SessionID, TargetID
+from cdp_use.cdp.target.commands import CreateTargetParameters
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
@@ -903,7 +904,12 @@ class BrowserSession(BaseModel):
 			await self.event_bus.dispatch(NavigationStartedEvent(target_id=target_id, url=event.url))
 
 			# Navigate to URL with proper lifecycle waiting
-			await self._navigate_and_wait(event.url, target_id, wait_until=event.wait_until)
+			await self._navigate_and_wait(
+				event.url,
+				target_id,
+				timeout=event.timeout_ms / 1000 if event.timeout_ms is not None else None,
+				wait_until=event.wait_until,
+			)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
@@ -3205,16 +3211,16 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_create_new_page(self, url: str = 'about:blank', background: bool = False, new_window: bool = False) -> str:
 		"""Create a new page/tab using CDP Target.createTarget. Returns target ID."""
+		# Only include newWindow when True, letting Chrome auto-create window as needed
+		params = CreateTargetParameters(url=url, background=background)
+		if new_window:
+			params['newWindow'] = True
 		# Use the root CDP client to create tabs at the browser level
 		if self._cdp_client_root:
-			result = await self._cdp_client_root.send.Target.createTarget(
-				params={'url': url, 'newWindow': new_window, 'background': background}
-			)
+			result = await self._cdp_client_root.send.Target.createTarget(params=params)
 		else:
 			# Fallback to using cdp_client if root is not available
-			result = await self.cdp_client.send.Target.createTarget(
-				params={'url': url, 'newWindow': new_window, 'background': background}
-			)
+			result = await self.cdp_client.send.Target.createTarget(params=params)
 		return result['targetId']
 
 	async def _cdp_close_page(self, target_id: TargetID) -> None:
