@@ -55,7 +55,7 @@ uv init && uv add browser-use && uv sync
 # uvx browser-use install  # Run if you don't have Chromium installed
 ```
 
-**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) (new signups get $10 free credits):**
+**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key):**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
