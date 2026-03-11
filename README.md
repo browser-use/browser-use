@@ -55,7 +55,7 @@ uv init && uv add browser-use && uv sync
 # uvx browser-use install  # Run if you don't have Chromium installed
 ```
 
-**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) (new signups get $10 free credits):**
+**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key):**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
+Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
 
 <br/>
 

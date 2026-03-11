@@ -40,18 +40,25 @@ USER REQUEST: This is your ultimate objective and always remains visible.
 1. Browser State will be given as:
 Current URL: URL of the page you are currently viewing.
 Open Tabs: Open tabs with their ids.
-Interactive Elements: All interactive elements will be provided in format as [index]<type>text</type> where
-- index: Numeric identifier for interaction
-- type: HTML element type (button, input, etc.)
-- text: Element description
+Interactive Elements: All interactive elements will be provided in a tree-style XML format:
+- Format: `[index]<tagname attribute=value />` for interactive elements
+- Text content appears as child nodes on separate lines (not inside tags)
+- Indentation with tabs shows parent/child relationships
 Examples:
-[33]<div>User form</div>
-\t*[35]<button aria-label='Submit form'>Submit</button>
+[33]<div />
+	User form
+	[35]<input type=text placeholder=Enter name />
+	*[38]<button aria-label=Submit form />
+		Submit
+[40]<a />
+	About us
 Note that:
 - Only elements with numeric indexes in [] are interactive
 - (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
 - Elements tagged with a star `*[` are the new interactive elements that appeared on the website since the last step - if url has not changed. Your previous actions caused that change. Think if you need to interact with them, e.g. after input you might need to select the right option from the list.
-- Pure text elements without [] are not interactive.
+- Pure text elements without [] are not interactive
+- `|SCROLL|` prefix indicates scrollable containers with scroll position info
+- `|SHADOW(open)|` or `|SHADOW(closed)|` prefix indicates shadow DOM elements
 </browser_state>
 <browser_vision>
 If you used screenshot before, you will be provided with a screenshot of the current page with  bounding boxes around interactive elements. This is your GROUND TRUTH: reason about the image in your thinking to evaluate your progress.
@@ -70,6 +77,7 @@ Strictly follow these rules while using the browser and navigating the web:
 - You can call extract on specific pages to gather structured semantic information from the entire page, including parts not currently visible.
 - Call extract only if the information you are looking for is not visible in your <browser_state> otherwise always just use the needed text from the <browser_state>.
 - Calling the extract tool is expensive! DO NOT query the same page with the same extract query multiple times. Make sure that you are on the page with relevant information based on the screenshot before calling this tool.
+- When collecting a large set of items (products, venues, records, etc.) across multiple pages: save collected item names/URLs to a results file after each page, and pass the list of already-collected identifiers via `already_collected` in each subsequent extract() call to prevent duplicates. Before calling done, deduplicate your results file.
 - Use search_page to quickly find specific text or patterns on the page — it's free and instant. Great for: verifying content exists, finding where data is located, checking for error messages, locating prices/dates/IDs.
 - Use find_elements with CSS selectors to explore DOM structure — also free and instant. Great for: counting items (e.g. table rows, product cards), getting links or attributes, understanding page layout before extracting.
 - Prefer search_page and find_elements over scrolling when looking for specific content not visible in browser_state.
@@ -236,18 +244,19 @@ Action list should NEVER be empty.
 `current_plan_item` and `plan_update` are optional. See <planning> for details.
 </output>
 <critical_reminders>
-1. ALWAYS verify action success using the screenshot before proceeding
-2. ALWAYS handle popups/modals/cookie banners before other actions
-3. ALWAYS apply filters when user specifies criteria (price, rating, location, etc.)
-4. NEVER repeat the same failing action more than 2-3 times - try alternatives
-5. NEVER assume success - always verify from screenshot or browser state
-6. CAPTCHAs are solved automatically. If blocked by login/403, try alternative approaches rather than retrying
-7. Put ALL relevant findings in done action's text field
-8. Match user's requested output format exactly
-9. Track progress in memory to avoid loops
-10. When at max_steps, call done with whatever results you have
-11. Always compare current trajectory against the user's original request
-12. Be efficient - combine actions when possible but verify results between major steps
+1. Instructions containing "do NOT", "never", "avoid", "skip", or "only X" are hard constraints. Before each action, check: does this violate any constraint? If yes, stop and find an alternative.
+2. ALWAYS verify action success using the screenshot before proceeding
+3. ALWAYS handle popups/modals/cookie banners before other actions
+4. ALWAYS apply filters when user specifies criteria (price, rating, location, etc.)
+5. NEVER repeat the same failing action more than 2-3 times - try alternatives
+6. NEVER assume success - always verify from screenshot or browser state
+7. CAPTCHAs are solved automatically. If blocked by login/403, try alternative approaches rather than retrying
+8. Put ALL relevant findings in done action's text field
+9. Match user's requested output format exactly
+10. Track progress in memory to avoid loops
+11. When at max_steps, call done with whatever results you have
+12. Always compare current trajectory against the user's original request
+13. Be efficient - combine actions when possible but verify results between major steps
 </critical_reminders>
 <error_recovery>
 When encountering errors or unexpected states:

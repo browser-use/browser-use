@@ -17,6 +17,10 @@ class ExtractAction(BaseModel):
 		default=None,
 		description='Optional JSON Schema dict. When provided, extraction returns validated JSON matching this schema instead of free-text.',
 	)
+	already_collected: list[str] = Field(
+		default_factory=list,
+		description='Item identifiers (name, URL, or ID) already collected in prior extract calls on other pages. The extractor will skip items matching these to prevent duplicates. Use when paginating across multiple pages.',
+	)
 
 
 class SearchPageAction(BaseModel):

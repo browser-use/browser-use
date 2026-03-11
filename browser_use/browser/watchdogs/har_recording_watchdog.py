@@ -665,7 +665,7 @@ class HarRecordingWatchdog(BaseWatchdog):
 
 		tmp_path = self._har_path.with_suffix(self._har_path.suffix + '.tmp')
 		# Write as bytes explicitly to avoid any text/binary mode confusion in different environments
-		tmp_path.write_bytes(json.dumps(har_obj, indent=2).encode('utf-8'))
+		tmp_path.write_bytes(json.dumps(har_obj, indent=2, ensure_ascii=False).encode('utf-8'))
 		tmp_path.replace(self._har_path)
 
 	def _format_page_started_datetime(self, timestamp: float | None) -> str:
