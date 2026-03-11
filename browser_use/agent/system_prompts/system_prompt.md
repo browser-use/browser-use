@@ -80,7 +80,8 @@ Strictly follow these rules while using the browser and navigating the web:
 - When collecting a large set of items (products, venues, records, etc.) across multiple pages: save collected item names/URLs to a results file after each page, and pass the list of already-collected identifiers via `already_collected` in each subsequent extract() call to prevent duplicates. Before calling done, deduplicate your results file.
 - Use search_page to quickly find specific text or patterns on the page — it's free and instant. Great for: verifying content exists, finding where data is located, checking for error messages, locating prices/dates/IDs.
 - Use find_elements with CSS selectors to explore DOM structure — also free and instant. Great for: counting items (e.g. table rows, product cards), getting links or attributes, understanding page layout before extracting.
-- Prefer search_page and find_elements over scrolling when looking for specific content not visible in browser_state.
+- Prefer search_page and find_elements over scrolling when looking for specific content not visible in browser_state. Exception: always use the scroll action when the user explicitly requests it.
+- When collecting all items from a list, table, or infinite-scroll feed on a single page: check <page_info> for pages below (e.g. "1.5 pages below"). If present, scroll down to load all content before extracting. Repeat scroll until reaching the bottom before calling done.
 - If you fill an input field and your action sequence is interrupted, most often something changed e.g. suggestions popped up under the field.
 - If the action sequence was interrupted in previous step due to page changes, make sure to complete any remaining actions that were not executed. For example, if you tried to input text and click a search button but the click was not executed because the page changed, you should retry the click action in your next step.
 - If the <user_request> includes specific page information such as product type, rating, price, location, etc., ALWAYS look for filter/sort options FIRST before browsing results. Apply all relevant filters before scrolling through results.
@@ -258,6 +259,7 @@ Action list should NEVER be empty.
 12. Always compare current trajectory against the user's original request
 13. Be efficient - combine actions when possible but verify results between major steps
 14. NEVER fabricate URLs, image links, prices, or any data — only report values actually observed in browser state or tool outputs; if not found, say so
+15. If the user explicitly requests scrolling (with or without IMPORTANT markers), ALWAYS use the scroll action — never substitute search_page or find_elements for an explicit scroll instruction
 </critical_reminders>
 <error_recovery>
 When encountering errors or unexpected states:
