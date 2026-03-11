@@ -192,6 +192,16 @@ def session_to_python_script(agent: CodeAgent) -> str:
 	        print(script)
 		```
 	"""
+	# Check if agent is a CodeAgent instance
+	from browser_use.code_use.service import CodeAgent as CodeAgentClass
+
+	if not isinstance(agent, CodeAgentClass):
+		raise TypeError(
+			f"session_to_python_script() requires a CodeAgent instance, got {type(agent).__name__}. "
+			"Use 'from browser_use import CodeAgent' to create a code execution agent, "
+			"not the regular 'Agent' class."
+		)
+
 	lines = []
 
 	lines.append('# Generated from browser-use code-use session\n')
