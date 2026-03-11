@@ -105,9 +105,7 @@ def should_show_index_overlay(backend_node_id: int | None) -> bool:
 	return backend_node_id is not None
 
 
-def _clamp_overlay_box(
-	box: tuple[int, int, int, int], image_size: tuple[int, int]
-) -> tuple[int, int, int, int]:
+def _clamp_overlay_box(box: tuple[int, int, int, int], image_size: tuple[int, int]) -> tuple[int, int, int, int]:
 	"""Clamp an overlay box so it remains fully visible within the screenshot bounds."""
 	img_width, img_height = image_size
 	x1, y1, x2, y2 = box
@@ -121,9 +119,7 @@ def _clamp_overlay_box(
 	return (x1, y1, x1 + box_width, y1 + box_height)
 
 
-def _boxes_overlap(
-	box_a: tuple[int, int, int, int], box_b: tuple[int, int, int, int], margin: int = 4
-) -> bool:
+def _boxes_overlap(box_a: tuple[int, int, int, int], box_b: tuple[int, int, int, int], margin: int = 4) -> bool:
 	"""Return True when two overlay boxes overlap or visually crowd each other."""
 	return not (
 		box_a[2] + margin <= box_b[0]

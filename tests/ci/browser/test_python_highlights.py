@@ -5,12 +5,7 @@ from browser_use.browser.python_highlights import get_index_overlay_box
 
 def boxes_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int], margin: int = 4) -> bool:
 	"""Return True when two rectangles overlap or visually crowd each other."""
-	return not (
-		a[2] + margin <= b[0]
-		or b[2] + margin <= a[0]
-		or a[3] + margin <= b[1]
-		or b[3] + margin <= a[1]
-	)
+	return not (a[2] + margin <= b[0] or b[2] + margin <= a[0] or a[3] + margin <= b[1] or b[3] + margin <= a[1])
 
 
 def test_get_index_overlay_box_avoids_colliding_badges_for_dense_small_elements() -> None:
@@ -32,7 +27,6 @@ def test_get_index_overlay_box_avoids_colliding_badges_for_dense_small_elements(
 		occupied.append(badge_box)
 
 	assert len(occupied) == 3
-
 
 
 def test_get_index_overlay_box_stays_within_screenshot_bounds() -> None:
