@@ -416,6 +416,23 @@ class Tools(Generic[Context]):
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 
+				# Health check: detect empty DOM for http/https pages and retry once
+				if not params.new_tab:
+					state = await browser_session.get_browser_state_summary(include_screenshot=False)
+					url_is_http = state.url.lower().startswith(('http://', 'https://'))
+					if url_is_http and state.dom_state._root is None:
+						browser_session.logger.warning(
+							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 3s and rechecking...'
+						)
+						await asyncio.sleep(3.0)
+						state = await browser_session.get_browser_state_summary(include_screenshot=False)
+						if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
+							return ActionResult(
+								error=f'Page loaded but returned empty content for {params.url}. '
+								f'The page may require JavaScript that failed to render, use anti-bot measures, '
+								f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
+							)
+
 				if params.new_tab:
 					memory = f'Opened new tab with URL {params.url}'
 					msg = f'🔗  Opened new tab with url {params.url}'
@@ -442,6 +459,7 @@ class Tools(Generic[Context]):
 						'ERR_INTERNET_DISCONNECTED',
 						'ERR_CONNECTION_REFUSED',
 						'ERR_TIMED_OUT',
+						'ERR_TUNNEL_CONNECTION_FAILED',
 						'net::',
 					]
 				):
@@ -946,7 +964,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page.""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -962,6 +980,9 @@ class Tools(Generic[Context]):
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
 			output_schema: dict | None = params.get('output_schema') if isinstance(params, dict) else params.output_schema
+			already_collected: list[str] = (
+				params.get('already_collected', []) if isinstance(params, dict) else params.already_collected
+			)
 
 			# If the LLM didn't provide an output_schema, use the agent-injected extraction_schema
 			if output_schema is None and extraction_schema is not None:
@@ -1048,15 +1069,20 @@ You will be given a query, a JSON Schema, and the markdown of a webpage that has
 - Your response MUST conform to the provided JSON Schema exactly.
 - If a required field's value cannot be found on the page, use null (if the schema allows it) or an empty string / empty array as appropriate.
 - If the content was truncated, extract what is available from the visible portion.
+- If <already_collected> items are provided, skip any items whose name/title/URL matches those listed — do not include duplicates.
 </instructions>
 """.strip()
 
 				schema_json = json.dumps(output_schema, indent=2)
+				already_collected_section = ''
+				if already_collected:
+					items_str = '\n'.join(f'- {item}' for item in already_collected[:100])
+					already_collected_section = f'\n\n<already_collected>\nSkip items whose name/title/URL matches any of these already-collected identifiers:\n{items_str}\n</already_collected>'
 				prompt = (
 					f'<query>\n{query}\n</query>\n\n'
 					f'<output_schema>\n{schema_json}\n</output_schema>\n\n'
 					f'<content_stats>\n{stats_summary}\n</content_stats>\n\n'
-					f'<webpage_content>\n{content}\n</webpage_content>'
+					f'<webpage_content>\n{content}\n</webpage_content>' + already_collected_section
 				)
 
 				try:
@@ -1120,6 +1146,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 - If the information relevant to the query is not available in the page, your response should mention that.
 - If the query asks for all items, products, etc., make sure to directly list all of them.
 - If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
+- If <already_collected> items are provided, exclude any results whose name/title/URL matches those already collected — do not include duplicates.
 </instructions>
 
 <output>
@@ -1128,7 +1155,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 </output>
 """.strip()
 
-			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
+			already_collected_section = ''
+			if already_collected:
+				items_str = '\n'.join(f'- {item}' for item in already_collected[:100])
+				already_collected_section = f'\n\n<already_collected>\nSkip items whose name/title/URL matches any of these already-collected identifiers:\n{items_str}\n</already_collected>'
+			prompt = (
+				f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
+				+ already_collected_section
+			)
 
 			try:
 				response = await asyncio.wait_for(
