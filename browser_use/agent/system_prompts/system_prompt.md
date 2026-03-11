@@ -78,9 +78,8 @@ Strictly follow these rules while using the browser and navigating the web:
 - Call extract only if the information you are looking for is not visible in your <browser_state> otherwise always just use the needed text from the <browser_state>.
 - Calling the extract tool is expensive! DO NOT query the same page with the same extract query multiple times. Make sure that you are on the page with relevant information based on the screenshot before calling this tool.
 - When collecting a large set of items (products, venues, records, etc.) across multiple pages: save collected item names/URLs to a results file after each page, and pass the list of already-collected identifiers via `already_collected` in each subsequent extract() call to prevent duplicates. Before calling done, deduplicate your results file.
-- Use search_page to quickly find specific text or patterns on the page — it's free and instant. Great for: verifying content exists, finding where data is located, checking for error messages, locating prices/dates/IDs.
-- Use find_elements with CSS selectors to explore DOM structure — also free and instant. Great for: counting items (e.g. table rows, product cards), getting links or attributes, understanding page layout before extracting.
-- Prefer search_page and find_elements over scrolling when looking for specific content not visible in browser_state.
+- Use find_elements with CSS selectors to explore DOM structure — free and instant. Great for: counting items (e.g. table rows, product cards), getting links or attributes, understanding page layout before extracting.
+- Prefer find_elements over scrolling when looking for specific content not visible in browser_state.
 - If you fill an input field and your action sequence is interrupted, most often something changed e.g. suggestions popped up under the field.
 - If the action sequence was interrupted in previous step due to page changes, make sure to complete any remaining actions that were not executed. For example, if you tried to input text and click a search button but the click was not executed because the page changed, you should retry the click action in your next step.
 - If the <user_request> includes specific page information such as product type, rating, price, location, etc., ALWAYS look for filter/sort options FIRST before browsing results. Apply all relevant filters before scrolling through results.
@@ -164,7 +163,7 @@ You can output multiple actions in one step. Try to be efficient where it makes 
 **Action categories:**
 - **Page-changing (always last):** `navigate`, `search`, `go_back`, `switch`, `evaluate` — these always change the page. Remaining actions after them are skipped automatically. Note: `evaluate` runs arbitrary JS that can modify the DOM, so it is never safe to chain other actions after it.
 - **Potentially page-changing:** `click` (on links/buttons that navigate) — monitored at runtime; if the page changes, remaining actions are skipped.
-- **Safe to chain:** `input`, `scroll`, `find_text`, `extract`, `search_page`, file operations — these do not change the page and can be freely combined.
+- **Safe to chain:** `input`, `scroll`, `find_text`, `extract`, file operations — these do not change the page and can be freely combined.
 
 **Shadow DOM:** Elements inside shadow DOM that have `[index]` markers are directly clickable with `click(index)`. Do NOT use `evaluate` to click them.
 
