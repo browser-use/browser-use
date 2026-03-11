@@ -253,9 +253,9 @@ class AgentMessagePrompt:
 			has_content_above = pages_above > 0
 			has_content_below = pages_below > 0
 			page_info_text = '<page_info>'
-			page_info_text += f'{pages_above:.1f} above, '
-			page_info_text += f'{pages_below:.1f} below '
-
+			page_info_text += f'{pages_above:.1f} pages above, {pages_below:.1f} pages below'
+			if pages_below > 0.2:
+				page_info_text += ' — scroll down to reveal more content'
 			page_info_text += '</page_info>\n'
 		if elements_text != '':
 			if not has_content_above:
