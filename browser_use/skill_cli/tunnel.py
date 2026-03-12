@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import signal
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -145,28 +146,71 @@ def _delete_tunnel_info(port: int) -> None:
 
 
 def _is_process_alive(pid: int) -> bool:
-	"""Check if a process is still running."""
-	try:
-		os.kill(pid, 0)
-		return True
-	except (OSError, ProcessLookupError):
-		return False
+	"""Check if a process is still running.
+
+	On Windows, uses ctypes with use_last_error=True so the error code
+	is captured atomically by ctypes rather than read via GetLastError(),
+	which can return a stale value if the Python runtime calls other Win32
+	functions between OpenProcess and GetLastError.
+	On Unix, uses os.kill(pid, 0) which is the standard approach.
+	"""
+	if sys.platform == 'win32':
+		import ctypes
+
+		kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		if handle:
+			kernel32.CloseHandle(handle)
+			return True
+		# Access denied means the process exists but we lack permissions.
+		ERROR_ACCESS_DENIED = 5
+		return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+	else:
+		try:
+			os.kill(pid, 0)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
 	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
+		if sys.platform == 'win32':
+			import ctypes
 			import time
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
+			kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+			PROCESS_TERMINATE = 0x0001
+			handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+			if handle:
+				result = kernel32.TerminateProcess(handle, 1)
+				kernel32.CloseHandle(handle)
+				if not result:
+					err = ctypes.get_last_error()
+					logger.warning('TerminateProcess failed for PID %d (error %d)', pid, err)
+					return False
+				# Verify the process actually exited (TerminateProcess is async)
+				for _ in range(20):
+					if not _is_process_alive(pid):
+						return True
+					time.sleep(0.1)
+				logger.warning('Process %d still alive after TerminateProcess', pid)
+				return False
+			return False
+		else:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				import time
+
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
 	except (OSError, ProcessLookupError):
 		return False
 
@@ -295,7 +339,8 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 
 	url = info['url']
 	pid = info['pid']
-	_kill_process(pid)
+	if not _kill_process(pid):
+		logger.warning(f'Failed to kill tunnel process {pid} for port {port}')
 	_delete_tunnel_info(port)
 	# Clean up log file
 	log_file = _TUNNELS_DIR / f'{port}.log'
