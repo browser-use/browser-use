@@ -1,3 +1,5 @@
+import logging
+
 from browser_use.agent.message_manager.service import (
 	MessageManager,
 	_log_estimate_token_count,
@@ -58,3 +60,28 @@ def test_log_history_lines_does_not_include_todo_placeholder(tmp_path):
 	assert history_log
 	assert '??? (TODO)' not in history_log
 	assert '📜 LLM Message history' in history_log
+
+
+def test_get_messages_does_not_format_history_when_debug_disabled(tmp_path, monkeypatch):
+	file_system = FileSystem(tmp_path)
+	message_manager = MessageManager(
+		task='Test task',
+		system_message=SystemMessage(content='System message'),
+		state=MessageManagerState(),
+		file_system=file_system,
+	)
+	message_manager._add_context_message(UserMessage(content='A short contextual message'))
+
+	def _raise_if_called():
+		raise AssertionError('_log_history_lines should not be called when debug logging is disabled')
+
+	monkeypatch.setattr(message_manager, '_log_history_lines', _raise_if_called)
+
+	module_logger = logging.getLogger('browser_use.agent.message_manager.service')
+	previous_level = module_logger.level
+	try:
+		module_logger.setLevel(logging.INFO)
+		messages = message_manager.get_messages()
+		assert messages
+	finally:
+		module_logger.setLevel(previous_level)

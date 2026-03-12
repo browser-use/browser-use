@@ -531,7 +531,8 @@ class MessageManager:
 		"""Get current message list, potentially trimmed to max tokens"""
 
 		# Log message history for debugging
-		logger.debug(self._log_history_lines())
+		if logger.isEnabledFor(logging.DEBUG):
+			logger.debug(self._log_history_lines())
 		self.last_input_messages = self.state.history.get_messages()
 		return self.last_input_messages
 
