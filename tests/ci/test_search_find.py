@@ -1,4 +1,4 @@
-"""Tests for search_page and find_elements actions."""
+"""Tests for find_elements action."""
 
 import asyncio
 
@@ -93,21 +93,6 @@ def http_server():
 		content_type='text/html',
 	)
 
-	server.expect_request('/case-test').respond_with_data(
-		"""
-		<!DOCTYPE html>
-		<html>
-		<head><title>Case Test</title></head>
-		<body>
-			<p>The Quick Brown Fox jumps over the lazy dog.</p>
-			<p>QUICK BROWN FOX is an uppercase variant.</p>
-			<p>quick brown fox is a lowercase variant.</p>
-		</body>
-		</html>
-		""",
-		content_type='text/html',
-	)
-
 	yield server
 	server.stop()
 
@@ -143,133 +128,6 @@ async def _navigate_and_wait(tools, browser_session, url):
 	"""Navigate to URL and wait for page load."""
 	await tools.navigate(url=url, new_tab=False, browser_session=browser_session)
 	await asyncio.sleep(0.5)
-
-
-# --- search_page tests ---
-
-
-class TestSearchPage:
-	"""Tests for the search_page action."""
-
-	async def test_literal_text_search(self, tools, browser_session, base_url):
-		"""Literal text search finds matches with context."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		result = await tools.search_page(pattern='Widget A', browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		assert 'Widget A' in result.extracted_content
-		assert '1 match' in result.extracted_content
-
-	async def test_regex_search_prices(self, tools, browser_session, base_url):
-		"""Regex search finds all price patterns on the page."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		result = await tools.search_page(pattern=r'\$\d+\.\d{2}', regex=True, browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		# Should find $29.99, $49.99, $19.50, $99.00
-		assert '4 matches' in result.extracted_content
-		assert '$29.99' in result.extracted_content
-		assert '$49.99' in result.extracted_content
-
-	async def test_css_scope_limits_search(self, tools, browser_session, base_url):
-		"""css_scope limits search to elements within the selector."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		# Search only in footer
-		result = await tools.search_page(pattern='price', css_scope='#footer', browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		# "Best price guarantee" is in footer
-		assert '1 match' in result.extracted_content
-		assert 'guarantee' in result.extracted_content
-
-	async def test_case_insensitive_default(self, tools, browser_session, base_url):
-		"""Search is case-insensitive by default."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/case-test')
-
-		result = await tools.search_page(pattern='quick brown fox', browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		# Should match all three variants (Quick, QUICK, quick)
-		assert '3 matches' in result.extracted_content
-
-	async def test_case_sensitive(self, tools, browser_session, base_url):
-		"""case_sensitive=True restricts to exact case."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/case-test')
-
-		result = await tools.search_page(pattern='QUICK BROWN FOX', case_sensitive=True, browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		assert '1 match' in result.extracted_content
-
-	async def test_max_results(self, tools, browser_session, base_url):
-		"""max_results limits the number of returned matches."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		result = await tools.search_page(pattern=r'\$\d+\.\d{2}', regex=True, max_results=2, browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		# Total should still show 4, but only 2 are displayed
-		assert '4 matches' in result.extracted_content
-		assert 'Increase max_results' in result.extracted_content
-
-	async def test_no_matches(self, tools, browser_session, base_url):
-		"""No matches returns a clean message, not an error."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		result = await tools.search_page(pattern='xyznonexistent', browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		assert 'No matches found' in result.extracted_content
-
-	async def test_element_path_in_results(self, tools, browser_session, base_url):
-		"""Matches include the element path for context."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		result = await tools.search_page(pattern='guarantee', browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is None
-		assert result.extracted_content is not None
-		# Should show element path containing footer
-		assert '(in' in result.extracted_content
-
-	async def test_invalid_css_scope(self, tools, browser_session, base_url):
-		"""Invalid css_scope returns a clear error."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		result = await tools.search_page(pattern='test', css_scope='#nonexistent-scope', browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.error is not None
-		assert 'scope' in result.error.lower() or 'not found' in result.error.lower()
-
-	async def test_memory_set(self, tools, browser_session, base_url):
-		"""long_term_memory is set with match count summary."""
-		await _navigate_and_wait(tools, browser_session, f'{base_url}/products')
-
-		result = await tools.search_page(pattern='Widget', browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.long_term_memory is not None
-		assert 'Widget' in result.long_term_memory
-		assert 'match' in result.long_term_memory
 
 
 # --- find_elements tests ---
@@ -412,20 +270,15 @@ class TestFindElements:
 
 
 class TestRegistration:
-	"""Test that new actions are properly registered."""
-
-	async def test_search_page_registered(self, tools):
-		"""search_page is in the default action registry."""
-		assert 'search_page' in tools.registry.registry.actions
+	"""Test that actions are properly registered."""
 
 	async def test_find_elements_registered(self, tools):
 		"""find_elements is in the default action registry."""
 		assert 'find_elements' in tools.registry.registry.actions
 
 	async def test_excluded_actions(self):
-		"""New actions can be excluded via exclude_actions."""
-		excluded_tools = Tools(exclude_actions=['search_page', 'find_elements'])
-		assert 'search_page' not in excluded_tools.registry.registry.actions
+		"""Actions can be excluded via exclude_actions."""
+		excluded_tools = Tools(exclude_actions=['find_elements'])
 		assert 'find_elements' not in excluded_tools.registry.registry.actions
 		# Other actions still present
 		assert 'navigate' in excluded_tools.registry.registry.actions
