@@ -2897,6 +2897,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 			dropdown_data = result.get('result', {}).get('value', {})
 
 			if dropdown_data.get('error'):
+				# Static detection failed — try click-and-discover as a general fallback.
+				# This handles any custom dropdown that renders its options into a portal
+				# after being clicked (Quasar, MUI, Ant Design, etc.).
+				discovered = await self._handle_click_and_discover_options(
+					cdp_session, object_id, index_for_logging, element_node
+				)
+				if discovered:
+					return discovered
 				raise BrowserError(message=dropdown_data['error'], long_term_memory=dropdown_data['error'])
 
 			if not dropdown_data.get('options'):
@@ -3167,6 +3175,179 @@ class DefaultActionWatchdog(BaseWatchdog):
 			'message': msg,
 			'short_term_memory': msg,
 			'long_term_memory': f'Got dropdown options for ARIA combobox at index {index_for_logging}',
+			'backend_node_id': str(index_for_logging),
+		}
+
+	async def _handle_click_and_discover_options(
+		self,
+		cdp_session,
+		object_id: str,
+		index_for_logging: int | str,
+		element_node=None,
+	) -> dict[str, str] | None:
+		"""General fallback for custom dropdowns that render options into a portal after being clicked.
+
+		Works for any framework whose options carry standard ARIA roles ([role="option"] or
+		[role="menuitem"]) in the overlay — including Quasar, MUI, Ant Design, and others.
+
+		Returns a standard options dict on success, or None if no options were discovered
+		(so the caller can raise the original error).
+		"""
+		# Check if options are already in the DOM before clicking (e.g. pre-opened demos).
+		pre_check_script = """
+		(function() {
+			const items = document.querySelectorAll('[role="option"], [role="menuitem"]');
+			return items.length > 0;
+		})()
+		"""
+		pre_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': pre_check_script, 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		already_open = pre_check.get('result', {}).get('value', False)
+
+		if not already_open:
+			# Step 1: try a JS-dispatched click (works for most frameworks).
+			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': """
+					function() {
+						this.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+						this.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+						return true;
+					}
+					""",
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			await asyncio.sleep(0.5)
+
+			# Step 2: if no options appeared yet, fall back to a trusted CDP click.
+			# Some frameworks (e.g. Headless UI) check event.isTrusted and ignore
+			# JS-dispatched events. CDP Input events are always trusted.
+			check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': "document.querySelectorAll('[role=\"option\"], [role=\"menuitem\"]').length",
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			if not check_result.get('result', {}).get('value', 0):
+				# Trusted CDP click: mirrors how on_ClickElementEvent works.
+				# 1. Scroll element into view so coordinates are in the viewport.
+				# 2. Get viewport-relative coords via get_element_coordinates (uses
+				#    DOM.getContentQuads which accounts for scroll, unlike getBoxModel).
+				# 3. Dispatch Input events via cdp_session (the element's own frame session)
+				#    so coordinates are interpreted in frame-local viewport space — correct
+				#    for both main-frame and iframe elements.
+				try:
+					if element_node is None:
+						raise ValueError('No element node available')
+					await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+						params={'backendNodeId': element_node.backend_node_id},
+						session_id=cdp_session.session_id,
+					)
+					await asyncio.sleep(0.05)
+				except Exception:
+					pass
+
+				element_rect = None
+				if element_node is not None:
+					try:
+						element_rect = await self.browser_session.get_element_coordinates(
+							element_node.backend_node_id, cdp_session
+						)
+					except Exception:
+						pass
+
+				if element_rect and element_rect.width > 0 and element_rect.height > 0:
+					x = round(element_rect.x + element_rect.width / 2)
+					y = round(element_rect.y + element_rect.height / 2)
+					await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={'type': 'mouseMoved', 'x': x, 'y': y},
+						session_id=cdp_session.session_id,
+					)
+					await asyncio.sleep(0.05)
+					await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={'type': 'mousePressed', 'x': x, 'y': y, 'button': 'left', 'clickCount': 1},
+						session_id=cdp_session.session_id,
+					)
+					await asyncio.sleep(0.05)
+					await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={'type': 'mouseReleased', 'x': x, 'y': y, 'button': 'left', 'clickCount': 1},
+						session_id=cdp_session.session_id,
+					)
+					await asyncio.sleep(0.5)
+
+		# Query for option elements rendered by the portal.
+		# Prefer role="option" (most ARIA-compliant frameworks), fall back to role="menuitem".
+		extract_script = """
+		(function() {
+			let items = Array.from(document.querySelectorAll('[role="option"]'));
+			if (!items.length) {
+				items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+			}
+			if (!items.length) return null;
+
+			const options = [];
+			items.forEach((item, idx) => {
+				const text = item.textContent ? item.textContent.trim() : '';
+				if (text) {
+					options.push({
+						text: text,
+						value: item.getAttribute('data-value') || item.getAttribute('value') || text,
+						index: idx,
+						selected: item.getAttribute('aria-selected') === 'true' || item.classList.contains('selected')
+					});
+				}
+			});
+			return options.length ? options : null;
+		})()
+		"""
+		menu_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': extract_script, 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		menu_items = menu_result.get('result', {}).get('value') or []
+
+		# Close the overlay only if we opened it
+		if not already_open:
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+		if not menu_items:
+			return None
+
+		formatted_options = []
+		for opt in menu_items:
+			encoded_text = json.dumps(opt['text'])
+			status = ' (selected)' if opt.get('selected') else ''
+			formatted_options.append(f'{opt["index"]}: text={encoded_text}, value={json.dumps(opt["value"])}{status}')
+
+		element_info = f'Index: {index_for_logging}, Type: custom, ID: none, Name: none'
+		msg = f'Found custom dropdown ({element_info}):\n' + '\n'.join(formatted_options)
+		msg += f'\n\nUse the exact text or value string (without quotes) in select_dropdown(index={index_for_logging}, text=...)'
+
+		self.logger.info(
+			f'📋 Found {len(menu_items)} options via click-and-discover for index {index_for_logging}'
+		)
+
+		return {
+			'type': 'custom',
+			'options': json.dumps(menu_items),
+			'element_info': element_info,
+			'source': 'click-and-discover',
+			'formatted_options': '\n'.join(formatted_options),
+			'message': msg,
+			'short_term_memory': msg,
+			'long_term_memory': f'Got dropdown options for index {index_for_logging}',
 			'backend_node_id': str(index_for_logging),
 		}
 
