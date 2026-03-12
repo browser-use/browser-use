@@ -68,6 +68,7 @@ BROWSER_USE_API_KEY=your-key
 from browser_use import Agent, Browser, ChatBrowserUse
 # from browser_use import ChatGoogle  # ChatGoogle(model='gemini-3-flash-preview')
 # from browser_use import ChatAnthropic  # ChatAnthropic(model='claude-sonnet-4-6')
+# from browser_use import ChatMiniMax  # ChatMiniMax(model='MiniMax-M2.5')
 import asyncio
 
 async def main():
@@ -80,6 +81,7 @@ async def main():
         llm=ChatBrowserUse(),
         # llm=ChatGoogle(model='gemini-3-flash-preview'),
         # llm=ChatAnthropic(model='claude-sonnet-4-6'),
+        # llm=ChatMiniMax(model='MiniMax-M2.5'),
         browser=browser,
     )
     await agent.run()
@@ -215,7 +217,7 @@ agent = Agent(
 <details>
 <summary><b>Can I use this for free?</b></summary>
 
-Yes! Browser-Use is open source and free to use. You only need to choose an LLM provider (like OpenAI, Google, ChatBrowserUse, or run local models with Ollama).
+Yes! Browser-Use is open source and free to use. You only need to choose an LLM provider (like OpenAI, Google, MiniMax, ChatBrowserUse, or run local models with Ollama).
 </details>
 
 <details>
