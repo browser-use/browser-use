@@ -170,7 +170,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		generate_gif: bool | str = False,
-		available_file_paths: list[str] | None = None,
+		available_file_paths: list[str]
+		| None = None,  # exact paths, directories, or glob patterns (e.g. '/tmp/exports/', '*.csv')
 		include_attributes: list[str] | None = None,
 		max_actions_per_step: int = 5,
 		use_thinking: bool = True,

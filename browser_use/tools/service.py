@@ -94,6 +94,48 @@ def _detect_sensitive_key_name(text: str, sensitive_data: dict[str, str | dict[s
 	return None
 
 
+def _is_path_allowed(path: str, allowed_paths: list[str] | set[str]) -> bool:
+	"""Check if a file path is permitted by the allowed_paths whitelist.
+
+	Supports three matching modes:
+	  1. Exact match (fast path, backward-compatible)
+	  2. Directory containment — if an entry in allowed_paths is an existing
+	     directory, any child path under it is allowed
+	  3. Glob patterns — entries containing '*' or '?' are matched via fnmatch
+	"""
+	if not allowed_paths:
+		return False
+
+	if path in allowed_paths:
+		return True
+
+	from fnmatch import fnmatch
+	from pathlib import Path
+
+	try:
+		resolved = Path(path).resolve()
+	except (OSError, ValueError):
+		return False
+
+	for allowed in allowed_paths:
+		if '*' in allowed or '?' in allowed:
+			if fnmatch(path, allowed) or fnmatch(str(resolved), allowed):
+				return True
+		else:
+			try:
+				allowed_resolved = Path(allowed).resolve()
+			except (OSError, ValueError):
+				continue
+			if allowed_resolved.is_dir():
+				try:
+					resolved.relative_to(allowed_resolved)
+					return True
+				except ValueError:
+					pass
+
+	return False
+
+
 def handle_browser_error(e: BrowserError) -> ActionResult:
 	if e.long_term_memory is not None:
 		if e.short_term_memory is not None:
@@ -746,7 +788,7 @@ class Tools(Generic[Context]):
 		):
 			# Check if file is in available_file_paths (user-provided or downloaded files)
 			# For remote browsers (is_local=False), we allow absolute remote paths even if not tracked locally
-			if params.path not in available_file_paths:
+			if not _is_path_allowed(params.path, available_file_paths):
 				# Also check if it's a recently downloaded file that might not be in available_file_paths yet
 				downloaded_files = browser_session.downloaded_files
 				if params.path not in downloaded_files:
@@ -1662,7 +1704,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).'
 		)
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
-			if available_file_paths and file_name in available_file_paths:
+			if available_file_paths and _is_path_allowed(file_name, available_file_paths):
 				structured_result = await file_system.read_file_structured(file_name, external_file=True)
 			else:
 				structured_result = await file_system.read_file_structured(file_name)
@@ -1786,9 +1828,8 @@ Context: {context}"""
 					file_path = source
 
 					# Validate file path against whitelist (available_file_paths + downloaded files)
-					allowed_paths = set(available_file_paths or [])
-					allowed_paths.update(browser_session.downloaded_files)
-					if file_path not in allowed_paths:
+					allowed_paths = list(available_file_paths or []) + list(browser_session.downloaded_files)
+					if not _is_path_allowed(file_path, allowed_paths):
 						return ActionResult(
 							extracted_content=f'Error: File path not in available_file_paths: {file_path}. '
 							f'The user must add this path to available_file_paths when creating the Agent.',
@@ -2582,7 +2623,7 @@ class CodeAgentTools(Tools[Context]):
 
 			# If whitelist provided, validate path is in it
 			if available_file_paths:
-				if params.path not in available_file_paths:
+				if not _is_path_allowed(params.path, available_file_paths):
 					# Also check if it's a recently downloaded file
 					downloaded_files = browser_session.downloaded_files
 					if params.path not in downloaded_files:
