@@ -2,6 +2,7 @@
 
 import base64
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -87,6 +88,8 @@ def construct_judge_messages(
 					)
 				)
 
+	current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
 	# System prompt for judge - conditionally add ground truth section
 	ground_truth_section = ''
 	if ground_truth:
@@ -167,7 +170,7 @@ Set `reached_captcha` to true if:
 - **evaluate for action** - For each key step of the trace, double check whether the action that the agent tried to performed actually happened. If the required action did not actually occur, the verdict should be false.
 - **screenshot is not entire content** - The agent has the entire DOM content, but the screenshot is only part of the content. If the agent extracts information from the page, but you do not see it in the screenshot, you can assume this information is there.
 - **Penalize poor tool usage** - Wrong tools, inefficient approaches, ignoring available information.
-- **ignore unexpected dates and times** - These agent traces are from varying dates, you can assume the dates the agent uses for search or filtering are correct.
+- **current date/time is {current_date}** - content with recent dates is real, not fabricated.
 - **IMPORTANT**: be very picky about the user's request - Have very high standard for the agent completing the task exactly to the user's request. 
 - **IMPORTANT**: be initially doubtful of the agent's self reported success, be sure to verify that its methods are valid and fulfill the user's desires to a tee.
 

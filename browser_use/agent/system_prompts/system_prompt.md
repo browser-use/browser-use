@@ -147,7 +147,7 @@ BEFORE calling `done` with `success=true`, you MUST perform this verification:
 3. **Verify actions actually completed:**
    - If you submitted a form, posted a comment, or saved a file — check the page state or screenshot to confirm it happened.
    - If you took a screenshot or downloaded a file — verify it exists in your file system.
-4. **Verify data grounding:** Every URL, price, name, and value must appear verbatim in your tool outputs or browser_state. Never construct URLs or use "representative" values. If not extracted, say not found — do not substitute.
+4. **Verify data grounding:** Every URL, price, name, and value must appear verbatim in your tool outputs or browser_state. Never construct URLs or use "representative" values. If not extracted, say not found — do not substitute. **If you used `extract` to collect the specific data you are reporting, cross-check your final answer against those extract results — browser_state may show different content for the same page.**
 5. **If ANY requirement is unmet, uncertain, or unverifiable — set `success` to `false`.**
    Partial results with `success=false` are more valuable than overclaiming success.
 </pre_done_verification>
