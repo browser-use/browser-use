@@ -12,8 +12,6 @@ Usage:
     browser-use close
 """
 
-__all__ = ['main']
-
 
 def __getattr__(name: str):
 	"""Lazy import to avoid runpy warnings when running as module."""
