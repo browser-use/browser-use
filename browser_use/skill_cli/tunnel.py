@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import signal
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -145,28 +146,56 @@ def _delete_tunnel_info(port: int) -> None:
 
 
 def _is_process_alive(pid: int) -> bool:
-	"""Check if a process is still running."""
-	try:
-		os.kill(pid, 0)
-		return True
-	except (OSError, ProcessLookupError):
+	"""Check if a process is still running.
+
+	On Windows, uses ctypes to call OpenProcess (os.kill doesn't work reliably).
+	On Unix, uses os.kill(pid, 0) which is the standard approach.
+	"""
+	if sys.platform == 'win32':
+		import ctypes
+
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		STILL_ACTIVE = 259
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		if handle:
+			exit_code = ctypes.c_ulong(0)
+			got_code = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+			ctypes.windll.kernel32.CloseHandle(handle)
+			return bool(got_code and exit_code.value == STILL_ACTIVE)
 		return False
+	else:
+		try:
+			os.kill(pid, 0)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
 	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+		if sys.platform == 'win32':
+			import ctypes
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
+			PROCESS_TERMINATE = 0x0001
+			handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+			if handle:
+				result = ctypes.windll.kernel32.TerminateProcess(handle, 1)
+				ctypes.windll.kernel32.CloseHandle(handle)
+				return bool(result)
+			return False
+		else:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				import time
+
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
 	except (OSError, ProcessLookupError):
 		return False
 
