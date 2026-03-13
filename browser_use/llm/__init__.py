@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.mistral.chat import ChatMistral
+	from browser_use.llm.modelslab.chat import ChatModelsLab
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
