@@ -646,6 +646,16 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
 
+	# --- Typing Speed ---
+	typing_delay_min: float = Field(
+		default=0.001,
+		description='Minimum delay between keystrokes in seconds. Default is fast (1ms).',
+	)
+	typing_delay_max: float = Field(
+		default=0.010,
+		description='Maximum delay between keystrokes in seconds. Default is fast (10ms).',
+	)
+
 	# --- UI/viewport/DOM ---
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
 	dom_highlight_elements: bool = Field(
@@ -797,7 +807,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
 		self.detect_display_configuration()
+		self._configure_typing_speed()
 		self._copy_profile()
+
+	def _configure_typing_speed(self) -> None:
+		"""Configure typing speed based on environment variable if not already set."""
+		# Only override if env var is set AND user hasn't explicitly changed the defaults
+		if os.getenv('BROWSER_USE_REALISTIC_TYPING', '').lower() in ('true', '1', 'yes', 'on'):
+			if self.typing_delay_min == 0.001 and self.typing_delay_max == 0.010:
+				logger.info('⌨️  Enabling realistic typing speed (50-150ms) via BROWSER_USE_REALISTIC_TYPING')
+				self.typing_delay_min = 0.05
+				self.typing_delay_max = 0.15
 
 	def _copy_profile(self) -> None:
 		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
