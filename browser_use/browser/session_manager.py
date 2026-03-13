@@ -150,12 +150,16 @@ class SessionManager:
 	def get_all_page_targets(self) -> list:
 		"""Get all page/tab targets using owned data.
 
+		Filters out chrome-extension:// targets to prevent the agent from
+		accidentally switching focus to extension side panels or popups
+		(see issue #4133).
+
 		Returns:
 			List of Target objects for all page/tab targets
 		"""
 		page_targets = []
 		for target in self._targets.values():
-			if target.target_type in ('page', 'tab'):
+			if target.target_type in ('page', 'tab') and not target.url.startswith('chrome-extension://'):
 				page_targets.append(target)
 		return page_targets
 
