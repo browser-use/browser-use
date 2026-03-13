@@ -204,7 +204,7 @@ def cleanup_session_files(session: str) -> None:
 
 def find_chrome_executable() -> str | None:
 	"""Find Chrome/Chromium executable on the system.
-	
+
 	Supports environment variables:
 	- BROWSERUSE_CHROME_PATH: Custom path to Chrome executable
 	- BROWSERUSE_CHROMIUM_PATH: Custom path to Chromium executable
@@ -213,11 +213,11 @@ def find_chrome_executable() -> str | None:
 	chrome_path = os.environ.get('BROWSERUSE_CHROME_PATH')
 	if chrome_path and os.path.exists(chrome_path):
 		return chrome_path
-	
+
 	chromium_path = os.environ.get('BROWSERUSE_CHROMIUM_PATH')
 	if chromium_path and os.path.exists(chromium_path):
 		return chromium_path
-	
+
 	system = platform.system()
 
 	if system == 'Darwin':
