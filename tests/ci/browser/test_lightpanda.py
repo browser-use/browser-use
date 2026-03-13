@@ -1,6 +1,5 @@
 """Tests for Lightpanda browser engine integration."""
 
-
 from browser_use.browser.profile import BrowserEngine, BrowserProfile
 from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 
