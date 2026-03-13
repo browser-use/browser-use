@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -23,7 +24,7 @@ from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
-	from browser_use.browser.profile import BrowserChannel, BrowserEngine
+	from browser_use.browser.profile import BrowserChannel
 
 
 class LocalBrowserWatchdog(BaseWatchdog):
@@ -131,11 +132,15 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				)
 
 		debug_port = self._find_free_port()
-		launch_args.extend([
-			'serve',
-			'--host', '127.0.0.1',
-			'--port', str(debug_port),
-		])
+		launch_args.extend(
+			[
+				'serve',
+				'--host',
+				'127.0.0.1',
+				'--port',
+				str(debug_port),
+			]
+		)
 
 		self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching Lightpanda with {len(launch_args)} args...')
 		subprocess = await asyncio.create_subprocess_exec(
@@ -455,8 +460,16 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		Returns:
 			Path to the installed lightpanda binary, or None if installation failed.
 		"""
+		if sys.platform == 'win32':
+			raise RuntimeError(
+				'Lightpanda auto-installation is only supported on Unix-like systems (Linux/macOS).\n'
+				'Please install Lightpanda manually on Windows (e.g., via WSL) and set the LIGHTPANDA_BINARY_PATH.'
+			)
+
 		process = await asyncio.create_subprocess_exec(
-			'bash', '-c', 'curl -fsSL https://pkg.lightpanda.io/install.sh | bash',
+			'bash',
+			'-c',
+			'curl -fsSL https://pkg.lightpanda.io/install.sh | bash',
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 		)
