@@ -610,6 +610,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=False,
 		description='Enable demo mode side panel that streams agent logs directly inside the browser window (requires headless=False).',
 	)
+	debug_highlight: bool = Field(
+		default=False,
+		description='Enable visual debug mode with high-visibility neon highlights showing "AGENT TARGET" label on elements before interaction.',
+	)
 	cookie_whitelist_domains: list[str] = Field(
 		default_factory=lambda: ['nature.com', 'qatarairways.com'],
 		description='List of domains to whitelist in the "I still don\'t care about cookies" extension, preventing automatic cookie banner handling on these sites.',
