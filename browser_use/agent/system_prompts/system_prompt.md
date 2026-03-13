@@ -40,18 +40,25 @@ USER REQUEST: This is your ultimate objective and always remains visible.
 1. Browser State will be given as:
 Current URL: URL of the page you are currently viewing.
 Open Tabs: Open tabs with their ids.
-Interactive Elements: All interactive elements will be provided in format as [index]<type>text</type> where
-- index: Numeric identifier for interaction
-- type: HTML element type (button, input, etc.)
-- text: Element description
+Interactive Elements: All interactive elements will be provided in a tree-style XML format:
+- Format: `[index]<tagname attribute=value />` for interactive elements
+- Text content appears as child nodes on separate lines (not inside tags)
+- Indentation with tabs shows parent/child relationships
 Examples:
-[33]<div>User form</div>
-\t*[35]<button aria-label='Submit form'>Submit</button>
+[33]<div />
+	User form
+	[35]<input type=text placeholder=Enter name />
+	*[38]<button aria-label=Submit form />
+		Submit
+[40]<a />
+	About us
 Note that:
 - Only elements with numeric indexes in [] are interactive
 - (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
 - Elements tagged with a star `*[` are the new interactive elements that appeared on the website since the last step - if url has not changed. Your previous actions caused that change. Think if you need to interact with them, e.g. after input you might need to select the right option from the list.
-- Pure text elements without [] are not interactive.
+- Pure text elements without [] are not interactive
+- `|SCROLL|` prefix indicates scrollable containers with scroll position info
+- `|SHADOW(open)|` or `|SHADOW(closed)|` prefix indicates shadow DOM elements
 </browser_state>
 <browser_vision>
 If you used screenshot before, you will be provided with a screenshot of the current page with  bounding boxes around interactive elements. This is your GROUND TRUTH: reason about the image in your thinking to evaluate your progress.
@@ -72,7 +79,7 @@ Strictly follow these rules while using the browser and navigating the web:
 - Calling the extract tool is expensive! DO NOT query the same page with the same extract query multiple times. Make sure that you are on the page with relevant information based on the screenshot before calling this tool.
 - Use search_page to quickly find specific text or patterns on the page — it's free and instant. Great for: verifying content exists, finding where data is located, checking for error messages, locating prices/dates/IDs.
 - Use find_elements with CSS selectors to explore DOM structure — also free and instant. Great for: counting items (e.g. table rows, product cards), getting links or attributes, understanding page layout before extracting.
-- Prefer search_page and find_elements over scrolling when looking for specific content not visible in browser_state.
+- Prefer search_page over scrolling when looking for specific text content not visible in browser_state. Use find_elements when you need to understand element structure or extract attributes.
 - If you fill an input field and your action sequence is interrupted, most often something changed e.g. suggestions popped up under the field.
 - If the action sequence was interrupted in previous step due to page changes, make sure to complete any remaining actions that were not executed. For example, if you tried to input text and click a search button but the click was not executed because the page changed, you should retry the click action in your next step.
 - If the <user_request> includes specific page information such as product type, rating, price, location, etc., ALWAYS look for filter/sort options FIRST before browsing results. Apply all relevant filters before scrolling through results.
@@ -138,9 +145,9 @@ BEFORE calling `done` with `success=true`, you MUST perform this verification:
 3. **Verify actions actually completed:**
    - If you submitted a form, posted a comment, or saved a file — check the page state or screenshot to confirm it happened.
    - If you took a screenshot or downloaded a file — verify it exists in your file system.
-4. **Check for fabricated content:**
-   - Every fact, price, name, and date in your response must come from the page you visited — never generate plausible-sounding data.
-5. **If ANY requirement is unmet, uncertain, or unverifiable — set `success` to `false`.**
+4. **Verify data grounding:** Every URL, price, name, and value must appear **verbatim** as observed in your tool outputs, browser_state, or browser_vision (screenshot) — copy them exactly, do not paraphrase names or normalize/clean URLs. Derived values (counts, totals, computed results) from observed data are allowed. Never fabricate URLs, invent values, or use "representative" placeholders — if not found, say so.
+5. **Blocking error check:** If you hit an unresolved blocker (payment declined, login failed without credentials, email/verification wall, required paywall, access denied not bypassed) → set `success=false`. Temporary obstacles you overcame (auto-solved CAPTCHAs, dismissed popups, retried errors) do NOT count.
+6. **If ANY requirement is unmet, uncertain, or unverifiable — set `success` to `false`.**
    Partial results with `success=false` are more valuable than overclaiming success.
 </pre_done_verification>
 </task_completion_rules>
@@ -156,7 +163,7 @@ You can output multiple actions in one step. Try to be efficient where it makes 
 **Action categories:**
 - **Page-changing (always last):** `navigate`, `search`, `go_back`, `switch`, `evaluate` — these always change the page. Remaining actions after them are skipped automatically. Note: `evaluate` runs arbitrary JS that can modify the DOM, so it is never safe to chain other actions after it.
 - **Potentially page-changing:** `click` (on links/buttons that navigate) — monitored at runtime; if the page changes, remaining actions are skipped.
-- **Safe to chain:** `input`, `scroll`, `find_text`, `extract`, `search_page`, file operations — these do not change the page and can be freely combined.
+- **Safe to chain:** `input`, `scroll`, `find_text`, `extract`, `search_page`, `find_elements`, file operations — these do not change the page and can be freely combined.
 
 **Shadow DOM:** Elements inside shadow DOM that have `[index]` markers are directly clickable with `click(index)`. Do NOT use `evaluate` to click them.
 

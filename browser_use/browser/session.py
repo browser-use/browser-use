@@ -15,6 +15,7 @@ from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.network import Cookie
 from cdp_use.cdp.target import SessionID, TargetID
+from cdp_use.cdp.target.commands import CreateTargetParameters
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
@@ -903,7 +904,12 @@ class BrowserSession(BaseModel):
 			await self.event_bus.dispatch(NavigationStartedEvent(target_id=target_id, url=event.url))
 
 			# Navigate to URL with proper lifecycle waiting
-			await self._navigate_and_wait(event.url, target_id, wait_until=event.wait_until)
+			await self._navigate_and_wait(
+				event.url,
+				target_id,
+				timeout=event.timeout_ms / 1000 if event.timeout_ms is not None else None,
+				wait_until=event.wait_until,
+			)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
@@ -1357,7 +1363,7 @@ class BrowserSession(BaseModel):
 
 			output_file = Path(output_path).expanduser().resolve()
 			output_file.parent.mkdir(parents=True, exist_ok=True)
-			output_file.write_text(json.dumps(storage_state, indent=2))
+			output_file.write_text(json.dumps(storage_state, indent=2, ensure_ascii=False), encoding='utf-8')
 			self.logger.info(f'💾 Exported {len(cookies)} cookies to {output_file}')
 
 		return storage_state
@@ -1709,7 +1715,11 @@ class BrowserSession(BaseModel):
 			# Run a tiny HTTP client to query for the WebSocket URL from the /json/version endpoint
 			# Default httpx timeout is 5s which can race the global wait_for(connect(), 15s).
 			# Use 30s as a safety net for direct connect() callers; the wait_for is the real deadline.
-			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+			# For localhost/127.0.0.1, disable trust_env to prevent proxy env vars (HTTP_PROXY, HTTPS_PROXY)
+			# from routing local requests through a proxy, which causes 502 errors on Windows.
+			# Remote CDP URLs should still respect proxy settings.
+			is_localhost = parsed_url.hostname in ('localhost', '127.0.0.1', '::1')
+			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
 				headers = self.browser_profile.headers or {}
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
@@ -3201,16 +3211,16 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_create_new_page(self, url: str = 'about:blank', background: bool = False, new_window: bool = False) -> str:
 		"""Create a new page/tab using CDP Target.createTarget. Returns target ID."""
+		# Only include newWindow when True, letting Chrome auto-create window as needed
+		params = CreateTargetParameters(url=url, background=background)
+		if new_window:
+			params['newWindow'] = True
 		# Use the root CDP client to create tabs at the browser level
 		if self._cdp_client_root:
-			result = await self._cdp_client_root.send.Target.createTarget(
-				params={'url': url, 'newWindow': new_window, 'background': background}
-			)
+			result = await self._cdp_client_root.send.Target.createTarget(params=params)
 		else:
 			# Fallback to using cdp_client if root is not available
-			result = await self.cdp_client.send.Target.createTarget(
-				params={'url': url, 'newWindow': new_window, 'background': background}
-			)
+			result = await self.cdp_client.send.Target.createTarget(params=params)
 		return result['targetId']
 
 	async def _cdp_close_page(self, target_id: TargetID) -> None:
@@ -3466,6 +3476,11 @@ class BrowserSession(BaseModel):
 
 		if target_type in ('iframe', 'webview') and include_iframes:
 			type_allowed = True
+			# Chrome often reports empty URLs for cross-origin iframe targets (OOPIFs)
+			# initially via attachedToTarget, but they are still valid and accessible via CDP.
+			# Allow them through so get_all_frames() can resolve their frame trees.
+			if not url:
+				url_allowed = True
 
 		return url_allowed and type_allowed
 
