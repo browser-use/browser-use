@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
 
       - name: Get week number for cache key
         id: week
@@ -114,7 +114,7 @@ jobs:
           fi
 
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           activate-environment: true
@@ -198,7 +198,7 @@ jobs:
       BROWSER_USE_API_KEY: ${{ secrets.BROWSER_USE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           activate-environment: true
