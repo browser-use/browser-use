@@ -465,6 +465,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
+		# Handle Lightpanda engine: screenshots are useless (no rendering), force vision off
+		from browser_use.browser.profile import BrowserEngine
+
+		if self.browser_session.browser_profile.browser_engine == BrowserEngine.LIGHTPANDA:
+			if self.settings.use_vision is True:
+				self.logger.warning('⚠️ Lightpanda has no graphical rendering. Setting use_vision=False.')
+			self.settings.use_vision = False
+
 		# Handle users trying to use use_vision=True with XAI models that don't support it
 		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
 		model_lower = self.llm.model.lower()
