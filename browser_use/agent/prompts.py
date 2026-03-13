@@ -35,6 +35,7 @@ class SystemPrompt:
 		is_anthropic: bool = False,
 		is_browser_use_model: bool = False,
 		model_name: str | None = None,
+		enable_planning: bool = True,
 	):
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
@@ -42,6 +43,7 @@ class SystemPrompt:
 		self.is_anthropic = is_anthropic
 		self.is_browser_use_model = is_browser_use_model
 		self.model_name = model_name
+		self.enable_planning = enable_planning
 		# Check if this is an Anthropic 4.5 model that needs longer prompts for caching
 		self.is_anthropic_4_5 = _is_anthropic_4_5_model(model_name)
 		prompt = ''
@@ -50,6 +52,8 @@ class SystemPrompt:
 		else:
 			self._load_prompt_template()
 			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+			if not self.enable_planning:
+				prompt = self._strip_planning_sections(prompt)
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
@@ -89,6 +93,22 @@ class SystemPrompt:
 				self.prompt_template = f.read()
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
+
+	def _strip_planning_sections(self, prompt: str) -> str:
+		"""Remove planning-related sections from the prompt when planning is disabled."""
+		import re
+
+		# Remove the <planning>...</planning> block
+		prompt = re.sub(r'\n?<planning>.*?</planning>\n?', '\n', prompt, flags=re.DOTALL)
+
+		# Remove planning fields from the output schema example
+		prompt = re.sub(r'\s*"current_plan_item": \d+,\n', '', prompt)
+		prompt = re.sub(r'\s*"plan_update": \[.*?\],\n', '', prompt, flags=re.DOTALL)
+
+		# Remove the trailing note about plan fields
+		prompt = re.sub(r'`current_plan_item` and `plan_update` are optional\. See <planning> for details\.\n?', '', prompt)
+
+		return prompt
 
 	def get_system_message(self) -> SystemMessage:
 		"""
