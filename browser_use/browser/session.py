@@ -170,6 +170,8 @@ class BrowserSession(BaseModel):
 		id: str | None = None,
 		cdp_url: str | None = None,
 		browser_profile: BrowserProfile | None = None,
+		# Browser engine selection
+		browser_engine: str | None = None,
 		# Local browser launch params
 		executable_path: str | Path | None = None,
 		headless: bool | None = None,
@@ -276,6 +278,8 @@ class BrowserSession(BaseModel):
 		use_cloud: bool | None = None,
 		cloud_browser: bool | None = None,  # Backward compatibility alias
 		cloud_browser_params: CloudBrowserParams | None = None,
+		## Browser engine
+		browser_engine: str | None = None,
 		## Other params
 		disable_security: bool | None = None,
 		deterministic_rendering: bool | None = None,

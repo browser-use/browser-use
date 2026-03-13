@@ -275,6 +275,13 @@ class RecordHarMode(str, Enum):
 	MINIMAL = 'minimal'
 
 
+class BrowserEngine(str, Enum):
+	"""Browser engine to use for the session."""
+
+	CHROMIUM = 'chromium'
+	LIGHTPANDA = 'lightpanda'
+
+
 class BrowserChannel(str, Enum):
 	CHROMIUM = 'chromium'
 	CHROME = 'chrome'
@@ -558,6 +565,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# ... extends options defined in:
 	# BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs, BrowserConnectArgs
 
+	# Browser engine selection
+	browser_engine: BrowserEngine = Field(
+		default=BrowserEngine.CHROMIUM,
+		description='Browser engine to use: chromium (default) or lightpanda (headless-only, no rendering).',
+	)
+
 	# Session/connection configuration
 	cdp_url: str | None = Field(default=None, description='CDP URL for connecting to existing browser instance')
 	is_local: bool = Field(default=False, description='Whether this is a local browser instance')
@@ -796,8 +809,27 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
+		if self.browser_engine == BrowserEngine.LIGHTPANDA:
+			self._apply_lightpanda_constraints()
+			return
 		self.detect_display_configuration()
 		self._copy_profile()
+
+	def _apply_lightpanda_constraints(self) -> None:
+		"""Apply constraints for the Lightpanda browser engine (no rendering, no extensions, always headless)."""
+		if self.headless is False:
+			logger.warning('⚠️ Lightpanda has no graphical rendering. Forcing headless=True.')
+		self.headless = True
+
+		if self.enable_default_extensions:
+			self.enable_default_extensions = False
+
+		if self.demo_mode:
+			logger.warning('⚠️ Lightpanda has no graphical rendering. Forcing demo_mode=False.')
+			self.demo_mode = False
+
+		self.highlight_elements = False
+		self.deterministic_rendering = False
 
 	def _copy_profile(self) -> None:
 		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
@@ -842,6 +874,19 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		self.user_data_dir = temp_dir
 
 	def get_args(self) -> list[str]:
+		"""Get the list of browser CLI launch args for this profile."""
+		if self.browser_engine == BrowserEngine.LIGHTPANDA:
+			return self._get_lightpanda_args()
+		return self._get_chrome_args()
+
+	def _get_lightpanda_args(self) -> list[str]:
+		"""Get Lightpanda CLI launch args. Lightpanda uses --host/--port instead of Chrome flags."""
+		args = []
+		# Extra user-provided args are passed through (Lightpanda may support some custom flags)
+		args.extend(self.args)
+		return args
+
+	def _get_chrome_args(self) -> list[str]:
 		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
 
 		if isinstance(self.ignore_default_args, list):
