@@ -648,7 +648,7 @@ class FileSystem:
 						truncation_note = (
 							f'\n\n[Showing {len(pages_included)} of {num_pages} pages. '
 							f'Skipped pages: {skipped[:10]}{"..." if len(skipped) > 10 else ""}. '
-							f'Use read_long_content with a specific goal to find relevant sections.]'
+							f'Use extract with start_from_char to read further into the file.]'
 						)
 					else:
 						truncation_note = ''

@@ -904,7 +904,12 @@ class BrowserSession(BaseModel):
 			await self.event_bus.dispatch(NavigationStartedEvent(target_id=target_id, url=event.url))
 
 			# Navigate to URL with proper lifecycle waiting
-			await self._navigate_and_wait(event.url, target_id, wait_until=event.wait_until)
+			await self._navigate_and_wait(
+				event.url,
+				target_id,
+				timeout=event.timeout_ms / 1000 if event.timeout_ms is not None else None,
+				wait_until=event.wait_until,
+			)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()

@@ -17,6 +17,10 @@ class ExtractAction(BaseModel):
 		default=None,
 		description='Optional JSON Schema dict. When provided, extraction returns validated JSON matching this schema instead of free-text.',
 	)
+	already_collected: list[str] = Field(
+		default_factory=list,
+		description='Item identifiers (name, URL, or ID) already collected in prior extract calls on other pages. The extractor will skip items matching these to prevent duplicates. Use when paginating across multiple pages.',
+	)
 
 
 class SearchPageAction(BaseModel):
@@ -153,17 +157,6 @@ class SaveAsPdfAction(BaseModel):
 		default='Letter',
 		description='Paper size: Letter, Legal, A4, A3, or Tabloid',
 	)
-
-
-class ReadContentAction(BaseModel):
-	"""Action for intelligent reading of long content."""
-
-	goal: str = Field(description='What to look for or extract from the content')
-	source: str = Field(
-		default='page',
-		description='What to read: "page" for current webpage, or a file path',
-	)
-	context: str = Field(default='', description='Additional context about the task')
 
 
 class GetDropdownOptionsAction(BaseModel):
