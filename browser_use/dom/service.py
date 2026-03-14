@@ -560,7 +560,6 @@ class DomService:
 
 			# Retry mapping for pending tasks
 			retry_map = {
-				tasks['snapshot']: lambda: create_task_with_error_handling(create_snapshot_request(), name='get_snapshot_retry'),
 				tasks['dom_tree']: lambda: create_task_with_error_handling(create_dom_tree_request(), name='get_dom_tree_retry'),
 				tasks['ax_tree']: lambda: create_task_with_error_handling(
 					self._get_ax_tree_for_all_frames(target_id), name='get_ax_tree_retry'
@@ -569,6 +568,8 @@ class DomService:
 					self._get_viewport_ratio(target_id), name='get_viewport_ratio_retry'
 				),
 			}
+			if 'snapshot' in tasks:
+				retry_map[tasks['snapshot']] = lambda: create_task_with_error_handling(create_snapshot_request(), name='get_snapshot_retry')
 
 			# Create new tasks only for the ones that didn't complete
 			for key, task in tasks.items():
