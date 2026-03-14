@@ -69,7 +69,7 @@ class TestLightpandaProfile:
 
 	def test_lightpanda_string_value(self):
 		"""Should accept string 'lightpanda' for browser_engine."""
-		profile = BrowserProfile(browser_engine=BrowserEngine.LIGHTPANDA)
+		profile = BrowserProfile(browser_engine='lightpanda')  # type: ignore[arg-type]
 		assert profile.browser_engine == BrowserEngine.LIGHTPANDA
 
 	def test_lightpanda_skips_profile_copy(self):
