@@ -129,15 +129,15 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				)
 
 		debug_port = self._find_free_port()
-		launch_args.extend(
-			[
-				'serve',
-				'--host',
-				'127.0.0.1',
-				'--port',
-				str(debug_port),
-			]
-		)
+		# 'serve' subcommand must come before all flags for correct CLI parsing
+		launch_args = [
+			'serve',
+			'--host',
+			'127.0.0.1',
+			'--port',
+			str(debug_port),
+			*launch_args,
+		]
 
 		self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching Lightpanda with {len(launch_args)} args...')
 		subprocess = await asyncio.create_subprocess_exec(
