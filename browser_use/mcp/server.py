@@ -187,7 +187,7 @@ def get_parent_process_cmdline() -> str | None:
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
-	def __init__(self, session_timeout_minutes: int = 10):
+	def __init__(self, session_timeout_minutes: int | None = None):
 		# Ensure all logging goes to stderr (in case new loggers were created)
 		_ensure_all_loggers_use_stderr()
 
@@ -203,7 +203,11 @@ class BrowserUseServer:
 
 		# Session management
 		self.active_sessions: dict[str, dict[str, Any]] = {}  # session_id -> session info
-		self.session_timeout_minutes = session_timeout_minutes
+		# Use environment variable if provided, otherwise use default of 10 minutes
+		if session_timeout_minutes is None:
+			self.session_timeout_minutes = int(os.getenv('BROWSER_USE_MCP_SESSION_TIMEOUT_MINUTES', '10'))
+		else:
+			self.session_timeout_minutes = session_timeout_minutes
 		self._cleanup_task: Any = None
 
 		# Setup handlers
@@ -1242,10 +1246,14 @@ class BrowserUseServer:
 			)
 
 
-async def main(session_timeout_minutes: int = 10):
+async def main(session_timeout_minutes: int | None = None):
 	if not MCP_AVAILABLE:
 		print('MCP SDK is required. Install with: pip install mcp', file=sys.stderr)
 		sys.exit(1)
+
+	# Use environment variable if session_timeout_minutes not explicitly provided
+	if session_timeout_minutes is None:
+		session_timeout_minutes = int(os.getenv('BROWSER_USE_MCP_SESSION_TIMEOUT_MINUTES', '10'))
 
 	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes)
 	server._telemetry.capture(
