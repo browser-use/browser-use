@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -19,6 +20,152 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _strip_thinking_blocks(content: str) -> str:
+	"""Strip thinking blocks from model response.
+
+	Some providers (e.g., MiniMax) return thinking blocks that break JSON parsing.
+	This removes them before parsing.
+	"""
+	if not content:
+		return content
+	import re
+
+	# Remove <think>...</think> blocks (including nested)
+	content = re.sub(r'<think>\s*[\s\S]*?</think>', '', content, flags=re.MULTILINE)
+	# Remove <think> without closing tag
+	content = re.sub(r'<think>.*', '', content, flags=re.MULTILINE)
+	# Remove leftover opening/closing tags
+	content = re.sub(r'</?think>', '', content)
+	content = re.sub(r'<[/]?in[^>]*>', '', content)  # Handle truncated tags like <in...>
+	content = re.sub(r'<[/]?thinking[^>]*>', '', content)
+
+	return content.strip()
+
+def _normalize_minimax_json_content(content: str) -> str:
+    """Normalize MiniMax structured output into a single valid JSON object when possible."""
+    cleaned = _strip_thinking_blocks(content).strip()
+
+    start = cleaned.find("{")
+    if start != -1:
+        in_string = False
+        escaped = False
+        brace_depth = 0
+        bracket_depth = 0
+
+        for idx in range(start, len(cleaned)):
+            char = cleaned[idx]
+
+            if escaped:
+                escaped = False
+                continue
+
+            if char == "\\" and in_string:
+                escaped = True
+                continue
+
+            if char == '"':
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+            elif char == "[":
+                bracket_depth += 1
+            elif char == "]":
+                bracket_depth -= 1
+
+            if brace_depth == 0 and bracket_depth == 0:
+                cleaned = cleaned[start : idx + 1].strip()
+                break
+        else:
+            cleaned = cleaned[start:].strip()
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        result: list[str] = []
+        closers: list[str] = []
+        in_string = False
+        escaped = False
+
+        for char in cleaned:
+            result.append(char)
+
+            if escaped:
+                escaped = False
+                continue
+
+            if char == "\\" and in_string:
+                escaped = True
+                continue
+
+            if char == '"':
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == "{":
+                closers.append("}")
+            elif char == "[":
+                closers.append("]")
+            elif char in "}]":
+                if closers and closers[-1] == char:
+                    closers.pop()
+
+        if in_string:
+            result.append('"')
+
+        result.extend(reversed(closers))
+        cleaned = "".join(result)
+        parsed = json.loads(cleaned)
+
+    def normalize_action_payload(data: Any) -> Any:
+        if isinstance(data, list):
+            return [normalize_action_payload(item) for item in data]
+
+        if not isinstance(data, dict):
+            return data
+
+        normalized = {key: normalize_action_payload(value) for key, value in data.items()}
+
+        if "DoneActionModel" in normalized and "done" not in normalized:
+            done_payload = normalized.pop("DoneActionModel")
+            if isinstance(done_payload, dict):
+                normalized["done"] = done_payload
+
+        done_payload = normalized.get("done")
+        if isinstance(done_payload, dict):
+            if "text" not in done_payload:
+                result_text = done_payload.get("result")
+                if isinstance(result_text, str):
+                    done_payload["text"] = result_text
+                else:
+                    success_text = done_payload.get("success")
+                    if isinstance(success_text, str):
+                        done_payload["text"] = success_text
+
+            done_payload.pop("result", None)
+            done_payload.pop("success", None)
+            normalized["done"] = done_payload
+
+        return normalized
+
+    parsed = normalize_action_payload(parsed)
+    return json.dumps(parsed, ensure_ascii=False)
+
+
+def _is_minimax_2_5_model(model: ChatModel | str) -> bool:
+	"""Return True when the configured model is a MiniMax 2.5 variant."""
+	return 'minimax-m2.5' in str(model).lower()
 
 
 @dataclass
@@ -215,8 +362,11 @@ class ChatOpenAI(BaseChatModel):
 					)
 
 				usage = self._get_usage(response)
+				clean_content = choice.message.content or ''
+				if _is_minimax_2_5_model(self.model):
+					clean_content = _normalize_minimax_json_content(clean_content)
 				return ChatInvokeCompletion(
-					completion=choice.message.content or '',
+					completion=clean_content,
 					usage=usage,
 					stop_reason=choice.finish_reason,
 				)
@@ -281,7 +431,10 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				clean_content = choice.message.content
+				if _is_minimax_2_5_model(self.model):
+					clean_content = _normalize_minimax_json_content(clean_content)
+				parsed = output_format.model_validate_json(clean_content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
