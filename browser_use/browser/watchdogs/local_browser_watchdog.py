@@ -122,12 +122,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		else:
 			browser_path = self._find_lightpanda_path()
 			if not browser_path:
-				self.logger.info('[LocalBrowserWatchdog] 🐼 Lightpanda not found, installing...')
-				browser_path = await self._install_lightpanda()
-			if not browser_path:
 				raise RuntimeError(
-					'Lightpanda binary not found and auto-install failed.\n'
-					'Install manually: curl -fsSL https://pkg.lightpanda.io/install.sh | bash\n'
+					'Lightpanda binary not found.\n'
+					'Install it: curl -fsSL https://pkg.lightpanda.io/install.sh | bash\n'
 					'Or set executable_path / LIGHTPANDA_BINARY_PATH.'
 				)
 
@@ -451,51 +448,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				return path
 
 		return None
-
-	async def _install_lightpanda(self) -> str | None:
-		"""Install Lightpanda using the official install script.
-
-		Runs: curl -fsSL https://pkg.lightpanda.io/install.sh | bash
-
-		Returns:
-			Path to the installed lightpanda binary, or None if installation failed.
-		"""
-		if sys.platform == 'win32':
-			raise RuntimeError(
-				'Lightpanda auto-installation is only supported on Unix-like systems (Linux/macOS).\n'
-				'Please install Lightpanda manually on Windows (e.g., via WSL) and set the LIGHTPANDA_BINARY_PATH.'
-			)
-
-		process = await asyncio.create_subprocess_exec(
-			'bash',
-			'-c',
-			'curl -fsSL https://pkg.lightpanda.io/install.sh | bash',
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE,
-		)
-
-		try:
-			stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)
-			self.logger.debug(f'[LocalBrowserWatchdog] 🐼 Lightpanda install output: {stdout.decode()}')
-			if process.returncode != 0:
-				self.logger.error(f'[LocalBrowserWatchdog] ❌ Lightpanda install failed:\n{stderr.decode()}')
-				return None
-			# After install, try to find the binary again
-			browser_path = self._find_lightpanda_path()
-			if browser_path:
-				self.logger.info(f'[LocalBrowserWatchdog] 🐼 Lightpanda installed at {browser_path}')
-				return browser_path
-			self.logger.error('[LocalBrowserWatchdog] ❌ Lightpanda install script succeeded but binary not found on PATH')
-			return None
-		except TimeoutError:
-			process.kill()
-			await process.wait()
-			raise RuntimeError('Lightpanda installation timed out after 120 seconds')
-		except Exception as e:
-			if process.returncode is None:
-				process.kill()
-				await process.wait()
-			raise RuntimeError(f'Error installing Lightpanda: {e}')
 
 	async def _install_browser_with_playwright(self) -> str:
 		"""Get browser executable path from playwright in a subprocess to avoid thread issues."""
