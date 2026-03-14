@@ -570,7 +570,9 @@ class DomService:
 				),
 			}
 			if 'snapshot' in tasks:
-				retry_map[tasks['snapshot']] = lambda: create_task_with_error_handling(create_snapshot_request(), name='get_snapshot_retry')
+				retry_map[tasks['snapshot']] = lambda: create_task_with_error_handling(
+					create_snapshot_request(), name='get_snapshot_retry'
+				)
 
 			# Create new tasks only for the ones that didn't complete
 			for key, task in tasks.items():
