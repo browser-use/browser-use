@@ -258,7 +258,7 @@ async def _cdp_screenshot(cdp: LightCDP, path: str | None) -> None:
 
 	if path:
 		p = Path(path)
-		p.write_bytes(data)  # noqa: ASYNC240
+		p.write_bytes(data)
 		print(f'Screenshot saved to {p} ({len(data)} bytes)')
 	else:
 		# Get viewport dimensions
