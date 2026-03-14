@@ -1365,7 +1365,7 @@ class BrowserSession(BaseModel):
 		if output_path:
 			import json
 
-			output_file = await anyio.Path(output_path).expanduser().resolve()
+			output_file = await (await anyio.Path(output_path).expanduser()).resolve()
 			await output_file.parent.mkdir(parents=True, exist_ok=True)
 			await output_file.write_text(json.dumps(storage_state, indent=2, ensure_ascii=False), encoding='utf-8')
 			self.logger.info(f'💾 Exported {len(cookies)} cookies to {output_file}')
