@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.browser_use.chat import ChatBrowserUse
 	from browser_use.llm.cerebras.chat import ChatCerebras
 	from browser_use.llm.deepseek.chat import ChatDeepSeek
+	from browser_use.llm.minimax.chat import ChatMiniMax
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.mistral.chat import ChatMistral
@@ -75,6 +76,9 @@ if TYPE_CHECKING:
 	google_gemini_2_5_flash: ChatGoogle
 	google_gemini_2_5_flash_lite: ChatGoogle
 
+	minimax_m2_5: ChatMiniMax
+	minimax_m2_5_highspeed: ChatMiniMax
+
 # Models are imported on-demand via __getattr__
 
 # Lazy imports mapping for heavy chat models
@@ -86,6 +90,7 @@ _LAZY_IMPORTS = {
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
 	'ChatCerebras': ('browser_use.llm.cerebras.chat', 'ChatCerebras'),
 	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
+	'ChatMiniMax': ('browser_use.llm.minimax.chat', 'ChatMiniMax'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
 	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
@@ -158,4 +163,5 @@ __all__ = [
 	'ChatOpenRouter',
 	'ChatVercel',
 	'ChatCerebras',
+	'ChatMiniMax',
 ]
