@@ -24,6 +24,21 @@ def _get_enable_default_extensions_default() -> bool:
 	return True
 
 
+def _get_executable_path_default() -> str | Path | None:
+	"""Get the default browser executable path from environment variables.
+	
+	Supports BROWSERUSE_CHROME_PATH and BROWSERUSE_CHROMIUM_PATH env vars.
+	BROWSERUSE_CHROME_PATH takes precedence over BROWSERUSE_CHROMIUM_PATH.
+	"""
+	chrome_path = os.getenv('BROWSERUSE_CHROME_PATH')
+	if chrome_path:
+		return chrome_path
+	chromium_path = os.getenv('BROWSERUSE_CHROMIUM_PATH')
+	if chromium_path:
+		return chromium_path
+	return None
+
+
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
 CHROME_DISABLED_COMPONENTS = [
@@ -379,9 +394,9 @@ class BrowserLaunchArgs(BaseModel):
 		description='Extra environment variables to set when launching the browser. If None, inherits from the current process.',
 	)
 	executable_path: str | Path | None = Field(
-		default=None,
+		default_factory=_get_executable_path_default,
 		validation_alias=AliasChoices('browser_binary_path', 'chrome_binary_path'),
-		description='Path to the chromium-based browser executable to use.',
+		description='Path to the chromium-based browser executable to use. Can be set via BROWSERUSE_CHROME_PATH or BROWSERUSE_CHROMIUM_PATH environment variables.',
 	)
 	headless: bool | None = Field(default=None, description='Whether to run the browser in headless or windowed mode.')
 	args: list[CliArgStr] = Field(
