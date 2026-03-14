@@ -195,7 +195,7 @@ class CurrentPageTargets:
 
 @dataclass
 class TargetAllTrees:
-	snapshot: CaptureSnapshotReturns
+	snapshot: CaptureSnapshotReturns | None
 	dom_tree: GetDocumentReturns
 	ax_tree: GetFullAXTreeReturns
 	device_pixel_ratio: float

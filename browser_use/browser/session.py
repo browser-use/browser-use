@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
+import anyio
 import httpx
 from bubus import EventBus
 from cdp_use import CDPClient
@@ -170,6 +171,8 @@ class BrowserSession(BaseModel):
 		id: str | None = None,
 		cdp_url: str | None = None,
 		browser_profile: BrowserProfile | None = None,
+		# Browser engine selection
+		browser_engine: str | None = None,
 		# Local browser launch params
 		executable_path: str | Path | None = None,
 		headless: bool | None = None,
@@ -276,6 +279,8 @@ class BrowserSession(BaseModel):
 		use_cloud: bool | None = None,
 		cloud_browser: bool | None = None,  # Backward compatibility alias
 		cloud_browser_params: CloudBrowserParams | None = None,
+		## Browser engine
+		browser_engine: str | None = None,
 		## Other params
 		disable_security: bool | None = None,
 		deterministic_rendering: bool | None = None,
@@ -1335,7 +1340,6 @@ class BrowserSession(BaseModel):
 			Storage state dict with cookies in Playwright format.
 
 		"""
-		from pathlib import Path
 
 		# Get all cookies using Storage.getCookies (returns decrypted cookies from all domains)
 		cookies = await self._cdp_get_cookies()
@@ -1361,9 +1365,9 @@ class BrowserSession(BaseModel):
 		if output_path:
 			import json
 
-			output_file = Path(output_path).expanduser().resolve()
-			output_file.parent.mkdir(parents=True, exist_ok=True)
-			output_file.write_text(json.dumps(storage_state, indent=2, ensure_ascii=False), encoding='utf-8')
+			output_file = await (await anyio.Path(output_path).expanduser()).resolve()
+			await output_file.parent.mkdir(parents=True, exist_ok=True)
+			await output_file.write_text(json.dumps(storage_state, indent=2, ensure_ascii=False), encoding='utf-8')
 			self.logger.info(f'💾 Exported {len(cookies)} cookies to {output_file}')
 
 		return storage_state
@@ -3829,7 +3833,7 @@ class BrowserSession(BaseModel):
 		screenshot_data = base64.b64decode(result['data'])
 
 		if path:
-			Path(path).write_bytes(screenshot_data)
+			await anyio.Path(path).write_bytes(screenshot_data)
 
 		return screenshot_data
 

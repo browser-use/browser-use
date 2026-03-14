@@ -45,7 +45,7 @@ def _parse_computed_styles(strings: list[str], style_indices: list[int]) -> dict
 
 
 def build_snapshot_lookup(
-	snapshot: CaptureSnapshotReturns,
+	snapshot: CaptureSnapshotReturns | None,
 	device_pixel_ratio: float = 1.0,
 ) -> dict[int, EnhancedSnapshotNode]:
 	"""Build a lookup table of backend node ID to enhanced snapshot data with everything calculated upfront."""
@@ -54,7 +54,7 @@ def build_snapshot_lookup(
 	logger = logging.getLogger('browser_use.dom.enhanced_snapshot')
 	snapshot_lookup: dict[int, EnhancedSnapshotNode] = {}
 
-	if not snapshot['documents']:
+	if snapshot is None or not snapshot['documents']:
 		return snapshot_lookup
 
 	strings = snapshot['strings']

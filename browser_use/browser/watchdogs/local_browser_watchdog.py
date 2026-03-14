@@ -98,6 +98,63 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		Returns:
 			Tuple of (psutil.Process, cdp_url)
 		"""
+		from browser_use.browser.profile import BrowserEngine
+
+		profile = self.browser_session.browser_profile
+
+		if profile.browser_engine == BrowserEngine.LIGHTPANDA:
+			return await self._launch_lightpanda()
+
+		return await self._launch_chromium(max_retries)
+
+	async def _launch_lightpanda(self) -> tuple[psutil.Process, str]:
+		"""Launch a Lightpanda browser process."""
+		profile = self.browser_session.browser_profile
+
+		# Get launch args from profile (user-provided extra args only)
+		launch_args = profile.get_args()
+
+		# Find Lightpanda binary
+		if profile.executable_path:
+			browser_path = str(profile.executable_path)
+			self.logger.debug(f'[LocalBrowserWatchdog] 📦 Using custom Lightpanda executable_path= {browser_path}')
+		else:
+			browser_path = self._find_lightpanda_path()
+			if not browser_path:
+				raise RuntimeError(
+					'Lightpanda binary not found.\n'
+					'Install it: curl -fsSL https://pkg.lightpanda.io/install.sh | bash\n'
+					'Or set executable_path / LIGHTPANDA_BINARY_PATH.'
+				)
+
+		debug_port = self._find_free_port()
+		# 'serve' subcommand must come before all flags for correct CLI parsing
+		launch_args = [
+			'serve',
+			'--host',
+			'127.0.0.1',
+			'--port',
+			str(debug_port),
+			*launch_args,
+		]
+
+		self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching Lightpanda with {len(launch_args)} args...')
+		subprocess = await asyncio.create_subprocess_exec(
+			browser_path,
+			*launch_args,
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+		)
+		self.logger.debug(
+			f'[LocalBrowserWatchdog] 🐼 Lightpanda running with browser_pid= {subprocess.pid} 🔗 listening on CDP port :{debug_port}'
+		)
+
+		process = psutil.Process(subprocess.pid)
+		cdp_url = await self._wait_for_cdp_url(debug_port)
+		return process, cdp_url
+
+	async def _launch_chromium(self, max_retries: int = 3) -> tuple[psutil.Process, str]:
+		"""Launch a Chromium-based browser process with retry logic for user_data_dir issues."""
 		# Keep track of original user_data_dir to restore if needed
 		profile = self.browser_session.browser_profile
 		self._original_user_data_dir = str(profile.user_data_dir) if profile.user_data_dir else None
@@ -354,6 +411,40 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				# Direct path check
 				if expanded_pattern.exists() and expanded_pattern.is_file():
 					return str(expanded_pattern)
+
+		return None
+
+	@staticmethod
+	def _find_lightpanda_path() -> str | None:
+		"""Find the Lightpanda browser binary.
+
+		Priority:
+		1. LIGHTPANDA_BINARY_PATH environment variable
+		2. 'lightpanda' on PATH via shutil.which
+		3. Common installation paths
+
+		Returns:
+			Path to Lightpanda executable or None if not found
+		"""
+		# 1. Environment variable
+		env_path = os.environ.get('LIGHTPANDA_BINARY_PATH')
+		if env_path and Path(env_path).exists() and Path(env_path).is_file():
+			return env_path
+
+		# 2. On PATH
+		which_path = shutil.which('lightpanda')
+		if which_path:
+			return which_path
+
+		# 3. Common install locations
+		common_paths = [
+			'/usr/local/bin/lightpanda',
+			'/usr/bin/lightpanda',
+			str(Path.home() / '.local' / 'bin' / 'lightpanda'),
+		]
+		for path in common_paths:
+			if Path(path).exists() and Path(path).is_file():
+				return path
 
 		return None
 
