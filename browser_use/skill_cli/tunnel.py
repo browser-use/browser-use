@@ -151,24 +151,55 @@ def _is_process_alive(pid: int) -> bool:
 		return True
 	except (OSError, ProcessLookupError):
 		return False
+	except SystemError:
+		# Windows doesn't support signal 0, use ctypes instead
+		try:
+			import ctypes
+			PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+			handle = ctypes.windll.kernel32.OpenProcess(
+				PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+			)
+			if handle:
+				ctypes.windll.kernel32.CloseHandle(handle)
+				return True
+			return False
+		except Exception:
+			return False
 
 
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
-	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+	import sys
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
-	except (OSError, ProcessLookupError):
-		return False
+	if sys.platform == 'win32':
+		# Windows: use ctypes to terminate process
+		try:
+			import ctypes
+			PROCESS_TERMINATE = 0x0001
+			handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+			if handle:
+				ctypes.windll.kernel32.TerminateProcess(handle, 1)
+				ctypes.windll.kernel32.CloseHandle(handle)
+				return True
+			return False
+		except Exception:
+			return False
+	else:
+		# Unix: use signals
+		try:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				import time
+
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 # =============================================================================
@@ -205,8 +236,10 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 	log_file = open(log_file_path, 'w')  # noqa: ASYNC230
 
 	# Spawn cloudflared as a daemon
-	# - start_new_session=True: survives parent exit
-	# - stderr to file: avoids SIGPIPE when parent's pipe closes
+	# - On Unix: start_new_session=True survives parent exit
+	# - On Windows: use CREATE_NEW_PROCESS_GROUP flag
+	import sys
+	start_new_session = sys.platform != 'win32'
 	process = await asyncio.create_subprocess_exec(
 		cloudflared_binary,
 		'tunnel',
@@ -214,7 +247,7 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 		f'http://localhost:{port}',
 		stdout=asyncio.subprocess.DEVNULL,
 		stderr=log_file,
-		start_new_session=True,
+		start_new_session=start_new_session,
 	)
 
 	# Poll the log file until we find the tunnel URL
