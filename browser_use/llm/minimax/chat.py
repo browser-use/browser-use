@@ -121,11 +121,11 @@ class ChatMiniMax(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
-		# Function Calling path (with tools or output_format)
-		if tools or (output_format is not None and hasattr(output_format, 'model_json_schema')):
+		# Function Calling path (tools provided)
+		if tools:
 			try:
-				call_tools = tools
-				tool_choice = None
+				call_tools = list(tools)
+				tool_choice: Any = None
 				if output_format is not None and hasattr(output_format, 'model_json_schema'):
 					tool_name = output_format.__name__
 					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
@@ -149,8 +149,13 @@ class ChatMiniMax(BaseChatModel):
 					**common,
 				)
 				msg = resp.choices[0].message
+				# When tool_choice is not forced, the model may respond with
+				# plain text instead of tool_calls -- treat as normal response.
 				if not msg.tool_calls:
-					raise ValueError('Expected tool_calls in response but got none')
+					return ChatInvokeCompletion(
+						completion=msg.content or '',
+						usage=None,
+					)
 				raw_args = msg.tool_calls[0].function.arguments
 				if isinstance(raw_args, str):
 					parsed = json.loads(raw_args)
@@ -173,7 +178,7 @@ class ChatMiniMax(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
-		# JSON Output path
+		# Structured-output JSON path (output_format only, no tools)
 		if output_format is not None and hasattr(output_format, 'model_json_schema'):
 			try:
 				resp = await client.chat.completions.create(  # type: ignore
