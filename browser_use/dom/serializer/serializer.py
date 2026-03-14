@@ -533,7 +533,7 @@ class DOMTreeSerializer:
 					return simplified
 		elif node.node_type == NodeType.TEXT_NODE:
 			# Include meaningful text nodes
-			is_visible = node.snapshot_node and node.is_visible
+			is_visible = node.is_visible
 			if is_visible and node.node_value and node.node_value.strip() and len(node.node_value.strip()) > 1:
 				return SimplifiedNode(original_node=node, children=[])
 
@@ -554,7 +554,7 @@ class DOMTreeSerializer:
 		node.children = optimized_children
 
 		# Keep meaningful nodes
-		is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+		is_visible = node.original_node.is_visible
 
 		# EXCEPTION: File inputs are often hidden with opacity:0 but are still functional
 		is_file_input = (
@@ -578,7 +578,7 @@ class DOMTreeSerializer:
 	def _collect_interactive_elements(self, node: SimplifiedNode, elements: list[SimplifiedNode]) -> None:
 		"""Recursively collect interactive elements that are also visible."""
 		is_interactive = self._is_interactive_cached(node.original_node)
-		is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+		is_visible = node.original_node.is_visible
 
 		# Only collect elements that are both interactive AND visible
 		if is_interactive and is_visible:
@@ -623,7 +623,7 @@ class DOMTreeSerializer:
 		if not node.excluded_by_parent and not node.ignored_by_paint_order:
 			# Regular interactive element assignment (including enhanced compound controls)
 			is_interactive_assign = self._is_interactive_cached(node.original_node)
-			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+			is_visible = node.original_node.is_visible
 			is_scrollable = node.original_node.is_actually_scrollable
 
 			# DIAGNOSTIC: Log when interactive elements don't have snapshot_node
@@ -1048,7 +1048,7 @@ class DOMTreeSerializer:
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
 			# Include visible text
-			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+			is_visible = node.original_node.is_visible
 			if (
 				is_visible
 				and node.original_node.node_value

@@ -252,7 +252,8 @@ class DomService:
 		"""
 
 		if not node.snapshot_node:
-			return False
+			# No snapshot data (e.g. Lightpanda) — assume visible since we can't check CSS/bounds
+			return True
 
 		computed_styles = node.snapshot_node.computed_styles or {}
 

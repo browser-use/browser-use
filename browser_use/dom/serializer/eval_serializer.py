@@ -139,7 +139,7 @@ class DOMEvalSerializer:
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
 			tag = node.original_node.tag_name.lower()
-			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+			is_visible = node.original_node.is_visible
 
 			# Container elements that should be shown even if invisible (might have visible children)
 			container_tags = {'html', 'body', 'div', 'main', 'section', 'article', 'aside', 'header', 'footer', 'nav'}
@@ -431,8 +431,8 @@ class DOMEvalSerializer:
 				# If no snapshot data, assume visible (cross-origin iframe content)
 				is_visible = (not dom_node.snapshot_node) or dom_node.is_visible
 			else:
-				# Regular strict visibility check
-				is_visible = dom_node.snapshot_node and dom_node.is_visible
+				# Regular visibility check (works with or without snapshot data)
+				is_visible = dom_node.is_visible
 
 			if not is_visible:
 				return
