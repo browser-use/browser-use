@@ -216,7 +216,7 @@ class CodeAgentHistoryList:
 
 	def final_result(self) -> None | str:
 		"""Final result from history."""
-		if self._complete_history and self._complete_history[-1].result:
+		if self._complete_history and len(self._complete_history[-1].result) > 0:
 			return self._complete_history[-1].result[-1].extracted_content
 		return None
 

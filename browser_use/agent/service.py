@@ -1610,7 +1610,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		judgement = await self._judge_trace()
 
 		# Attach judgement to last action result
-		if self.history.history[-1].result[-1].is_done:
+		if (
+			self.history.history
+			and self.history.history[-1].result
+			and len(self.history.history[-1].result) > 0
+			and self.history.history[-1].result[-1].is_done
+		):
 			last_result = self.history.history[-1].result[-1]
 			last_result.judgement = judgement
 
