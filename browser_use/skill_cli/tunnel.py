@@ -208,14 +208,18 @@ def _is_process_alive_unix(pid: int) -> bool:
 def _is_process_alive_windows(pid: int) -> bool:
 	"""Check if a process is still running on Windows.
 
-	Uses WaitForSingleObject to properly detect if process is alive,
-	avoiding false positives from zombie process handles.
+	Uses WaitForSingleObject with SYNCHRONIZE access to properly detect if
+	process is alive, avoiding false positives from zombie process handles.
 	"""
 	try:
 		kernel32 = _setup_windows_ctypes()
+		# SYNCHRONIZE (0x00100000) is required for WaitForSingleObject to work
+		# PROCESS_QUERY_LIMITED_INFORMATION (0x1000) allows querying exit code
 		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		SYNCHRONIZE = 0x00100000
+		access = PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
 
-		handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		handle = kernel32.OpenProcess(access, False, pid)
 		if not handle:
 			return False
 
@@ -260,6 +264,10 @@ def _kill_process_windows(pid: int) -> bool:
 	Uses TerminateProcess and waits for actual termination to avoid race
 	conditions where the caller might delete PID files while process is
 	still running.
+
+	Returns:
+		True if the process was successfully killed, False if the process
+		is still running or could not be terminated.
 	"""
 	try:
 		kernel32 = _setup_windows_ctypes()
@@ -267,6 +275,7 @@ def _kill_process_windows(pid: int) -> bool:
 
 		handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
 		if not handle:
+			# Process doesn't exist or we lack permission - treat as dead
 			return False
 
 		try:
@@ -279,10 +288,11 @@ def _kill_process_windows(pid: int) -> bool:
 			# (similar to Unix implementation's wait loop)
 			for _ in range(10):
 				if not _is_process_alive(pid):
-					return True
+					return True  # Successfully killed
 				time.sleep(0.1)
 
-			return True  # TerminateProcess called, let caller decide
+			# Process is still alive after all retries - return False per docstring
+			return False
 		finally:
 			kernel32.CloseHandle(handle)
 	except Exception:

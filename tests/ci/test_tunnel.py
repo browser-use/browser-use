@@ -212,3 +212,26 @@ class TestKillProcessWindows:
 			result = _kill_process(12345)
 
 			assert result is False
+
+	@patch('sys.platform', 'win32')
+	def test_kill_process_windows_still_alive_after_retries(self):
+		"""Test _kill_process returns False when process is still alive after all retries."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		import browser_use.skill_cli.tunnel as tunnel_module
+		tunnel_module._ctypes_initialized = False
+
+		with patch.object(tunnel_module, '_setup_windows_ctypes') as mock_setup:
+			mock_kernel32 = MagicMock()
+			mock_kernel32.OpenProcess.return_value = 1234
+			mock_kernel32.TerminateProcess.return_value = True
+			# Process keeps returning "still running" (WAIT_TIMEOUT) for all 10 retries
+			mock_kernel32.WaitForSingleObject.return_value = 0x102
+			mock_setup.return_value = mock_kernel32
+
+			result = _kill_process(12345)
+
+			# Should return False because process is still alive after all retries
+			assert result is False
+			# Verify all 10 retries were attempted
+			assert mock_kernel32.WaitForSingleObject.call_count == 10
