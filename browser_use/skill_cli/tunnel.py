@@ -145,7 +145,17 @@ def _delete_tunnel_info(port: int) -> None:
 
 
 def _is_process_alive(pid: int) -> bool:
-	"""Check if a process is still running."""
+	"""Check if a process is still running.
+	
+	Uses platform-specific implementation for reliable detection,
+	especially on Windows where os.kill(pid, 0) is not reliable.
+	"""
+	import sys
+	
+	if sys.platform == 'win32':
+		return _is_process_alive_windows(pid)
+	
+	# Unix implementation
 	try:
 		os.kill(pid, 0)
 		return True
@@ -153,8 +163,65 @@ def _is_process_alive(pid: int) -> bool:
 		return False
 
 
+def _is_process_alive_windows(pid: int) -> bool:
+	"""Windows-specific process liveness check using proper API.
+	
+	Uses OpenProcess with SYNCHRONIZE flag and WaitForSingleObject to reliably
+	determine if a process is still running. This is more reliable than
+	os.kill(pid, 0) on Windows.
+	
+	Args:
+		pid: Windows Process ID to check
+		
+	Returns:
+		True if process is still running, False otherwise
+	"""
+	import ctypes
+	from ctypes import wintypes
+	
+	kernel32 = ctypes.windll.kernel32
+	
+	# Process constants
+	PROCESS_QUERY_INFORMATION = 0x0400
+	SYNCHRONIZE = 0x00100000
+	STILL_ACTIVE = 259
+	
+	# Open process with SYNCHRONIZE flag so WaitForSingleObject works
+	handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, pid)
+	if not handle:
+		# Process doesn't exist or access denied
+		return False
+	
+	try:
+		# Use GetExitCodeProcess to check if still running
+		exit_code = wintypes.DWORD()
+		if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+			return False
+		
+		# STILL_ACTIVE (259) means process is still running
+		return exit_code.value == STILL_ACTIVE
+	
+	finally:
+		kernel32.CloseHandle(handle)
+
+
 def _kill_process(pid: int) -> bool:
-	"""Kill a process by PID. Returns True if killed, False if already dead."""
+	"""Kill a process by PID. Returns True if killed, False if already dead.
+	
+	Args:
+		pid: Process ID to kill
+		
+	Returns:
+		True if process was successfully killed or was already dead,
+		raises OSError if unable to kill (process still alive)
+	"""
+	import sys
+	
+	# Use platform-specific implementation for Windows
+	if sys.platform == 'win32':
+		return _kill_process_windows(pid)
+	
+	# Unix implementation
 	try:
 		os.kill(pid, signal.SIGTERM)
 		# Give it a moment to terminate gracefully
@@ -162,13 +229,75 @@ def _kill_process(pid: int) -> bool:
 			if not _is_process_alive(pid):
 				return True
 			import time
-
 			time.sleep(0.1)
 		# Force kill if still alive
 		os.kill(pid, signal.SIGKILL)
 		return True
 	except (OSError, ProcessLookupError):
+		# Process already dead
 		return False
+
+
+def _kill_process_windows(pid: int) -> bool:
+	"""Windows-specific process kill with proper termination checking.
+	
+	Uses WaitForSingleObject with SYNCHRONIZE flag to reliably check process liveness,
+	and waits for actual process termination before returning success.
+	
+	Args:
+		pid: Windows Process ID to kill
+		
+	Returns:
+		True if process was successfully killed or was already dead,
+		raises OSError if unable to kill (process still alive after timeout)
+	"""
+	import ctypes
+	from ctypes import wintypes
+	
+	# Load kernel32
+	kernel32 = ctypes.windll.kernel32
+	
+	# Process constants
+	PROCESS_QUERY_INFORMATION = 0x0400
+	SYNCHRONIZE = 0x00100000
+	STILL_ACTIVE = 259
+	INFINITE = 0xFFFFFFFF
+	WAIT_OBJECT_0 = 0x00000000
+	
+	# Open process with QUERY_INFORMATION and SYNCHRONIZE access
+	handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, pid)
+	if not handle:
+		# Process doesn't exist or access denied
+		err = ctypes.get_last_error()
+		if err == 3:  # ERROR_FILE_NOT_FOUND
+			return False  # Process already dead
+		raise OSError(f'Failed to open process {pid}: error {err}')
+	
+	try:
+		# First check if process is still running
+		exit_code = wintypes.DWORD()
+		if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+			raise OSError(f'Failed to get exit code for process {pid}')
+		
+		if exit_code.value != STILL_ACTIVE:
+			return False  # Process already dead
+		
+		# Try graceful termination first
+		kernel32.TerminateProcess(handle, 1)
+		
+		# Wait for actual termination with timeout
+		# Using WaitForSingleObject with SYNCHRONIZE ensures we wait on the handle
+		result = kernel32.WaitForSingleObject(handle, 5000)  # 5 second timeout
+		
+		if result == WAIT_OBJECT_0:
+			# Process terminated successfully
+			return True
+		else:
+			# Timeout or error - process still alive
+			raise OSError(f'Failed to kill process {pid}: timeout after 5s')
+	
+	finally:
+		kernel32.CloseHandle(handle)
 
 
 # =============================================================================
@@ -295,8 +424,19 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 
 	url = info['url']
 	pid = info['pid']
-	# Attempt to kill the process - if already dead (False), still clean up
-	_kill_process(pid)
+	
+	# Attempt to kill the process
+	# - Returns True: process was killed successfully
+	# - Returns False: process was already dead (normal, still clean up)
+	# - Raises exception: failed to kill (skip cleanup to avoid orphaning)
+	try:
+		kill_result = _kill_process(pid)
+	except OSError as e:
+		# Failed to kill process - don't clean up state to avoid orphaning live tunnel
+		logger.warning(f'Failed to kill tunnel process {pid}: {e}')
+		return {'error': f'Failed to stop tunnel: {e}'}
+	
+	# Clean up tunnel state
 	_delete_tunnel_info(port)
 	# Clean up log file
 	log_file = _TUNNELS_DIR / f'{port}.log'
