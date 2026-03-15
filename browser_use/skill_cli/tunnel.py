@@ -156,17 +156,31 @@ def _is_process_alive(pid: int) -> bool:
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
 	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+		import sys
+		if sys.platform == "win32":
+			import ctypes
+			kernel32 = ctypes.windll.kernel32
+			PROCESS_TERMINATE = 0x0001
+			handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+			if not handle:
+				return False
+			try:
+				result = kernel32.TerminateProcess(handle, 1)
+				return result != 0
+			finally:
+				kernel32.CloseHandle(handle)
+		else:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				import time
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
 	except (OSError, ProcessLookupError):
 		return False
 
