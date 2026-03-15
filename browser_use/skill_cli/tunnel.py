@@ -12,12 +12,16 @@ Tunnels survive CLI process exit by:
 """
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
 import re
 import shutil
 import signal
+import sys
+import time
+from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
@@ -144,8 +148,56 @@ def _delete_tunnel_info(port: int) -> None:
 	_get_tunnel_file(port).unlink(missing_ok=True)
 
 
+# =============================================================================
+# Windows ctypes helper - avoids code duplication
+# =============================================================================
+
+# Track if ctypes has been initialized to avoid redundant setup
+_ctypes_initialized = False
+
+
+def _setup_windows_ctypes() -> Any:
+	"""Set up Windows ctypes for process management (shared helper).
+
+	Sets argtypes/restype for kernel32 functions to ensure proper 64-bit
+	handle marshalling on Windows. Called once and cached.
+	"""
+	global _ctypes_initialized
+	if _ctypes_initialized:
+		return ctypes.windll.kernel32
+
+	kernel32 = ctypes.windll.kernel32
+
+	# OpenProcess: argtypes for proper 64-bit handle marshalling
+	kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+	kernel32.OpenProcess.restype = wintypes.HANDLE
+
+	# CloseHandle
+	kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+	kernel32.CloseHandle.restype = wintypes.BOOL
+
+	# TerminateProcess
+	kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+	kernel32.TerminateProcess.restype = wintypes.BOOL
+
+	# WaitForSingleObject (for checking process liveness)
+	kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+	kernel32.WaitForSingleObject.restype = wintypes.DWORD
+
+	_ctypes_initialized = True
+	return kernel32
+
+
 def _is_process_alive(pid: int) -> bool:
 	"""Check if a process is still running."""
+	if sys.platform == 'win32':
+		return _is_process_alive_windows(pid)
+	else:
+		return _is_process_alive_unix(pid)
+
+
+def _is_process_alive_unix(pid: int) -> bool:
+	"""Check if a process is still running (Unix)."""
 	try:
 		os.kill(pid, 0)
 		return True
@@ -153,21 +205,87 @@ def _is_process_alive(pid: int) -> bool:
 		return False
 
 
+def _is_process_alive_windows(pid: int) -> bool:
+	"""Check if a process is still running on Windows.
+
+	Uses WaitForSingleObject to properly detect if process is alive,
+	avoiding false positives from zombie process handles.
+	"""
+	try:
+		kernel32 = _setup_windows_ctypes()
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+		handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		if not handle:
+			return False
+
+		try:
+			# WAIT_TIMEOUT (0x102) = still running, WAIT_OBJECT_0 (0) = terminated
+			result = kernel32.WaitForSingleObject(handle, 0)
+			return result == 0x102  # WAIT_TIMEOUT means still running
+		finally:
+			kernel32.CloseHandle(handle)
+	except Exception:
+		# On any exception, assume process is not alive
+		return False
+
+
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
+	if sys.platform == 'win32':
+		return _kill_process_windows(pid)
+	else:
+		return _kill_process_unix(pid)
+
+
+def _kill_process_unix(pid: int) -> bool:
+	"""Kill a process by PID (Unix). Returns True if killed, False if already dead."""
 	try:
 		os.kill(pid, signal.SIGTERM)
 		# Give it a moment to terminate gracefully
 		for _ in range(10):
 			if not _is_process_alive(pid):
 				return True
-			import time
-
 			time.sleep(0.1)
 		# Force kill if still alive
 		os.kill(pid, signal.SIGKILL)
 		return True
 	except (OSError, ProcessLookupError):
+		return False
+
+
+def _kill_process_windows(pid: int) -> bool:
+	"""Kill a process by PID on Windows.
+
+	Uses TerminateProcess and waits for actual termination to avoid race
+	conditions where the caller might delete PID files while process is
+	still running.
+	"""
+	try:
+		kernel32 = _setup_windows_ctypes()
+		PROCESS_TERMINATE = 0x0001
+
+		handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+		if not handle:
+			return False
+
+		try:
+			# TerminateProcess is async per Microsoft docs, check return value
+			result = kernel32.TerminateProcess(handle, 1)
+			if not result:
+				return False
+
+			# Wait up to 1 second for process to actually terminate
+			# (similar to Unix implementation's wait loop)
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				time.sleep(0.1)
+
+			return True  # TerminateProcess called, let caller decide
+		finally:
+			kernel32.CloseHandle(handle)
+	except Exception:
 		return False
 
 
