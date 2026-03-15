@@ -7,7 +7,7 @@ Tunnels are managed independently of browser sessions - they are purely
 a network utility for exposing local ports via Cloudflare quick tunnels.
 
 Tunnels survive CLI process exit by:
-1. Spawning cloudflared as a daemon (start_new_session=True)
+1. Spawning cloudflared as a daemon (start_new_session=True on Unix, detached process on Windows)
 2. Tracking tunnel info via PID files in ~/.browser-use/tunnels/
 """
 
@@ -15,9 +15,11 @@ import asyncio
 import json
 import logging
 import os
+import platform
 import re
 import shutil
 import signal
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -145,30 +147,59 @@ def _delete_tunnel_info(port: int) -> None:
 
 
 def _is_process_alive(pid: int) -> bool:
-	"""Check if a process is still running."""
-	try:
-		os.kill(pid, 0)
-		return True
-	except (OSError, ProcessLookupError):
+	"""Check if a process is still running.
+
+	On Windows, uses ctypes to call OpenProcess (os.kill doesn't work reliably with signal 0).
+	On Unix, uses os.kill(pid, 0) which is the standard approach.
+	"""
+	if sys.platform == 'win32':
+		import ctypes
+
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		if handle:
+			ctypes.windll.kernel32.CloseHandle(handle)
+			return True
 		return False
+	else:
+		try:
+			os.kill(pid, 0)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 def _kill_process(pid: int) -> bool:
-	"""Kill a process by PID. Returns True if killed, False if already dead."""
-	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+	"""Kill a process by PID. Returns True if killed, False if already dead.
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
-	except (OSError, ProcessLookupError):
+	On Windows, uses ctypes to call TerminateProcess.
+	On Unix, uses os.kill with SIGTERM and SIGKILL.
+	"""
+	if sys.platform == 'win32':
+		import ctypes
+
+		PROCESS_TERMINATE = 1
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+		if handle:
+			ctypes.windll.kernel32.TerminateProcess(handle, 1)
+			ctypes.windll.kernel32.CloseHandle(handle)
+			return True
 		return False
+	else:
+		try:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				import time
+
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 # =============================================================================
@@ -205,17 +236,33 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 	log_file = open(log_file_path, 'w')  # noqa: ASYNC230
 
 	# Spawn cloudflared as a daemon
-	# - start_new_session=True: survives parent exit
+	# - start_new_session=True (Unix): survives parent exit using setsid
+	# - On Windows: use CREATE_NEW_PROCESS_GROUP flag for detached process
 	# - stderr to file: avoids SIGPIPE when parent's pipe closes
-	process = await asyncio.create_subprocess_exec(
-		cloudflared_binary,
-		'tunnel',
-		'--url',
-		f'http://localhost:{port}',
-		stdout=asyncio.subprocess.DEVNULL,
-		stderr=log_file,
-		start_new_session=True,
-	)
+	if sys.platform == 'win32':
+		import ctypes
+
+		CREATE_NEW_PROCESS_GROUP = 0x00000200
+		DETACHED_PROCESS = 0x00000008
+		process = await asyncio.create_subprocess_exec(
+			cloudflared_binary,
+			'tunnel',
+			'--url',
+			f'http://localhost:{port}',
+			stdout=asyncio.subprocess.DEVNULL,
+			stderr=log_file,
+			creationflags=CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
+		)
+	else:
+		process = await asyncio.create_subprocess_exec(
+			cloudflared_binary,
+			'tunnel',
+			'--url',
+			f'http://localhost:{port}',
+			stdout=asyncio.subprocess.DEVNULL,
+			stderr=log_file,
+			start_new_session=True,
+		)
 
 	# Poll the log file until we find the tunnel URL
 	url: str | None = None
