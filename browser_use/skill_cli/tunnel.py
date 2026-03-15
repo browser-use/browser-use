@@ -159,8 +159,18 @@ def _kill_process(pid: int) -> bool:
 		import sys
 		if sys.platform == "win32":
 			import ctypes
+			from ctypes import wintypes
 			kernel32 = ctypes.windll.kernel32
 			PROCESS_TERMINATE = 0x0001
+
+			# Explicit argtypes/restype for proper 64-bit handle marshalling
+			kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+			kernel32.OpenProcess.restype = wintypes.HANDLE
+			kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+			kernel32.TerminateProcess.restype = wintypes.BOOL
+			kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+			kernel32.CloseHandle.restype = wintypes.BOOL
+
 			handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
 			if not handle:
 				return False
