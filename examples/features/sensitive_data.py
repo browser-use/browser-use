@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+from collections.abc import Callable
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -20,11 +21,14 @@ llm = ChatOpenAI(
 
 # Advanced case: domain-specific credentials with reusable data
 # Define a single credential set that can be reused
-company_credentials: dict[str, str] = {'telephone': '9123456789', 'email': 'user@example.com', 'name': 'John Doe'}
+company_credentials: dict[str, str | Callable[[], str]] = {
+	'telephone': '9123456789',
+	'email': 'user@example.com',
+	'name': 'John Doe',
+}
 
 # Map the same credentials to multiple domains for secure access control
-# Type annotation to satisfy pyright
-sensitive_data: dict[str, str | dict[str, str]] = {
+sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] = {
 	# 'https://example.com': company_credentials,
 	# 'https://admin.example.com': company_credentials,
 	# 'https://*.example-staging.com': company_credentials,
