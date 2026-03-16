@@ -148,10 +148,14 @@ class SessionManager:
 		return self._sessions.get(next(iter(session_ids)))
 
 	def get_all_page_targets(self) -> list:
-		"""Get all page/tab targets using owned data.
+		"""Get all page/tab targets using owned data, excluding Chrome extension pages.
+		
+		Note: This method filters out chrome-extension:// URLs to prevent accidentally
+		selecting Chrome extension side-panels as normal page targets, which can cause
+		focus recovery and tab listing to switch to extension pages.
 
 		Returns:
-			List of Target objects for all page/tab targets
+			List of Target objects for all page/tab targets (excluding extension pages)
 		"""
 		page_targets = []
 		for target in self._targets.values():

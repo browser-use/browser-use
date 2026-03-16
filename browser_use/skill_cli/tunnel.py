@@ -174,14 +174,21 @@ def _is_process_alive_windows(pid: int) -> bool:
 		pid: Windows Process ID to check
 		
 	Returns:
-		True if process is still running, False if process is dead or not found
-		Raises OSError if access denied (process may be running but not accessible)
+		True if process is still running (or access denied), False if process is dead/not found
 	"""
 	import ctypes
 	from ctypes import wintypes
 	
 	# Use WinDLL with use_last_error=True for reliable error detection
 	kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+	
+	# Define proper ctypes signatures for 64-bit compatibility
+	kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+	kernel32.OpenProcess.restype = wintypes.HANDLE
+	kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+	kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+	kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+	kernel32.CloseHandle.restype = wintypes.BOOL
 	
 	# Process constants
 	PROCESS_QUERY_INFORMATION = 0x0400
@@ -193,9 +200,9 @@ def _is_process_alive_windows(pid: int) -> bool:
 	if not handle:
 		err = kernel32.GetLastError()
 		# ERROR_ACCESS_DENIED (5) - process exists but we can't access it
-		# Treat as "alive but can't kill" to avoid orphaning tunnels
+		# Return True to avoid orphaning tunnels (treat as alive)
 		if err == 5:  # ERROR_ACCESS_DENIED
-			raise OSError(f'Access denied to process {pid}')
+			return True
 		# ERROR_INVALID_PARAMETER (87) - process doesn't exist
 		# Other errors - treat as not found
 		return False
@@ -264,6 +271,18 @@ def _kill_process_windows(pid: int) -> bool:
 	
 	# Load kernel32 with use_last_error=True for reliable error detection
 	kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+	
+	# Define proper ctypes signatures for 64-bit compatibility
+	kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+	kernel32.OpenProcess.restype = wintypes.HANDLE
+	kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+	kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+	kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+	kernel32.TerminateProcess.restype = wintypes.BOOL
+	kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+	kernel32.WaitForSingleObject.restype = wintypes.DWORD
+	kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+	kernel32.CloseHandle.restype = wintypes.BOOL
 	
 	# Process constants
 	PROCESS_TERMINATE = 0x0001
