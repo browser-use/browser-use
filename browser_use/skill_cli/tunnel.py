@@ -200,9 +200,9 @@ def _is_process_alive_windows(pid: int) -> bool:
 	if not handle:
 		err = kernel32.GetLastError()
 		# ERROR_ACCESS_DENIED (5) - process exists but we can't access it
-		# Return True to avoid orphaning tunnels (treat as alive)
+		# Return False to allow cleanup of stale PIDs that may have been reused
 		if err == 5:  # ERROR_ACCESS_DENIED
-			return True
+			return False
 		# ERROR_INVALID_PARAMETER (87) - process doesn't exist
 		# Other errors - treat as not found
 		return False
