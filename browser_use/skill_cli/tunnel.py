@@ -258,19 +258,21 @@ def _kill_process_windows(pid: int) -> bool:
 	kernel32 = ctypes.windll.kernel32
 	
 	# Process constants
+	PROCESS_TERMINATE = 0x0001
 	PROCESS_QUERY_INFORMATION = 0x0400
 	SYNCHRONIZE = 0x00100000
 	STILL_ACTIVE = 259
 	INFINITE = 0xFFFFFFFF
 	WAIT_OBJECT_0 = 0x00000000
 	
-	# Open process with QUERY_INFORMATION and SYNCHRONIZE access
-	handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, pid)
+	# Open process with TERMINATE and SYNCHRONIZE access for killing and waiting
+	handle = kernel32.OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, False, pid)
 	if not handle:
 		# Process doesn't exist or access denied
 		err = ctypes.get_last_error()
-		if err == 3:  # ERROR_FILE_NOT_FOUND
-			return False  # Process already dead
+		# ERROR_ACCESS_DENIED (5), ERROR_INVALID_PARAMETER (87), or process not found - treat as dead
+		if err in (5, 6, 87):  # ERROR_ACCESS_DENIED, ERROR_INVALID_HANDLE, ERROR_INVALID_PARAMETER
+			return False  # Process already dead or can't access
 		raise OSError(f'Failed to open process {pid}: error {err}')
 	
 	try:
@@ -283,7 +285,8 @@ def _kill_process_windows(pid: int) -> bool:
 			return False  # Process already dead
 		
 		# Try graceful termination first
-		kernel32.TerminateProcess(handle, 1)
+		if not kernel32.TerminateProcess(handle, 1):
+			raise OSError(f'Failed to terminate process {pid}')
 		
 		# Wait for actual termination with timeout
 		# Using WaitForSingleObject with SYNCHRONIZE ensures we wait on the handle
