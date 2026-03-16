@@ -663,6 +663,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
+	download_timeout: float = Field(
+		default=30.0,
+		description='Maximum time in seconds to wait for a download to complete after it starts. Increase for large file downloads.',
+	)
 
 	profile_directory: str = 'Default'  # e.g. 'Profile 1', 'Profile 2', 'Custom Profile', etc.
 
