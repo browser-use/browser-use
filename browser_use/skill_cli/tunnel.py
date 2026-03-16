@@ -166,7 +166,7 @@ def _is_process_alive(pid: int) -> bool:
 def _is_process_alive_windows(pid: int) -> bool:
 	"""Windows-specific process liveness check using proper API.
 	
-	Uses OpenProcess with SYNCHRONIZE flag and WaitForSingleObject to reliably
+	Uses OpenProcess with SYNCHRONIZE flag and GetExitCodeProcess to reliably
 	determine if a process is still running. This is more reliable than
 	os.kill(pid, 0) on Windows.
 	
@@ -174,12 +174,14 @@ def _is_process_alive_windows(pid: int) -> bool:
 		pid: Windows Process ID to check
 		
 	Returns:
-		True if process is still running, False otherwise
+		True if process is still running, False if process is dead or not found
+		Raises OSError if access denied (process may be running but not accessible)
 	"""
 	import ctypes
 	from ctypes import wintypes
 	
-	kernel32 = ctypes.windll.kernel32
+	# Use WinDLL with use_last_error=True for reliable error detection
+	kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 	
 	# Process constants
 	PROCESS_QUERY_INFORMATION = 0x0400
@@ -189,7 +191,13 @@ def _is_process_alive_windows(pid: int) -> bool:
 	# Open process with SYNCHRONIZE flag so WaitForSingleObject works
 	handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, pid)
 	if not handle:
-		# Process doesn't exist or access denied
+		err = kernel32.GetLastError()
+		# ERROR_ACCESS_DENIED (5) - process exists but we can't access it
+		# Treat as "alive but can't kill" to avoid orphaning tunnels
+		if err == 5:  # ERROR_ACCESS_DENIED
+			raise OSError(f'Access denied to process {pid}')
+		# ERROR_INVALID_PARAMETER (87) - process doesn't exist
+		# Other errors - treat as not found
 		return False
 	
 	try:
@@ -241,38 +249,41 @@ def _kill_process(pid: int) -> bool:
 def _kill_process_windows(pid: int) -> bool:
 	"""Windows-specific process kill with proper termination checking.
 	
-	Uses WaitForSingleObject with SYNCHRONIZE flag to reliably check process liveness,
-	and waits for actual process termination before returning success.
+	Uses TerminateProcess and WaitForSingleObject with SYNCHRONIZE flag to reliably
+	kill process and wait for actual termination.
 	
 	Args:
 		pid: Windows Process ID to kill
 		
 	Returns:
 		True if process was successfully killed or was already dead,
-		raises OSError if unable to kill (process still alive after timeout)
+		raises OSError if unable to kill (process still alive or access denied)
 	"""
 	import ctypes
 	from ctypes import wintypes
 	
-	# Load kernel32
-	kernel32 = ctypes.windll.kernel32
+	# Load kernel32 with use_last_error=True for reliable error detection
+	kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 	
 	# Process constants
 	PROCESS_TERMINATE = 0x0001
 	PROCESS_QUERY_INFORMATION = 0x0400
 	SYNCHRONIZE = 0x00100000
 	STILL_ACTIVE = 259
-	INFINITE = 0xFFFFFFFF
 	WAIT_OBJECT_0 = 0x00000000
 	
-	# Open process with TERMINATE and SYNCHRONIZE access for killing and waiting
-	handle = kernel32.OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, False, pid)
+	# Open process with TERMINATE, QUERY_INFORMATION, and SYNCHRONIZE access
+	handle = kernel32.OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, pid)
 	if not handle:
-		# Process doesn't exist or access denied
-		err = ctypes.get_last_error()
-		# ERROR_ACCESS_DENIED (5), ERROR_INVALID_PARAMETER (87), or process not found - treat as dead
-		if err in (5, 6, 87):  # ERROR_ACCESS_DENIED, ERROR_INVALID_HANDLE, ERROR_INVALID_PARAMETER
-			return False  # Process already dead or can't access
+		err = kernel32.GetLastError()
+		# ERROR_ACCESS_DENIED (5) - process exists but we can't access it
+		# Don't treat as dead - raise error to avoid orphaning live tunnel
+		if err == 5:  # ERROR_ACCESS_DENIED
+			raise OSError(f'Access denied to process {pid}')
+		# ERROR_INVALID_PARAMETER (87) - process doesn't exist
+		if err == 87:  # ERROR_INVALID_PARAMETER
+			return False  # Process already dead
+		# Other errors
 		raise OSError(f'Failed to open process {pid}: error {err}')
 	
 	try:
@@ -433,7 +444,7 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 	# - Returns False: process was already dead (normal, still clean up)
 	# - Raises exception: failed to kill (skip cleanup to avoid orphaning)
 	try:
-		kill_result = _kill_process(pid)
+		_kill_process(pid)
 	except OSError as e:
 		# Failed to kill process - don't clean up state to avoid orphaning live tunnel
 		logger.warning(f'Failed to kill tunnel process {pid}: {e}')
