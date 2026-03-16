@@ -159,6 +159,14 @@ class ChatGroq(BaseChatModel):
 			seed=self.seed,
 		)
 		usage = self._get_usage(chat_completion)
+
+		if not chat_completion.choices:
+			raise ModelProviderError(
+				message='No choices in model response',
+				status_code=500,
+				model=self.name,
+			)
+
 		return ChatInvokeCompletion(
 			completion=chat_completion.choices[0].message.content or '',
 			usage=usage,
@@ -172,6 +180,13 @@ class ChatGroq(BaseChatModel):
 			response = await self._invoke_with_tool_calling(groq_messages, output_format, schema)
 		else:
 			response = await self._invoke_with_json_schema(groq_messages, output_format, schema)
+
+		if not response.choices:
+			raise ModelProviderError(
+				message='No choices in model response',
+				status_code=500,
+				model=self.name,
+			)
 
 		if not response.choices[0].message.content:
 			raise ModelProviderError(
