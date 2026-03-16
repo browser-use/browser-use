@@ -76,6 +76,11 @@ class ChatOpenAI(BaseChatModel):
 		]
 	)
 
+	def __post_init__(self):
+		if 'deepseek' in str(self.model).lower():
+			self.dont_force_structured_output = True
+			self.add_schema_to_system_prompt = True
+
 	# Static
 	@property
 	def provider(self) -> str:
