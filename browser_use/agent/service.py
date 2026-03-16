@@ -145,7 +145,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
 		skill_service: Any | None = None,
 		# Initial agent run parameters
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (

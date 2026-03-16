@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import anyio
 
@@ -74,7 +74,7 @@ Context = TypeVar('Context')
 T = TypeVar('T', bound=BaseModel)
 
 
-def _detect_sensitive_key_name(text: str, sensitive_data: dict[str, str | dict[str, str]] | None) -> str | None:
+def _detect_sensitive_key_name(text: str, sensitive_data: dict[str, Any] | None) -> str | None:
 	"""Detect which sensitive key name corresponds to the given text value."""
 	if not sensitive_data or not text:
 		return None
@@ -658,7 +658,7 @@ class Tools(Generic[Context]):
 			params: InputTextAction,
 			browser_session: BrowserSession,
 			has_sensitive_data: bool = False,
-			sensitive_data: dict[str, str | dict[str, str]] | None = None,
+			sensitive_data: dict[str, Any] | None = None,
 		):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
@@ -2044,7 +2044,7 @@ Validated Code (after quote fixing):
 		action: ActionModel,
 		browser_session: BrowserSession,
 		page_extraction_llm: BaseChatModel | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, Any] | None = None,
 		available_file_paths: list[str] | None = None,
 		file_system: FileSystem | None = None,
 		extraction_schema: dict | None = None,
