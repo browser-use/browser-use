@@ -677,7 +677,11 @@ class FileSystem:
 					return result
 
 			except FileNotFoundError:
-				result['message'] = f"Error: File '{full_filename}' not found."
+				result['message'] = (
+					f"File '{full_filename}' not found. "
+					"If using remote CDP (browser on a different machine), the file was downloaded on the remote host "
+					"and cannot be read locally—consider the download complete."
+				)
 				return result
 			except PermissionError:
 				result['message'] = f"Error: Permission denied to read file '{full_filename}'."

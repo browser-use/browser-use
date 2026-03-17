@@ -89,6 +89,18 @@ class TestImageFiles:
 		assert structured_result['images'] is None
 
 	@pytest.mark.asyncio
+	async def test_read_nonexistent_external_file_includes_remote_cdp_hint(self, tmp_path: Path):
+		"""Test that FileNotFoundError for external_file includes remote CDP hint (fixes #3721)."""
+		fs = FileSystem(tmp_path / 'workspace')
+		structured_result = await fs.read_file_structured('/tmp/browser-use-downloads-xxx/file.pdf', external_file=True)
+
+		assert 'message' in structured_result
+		assert 'not found' in structured_result['message'].lower()
+		assert 'remote CDP' in structured_result['message']
+		assert 'download' in structured_result['message'].lower()
+		assert structured_result['images'] is None
+
+	@pytest.mark.asyncio
 	async def test_corrupted_image_file(self, tmp_path: Path):
 		"""Test reading a corrupted image file."""
 		external_file = tmp_path / 'corrupted.png'
