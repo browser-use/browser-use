@@ -216,3 +216,30 @@ def test_kill_orphaned_server_windows_terminate_failure():
 							mock_ctypes.windll.kernel32.OpenProcess.assert_called()
 							mock_ctypes.windll.kernel32.TerminateProcess.assert_called_once_with(mock_handle, 1)
 							mock_ctypes.windll.kernel32.CloseHandle.assert_called_once_with(mock_handle)
+
+
+@patch('sys.platform', 'win32')
+def test_kill_orphaned_server_windows_openprocess_failure():
+	"""Test kill_orphaned_server returns False when OpenProcess fails on Windows."""
+	from browser_use.skill_cli.utils import kill_orphaned_server
+
+	with patch('browser_use.skill_cli.utils._pid_exists', return_value=True):
+		with patch('browser_use.skill_cli.utils._is_process_alive', return_value=True):
+			with patch('browser_use.skill_cli.utils._load_tunnel_info', return_value={'port': 8080, 'pid': 12345, 'url': 'http://example.com'}):
+				with patch('browser_use.skill_cli.utils._delete_tunnel_info'):
+					with patch('browser_use.skill_cli.utils.cleanup_session_files'):
+						with patch('browser_use.skill_cli.utils.ctypes') as mock_ctypes:
+							# OpenProcess returns 0 (failure - process doesn't exist or access denied)
+							mock_ctypes.windll.kernel32.OpenProcess.return_value = 0
+							mock_ctypes.wintypes.HANDLE = int
+							mock_ctypes.wintypes.DWORD = int
+							mock_ctypes.wintypes.BOOL = int
+							mock_ctypes.wintypes.UINT = int
+
+							result = kill_orphaned_server('test-session')
+
+							# Should return False because OpenProcess failed
+							assert result is False
+							# TerminateProcess should NOT be called since OpenProcess failed
+							mock_ctypes.windll.kernel32.TerminateProcess.assert_not_called()
+							mock_ctypes.windll.kernel32.CloseHandle.assert_not_called()
