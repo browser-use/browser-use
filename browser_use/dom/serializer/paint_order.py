@@ -175,7 +175,16 @@ class PaintOrderRemover:
 				)
 
 				if rect_union.contains(rect):
-					node.ignored_by_paint_order = True
+					# Never suppress directly interactive elements (links, buttons) via paint-order
+					# filtering.  A styled "current page" indicator can share bounds with the
+					# adjacent page link, stripping it of its interactive index and making it
+					# invisible to the agent (observed on ASP.NET pagination controls where the
+					# active-page indicator overlaps the immediately-next page link).
+					tag = node.original_node.tag_name.lower() if node.original_node.tag_name else ''
+					role = (node.original_node.attributes or {}).get('role')
+					is_directly_interactive = tag in ('a', 'button') or (tag in ('div', 'span') and role == 'button')
+					if not is_directly_interactive:
+						node.ignored_by_paint_order = True
 
 				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
 				if (
