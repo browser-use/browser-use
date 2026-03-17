@@ -185,13 +185,21 @@ def kill_orphaned_server(session: str) -> bool:
 					CloseHandle(handle)
 					if result:
 						return True
-					# TerminateProcess failed
+					# TerminateProcess failed - process may have exited already
+					# Fall through to cleanup
 				else:
 					# OpenProcess failed (process doesn't exist or access denied)
-					pass
+					# Fall through to cleanup
 			else:
-				os.kill(pid, signal.SIGKILL)
-			return True
+				try:
+					os.kill(pid, signal.SIGKILL)
+					return True
+				except ProcessLookupError:
+					# Process already gone
+					pass
+				except PermissionError:
+					# Can't kill process
+					pass
 	except (OSError, ValueError):
 		pass
 
