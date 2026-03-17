@@ -47,14 +47,37 @@ def _pid_exists(pid: int) -> bool:
 
 	On Windows, uses ctypes to call OpenProcess (os.kill doesn't work reliably).
 	On Unix, uses os.kill(pid, 0) which is the standard approach.
+
+	Returns:
+		True if the process exists and we have access to query it.
+		False if the process doesn't exist or access is denied.
 	"""
 	if sys.platform == 'win32':
 		import ctypes
+		from ctypes import wintypes
 
 		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+
+		# Define proper argument types and return types for Windows API
+		kernel32 = ctypes.windll.kernel32
+		OpenProcess = kernel32.OpenProcess
+		OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+		OpenProcess.restype = wintypes.HANDLE
+		GetLastError = kernel32.GetLastError
+		GetLastError.restype = wintypes.DWORD
+		CloseHandle = kernel32.CloseHandle
+		CloseHandle.argtypes = [wintypes.HANDLE]
+		CloseHandle.restype = wintypes.BOOL
+
+		handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
 		if handle:
-			ctypes.windll.kernel32.CloseHandle(handle)
+			CloseHandle(handle)
+			return True
+		# Check error code to distinguish "process not found" from "access denied"
+		error_code = GetLastError()
+		# ERROR_ACCESS_DENIED (5) or ERROR_PRIVILEGE_NOT_HELD (1314) means process exists but no access
+		# ERROR_INVALID_PARAMETER (87) means process doesn't exist
+		if error_code in (5, 1314):  # Access denied, but process exists
 			return True
 		return False
 	else:
@@ -140,12 +163,26 @@ def kill_orphaned_server(session: str) -> bool:
 			# Kill the orphaned process
 			if sys.platform == 'win32':
 				import ctypes
+				from ctypes import wintypes
 
 				PROCESS_TERMINATE = 1
-				handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+
+				# Define proper argument types and return types for Windows API
+				kernel32 = ctypes.windll.kernel32
+				OpenProcess = kernel32.OpenProcess
+				OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+				OpenProcess.restype = wintypes.HANDLE
+				TerminateProcess = kernel32.TerminateProcess
+				TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+				TerminateProcess.restype = wintypes.BOOL
+				CloseHandle = kernel32.CloseHandle
+				CloseHandle.argtypes = [wintypes.HANDLE]
+				CloseHandle.restype = wintypes.BOOL
+
+				handle = OpenProcess(PROCESS_TERMINATE, False, pid)
 				if handle:
-					ctypes.windll.kernel32.TerminateProcess(handle, 1)
-					ctypes.windll.kernel32.CloseHandle(handle)
+					TerminateProcess(handle, 1)
+					CloseHandle(handle)
 			else:
 				os.kill(pid, signal.SIGKILL)
 			return True
