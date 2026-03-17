@@ -690,7 +690,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
 		# loop through history and validate output_model actions to enrich with custom actions
-		for h in data['history']:
+		for h in data.get('history', []):
 			if h['model_output']:
 				if isinstance(h['model_output'], dict):
 					h['model_output'] = output_model.model_validate(h['model_output'])
