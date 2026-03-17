@@ -520,12 +520,20 @@ class AgentHistory(BaseModel):
 			if isinstance(content, dict):
 				# Already in new format: {domain: {key: value}}
 				for key, val in content.items():
-					resolved = str(val()) if callable(val) else val
+					try:
+						resolved = str(val()) if callable(val) else val
+					except Exception:
+						logger.warning(f'Failed to resolve callable sensitive_data key={key}, skipping')
+						continue
 					if resolved:  # Skip empty values
 						sensitive_values[key] = resolved
 			elif content:  # Old format: {key: value} - convert to new format internally
 				# We treat this as if it was {'http*://*': {key_or_domain: content}}
-				resolved = str(content()) if callable(content) else content
+				try:
+					resolved = str(content()) if callable(content) else content
+				except Exception:
+					logger.warning(f'Failed to resolve callable sensitive_data key={key_or_domain}, skipping')
+					continue
 				if resolved:
 					sensitive_values[key_or_domain] = resolved
 
