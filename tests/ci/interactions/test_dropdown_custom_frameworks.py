@@ -26,6 +26,12 @@ import asyncio
 
 import pytest
 
+# These tests hit real public documentation sites and are NOT intended for CI.
+# They are skipped by default to prevent flaky CI failures due to network issues
+# or upstream page changes. Run manually:
+#   pytest tests/ci/interactions/test_dropdown_custom_frameworks.py -v
+pytestmark = pytest.mark.skip(reason='External site tests — not for CI. Run manually.')
+
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
@@ -228,18 +234,15 @@ class TestCustomDropdownFrameworks:
 
 		assert isinstance(result, ActionResult)
 
-		# On failure, error is in result.error and extracted_content is None
-		error_text = result.error or ''
-		content_text = result.extracted_content or ''
-
-		assert 'not recognizable dropdown types' not in error_text, (
-			f"[{framework['name']}] Got unrecognised-dropdown error — framework not yet supported.\n"
-			f"Error: {error_text}"
+		assert result.error is None, (
+			f"[{framework['name']}] Unexpected error from dropdown_options.\n"
+			f"Error: {result.error}"
 		)
 
+		content_text = result.extracted_content or ''
+
 		assert result.extracted_content is not None, (
-			f"[{framework['name']}] No options returned (extracted_content is None).\n"
-			f"Error: {error_text}"
+			f"[{framework['name']}] No options returned (extracted_content is None)."
 		)
 
 		if framework.get('expected_options'):
