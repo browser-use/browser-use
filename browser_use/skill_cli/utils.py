@@ -76,9 +76,10 @@ def _pid_exists(pid: int) -> bool:
 		# Check error code to distinguish "process not found" from "access denied"
 		error_code = GetLastError()
 		# ERROR_ACCESS_DENIED (5) or ERROR_PRIVILEGE_NOT_HELD (1314) means process exists but no access
-		# ERROR_INVALID_PARAMETER (87) means process doesn't exist
-		if error_code in (5, 1314):  # Access denied, but process exists
-			return True
+		# Since we can't verify the process is actually a browser-use tunnel, treat as not found
+		# to avoid false positives from stale PID files
+		if error_code in (5, 1314):  # Access denied - can't confirm it's our process
+			return False
 		return False
 	else:
 		try:
@@ -186,7 +187,8 @@ def kill_orphaned_server(session: str) -> bool:
 					if not result:
 						return False  # TerminateProcess failed
 			else:
-				return False  # OpenProcess failed
+				# Unix: use SIGKILL to kill the orphaned process
+				os.kill(pid, signal.SIGKILL)
 			return True
 	except (OSError, ValueError):
 		pass

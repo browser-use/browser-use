@@ -130,7 +130,11 @@ def test_pid_exists_windows_process_not_found():
 
 @patch('sys.platform', 'win32')
 def test_pid_exists_windows_access_denied():
-	"""Test _pid_exists returns True when access denied but process exists (ERROR_ACCESS_DENIED)."""
+	"""Test _pid_exists returns False when access denied (ERROR_ACCESS_DENIED).
+
+	Access denied means we can't verify it's our tunnel process, so return False
+	to avoid false positives from stale PID files.
+	"""
 	from browser_use.skill_cli.utils import _pid_exists
 
 	with patch('browser_use.skill_cli.utils.ctypes') as mock_ctypes:
@@ -144,8 +148,8 @@ def test_pid_exists_windows_access_denied():
 		mock_ctypes.wintypes.UINT = int
 
 		result = _pid_exists(12345)
-		# Should return True because process exists even though we can't access it
-		assert result is True
+		# Should return False because we can't confirm it's our process
+		assert result is False
 
 
 @patch('sys.platform', 'win32')

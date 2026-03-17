@@ -321,7 +321,8 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 	pid = info['pid']
 	killed = _kill_process(pid)
 	if not killed:
-		logger.warning(f'Failed to kill tunnel process {pid}, but removing tunnel info anyway')
+		# Don't remove tunnel info if kill failed - let the caller decide what to do
+		return {'error': f'Failed to kill tunnel process {pid}', 'port': port}
 	_delete_tunnel_info(port)
 	# Clean up log file
 	log_file = _TUNNELS_DIR / f'{port}.log'
