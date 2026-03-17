@@ -140,12 +140,20 @@ def kill_orphaned_server(session: str) -> bool:
 			# Kill the orphaned process
 			if sys.platform == 'win32':
 				import ctypes
+				from ctypes import wintypes
 
 				PROCESS_TERMINATE = 1
 				handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
-				if handle:
-					ctypes.windll.kernel32.TerminateProcess(handle, 1)
-					ctypes.windll.kernel32.CloseHandle(handle)
+				if not handle:
+					# Failed to open process - it may not exist or we lack permissions
+					cleanup_session_files(session)
+					return False
+				result = ctypes.windll.kernel32.TerminateProcess(handle, 1)
+				ctypes.windll.kernel32.CloseHandle(handle)
+				if not result:
+					# Failed to terminate process
+					cleanup_session_files(session)
+					return False
 			else:
 				os.kill(pid, signal.SIGKILL)
 			return True
