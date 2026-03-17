@@ -333,8 +333,13 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 	log_file = open(log_file_path, 'w')  # noqa: ASYNC230
 
 	# Spawn cloudflared as a daemon
-	# - start_new_session=True: survives parent exit
+	# - Windows: CREATE_NO_WINDOW prevents console window, CREATE_NEW_PROCESS_GROUP allows process to survive
+	# - Unix: start_new_session=True (setsid) allows process to survive parent exit
 	# - stderr to file: avoids SIGPIPE when parent's pipe closes
+	creationflags = 0
+	if sys.platform == 'win32':
+		creationflags = asyncio.subprocess.CREATE_NEW_PROCESS_GROUP | asyncio.subprocess.CREATE_NO_WINDOW
+
 	process = await asyncio.create_subprocess_exec(
 		cloudflared_binary,
 		'tunnel',
@@ -342,7 +347,7 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 		f'http://localhost:{port}',
 		stdout=asyncio.subprocess.DEVNULL,
 		stderr=log_file,
-		start_new_session=True,
+		creationflags=creationflags,
 	)
 
 	# Poll the log file until we find the tunnel URL
@@ -423,7 +428,10 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 
 	url = info['url']
 	pid = info['pid']
-	_kill_process(pid)
+	killed = _kill_process(pid)
+	if not killed:
+		# Process may still be alive, don't delete tunnel state to avoid orphaning
+		return {'error': f'Failed to stop tunnel on port {port}', 'port': port}
 	_delete_tunnel_info(port)
 	# Clean up log file
 	log_file = _TUNNELS_DIR / f'{port}.log'
