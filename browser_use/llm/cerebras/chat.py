@@ -120,6 +120,8 @@ class ChatCerebras(BaseChatModel):
 					messages=cerebras_messages,  # type: ignore
 					**common,
 				)
+				if not resp.choices:
+					raise ModelProviderError('Cerebras returned no choices', model=self.name)
 				usage = self._get_usage(resp)
 				return ChatInvokeCompletion(
 					completion=resp.choices[0].message.content or '',
@@ -166,6 +168,8 @@ Your response must be valid JSON only, no other text.
 					messages=cerebras_messages,  # type: ignore
 					**common,
 				)
+				if not resp.choices:
+					raise ModelProviderError('Cerebras returned no choices', model=self.name)
 				content = resp.choices[0].message.content
 				if not content:
 					raise ModelProviderError('Empty JSON content in Cerebras response', model=self.name)
