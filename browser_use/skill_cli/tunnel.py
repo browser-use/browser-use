@@ -198,7 +198,7 @@ def _is_process_alive_windows(pid: int) -> bool:
 	# Open process with SYNCHRONIZE flag so WaitForSingleObject works
 	handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, pid)
 	if not handle:
-		err = kernel32.GetLastError()
+		err = ctypes.get_last_error()
 		# ERROR_ACCESS_DENIED (5) - process exists but we can't access it
 		# Return False to allow cleanup of stale PIDs that may have been reused
 		if err == 5:  # ERROR_ACCESS_DENIED
@@ -294,7 +294,7 @@ def _kill_process_windows(pid: int) -> bool:
 	# Open process with TERMINATE, QUERY_INFORMATION, and SYNCHRONIZE access
 	handle = kernel32.OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION | SYNCHRONIZE, False, pid)
 	if not handle:
-		err = kernel32.GetLastError()
+		err = ctypes.get_last_error()
 		# ERROR_ACCESS_DENIED (5) - process exists but we can't access it
 		# Don't treat as dead - raise error to avoid orphaning live tunnel
 		if err == 5:  # ERROR_ACCESS_DENIED
