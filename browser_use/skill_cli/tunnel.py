@@ -176,7 +176,16 @@ def _kill_process(pid: int) -> bool:
 				return False
 			try:
 				result = kernel32.TerminateProcess(handle, 1)
-				return result != 0
+				if not result:
+					return False
+				# Wait for process to actually exit before returning success
+				# This ensures log files can be cleaned up without PermissionError
+				for _ in range(10):
+					if not _is_process_alive(pid):
+						return True
+					import time
+					time.sleep(0.1)
+				return False  # Process still alive after waiting
 			finally:
 				kernel32.CloseHandle(handle)
 		else:
@@ -320,9 +329,12 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 	url = info['url']
 	pid = info['pid']
 	killed = _kill_process(pid)
-	if not killed:
-		# Don't remove tunnel info if kill failed - let the caller decide what to do
+	# Check if process still exists - if not, it's already gone and we can clean up
+	process_gone = not _pid_exists(pid)
+	if not killed and not process_gone:
+		# Process still exists and we couldn't kill it
 		return {'error': f'Failed to kill tunnel process {pid}', 'port': port}
+	# Process is dead or was already gone - proceed with cleanup
 	_delete_tunnel_info(port)
 	# Clean up log file
 	log_file = _TUNNELS_DIR / f'{port}.log'
