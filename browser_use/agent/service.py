@@ -201,6 +201,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		planning_exploration_limit: int = 5,
 		loop_detection_window: int = 20,
 		loop_detection_enabled: bool = True,
+		enable_signal_handling: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
@@ -410,6 +411,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			loop_detection_enabled=loop_detection_enabled,
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
+			enable_signal_handling=enable_signal_handling,
 		)
 
 		# Token cost service
@@ -2476,25 +2478,27 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
 		should_delay_close = False
 
-		# Set up the  signal handler with callbacks specific to this agent
-		from browser_use.utils import SignalHandler
+		# Set up the signal handler with callbacks specific to this agent (if enabled)
+		signal_handler = None
+		if self.settings.enable_signal_handling:
+			from browser_use.utils import SignalHandler
 
-		# Define the custom exit callback function for second CTRL+C
-		def on_force_exit_log_telemetry():
-			self._log_agent_event(max_steps=max_steps, agent_run_error='SIGINT: Cancelled by user')
-			# NEW: Call the flush method on the telemetry instance
-			if hasattr(self, 'telemetry') and self.telemetry:
-				self.telemetry.flush()
-			self._force_exit_telemetry_logged = True  # Set the flag
+			# Define the custom exit callback function for second CTRL+C
+			def on_force_exit_log_telemetry():
+				self._log_agent_event(max_steps=max_steps, agent_run_error='SIGINT: Cancelled by user')
+				# NEW: Call the flush method on the telemetry instance
+				if hasattr(self, 'telemetry') and self.telemetry:
+					self.telemetry.flush()
+				self._force_exit_telemetry_logged = True  # Set the flag
 
-		signal_handler = SignalHandler(
-			loop=loop,
-			pause_callback=self.pause,
-			resume_callback=self.resume,
-			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
-			exit_on_second_int=True,
-		)
-		signal_handler.register()
+			signal_handler = SignalHandler(
+				loop=loop,
+				pause_callback=self.pause,
+				resume_callback=self.resume,
+				custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
+				exit_on_second_int=True,
+			)
+			signal_handler.register()
 
 		try:
 			await self._log_agent_run()
@@ -2629,8 +2633,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Log token usage summary
 			await self.token_cost_service.log_usage_summary()
 
-			# Unregister signal handlers before cleanup
-			signal_handler.unregister()
+			# Unregister signal handlers before cleanup (if they were registered)
+			if signal_handler:
+				signal_handler.unregister()
 
 			if not self._force_exit_telemetry_logged:  # MODIFIED: Check the flag
 				try:
