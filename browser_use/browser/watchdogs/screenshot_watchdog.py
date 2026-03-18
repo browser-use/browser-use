@@ -52,6 +52,15 @@ class ScreenshotWatchdog(BaseWatchdog):
 
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=True)
 
+			# Remove highlights BEFORE taking the screenshot so they don't appear in the image.
+			# Done here (not in finally) so CancelledError is never swallowed — any await in a
+			# finally block can suppress external task cancellation.
+			# remove_highlights() has its own asyncio.timeout(3.0) internally so it won't block.
+			try:
+				await self.browser_session.remove_highlights()
+			except Exception:
+				pass
+
 			# Prepare screenshot parameters
 			params_dict: dict[str, Any] = {'format': 'png', 'captureBeyondViewport': event.full_page}
 			if event.clip:
@@ -77,9 +86,3 @@ class ScreenshotWatchdog(BaseWatchdog):
 		except Exception as e:
 			self.logger.error(f'[ScreenshotWatchdog] Screenshot failed: {e}')
 			raise
-		finally:
-			# Try to remove highlights even on failure
-			try:
-				await self.browser_session.remove_highlights()
-			except Exception:
-				pass
