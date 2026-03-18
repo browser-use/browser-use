@@ -244,10 +244,10 @@ components:
     TaskStatus:
       type: string
       enum:
-        - value: started
-        - value: paused
-        - value: finished
-        - value: stopped
+        - started
+        - paused
+        - finished
+        - stopped
     TaskItemView:
       type: object
       properties:
@@ -376,27 +376,26 @@ components:
     SupportedLLMs:
       type: string
       enum:
-        - value: browser-use-llm
-        - value: gpt-4.1
-        - value: gpt-4.1-mini
-        - value: o4-mini
-        - value: o3
-        - value: gemini-2.5-flash
-        - value: gemini-2.5-pro
-        - value: gemini-flash-latest
-        - value: gemini-flash-lite-latest
-        - value: claude-sonnet-4-20250514
-        - value: gpt-4o
-        - value: gpt-4o-mini
-        - value: llama-4-maverick-17b-128e-instruct
-        - value: claude-3-7-sonnet-20250219
+        - browser-use-llm
+        - gpt-4.1
+        - gpt-4.1-mini
+        - o4-mini
+        - o3
+        - gemini-2.5-flash
+        - gemini-2.5-pro
+        - gemini-flash-latest
+        - gemini-flash-lite-latest
+        - claude-sonnet-4-20250514
+        - gpt-4o
+        - gpt-4o-mini
+        - llama-4-maverick-17b-128e-instruct
+        - claude-3-7-sonnet-20250219
     CreateTaskRequestVision:
       oneOf:
         - type: boolean
         - type: string
           enum:
-            - type: stringLiteral
-              value: auto
+            - auto
     CreateTaskRequest:
       type: object
       properties:
@@ -517,10 +516,10 @@ components:
     TaskStatus:
       type: string
       enum:
-        - value: started
-        - value: paused
-        - value: finished
-        - value: stopped
+        - started
+        - paused
+        - finished
+        - stopped
     TaskStepView:
       type: object
       properties:
@@ -674,10 +673,10 @@ components:
     TaskUpdateAction:
       type: string
       enum:
-        - value: stop
-        - value: pause
-        - value: resume
-        - value: stop_task_and_session
+        - stop
+        - pause
+        - resume
+        - stop_task_and_session
     UpdateTaskRequest:
       type: object
       properties:
@@ -688,10 +687,10 @@ components:
     TaskStatus:
       type: string
       enum:
-        - value: started
-        - value: paused
-        - value: finished
-        - value: stopped
+        - started
+        - paused
+        - finished
+        - stopped
     TaskStepView:
       type: object
       properties:
@@ -906,8 +905,8 @@ components:
     SessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     SessionItemView:
       type: object
       properties:
@@ -1003,16 +1002,16 @@ components:
     ProxyCountryCode:
       type: string
       enum:
-        - value: us
-        - value: uk
-        - value: fr
-        - value: it
-        - value: jp
-        - value: au
-        - value: de
-        - value: fi
-        - value: ca
-        - value: in
+        - us
+        - uk
+        - fr
+        - it
+        - jp
+        - au
+        - de
+        - fi
+        - ca
+        - in
     CreateSessionRequest:
       type: object
       properties:
@@ -1032,8 +1031,8 @@ components:
     SessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     SessionItemView:
       type: object
       properties:
@@ -1110,15 +1109,15 @@ components:
     SessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     TaskStatus:
       type: string
       enum:
-        - value: started
-        - value: paused
-        - value: finished
-        - value: stopped
+        - started
+        - paused
+        - finished
+        - stopped
     TaskItemView:
       type: object
       properties:
@@ -1254,7 +1253,7 @@ components:
     SessionUpdateAction:
       type: string
       enum:
-        - value: stop
+        - stop
     UpdateSessionRequest:
       type: object
       properties:
@@ -1265,15 +1264,15 @@ components:
     SessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     TaskStatus:
       type: string
       enum:
-        - value: started
-        - value: paused
-        - value: finished
-        - value: stopped
+        - started
+        - paused
+        - finished
+        - stopped
     TaskItemView:
       type: object
       properties:
@@ -1605,21 +1604,21 @@ components:
     UploadFileRequestContentType:
       type: string
       enum:
-        - value: image/jpg
-        - value: image/jpeg
-        - value: image/png
-        - value: image/gif
-        - value: image/webp
-        - value: image/svg+xml
-        - value: application/pdf
-        - value: application/msword
-        - value: >-
+        - image/jpg
+        - image/jpeg
+        - image/png
+        - image/gif
+        - image/webp
+        - image/svg+xml
+        - application/pdf
+        - application/msword
+        - >-
             application/vnd.openxmlformats-officedocument.wordprocessingml.document
-        - value: application/vnd.ms-excel
-        - value: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-        - value: text/plain
-        - value: text/csv
-        - value: text/markdown
+        - application/vnd.ms-excel
+        - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+        - text/plain
+        - text/csv
+        - text/markdown
     UploadFileRequest:
       type: object
       properties:
@@ -1641,8 +1640,7 @@ components:
         method:
           type: string
           enum:
-            - type: stringLiteral
-              value: POST
+            - POST
         fields:
           type: object
           additionalProperties:
@@ -1723,21 +1721,21 @@ components:
     UploadFileRequestContentType:
       type: string
       enum:
-        - value: image/jpg
-        - value: image/jpeg
-        - value: image/png
-        - value: image/gif
-        - value: image/webp
-        - value: image/svg+xml
-        - value: application/pdf
-        - value: application/msword
-        - value: >-
+        - image/jpg
+        - image/jpeg
+        - image/png
+        - image/gif
+        - image/webp
+        - image/svg+xml
+        - application/pdf
+        - application/msword
+        - >-
             application/vnd.openxmlformats-officedocument.wordprocessingml.document
-        - value: application/vnd.ms-excel
-        - value: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-        - value: text/plain
-        - value: text/csv
-        - value: text/markdown
+        - application/vnd.ms-excel
+        - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+        - text/plain
+        - text/csv
+        - text/markdown
     UploadFileRequest:
       type: object
       properties:
@@ -1759,8 +1757,7 @@ components:
         method:
           type: string
           enum:
-            - type: stringLiteral
-              value: POST
+            - POST
         fields:
           type: object
           additionalProperties:
@@ -2317,8 +2314,8 @@ components:
     BrowserSessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     BrowserSessionItemView:
       type: object
       properties:
@@ -2445,16 +2442,16 @@ components:
     ProxyCountryCode:
       type: string
       enum:
-        - value: us
-        - value: uk
-        - value: fr
-        - value: it
-        - value: jp
-        - value: au
-        - value: de
-        - value: fi
-        - value: ca
-        - value: in
+        - us
+        - uk
+        - fr
+        - it
+        - jp
+        - au
+        - de
+        - fi
+        - ca
+        - in
     CreateBrowserSessionRequest:
       type: object
       properties:
@@ -2472,8 +2469,8 @@ components:
     BrowserSessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     BrowserSessionItemView:
       type: object
       properties:
@@ -2556,8 +2553,8 @@ components:
     BrowserSessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     BrowserSessionView:
       type: object
       properties:
@@ -2655,7 +2652,7 @@ components:
     BrowserSessionUpdateAction:
       type: string
       enum:
-        - value: stop
+        - stop
     UpdateBrowserSessionRequest:
       type: object
       properties:
@@ -2666,8 +2663,8 @@ components:
     BrowserSessionStatus:
       type: string
       enum:
-        - value: active
-        - value: stopped
+        - active
+        - stopped
     BrowserSessionView:
       type: object
       properties:

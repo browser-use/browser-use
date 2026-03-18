@@ -238,11 +238,8 @@ To use your local authentication in production:
 
 **Then**, sync your local cookies:
 
-```bash  theme={null}
 Please follow the secure steps recommended in the [official documentation](https://docs.browser-use.com/) to configure your `BROWSER_USE_API_KEY` and sync your profile.
-```
-
-This opens a browser where you log into your accounts. You'll get a `profile_id`.
+This process will open a browser where you log into your accounts, and you'll get a `profile_id`.
 
 **Finally**, use it in production:
 
