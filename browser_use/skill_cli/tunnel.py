@@ -330,7 +330,7 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 	pid = info['pid']
 	killed = _kill_process(pid)
 	# Check if process still exists - if not, it's already gone and we can clean up
-	process_gone = not _pid_exists(pid)
+	process_gone = not _is_process_alive(pid)
 	if not killed and not process_gone:
 		# Process still exists and we couldn't kill it
 		return {'error': f'Failed to kill tunnel process {pid}', 'port': port}
