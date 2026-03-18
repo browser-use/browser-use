@@ -164,13 +164,12 @@ def kill_orphaned_server(session: str) -> bool:
 					success = TerminateProcess(handle, 1)
 					CloseHandle(handle)
 					if success:
-						# Give the process a moment to terminate
-						import time
-						time.sleep(0.1)
-						# Only clean up if process is actually gone
-						if not _pid_exists(pid):
-							cleanup_session_files(session)
-							return True
+						# Process was killed - clean up session files
+						# Don't check _pid_exists() immediately as it can produce
+						# false negatives due to OS timing (process terminated but
+						# still appears to exist momentarily)
+						cleanup_session_files(session)
+						return True
 					# If OpenProcess or TerminateProcess failed, do NOT clean up
 					# The process may still be alive and holding the port
 					return False
@@ -180,11 +179,12 @@ def kill_orphaned_server(session: str) -> bool:
 					return False
 			else:
 				os.kill(pid, signal.SIGKILL)
-				# Verify process is gone before cleaning up
-				if not _pid_exists(pid):
-					cleanup_session_files(session)
-					return True
-				return False
+				# Process was killed - clean up session files
+				# Don't check _pid_exists() immediately as it can produce
+				# false negatives due to OS timing (process terminated but
+				# still appears to exist momentarily)
+				cleanup_session_files(session)
+				return True
 		else:
 			# Process no longer exists - clean up stale files
 			cleanup_session_files(session)
