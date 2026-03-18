@@ -203,6 +203,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		loop_detection_enabled: bool = True,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		message_compaction: MessageCompactionSettings | bool | None = True,
+		enable_signal_handlers: bool = True,
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		**kwargs,
@@ -377,6 +378,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.sensitive_data = sensitive_data
 
 		self.sample_images = sample_images
+
+		self.enable_signal_handlers = enable_signal_handlers
 
 		if isinstance(message_compaction, bool):
 			message_compaction = MessageCompactionSettings(enabled=message_compaction)
@@ -2487,14 +2490,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.telemetry.flush()
 			self._force_exit_telemetry_logged = True  # Set the flag
 
-		signal_handler = SignalHandler(
-			loop=loop,
-			pause_callback=self.pause,
-			resume_callback=self.resume,
-			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
-			exit_on_second_int=True,
-		)
-		signal_handler.register()
+		signal_handler = None
+		if getattr(self, 'enable_signal_handlers', True):
+			signal_handler = SignalHandler(
+				loop=loop,
+				pause_callback=self.pause,
+				resume_callback=self.resume,
+				custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
+				exit_on_second_int=True,
+			)
+			signal_handler.register()
 
 		try:
 			await self._log_agent_run()
