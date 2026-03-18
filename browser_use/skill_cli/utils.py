@@ -1,5 +1,6 @@
 """Platform utilities for CLI and server."""
 
+import ctypes
 import hashlib
 import os
 import platform
@@ -11,6 +12,10 @@ from pathlib import Path
 from typing import IO
 
 import portalocker
+
+# Import wintypes at module scope for Windows API type definitions
+if sys.platform == 'win32':
+	from ctypes import wintypes
 
 
 def get_socket_path(session: str) -> str:
@@ -53,9 +58,6 @@ def _pid_exists(pid: int) -> bool:
 		False if the process doesn't exist or access is denied.
 	"""
 	if sys.platform == 'win32':
-		import ctypes
-		from ctypes import wintypes
-
 		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 		# Define proper argument types and return types for Windows API
@@ -163,9 +165,6 @@ def kill_orphaned_server(session: str) -> bool:
 		if _pid_exists(pid):
 			# Kill the orphaned process
 			if sys.platform == 'win32':
-				import ctypes
-				from ctypes import wintypes
-
 				PROCESS_TERMINATE = 1
 
 				# Define proper argument types and return types for Windows API

@@ -1,6 +1,6 @@
 """Tests for tunnel module - cloudflared binary management."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -90,42 +90,41 @@ def test_get_tunnel_manager_singleton():
 @patch('sys.platform', 'win32')
 def test_pid_exists_windows_process_exists():
 	"""Test _pid_exists returns True when process exists on Windows."""
+	# Reload the module to pick up the module-level ctypes import
+	import importlib
+	import browser_use.skill_cli.utils as utils_module
+	importlib.reload(utils_module)
 	from browser_use.skill_cli.utils import _pid_exists
 
-	with patch('browser_use.skill_cli.utils.ctypes') as mock_ctypes:
+	with patch.object(utils_module.ctypes, 'windll') as mock_windll:
 		# Mock OpenProcess returning a valid handle
 		mock_handle = 0x1234
-		mock_ctypes.windll.kernel32.OpenProcess.return_value = mock_handle
-		mock_ctypes.windll.kernel32.GetLastError.return_value = 0
-		mock_ctypes.wintypes.HANDLE = int
-		mock_ctypes.wintypes.DWORD = int
-		mock_ctypes.wintypes.BOOL = int
-		mock_ctypes.wintypes.UINT = int
+		mock_windll.kernel32.OpenProcess.return_value = mock_handle
+		mock_windll.kernel32.GetLastError.return_value = 0
 
 		result = _pid_exists(12345)
 		assert result is True
-		mock_ctypes.windll.kernel32.OpenProcess.assert_called_once()
-		mock_ctypes.windll.kernel32.CloseHandle.assert_called_once_with(mock_handle)
+		mock_windll.kernel32.OpenProcess.assert_called_once()
+		mock_windll.kernel32.CloseHandle.assert_called_once_with(mock_handle)
 
 
 @patch('sys.platform', 'win32')
 def test_pid_exists_windows_process_not_found():
 	"""Test _pid_exists returns False when process doesn't exist on Windows (ERROR_INVALID_PARAMETER)."""
+	import importlib
+	import browser_use.skill_cli.utils as utils_module
+	importlib.reload(utils_module)
 	from browser_use.skill_cli.utils import _pid_exists
 
-	with patch('browser_use.skill_cli.utils.ctypes') as mock_ctypes:
+	with patch.object(utils_module.ctypes, 'windll') as mock_windll:
 		# Mock OpenProcess returning None (process doesn't exist)
-		mock_ctypes.windll.kernel32.OpenProcess.return_value = None
+		mock_windll.kernel32.OpenProcess.return_value = None
 		# ERROR_INVALID_PARAMETER (87) means process doesn't exist
-		mock_ctypes.windll.kernel32.GetLastError.return_value = 87
-		mock_ctypes.wintypes.HANDLE = int
-		mock_ctypes.wintypes.DWORD = int
-		mock_ctypes.wintypes.BOOL = int
-		mock_ctypes.wintypes.UINT = int
+		mock_windll.kernel32.GetLastError.return_value = 87
 
 		result = _pid_exists(99999)
 		assert result is False
-		mock_ctypes.windll.kernel32.OpenProcess.assert_called_once()
+		mock_windll.kernel32.OpenProcess.assert_called_once()
 
 
 @patch('sys.platform', 'win32')
@@ -135,17 +134,16 @@ def test_pid_exists_windows_access_denied():
 	Access denied means we can't verify it's our tunnel process, so return False
 	to avoid false positives from stale PID files.
 	"""
+	import importlib
+	import browser_use.skill_cli.utils as utils_module
+	importlib.reload(utils_module)
 	from browser_use.skill_cli.utils import _pid_exists
 
-	with patch('browser_use.skill_cli.utils.ctypes') as mock_ctypes:
+	with patch.object(utils_module.ctypes, 'windll') as mock_windll:
 		# Mock OpenProcess returning None due to access denied
-		mock_ctypes.windll.kernel32.OpenProcess.return_value = None
+		mock_windll.kernel32.OpenProcess.return_value = None
 		# ERROR_ACCESS_DENIED (5) means process exists but no access
-		mock_ctypes.windll.kernel32.GetLastError.return_value = 5
-		mock_ctypes.wintypes.HANDLE = int
-		mock_ctypes.wintypes.DWORD = int
-		mock_ctypes.wintypes.BOOL = int
-		mock_ctypes.wintypes.UINT = int
+		mock_windll.kernel32.GetLastError.return_value = 5
 
 		result = _pid_exists(12345)
 		# Should return False because we can't confirm it's our process
@@ -155,6 +153,9 @@ def test_pid_exists_windows_access_denied():
 @patch('sys.platform', 'win32')
 def test_pid_exists_unix():
 	"""Test _pid_exists uses os.kill on Unix."""
+	import importlib
+	import browser_use.skill_cli.utils as utils_module
+	importlib.reload(utils_module)
 	from browser_use.skill_cli.utils import _pid_exists
 
 	with patch('sys.platform', 'linux'):
@@ -167,26 +168,34 @@ def test_pid_exists_unix():
 @patch('sys.platform', 'win32')
 def test_kill_orphaned_server_windows_terminate_success():
 	"""Test kill_orphaned_server successfully terminates process on Windows."""
-	from browser_use.skill_cli.utils import kill_orphaned_server
+	import importlib
+	import browser_use.skill_cli.utils as utils_module
+	importlib.reload(utils_module)
+	from browser_use.skill_cli.utils import kill_orphaned_server, get_pid_path
 
-	with patch('browser_use.skill_cli.utils._pid_exists', return_value=True):
-		with patch('browser_use.skill_cli.utils._is_process_alive', return_value=True):
-			with patch('browser_use.skill_cli.utils._load_tunnel_info', return_value={'port': 8080, 'pid': 12345, 'url': 'http://example.com'}):
-				with patch('browser_use.skill_cli.utils._delete_tunnel_info'):
-					with patch('browser_use.skill_cli.utils.cleanup_session_files'):
-						with patch('browser_use.skill_cli.utils.ctypes') as mock_ctypes:
-							mock_handle = 0x1234
-							mock_ctypes.windll.kernel32.OpenProcess.return_value = mock_handle
-							mock_ctypes.windll.kernel32.TerminateProcess.return_value = True
-							mock_ctypes.windll.kernel32.CloseHandle.return_value = True
-							mock_ctypes.wintypes.HANDLE = int
-							mock_ctypes.wintypes.DWORD = int
-							mock_ctypes.wintypes.BOOL = int
-							mock_ctypes.wintypes.UINT = int
+	# Create a mock PID file
+	with patch.object(utils_module, 'get_pid_path') as mock_get_pid_path:
+		with patch.object(utils_module, 'is_session_locked') as mock_is_locked:
+			with patch.object(utils_module, '_pid_exists') as mock_pid_exists:
+				with patch.object(utils_module, 'cleanup_session_files'):
+					# Setup mocks
+					mock_pid_path = utils_module.Path('/tmp/browser-use-test.pid')
+					mock_get_pid_path.return_value = mock_pid_path
+					mock_pid_path.exists.return_value = True
+					mock_pid_path.read_text.return_value = '12345'
+					mock_is_locked.return_value = False  # Not locked = orphan
+					mock_pid_exists.return_value = True  # Process exists
 
-							result = kill_orphaned_server('test-session')
+					# Mock ctypes
+					with patch.object(utils_module.ctypes, 'windll') as mock_windll:
+						mock_handle = 0x1234
+						mock_windll.kernel32.OpenProcess.return_value = mock_handle
+						mock_windll.kernel32.TerminateProcess.return_value = True
+						mock_windll.kernel32.CloseHandle.return_value = True
 
-							assert result is True
-							mock_ctypes.windll.kernel32.OpenProcess.assert_called()
-							mock_ctypes.windll.kernel32.TerminateProcess.assert_called_once_with(mock_handle, 1)
-							mock_ctypes.windll.kernel32.CloseHandle.assert_called_once_with(mock_handle)
+						result = kill_orphaned_server('test-session')
+
+						assert result is True
+						mock_windll.kernel32.OpenProcess.assert_called()
+						mock_windll.kernel32.TerminateProcess.assert_called_once_with(mock_handle, 1)
+						mock_windll.kernel32.CloseHandle.assert_called_once_with(mock_handle)

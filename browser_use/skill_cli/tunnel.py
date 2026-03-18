@@ -12,14 +12,20 @@ Tunnels survive CLI process exit by:
 """
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
 import re
 import shutil
 import signal
+import sys
 from pathlib import Path
 from typing import Any
+
+# Import wintypes at module scope for Windows API type definitions
+if sys.platform == 'win32':
+	from ctypes import wintypes
 
 logger = logging.getLogger(__name__)
 
@@ -156,10 +162,7 @@ def _is_process_alive(pid: int) -> bool:
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
 	try:
-		import sys
 		if sys.platform == "win32":
-			import ctypes
-			from ctypes import wintypes
 			kernel32 = ctypes.windll.kernel32
 			PROCESS_TERMINATE = 0x0001
 
