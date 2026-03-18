@@ -66,8 +66,6 @@ class ChatOpenRouter(BaseChatModel):
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
 			'_strict_response_validation': self._strict_response_validation,
-			'top_p': self.top_p,
-			'seed': self.seed,
 		}
 
 		# Create client_params dict with non-None values
