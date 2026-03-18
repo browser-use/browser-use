@@ -162,7 +162,7 @@ def _is_process_alive(pid: int) -> bool:
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
 	try:
-		if sys.platform == "win32":
+		if sys.platform == 'win32':
 			kernel32 = ctypes.windll.kernel32
 			PROCESS_TERMINATE = 0x0001
 
@@ -187,6 +187,7 @@ def _kill_process(pid: int) -> bool:
 					if not _is_process_alive(pid):
 						return True
 					import time
+
 					time.sleep(0.1)
 				return False  # Process still alive after waiting
 			finally:

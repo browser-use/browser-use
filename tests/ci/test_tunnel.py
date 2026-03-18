@@ -96,7 +96,7 @@ def test_pid_exists_windows_process_exists():
 	importlib.reload(utils_module)
 	from browser_use.skill_cli.utils import _pid_exists
 
-	with patch.object(utils_module.ctypes, 'windll') as mock_windll:
+	with patch.object(utils_module.ctypes, 'windll', create=True) as mock_windll:
 		# Mock OpenProcess returning a valid handle
 		mock_handle = 0x1234
 		mock_windll.kernel32.OpenProcess.return_value = mock_handle
@@ -116,7 +116,7 @@ def test_pid_exists_windows_process_not_found():
 	importlib.reload(utils_module)
 	from browser_use.skill_cli.utils import _pid_exists
 
-	with patch.object(utils_module.ctypes, 'windll') as mock_windll:
+	with patch.object(utils_module.ctypes, 'windll', create=True) as mock_windll:
 		# Mock OpenProcess returning None (process doesn't exist)
 		mock_windll.kernel32.OpenProcess.return_value = None
 		# ERROR_INVALID_PARAMETER (87) means process doesn't exist
@@ -139,7 +139,7 @@ def test_pid_exists_windows_access_denied():
 	importlib.reload(utils_module)
 	from browser_use.skill_cli.utils import _pid_exists
 
-	with patch.object(utils_module.ctypes, 'windll') as mock_windll:
+	with patch.object(utils_module.ctypes, 'windll', create=True) as mock_windll:
 		# Mock OpenProcess returning None due to access denied
 		mock_windll.kernel32.OpenProcess.return_value = None
 		# ERROR_ACCESS_DENIED (5) means process exists but no access
@@ -179,7 +179,7 @@ def test_kill_orphaned_server_windows_terminate_success():
 			with patch.object(utils_module, '_pid_exists') as mock_pid_exists:
 				with patch.object(utils_module, 'cleanup_session_files'):
 					# Setup mocks
-					mock_pid_path = utils_module.Path('/tmp/browser-use-test.pid')
+					mock_pid_path = MagicMock()
 					mock_get_pid_path.return_value = mock_pid_path
 					mock_pid_path.exists.return_value = True
 					mock_pid_path.read_text.return_value = '12345'
@@ -187,7 +187,7 @@ def test_kill_orphaned_server_windows_terminate_success():
 					mock_pid_exists.return_value = True  # Process exists
 
 					# Mock ctypes
-					with patch.object(utils_module.ctypes, 'windll') as mock_windll:
+					with patch.object(utils_module.ctypes, 'windll', create=True) as mock_windll:
 						mock_handle = 0x1234
 						mock_windll.kernel32.OpenProcess.return_value = mock_handle
 						mock_windll.kernel32.TerminateProcess.return_value = True
