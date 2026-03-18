@@ -65,7 +65,7 @@ uv init && uv add browser-use && uv sync
 # uvx browser-use install  # 如果您没有安装 Chromium，请运行此命令
 ```
 
-**2. [可选] 从 [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) 获取您的 API Key:**
+**2. 从 [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) 获取您的 API Key:**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
@@ -245,7 +245,7 @@ agent = Agent(
 查看我们的身份验证示例：
 - [使用真实的浏览器配置文件](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py) - 重用您现有的 Chrome 配置文件和保存的登录信息
 - 如果您想使用带收件箱的临时账户，请选择 AgentMail
-- 要将您的身份验证配置文件同步到远程浏览器，运行 `curl -fsSL https://browser-use.com/profile.sh | BROWSER_USE_API_KEY=XXXX sh` （将 XXXX 替换为您的 API key）
+- 要将您的身份验证配置文件同步到远程浏览器，请按照 [官方文档](https://docs.browser-use.com/) 中推荐的安全步骤配置您的 `BROWSER_USE_API_KEY`。
 
 这些示例展示了如何无缝地保持会话状态和处理身份验证。
 </details>

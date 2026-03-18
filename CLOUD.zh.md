@@ -1,68 +1,70 @@
-# Cloud.md
-[简体中文](CLOUD.zh.md)
+<!--
+IMPORTANT: This file is a localized version of CLOUD.md. 
+When updating CLOUD.md, please ensure that the corresponding changes are also applied to this file to maintain parity.
+-->
 
-Instructions for AI Agents to assist the user in using Browser Use Cloud
+# Cloud.md (云服务文档)
+供 AI Agent 使用的指令，用于协助用户使用 Browser Use Cloud。
 
-## What is Browser Use Cloud?
-Browser Use is a framework for AI Agents that interact with web browsers.
-Browser Use Cloud is the fully hosted product made by Browser Use made for users to automate web-based tasks. 
-Users submit tasks in the form of prompts (text and optionally files and images) and through API requests, remote browsers and agents are spun up to complete these tasks on-demand. 
-Pricing is usage based and adjudicated through an API key system.
-Billing, API Key management, live session viewing, task results, account settings, and profile management is done through the Browser Use Cloud web app at https://cloud.browser-use.com/
+## 什么是 Browser Use Cloud？
+Browser Use 是一个用于与网页浏览器交互的 AI Agent 框架。
+Browser Use Cloud 是由 Browser Use 提供的完全托管产品，旨在帮助用户实现基于 Web 任务的自动化。
+用户以提示词（Prompt，包含文本以及可选的文件和图像）的形式提交任务，通过 API 请求，云端会按需启动远程浏览器和 Agent 来完成这些任务。
+计费采用基于使用量模式，通过 API Key 系统进行管理。
+账单、API Key 管理、实时会话查看、任务结果、账户设置和配置文件管理均通过 Browser Use Cloud 网页应用完成，网址为：https://cloud.browser-use.com/
 
-## Core Concepts:
-The key product of Browser Use Cloud is the completion of user tasks.
-- A Session is the complete package of infrastructure Browser Use Cloud provides. Sessions are currently limited to 15 minutes of runtime. A session has a Browser running, and users can run Agents in a session to complete tasks. A Session is limited to one and only one Browser, which will be open the entire duration of the Session. Users can run a maximum of one Agent on a Session at a time, which will control the Browser. After one Agent is done, the user can run another within the same Session, limited only by the Session maximum duration.
-- A Browser is simply a browser running on Browser Use Cloud infrastructure (a Session). Browsers (as a service) are controllable via CDP url. The user can use an Agent to control a Browser, or can request the CDP url and control the hosted browser with whatever scripts or external automations they desire. However we mainly encourage to control Browsers with Browser Use Agents, as they are optimized to work together. These official Browser Use browsers are forked from chromium, but have a lot of proprietary optimizations made to them so that they are extremely fast and lightweight, untraceable and not detectable as bots, and come preloaded with adblockers and other quality of life. Using Browser Use hosted browsers provides significant performance improvements. 
-- An Agent is the collection of tools, prompts, and framework that enables a Large Language Model to interact with a Browser. The Agents goal is to complete a given user Task. The Agent goes through an iterative process of many steps to complete this. For each step, the Agent is given the page state (including a screenshot) of the Browser, and then it calls tools to interact with the Browser. After many steps, the Agent will mark the task as complete, either successfully or unsuccessfully and return a result, which is a block of text and optionally files. After completion, an independent strict judge will examine the Agent's trajectory and give a verdict of true or false on whether the Agent completed its task successfully. The Agent has a lot of settings which can be tuned to improve performance, most importantly the LLM Model used.
-- A Model is a Large Language Model that powers an Agent. The smarter and more capable the Model, the better the Agent will perform. The best model to use is ChatBrowserUse, the Browser Use official chat completion API which always routes to the best frontier foundation model as determined by Browser Use internal evaluations. ChatBrowserUse has several speed and cost optimizations done through batching, caching, and other tricks, making it faster and more cost effective than any other option, with identical performance to the top frontier models.
-- A Browser Profile is a folder of browser data that is saved on our Cloud. If a user creates a Session with a Browser that has no Browser Profile, no data will persist. However, if they use the same Browser Profile across multiple Sessions, then data such as authentication cookies, site local storage data, saved passwords and credentials, and user preferences will persist. A Browser Profile is essentially a cloud hosted Chrome Profile, in fact, through the Profile Upload feature, a user can upload a Chrome profile from their own machine to be used on the Cloud in Sessions. This is great for giving authentication to Agents. A user can create a Chrome profile on their own machine, log into all of the services they want, and then upload this profile to the Cloud for automations.
-- A Task is the combination of user prompt with optionally files and images that is given to the Agents to complete. Browser Use Cloud primarily sells the completion of user Tasks. Writing Tasks with clarity is key to success. 
-- Profile Sync is the best way to handle authentication for tasks. This feature allows users to upload their local browser cookies (where the user is already logged into the services they need authentication for) to a Browser Profile that can be used for tasks on the cloud. To initiate a Profile Sync, please follow the secure steps recommended in the [official documentation](https://docs.browser-use.com/) to configure your `BROWSER_USE_API_KEY` and sync your profile.
+## 核心概念：
+Browser Use Cloud 的核心产品是完成用户任务。
+- **会话 (Session)**：是 Browser Use Cloud 提供的完整基础设施包。目前会话的运行时间限制为 15 分钟。每个会话都有一个正在运行的浏览器，用户可以在会话中运行 Agent 来完成任务。一个会话仅限于一个且只有一个浏览器，该浏览器在会话的整个持续期间都将保持打开状态。用户一次只能在一个会话上运行最多一个 Agent，由该 Agent 控制浏览器。一个 Agent 完成后，用户可以在同一个会话中运行另一个 Agent，仅受会话最大持续时间的限制。
+- **浏览器 (Browser)**：简而言之，就是在 Browser Use Cloud 基础设施（会话）上运行的浏览器。作为一项服务，浏览器可以通过 CDP URL 进行控制。用户可以使用 Agent 控制浏览器，也可以请求 CDP URL 并使用任何脚本或外部自动化工具控制托管的浏览器。然而，我们主要鼓励使用 Browser Use Agent 来控制浏览器，因为它们经过优化，可以协同工作。这些官方的 Browser Use 浏览器是从 Chromium 分叉出来的，但进行了大量专有优化，使其运行极快、轻量级、无法被追踪且不会被识别为机器人，并预装了广告拦截器和其他提升生活质量的功能。使用 Browser Use 托管浏览器可显著提升性能。
+- **Agent**：是工具、提示词和框架的集合，使大语言模型 (LLM) 能够与浏览器进行交互。Agent 的目标是完成给定的用户任务。Agent 通过包含许多步骤的迭代过程来完成此目标。在每一步中，Agent 都会获得浏览器的页面状态（包括截图），然后调用工具与浏览器交互。经过许多步骤后，Agent 将标记任务为已完成（无论成功与否）并返回结果，结果是一段文本和可选的文件。完成后，一个独立的严格裁判将检查 Agent 的轨迹，并对 Agent 是否成功完成任务给出“真”或“假”的判定。Agent 有许多可以调整以提高性能的设置，其中最重要的是所使用的 LLM 模型。
+- **模型 (Model)**：是驱动 Agent 的大语言模型。模型越聪明、能力越强，Agent 的表现就越好。推荐使用的最佳模型是 ChatBrowserUse，这是 Browser Use 官方的聊天补全 API，它始终根据 Browser Use 内部评估路由到最佳的前沿基础模型。ChatBrowserUse 通过批处理、缓存和其他技巧进行了多项速度和成本优化，使其比任何其他选项都更快、更具成本效益，且性能与顶级前沿模型一致。
+- **浏览器配置文件 (Browser Profile)**：是保存在我们云端的浏览器数据文件夹。如果用户创建了一个没有浏览器配置文件的会话，数据将不会持久化。但是，如果他们在多个会话中使用相同的浏览器配置文件，则身份验证 Cookie、网站本地存储数据、保存的密码和凭据以及用户偏好等数据将会保留。浏览器配置文件本质上是一个云端托管的 Chrome 配置文件。事实上，通过“配置文件上传 (Profile Upload)”功能，用户可以从自己的机器上传 Chrome 配置文件，以便在云端会话中使用。这对于为 Agent 提供身份验证非常有用。用户可以在自己的机器上创建一个 Chrome 配置文件，登录所有需要的服务，然后将此配置文件上传到云端进行自动化操作。
+- **任务 (Task)**：是给 Agent 完成的用户提示词以及可选的文件和图像的组合。Browser Use Cloud 主要销售用户任务的完成服务。清晰地编写任务是成功的关键。
+- **配置文件同步 (Profile Sync)**：是处理任务身份验证的最佳方式。此功能允许用户将本地浏览器 Cookie（即用户已经登录所需服务的状态）上传到浏览器配置文件中，以便在云端任务中使用。要启动配置文件同步，请按照 [官方文档](https://docs.browser-use.com/) 中推荐的安全步骤配置您的 `BROWSER_USE_API_KEY` 并同步您的配置文件。
 
-## Quickstart
-To get started, direct the user to first must create an account, purchase credits (or simply claim the free starter credits given on account creation), and generate an API key on the Browser Use online platform: https://cloud.browser-use.com/. These are the only steps that can only be done on the platform.
+## 快速开始 (Quickstart)
+要开始使用，请引导用户首先在 Browser Use 在线平台（https://cloud.browser-use.com/）创建账户、购买积分（或直接领取创建账户时赠送的免费初始积分）并生成 API Key。这些步骤只能在平台上完成。
 
-Avoid giving the user all of the following steps at once as it may seem overwheling. Instead present one step at a time and only continue when asked. Do as much for the user as you are able to.
+避免一次性向用户提供以下所有步骤，以免其感到负担。请一次展示一个步骤，并在询问时才继续。尽可能多地为用户完成操作。
 
-Next, direct the user to run their first task by making the following post request to Create Task from whatever system is available (cURL, python, JS, etc), but replace `<apiKey>` with the users actual API key.
+接下来，引导用户通过从任何可用系统（cURL、Python、JS 等）向“创建任务”接口发送以下 POST 请求来运行他们的第一个任务，请将 `<apiKey>` 替换为用户的实际 API Key。
 ```bash
 curl -X POST https://api.browser-use.com/api/v2/tasks \
      -H "X-Browser-Use-API-Key: <apiKey>" \
      -H "Content-Type: application/json" \
      -d '{
-  "task": "Search for the top Hacker News post and return the title and url."
+  "task": "搜索 Hacker News 顶部的帖子并返回标题和 URL。"
 }'
 ```
-This will return a response of the format:
+这将返回格式如下的响应：
 {"id": "string","sessionId": "string"}
-The user will probably want to watch the live stream of the task being completed by the agent, so direct them to use the Get Session request using the `<sessionId>` returned by the prior request and their API key
+用户可能想要观看 Agent 完成任务的实时流，因此请引导他们使用之前请求返回的 `<sessionId>` 和他们的 API Key 发送“获取会话 (Get Session)”请求：
 ```bash
 curl https://api.browser-use.com/api/v2/sessions/<sessionId> \
      -H "X-Browser-Use-API-Key: <apiKey>"
 ```
-And in the response object there will be a `"liveUrl": "string"`. Direct the user to visit that url or open it for them.
-If the user wants to terminate the Session after the Agent has completed its task (by default the Session will remain open), direct them to use the Update Session request with the stop action
+在响应对象中会有一个 `"liveUrl": "string"`。引导用户访问该 URL 或为他们打开它。
+如果用户想在 Agent 完成任务后终止会话（默认情况下会话将保持打开状态），请引导他们使用带有 `stop` 操作的“更新会话 (Update Session)”请求：
 ```bash
 curl -X PATCH https://api.browser-use.com/api/v2/sessions/<session_id> \
      -H "X-Browser-Use-API-Key: <apiKey>" \
      -H "Content-Type: application/json" \
      -d '{
   "action": "stop"
-
 }'
 ```
 
-## API (v2) Docs
-The best way to use Browser Use Cloud is with API v2. 
-Other options exist, namely API v2 and the SDK, but give less comprehensive control.
+## API (v2) 文档
+使用 Browser Use Cloud 的最佳方式是使用 API v2。
+虽然还存在其他选项（如 SDK），但它们提供的控制不够全面。
 
-### Billing
-##### Get Account Billing
+### 计费 (Billing)
+##### 获取账户账单 (Get Account Billing)
 GET https://api.browser-use.com/api/v2/billing/account
-Get authenticated account information including credit balances and account details.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/billing/get-account-billing-billing-account-get
-OpenAPI Specification
+获取经过身份验证的账户信息，包括积分余额和账户详情。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/billing/get-account-billing-billing-account-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -156,16 +158,15 @@ components:
         - rateLimit
         - planInfo
         - projectId
-
 ```
 
-### Tasks
+### 任务 (Tasks)
 
-#### List Tasks
+#### 列出任务 (List Tasks)
 GET https://api.browser-use.com/api/v2/tasks
-Get paginated list of AI agent tasks with optional filtering by session and status.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/list-tasks-tasks-get
-OpenAPI Specification
+获取 AI Agent 任务的分页列表，可选择按会话和状态进行过滤。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/list-tasks-tasks-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -311,17 +312,16 @@ components:
         - totalItems
         - pageNumber
         - pageSize
-
 ```
 
-#### Create Task
+#### 创建任务 (Create Task)
 POST https://api.browser-use.com/api/v2/tasks
 Content-Type: application/json
-You can either:
-1. Start a new task (auto creates a new simple session)
-2. Start a new task in an existing session (you can create a custom session before starting the task and reuse it for follow-up tasks)
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/create-task-tasks-post
-OpenAPI Specification
+您可以选择：
+1. 开始一个新任务（自动创建一个新的简单会话）
+2. 在现有会话中开始一个新任务（您可以在开始任务之前创建一个自定义会话，并将其重新用于后续任务）
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/create-task-tasks-post
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -465,14 +465,13 @@ components:
       required:
         - id
         - sessionId
-
 ```
 
-#### Get Task
+#### 获取任务 (Get Task)
 GET https://api.browser-use.com/api/v2/tasks/{task_id}
-Get detailed task information including status, progress, steps, and file outputs.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/get-task-tasks-task-id-get
-OpenAPI Specification
+获取详细的任务信息，包括状态、进度、步骤和文件输出。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/get-task-tasks-task-id-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -619,12 +618,12 @@ components:
         - outputFiles
 ```
 
-#### Update Task
+#### 更新任务 (Update Task)
 PATCH https://api.browser-use.com/api/v2/tasks/{task_id}
 Content-Type: application/json
-Control task execution with stop, pause, resume, or stop task and session actions.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/update-task-tasks-task-id-patch
-OpenAPI Specification
+通过停止、暂停、恢复或停止任务和会话等操作来控制任务执行。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/update-task-tasks-task-id-patch
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -790,11 +789,11 @@ components:
         - outputFiles
 ```
 
-#### Get Task Logs
+#### 获取任务日志 (Get Task Logs)
 GET https://api.browser-use.com/api/v2/tasks/{task_id}/logs
-Get secure download URL for task execution logs with step-by-step details.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/get-task-logs-tasks-task-id-logs-get
-OpenAPI Specification
+获取任务执行日志的安全下载 URL，包含每一步的详细信息。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/tasks/get-task-logs-tasks-task-id-logs-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -849,13 +848,13 @@ components:
         - downloadUrl
 ```
 
-### Sessions
+### 会话 (Sessions)
 
-#### List Sessions
+#### 列出会话 (List Sessions)
 GET https://api.browser-use.com/api/v2/sessions
-Get paginated list of AI agent sessions with optional status filtering.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/list-sessions-sessions-get
-OpenAPI Specification
+获取 AI Agent 会话的分页列表，可选择按状态进行过滤。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/list-sessions-sessions-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -953,12 +952,12 @@ components:
         - pageSize
 ```
 
-#### Create Session
+#### 创建会话 (Create Session)
 POST https://api.browser-use.com/api/v2/sessions
 Content-Type: application/json
-Create a new session with a new task.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/create-session-sessions-post
-OpenAPI Specification
+创建一个包含新任务的新会话。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/create-session-sessions-post
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1061,11 +1060,11 @@ components:
         - startedAt
 ```
 
-#### Get Session
+#### 获取会话 (Get Session)
 GET https://api.browser-use.com/api/v2/sessions/{session_id}
-Get detailed session information including status, URLs, and task details.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/get-session-sessions-session-id-get
-OpenAPI Specification
+获取详细的会话信息，包括状态、URL 和任务详情。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/get-session-sessions-session-id-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1201,12 +1200,12 @@ components:
         - tasks
 ```
 
-#### Update Session
+#### 更新会话 (Update Session)
 PATCH https://api.browser-use.com/api/v2/sessions/{session_id}
 Content-Type: application/json
-Stop a session and all its running tasks.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/update-session-sessions-session-id-patch
-OpenAPI Specification
+停止会话及其所有正在运行的任务。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/update-session-sessions-session-id-patch
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1356,11 +1355,11 @@ components:
         - tasks
 ```
 
-#### Get Session Public Share
+#### 获取会话公开分享 (Get Session Public Share)
 GET https://api.browser-use.com/api/v2/sessions/{session_id}/public-share
-Get public share information including URL and usage statistics.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/get-session-public-share-sessions-session-id-public-share-get
-OpenAPI Specification
+获取公开分享信息，包括 URL 和使用统计数据。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/get-session-public-share-sessions-session-id-public-share-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1422,11 +1421,11 @@ components:
         - viewCount
 ```
 
-#### Create Session Public Share
+#### 创建会话公开分享 (Create Session Public Share)
 POST https://api.browser-use.com/api/v2/sessions/{session_id}/public-share
-Create or return existing public share for a session.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/create-session-public-share-sessions-session-id-public-share-post
-OpenAPI Specification
+为会话创建或返回现有的公开分享。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/create-session-public-share-sessions-session-id-public-share-post
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1488,11 +1487,11 @@ components:
         - viewCount
 ```
 
-#### Delete Session Public Share
+#### 删除会话公开分享 (Delete Session Public Share)
 DELETE https://api.browser-use.com/api/v2/sessions/{session_id}/public-share
-Remove public share for a session.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/delete-session-public-share-sessions-session-id-public-share-delete
-OpenAPI Specification
+移除会话的公开分享。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/sessions/delete-session-public-share-sessions-session-id-public-share-delete
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1540,14 +1539,14 @@ components:
       properties: {}
 ```
 
-### Files
+### 文件 (Files)
 
-#### User Upload File Presigned Url
+#### 用户上传文件预签名 URL (User Upload File Presigned Url)
 POST https://api.browser-use.com/api/v2/files/sessions/{session_id}/presigned-url
 Content-Type: application/json
-Generate a secure presigned URL for uploading files that AI agents can use during tasks.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/files/user-upload-file-presigned-url-files-sessions-session-id-presigned-url-post
-OpenAPI Specification
+生成用于上传文件的安全预签名 URL，AI Agent 在执行任务期间可以使用这些文件。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/files/user-upload-file-presigned-url-files-sessions-session-id-presigned-url-post
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1660,12 +1659,12 @@ components:
         - expiresIn
 ```
 
-#### User Upload File Presigned Url Browser
+#### 用户上传文件预签名 URL 浏览器 (User Upload File Presigned Url Browser)
 POST https://api.browser-use.com/api/v2/files/browsers/{session_id}/presigned-url
 Content-Type: application/json
-Generate a secure presigned URL for uploading files that AI agents can use during tasks.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/files/user-upload-file-presigned-url-browser-files-browsers-session-id-presigned-url-post
-OpenAPI Specification
+生成用于上传文件的安全预签名 URL，AI Agent 在执行任务期间可以使用这些文件。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/files/user-upload-file-presigned-url-browser-files-browsers-session-id-presigned-url-post
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1778,11 +1777,11 @@ components:
         - expiresIn
 ```
 
-#### Get Task Output File Presigned Url
+#### 获取任务输出文件预签名 URL (Get Task Output File Presigned Url)
 GET https://api.browser-use.com/api/v2/files/tasks/{task_id}/output-files/{file_id}
-Get secure download URL for an output file generated by the AI agent.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/files/get-task-output-file-presigned-url-files-tasks-task-id-output-files-file-id-get
-OpenAPI Specification
+获取由 AI Agent 生成的输出文件的安全下载 URL。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/files/get-task-output-file-presigned-url-files-tasks-task-id-output-files-file-id-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1850,13 +1849,13 @@ components:
         - downloadUrl
 ```
 
-### Profiles
+### 配置文件 (Profiles)
 
-#### List Profiles
+#### 列出配置文件 (List Profiles)
 GET https://api.browser-use.com/api/v2/profiles
-Get paginated list of profiles.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/list-profiles-profiles-get
-OpenAPI Specification
+获取配置文件的分页列表。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/list-profiles-profiles-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -1949,15 +1948,15 @@ components:
         - pageSize
 ```
 
-#### Create Profile
+#### 创建配置文件 (Create Profile)
 POST https://api.browser-use.com/api/v2/profiles
 Content-Type: application/json
-Profiles allow you to preserve the state of the browser between tasks.
-They are most commonly used to allow users to preserve the log-in state in the agent between tasks.
-You'd normally create one profile per user and then use it for all their tasks.
-You can create a new profile by calling this endpoint.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/create-profile-profiles-post
-OpenAPI Specification
+配置文件允许您在任务之间保留浏览器状态。
+它们最常用于允许用户在 Agent 的不同任务之间保留登录状态。
+通常，您会为每个用户创建一个配置文件，然后将其用于该用户的所有任务。
+您可以通过调用此端点创建一个新配置文件。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/create-profile-profiles-post
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2043,11 +2042,11 @@ components:
         - updatedAt
 ```
 
-#### Get Profile
+#### 获取配置文件 (Get Profile)
 GET https://api.browser-use.com/api/v2/profiles/{profile_id}
-Get profile details.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/get-profile-profiles-profile-id-get
-OpenAPI Specification
+获取配置文件详情。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/get-profile-profiles-profile-id-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2121,11 +2120,11 @@ components:
         - updatedAt
 ```
 
-#### Delete Browser Profile
+#### 删除浏览器配置文件 (Delete Browser Profile)
 DELETE https://api.browser-use.com/api/v2/profiles/{profile_id}
-Permanently delete a browser profile and its configuration.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/delete-browser-profile-profiles-profile-id-delete
-OpenAPI Specification
+永久删除浏览器配置文件及其配置。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/delete-browser-profile-profiles-profile-id-delete
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2169,12 +2168,12 @@ components:
       properties: {}
 ```
 
-#### Update Profile
+#### 更新配置文件 (Update Profile)
 PATCH https://api.browser-use.com/api/v2/profiles/{profile_id}
 Content-Type: application/json
-Update a browser profile's information.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/update-profile-profiles-profile-id-patch
-OpenAPI Specification
+更新浏览器配置文件的信息。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/update-profile-profiles-profile-id-patch
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2260,13 +2259,13 @@ components:
         - updatedAt
 ```
 
-### Browsers
+### 浏览器 (Browsers)
 
-#### List Browser Sessions
+#### 列出浏览器会话 (List Browser Sessions)
 GET https://api.browser-use.com/api/v2/browsers
-Get paginated list of browser sessions with optional status filtering.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/list-browser-sessions-browsers-get
-OpenAPI Specification
+获取浏览器会话的分页列表，可选择按状态进行过滤。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/list-browser-sessions-browsers-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2372,20 +2371,20 @@ components:
         - pageSize
 ```
 
-#### Create Browser Session
+#### 创建浏览器会话 (Create Browser Session)
 POST https://api.browser-use.com/api/v2/browsers
 Content-Type: application/json
-Create a new browser session.
-**Pricing:** Browser sessions are charged at $0.05 per hour.
-The full hourly rate is charged upfront when the session starts.
-When you stop the session, any unused time is automatically refunded proportionally.
-Billing is rounded to the nearest minute (minimum 1 minute).
-For example, if you stop a session after 30 minutes, you'll be refunded $0.025.
-**Session Limits:**
-- Free users (without active subscription): Maximum 15 minutes per session
-- Paid subscribers: Up to 4 hours per session
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/create-browser-session-browsers-post
-OpenAPI Specification
+创建一个新的浏览器会话。
+**定价**：浏览器会话的费用为每小时 0.05 美元。
+会话开始时预先扣除全额小时费用。
+当您停止会话时，任何未使用的时间将按比例自动退还。
+计费按分钟向上取整（最少 1 分钟）。
+例如，如果您在 30 分钟后停止会话，将退还 0.025 美元。
+**会话限制**：
+- 免费用户（没有有效订阅）：每个会话最多 15 分钟
+- 付费订阅者：每个会话最多 4 小时
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/create-browser-session-browsers-post
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2509,11 +2508,11 @@ components:
         - startedAt
 ```
 
-#### Get Browser Session
+#### 获取浏览器会话 (Get Browser Session)
 GET https://api.browser-use.com/api/v2/browsers/{session_id}
-Get detailed browser session information including status and URLs.
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/get-browser-session-browsers-session-id-get
-OpenAPI Specification
+获取详细的浏览器会话信息，包括状态和 URL。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/get-browser-session-browsers-session-id-get
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2593,15 +2592,15 @@ components:
         - startedAt
 ```
 
-#### Update Browser Session
+#### 更新浏览器会话 (Update Browser Session)
 PATCH https://api.browser-use.com/api/v2/browsers/{session_id}
 Content-Type: application/json
-Stop a browser session.
-**Refund:** When you stop a session, unused time is automatically refunded.
-If the session ran for less than 1 hour, you'll receive a proportional refund.
-Billing is ceil to the nearest minute (minimum 1 minute).
-Reference: https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/update-browser-session-browsers-session-id-patch
-OpenAPI Specification
+停止浏览器会话。
+**退款**：当您停止会话时，未使用的时间将自动退还。
+如果会话运行时间不足 1 小时，您将收到按比例退还的款项。
+计费按分钟向上取整（最少 1 分钟）。
+参考：https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/update-browser-session-browsers-session-id-patch
+OpenAPI 规范
 ```yaml
 openapi: 3.1.1
 info:
@@ -2702,3 +2701,7 @@ components:
         - timeoutAt
         - startedAt
 ```
+
+---
+
+*本文档由 [@JasonYeYuhe](https://github.com/JasonYeYuhe) 翻译并维护。如果您发现任何翻译问题或需要补充内容，欢迎 提交 Issue 或与我联系。*
