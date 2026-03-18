@@ -114,29 +114,27 @@ class ChatAWSBedrock(BaseChatModel):
 			config['seed'] = self.seed
 		return config
 
+	def _is_anthropic_model(self) -> bool:
+		"""Check if the model is an Anthropic model (for tool choice handling)."""
+		model_lower = self.model.lower()
+		return 'anthropic' in model_lower or 'claude' in model_lower or model_lower.startswith('apac.anthropic')
+
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:
 		"""Format a Pydantic model as a tool for structured output."""
+		# Use the full schema instead of rebuilding it manually
+		# This preserves items (for list fields), $defs (for nested models), and anyOf (for Optional fields)
 		schema = output_format.model_json_schema()
 
-		# Convert Pydantic schema to Bedrock tool format
-		properties = {}
-		required = []
-
-		for prop_name, prop_info in schema.get('properties', {}).items():
-			properties[prop_name] = {
-				'type': prop_info.get('type', 'string'),
-				'description': prop_info.get('description', ''),
-			}
-
-		# Add required fields
-		required = schema.get('required', [])
+		# Remove title from schema if present (Bedrock doesn't like it in parameters)
+		if 'title' in schema:
+			del schema['title']
 
 		return [
 			{
 				'toolSpec': {
 					'name': f'extract_{output_format.__name__.lower()}',
 					'description': f'Extract information in the format of {output_format.__name__}',
-					'inputSchema': {'json': {'type': 'object', 'properties': properties, 'required': required}},
+					'inputSchema': {'json': schema},
 				}
 			}
 		]
@@ -198,9 +196,13 @@ class ChatAWSBedrock(BaseChatModel):
 				body['inferenceConfig'] = inference_config
 
 			# Handle structured output via tool calling
+			# Only add toolConfig for Anthropic models (toolChoice is Anthropic-specific)
+			# Non-Anthropic models may not support forced tool use but can still return JSON
 			if output_format is not None:
 				tools = self._format_tools_for_request(output_format)
-				body['toolConfig'] = {'tools': tools}
+				# Only add toolConfig for Anthropic models - others may not support toolChoice
+				if self._is_anthropic_model():
+					body['toolConfig'] = {'tools': tools}
 
 			# Add any additional request parameters
 			if self.request_params:
@@ -260,6 +262,34 @@ class ChatAWSBedrock(BaseChatModel):
 									message=f'Failed to validate structured output: {str(e)}',
 									model=self.name,
 								) from e
+
+					# For non-Anthropic models, try to parse JSON from text response
+					# Some models return structured output as plain text instead of toolUse
+					if not self._is_anthropic_model():
+						for item in content:
+							if 'text' in item:
+								text = item.get('text', '')
+								# Try to find and parse JSON in the text
+								try:
+									# Try direct parsing first
+									data = json.loads(text.strip())
+									return ChatInvokeCompletion(
+										completion=output_format.model_validate(data),
+										usage=usage,
+									)
+								except (json.JSONDecodeError, ValueError):
+									# Try to extract JSON from text using regex
+									import re
+									json_match = re.search(r'\{[^{}]*\}', text)
+									if json_match:
+										try:
+											data = json.loads(json_match.group())
+											return ChatInvokeCompletion(
+												completion=output_format.model_validate(data),
+												usage=usage,
+											)
+										except (json.JSONDecodeError, ValueError):
+											pass
 
 					# If no tool use found but output_format was requested
 					raise ModelProviderError(
