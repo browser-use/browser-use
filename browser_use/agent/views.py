@@ -685,6 +685,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
 		return {
 			'history': [h.model_dump(**kwargs) for h in self.history],
+			'usage': self.usage.model_dump(**kwargs) if self.usage else None,
 		}
 
 	@classmethod
@@ -727,7 +728,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def final_result(self) -> None | str:
 		"""Final result from history"""
-		if self.history and self.history[-1].result[-1].extracted_content:
+		if self.history and len(self.history[-1].result) > 0 and self.history[-1].result[-1].extracted_content:
 			return self.history[-1].result[-1].extracted_content
 		return None
 
