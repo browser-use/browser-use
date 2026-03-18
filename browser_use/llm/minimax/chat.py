@@ -29,7 +29,7 @@ T = TypeVar('T', bound=BaseModel)
 class ChatMiniMax(BaseChatModel):
 	"""MiniMax /chat/completions wrapper (OpenAI-compatible)."""
 
-	model: str = 'MiniMax-M2.5'
+	model: str = 'MiniMax-M2.7'
 
 	# Generation parameters
 	max_tokens: int | None = None
