@@ -123,7 +123,10 @@ def kill_orphaned_server(session: str) -> bool:
 	file but didn't kill the old process).
 
 	Returns:
-		True if an orphan was found and killed.
+		True if an orphan was found and successfully killed.
+		False if we couldn't kill the process (it may still be alive).
+		Note: Does NOT clean up session files when kill fails, as the
+		process may still be alive and holding the port.
 	"""
 	pid_path = get_pid_path(session)
 	if not pid_path.exists():
@@ -143,24 +146,53 @@ def kill_orphaned_server(session: str) -> bool:
 				from ctypes import wintypes
 
 				PROCESS_TERMINATE = 1
-				handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
-				if not handle:
-					# Failed to open process - it may not exist or we lack permissions
-					cleanup_session_files(session)
+
+				# Define proper argument types and return types for Windows API
+				kernel32 = ctypes.windll.kernel32
+				OpenProcess = kernel32.OpenProcess
+				OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+				OpenProcess.restype = wintypes.HANDLE
+				TerminateProcess = kernel32.TerminateProcess
+				TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+				TerminateProcess.restype = wintypes.BOOL
+				CloseHandle = kernel32.CloseHandle
+				CloseHandle.argtypes = [wintypes.HANDLE]
+				CloseHandle.restype = wintypes.BOOL
+
+				handle = OpenProcess(PROCESS_TERMINATE, False, pid)
+				if handle:
+					success = TerminateProcess(handle, 1)
+					CloseHandle(handle)
+					if success:
+						# Give the process a moment to terminate
+						import time
+						time.sleep(0.1)
+						# Only clean up if process is actually gone
+						if not _pid_exists(pid):
+							cleanup_session_files(session)
+							return True
+					# If OpenProcess or TerminateProcess failed, do NOT clean up
+					# The process may still be alive and holding the port
 					return False
-				result = ctypes.windll.kernel32.TerminateProcess(handle, 1)
-				ctypes.windll.kernel32.CloseHandle(handle)
-				if not result:
-					# Failed to terminate process
-					cleanup_session_files(session)
+				else:
+					# OpenProcess failed (e.g., access denied) - do NOT clean up
+					# The process may still be alive and holding the port
 					return False
 			else:
 				os.kill(pid, signal.SIGKILL)
+				# Verify process is gone before cleaning up
+				if not _pid_exists(pid):
+					cleanup_session_files(session)
+					return True
+				return False
+		else:
+			# Process no longer exists - clean up stale files
+			cleanup_session_files(session)
 			return True
 	except (OSError, ValueError):
 		pass
 
-	# Clean up stale files even if we couldn't kill (process may be gone)
+	# Process may be gone but we couldn't verify - try cleanup anyway
 	cleanup_session_files(session)
 	return False
 
