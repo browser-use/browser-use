@@ -205,6 +205,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
+		register_signal_handlers: bool = True,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -373,6 +374,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
 		self._url_shortening_limit = _url_shortening_limit
+		self.register_signal_handlers = register_signal_handlers
 
 		self.sensitive_data = sensitive_data
 
@@ -2487,14 +2489,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.telemetry.flush()
 			self._force_exit_telemetry_logged = True  # Set the flag
 
-		signal_handler = SignalHandler(
-			loop=loop,
-			pause_callback=self.pause,
-			resume_callback=self.resume,
-			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
-			exit_on_second_int=True,
-		)
-		signal_handler.register()
+		signal_handler = None
+		if self.register_signal_handlers:
+			signal_handler = SignalHandler(
+				loop=loop,
+				pause_callback=self.pause,
+				resume_callback=self.resume,
+				custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
+				exit_on_second_int=True,
+			)
+			signal_handler.register()
 
 		try:
 			await self._log_agent_run()
@@ -2552,7 +2556,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if self.state.paused:
 					self.logger.debug(f'⏸️ Step {self.state.n_steps}: Agent paused, waiting to resume...')
 					await self._external_pause_event.wait()
-					signal_handler.reset()
+					if signal_handler is not None:
+						signal_handler.reset()
 
 				# Check if we should stop due to too many failures, if final_response_after_failure is True, we try one last time
 				if (self.state.consecutive_failures) >= self.settings.max_failures + int(
@@ -2630,7 +2635,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self.token_cost_service.log_usage_summary()
 
 			# Unregister signal handlers before cleanup
-			signal_handler.unregister()
+			if signal_handler is not None:
+				signal_handler.unregister()
 
 			if not self._force_exit_telemetry_logged:  # MODIFIED: Check the flag
 				try:
