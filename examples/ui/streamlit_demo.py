@@ -58,7 +58,7 @@ def get_llm(provider: str):
 	elif provider == 'deepseek':
 		from browser_use.llm import ChatDeepSeek
 
-		return ChatDeepSeek(model='deepseek-chat')
+		return ChatDeepSeek(model='deepseek-chat', api_key=os.getenv('DEEPSEEK_API_KEY'))
 	elif provider == 'google':
 		from browser_use.llm import ChatGoogle
 
