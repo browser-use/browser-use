@@ -11,7 +11,8 @@ import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Add repo root to path so examples can import each other
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from browser_use import Agent, Browser, ChatBrowserUse
 from examples.integrations.agentburner.email_tools import EmailTools
@@ -38,7 +39,10 @@ async def main():
 	await agent.run()
 
 	# Cleanup
-	await tools.inbox_key and tools.delete_inbox()
+	if tools.inbox_key:
+		# Access the registered action by calling it through the tools registry
+		async with __import__("httpx").AsyncClient() as client:
+			await client.delete(f"https://api.agentburner.com/inbox/{tools.inbox_key}")
 
 
 if __name__ == "__main__":

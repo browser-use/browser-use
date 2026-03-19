@@ -108,7 +108,9 @@ class EmailTools(Tools):
 			if not self.inbox_key:
 				return "No inbox to delete."
 			async with httpx.AsyncClient() as client:
-				await client.delete(f"{API}/inbox/{self.inbox_key}")
+				resp = await client.delete(f"{API}/inbox/{self.inbox_key}")
+				if resp.status_code not in (200, 404):
+					return f"Failed to delete inbox: HTTP {resp.status_code}"
 			logger.info(f"Deleted inbox: {self.inbox_address}")
 			self.inbox_address = None
 			self.inbox_key = None

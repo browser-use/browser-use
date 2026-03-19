@@ -15,12 +15,15 @@ That's it. No API key needed.
 Agent Burner provides throwaway email inboxes via REST API. The agent creates an inbox, uses the address for signup, polls for verification emails, and extracts OTP codes or verification links automatically.
 
 ```python
+# Run from the repo root, or add the repo root to sys.path
 from examples.integrations.agentburner.email_tools import EmailTools
 
 tools = EmailTools()
 agent = Agent(task="Sign up for ...", tools=tools, llm=llm, browser=browser)
 await agent.run()
 ```
+
+Or copy `email_tools.py` directly into your project — it's a single file with no dependencies beyond `httpx`.
 
 ## Available tools
 
