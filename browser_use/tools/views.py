@@ -89,7 +89,8 @@ class DoneAction(BaseModel):
 			'ONLY report data you directly observed in browser_state, tool outputs, or screenshots during this session. '
 			'Do NOT use training knowledge to fill gaps — if information was not found on the page, say so explicitly. '
 			'Do NOT claim completion of steps from compacted_memory or prior session summaries '
-			'unless you explicitly verified them yourself.'
+			'unless you explicitly verified them yourself. '
+			'If uncertain whether a prior step completed, say so explicitly.'
 		)
 	)
 	success: bool = Field(default=True, description='True if user_request completed successfully')
