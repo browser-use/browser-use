@@ -1912,7 +1912,7 @@ Validated Code (after quote fixing):
 		else:
 
 			@self.registry.action(
-				'Complete task.',
+				'Complete task. Only report actions you performed and data you extracted in this session.',
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction, file_system: FileSystem):
@@ -2232,7 +2232,7 @@ class CodeAgentTools(Tools[Context]):
 
 		# Override the done action with enhanced version
 		@self.registry.action(
-			'Complete task.',
+			'Complete task. Only report actions you performed and data you extracted in this session.',
 			param_model=DoneAction,
 		)
 		async def done(params: DoneAction, file_system: FileSystem):
