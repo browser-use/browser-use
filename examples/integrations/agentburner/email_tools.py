@@ -42,6 +42,8 @@ class EmailTools(Tools):
 			async with httpx.AsyncClient() as client:
 				resp = await client.get(f'{API}/inbox/{self.inbox_key}')
 				if resp.status_code == 404:
+					self.inbox_address = None
+					self.inbox_key = None
 					return 'Inbox expired or not found.'
 				resp.raise_for_status()
 			return resp.text
@@ -53,7 +55,7 @@ class EmailTools(Tools):
 			async with httpx.AsyncClient() as client:
 				resp = await client.get(f'{API}/inbox/{self.inbox_key}/{email_id}')
 				if resp.status_code == 404:
-					return 'Email not found.'
+					return 'Email or inbox not found.'
 				resp.raise_for_status()
 			return resp.text
 

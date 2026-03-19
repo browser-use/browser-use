@@ -11,10 +11,11 @@ pip install browser-use httpx
 ## Usage
 
 ```python
-from examples.integrations.agentburner.email_tools import EmailTools
+# Copy email_tools.py into your project, or run from the repo root
+from email_tools import EmailTools
 
 tools = EmailTools()
-agent = Agent(task="...", tools=tools, llm=llm, browser=browser)
+agent = Agent(task='...', tools=tools, llm=llm, browser=browser)
 await agent.run()
 ```
 
