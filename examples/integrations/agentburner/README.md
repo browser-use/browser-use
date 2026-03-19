@@ -23,7 +23,7 @@ agent = Agent(task="Sign up for ...", tools=tools, llm=llm, browser=browser)
 await agent.run()
 ```
 
-Or copy `email_tools.py` directly into your project — it's a single file with no dependencies beyond `httpx`.
+Or copy `email_tools.py` directly into your project — it depends on `browser_use` (for the `Tools` base class) and `httpx`.
 
 ## Available tools
 

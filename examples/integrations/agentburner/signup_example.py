@@ -38,11 +38,14 @@ async def main():
 
 	await agent.run()
 
-	# Cleanup
+	# Cleanup (optional — inboxes auto-expire in 1 hour)
 	if tools.inbox_key:
-		# Access the registered action by calling it through the tools registry
-		async with __import__("httpx").AsyncClient() as client:
-			await client.delete(f"https://api.agentburner.com/inbox/{tools.inbox_key}")
+		import httpx
+		async with httpx.AsyncClient() as client:
+			resp = await client.delete(f"https://api.agentburner.com/inbox/{tools.inbox_key}")
+			if resp.status_code == 200:
+				tools.inbox_address = None
+				tools.inbox_key = None
 
 
 if __name__ == "__main__":
