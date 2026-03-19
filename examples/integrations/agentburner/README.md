@@ -1,6 +1,6 @@
 # Agent Burner Integration
 
-Disposable email for browser-use agents. No API key, no signup, no SDK.
+Disposable email for browser-use agents. No API key, no signup.
 
 ## Setup
 
@@ -8,47 +8,39 @@ Disposable email for browser-use agents. No API key, no signup, no SDK.
 pip install browser-use httpx
 ```
 
-That's it. No API key needed.
-
-## How it works
-
-Agent Burner provides throwaway email inboxes via REST API. The agent creates an inbox, uses the address for signup, polls for verification emails, and extracts OTP codes or verification links automatically.
+## Usage
 
 ```python
-# Run from the repo root, or add the repo root to sys.path
 from examples.integrations.agentburner.email_tools import EmailTools
 
 tools = EmailTools()
-agent = Agent(task="Sign up for ...", tools=tools, llm=llm, browser=browser)
+agent = Agent(task="...", tools=tools, llm=llm, browser=browser)
 await agent.run()
 ```
 
-Or copy `email_tools.py` directly into your project — it depends on `browser_use` (for the `Tools` base class) and `httpx`.
+## Tools
 
-## Available tools
+| Tool | Maps to | Description |
+|------|---------|-------------|
+| `create_inbox` | `POST /inbox` | Create a disposable inbox, returns the email address |
+| `list_emails` | `GET /inbox/:key` | List received emails (id, from, subject) |
+| `get_email` | `GET /inbox/:key/:id` | Get full email (body, html, urls[]) |
+| `delete_inbox` | `DELETE /inbox/:key` | Delete inbox (optional — auto-expires in 1h) |
 
-| Tool | Description |
-|------|-------------|
-| `create_email` | Create a disposable email address |
-| `get_email_address` | Get the current email address (creates one if needed) |
-| `get_verification_email` | Poll for and return the latest email with extracted OTP codes and URLs |
-| `get_verification_link` | Get just the first URL from the latest email |
-| `delete_inbox` | Delete the inbox (optional — auto-expires in 1 hour) |
+The tools mirror the API 1:1. No abstractions, no magic. The agent decides what to do with the data.
 
-## Comparison with AgentMail integration
+## vs AgentMail
 
 | | Agent Burner | AgentMail |
 |---|---|---|
-| API key required | No | Yes |
-| pip install | `httpx` (standard HTTP) | `agentmail` (custom SDK) |
-| Email creation | `POST /inbox` | SDK call + API key |
-| URL extraction | Built in (`urls[]`) | Manual parsing |
-| Inbox lifespan | 1 hour (auto-expires) | Permanent |
+| Auth | None | API key |
+| Dependencies | `httpx` | `agentmail` SDK |
+| Inbox lifespan | 1 hour | Permanent |
 | Send email | No | Yes |
 | Cost | Free | Per-mailbox |
 
-Use Agent Burner for throwaway signups and verification flows. Use AgentMail if you need persistent inboxes or outbound email.
+Agent Burner for throwaway inboxes. AgentMail for persistent email identity.
 
 ## API docs
 
-Full reference: [agentburner.com/skill.md](https://agentburner.com/skill.md)
+[agentburner.com/skill.md](https://agentburner.com/skill.md)
