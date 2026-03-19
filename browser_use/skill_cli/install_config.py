@@ -1,7 +1,7 @@
 """Install configuration - tracks which browser modes are available.
 
 This module manages the installation configuration that determines which browser
-modes (chromium, real, remote) are available based on how browser-use was installed.
+modes (chromium, real, remote, cdp) are available based on how browser-use was installed.
 
 Config file: ~/.browser-use/install-config.json
 
@@ -14,10 +14,10 @@ from typing import Literal
 
 CONFIG_PATH = Path.home() / '.browser-use' / 'install-config.json'
 
-ModeType = Literal['chromium', 'real', 'remote']
+ModeType = Literal['chromium', 'real', 'remote', 'cdp']
 
 # Local modes (both require Chromium to be installed)
-LOCAL_MODES: set[str] = {'chromium', 'real'}
+LOCAL_MODES: set[str] = {'chromium', 'real', 'cdp'}
 
 
 def get_config() -> dict:
@@ -27,7 +27,7 @@ def get_config() -> dict:
 	"""
 	if not CONFIG_PATH.exists():
 		return {
-			'installed_modes': ['chromium', 'real', 'remote'],
+			'installed_modes': ['chromium', 'real', 'remote', 'cdp'],
 			'default_mode': 'chromium',
 		}
 
@@ -36,7 +36,7 @@ def get_config() -> dict:
 	except (json.JSONDecodeError, OSError):
 		# Config file corrupt, return default
 		return {
-			'installed_modes': ['chromium', 'real', 'remote'],
+			'installed_modes': ['chromium', 'real', 'remote', 'cdp'],
 			'default_mode': 'chromium',
 		}
 
@@ -59,7 +59,7 @@ def is_mode_available(mode: str) -> bool:
 	"""Check if a browser mode is available based on installation config.
 
 	Args:
-		mode: The browser mode to check ('chromium', 'real', or 'remote')
+		mode: The browser mode to check ('chromium', 'real', 'remote', or 'cdp')
 
 	Returns:
 		True if the mode is available, False otherwise

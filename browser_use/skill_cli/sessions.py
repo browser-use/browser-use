@@ -108,6 +108,7 @@ async def create_browser_session(
 	- chromium: Playwright-managed Chromium (default)
 	- real: User's Chrome with profile
 	- remote: Browser-Use Cloud (requires API key)
+	- cdp: Connect to existing Chrome via Chrome DevTools Protocol
 
 	Raises:
 		RuntimeError: If the requested mode is not available based on installation config
@@ -150,6 +151,33 @@ async def create_browser_session(
 		return BrowserSession(
 			use_cloud=True,
 			cloud_profile_id=profile,
+		)
+
+	elif mode == 'cdp':
+		import json
+		import tempfile
+		from pathlib import Path
+
+		config_path = Path(tempfile.gettempdir()) / 'browser-use-direct.json'
+		if not config_path.exists():
+			raise RuntimeError(
+				f'CDP config file not found: {config_path}\n'
+				'Please create it with: {"cdp_url": "http://localhost:9222/"}'
+			)
+
+		try:
+			config = json.loads(config_path.read_text())
+			cdp_url = config.get('cdp_url')
+			if not cdp_url:
+				raise RuntimeError(f"Missing 'cdp_url' in {config_path}")
+		except json.JSONDecodeError as e:
+			raise RuntimeError(f'Invalid JSON in {config_path}: {e}')
+		except Exception as e:
+			raise RuntimeError(f'Error reading {config_path}: {e}')
+
+		return BrowserSession(
+			cdp_url=cdp_url,
+			headless=False,  # CDP mode always visible since it's connecting to existing browser
 		)
 
 	else:
