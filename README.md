@@ -55,7 +55,7 @@ uv init && uv add browser-use && uv sync
 # uvx browser-use install  # Run if you don't have Chromium installed
 ```
 
-**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) (new signups get $10 free credits):**
+**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key):**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
+Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
 
 <br/>
 
@@ -187,6 +187,15 @@ We optimized **ChatBrowserUse()** specifically for browser automation tasks. On 
 For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
 </details>
 
+<details>
+<summary><b>Should I use the Browser Use system prompt with the open-source preview model?</b></summary>
+
+Yes. If you use `ChatBrowserUse(model='browser-use/bu-30b-a3b-preview')` with a normal `Agent(...)`, Browser Use still sends its default agent system prompt for you.
+
+You do **not** need to add a separate custom "Browser Use system message" just because you switched to the open-source preview model. Only use `extend_system_message` or `override_system_message` when you intentionally want to customize the default behavior for your task.
+
+If you want the best default speed/accuracy, we still recommend the newer hosted `bu-*` models. If you want the open-source preview model, the setup stays the same apart from the `model=` value.
+</details>
 
 <details>
 <summary><b>Can I use custom tools with the agent?</b></summary>

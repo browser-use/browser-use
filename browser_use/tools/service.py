@@ -47,7 +47,6 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
-	ReadContentAction,
 	SaveAsPdfAction,
 	ScreenshotAction,
 	ScrollAction,
@@ -416,6 +415,23 @@ class Tools(Generic[Context]):
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 
+				# Health check: detect empty DOM for http/https pages and retry once
+				if not params.new_tab:
+					state = await browser_session.get_browser_state_summary(include_screenshot=False)
+					url_is_http = state.url.lower().startswith(('http://', 'https://'))
+					if url_is_http and state.dom_state._root is None:
+						browser_session.logger.warning(
+							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 3s and rechecking...'
+						)
+						await asyncio.sleep(3.0)
+						state = await browser_session.get_browser_state_summary(include_screenshot=False)
+						if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
+							return ActionResult(
+								error=f'Page loaded but returned empty content for {params.url}. '
+								f'The page may require JavaScript that failed to render, use anti-bot measures, '
+								f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
+							)
+
 				if params.new_tab:
 					memory = f'Opened new tab with URL {params.url}'
 					msg = f'🔗  Opened new tab with url {params.url}'
@@ -442,6 +458,7 @@ class Tools(Generic[Context]):
 						'ERR_INTERNET_DISCONNECTED',
 						'ERR_CONNECTION_REFUSED',
 						'ERR_TIMED_OUT',
+						'ERR_TUNNEL_CONNECTION_FAILED',
 						'net::',
 					]
 				):
@@ -946,7 +963,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page.""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -962,6 +979,9 @@ class Tools(Generic[Context]):
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
 			output_schema: dict | None = params.get('output_schema') if isinstance(params, dict) else params.output_schema
+			already_collected: list[str] = (
+				params.get('already_collected', []) if isinstance(params, dict) else params.already_collected
+			)
 
 			# If the LLM didn't provide an output_schema, use the agent-injected extraction_schema
 			if output_schema is None and extraction_schema is not None:
@@ -1048,15 +1068,20 @@ You will be given a query, a JSON Schema, and the markdown of a webpage that has
 - Your response MUST conform to the provided JSON Schema exactly.
 - If a required field's value cannot be found on the page, use null (if the schema allows it) or an empty string / empty array as appropriate.
 - If the content was truncated, extract what is available from the visible portion.
+- If <already_collected> items are provided, skip any items whose name/title/URL matches those listed — do not include duplicates.
 </instructions>
 """.strip()
 
 				schema_json = json.dumps(output_schema, indent=2)
+				already_collected_section = ''
+				if already_collected:
+					items_str = '\n'.join(f'- {item}' for item in already_collected[:100])
+					already_collected_section = f'\n\n<already_collected>\nSkip items whose name/title/URL matches any of these already-collected identifiers:\n{items_str}\n</already_collected>'
 				prompt = (
 					f'<query>\n{query}\n</query>\n\n'
 					f'<output_schema>\n{schema_json}\n</output_schema>\n\n'
 					f'<content_stats>\n{stats_summary}\n</content_stats>\n\n'
-					f'<webpage_content>\n{content}\n</webpage_content>'
+					f'<webpage_content>\n{content}\n</webpage_content>' + already_collected_section
 				)
 
 				try:
@@ -1120,6 +1145,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 - If the information relevant to the query is not available in the page, your response should mention that.
 - If the query asks for all items, products, etc., make sure to directly list all of them.
 - If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
+- If <already_collected> items are provided, exclude any results whose name/title/URL matches those already collected — do not include duplicates.
 </instructions>
 
 <output>
@@ -1128,7 +1154,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 </output>
 """.strip()
 
-			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
+			already_collected_section = ''
+			if already_collected:
+				items_str = '\n'.join(f'- {item}' for item in already_collected[:100])
+				already_collected_section = f'\n\n<already_collected>\nSkip items whose name/title/URL matches any of these already-collected identifiers:\n{items_str}\n</already_collected>'
+			prompt = (
+				f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
+				+ already_collected_section
+			)
 
 			try:
 				response = await asyncio.wait_for(
@@ -1662,275 +1695,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				include_extracted_content_only_once=True,
 			)
 
-		# Intelligent content reading
-
-		@self.registry.action(
-			'Intelligently read long content to find specific information. Works on current page (source="page") or files. For large content, uses search to identify relevant sections. Best for long articles, documents, or any content where you know what you are looking for.',
-			param_model=ReadContentAction,
-		)
-		async def read_long_content(
-			params: ReadContentAction,
-			browser_session: BrowserSession,
-			page_extraction_llm: BaseChatModel,
-			available_file_paths: list[str],
-		):
-			import re
-
-			from browser_use.llm.messages import UserMessage
-
-			goal = params.goal
-			context = params.context
-			source = params.source
-			max_chars = 50000
-
-			async def extract_search_terms(goal: str, context: str) -> list[str]:
-				"""Use LLM to extract search terms from goal."""
-				prompt = f"""Extract 3-5 key search terms from this goal that would help find relevant sections.
-Return only the terms, one per line, no numbering or bullets.
-
-Goal: {goal}
-
-Context: {context}"""
-				response = await page_extraction_llm.ainvoke([UserMessage(content=prompt)])
-				return [term.strip() for term in response.completion.strip().split('\n') if term.strip()][:5]
-
-			def search_text(content: str, pattern: str, context_chars: int = 100) -> list[dict]:
-				"""Search content for pattern, return matches with positions."""
-				try:
-					regex = re.compile(pattern, re.IGNORECASE)
-				except re.error:
-					regex = re.compile(re.escape(pattern), re.IGNORECASE)
-
-				matches = []
-				for match in regex.finditer(content):
-					start = max(0, match.start() - context_chars)
-					end = min(len(content), match.end() + context_chars)
-					matches.append(
-						{
-							'position': match.start(),
-							'snippet': content[start:end],
-						}
-					)
-				return matches
-
-			def chunk_content(content: str, chunk_size: int = 2000) -> list[dict]:
-				"""Split content into chunks with positions."""
-				chunks = []
-				for i in range(0, len(content), chunk_size):
-					chunks.append(
-						{
-							'start': i,
-							'end': min(i + chunk_size, len(content)),
-							'text': content[i : i + chunk_size],
-						}
-					)
-				return chunks
-
-			try:
-				if source.lower() == 'page':
-					# Read from current webpage
-					from browser_use.dom.markdown_extractor import extract_clean_markdown
-
-					# Clear DOM cache and wait for page to settle before extracting
-					if browser_session._dom_watchdog:
-						browser_session._dom_watchdog.clear_cache()
-
-					wait_time = browser_session.browser_profile.wait_for_network_idle_page_load_time
-					await asyncio.sleep(wait_time)
-
-					content, _ = await extract_clean_markdown(browser_session=browser_session, extract_links=False)
-					source_name = 'current page'
-
-					if not content:
-						return ActionResult(
-							extracted_content='Error: No page content available',
-							long_term_memory='Failed to read page: no content',
-						)
-
-				else:
-					# Read from file
-					file_path = source
-
-					# Validate file path against whitelist (available_file_paths + downloaded files)
-					allowed_paths = set(available_file_paths or [])
-					allowed_paths.update(browser_session.downloaded_files)
-					if file_path not in allowed_paths:
-						return ActionResult(
-							extracted_content=f'Error: File path not in available_file_paths: {file_path}. '
-							f'The user must add this path to available_file_paths when creating the Agent.',
-							long_term_memory=f'Failed to read: file path not allowed: {file_path}',
-						)
-
-					if not os.path.exists(file_path):
-						return ActionResult(
-							extracted_content=f'Error: File not found: {file_path}',
-							long_term_memory='Failed to read: file not found',
-						)
-
-					ext = os.path.splitext(file_path)[1].lower()
-					source_name = os.path.basename(file_path)
-
-					if ext == '.pdf':
-						# Read PDF directly using pypdf
-						import pypdf
-
-						reader = pypdf.PdfReader(file_path)
-						num_pages = len(reader.pages)
-
-						# Extract all page text
-						page_texts: list[str] = []
-						total_chars = 0
-						for page in reader.pages:
-							text = page.extract_text() or ''
-							page_texts.append(text)
-							total_chars += len(text)
-
-						# If PDF is small enough, return it all
-						if total_chars <= max_chars:
-							content_parts = []
-							for i, text in enumerate(page_texts, 1):
-								if text.strip():
-									content_parts.append(f'--- Page {i} ---\n{text}')
-							content = '\n\n'.join(content_parts)
-
-							memory = f'Read {source_name} ({num_pages} pages, {total_chars:,} chars) for goal: {goal[:50]}'
-							logger.info(f'📄 {memory}')
-							return ActionResult(
-								extracted_content=f'PDF: {source_name} ({num_pages} pages)\n\n{content}',
-								long_term_memory=memory,
-								include_extracted_content_only_once=True,
-							)
-
-						# PDF too large - use intelligent extraction
-						logger.info(f'PDF has {total_chars:,} chars across {num_pages} pages, using intelligent extraction')
-
-						# Extract search terms from goal
-						search_terms = await extract_search_terms(goal, context)
-
-						# Search and score pages by relevance
-						page_scores: dict[int, int] = {}  # 1-indexed page -> score
-						for term in search_terms:
-							try:
-								term_pattern = re.compile(re.escape(term), re.IGNORECASE)
-							except re.error:
-								continue
-							for i, text in enumerate(page_texts, 1):
-								if term_pattern.search(text):
-									page_scores[i] = page_scores.get(i, 0) + 1
-
-						# Select pages: always include page 1, then most relevant
-						pages_to_read = [1]
-						sorted_pages = sorted(page_scores.items(), key=lambda x: -x[1])
-						for page_num, _ in sorted_pages:
-							if page_num not in pages_to_read:
-								pages_to_read.append(page_num)
-
-						# Build result respecting char limit, truncating pages if needed
-						content_parts = []
-						chars_used = 0
-						pages_included = []
-						for page_num in sorted(set(pages_to_read)):
-							text = page_texts[page_num - 1]
-							page_header = f'--- Page {page_num} ---\n'
-							remaining = max_chars - chars_used
-							if remaining < len(page_header) + 50:
-								break  # no room for meaningful content
-							page_content = page_header + text
-							if len(page_content) > remaining:
-								page_content = page_content[: remaining - len('\n[...truncated]')] + '\n[...truncated]'
-							content_parts.append(page_content)
-							chars_used += len(page_content)
-							pages_included.append(page_num)
-
-						content = '\n\n'.join(content_parts)
-						memory = f'Read {source_name} ({len(pages_included)} relevant pages of {num_pages}) for goal: {goal[:50]}'
-						logger.info(f'📄 {memory}')
-						return ActionResult(
-							extracted_content=f'PDF: {source_name} ({num_pages} pages, showing {len(pages_included)} relevant)\n\n{content}',
-							long_term_memory=memory,
-							include_extracted_content_only_once=True,
-						)
-
-					else:
-						# Text file
-						async with await anyio.open_file(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-							content = await f.read()
-
-				# Check if content fits in budget
-				if len(content) <= max_chars:
-					memory = f'Read {source_name} ({len(content):,} chars) for goal: {goal[:50]}'
-					logger.info(f'📄 {memory}')
-					return ActionResult(
-						extracted_content=f'Content from {source_name} ({len(content):,} chars):\n\n{content}',
-						long_term_memory=memory,
-						include_extracted_content_only_once=True,
-					)
-
-				# Content too large - use intelligent extraction
-				logger.info(f'Content has {len(content):,} chars, using intelligent extraction')
-
-				# Extract search terms from goal
-				search_terms = await extract_search_terms(goal, context)
-
-				# Search for each term and score chunks
-				chunks = chunk_content(content, chunk_size=2000)
-				chunk_scores: dict[int, int] = {}  # chunk index -> relevance score
-
-				for term in search_terms:
-					matches = search_text(content, term)
-					for match in matches:
-						# Find which chunk this match belongs to
-						for i, chunk in enumerate(chunks):
-							if chunk['start'] <= match['position'] < chunk['end']:
-								chunk_scores[i] = chunk_scores.get(i, 0) + 1
-								break
-
-				if not chunk_scores:
-					# No matches - return first max_chars
-					truncated = content[:max_chars]
-					memory = f'Read {source_name} (truncated to {max_chars:,} chars, no matches for search terms)'
-					logger.info(f'📄 {memory}')
-					return ActionResult(
-						extracted_content=f'Content from {source_name} (first {max_chars:,} of {len(content):,} chars):\n\n{truncated}',
-						long_term_memory=memory,
-						include_extracted_content_only_once=True,
-					)
-
-				# Sort chunks by relevance and collect most relevant ones
-				sorted_chunks = sorted(chunk_scores.items(), key=lambda x: -x[1])
-
-				# Always include first chunk for context
-				selected_indices = {0}  # Start with first chunk
-				for chunk_idx, _ in sorted_chunks:
-					selected_indices.add(chunk_idx)
-
-				# Build result from selected chunks in order
-				result_parts = []
-				total_chars = 0
-				for i in sorted(selected_indices):
-					chunk = chunks[i]
-					if total_chars + len(chunk['text']) > max_chars:
-						break
-					if i > 0 and (i - 1) not in selected_indices:
-						result_parts.append('\n[...]\n')  # Indicate gap
-					result_parts.append(chunk['text'])
-					total_chars += len(chunk['text'])
-
-				result_content = ''.join(result_parts)
-				memory = f'Read {source_name} ({len(selected_indices)} relevant sections of {len(chunks)}) for goal: {goal[:50]}'
-				logger.info(f'📄 {memory}')
-
-				return ActionResult(
-					extracted_content=f'Content from {source_name} (relevant sections, {total_chars:,} of {len(content):,} chars):\n\n{result_content}',
-					long_term_memory=memory,
-					include_extracted_content_only_once=True,
-				)
-
-			except Exception as e:
-				error_msg = f'Error reading content: {str(e)}'
-				logger.error(error_msg)
-				return ActionResult(extracted_content=error_msg, long_term_memory=error_msg)
-
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",
 			terminates_sequence=True,
@@ -2148,7 +1912,7 @@ Validated Code (after quote fixing):
 		else:
 
 			@self.registry.action(
-				'Complete task.',
+				'Complete task. Only report actions you performed and data you extracted in this session.',
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction, file_system: FileSystem):
@@ -2468,7 +2232,7 @@ class CodeAgentTools(Tools[Context]):
 
 		# Override the done action with enhanced version
 		@self.registry.action(
-			'Complete task.',
+			'Complete task. Only report actions you performed and data you extracted in this session.',
 			param_model=DoneAction,
 		)
 		async def done(params: DoneAction, file_system: FileSystem):

@@ -250,9 +250,7 @@ class TokenCost:
 
 		# ANSI color codes
 		C_CYAN = '\033[96m'
-		C_YELLOW = '\033[93m'
 		C_GREEN = '\033[92m'
-		C_BLUE = '\033[94m'
 		C_RESET = '\033[0m'
 
 		# Always get cost breakdown for token details (even if not showing costs)
@@ -402,7 +400,6 @@ class TokenCost:
 		total_completion = sum(u.usage.completion_tokens for u in filtered_usage)
 		total_tokens = total_prompt + total_completion
 		total_prompt_cached = sum(u.usage.prompt_cached_tokens or 0 for u in filtered_usage)
-		models = list({u.model for u in filtered_usage})
 
 		# Calculate per-model stats with record-by-record cost calculation
 		model_stats: dict[str, ModelUsageStats] = {}

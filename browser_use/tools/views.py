@@ -17,6 +17,10 @@ class ExtractAction(BaseModel):
 		default=None,
 		description='Optional JSON Schema dict. When provided, extraction returns validated JSON matching this schema instead of free-text.',
 	)
+	already_collected: list[str] = Field(
+		default_factory=list,
+		description='Item identifiers (name, URL, or ID) already collected in prior extract calls on other pages. The extractor will skip items matching these to prevent duplicates. Use when paginating across multiple pages.',
+	)
 
 
 class SearchPageAction(BaseModel):
@@ -79,7 +83,16 @@ class InputTextAction(BaseModel):
 
 
 class DoneAction(BaseModel):
-	text: str = Field(description='Final user message in the format the user requested')
+	text: str = Field(
+		description=(
+			'Final message to the user. '
+			'ONLY report data you directly observed in browser_state, tool outputs, or screenshots during this session. '
+			'Do NOT use training knowledge to fill gaps — if information was not found on the page, say so explicitly. '
+			'Do NOT claim completion of steps from compacted_memory or prior session summaries '
+			'unless you explicitly verified them yourself. '
+			'If uncertain whether a prior step completed, say so explicitly.'
+		)
+	)
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	files_to_display: list[str] | None = Field(default=[])
 
@@ -153,17 +166,6 @@ class SaveAsPdfAction(BaseModel):
 		default='Letter',
 		description='Paper size: Letter, Legal, A4, A3, or Tabloid',
 	)
-
-
-class ReadContentAction(BaseModel):
-	"""Action for intelligent reading of long content."""
-
-	goal: str = Field(description='What to look for or extract from the content')
-	source: str = Field(
-		default='page',
-		description='What to read: "page" for current webpage, or a file path',
-	)
-	context: str = Field(default='', description='Additional context about the task')
 
 
 class GetDropdownOptionsAction(BaseModel):

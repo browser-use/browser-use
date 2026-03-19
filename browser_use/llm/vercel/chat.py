@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias, TypeVar, overload
@@ -26,15 +27,30 @@ ChatVercelModel: TypeAlias = Literal[
 	'alibaba/qwen-3-235b',
 	'alibaba/qwen-3-30b',
 	'alibaba/qwen-3-32b',
+	'alibaba/qwen3-235b-a22b-thinking',
 	'alibaba/qwen3-coder',
 	'alibaba/qwen3-coder-30b-a3b',
+	'alibaba/qwen3-coder-next',
 	'alibaba/qwen3-coder-plus',
+	'alibaba/qwen3-embedding-0.6b',
+	'alibaba/qwen3-embedding-4b',
+	'alibaba/qwen3-embedding-8b',
 	'alibaba/qwen3-max',
 	'alibaba/qwen3-max-preview',
+	'alibaba/qwen3-max-thinking',
 	'alibaba/qwen3-next-80b-a3b-instruct',
 	'alibaba/qwen3-next-80b-a3b-thinking',
 	'alibaba/qwen3-vl-instruct',
 	'alibaba/qwen3-vl-thinking',
+	'alibaba/qwen3.5-flash',
+	'alibaba/qwen3.5-plus',
+	'alibaba/wan-v2.5-t2v-preview',
+	'alibaba/wan-v2.6-i2v',
+	'alibaba/wan-v2.6-i2v-flash',
+	'alibaba/wan-v2.6-r2v',
+	'alibaba/wan-v2.6-r2v-flash',
+	'alibaba/wan-v2.6-t2v',
+	'amazon/nova-2-lite',
 	'amazon/nova-lite',
 	'amazon/nova-micro',
 	'amazon/nova-pro',
@@ -48,38 +64,69 @@ ChatVercelModel: TypeAlias = Literal[
 	'anthropic/claude-haiku-4.5',
 	'anthropic/claude-opus-4',
 	'anthropic/claude-opus-4.1',
+	'anthropic/claude-opus-4.5',
+	'anthropic/claude-opus-4.6',
 	'anthropic/claude-sonnet-4',
 	'anthropic/claude-sonnet-4.5',
+	'anthropic/claude-sonnet-4.6',
+	'arcee-ai/trinity-large-preview',
+	'arcee-ai/trinity-mini',
+	'bfl/flux-kontext-max',
+	'bfl/flux-kontext-pro',
+	'bfl/flux-pro-1.0-fill',
+	'bfl/flux-pro-1.1',
+	'bfl/flux-pro-1.1-ultra',
+	'bytedance/seed-1.6',
+	'bytedance/seed-1.8',
+	'bytedance/seedance-v1.0-lite-i2v',
+	'bytedance/seedance-v1.0-lite-t2v',
+	'bytedance/seedance-v1.0-pro',
+	'bytedance/seedance-v1.0-pro-fast',
+	'bytedance/seedance-v1.5-pro',
 	'cohere/command-a',
-	'cohere/command-r',
-	'cohere/command-r-plus',
 	'cohere/embed-v4.0',
 	'deepseek/deepseek-r1',
-	'deepseek/deepseek-r1-distill-llama-70b',
 	'deepseek/deepseek-v3',
 	'deepseek/deepseek-v3.1',
-	'deepseek/deepseek-v3.1-base',
 	'deepseek/deepseek-v3.1-terminus',
-	'deepseek/deepseek-v3.2-exp',
-	'deepseek/deepseek-v3.2-exp-thinking',
+	'deepseek/deepseek-v3.2',
+	'deepseek/deepseek-v3.2-thinking',
 	'google/gemini-2.0-flash',
 	'google/gemini-2.0-flash-lite',
 	'google/gemini-2.5-flash',
 	'google/gemini-2.5-flash-image',
-	'google/gemini-2.5-flash-image-preview',
 	'google/gemini-2.5-flash-lite',
 	'google/gemini-2.5-flash-lite-preview-09-2025',
 	'google/gemini-2.5-flash-preview-09-2025',
 	'google/gemini-2.5-pro',
+	'google/gemini-3-flash',
+	'google/gemini-3-pro-image',
+	'google/gemini-3-pro-preview',
+	'google/gemini-3.1-flash-image-preview',
+	'google/gemini-3.1-flash-lite-preview',
+	'google/gemini-3.1-pro-preview',
 	'google/gemini-embedding-001',
-	'google/gemma-2-9b',
+	'google/imagen-4.0-fast-generate-001',
+	'google/imagen-4.0-generate-001',
+	'google/imagen-4.0-ultra-generate-001',
 	'google/text-embedding-005',
 	'google/text-multilingual-embedding-002',
+	'google/veo-3.0-fast-generate-001',
+	'google/veo-3.0-generate-001',
+	'google/veo-3.1-fast-generate-001',
+	'google/veo-3.1-generate-001',
+	'inception/mercury-2',
 	'inception/mercury-coder-small',
+	'klingai/kling-v2.5-turbo-i2v',
+	'klingai/kling-v2.5-turbo-t2v',
+	'klingai/kling-v2.6-i2v',
+	'klingai/kling-v2.6-motion-control',
+	'klingai/kling-v2.6-t2v',
+	'klingai/kling-v3.0-i2v',
+	'klingai/kling-v3.0-t2v',
+	'kwaipilot/kat-coder-pro-v1',
 	'meituan/longcat-flash-chat',
 	'meituan/longcat-flash-thinking',
-	'meta/llama-3-70b',
-	'meta/llama-3-8b',
 	'meta/llama-3.1-70b',
 	'meta/llama-3.1-8b',
 	'meta/llama-3.2-11b',
@@ -89,27 +136,40 @@ ChatVercelModel: TypeAlias = Literal[
 	'meta/llama-3.3-70b',
 	'meta/llama-4-maverick',
 	'meta/llama-4-scout',
+	'minimax/minimax-m2',
+	'minimax/minimax-m2.1',
+	'minimax/minimax-m2.1-lightning',
+	'minimax/minimax-m2.5',
+	'minimax/minimax-m2.5-highspeed',
 	'mistral/codestral',
 	'mistral/codestral-embed',
+	'mistral/devstral-2',
 	'mistral/devstral-small',
+	'mistral/devstral-small-2',
 	'mistral/magistral-medium',
-	'mistral/magistral-medium-2506',
 	'mistral/magistral-small',
-	'mistral/magistral-small-2506',
+	'mistral/ministral-14b',
 	'mistral/ministral-3b',
 	'mistral/ministral-8b',
 	'mistral/mistral-embed',
-	'mistral/mistral-large',
+	'mistral/mistral-large-3',
 	'mistral/mistral-medium',
+	'mistral/mistral-nemo',
 	'mistral/mistral-small',
 	'mistral/mixtral-8x22b-instruct',
 	'mistral/pixtral-12b',
 	'mistral/pixtral-large',
 	'moonshotai/kimi-k2',
 	'moonshotai/kimi-k2-0905',
+	'moonshotai/kimi-k2-thinking',
+	'moonshotai/kimi-k2-thinking-turbo',
 	'moonshotai/kimi-k2-turbo',
+	'moonshotai/kimi-k2.5',
 	'morph/morph-v3-fast',
 	'morph/morph-v3-large',
+	'nvidia/nemotron-3-nano-30b-a3b',
+	'nvidia/nemotron-nano-12b-v2-vl',
+	'nvidia/nemotron-nano-9b-v2',
 	'openai/gpt-3.5-turbo',
 	'openai/gpt-3.5-turbo-instruct',
 	'openai/gpt-4-turbo',
@@ -118,16 +178,37 @@ ChatVercelModel: TypeAlias = Literal[
 	'openai/gpt-4.1-nano',
 	'openai/gpt-4o',
 	'openai/gpt-4o-mini',
+	'openai/gpt-4o-mini-search-preview',
 	'openai/gpt-5',
+	'openai/gpt-5-chat',
 	'openai/gpt-5-codex',
 	'openai/gpt-5-mini',
 	'openai/gpt-5-nano',
 	'openai/gpt-5-pro',
+	'openai/gpt-5.1-codex',
+	'openai/gpt-5.1-codex-max',
+	'openai/gpt-5.1-codex-mini',
+	'openai/gpt-5.1-instant',
+	'openai/gpt-5.1-thinking',
+	'openai/gpt-5.2',
+	'openai/gpt-5.2-chat',
+	'openai/gpt-5.2-codex',
+	'openai/gpt-5.2-pro',
+	'openai/gpt-5.3-chat',
+	'openai/gpt-5.3-codex',
+	'openai/gpt-5.4',
+	'openai/gpt-5.4-pro',
+	'openai/gpt-image-1',
+	'openai/gpt-image-1-mini',
+	'openai/gpt-image-1.5',
 	'openai/gpt-oss-120b',
 	'openai/gpt-oss-20b',
+	'openai/gpt-oss-safeguard-20b',
 	'openai/o1',
 	'openai/o3',
+	'openai/o3-deep-research',
 	'openai/o3-mini',
+	'openai/o3-pro',
 	'openai/o4-mini',
 	'openai/text-embedding-3-large',
 	'openai/text-embedding-3-small',
@@ -136,6 +217,11 @@ ChatVercelModel: TypeAlias = Literal[
 	'perplexity/sonar-pro',
 	'perplexity/sonar-reasoning',
 	'perplexity/sonar-reasoning-pro',
+	'prime-intellect/intellect-3',
+	'recraft/recraft-v2',
+	'recraft/recraft-v3',
+	'recraft/recraft-v4',
+	'recraft/recraft-v4-pro',
 	'stealth/sonoma-dusk-alpha',
 	'stealth/sonoma-sky-alpha',
 	'vercel/v0-1.0-md',
@@ -143,11 +229,13 @@ ChatVercelModel: TypeAlias = Literal[
 	'voyage/voyage-3-large',
 	'voyage/voyage-3.5',
 	'voyage/voyage-3.5-lite',
+	'voyage/voyage-4',
+	'voyage/voyage-4-large',
+	'voyage/voyage-4-lite',
 	'voyage/voyage-code-2',
 	'voyage/voyage-code-3',
 	'voyage/voyage-finance-2',
 	'voyage/voyage-law-2',
-	'xai/grok-2',
 	'xai/grok-2-vision',
 	'xai/grok-3',
 	'xai/grok-3-fast',
@@ -156,11 +244,25 @@ ChatVercelModel: TypeAlias = Literal[
 	'xai/grok-4',
 	'xai/grok-4-fast-non-reasoning',
 	'xai/grok-4-fast-reasoning',
+	'xai/grok-4.1-fast-non-reasoning',
+	'xai/grok-4.1-fast-reasoning',
+	'xai/grok-4.20-multi-agent-beta',
+	'xai/grok-4.20-non-reasoning-beta',
+	'xai/grok-4.20-reasoning-beta',
 	'xai/grok-code-fast-1',
+	'xai/grok-imagine-image',
+	'xai/grok-imagine-image-pro',
+	'xai/grok-imagine-video',
+	'xiaomi/mimo-v2-flash',
 	'zai/glm-4.5',
 	'zai/glm-4.5-air',
 	'zai/glm-4.5v',
 	'zai/glm-4.6',
+	'zai/glm-4.6v',
+	'zai/glm-4.6v-flash',
+	'zai/glm-4.7',
+	'zai/glm-4.7-flashx',
+	'zai/glm-5',
 ]
 
 
@@ -181,7 +283,8 @@ class ChatVercel(BaseChatModel):
 
 	Args:
 	    model: The model identifier
-	    api_key: Your Vercel API key
+	    api_key: Your Vercel AI Gateway API key. If not provided, falls back to
+	        AI_GATEWAY_API_KEY or VERCEL_OIDC_TOKEN environment variables.
 	    base_url: The Vercel AI Gateway endpoint (defaults to https://ai-gateway.vercel.sh/v1)
 	    temperature: Sampling temperature (0-2)
 	    max_tokens: Maximum tokens to generate
@@ -191,6 +294,14 @@ class ChatVercel(BaseChatModel):
 	    max_retries: Maximum number of retries for failed requests
 	    provider_options: Provider routing options for the gateway. Use this to control which
 	        providers are used and in what order. Example: {'gateway': {'order': ['vertex', 'anthropic']}}
+	    reasoning: Optional provider-specific reasoning configuration. Merged into
+	        providerOptions under the appropriate provider key. Example for Anthropic:
+	        {'anthropic': {'thinking': {'type': 'adaptive'}}}. Example for OpenAI:
+	        {'openai': {'reasoningEffort': 'high', 'reasoningSummary': 'detailed'}}.
+	    model_fallbacks: Optional list of fallback model IDs tried in order if the primary
+	        model fails. Passed as providerOptions.gateway.models.
+	    caching: Optional caching mode for the gateway. Currently supports 'auto', which
+	        enables provider-specific prompt caching via providerOptions.gateway.caching.
 	"""
 
 	# Model configuration
@@ -206,8 +317,11 @@ class ChatVercel(BaseChatModel):
 			'o3',
 			'o4',
 			'gpt-oss',
+			'gpt-5.2-pro',
+			'gpt-5.4-pro',
 			'deepseek-r1',
-			'qwen3-next-80b-a3b-thinking',
+			'-thinking',
+			'perplexity/sonar-reasoning',
 		]
 	)
 
@@ -221,6 +335,9 @@ class ChatVercel(BaseChatModel):
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
 	provider_options: dict[str, Any] | None = None
+	reasoning: dict[str, dict[str, Any]] | None = None
+	model_fallbacks: list[str] | None = None
+	caching: Literal['auto'] | None = None
 
 	# Static
 	@property
@@ -229,8 +346,10 @@ class ChatVercel(BaseChatModel):
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
+		api_key = self.api_key or os.getenv('AI_GATEWAY_API_KEY') or os.getenv('VERCEL_OIDC_TOKEN')
+
 		base_params = {
-			'api_key': self.api_key,
+			'api_key': api_key,
 			'base_url': self.base_url,
 			'timeout': self.timeout,
 			'max_retries': self.max_retries,
@@ -387,8 +506,36 @@ class ChatVercel(BaseChatModel):
 				model_params['max_tokens'] = self.max_tokens
 			if self.top_p is not None:
 				model_params['top_p'] = self.top_p
+
+			extra_body: dict[str, Any] = {}
+
+			provider_opts: dict[str, Any] = {}
 			if self.provider_options:
-				model_params['extra_body'] = {'providerOptions': self.provider_options}
+				provider_opts.update(self.provider_options)
+
+			if self.reasoning:
+				# Merge provider-specific reasoning options (ex: {'anthropic': {'thinking': ...}})
+				for provider_name, opts in self.reasoning.items():
+					existing = provider_opts.get(provider_name, {})
+					existing.update(opts)
+					provider_opts[provider_name] = existing
+
+			gateway_opts: dict[str, Any] = provider_opts.get('gateway', {})
+
+			if self.model_fallbacks:
+				gateway_opts['models'] = self.model_fallbacks
+
+			if self.caching:
+				gateway_opts['caching'] = self.caching
+
+			if gateway_opts:
+				provider_opts['gateway'] = gateway_opts
+
+			if provider_opts:
+				extra_body['providerOptions'] = provider_opts
+
+			if extra_body:
+				model_params['extra_body'] = extra_body
 
 			if output_format is None:
 				# Return string response
@@ -439,14 +586,10 @@ class ChatVercel(BaseChatModel):
 
 					vercel_messages = VercelMessageSerializer.serialize_messages(modified_messages)
 
-					request_params = model_params.copy()
-					if self.provider_options:
-						request_params['extra_body'] = {'providerOptions': self.provider_options}
-
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
 						messages=vercel_messages,
-						**request_params,
+						**model_params,
 					)
 
 					content = response.choices[0].message.content if response.choices else None
@@ -491,10 +634,6 @@ class ChatVercel(BaseChatModel):
 						'schema': schema,
 					}
 
-					request_params = model_params.copy()
-					if self.provider_options:
-						request_params['extra_body'] = {'providerOptions': self.provider_options}
-
 					response = await self.get_client().chat.completions.create(
 						model=self.model,
 						messages=vercel_messages,
@@ -502,7 +641,7 @@ class ChatVercel(BaseChatModel):
 							json_schema=response_format_schema,
 							type='json_schema',
 						),
-						**request_params,
+						**model_params,
 					)
 
 					content = response.choices[0].message.content if response.choices else None
