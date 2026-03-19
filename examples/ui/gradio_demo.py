@@ -37,32 +37,40 @@ PROVIDER_ENV_KEYS: dict[str, str] = {
 NO_VISION_PROVIDERS = {'deepseek', 'groq', 'ollama'}
 
 
+def _resolve_api_key(provider: str, ui_api_key: str) -> str | None:
+	"""Resolve API key: prefer UI input, fall back to environment variable."""
+	if ui_api_key.strip():
+		return ui_api_key.strip()
+	env_key = PROVIDER_ENV_KEYS.get(provider, '')
+	if env_key:
+		return os.getenv(env_key)
+	return None
+
+
 def get_llm(provider: str, model: str, api_key: str):
 	"""Create an LLM instance for the given provider and model."""
-	env_key = PROVIDER_ENV_KEYS.get(provider, '')
-	if env_key and api_key.strip():
-		os.environ[env_key] = api_key
+	resolved_key = _resolve_api_key(provider, api_key)
 
 	if provider == 'openai':
 		from browser_use import ChatOpenAI
 
-		return ChatOpenAI(model=model, temperature=0.0)
+		return ChatOpenAI(model=model, temperature=0.0, api_key=resolved_key)
 	elif provider == 'anthropic':
 		from browser_use.llm import ChatAnthropic
 
-		return ChatAnthropic(model=model, temperature=0.0)
+		return ChatAnthropic(model=model, temperature=0.0, api_key=resolved_key)
 	elif provider == 'deepseek':
 		from browser_use.llm import ChatDeepSeek
 
-		return ChatDeepSeek(model=model, api_key=os.getenv('DEEPSEEK_API_KEY') or api_key)
+		return ChatDeepSeek(model=model, api_key=resolved_key)
 	elif provider == 'google':
 		from browser_use.llm import ChatGoogle
 
-		return ChatGoogle(model=model)
+		return ChatGoogle(model=model, api_key=resolved_key)
 	elif provider == 'groq':
 		from browser_use.llm import ChatGroq
 
-		return ChatGroq(model=model)
+		return ChatGroq(model=model, api_key=resolved_key)
 	elif provider == 'ollama':
 		from browser_use.llm import ChatOllama
 

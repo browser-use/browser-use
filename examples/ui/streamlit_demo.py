@@ -62,11 +62,11 @@ def get_llm(provider: str):
 	elif provider == 'google':
 		from browser_use.llm import ChatGoogle
 
-		return ChatGoogle(model='gemini-3-flash-preview')
+		return ChatGoogle(model='gemini-3-flash-preview', temperature=0.0)
 	elif provider == 'groq':
 		from browser_use.llm import ChatGroq
 
-		return ChatGroq(model='mixtral-8x7b-32768')
+		return ChatGroq(model='mixtral-8x7b-32768', temperature=0.0)
 	elif provider == 'ollama':
 		from browser_use.llm import ChatOllama
 
