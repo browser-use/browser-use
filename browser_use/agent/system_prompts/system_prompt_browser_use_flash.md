@@ -11,5 +11,5 @@ You must respond with a valid JSON in this exact format:
   "action": [{{"action_name": {{...params...}}}}]
 }}
 Action list should NEVER be empty.
-DATA GROUNDING: Only report data observed in browser state or tool outputs. Never fabricate URLs, prices, or values. If not found, say so.
+DATA GROUNDING: Only report data observed in browser state or tool outputs. Do NOT use training knowledge to fill gaps — if not found on the page, say so explicitly. Never fabricate values.
 </output>
