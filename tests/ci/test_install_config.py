@@ -25,7 +25,7 @@ class TestInstallConfig:
 		assert not temp_config_dir.exists()
 
 		config = get_config()
-		assert config['installed_modes'] == ['chromium', 'real', 'remote']
+		assert config['installed_modes'] == ['chromium', 'real', 'remote', 'cdp']
 		assert config['default_mode'] == 'chromium'
 
 	def test_get_config_reads_existing_file(self, temp_config_dir: Path):
@@ -50,7 +50,7 @@ class TestInstallConfig:
 
 		config = get_config()
 		# Should return default
-		assert config['installed_modes'] == ['chromium', 'real', 'remote']
+		assert config['installed_modes'] == ['chromium', 'real', 'remote', 'cdp']
 		assert config['default_mode'] == 'chromium'
 
 	def test_save_config_creates_file(self, temp_config_dir: Path):
@@ -100,11 +100,12 @@ class TestInstallConfig:
 		"""Config with all modes allows everything."""
 		from browser_use.skill_cli.install_config import is_mode_available, save_config
 
-		save_config(['chromium', 'real', 'remote'], 'chromium')
+		save_config(['chromium', 'real', 'remote', 'cdp'], 'chromium')
 
 		assert is_mode_available('chromium') is True
 		assert is_mode_available('real') is True
 		assert is_mode_available('remote') is True
+		assert is_mode_available('cdp') is True
 
 	def test_is_mode_available_local_modes_linked(self, temp_config_dir: Path):
 		"""If chromium is installed, real is also available (and vice versa)."""
@@ -141,8 +142,8 @@ class TestInstallConfig:
 		save_config(['remote'], 'remote')
 		assert get_available_modes() == ['remote']
 
-		save_config(['chromium', 'real', 'remote'], 'chromium')
-		assert get_available_modes() == ['chromium', 'real', 'remote']
+		save_config(['chromium', 'real', 'remote', 'cdp'], 'chromium')
+		assert get_available_modes() == ['chromium', 'real', 'remote', 'cdp']
 
 	def test_get_mode_unavailable_error_message(self, temp_config_dir: Path):
 		"""Clear error when requesting unavailable mode."""
@@ -171,9 +172,10 @@ class TestInstallConfig:
 		assert is_mode_available('chromium') is True
 		assert is_mode_available('real') is True
 		assert is_mode_available('remote') is True
+		assert is_mode_available('cdp') is True
 
 		# Default should be chromium
 		assert get_default_mode() == 'chromium'
 
 		# All modes should be in the list
-		assert get_available_modes() == ['chromium', 'real', 'remote']
+		assert get_available_modes() == ['chromium', 'real', 'remote', 'cdp']

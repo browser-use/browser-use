@@ -161,8 +161,7 @@ async def create_browser_session(
 		config_path = Path(tempfile.gettempdir()) / 'browser-use-direct.json'
 		if not config_path.exists():
 			raise RuntimeError(
-				f'CDP config file not found: {config_path}\n'
-				'Please create it with: {"cdp_url": "http://localhost:9222/"}'
+				f'CDP config file not found: {config_path}\nPlease create it with: {{"cdp_url": "http://localhost:9222/"}}'
 			)
 
 		try:
