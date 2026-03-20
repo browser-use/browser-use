@@ -727,8 +727,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def final_result(self) -> None | str:
 		"""Final result from history"""
-		if self.history and self.history[-1].result[-1].extracted_content:
-			return self.history[-1].result[-1].extracted_content
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			if last_result.extracted_content:
+				return last_result.extracted_content
 		return None
 
 	def is_done(self) -> bool:
