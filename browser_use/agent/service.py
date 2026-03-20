@@ -187,6 +187,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		file_system_path: str | None = None,
 		task_id: str | None = None,
 		calculate_cost: bool = False,
+		pricing_url: str | None = None,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
@@ -413,7 +414,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		# Token cost service
-		self.token_cost_service = TokenCost(include_cost=calculate_cost)
+		self.token_cost_service = TokenCost(include_cost=calculate_cost, pricing_url=pricing_url)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
 		self.token_cost_service.register_llm(judge_llm)

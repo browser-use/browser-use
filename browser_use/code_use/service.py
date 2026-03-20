@@ -79,6 +79,7 @@ class CodeAgent:
 		max_validations: int = 0,
 		use_vision: bool = True,
 		calculate_cost: bool = False,
+		pricing_url: str | None = None,
 		demo_mode: bool | None = None,
 		**kwargs,
 	):
@@ -100,6 +101,7 @@ class CodeAgent:
 			max_validations: Maximum number of times to run the validator agent (default: 0)
 			use_vision: Whether to include screenshots in LLM messages (default: True)
 			calculate_cost: Whether to calculate token costs (default: False)
+			pricing_url: Optional override for the remote model pricing JSON URL
 			demo_mode: Enable the in-browser demo panel for live logging (default: False)
 			llm: Optional ChatBrowserUse LLM instance (will create default if not provided)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
@@ -181,7 +183,7 @@ class CodeAgent:
 		self.screenshot_service = ScreenshotService(agent_directory=self.agent_directory)
 
 		# Initialize token cost service for usage tracking
-		self.token_cost_service = TokenCost(include_cost=calculate_cost)
+		self.token_cost_service = TokenCost(include_cost=calculate_cost, pricing_url=pricing_url)
 		self.token_cost_service.register_llm(llm)
 		if page_extraction_llm:
 			self.token_cost_service.register_llm(page_extraction_llm)
