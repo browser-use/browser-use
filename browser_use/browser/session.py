@@ -1720,7 +1720,10 @@ class BrowserSession(BaseModel):
 			# Remote CDP URLs should still respect proxy settings.
 			is_localhost = parsed_url.hostname in ('localhost', '127.0.0.1', '::1')
 			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
-				headers = self.browser_profile.headers or {}
+				headers = dict(self.browser_profile.headers or {})
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
 				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
@@ -1732,10 +1735,14 @@ class BrowserSession(BaseModel):
 
 		try:
 			# Create and store the CDP client for direct CDP communication
-			headers = getattr(self.browser_profile, 'headers', None)
+			headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+			if not self.is_local:
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 			self._cdp_client_root = CDPClient(
 				self.cdp_url,
-				additional_headers=headers,
+				additional_headers=headers or None,
 				max_ws_frame_size=200 * 1024 * 1024,  # Use 200MB limit to handle pages with very large DOMs
 			)
 			assert self._cdp_client_root is not None
@@ -2026,10 +2033,14 @@ class BrowserSession(BaseModel):
 		self.agent_focus_target_id = None
 
 		# 3. Create new CDPClient with the same cdp_url
-		headers = getattr(self.browser_profile, 'headers', None)
+		headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+		if not self.is_local:
+			from browser_use.utils import get_browser_use_version
+
+			headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 		self._cdp_client_root = CDPClient(
 			self.cdp_url,
-			additional_headers=headers,
+			additional_headers=headers or None,
 			max_ws_frame_size=200 * 1024 * 1024,
 		)
 		await self._cdp_client_root.start()
