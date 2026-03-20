@@ -112,7 +112,7 @@ class DiscordBot(commands.Bot):
 
 			agent_message = None
 			if result.is_done():
-				agent_message = result.history[-1].result[0].extracted_content
+				agent_message = result.final_result()
 
 			if agent_message is None:
 				agent_message = 'Oops! Something went wrong while running Browser-Use.'

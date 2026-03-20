@@ -160,12 +160,13 @@ class ChatAnthropic(BaseChatModel):
 				usage = self._get_usage(response)
 
 				# Extract text from the first content block
-				first_content = response.content[0]
-				if isinstance(first_content, TextBlock):
-					response_text = first_content.text
+				if not response.content:
+					response_text = ""
+				elif isinstance(response.content[0], TextBlock):
+					response_text = response.content[0].text
 				else:
 					# If it's not a text block, convert to string
-					response_text = str(first_content)
+					response_text = str(response.content[0])
 
 				return ChatInvokeCompletion(
 					completion=response_text,

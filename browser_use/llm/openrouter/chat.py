@@ -154,6 +154,13 @@ class ChatOpenRouter(BaseChatModel):
 					**(self.extra_body or {}),
 				)
 
+				if not response.choices:
+					raise ModelProviderError(
+						message='No choices in model response',
+						status_code=500,
+						model=self.name,
+					)
+
 				usage = self._get_usage(response)
 				return ChatInvokeCompletion(
 					completion=response.choices[0].message.content or '',
@@ -184,6 +191,13 @@ class ChatOpenRouter(BaseChatModel):
 					extra_headers=extra_headers,
 					**(self.extra_body or {}),
 				)
+
+				if not response.choices:
+					raise ModelProviderError(
+						message='No choices in model response',
+						status_code=500,
+						model=self.name,
+					)
 
 				if response.choices[0].message.content is None:
 					raise ModelProviderError(

@@ -123,6 +123,14 @@ class ChatDeepSeek(BaseChatModel):
 					messages=ds_messages,  # type: ignore
 					**common,
 				)
+
+				if not resp.choices:
+					raise ModelProviderError(
+						message='No choices in model response',
+						status_code=500,
+						model=self.name,
+					)
+
 				return ChatInvokeCompletion(
 					completion=resp.choices[0].message.content or '',
 					usage=None,
@@ -161,6 +169,14 @@ class ChatDeepSeek(BaseChatModel):
 					tool_choice=tool_choice,  # type: ignore
 					**common,
 				)
+
+				if not resp.choices:
+					raise ModelProviderError(
+						message='No choices in model response',
+						status_code=500,
+						model=self.name,
+					)
+
 				msg = resp.choices[0].message
 				if not msg.tool_calls:
 					raise ValueError('Expected tool_calls in response but got none')
@@ -197,6 +213,14 @@ class ChatDeepSeek(BaseChatModel):
 					response_format={'type': 'json_object'},
 					**common,
 				)
+
+				if not resp.choices:
+					raise ModelProviderError(
+						message='No choices in model response',
+						status_code=500,
+						model=self.name,
+					)
+
 				content = resp.choices[0].message.content
 				if not content:
 					raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
