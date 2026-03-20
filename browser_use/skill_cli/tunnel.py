@@ -6,9 +6,13 @@ Cloudflared must be installed via install.sh or manually by the user.
 Tunnels are managed independently of browser sessions - they are purely
 a network utility for exposing local ports via Cloudflare quick tunnels.
 
-Tunnels survive CLI process exit by:
-1. Spawning cloudflared as a daemon (start_new_session=True)
-2. Tracking tunnel info via PID files in ~/.browser-use/tunnels/.
+Tunnels survive CLI process exit by spawning cloudflared as a detached daemon
+process that is tracked via PID files in ~/.browser-use/tunnels/.
+
+Platform-specific daemonization:
+- POSIX:  uses start_new_session=True to detach from controlling terminal
+- Windows: uses creationflags=CREATE_NEW_PROCESS_GROUP|CREATE_NO_WINDOW
+          (start_new_session is not supported on win32)
 """
 
 import asyncio
@@ -18,6 +22,8 @@ import os
 import re
 import shutil
 import signal
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -227,16 +233,27 @@ async def start_tunnel(port: int) -> dict[str, Any]:
     log_file = open(log_file_path, 'w')  # noqa: ASYNC230
 
     # Spawn cloudflared as a daemon
-    # - start_new_session=True: survives parent exit
+    # - start_new_session=True (POSIX): detaches from controlling terminal
+    # - creationflags (Windows): CREATE_NEW_PROCESS_GROUP|CREATE_NO_WINDOW
     # - stderr to file: avoids SIGPIPE when parent's pipe closes
-    process = await asyncio.create_subprocess_exec(
-        cloudflared_binary,
-        'tunnel',
-        '--url', f'http://localhost:{port}',
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=log_file,
-        start_new_session=True,
-    )
+    if sys.platform == 'win32':
+        process = await asyncio.create_subprocess_exec(
+            cloudflared_binary,
+            'tunnel',
+            '--url', f'http://localhost:{port}',
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=log_file,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
+        )
+    else:
+        process = await asyncio.create_subprocess_exec(
+            cloudflared_binary,
+            'tunnel',
+            '--url', f'http://localhost:{port}',
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=log_file,
+            start_new_session=True,
+        )
 
     # Poll the log file until we find the tunnel URL
     url: str | None = None
