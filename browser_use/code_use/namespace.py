@@ -259,7 +259,7 @@ def create_namespace(
 	page_extraction_llm: BaseChatModel | None = None,
 	file_system: FileSystem | None = None,
 	available_file_paths: list[str] | None = None,
-	sensitive_data: dict[str, str | dict[str, str]] | None = None,
+	sensitive_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
 	"""
 	Create a namespace with all browser tools available as functions.

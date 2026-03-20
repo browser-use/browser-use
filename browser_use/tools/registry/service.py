@@ -334,7 +334,7 @@ class Registry(Generic[Context]):
 		browser_session: BrowserSession | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, Any] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
 	) -> Any:
@@ -461,11 +461,13 @@ class Registry(Generic[Context]):
 				for placeholder in matches:
 					if placeholder in applicable_secrets:
 						# generate a totp code if secret is suffixed with bu_2fa_code
+						raw_value = applicable_secrets[placeholder]
+						resolved_value = str(raw_value()) if callable(raw_value) else raw_value
 						if placeholder.endswith('bu_2fa_code'):
-							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
+							totp = pyotp.TOTP(resolved_value, digits=6)
 							replacement_value = totp.now()
 						else:
-							replacement_value = applicable_secrets[placeholder]
+							replacement_value = resolved_value
 
 						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
 						replaced_placeholders.add(placeholder)
@@ -477,11 +479,13 @@ class Registry(Generic[Context]):
 				# This handles cases where the LLM forgets to use tags but uses the exact placeholder name
 				if value in applicable_secrets:
 					placeholder_name = value
+					raw_value = applicable_secrets[placeholder_name]
+					resolved_value = str(raw_value()) if callable(raw_value) else raw_value
 					if placeholder_name.endswith('bu_2fa_code'):
-						totp = pyotp.TOTP(applicable_secrets[placeholder_name], digits=6)
+						totp = pyotp.TOTP(resolved_value, digits=6)
 						value = totp.now()
 					else:
-						value = applicable_secrets[placeholder_name]
+						value = resolved_value
 					replaced_placeholders.add(placeholder_name)
 
 				return value

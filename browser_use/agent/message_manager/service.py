@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from browser_use.agent.message_manager.views import (
 	HistoryItem,
@@ -107,7 +107,7 @@ class MessageManager:
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, Any] | None = None,
 		max_history_items: int | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
@@ -581,11 +581,22 @@ class MessageManager:
 				if isinstance(content, dict):
 					# Already in new format: {domain: {key: value}}
 					for key, val in content.items():
-						if val:  # Skip empty values
-							sensitive_values[key] = val
+						try:
+							resolved = str(val()) if callable(val) else val
+						except Exception:
+							logger.warning(f'Failed to resolve callable sensitive_data key={key}, skipping')
+							continue
+						if resolved:  # Skip empty values
+							sensitive_values[key] = resolved
 				elif content:  # Old format: {key: value} - convert to new format internally
 					# We treat this as if it was {'http*://*': {key_or_domain: content}}
-					sensitive_values[key_or_domain] = content
+					try:
+						resolved = str(content()) if callable(content) else content
+					except Exception:
+						logger.warning(f'Failed to resolve callable sensitive_data key={key_or_domain}, skipping')
+						continue
+					if resolved:
+						sensitive_values[key_or_domain] = resolved
 
 			# If there are no valid sensitive data entries, just return the original value
 			if not sensitive_values:

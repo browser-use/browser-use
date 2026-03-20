@@ -507,7 +507,7 @@ class AgentHistory(BaseModel):
 				elements.append(None)
 		return elements
 
-	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: dict[str, str | dict[str, str]] | None) -> str:
+	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: dict[str, Any] | None) -> str:
 		"""Filter out sensitive data from a string value"""
 		if not sensitive_data:
 			return value
@@ -520,11 +520,22 @@ class AgentHistory(BaseModel):
 			if isinstance(content, dict):
 				# Already in new format: {domain: {key: value}}
 				for key, val in content.items():
-					if val:  # Skip empty values
-						sensitive_values[key] = val
+					try:
+						resolved = str(val()) if callable(val) else val
+					except Exception:
+						logger.warning(f'Failed to resolve callable sensitive_data key={key}, skipping')
+						continue
+					if resolved:  # Skip empty values
+						sensitive_values[key] = resolved
 			elif content:  # Old format: {key: value} - convert to new format internally
 				# We treat this as if it was {'http*://*': {key_or_domain: content}}
-				sensitive_values[key_or_domain] = content
+				try:
+					resolved = str(content()) if callable(content) else content
+				except Exception:
+					logger.warning(f'Failed to resolve callable sensitive_data key={key_or_domain}, skipping')
+					continue
+				if resolved:
+					sensitive_values[key_or_domain] = resolved
 
 		# If there are no valid sensitive data entries, just return the original value
 		if not sensitive_values:
@@ -536,9 +547,7 @@ class AgentHistory(BaseModel):
 
 		return value
 
-	def _filter_sensitive_data_from_dict(
-		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
-	) -> dict[str, Any]:
+	def _filter_sensitive_data_from_dict(self, data: dict[str, Any], sensitive_data: dict[str, Any] | None) -> dict[str, Any]:
 		"""Recursively filter sensitive data from a dictionary"""
 		if not sensitive_data:
 			return data
@@ -562,7 +571,7 @@ class AgentHistory(BaseModel):
 				filtered_data[key] = value
 		return filtered_data
 
-	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
+	def model_dump(self, sensitive_data: dict[str, Any] | None = None, **kwargs) -> dict[str, Any]:
 		"""Custom serialization handling circular references and filtering sensitive data"""
 
 		# Handle action serialization
@@ -639,7 +648,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Representation of the AgentHistoryList object"""
 		return self.__str__()
 
-	def save_to_file(self, filepath: str | Path, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> None:
+	def save_to_file(self, filepath: str | Path, sensitive_data: dict[str, Any] | None = None) -> None:
 		"""Save history to JSON file with proper serialization and optional sensitive data filtering"""
 		try:
 			Path(filepath).parent.mkdir(parents=True, exist_ok=True)

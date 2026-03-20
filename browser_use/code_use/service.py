@@ -73,7 +73,7 @@ class CodeAgent:
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
 		available_file_paths: list[str] | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, Any] | None = None,
 		max_steps: int = 100,
 		max_failures: int = 8,
 		max_validations: int = 0,

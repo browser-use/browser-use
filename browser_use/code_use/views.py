@@ -392,11 +392,11 @@ class CodeAgentHistoryList:
 			'usage': self._usage_summary.model_dump() if self._usage_summary else None,
 		}
 
-	def save_to_file(self, filepath: str | Path, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> None:
+	def save_to_file(self, filepath: str | Path, sensitive_data: dict[str, Any] | None = None) -> None:
 		"""Save history to JSON file."""
 		try:
 			Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-			data = self.model_dump()
+			data = self.model_dump(sensitive_data=sensitive_data)
 			with open(filepath, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2, ensure_ascii=False)
 		except Exception as e:
