@@ -157,6 +157,7 @@ class AgentMessagePrompt:
 			'images': 0,
 			'interactive_elements': 0,
 			'total_elements': 0,
+			'text_chars': 0,
 		}
 
 		if not self.browser_state.dom_state or not self.browser_state.dom_state._root:
@@ -203,6 +204,9 @@ class AgentMessagePrompt:
 					else:
 						stats['shadow_open'] += 1
 
+			elif original.node_type == NodeType.TEXT_NODE:
+				stats['text_chars'] += len(original.node_value.strip())
+
 			elif original.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 				# Shadow DOM fragment - these are the actual shadow roots
 				# But don't double-count since we count them at the host level above
@@ -224,6 +228,9 @@ class AgentMessagePrompt:
 		stats_text = '<page_stats>'
 		if page_stats['total_elements'] < 10:
 			stats_text += 'Page appears empty (SPA not loaded?) - '
+		# Skeleton screen: many elements but almost no text = loading placeholders
+		elif page_stats['total_elements'] > 20 and page_stats['text_chars'] < page_stats['total_elements'] * 5:
+			stats_text += 'Page appears to show skeleton/placeholder content (still loading?) - '
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
 		stats_text += f'{page_stats["iframes"]} iframes'
 		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
