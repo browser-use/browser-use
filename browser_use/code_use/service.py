@@ -219,6 +219,8 @@ class CodeAgent:
 			assert self._browser_profile_for_init is not None
 			self.browser_session = BrowserSession(browser_profile=self._browser_profile_for_init)
 			await self.browser_session.start()
+		elif not self.browser_session.is_cdp_connected:
+			await self.browser_session.start()
 
 		if self.browser_session:
 			self._demo_mode_enabled = bool(self.browser_session.browser_profile.demo_mode)
