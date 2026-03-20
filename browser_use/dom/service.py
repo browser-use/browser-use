@@ -252,7 +252,8 @@ class DomService:
 		"""
 
 		if not node.snapshot_node:
-			return False
+			# No snapshot data (e.g. Lightpanda) — assume visible since we can't check CSS/bounds
+			return True
 
 		computed_styles = node.snapshot_node.computed_styles or {}
 
@@ -536,13 +537,19 @@ class DomService:
 
 		start_cdp_calls = time.time()
 
+		# Check if we should skip DOMSnapshot (Lightpanda doesn't support it)
+		from browser_use.browser.profile import BrowserEngine
+
+		skip_snapshot = self.browser_session.browser_profile.browser_engine == BrowserEngine.LIGHTPANDA
+
 		# Create initial tasks
 		tasks = {
-			'snapshot': create_task_with_error_handling(create_snapshot_request(), name='get_snapshot'),
 			'dom_tree': create_task_with_error_handling(create_dom_tree_request(), name='get_dom_tree'),
 			'ax_tree': create_task_with_error_handling(self._get_ax_tree_for_all_frames(target_id), name='get_ax_tree'),
 			'device_pixel_ratio': create_task_with_error_handling(self._get_viewport_ratio(target_id), name='get_viewport_ratio'),
 		}
+		if not skip_snapshot:
+			tasks['snapshot'] = create_task_with_error_handling(create_snapshot_request(), name='get_snapshot')
 
 		# Wait for all tasks with timeout
 		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
@@ -554,7 +561,6 @@ class DomService:
 
 			# Retry mapping for pending tasks
 			retry_map = {
-				tasks['snapshot']: lambda: create_task_with_error_handling(create_snapshot_request(), name='get_snapshot_retry'),
 				tasks['dom_tree']: lambda: create_task_with_error_handling(create_dom_tree_request(), name='get_dom_tree_retry'),
 				tasks['ax_tree']: lambda: create_task_with_error_handling(
 					self._get_ax_tree_for_all_frames(target_id), name='get_ax_tree_retry'
@@ -563,6 +569,10 @@ class DomService:
 					self._get_viewport_ratio(target_id), name='get_viewport_ratio_retry'
 				),
 			}
+			if 'snapshot' in tasks:
+				retry_map[tasks['snapshot']] = lambda: create_task_with_error_handling(
+					create_snapshot_request(), name='get_snapshot_retry'
+				)
 
 			# Create new tasks only for the ones that didn't complete
 			for key, task in tasks.items():
@@ -594,7 +604,7 @@ class DomService:
 		if failed:
 			raise TimeoutError(f'CDP requests failed or timed out: {", ".join(failed)}')
 
-		snapshot = results['snapshot']
+		snapshot = results.get('snapshot')
 		dom_tree = results['dom_tree']
 		ax_tree = results['ax_tree']
 		device_pixel_ratio = results['device_pixel_ratio']

@@ -84,7 +84,7 @@ class DOMCodeAgentSerializer:
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
 			tag = node.original_node.tag_name.lower()
-			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+			is_visible = node.original_node.is_visible
 
 			# Skip invisible (except iframes)
 			if not is_visible and tag not in ['iframe', 'frame']:
@@ -245,7 +245,7 @@ class DOMCodeAgentSerializer:
 			tag = dom_node.tag_name.lower()
 
 			# Skip invisible
-			is_visible = dom_node.snapshot_node and dom_node.is_visible
+			is_visible = dom_node.is_visible
 			if not is_visible:
 				return
 
