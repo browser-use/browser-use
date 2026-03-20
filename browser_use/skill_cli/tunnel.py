@@ -18,6 +18,8 @@ import os
 import re
 import shutil
 import signal
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -145,30 +147,59 @@ def _delete_tunnel_info(port: int) -> None:
 
 
 def _is_process_alive(pid: int) -> bool:
-	"""Check if a process is still running."""
-	try:
-		os.kill(pid, 0)
-		return True
-	except (OSError, ProcessLookupError):
+	"""Check if a process is still running.
+
+	On Windows, uses ctypes to call OpenProcess (os.kill doesn't support signal 0).
+	On Unix, uses os.kill(pid, 0) which is the standard approach.
+	"""
+	if sys.platform == 'win32':
+		import ctypes
+
+		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		if handle:
+			ctypes.windll.kernel32.CloseHandle(handle)
+			return True
 		return False
+	else:
+		try:
+			os.kill(pid, 0)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 def _kill_process(pid: int) -> bool:
-	"""Kill a process by PID. Returns True if killed, False if already dead."""
-	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+	"""Kill a process by PID. Returns True if killed, False if already dead.
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
-	except (OSError, ProcessLookupError):
+	On Windows, uses ctypes TerminateProcess since SIGTERM/SIGKILL are not supported.
+	On Unix, sends SIGTERM first with a grace period, then SIGKILL if needed.
+	"""
+	if sys.platform == 'win32':
+		import ctypes
+
+		PROCESS_TERMINATE = 1
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+		if handle:
+			result = ctypes.windll.kernel32.TerminateProcess(handle, 1)
+			ctypes.windll.kernel32.CloseHandle(handle)
+			return bool(result)
 		return False
+	else:
+		try:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				import time
+
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 # =============================================================================
@@ -205,8 +236,14 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 	log_file = open(log_file_path, 'w')  # noqa: ASYNC230
 
 	# Spawn cloudflared as a daemon
-	# - start_new_session=True: survives parent exit
+	# - start_new_session=True (Unix) / CREATE_NEW_PROCESS_GROUP (Windows): survives parent exit
 	# - stderr to file: avoids SIGPIPE when parent's pipe closes
+	spawn_kwargs: dict[str, Any] = {}
+	if sys.platform == 'win32':
+		spawn_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+	else:
+		spawn_kwargs['start_new_session'] = True
+
 	process = await asyncio.create_subprocess_exec(
 		cloudflared_binary,
 		'tunnel',
@@ -214,7 +251,7 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 		f'http://localhost:{port}',
 		stdout=asyncio.subprocess.DEVNULL,
 		stderr=log_file,
-		start_new_session=True,
+		**spawn_kwargs,
 	)
 
 	# Poll the log file until we find the tunnel URL
