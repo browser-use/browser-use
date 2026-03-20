@@ -2,16 +2,7 @@
 # Browser-Use Bootstrap Installer
 #
 # Usage:
-#   # Interactive install (shows mode selection TUI)
 #   curl -fsSL https://browser-use.com/cli/install.sh | bash
-#
-#   # Non-interactive install with flags
-#   curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --full
-#   curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --remote-only
-#   curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --local-only
-#
-#   # With API key
-#   curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --remote-only --api-key bu_xxx
 #
 # For development testing:
 #   curl -fsSL <raw-url> | BROWSER_USE_BRANCH=<branch-name> bash
@@ -24,7 +15,7 @@
 #   winget install Git.Git
 #
 # Then run from PowerShell:
-#   & "C:\Program Files\Git\bin\bash.exe" -c 'curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --full'
+#   & "C:\Program Files\Git\bin\bash.exe" -c 'curl -fsSL https://browser-use.com/cli/install.sh | bash'
 #
 # KNOWN ISSUES AND SOLUTIONS:
 #
@@ -76,10 +67,10 @@
 #    - Always kill stale processes before retrying
 #    - Or kill all Python: taskkill /IM python.exe /F
 #
-# 7. Debugging server issues
-#    To see actual error messages instead of "Failed to start session server":
-#      & "$env:USERPROFILE\.browser-use-env\Scripts\python.exe" -m browser_use.skill_cli.server --session default --browser chromium
-#    This runs the server in foreground and shows all errors.
+# 7. Debugging daemon issues
+#    To see actual error messages instead of "Failed to start daemon":
+#      & "$env:USERPROFILE\.browser-use-env\Scripts\python.exe" -m browser_use.skill_cli.daemon
+#    This runs the daemon in foreground and shows all errors.
 #
 # =============================================================================
 
@@ -88,12 +79,6 @@ set -e
 # =============================================================================
 # Configuration
 # =============================================================================
-
-# Mode flags (set by parse_args or TUI)
-INSTALL_LOCAL=false
-INSTALL_REMOTE=false
-SKIP_INTERACTIVE=false
-API_KEY=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -130,43 +115,15 @@ log_error() {
 parse_args() {
 	while [[ $# -gt 0 ]]; do
 		case $1 in
-			--full|--all)
-				INSTALL_LOCAL=true
-				INSTALL_REMOTE=true
-				SKIP_INTERACTIVE=true
-				shift
-				;;
-			--remote-only)
-				INSTALL_REMOTE=true
-				SKIP_INTERACTIVE=true
-				shift
-				;;
-			--local-only)
-				INSTALL_LOCAL=true
-				SKIP_INTERACTIVE=true
-				shift
-				;;
-			--api-key)
-				if [ -z "$2" ] || [[ "$2" == --* ]]; then
-					log_error "--api-key requires a value"
-					exit 1
-				fi
-				API_KEY="$2"
-				shift 2
-				;;
 			--help|-h)
 				echo "Browser-Use Installer"
 				echo ""
 				echo "Usage: install.sh [OPTIONS]"
 				echo ""
 				echo "Options:"
-				echo "  --full, --all     Install all modes (local + remote)"
-				echo "  --remote-only     Install remote mode only (no Chromium)"
-				echo "  --local-only      Install local modes only (no cloudflared)"
-				echo "  --api-key KEY     Set Browser-Use API key"
 				echo "  --help, -h        Show this help"
 				echo ""
-				echo "Without options, shows interactive mode selection."
+				echo "Installs Python 3.11+ (if needed), uv, browser-use, and Chromium."
 				exit 0
 				;;
 			*)
@@ -351,121 +308,6 @@ install_uv() {
 }
 
 # =============================================================================
-# Gum TUI installation
-# =============================================================================
-
-install_gum() {
-	# Install gum for beautiful TUI - silent and fast
-	if command -v gum &> /dev/null; then
-		return 0
-	fi
-
-	local arch=$(uname -m)
-	local gum_version="0.14.5"
-	local gum_dir=""
-
-	mkdir -p "$HOME/.local/bin"
-	export PATH="$HOME/.local/bin:$PATH"
-
-	case "$PLATFORM" in
-		macos)
-			if [ "$arch" = "arm64" ]; then
-				gum_dir="gum_${gum_version}_Darwin_arm64"
-				curl -sL "https://github.com/charmbracelet/gum/releases/download/v${gum_version}/gum_${gum_version}_Darwin_arm64.tar.gz" | tar -xz -C /tmp
-			else
-				gum_dir="gum_${gum_version}_Darwin_x86_64"
-				curl -sL "https://github.com/charmbracelet/gum/releases/download/v${gum_version}/gum_${gum_version}_Darwin_x86_64.tar.gz" | tar -xz -C /tmp
-			fi
-			mv "/tmp/${gum_dir}/gum" "$HOME/.local/bin/" 2>/dev/null || return 1
-			rm -rf "/tmp/${gum_dir}" 2>/dev/null
-			;;
-		linux)
-			if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
-				gum_dir="gum_${gum_version}_Linux_arm64"
-				curl -sL "https://github.com/charmbracelet/gum/releases/download/v${gum_version}/gum_${gum_version}_Linux_arm64.tar.gz" | tar -xz -C /tmp
-			else
-				gum_dir="gum_${gum_version}_Linux_x86_64"
-				curl -sL "https://github.com/charmbracelet/gum/releases/download/v${gum_version}/gum_${gum_version}_Linux_x86_64.tar.gz" | tar -xz -C /tmp
-			fi
-			mv "/tmp/${gum_dir}/gum" "$HOME/.local/bin/" 2>/dev/null || return 1
-			rm -rf "/tmp/${gum_dir}" 2>/dev/null
-			;;
-		windows)
-			# Download and extract Windows binary
-			curl -sL "https://github.com/charmbracelet/gum/releases/download/v${gum_version}/gum_${gum_version}_Windows_x86_64.zip" -o /tmp/gum.zip
-			unzip -q /tmp/gum.zip -d /tmp/gum_windows 2>/dev/null || return 1
-			# Binary is inside a subdirectory: gum_x.x.x_Windows_x86_64/gum.exe
-			mv "/tmp/gum_windows/gum_${gum_version}_Windows_x86_64/gum.exe" "$HOME/.local/bin/" 2>/dev/null || return 1
-			rm -rf /tmp/gum.zip /tmp/gum_windows 2>/dev/null
-			;;
-		*)
-			return 1
-			;;
-	esac
-
-	command -v gum &> /dev/null
-}
-
-# =============================================================================
-# Interactive mode selection TUI
-# =============================================================================
-
-show_mode_menu() {
-	# Try to install gum for nice TUI
-	if install_gum; then
-		show_gum_menu
-	else
-		show_bash_menu
-	fi
-}
-
-show_gum_menu() {
-	echo ""
-
-	# Styled header
-	gum style --foreground 212 --bold "Select browser modes to install"
-	gum style --foreground 240 "Use arrow keys to navigate, space to select, enter to confirm"
-	echo ""
-
-	# Checkbox selection with gum choose
-	set +e
-	SELECTED=$(gum choose --no-limit --height 10 \
-		--cursor-prefix "[ ] " --selected-prefix "[✓] " --unselected-prefix "[ ] " \
-		--header "" \
-		--cursor.foreground 212 \
-		--selected.foreground 212 \
-		"Local browser   (chromium/real - requires Chromium)" \
-		"Remote browser  (cloud - requires API key)" < /dev/tty)
-	set -e
-
-	# Parse selections
-	if [[ "$SELECTED" == *"Local"* ]]; then INSTALL_LOCAL=true; fi
-	if [[ "$SELECTED" == *"Remote"* ]]; then INSTALL_REMOTE=true; fi
-}
-
-show_bash_menu() {
-	echo ""
-	echo "Select browser modes to install (space-separated numbers):"
-	echo ""
-	echo "  1) Local browser  (chromium/real - requires Chromium download)"
-	echo "  2) Remote browser (cloud - requires API key)"
-	echo ""
-	echo "Press Enter for default [1]"
-	echo ""
-	echo -n "> "
-
-	# Read from /dev/tty to work even when script is piped
-	# Keep set +e for the whole function to avoid issues with pattern matching
-	set +e
-	read -r choices < /dev/tty
-	choices=${choices:-1}
-
-	if [[ "$choices" == *"1"* ]]; then INSTALL_LOCAL=true; fi
-	if [[ "$choices" == *"2"* ]]; then INSTALL_REMOTE=true; fi
-	set -e
-}
-
-# =============================================================================
 # Browser-Use installation
 # =============================================================================
 
@@ -515,117 +357,17 @@ install_chromium() {
 	log_success "Chromium installed"
 }
 
-install_cloudflared() {
-	log_info "Installing cloudflared..."
+install_profile_use() {
+	log_info "Installing profile-use..."
 
-	if command -v cloudflared &> /dev/null; then
-		log_success "cloudflared already installed"
-		return 0
-	fi
+	mkdir -p "$HOME/.browser-use/bin"
+	curl -fsSL https://browser-use.com/profile/cli/install.sh | PROFILE_USE_VERSION=v1.0.2 INSTALL_DIR="$HOME/.browser-use/bin" sh
 
-	local arch=$(uname -m)
-
-	case "$PLATFORM" in
-		macos)
-			if command -v brew &> /dev/null; then
-				brew install cloudflared
-			else
-				# Direct download for macOS without Homebrew
-				mkdir -p "$HOME/.local/bin"
-				if [ "$arch" = "arm64" ]; then
-					curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz -o /tmp/cloudflared.tgz
-				else
-					curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz -o /tmp/cloudflared.tgz
-				fi
-				tar -xzf /tmp/cloudflared.tgz -C "$HOME/.local/bin/"
-				rm /tmp/cloudflared.tgz
-			fi
-			;;
-		linux)
-			mkdir -p "$HOME/.local/bin"
-			if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
-				curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 -o "$HOME/.local/bin/cloudflared"
-			else
-				curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o "$HOME/.local/bin/cloudflared"
-			fi
-			chmod +x "$HOME/.local/bin/cloudflared"
-			;;
-		windows)
-			# Auto-install via winget (comes pre-installed on Windows 10/11)
-			if command -v winget.exe &> /dev/null; then
-				winget.exe install --id Cloudflare.cloudflared --accept-source-agreements --accept-package-agreements --silent
-			else
-				log_warn "winget not found. Install cloudflared manually:"
-				log_warn "  Download from: https://github.com/cloudflare/cloudflared/releases"
-				return 0
-			fi
-			;;
-	esac
-
-	# Add ~/.local/bin to PATH for current session
-	export PATH="$HOME/.local/bin:$PATH"
-
-	if command -v cloudflared &> /dev/null; then
-		log_success "cloudflared installed successfully"
+	if [ -x "$HOME/.browser-use/bin/profile-use" ]; then
+		log_success "profile-use installed"
 	else
-		log_warn "cloudflared installation failed. You can install it manually later."
+		log_warn "profile-use installation failed (will auto-download on first use)"
 	fi
-}
-
-# =============================================================================
-# Install dependencies based on selected modes
-# =============================================================================
-
-install_dependencies() {
-	# Install base package (always needed)
-	install_browser_use
-
-	# Install Chromium only if local mode selected
-	if [ "$INSTALL_LOCAL" = true ]; then
-		install_chromium
-	else
-		log_info "Skipping Chromium (remote-only mode)"
-	fi
-
-	# Install cloudflared only if remote mode selected
-	if [ "$INSTALL_REMOTE" = true ]; then
-		install_cloudflared
-	else
-		log_info "Skipping cloudflared (local-only mode)"
-	fi
-}
-
-# =============================================================================
-# Write install configuration
-# =============================================================================
-
-write_install_config() {
-	# Determine installed modes and default
-	local modes=""
-	local default_mode=""
-
-	if [ "$INSTALL_LOCAL" = true ] && [ "$INSTALL_REMOTE" = true ]; then
-		modes='["chromium", "real", "remote"]'
-		default_mode="chromium"
-	elif [ "$INSTALL_REMOTE" = true ]; then
-		modes='["remote"]'
-		default_mode="remote"
-	else
-		modes='["chromium", "real"]'
-		default_mode="chromium"
-	fi
-
-	# Write config file
-	mkdir -p "$HOME/.browser-use"
-	cat > "$HOME/.browser-use/install-config.json" << EOF
-{
-  "installed_modes": $modes,
-  "default_mode": "$default_mode"
-}
-EOF
-
-	local mode_names=$(echo $modes | tr -d '[]"' | tr ',' ' ')
-	log_success "Configured: $mode_names"
 }
 
 # =============================================================================
@@ -650,7 +392,7 @@ configure_path() {
 	if grep -q "browser-use-env" "$shell_rc" 2>/dev/null; then
 		log_info "PATH already configured in $shell_rc"
 	else
-		# Add to shell config (includes ~/.local/bin for cloudflared)
+		# Add to shell config (includes ~/.local/bin for tools)
 		echo "" >> "$shell_rc"
 		echo "# Browser-Use" >> "$shell_rc"
 		echo "export PATH=\"$bin_path:$local_bin:\$PATH\"" >> "$shell_rc"
@@ -690,32 +432,6 @@ configure_powershell_path() {
 }
 
 # =============================================================================
-# Setup wizard
-# =============================================================================
-
-run_setup() {
-	log_info "Running setup wizard..."
-
-	# Activate venv
-	activate_venv
-
-	# Determine profile based on mode selections
-	local profile="local"
-	if [ "$INSTALL_REMOTE" = true ] && [ "$INSTALL_LOCAL" = true ]; then
-		profile="full"
-	elif [ "$INSTALL_REMOTE" = true ]; then
-		profile="remote"
-	fi
-
-	# Run setup with API key if provided
-	if [ -n "$API_KEY" ]; then
-		browser-use setup --mode "$profile" --api-key "$API_KEY" --yes
-	else
-		browser-use setup --mode "$profile" --yes
-	fi
-}
-
-# =============================================================================
 # Validation
 # =============================================================================
 
@@ -749,23 +465,6 @@ print_next_steps() {
 	echo ""
 	log_success "Browser-Use installed successfully!"
 	echo ""
-	echo "Installed modes:"
-	[ "$INSTALL_LOCAL" = true ]  && echo "  ✓ Local (chromium, real)"
-	[ "$INSTALL_REMOTE" = true ] && echo "  ✓ Remote (cloud)"
-	echo ""
-
-	# Show API key instructions if remote selected but no key provided
-	if [ "$INSTALL_REMOTE" = true ] && [ -z "$API_KEY" ]; then
-		echo "⚠ API key required for remote mode:"
-		if [ "$PLATFORM" = "windows" ]; then
-			echo "  \$env:BROWSER_USE_API_KEY=\"<your-api-key>\""
-		else
-			echo "  export BROWSER_USE_API_KEY=<your-api-key>"
-		fi
-		echo ""
-		echo "  Get your API key at: https://browser-use.com"
-		echo ""
-	fi
 
 	echo "Next steps:"
 	if [ "$PLATFORM" = "windows" ]; then
@@ -773,13 +472,7 @@ print_next_steps() {
 	else
 		echo "  1. Restart your shell or run: source ~/$shell_rc"
 	fi
-
-	if [ "$INSTALL_REMOTE" = true ] && [ -z "$API_KEY" ]; then
-		echo "  2. Set your API key (see above)"
-		echo "  3. Try: browser-use open https://example.com"
-	else
-		echo "  2. Try: browser-use open https://example.com"
-	fi
+	echo "  2. Try: browser-use open https://example.com"
 
 	echo ""
 	echo "Documentation: https://docs.browser-use.com"
@@ -801,25 +494,13 @@ main() {
 	# Parse command-line flags
 	parse_args "$@"
 
-	# Show install mode if flags provided
-	if [ "$SKIP_INTERACTIVE" = true ]; then
-		if [ "$INSTALL_LOCAL" = true ] && [ "$INSTALL_REMOTE" = true ]; then
-			log_info "Install mode: full (local + remote)"
-		elif [ "$INSTALL_REMOTE" = true ]; then
-			log_info "Install mode: remote-only"
-		else
-			log_info "Install mode: local-only"
-		fi
-		echo ""
-	fi
-
 	# Step 1: Detect platform
 	detect_platform
 
 	# Step 2: Check/install Python
 	if ! check_python; then
 		# In CI or non-interactive mode (no tty), auto-install Python
-		if [ ! -t 0 ] || [ "$SKIP_INTERACTIVE" = true ]; then
+		if [ ! -t 0 ]; then
 			log_info "Python 3.11+ not found. Installing automatically..."
 			install_python
 		else
@@ -837,35 +518,22 @@ main() {
 	# Step 3: Install uv
 	install_uv
 
-	# Step 4: Show mode selection TUI (unless skipped via flags)
-	if [ "$SKIP_INTERACTIVE" = false ]; then
-		show_mode_menu
-	fi
+	# Step 4: Install browser-use package
+	install_browser_use
 
-	# Default to local-only if nothing selected
-	if [ "$INSTALL_LOCAL" = false ] && [ "$INSTALL_REMOTE" = false ]; then
-		log_warn "No modes selected, defaulting to local"
-		INSTALL_LOCAL=true
-	fi
+	# Step 5: Install Chromium
+	install_chromium
 
-	echo ""
-
-	# Step 5: Install dependencies
-	install_dependencies
-
-	# Step 6: Write install config
-	write_install_config
+	# Step 6: Install profile-use
+	install_profile_use
 
 	# Step 7: Configure PATH
 	configure_path
 
-	# Step 8: Run setup wizard
-	run_setup
-
-	# Step 9: Validate
+	# Step 8: Validate
 	validate
 
-	# Step 10: Show next steps
+	# Step 9: Print next steps
 	print_next_steps
 }
 

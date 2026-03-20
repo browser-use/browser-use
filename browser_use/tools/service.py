@@ -207,9 +207,16 @@ try {
 		if (ATTRIBUTES && ATTRIBUTES.length > 0) {
 			item.attrs = {};
 			for (var j = 0; j < ATTRIBUTES.length; j++) {
-				var val = el.getAttribute(ATTRIBUTES[j]);
+				var attrName = ATTRIBUTES[j];
+				var val;
+				// Use resolved DOM property for src/href to get absolute URLs
+				if ((attrName === 'src' || attrName === 'href') && typeof el[attrName] === 'string' && el[attrName] !== '') {
+					val = el[attrName];
+				} else {
+					val = el.getAttribute(attrName);
+				}
 				if (val !== null) {
-					item.attrs[ATTRIBUTES[j]] = val.length > 500 ? val.slice(0, 500) + '...' : val;
+					item.attrs[attrName] = val.length > 500 ? val.slice(0, 500) + '...' : val;
 				}
 			}
 		}
@@ -415,22 +422,37 @@ class Tools(Generic[Context]):
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				# Health check: detect empty DOM for http/https pages and retry once
+				# Health check: detect empty DOM for http/https pages and retry once.
+				# Uses _root is None (truly blank) OR empty llm_representation() (no actionable
+				# content for the LLM, e.g. SPA not yet rendered, empty body).
+				# NOTE: llm_representation() returns a non-empty placeholder when _root is None,
+				# so we must check _root is None separately — not rely on the repr string alone.
+				def _page_appears_empty(s) -> bool:
+					return s.dom_state._root is None or not s.dom_state.llm_representation().strip()
+
 				if not params.new_tab:
 					state = await browser_session.get_browser_state_summary(include_screenshot=False)
 					url_is_http = state.url.lower().startswith(('http://', 'https://'))
-					if url_is_http and state.dom_state._root is None:
+					if url_is_http and _page_appears_empty(state):
 						browser_session.logger.warning(
 							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 3s and rechecking...'
 						)
 						await asyncio.sleep(3.0)
 						state = await browser_session.get_browser_state_summary(include_screenshot=False)
-						if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
-							return ActionResult(
-								error=f'Page loaded but returned empty content for {params.url}. '
-								f'The page may require JavaScript that failed to render, use anti-bot measures, '
-								f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
-							)
+						if state.url.lower().startswith(('http://', 'https://')) and _page_appears_empty(state):
+							# Second attempt: reload the page and wait longer
+							browser_session.logger.warning(f'⚠️ Still empty after 3s, attempting page reload for {params.url}...')
+							reload_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=False))
+							await reload_event
+							await reload_event.event_result(raise_if_any=False, raise_if_none=False)
+							await asyncio.sleep(5.0)
+							state = await browser_session.get_browser_state_summary(include_screenshot=False)
+							if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
+								return ActionResult(
+									error=f'Page loaded but returned empty content for {params.url}. '
+									f'The page may require JavaScript that failed to render, use anti-bot measures, '
+									f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
+								)
 
 				if params.new_tab:
 					memory = f'Opened new tab with URL {params.url}'
@@ -792,49 +814,8 @@ class Tools(Generic[Context]):
 
 			node = selector_map[params.index]
 
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
 			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
+			file_input_node = browser_session.find_file_input_near_element(node)
 
 			# Highlight the file input element if found (truly non-blocking)
 			if file_input_node:
@@ -963,7 +944,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -977,11 +958,17 @@ class Tools(Generic[Context]):
 			MAX_CHAR_LIMIT = 100000
 			query = params['query'] if isinstance(params, dict) else params.query
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
+			extract_images = params.get('extract_images', False) if isinstance(params, dict) else params.extract_images
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
 			output_schema: dict | None = params.get('output_schema') if isinstance(params, dict) else params.output_schema
 			already_collected: list[str] = (
 				params.get('already_collected', []) if isinstance(params, dict) else params.already_collected
 			)
+
+			# Auto-enable extract_images if query contains image-related keywords
+			_IMAGE_KEYWORDS = ['image', 'photo', 'picture', 'thumbnail', 'img url', 'image url', 'photo url', 'product image']
+			if not extract_images and any(kw in query.lower() for kw in _IMAGE_KEYWORDS):
+				extract_images = True
 
 			# If the LLM didn't provide an output_schema, use the agent-injected extraction_schema
 			if output_schema is None and extraction_schema is not None:
@@ -1003,7 +990,7 @@ class Tools(Generic[Context]):
 				from browser_use.dom.markdown_extractor import extract_clean_markdown
 
 				content, content_stats = await extract_clean_markdown(
-					browser_session=browser_session, extract_links=extract_links
+					browser_session=browser_session, extract_links=extract_links, extract_images=extract_images
 				)
 			except Exception as e:
 				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
@@ -2356,49 +2343,8 @@ class CodeAgentTools(Tools[Context]):
 
 			node = selector_map[params.index]
 
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
 			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
+			file_input_node = browser_session.find_file_input_near_element(node)
 
 			# Highlight the file input element if found (truly non-blocking)
 			if file_input_node:

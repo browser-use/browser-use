@@ -19,7 +19,6 @@ dependencies = [
     "rich==14.3.1",
     "google-api-core==2.29.0",
     "httpx==0.28.1",
-    "portalocker==2.10.1",
     "posthog==7.7.0",
     "psutil==7.2.2",
     "pydantic==2.12.5",

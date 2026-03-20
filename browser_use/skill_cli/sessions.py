@@ -1,8 +1,7 @@
-"""Session registry - manages BrowserSession instances."""
+"""Session data — SessionInfo dataclass and browser session factory."""
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from browser_use.browser.session import BrowserSession
 from browser_use.skill_cli.python_session import PythonSession
@@ -15,142 +14,89 @@ class SessionInfo:
 	"""Information about a browser session."""
 
 	name: str
-	browser_mode: str
 	headed: bool
 	profile: str | None
+	cdp_url: str | None
 	browser_session: BrowserSession
 	python_session: PythonSession = field(default_factory=PythonSession)
-
-
-class SessionRegistry:
-	"""Registry of active browser sessions.
-
-	Sessions are created on-demand when first accessed. Each named session
-	is isolated with its own BrowserSession and Python namespace.
-	"""
-
-	def __init__(self) -> None:
-		self._sessions: dict[str, SessionInfo] = {}
-
-	async def get_or_create(
-		self,
-		name: str,
-		browser_mode: str,
-		headed: bool,
-		profile: str | None,
-	) -> SessionInfo:
-		"""Get existing session or create new one."""
-		if name in self._sessions:
-			return self._sessions[name]
-
-		logger.info(f'Creating new session: {name} (mode={browser_mode}, headed={headed})')
-
-		browser_session = await create_browser_session(browser_mode, headed, profile)
-		await browser_session.start()
-
-		session_info = SessionInfo(
-			name=name,
-			browser_mode=browser_mode,
-			headed=headed,
-			profile=profile,
-			browser_session=browser_session,
-		)
-		self._sessions[name] = session_info
-		return session_info
-
-	def get(self, name: str) -> SessionInfo | None:
-		"""Get session by name."""
-		return self._sessions.get(name)
-
-	def list_sessions(self) -> list[dict[str, Any]]:
-		"""List all active sessions."""
-		return [
-			{
-				'name': s.name,
-				'browser_mode': s.browser_mode,
-				'headed': s.headed,
-				'profile': s.profile,
-			}
-			for s in self._sessions.values()
-		]
-
-	async def close_session(self, name: str) -> bool:
-		"""Close and remove a session."""
-		if name not in self._sessions:
-			return False
-
-		session = self._sessions.pop(name)
-		logger.info(f'Closing session: {name}')
-
-		# Note: Tunnels are managed independently via tunnel.py
-		# They persist across session close/open cycles
-
-		try:
-			await session.browser_session.kill()
-		except Exception as e:
-			logger.warning(f'Error closing session {name}: {e}')
-		return True
-
-	async def close_all(self) -> None:
-		"""Close all sessions."""
-		for name in list(self._sessions.keys()):
-			await self.close_session(name)
+	use_cloud: bool = False
 
 
 async def create_browser_session(
-	mode: str,
 	headed: bool,
 	profile: str | None,
+	cdp_url: str | None = None,
+	use_cloud: bool = False,
+	cloud_timeout: int | None = None,
+	cloud_proxy_country_code: str | None = None,
+	cloud_profile_id: str | None = None,
 ) -> BrowserSession:
-	"""Create BrowserSession based on mode.
+	"""Create BrowserSession based on connection mode.
 
-	Modes:
-	- chromium: Playwright-managed Chromium (default)
-	- real: User's Chrome with profile
-	- remote: Browser-Use Cloud (requires API key)
-
-	Raises:
-		RuntimeError: If the requested mode is not available based on installation config
+	- CDP URL: Connect to existing browser (cdp_url takes precedence)
+	- Cloud: Provision a cloud browser via BrowserSession(use_cloud=True)
+	- With profile: User's real Chrome with the specified profile
+	- No profile: Playwright-managed Chromium (default)
 	"""
-	from browser_use.skill_cli.install_config import get_mode_unavailable_error, is_mode_available
+	if cdp_url is not None:
+		return BrowserSession(cdp_url=cdp_url)
 
-	# Validate mode is available based on installation config
-	if not is_mode_available(mode):
-		raise RuntimeError(get_mode_unavailable_error(mode))
+	if use_cloud:
+		kwargs: dict = {'use_cloud': True}
+		if cloud_timeout is not None:
+			kwargs['cloud_timeout'] = cloud_timeout
+		if cloud_proxy_country_code is not None:
+			kwargs['cloud_proxy_country_code'] = cloud_proxy_country_code
+		if cloud_profile_id is not None:
+			kwargs['cloud_profile_id'] = cloud_profile_id
+		return BrowserSession(**kwargs)
 
-	if mode == 'chromium':
+	if profile is None:
 		return BrowserSession(
 			headless=not headed,
 		)
 
-	elif mode == 'real':
-		from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path
+	from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
 
-		chrome_path = find_chrome_executable()
-		if not chrome_path:
-			raise RuntimeError('Could not find Chrome executable. Please install Chrome or specify --browser chromium')
+	chrome_path = find_chrome_executable()
+	if not chrome_path:
+		raise RuntimeError('Could not find Chrome executable. Please install Chrome or omit --profile to use Chromium.')
 
-		# Always get the Chrome user data directory (not the profile subdirectory)
-		user_data_dir = get_chrome_profile_path(None)
-		# Profile directory defaults to 'Default', or use the specified profile name
-		profile_directory = profile if profile else 'Default'
+	# Always get the Chrome user data directory (not the profile subdirectory)
+	user_data_dir = get_chrome_profile_path(None)
 
-		return BrowserSession(
-			executable_path=chrome_path,
-			user_data_dir=user_data_dir,
-			profile_directory=profile_directory,
-			headless=not headed,  # Headless by default, --headed for visible
-		)
+	# Resolve profile: accept directory names ("Default", "Profile 1") and
+	# display names ("Person 1", "Work"). Directory names take precedence.
+	# If profile metadata can't be read, fall back to using the value as-is.
+	known_profiles = list_chrome_profiles()
+	directory_names = {p['directory'] for p in known_profiles}
 
-	elif mode == 'remote':
-		from browser_use.skill_cli.api_key import require_api_key
-
-		require_api_key('Remote browser')
-		# Profile is used as cloud_profile_id for remote mode
-		return BrowserSession(
-			use_cloud=True,
-			cloud_profile_id=profile,
-		)
-
+	if not known_profiles or profile in directory_names:
+		profile_directory = profile
 	else:
-		raise ValueError(f'Unknown browser mode: {mode}')
+		# Try case-insensitive display name match
+		profile_directory = None
+		profile_lower = profile.lower()
+		for p in known_profiles:
+			if p['name'].lower() == profile_lower:
+				profile_directory = p['directory']
+				break
+		# Also try case-insensitive directory name match
+		if profile_directory is None:
+			for d in directory_names:
+				if d.lower() == profile_lower:
+					profile_directory = d
+					break
+
+		if profile_directory is None:
+			lines = [f'Unknown profile {profile!r}. Available profiles:']
+			for p in known_profiles:
+				lines.append(f'  "{p["name"]}" ({p["directory"]})')
+			raise RuntimeError('\n'.join(lines))
+
+	return BrowserSession(
+		executable_path=chrome_path,
+		user_data_dir=user_data_dir,
+		profile_directory=profile_directory,
+		headless=not headed,
+	)
