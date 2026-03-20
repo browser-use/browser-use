@@ -814,49 +814,8 @@ class Tools(Generic[Context]):
 
 			node = selector_map[params.index]
 
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
 			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
+			file_input_node = browser_session.find_file_input_near_element(node)
 
 			# Highlight the file input element if found (truly non-blocking)
 			if file_input_node:
@@ -2384,49 +2343,8 @@ class CodeAgentTools(Tools[Context]):
 
 			node = selector_map[params.index]
 
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
 			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
+			file_input_node = browser_session.find_file_input_near_element(node)
 
 			# Highlight the file input element if found (truly non-blocking)
 			if file_input_node:
