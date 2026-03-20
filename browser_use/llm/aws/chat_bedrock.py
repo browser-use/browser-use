@@ -115,31 +115,42 @@ class ChatAWSBedrock(BaseChatModel):
 		return config
 
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:
-		"""Format a Pydantic model as a tool for structured output."""
+		"""Format a Pydantic model as a tool for structured output.
+
+		Passes the full JSON schema (including $defs, items, anyOf) to preserve
+		nested models, list fields, and Optional types.
+		See: https://github.com/browser-use/browser-use/issues/4411
+		"""
 		schema = output_format.model_json_schema()
 
-		# Convert Pydantic schema to Bedrock tool format
-		properties = {}
-		required = []
-
-		for prop_name, prop_info in schema.get('properties', {}).items():
-			properties[prop_name] = {
-				'type': prop_info.get('type', 'string'),
-				'description': prop_info.get('description', ''),
-			}
-
-		# Add required fields
-		required = schema.get('required', [])
+		# Remove Pydantic-specific metadata keys that Bedrock doesn't understand,
+		# but keep the full schema structure (items, $defs, anyOf, etc.)
+		cleaned_schema = self._clean_schema_for_bedrock(schema)
 
 		return [
 			{
 				'toolSpec': {
 					'name': f'extract_{output_format.__name__.lower()}',
 					'description': f'Extract information in the format of {output_format.__name__}',
-					'inputSchema': {'json': {'type': 'object', 'properties': properties, 'required': required}},
+					'inputSchema': {'json': cleaned_schema},
 				}
 			}
 		]
+
+	@staticmethod
+	def _clean_schema_for_bedrock(schema: dict[str, Any]) -> dict[str, Any]:
+		"""Remove Pydantic-specific keys while preserving the full schema structure."""
+		# Keys that Pydantic adds but Bedrock doesn't understand
+		keys_to_remove = {'title', 'default', '$schema', 'additionalProperties'}
+
+		def _clean(obj: Any) -> Any:
+			if isinstance(obj, dict):
+				return {k: _clean(v) for k, v in obj.items() if k not in keys_to_remove}
+			elif isinstance(obj, list):
+				return [_clean(item) for item in obj]
+			return obj
+
+		return _clean(schema)
 
 	def _get_usage(self, response: dict[str, Any]) -> ChatInvokeUsage | None:
 		"""Extract usage information from the response."""
@@ -260,6 +271,31 @@ class ChatAWSBedrock(BaseChatModel):
 									message=f'Failed to validate structured output: {str(e)}',
 									model=self.name,
 								) from e
+
+					# If no tool use found, try to parse text as JSON.
+					# Non-Anthropic models (Qwen, Llama, Mistral) on Bedrock may
+					# return plain text instead of tool_use when toolChoice isn't
+					# supported. See: https://github.com/browser-use/browser-use/issues/4411
+					text_parts = [item['text'] for item in content if 'text' in item]
+					if text_parts:
+						for text in text_parts:
+							# Try to extract JSON from the text (may be wrapped in markdown)
+							json_str = text.strip()
+							if '```' in json_str:
+								# Extract JSON from code block
+								import re
+
+								match = re.search(r'```(?:json)?\s*\n?(.*?)\n?\s*```', json_str, re.DOTALL)
+								if match:
+									json_str = match.group(1).strip()
+							try:
+								data = json.loads(json_str)
+								return ChatInvokeCompletion(
+									completion=output_format.model_validate(data),
+									usage=usage,
+								)
+							except (json.JSONDecodeError, Exception):
+								continue
 
 					# If no tool use found but output_format was requested
 					raise ModelProviderError(
