@@ -185,6 +185,9 @@ def session_to_python_script(agent: CodeAgent) -> str:
 	Returns:
 		Python script as a string
 
+	Raises:
+		TypeError: If agent is not a CodeAgent instance
+
 	Example:
 		```python
 	        await agent.run()
@@ -192,6 +195,13 @@ def session_to_python_script(agent: CodeAgent) -> str:
 	        print(script)
 		```
 	"""
+	# Type check to provide helpful error message
+	if not isinstance(agent, CodeAgent):
+		raise TypeError(
+			f"Expected a CodeAgent instance, got {type(agent).__name__}. "
+			"Use CodeAgent from browser_use.code_use instead of Agent."
+		)
+
 	lines = []
 
 	lines.append('# Generated from browser-use code-use session\n')
