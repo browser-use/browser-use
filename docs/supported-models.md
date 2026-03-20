@@ -10,7 +10,7 @@ Browser Use supports multiple LLM providers. Below is a comprehensive list of su
 | OpenAI | `ChatOpenAI()` | `o3` | `OPENAI_API_KEY` |
 | Anthropic | `ChatAnthropic()` | `claude-sonnet-4-0` | `ANTHROPIC_API_KEY` |
 | Google Gemini | `ChatGoogle()` | `gemini-flash-latest` | `GOOGLE_API_KEY` |
-| Azure OpenAI | `ChatAzure()` | `gpt-4o` | `AZURE_OPENAI_*` |
+| Azure OpenAI | `ChatAzureOpenAI()` | `gpt-4o` | `AZURE_OPENAI_*` |
 | OpenAI Compatible | `ChatOpenAI(base_url=...)` | Any | Provider-specific |
 
 ## Browser Use Cloud
@@ -76,9 +76,9 @@ llm = ChatGoogle(model='gemini-flash-latest')
 ## Azure OpenAI
 
 ```python
-from browser_use import Agent, ChatAzure
+from browser_use import Agent, ChatAzureOpenAI
 
-llm = ChatAzure(model="gpt-4o")
+llm = ChatAzureOpenAI(model="gpt-4o")
 ```
 
 Configure with environment variables:
