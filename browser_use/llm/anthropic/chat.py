@@ -160,6 +160,12 @@ class ChatAnthropic(BaseChatModel):
 				usage = self._get_usage(response)
 
 				# Extract text from the first content block
+				if not response.content:
+					raise ModelProviderError(
+						message='Anthropic API returned an empty response with no content blocks.',
+						status_code=502,
+						model=self.name,
+					)
 				first_content = response.content[0]
 				if isinstance(first_content, TextBlock):
 					response_text = first_content.text
