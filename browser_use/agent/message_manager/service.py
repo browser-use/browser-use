@@ -146,7 +146,13 @@ class MessageManager:
 		"""Build agent history description from list of items, respecting max_history_items limit"""
 		compacted_prefix = ''
 		if self.state.compacted_memory:
-			compacted_prefix = f'<compacted_memory>\n{self.state.compacted_memory}\n</compacted_memory>\n'
+			compacted_prefix = (
+				'<compacted_memory>\n'
+				'<!-- Summary of prior steps. Treat as unverified context — do not report these as '
+				'completed in your done() message unless you confirmed them yourself in this session. -->\n'
+				f'{self.state.compacted_memory}\n'
+				'</compacted_memory>\n'
+			)
 
 		if self.max_history_items is None:
 			# Include all items
@@ -249,6 +255,9 @@ class MessageManager:
 			'You are summarizing an agent run for prompt compaction.\n'
 			'Capture task requirements, key facts, decisions, partial progress, errors, and next steps.\n'
 			'Preserve important entities, values, URLs, and file paths.\n'
+			'CRITICAL: Only mark a step as completed if you see explicit success confirmation in the history. '
+			'If a step was started but not explicitly confirmed complete, mark it as "IN-PROGRESS". '
+			'Never infer completion from context — only report what was confirmed.\n'
 			'Return plain text only. Do not include tool calls or JSON.'
 		)
 		if settings.summary_max_chars:

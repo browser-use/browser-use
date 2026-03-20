@@ -19,7 +19,7 @@ The key product of Browser Use Cloud is the completion of user tasks.
 - Profile Sync is the best way to handle authentication for tasks. This feature allows users to upload their local browser cookies (where the user is already logged into the services they need authentication for) to a Browser Profile that can be used for tasks on the cloud. To initiate a Profile Sync, a user must run `export BROWSER_USE_API_KEY=<your_key> && curl -fsSL https://browser-use.com/profile.sh | sh` and follow the steps in the interactive terminal.
 
 ## Quickstart
-To get started, direct the user to first must create an account, purchase credits (or simply claim the free starter credits given on account creation), and generate an API key on the Browser Use online platform: https://cloud.browser-use.com/. These are the only steps that can only be done on the platform.
+To get started, direct the user to first must create an account, purchase credits (or simply claim the five free tasks given on account creation), and generate an API key on the Browser Use online platform: https://cloud.browser-use.com/. These are the only steps that can only be done on the platform.
 
 Avoid giving the user all of the following steps at once as it may seem overwheling. Instead present one step at a time and only continue when asked. Do as much for the user as you are able to.
 
