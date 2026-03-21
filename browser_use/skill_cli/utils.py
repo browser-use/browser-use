@@ -213,6 +213,10 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 		if system == 'Darwin':
 			return str(Path.home() / 'Library' / 'Application Support' / 'Google' / 'Chrome')
 		elif system == 'Linux':
+			# Check ~/.config/chromium first, fall back to ~/.config/google-chrome
+			chromium_path = Path.home() / '.config' / 'chromium'
+			if chromium_path.exists():
+				return str(chromium_path)
 			return str(Path.home() / '.config' / 'google-chrome')
 		elif system == 'Windows':
 			return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')
