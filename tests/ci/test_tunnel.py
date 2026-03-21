@@ -93,11 +93,12 @@ import sys
 from unittest.mock import MagicMock, call
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only tests using ctypes.windll')
 class TestKillProcessWindows:
 	"""Tests for _kill_process on Windows."""
 
-	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
-	def test_kill_process_windows_success_exits_immediately(self):
+	@staticmethod
+	def test_kill_process_windows_success_exits_immediately():
 		"""Test Windows path: TerminateProcess succeeds and process exits immediately."""
 		from browser_use.skill_cli.tunnel import _kill_process
 
@@ -147,6 +148,7 @@ class TestKillProcessWindows:
 		close_handle = MagicMock()
 
 		import ctypes
+
 		class MockWindll:
 			kernel32 = MagicMock(
 				OpenProcess=open_process,
@@ -184,6 +186,7 @@ class TestKillProcessWindows:
 		from browser_use.skill_cli.tunnel import _kill_process
 
 		import ctypes
+
 		open_process = MagicMock(return_value=None)
 
 		class MockWindll:
@@ -210,6 +213,7 @@ class TestKillProcessWindows:
 		from browser_use.skill_cli.tunnel import _kill_process
 
 		import ctypes
+
 		mock_handle = MagicMock()
 		open_process = MagicMock(return_value=mock_handle)
 		terminate_process = MagicMock(return_value=False)
