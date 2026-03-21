@@ -62,8 +62,8 @@ async def create_browser_session(
 	if not chrome_path:
 		raise RuntimeError('Could not find Chrome executable. Please install Chrome or omit --profile to use Chromium.')
 
-	# Always get the Chrome user data directory (not the profile subdirectory)
-	user_data_dir = get_chrome_profile_path(None)
+	# Get the Chrome user data directory for the detected executable (handles Chrome vs Chromium on Linux)
+	user_data_dir = get_chrome_profile_path(None, chrome_path)
 
 	# Resolve profile: accept directory names ("Default", "Profile 1") and
 	# display names ("Person 1", "Work"). Directory names take precedence.

@@ -202,17 +202,42 @@ def find_chrome_executable() -> str | None:
 	return None
 
 
-def get_chrome_profile_path(profile: str | None) -> str | None:
+def _is_chromium_browser(executable_path: str | None) -> bool:
+	"""Check if the executable is a Chromium-based browser (not Google Chrome).
+
+	On Linux, both Chrome and Chromium may be installed. This function
+	determines which one was found so we can use the correct profile path.
+	"""
+	if not executable_path:
+		return False
+	# Check by executable name/path for Chromium-based browsers
+	executable_lower = executable_path.lower()
+	chromium_names = ('chromium', 'chromium-browser', 'brave', 'edge')
+	return any(name in executable_lower for name in chromium_names)
+
+
+def get_chrome_profile_path(profile: str | None, executable_path: str | None = None) -> str | None:
 	"""Get Chrome user data directory for a profile.
 
-	If profile is None, returns the default Chrome user data directory.
+	If profile is None, returns the default user data directory for the
+	detected browser (Chrome or Chromium). Uses executable_path to determine
+	which browser was found on Linux to return the matching profile path.
+
+	Args:
+		profile: Profile name/subdirectory, or None for default profile.
+		executable_path: Optional path to the detected Chrome/Chromium executable.
+			Used on Linux to select the correct profile directory when both
+			Chrome and Chromium are installed.
 	"""
 	if profile is None:
-		# Use default Chrome profile location
 		system = platform.system()
 		if system == 'Darwin':
 			return str(Path.home() / 'Library' / 'Application Support' / 'Google' / 'Chrome')
 		elif system == 'Linux':
+			# On Linux, the profile directory differs between Chrome and Chromium.
+			# Use the executable path to determine which browser was detected.
+			if _is_chromium_browser(executable_path):
+				return str(Path.home() / '.config' / 'chromium')
 			return str(Path.home() / '.config' / 'google-chrome')
 		elif system == 'Windows':
 			return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')

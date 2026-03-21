@@ -402,7 +402,7 @@ class BrowserSession(BaseModel):
 				'  Windows: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 			)
 
-		user_data_dir = get_chrome_profile_path(None)
+		user_data_dir = get_chrome_profile_path(None, executable_path)
 		if user_data_dir is None:
 			raise RuntimeError(
 				'Could not detect Chrome profile directory for your platform.\n'
