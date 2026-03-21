@@ -1,10 +1,27 @@
 """Tests for tunnel module - cloudflared binary management."""
 
-from unittest.mock import patch
+import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from browser_use.skill_cli.tunnel import TunnelManager, get_tunnel_manager
+
+
+def _get_windll():
+	"""Lazily get ctypes.windll with proper guards for non-Windows platforms.
+
+	This ensures ctypes.windll is never accessed on non-Windows systems,
+	which would raise AttributeError at import/collection time.
+	"""
+	if sys.platform != 'win32':
+		return None
+	try:
+		import ctypes
+		return ctypes.windll
+	except AttributeError:
+		# ctypes.windll doesn't exist on non-Windows
+		return None
 
 
 @pytest.fixture
@@ -89,8 +106,6 @@ def test_get_tunnel_manager_singleton():
 # =============================================================================
 # Tests for _kill_process
 # =============================================================================
-import sys
-from unittest.mock import MagicMock, call
 
 
 @pytest.mark.skipif(sys.platform != 'win32', reason='Windows-only tests using ctypes.windll')
@@ -108,7 +123,7 @@ class TestKillProcessWindows:
 		close_handle = MagicMock()
 
 		import ctypes
-		original_windll = ctypes.windll
+		original_windll = _get_windll()
 		original_platform = sys.platform
 
 		class MockWindll:
@@ -134,7 +149,8 @@ class TestKillProcessWindows:
 			# _is_process_alive should be called at least once
 			assert mock_is_alive.call_count >= 1
 		finally:
-			ctypes.windll = original_windll
+			if original_windll is not None:
+				ctypes.windll = original_windll
 			sys.platform = original_platform
 
 	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
@@ -156,7 +172,7 @@ class TestKillProcessWindows:
 				CloseHandle=close_handle,
 			)
 
-		original_windll = ctypes.windll
+		original_windll = _get_windll()
 		original_platform = sys.platform
 
 		try:
@@ -177,7 +193,8 @@ class TestKillProcessWindows:
 			assert call_count[0] == 4  # 3 alive checks + 1 exit
 			close_handle.assert_called_once_with(mock_handle)
 		finally:
-			ctypes.windll = original_windll
+			if original_windll is not None:
+				ctypes.windll = original_windll
 			sys.platform = original_platform
 
 	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
@@ -192,7 +209,7 @@ class TestKillProcessWindows:
 		class MockWindll:
 			kernel32 = MagicMock(OpenProcess=open_process)
 
-		original_windll = ctypes.windll
+		original_windll = _get_windll()
 		original_platform = sys.platform
 
 		try:
@@ -204,7 +221,8 @@ class TestKillProcessWindows:
 			assert result is False
 			open_process.assert_called_once()
 		finally:
-			ctypes.windll = original_windll
+			if original_windll is not None:
+				ctypes.windll = original_windll
 			sys.platform = original_platform
 
 	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
@@ -226,7 +244,7 @@ class TestKillProcessWindows:
 				CloseHandle=close_handle,
 			)
 
-		original_windll = ctypes.windll
+		original_windll = _get_windll()
 		original_platform = sys.platform
 
 		try:
@@ -238,7 +256,8 @@ class TestKillProcessWindows:
 			assert result is False
 			close_handle.assert_called_once_with(mock_handle)
 		finally:
-			ctypes.windll = original_windll
+			if original_windll is not None:
+				ctypes.windll = original_windll
 			sys.platform = original_platform
 
 
