@@ -180,10 +180,14 @@ def _kill_process(pid: int) -> bool:
 				# Wait up to ~1s for the process to actually exit, mirroring non-Windows behavior
 				for _ in range(10):
 					if not _is_process_alive(pid):
-						break
+						CloseHandle(handle)
+						return True
 					time.sleep(0.1)
+				# Process still alive after timeout
+				CloseHandle(handle)
+				return False
 			CloseHandle(handle)
-			return bool(success)
+			return False
 		return False
 	else:
 		try:
