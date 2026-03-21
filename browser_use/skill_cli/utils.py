@@ -220,15 +220,17 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 				executable_basename = os.path.basename(executable).lower()
 				if 'chromium' in executable_basename:
 					chromium_path = Path.home() / '.config' / 'chromium'
-					if chromium_path.exists():
+					if chromium_path.is_dir():
 						return str(chromium_path)
+					# chromium detected but no chromium directory — still prefer it over google-chrome
+					return str(chromium_path)
 				# Default to google-chrome for google-chrome variants
 				google_chrome_path = Path.home() / '.config' / 'google-chrome'
-				if google_chrome_path.exists():
+				if google_chrome_path.is_dir():
 					return str(google_chrome_path)
 				# Fall back to chromium if google-chrome doesn't exist
 				chromium_path = Path.home() / '.config' / 'chromium'
-				if chromium_path.exists():
+				if chromium_path.is_dir():
 					return str(chromium_path)
 			# Fallback: check both paths and prefer chromium if it exists
 			chromium_path = Path.home() / '.config' / 'chromium'
