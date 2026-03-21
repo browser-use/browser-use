@@ -84,3 +84,233 @@ def test_get_tunnel_manager_singleton():
 	mgr1 = get_tunnel_manager()
 	mgr2 = get_tunnel_manager()
 	assert mgr1 is mgr2
+
+
+# =============================================================================
+# Tests for _kill_process
+# =============================================================================
+import sys
+from unittest.mock import MagicMock, call
+
+
+class TestKillProcessWindows:
+	"""Tests for _kill_process on Windows."""
+
+	def test_kill_process_windows_success_exits_immediately(self):
+		"""Test Windows path: TerminateProcess succeeds and process exits immediately."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		mock_handle = MagicMock()
+		open_process = MagicMock(return_value=mock_handle)
+		terminate_process = MagicMock(return_value=True)
+		close_handle = MagicMock()
+
+		import ctypes
+		original_windll = ctypes.windll
+		original_platform = sys.platform
+
+		class MockWindll:
+			kernel32 = MagicMock(
+				OpenProcess=open_process,
+				TerminateProcess=terminate_process,
+				CloseHandle=close_handle,
+			)
+
+		try:
+			ctypes.windll = MockWindll()
+			sys.platform = 'win32'
+
+			with MagicMock() as mock_is_alive:
+				mock_is_alive.return_value = False  # Process exits immediately
+				with patch('browser_use.skill_cli.tunnel._is_process_alive', mock_is_alive):
+					result = _kill_process(1234)
+
+			assert result is True
+			open_process.assert_called_once_with(0x0001, False, 1234)
+			terminate_process.assert_called_once_with(mock_handle, 1)
+			close_handle.assert_called_once_with(mock_handle)
+			# _is_process_alive should be called at least once
+			assert mock_is_alive.call_count >= 1
+		finally:
+			ctypes.windll = original_windll
+			sys.platform = original_platform
+
+	def test_kill_process_windows_success_waits_for_exit(self):
+		"""Test Windows path: TerminateProcess succeeds but process requires waiting."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		mock_handle = MagicMock()
+		open_process = MagicMock(return_value=mock_handle)
+		terminate_process = MagicMock(return_value=True)
+		close_handle = MagicMock()
+
+		class MockWindll:
+			kernel32 = MagicMock(
+				OpenProcess=open_process,
+				TerminateProcess=terminate_process,
+				CloseHandle=close_handle,
+			)
+
+		original_windll = ctypes.windll
+		original_platform = sys.platform
+
+		try:
+			ctypes.windll = MockWindll()
+			sys.platform = 'win32'
+
+			# Process still alive for first 3 checks, then exits
+			call_count = [0]
+
+			def fake_is_alive(pid):
+				call_count[0] += 1
+				return call_count[0] <= 3
+
+			with patch('browser_use.skill_cli.tunnel._is_process_alive', side_effect=fake_is_alive):
+				result = _kill_process(1234)
+
+			assert result is True
+			assert call_count[0] == 4  # 3 alive checks + 1 exit
+			close_handle.assert_called_once_with(mock_handle)
+		finally:
+			ctypes.windll = original_windll
+			sys.platform = original_platform
+
+	def test_kill_process_windows_open_process_returns_null(self):
+		"""Test Windows path: OpenProcess returns NULL handle (process not found)."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		open_process = MagicMock(return_value=None)
+
+		class MockWindll:
+			kernel32 = MagicMock(OpenProcess=open_process)
+
+		original_windll = ctypes.windll
+		original_platform = sys.platform
+
+		try:
+			ctypes.windll = MockWindll()
+			sys.platform = 'win32'
+
+			result = _kill_process(9999)
+
+			assert result is False
+			open_process.assert_called_once()
+		finally:
+			ctypes.windll = original_windll
+			sys.platform = original_platform
+
+	def test_kill_process_windows_terminate_fails(self):
+		"""Test Windows path: TerminateProcess returns False."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		mock_handle = MagicMock()
+		open_process = MagicMock(return_value=mock_handle)
+		terminate_process = MagicMock(return_value=False)
+		close_handle = MagicMock()
+
+		class MockWindll:
+			kernel32 = MagicMock(
+				OpenProcess=open_process,
+				TerminateProcess=terminate_process,
+				CloseHandle=close_handle,
+			)
+
+		original_windll = ctypes.windll
+		original_platform = sys.platform
+
+		try:
+			ctypes.windll = MockWindll()
+			sys.platform = 'win32'
+
+			result = _kill_process(1234)
+
+			assert result is False
+			close_handle.assert_called_once_with(mock_handle)
+		finally:
+			ctypes.windll = original_windll
+			sys.platform = original_platform
+
+
+class TestKillProcessUnix:
+	"""Tests for _kill_process on Unix (non-Windows)."""
+
+	def test_kill_process_unix_sigterm_kills_immediately(self):
+		"""Test Unix path: SIGTERM kills process immediately."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		original_platform = sys.platform
+
+		try:
+			sys.platform = 'linux'
+
+			with patch('os.kill') as mock_kill:
+				with patch('browser_use.skill_cli.tunnel._is_process_alive') as mock_is_alive:
+					mock_is_alive.return_value = False  # Process exits immediately
+
+					result = _kill_process(1234)
+
+			assert result is True
+			mock_kill.assert_called_once_with(1234, 15)  # 15 = SIGTERM
+			assert mock_is_alive.call_count == 1
+		finally:
+			sys.platform = original_platform
+
+	def test_kill_process_unix_sigkill_after_grace_period(self):
+		"""Test Unix path: SIGKILL sent after SIGTERM grace period expires."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		original_platform = sys.platform
+
+		try:
+			sys.platform = 'linux'
+
+			call_count = [0]
+
+			def fake_is_alive(pid):
+				call_count[0] += 1
+				return True  # Always alive
+
+			with patch('os.kill') as mock_kill:
+				with patch('browser_use.skill_cli.tunnel._is_process_alive', side_effect=fake_is_alive):
+					result = _kill_process(1234)
+
+			assert result is True
+			# Should have sent SIGTERM first, then SIGKILL after 10 sleeps
+			assert mock_kill.call_count == 2
+			mock_kill.assert_any_call(1234, 15)  # SIGTERM
+			mock_kill.assert_any_call(1234, 9)  # SIGKILL
+			assert call_count[0] == 11  # 10 alive checks during grace + 1 final check
+		finally:
+			sys.platform = original_platform
+
+	def test_kill_process_unix_process_not_found(self):
+		"""Test Unix path: ProcessLookupError when process doesn't exist."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		original_platform = sys.platform
+
+		try:
+			sys.platform = 'linux'
+
+			with patch('os.kill', side_effect=ProcessLookupError(1234, 'No such process')):
+				result = _kill_process(1234)
+
+			assert result is False
+		finally:
+			sys.platform = original_platform
+
+	def test_kill_process_unix_os_error(self):
+		"""Test Unix path: OSError (e.g., permission denied)."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		original_platform = sys.platform
+
+		try:
+			sys.platform = 'linux'
+
+			with patch('os.kill', side_effect=OSError(1, 'Operation not permitted')):
+				result = _kill_process(1234)
+
+			assert result is False
+		finally:
+			sys.platform = original_platform

@@ -176,6 +176,12 @@ def _kill_process(pid: int) -> bool:
 		handle = OpenProcess(PROCESS_TERMINATE, False, pid)
 		if handle:
 			success = TerminateProcess(handle, 1)
+			if success:
+				# Wait up to ~1s for the process to actually exit, mirroring non-Windows behavior
+				for _ in range(10):
+					if not _is_process_alive(pid):
+						break
+					time.sleep(0.1)
 			CloseHandle(handle)
 			return bool(success)
 		return False
