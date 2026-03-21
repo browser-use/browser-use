@@ -345,16 +345,28 @@ install_chromium() {
 
 	activate_venv
 
-	# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
+	# Build command - only use --with-deps on Linux with apt-get available
+	# (Playwright's --with-deps only supports Debian/Ubuntu via apt-get)
 	local cmd="uvx playwright install chromium"
-	if [ "$PLATFORM" = "linux" ]; then
+	if [ "$PLATFORM" = "linux" ] && command -v apt-get &> /dev/null; then
 		cmd="$cmd --with-deps"
 	fi
 	cmd="$cmd --no-shell"
 
-	eval $cmd
-
-	log_success "Chromium installed"
+	if eval $cmd; then
+		log_success "Chromium installed"
+	else
+		# If --with-deps failed, retry without it
+		log_warn "Chromium installation with system deps failed, retrying without --with-deps..."
+		if uvx playwright install chromium --no-shell; then
+			log_success "Chromium installed (without system dependencies)"
+			log_warn "You may need to install system dependencies manually (e.g., nss, atk, cups)."
+			log_warn "See: https://playwright.dev/docs/intro#system-requirements"
+		else
+			log_error "Chromium installation failed"
+			exit 1
+		fi
+	fi
 }
 
 install_profile_use() {
