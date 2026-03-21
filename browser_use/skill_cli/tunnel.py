@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import signal
+import time
 from pathlib import Path
 from typing import Any
 
@@ -156,15 +157,19 @@ def _is_process_alive(pid: int) -> bool:
 
 
 def _kill_process(pid: int) -> bool:
-	"""Kill a process by PID. Returns True if killed, False if already dead."""
+	"""Kill a process by PID.
+
+	Returns True if the process was successfully terminated (or a termination
+	request was successfully issued). Returns False if the process could not be
+	terminated, for example because it is already dead, insufficient privileges
+	are available, or other operating system errors occur.
+	"""
 	try:
 		os.kill(pid, signal.SIGTERM)
 		# Give it a moment to terminate gracefully
 		for _ in range(10):
 			if not _is_process_alive(pid):
 				return True
-			import time
-
 			time.sleep(0.1)
 		# Force kill if still alive
 		os.kill(pid, signal.SIGKILL)
