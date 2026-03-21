@@ -18,6 +18,8 @@ import os
 import re
 import shutil
 import signal
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -156,7 +158,7 @@ def _is_process_alive(pid: int) -> bool:
 
 
 def _kill_process(pid: int) -> bool:
-	"""Kill a process by PID. Returns True if killed, False if already dead."""
+	"""Kill a process by PID. Returns True if killed, False otherwise (not alive or insufficient privileges)."""
 	if sys.platform == 'win32':
 		import ctypes
 		from ctypes import wintypes
@@ -184,8 +186,6 @@ def _kill_process(pid: int) -> bool:
 			for _ in range(10):
 				if not _is_process_alive(pid):
 					return True
-				import time
-
 				time.sleep(0.1)
 			# Force kill if still alive
 			os.kill(pid, signal.SIGKILL)
