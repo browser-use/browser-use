@@ -215,7 +215,7 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 		elif system == 'Linux':
 			# Check ~/.config/chromium first, fall back to ~/.config/google-chrome
 			chromium_path = Path.home() / '.config' / 'chromium'
-			if chromium_path.exists():
+			if chromium_path.is_dir():
 				return str(chromium_path)
 			return str(Path.home() / '.config' / 'google-chrome')
 		elif system == 'Windows':
