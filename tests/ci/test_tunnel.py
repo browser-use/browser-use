@@ -96,6 +96,7 @@ from unittest.mock import MagicMock, call
 class TestKillProcessWindows:
 	"""Tests for _kill_process on Windows."""
 
+	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
 	def test_kill_process_windows_success_exits_immediately(self):
 		"""Test Windows path: TerminateProcess succeeds and process exits immediately."""
 		from browser_use.skill_cli.tunnel import _kill_process
@@ -135,6 +136,7 @@ class TestKillProcessWindows:
 			ctypes.windll = original_windll
 			sys.platform = original_platform
 
+	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
 	def test_kill_process_windows_success_waits_for_exit(self):
 		"""Test Windows path: TerminateProcess succeeds but process requires waiting."""
 		from browser_use.skill_cli.tunnel import _kill_process
@@ -144,6 +146,7 @@ class TestKillProcessWindows:
 		terminate_process = MagicMock(return_value=True)
 		close_handle = MagicMock()
 
+		import ctypes
 		class MockWindll:
 			kernel32 = MagicMock(
 				OpenProcess=open_process,
@@ -175,10 +178,12 @@ class TestKillProcessWindows:
 			ctypes.windll = original_windll
 			sys.platform = original_platform
 
+	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
 	def test_kill_process_windows_open_process_returns_null(self):
 		"""Test Windows path: OpenProcess returns NULL handle (process not found)."""
 		from browser_use.skill_cli.tunnel import _kill_process
 
+		import ctypes
 		open_process = MagicMock(return_value=None)
 
 		class MockWindll:
@@ -199,10 +204,12 @@ class TestKillProcessWindows:
 			ctypes.windll = original_windll
 			sys.platform = original_platform
 
+	@pytest.mark.skipif(sys.platform != 'win32', reason='Windows only')
 	def test_kill_process_windows_terminate_fails(self):
 		"""Test Windows path: TerminateProcess returns False."""
 		from browser_use.skill_cli.tunnel import _kill_process
 
+		import ctypes
 		mock_handle = MagicMock()
 		open_process = MagicMock(return_value=mock_handle)
 		terminate_process = MagicMock(return_value=False)
