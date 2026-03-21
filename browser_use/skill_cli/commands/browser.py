@@ -44,7 +44,7 @@ async def _execute_js(session: SessionInfo, js: str) -> Any:
 		raise RuntimeError('No active browser session')
 
 	result = await cdp_session.cdp_client.send.Runtime.evaluate(
-		params={'expression': js, 'returnByValue': True},
+		params={'expression': js, 'returnByValue': True, 'awaitPromise': True},
 		session_id=cdp_session.session_id,
 	)
 	return result.get('result', {}).get('value')
