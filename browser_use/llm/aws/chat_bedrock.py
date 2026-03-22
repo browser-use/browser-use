@@ -116,19 +116,11 @@ class ChatAWSBedrock(BaseChatModel):
 
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:
 		"""Format a Pydantic model as a tool for structured output."""
+		# Use the full schema to preserve items, $defs, anyOf, etc.
 		schema = output_format.model_json_schema()
 
-		# Convert Pydantic schema to Bedrock tool format
-		properties = {}
-		required = []
-
-		for prop_name, prop_info in schema.get('properties', {}).items():
-			properties[prop_name] = {
-				'type': prop_info.get('type', 'string'),
-				'description': prop_info.get('description', ''),
-			}
-
-		# Add required fields
+		# Extract properties and required from the full schema
+		properties = schema.get('properties', {})
 		required = schema.get('required', [])
 
 		return [
@@ -136,7 +128,7 @@ class ChatAWSBedrock(BaseChatModel):
 				'toolSpec': {
 					'name': f'extract_{output_format.__name__.lower()}',
 					'description': f'Extract information in the format of {output_format.__name__}',
-					'inputSchema': {'json': {'type': 'object', 'properties': properties, 'required': required}},
+					'inputSchema': {'json': schema},
 				}
 			}
 		]
