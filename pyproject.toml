@@ -30,7 +30,7 @@ dependencies = [
     "uuid7==0.1.0",
     "authlib==1.6.6",
     "google-genai==1.65.0",
-    "openai==2.16.0",
+    "openai>=2.16.0,<3",
     "anthropic==0.76.0",
     "groq==1.0.0",
     "ollama==0.6.1",
