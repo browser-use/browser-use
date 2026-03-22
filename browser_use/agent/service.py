@@ -3915,17 +3915,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# Kill the browser session - this dispatches BrowserStopEvent,
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
-				else:
-					# keep_alive=True sessions shouldn't keep the event loop alive after agent.run()
-					await self.browser_session.event_bus.stop(
-						clear=False,
-						timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
-					)
-					try:
-						self.browser_session.event_bus.event_queue = None
-						self.browser_session.event_bus._on_idle = None
-					except Exception:
-						pass
 
 			# Close skill service if configured
 			if self.skill_service is not None:
