@@ -677,12 +677,13 @@ class BrowserSession(BaseModel):
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
 		"""Start the browser session."""
-		# Clear intentional-stop so auto-reconnect is armed for the new session
-		self._intentional_stop = False
 		start_event = self.event_bus.dispatch(BrowserStartEvent())
 		await start_event
 		# Ensure any exceptions from the event handler are propagated
 		await start_event.event_result(raise_if_any=True, raise_if_none=False)
+		# Clear intentional-stop only after startup succeeds so that delayed
+		# WS-drop callbacks from a previous session cannot race with startup.
+		self._intentional_stop = False
 
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""

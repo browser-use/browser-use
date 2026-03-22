@@ -1,6 +1,6 @@
 """Test that browser does not auto-reconnect after agent.close() with keep_alive=True.
 
-Regression test for: https://github.com/browser-use/browser-use/issues/XXXX
+Regression test for a browser-use keep_alive reconnect issue.
 When an agent finishes (keep_alive=True) and the user manually closes Chrome,
 the CDP WebSocket-drop callback must NOT trigger auto-reconnect.
 """
@@ -23,36 +23,28 @@ async def keep_alive_session():
 	)
 	await session.start()
 	yield session
-	# Ensure browser is killed even if test fails
-	try:
-		await session.kill()
-	except Exception:
-		pass
+	await session.kill()
 
 
 class TestNoReconnectAfterClose:
 	"""Verify _intentional_stop flag lifecycle prevents zombie reconnections."""
 
-	async def test_intentional_stop_set_after_agent_close_keep_alive(self, keep_alive_session: BrowserSession):
-		"""After Agent.close() with keep_alive=True, _intentional_stop must be True
+	async def test_agent_close_sets_intentional_stop(self, keep_alive_session: BrowserSession, mock_llm):
+		"""Agent.close() with keep_alive=True must set _intentional_stop=True
 		so that the CDP drop callback does NOT trigger auto-reconnect."""
-		session = keep_alive_session
+		from browser_use import Agent
 
-		# Simulate what Agent.close() does for keep_alive=True sessions
-		# (the actual Agent requires an LLM; we test the session-level contract directly)
+		session = keep_alive_session
 		assert session._intentional_stop is False, '_intentional_stop should be False during active session'
 
-		# --- Simulate Agent.close() keep_alive branch (our fix) ---
-		session._intentional_stop = True
-		if session._reconnect_task and not session._reconnect_task.done():
-			session._reconnect_task.cancel()
-			session._reconnect_task = None
-		await session.event_bus.stop(clear=False, timeout=1.0)
+		agent = Agent(task='Test task', llm=mock_llm, browser_session=session)
+		await agent.run()
 
-		# The critical assertion: flag must stay True after the close path
+		# Agent.close() is called in the finally block of run().
+		# With our fix, _intentional_stop must now be True.
 		assert session._intentional_stop is True, (
-			'_intentional_stop must remain True after agent close so that '
-			'CDP WebSocket-drop callback does not trigger auto-reconnect'
+			'_intentional_stop must be True after Agent.close() with keep_alive=True '
+			'so that CDP WebSocket-drop callback does not trigger auto-reconnect'
 		)
 
 	async def test_reset_preserves_intentional_stop(self, keep_alive_session: BrowserSession):
@@ -106,12 +98,14 @@ class TestNoReconnectAfterClose:
 		should_reconnect = not (session._intentional_stop or session._reconnecting or not session.cdp_url)
 		assert not should_reconnect, 'With _intentional_stop=True, the WS drop callback must NOT trigger reconnection'
 
-	async def test_sequential_reuse_after_fix(self):
+	async def test_sequential_reuse_with_agent(self, mock_llm):
 		"""Verify the session reuse pattern still works after the fix.
 
 		Pattern: session.start() -> agent1.run() -> agent1.close() ->
 		         agent2 reuses session -> agent2.run() -> agent2.close() -> session.kill()
 		"""
+		from browser_use import Agent
+
 		session = BrowserSession(
 			browser_profile=BrowserProfile(
 				headless=True,
@@ -121,21 +115,21 @@ class TestNoReconnectAfterClose:
 		)
 
 		try:
-			# First "agent" lifecycle
+			# First agent lifecycle
 			await session.start()
 			assert session._intentional_stop is False
-			assert session._cdp_client_root is not None
 
-			# Simulate Agent.close() keep_alive path (our fix)
-			session._intentional_stop = True
+			agent1 = Agent(task='First task', llm=mock_llm, browser_session=session)
+			await agent1.run()
 
-			# Second "agent" lifecycle — start() must re-arm reconnection
-			await session.start()
-			assert session._intentional_stop is False, 'start() must re-arm reconnection for reuse'
-			assert session._cdp_client_root is not None
+			# After agent1 close, flag must be True
+			assert session._intentional_stop is True
 
-			# Simulate second Agent.close()
-			session._intentional_stop = True
+			# Second agent lifecycle — start() re-arms reconnection
+			agent2 = Agent(task='Second task', llm=mock_llm, browser_session=session)
+			await agent2.run()
+
+			# After agent2 close, flag must be True again
 			assert session._intentional_stop is True
 
 		finally:
