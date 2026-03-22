@@ -929,11 +929,15 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 		Returns:
 			The structured output if both final_result and _output_model_schema are available,
-			otherwise None
+			None if the result is missing, or None with a warning if the result cannot be parsed.
 		"""
 		final_result = self.final_result()
 		if final_result is not None and self._output_model_schema is not None:
-			return self._output_model_schema.model_validate_json(final_result)
+			try:
+				return self._output_model_schema.model_validate_json(final_result)
+			except ValidationError as e:
+				logger.warning(f'Failed to parse structured output: {e}')
+				return None
 
 		return None
 
@@ -947,11 +951,16 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			output_model: The Pydantic model class to parse the output with
 
 		Returns:
-			The parsed structured output, or None if no final result exists
+			The parsed structured output, None if no final result exists,
+			or None with a warning if the result cannot be parsed.
 		"""
 		final_result = self.final_result()
 		if final_result is not None:
-			return output_model.model_validate_json(final_result)
+			try:
+				return output_model.model_validate_json(final_result)
+			except ValidationError as e:
+				logger.warning(f'Failed to parse structured output: {e}')
+				return None
 		return None
 
 
