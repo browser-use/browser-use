@@ -236,8 +236,14 @@ def get_chrome_profile_path(profile: str | None, executable_path: str | None = N
 		elif system == 'Linux':
 			# On Linux, the profile directory differs between Chrome and Chromium.
 			# Use the executable path to determine which browser was detected.
-			if _is_chromium_browser(executable_path):
-				return str(Path.home() / '.config' / 'chromium')
+			if executable_path:
+				exe_name = Path(executable_path).name.lower()
+				if 'brave' in exe_name:
+					return str(Path.home() / '.config' / 'BraveSoftware' / 'Brave-Browser')
+				if 'microsoft-edge' in exe_name or 'edge' in exe_name:
+					return str(Path.home() / '.config' / 'microsoft-edge')
+				if 'chromium' in exe_name:
+					return str(Path.home() / '.config' / 'chromium')
 			return str(Path.home() / '.config' / 'google-chrome')
 		elif system == 'Windows':
 			return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')

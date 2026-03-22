@@ -154,10 +154,17 @@ class TestGetChromeProfilePath:
         assert result == expected
 
     def test_linux_brave_profile_path(self):
-        """On Linux with Brave executable, return the Chromium profile path (Brave uses Chromium)."""
+        """On Linux with Brave executable, return Brave's own profile path."""
         with patch('browser_use.skill_cli.utils.platform.system', return_value='Linux'):
             result = get_chrome_profile_path(None, executable_path='/usr/bin/brave-browser')
-        expected = str(Path.home() / '.config' / 'chromium')
+        expected = str(Path.home() / '.config' / 'BraveSoftware' / 'Brave-Browser')
+        assert result == expected
+
+    def test_linux_edge_profile_path(self):
+        """On Linux with Microsoft Edge executable, return Edge's own profile path."""
+        with patch('browser_use.skill_cli.utils.platform.system', return_value='Linux'):
+            result = get_chrome_profile_path(None, executable_path='/usr/bin/microsoft-edge')
+        expected = str(Path.home() / '.config' / 'microsoft-edge')
         assert result == expected
 
     def test_linux_no_executable_path_defaults_to_chrome(self):
