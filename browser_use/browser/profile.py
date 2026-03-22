@@ -1038,6 +1038,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 			except Exception as e:
 				logger.warning(f'⚠️ Failed to setup {ext["name"]} extension: {e}')
+				logger.warning(
+					'💡 If you are in a restricted network, consider setting enable_default_extensions=False in BrowserProfile or manually caching extensions.'
+				)
 				continue
 
 		# Apply minimal patch to cookie extension with configurable whitelist
@@ -1121,11 +1124,11 @@ async function initialize(checkInitialized, magic) {{
 		import urllib.request
 
 		try:
-			with urllib.request.urlopen(url) as response:
+			with urllib.request.urlopen(url, timeout=10) as response:
 				with open(output_path, 'wb') as f:
 					f.write(response.read())
 		except Exception as e:
-			raise Exception(f'Failed to download extension: {e}')
+			raise Exception(f'Download failed (timeout or network error): {e}')
 
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
