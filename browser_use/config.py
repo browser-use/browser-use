@@ -18,24 +18,36 @@ logger = logging.getLogger(__name__)
 
 @cache
 def is_running_in_docker() -> bool:
-	"""Detect if we are running in a docker container, for the purpose of optimizing chrome launch flags (dev shm usage, gpu settings, etc.)"""
+	"""Detect if we are running in a docker/container environment.
+
+	Uses multiple reliable signals to detect common container runtimes:
+	- /.dockerenv file (Docker-specific)
+	- /proc/1/cgroup containing 'docker'
+	- KUBERNETES_SERVICE_HOST (Kubernetes)
+	- container env var (systemd-nspawn, LXC, etc.)
+	- Low process count < 10 (container heuristic)
+
+	Note: This function is decorated with @cache, so detection happens once per process.
+	"""
 	try:
 		if Path('/.dockerenv').exists() or 'docker' in Path('/proc/1/cgroup').read_text().lower():
 			return True
 	except Exception:
 		pass
 
-	try:
-		# if init proc (PID 1) looks like uvicorn/python/uv/etc. then we're in Docker
-		# if init proc (PID 1) looks like bash/systemd/init/etc. then we're probably NOT in Docker
-		init_cmd = ' '.join(psutil.Process(1).cmdline())
-		if ('py' in init_cmd) or ('uv' in init_cmd) or ('app' in init_cmd):
-			return True
-	except Exception:
-		pass
+	# Check Kubernetes and container runtime env vars
+	if os.environ.get('KUBERNETES_SERVICE_HOST'):
+		return True
+
+	# 'container' env var is set by systemd-nspawn, LXC, and some container runtimes
+	# Note: standard Docker containers won't have this unless explicitly set
+	# This check extends detection to non-Docker container runtimes (systemd-nspawn, LXC, etc.)
+	if os.environ.get('container'):
+		return True
 
 	try:
-		# if less than 10 total running procs, then we're almost certainly in a container
+		# Few running processes = almost certainly a container
+		# (bare-metal systems typically have dozens or hundreds of processes)
 		if len(psutil.pids()) < 10:
 			return True
 	except Exception:
