@@ -318,7 +318,7 @@ class ChatOCIRaw(BaseChatModel):
 					raise ModelProviderError(message=str(e), status_code=status_code, model=self.name) from e
 
 		# Run in thread pool to make it async
-		loop = asyncio.get_event_loop()
+		loop = asyncio.get_running_loop()
 		return await loop.run_in_executor(None, _sync_request)
 
 	@overload
