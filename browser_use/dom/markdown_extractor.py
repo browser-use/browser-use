@@ -24,6 +24,7 @@ async def extract_clean_markdown(
 	dom_service: DomService | None = None,
 	target_id: str | None = None,
 	extract_links: bool = False,
+	extract_images: bool = False,
 ) -> tuple[str, dict[str, Any]]:
 	"""Extract clean markdown from browser content using enhanced DOM tree.
 
@@ -35,6 +36,7 @@ async def extract_clean_markdown(
 	    dom_service: DOM service instance (page actor path)
 	    target_id: Target ID for the page (required when using dom_service)
 	    extract_links: Whether to preserve links in markdown
+	    extract_images: Whether to preserve inline image src URLs in markdown
 
 	Returns:
 	    tuple: (clean_markdown_content, content_statistics)
@@ -68,6 +70,9 @@ async def extract_clean_markdown(
 	# Use markdownify for clean markdown conversion
 	from markdownify import markdownify as md
 
+	# 'td', 'th', and headings are the only elements where markdownify sets the _inline context,
+	# which causes img elements to be stripped to just alt text when keep_inline_images_in=[]
+	_keep_inline_images_in = ['td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] if extract_images else []
 	content = md(
 		page_html,
 		heading_style='ATX',  # Use # style headings
@@ -79,7 +84,7 @@ async def extract_clean_markdown(
 		escape_misc=False,  # Don't escape other characters (cleaner output)
 		autolinks=False,  # Don't convert URLs to <> format
 		default_title=False,  # Don't add default title attributes
-		keep_inline_images_in=[],  # Don't keep inline images in any tags (we already filter base64 in HTML)
+		keep_inline_images_in=_keep_inline_images_in,  # Include image src URLs when extract_images=True
 	)
 
 	initial_markdown_length = len(content)

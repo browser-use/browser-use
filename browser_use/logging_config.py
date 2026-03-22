@@ -223,9 +223,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 		'trafilatura.htmlprocessing',
 		'trafilatura',
 		'groq',
-		'portalocker',
 		'google_genai',
-		'portalocker.utils',
 		'websockets',  # General websockets (but not websockets.client which we need)
 	]
 	for logger_name in third_party_loggers:
