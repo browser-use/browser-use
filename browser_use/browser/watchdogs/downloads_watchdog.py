@@ -881,9 +881,9 @@ class DownloadsWatchdog(BaseWatchdog):
 
 		# Poll for new files
 		max_wait = 20  # seconds
-		start_time = asyncio.get_event_loop().time()
+		start_time = asyncio.get_running_loop().time()
 
-		while asyncio.get_event_loop().time() - start_time < max_wait:  # noqa: ASYNC110
+		while asyncio.get_running_loop().time() - start_time < max_wait:  # noqa: ASYNC110
 			await asyncio.sleep(5.0)  # Check every 5 seconds
 
 			if Path(downloads_dir).exists():

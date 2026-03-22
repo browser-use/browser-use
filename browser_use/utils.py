@@ -100,7 +100,7 @@ class SignalHandler:
 			interruptible_task_patterns: List of patterns to match task names that should be
 										 canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
 		"""
-		self.loop = loop or asyncio.get_event_loop()
+		self.loop = loop or asyncio.get_running_loop()
 		self.pause_callback = pause_callback
 		self.resume_callback = resume_callback
 		self.custom_exit_callback = custom_exit_callback
