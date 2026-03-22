@@ -541,9 +541,7 @@ class Tools(Generic[Context]):
 			browser_session: BrowserSession,
 			tabs_before: set[str],
 		) -> str:
-			"""Detect if a click opened a new tab, and return a note for the agent.
-			Waits briefly for CDP events to propagate, then checks if any new tabs appeared.
-			"""
+			"""Detect if a click opened a new tab and automatically switch to it."""
 			try:
 				# Brief delay to allow CDP Target.attachedToTarget events to propagate
 				# and be processed by SessionManager._handle_target_attached
@@ -552,8 +550,16 @@ class Tools(Generic[Context]):
 				tabs_after = await browser_session.get_tabs()
 				new_tabs = [t for t in tabs_after if t.target_id not in tabs_before]
 				if new_tabs:
-					new_tab_id = new_tabs[0].target_id[-4:]
-					return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+					new_tab = new_tabs[0]
+					new_tab_id = new_tab.target_id[-4:]
+					# Auto-switch to the new tab so the agent can immediately interact with it
+					try:
+						switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=new_tab.target_id))
+						await switch_event
+						await switch_event.event_result(raise_if_any=False, raise_if_none=False)
+						return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
+					except Exception:
+						return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
 			except Exception:
 				pass
 			return ''
