@@ -3264,6 +3264,73 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 					// Function to attempt selection on a dropdown element
 					function attemptSelection(element) {
+						// Handle ARIA comboboxes whose options live in an external listbox via aria-controls
+						const role = element.getAttribute('role');
+						const ariaControls = element.getAttribute('aria-controls');
+						if (role === 'combobox' && ariaControls) {
+							const targetTextLower = targetText.toLowerCase();
+							const getComboboxOptions = () => {
+								const listbox = document.getElementById(ariaControls);
+								if (!listbox) return [];
+								return Array.from(listbox.querySelectorAll('[role="option"]'));
+							};
+
+							let optionNodes = getComboboxOptions();
+							if (optionNodes.length === 0) {
+								// Best-effort expansion for lazily rendered suggestions
+								element.focus();
+								element.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+								element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+								element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+								optionNodes = getComboboxOptions();
+							}
+
+							for (const option of optionNodes) {
+								const optionText = (option.textContent || '').trim();
+								const optionTextLower = optionText.toLowerCase();
+								const optionValueLower = (option.getAttribute('data-value') || option.getAttribute('value') || '').toLowerCase();
+								if (optionTextLower === targetTextLower || optionValueLower === targetTextLower) {
+									// Clear previous selection markers in the controlled listbox
+									optionNodes.forEach(node => {
+										node.setAttribute('aria-selected', 'false');
+										node.classList.remove('selected');
+									});
+									option.setAttribute('aria-selected', 'true');
+									option.classList.add('selected');
+
+									// Dispatch a realistic click sequence on option
+									option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+									option.click();
+									option.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+									option.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+
+									// Keep visible combobox text in sync (many libs rely on this)
+									if (element.value !== undefined) {
+										element.value = optionText;
+									}
+									element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+									element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+									element.blur();
+
+									return {
+										success: true,
+										message: `Selected combobox option: ${optionText}`
+									};
+								}
+							}
+
+							const availableOptions = optionNodes.map(node => ({
+								text: (node.textContent || '').trim(),
+								value: node.getAttribute('data-value') || node.getAttribute('value') || '',
+							})).filter(opt => opt.text || opt.value);
+
+							return {
+								success: false,
+								error: `Combobox option with text or value '${targetText}' not found`,
+								availableOptions: availableOptions
+							};
+						}
+
 						// Handle native select elements
 						if (element.tagName.toLowerCase() === 'select') {
 							const options = Array.from(element.options);
@@ -3339,7 +3406,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 						}
 
 						// Handle ARIA dropdowns/menus
-						const role = element.getAttribute('role');
 						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
 							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
 							const targetTextLower = targetText.toLowerCase();
