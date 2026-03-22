@@ -634,7 +634,14 @@ class BrowserSession(BaseModel):
 			self._demo_mode.reset()
 			self._demo_mode = None
 
-		self._intentional_stop = False
+		# NOTE: We intentionally do NOT reset _intentional_stop to False here.
+		# The flag is set True by kill()/stop()/Agent.close() to suppress the
+		# CDP WebSocket-drop auto-reconnect callback.  That callback may fire
+		# *after* reset() returns (it is an asyncio Future done-callback on the
+		# old message-handler task).  Clearing the flag here would re-enable
+		# reconnection, causing the browser to reopen after the user manually
+		# closes it.  The flag is cleared to False in start() when a new
+		# connection is actually desired.
 		self.logger.info('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
@@ -674,6 +681,9 @@ class BrowserSession(BaseModel):
 		await start_event
 		# Ensure any exceptions from the event handler are propagated
 		await start_event.event_result(raise_if_any=True, raise_if_none=False)
+		# Clear intentional-stop only after startup succeeds so that delayed
+		# WS-drop callbacks from a previous session cannot race with startup.
+		self._intentional_stop = False
 
 	async def kill(self) -> None:
 		"""Kill the browser session and reset all state."""
