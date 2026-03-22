@@ -92,6 +92,32 @@ Check out the [library docs](https://docs.browser-use.com/open-source/introducti
 
 <br/>
 
+# Open Source vs Cloud
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="static/accuracy_by_model_light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="static/accuracy_by_model_dark.png">
+  <img alt="BU Bench V1 - LLM Success Rates" src="static/accuracy_by_model_light.png" width="100%">
+</picture>
+
+We benchmark Browser Use across 100 real-world browser tasks. Full benchmark is open source: **[browser-use/benchmark](https://github.com/browser-use/benchmark)**.
+
+**Use Open Source**
+- You need [custom tools](https://docs.browser-use.com/customize/tools/basics) or deep code-level integration
+- You want to self-host and deploy browser agents on your own machines
+
+**Use [Cloud](https://cloud.browser-use.com) (recommended)**
+- Much better agent for complex tasks (see plot above)
+- Easiest way to start and scale
+- Best stealth with proxy rotation and captcha solving
+- 1000+ integrations (Gmail, Slack, Notion, and more)
+- Persistent filesystem and memory
+
+**Use Both**
+- Use the open-source library with your [custom tools](https://docs.browser-use.com/customize/tools/basics) while running our [cloud browsers](https://docs.browser-use.com/open-source/customize/browser/remote) and [ChatBrowserUse model](https://docs.browser-use.com/open-source/supported-models)
+
+<br/>
+
 # Demos
 
 
