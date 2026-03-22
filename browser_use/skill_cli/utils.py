@@ -360,8 +360,12 @@ def discover_chrome_cdp_url() -> str:
 	)
 
 
-def list_chrome_profiles() -> list[dict[str, str]]:
+def list_chrome_profiles(executable_path: str | None = None) -> list[dict[str, str]]:
 	"""List available Chrome profiles with their names.
+
+	Args:
+		executable_path: Optional path to the detected Chrome/Chromium/Brave/Edge executable.
+			Used on Linux to list profiles from the correct browser's user-data directory.
 
 	Returns:
 		List of dicts with 'directory' and 'name' keys, ex:
@@ -369,7 +373,7 @@ def list_chrome_profiles() -> list[dict[str, str]]:
 	"""
 	import json
 
-	user_data_dir = get_chrome_profile_path(None)
+	user_data_dir = get_chrome_profile_path(None, executable_path)
 	if user_data_dir is None:
 		return []
 

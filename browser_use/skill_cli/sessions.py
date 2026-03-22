@@ -68,7 +68,7 @@ async def create_browser_session(
 	# Resolve profile: accept directory names ("Default", "Profile 1") and
 	# display names ("Person 1", "Work"). Directory names take precedence.
 	# If profile metadata can't be read, fall back to using the value as-is.
-	known_profiles = list_chrome_profiles()
+	known_profiles = list_chrome_profiles(chrome_path)
 	directory_names = {p['directory'] for p in known_profiles}
 
 	if not known_profiles or profile in directory_names:
