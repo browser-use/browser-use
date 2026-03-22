@@ -189,6 +189,34 @@ class BrowserWrapper:
 		await self._session.event_bus.dispatch(ClickElementEvent(node=node))
 		await self._session.event_bus.dispatch(TypeTextEvent(node=node, text=text))
 
+	def upload(self, index: int, path: str) -> None:
+		"""Upload a file to a file input element."""
+		self._run(self._upload_async(index, path))
+
+	async def _upload_async(self, index: int, path: str) -> None:
+		from pathlib import Path as P
+
+		from browser_use.browser.events import UploadFileEvent
+
+		file_path = str(P(path).expanduser().resolve())
+		p = P(file_path)
+		if not p.exists():
+			raise FileNotFoundError(f'File not found: {file_path}')
+		if not p.is_file():
+			raise ValueError(f'Not a file: {file_path}')
+		if p.stat().st_size == 0:
+			raise ValueError(f'File is empty (0 bytes): {file_path}')
+
+		node = await self._session.get_element_by_index(index)
+		if node is None:
+			raise ValueError(f'Element index {index} not found')
+
+		file_input_node = self._session.find_file_input_near_element(node)
+		if file_input_node is None:
+			raise ValueError(f'Element {index} is not a file input and no file input found nearby')
+
+		await self._session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=file_path))
+
 	def scroll(self, direction: Literal['up', 'down', 'left', 'right'] = 'down', amount: int = 500) -> None:
 		"""Scroll the page."""
 		self._run(self._scroll_async(direction, amount))

@@ -694,8 +694,6 @@ class BrowserUseApp(App):
 			'trafilatura.htmlprocessing',
 			'trafilatura',
 			'groq',
-			'portalocker',
-			'portalocker.utils',
 		]:
 			third_party = logging.getLogger(logger_name)
 			third_party.setLevel(logging.ERROR)

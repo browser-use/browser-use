@@ -24,20 +24,10 @@ curl -fsSL https://browser-use.com/cli/install.sh | bash
 & "C:\Program Files\Git\bin\bash.exe" -c 'curl -fsSL https://browser-use.com/cli/install.sh | bash'
 ```
 
-### Installation Modes
-```bash
-curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --full        # All modes
-curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --local-only  # Local browser only
-curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --remote-only # Cloud browser only
-curl -fsSL https://browser-use.com/cli/install.sh | bash -s -- --api-key bu_xxx  # With API key
-```
-
 ### Post-Install
 ```bash
 browser-use doctor   # Validate installation
 browser-use setup    # Run setup wizard (optional)
-browser-use setup --mode local|remote|full  # Non-interactive setup
-browser-use setup --api-key bu_xxx --yes    # With API key, skip prompts
 ```
 
 ### Generate Templates
@@ -62,13 +52,10 @@ If you prefer not to use the one-line installer:
 # 1. Install the package
 uv pip install browser-use
 
-# 2. Install Chromium (for local browser mode)
+# 2. Install Chromium
 browser-use install
 
-# 3. Configure API key (for remote mode)
-export BROWSER_USE_API_KEY=your_key  # or $env:BROWSER_USE_API_KEY on Windows
-
-# 4. Validate
+# 3. Validate
 browser-use doctor
 ```
 
@@ -106,11 +93,20 @@ browser-use open https://example.com
 # Visible browser window
 browser-use --headed open https://example.com
 
-# Use your real Chrome (with existing logins/cookies)
-browser-use --browser real open https://gmail.com
+# Use your real Chrome with Default profile (with existing logins/cookies)
+browser-use --profile "Default" open https://gmail.com
 
-# Cloud browser (requires BROWSER_USE_API_KEY)
-browser-use --browser remote open https://example.com
+# Use a specific Chrome profile
+browser-use --profile "Profile 1" open https://gmail.com
+
+# Auto-discover and connect to running Chrome
+browser-use --connect open https://example.com
+
+# Connect to an existing browser via CDP URL
+browser-use --cdp-url http://localhost:9222 open https://example.com
+
+# WebSocket CDP URL also works
+browser-use --cdp-url ws://localhost:9222/devtools/browser/... state
 ```
 
 ## All Commands
@@ -135,11 +131,13 @@ browser-use --browser remote open https://example.com
 | Command | Description |
 |---------|-------------|
 | `click <index>` | Click element by index |
+| `click <x> <y>` | Click at pixel coordinates |
 | `type "text"` | Type into focused element |
 | `input <index> "text"` | Click element, then type |
 | `keys "Enter"` | Send keyboard keys |
 | `keys "Control+a"` | Send key combination |
 | `select <index> "value"` | Select dropdown option |
+| `upload <index> <path>` | Upload file to file input element |
 | `hover <index>` | Hover over element |
 | `dblclick <index>` | Double-click element |
 | `rightclick <index>` | Right-click element |
@@ -188,7 +186,7 @@ browser-use --browser remote open https://example.com
 | Command | Description |
 |---------|-------------|
 | `eval "js code"` | Execute JavaScript |
-| `extract "query"` | Extract data with LLM |
+| `extract "query"` | Extract data with LLM (not yet implemented) |
 
 ### Python (Persistent Session)
 ```bash
@@ -200,88 +198,48 @@ browser-use python --reset            # Clear namespace
 browser-use python --file script.py   # Run Python file
 ```
 
-## Agent Tasks
+## Cloud API
 
-Run AI-powered browser automation tasks.
-
-### Local Mode
-```bash
-browser-use run "Fill the contact form with test data"
-browser-use run "Extract all product prices" --max-steps 50
-browser-use run "task" --llm gpt-4o   # Specify LLM model
-```
-
-Requires an LLM API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.).
-
-### Remote Mode (Cloud)
-```bash
-browser-use -b remote run "Search for AI news"              # US proxy default
-browser-use -b remote run "task" --llm gpt-4o               # Specify LLM
-browser-use -b remote run "task" --proxy-country gb         # UK proxy
-browser-use -b remote run "task" --session-id <id>          # Reuse session
-browser-use -b remote run "task" --no-wait                  # Async (returns task ID)
-browser-use -b remote run "task" --wait                     # Wait for completion
-browser-use -b remote run "task" --stream                   # Stream output
-browser-use -b remote run "task" --flash                    # Fast mode
-browser-use -b remote run "task" --keep-alive               # Keep session alive
-browser-use -b remote run "task" --thinking                 # Extended reasoning
-browser-use -b remote run "task" --vision                   # Enable vision (default)
-browser-use -b remote run "task" --no-vision                # Disable vision
-browser-use -b remote run "task" --profile <id>             # Use cloud profile
-
-# Task configuration
-browser-use -b remote run "task" --start-url https://example.com  # Start from URL
-browser-use -b remote run "task" --allowed-domain example.com     # Restrict navigation (repeatable)
-browser-use -b remote run "task" --metadata key=value             # Task metadata (repeatable)
-browser-use -b remote run "task" --secret API_KEY=xxx             # Task secrets (repeatable)
-browser-use -b remote run "task" --skill-id skill-123             # Enable skills (repeatable)
-
-# Structured output and evaluation
-browser-use -b remote run "task" --structured-output '{"type":"object"}'  # JSON schema
-browser-use -b remote run "task" --judge                          # Enable judge mode
-browser-use -b remote run "task" --judge-ground-truth "answer"    # Expected answer
-```
-
-Requires `BROWSER_USE_API_KEY`.
-
-## Task Management (Remote Mode)
-
-Manage cloud tasks when using `--browser remote`.
+Generic REST passthrough to the Browser-Use Cloud API, plus cloud browser provisioning.
 
 | Command | Description |
 |---------|-------------|
-| `task list` | List recent tasks |
-| `task list --status running` | Filter by status |
-| `task list --session <id>` | Filter by session ID |
-| `task status <id>` | Get task status (latest step only) |
-| `task status <id> -c` | Compact: all steps with reasoning |
-| `task status <id> -v` | Verbose: full details |
-| `task status <id> --last 5` | Show last 5 steps |
-| `task status <id> --step 3` | Show specific step number |
-| `task status <id> --reverse` | Show steps newest first |
-| `task stop <id>` | Stop running task |
-| `task logs <id>` | Get execution logs |
+| `cloud connect` | Provision cloud browser and connect |
+| `cloud connect --timeout 120` | Cloud browser with custom timeout |
+| `cloud connect --proxy-country US` | Cloud browser with proxy |
+| `cloud connect --profile-id <id>` | Cloud browser with profile |
+| `cloud login <api-key>` | Save API key |
+| `cloud logout` | Remove API key |
+| `cloud v2 GET <path>` | GET request to API v2 |
+| `cloud v2 POST <path> '<json>'` | POST request to API v2 |
+| `cloud v3 POST <path> '<json>'` | POST request to API v3 |
+| `cloud v2 poll <task-id>` | Poll task until done |
+| `cloud v2 --help` | Show API v2 endpoints (from OpenAPI spec) |
+| `cloud v3 --help` | Show API v3 endpoints |
 
-## Cloud Sessions (Remote Mode)
+```bash
+# Save API key (or set BROWSER_USE_API_KEY env var)
+browser-use cloud login sk-abc123...
 
-Manage cloud browser sessions.
+# Provision a cloud browser and connect
+browser-use cloud connect
+browser-use state                    # works normally
+browser-use close                    # disconnects AND stops cloud browser
 
-| Command | Description |
-|---------|-------------|
-| `session list` | List cloud sessions |
-| `session list --status active` | Filter by status |
-| `session get <id>` | Get session details + live URL |
-| `session stop <id>` | Stop session |
-| `session stop --all` | Stop all active sessions |
-| `session create` | Create new session |
-| `session create --profile <id>` | With cloud profile |
-| `session create --proxy-country gb` | With geographic proxy |
-| `session create --start-url <url>` | Start at specific URL |
-| `session create --screen-size 1920x1080` | Custom screen size |
-| `session create --keep-alive` | Keep session alive |
-| `session create --persist-memory` | Persist memory between tasks |
-| `session share <id>` | Create public share URL |
-| `session share <id> --delete` | Delete public share |
+# List browsers
+browser-use cloud v2 GET /browsers
+
+# Create a task
+browser-use cloud v2 POST /tasks '{"task":"Search for AI news","url":"https://google.com"}'
+
+# Poll until done
+browser-use cloud v2 poll <task-id>
+
+# Remove API key
+browser-use cloud logout
+```
+
+API key stored in `~/.browser-use/config.json` with `0600` permissions.
 
 ## Tunnels
 
@@ -298,54 +256,69 @@ Expose local dev servers to cloud browsers via Cloudflare tunnels.
 # Example: Test local dev server with cloud browser
 npm run dev &                              # localhost:3000
 browser-use tunnel 3000                    # → https://abc.trycloudflare.com
-browser-use -b remote open https://abc.trycloudflare.com
+browser-use cloud connect                  # Provision cloud browser
+browser-use open https://abc.trycloudflare.com
 ```
 
 ## Profile Management
 
-### Local Profiles (`-b real`)
-| Command | Description |
-|---------|-------------|
-| `profile list` | List Chrome profiles |
-| `profile cookies <name>` | Show cookies by domain |
-| `profile sync --from <name>` | Sync local profile to cloud |
-| `profile sync --from Default --domain youtube.com` | Sync specific domain only |
+The `profile` subcommand delegates to the [profile-use](https://github.com/browser-use/profile-use) Go binary, which syncs local browser cookies to Browser-Use cloud.
 
-### Cloud Profiles (`-b remote`)
-| Command | Description |
-|---------|-------------|
-| `profile list` | List cloud profiles |
-| `profile list --page 2 --page-size 50` | Pagination |
-| `profile get <id>` | Get profile details |
-| `profile create` | Create profile |
-| `profile create --name "My Profile"` | Create with name |
-| `profile update <id> --name <name>` | Rename profile |
-| `profile delete <id>` | Delete profile |
-
-## Local Session Management
+The binary is managed at `~/.browser-use/bin/profile-use` and auto-downloaded on first use.
 
 | Command | Description |
 |---------|-------------|
-| `sessions` | List active sessions |
-| `close` | Close browser session |
+| `profile` | Interactive sync wizard |
+| `profile list` | List detected browsers and profiles |
+| `profile sync --all` | Sync all profiles to cloud |
+| `profile sync --browser "Google Chrome" --profile "Default"` | Sync specific profile |
+| `profile auth --apikey <key>` | Set API key (shared with `cloud login`) |
+| `profile inspect --browser "Google Chrome" --profile "Default"` | Inspect cookies locally |
+| `profile update` | Download/update the profile-use binary |
+
+## Session Management
+
+| Command | Description |
+|---------|-------------|
+| `sessions` | List active browser sessions |
+| `close` | Close current session's browser and daemon |
 | `close --all` | Close all sessions |
-| `server status` | Check if server is running |
-| `server stop` | Stop server |
-| `server logs` | View server logs |
+| `--session NAME` | Target a named session (default: "default") |
+
+```bash
+# Default behavior unchanged
+browser-use open https://example.com           # uses session 'default'
+browser-use state                              # talks to 'default' daemon
+
+# Named sessions
+browser-use --session work open https://example.com
+browser-use --session work state
+browser-use --session cloud cloud connect
+
+# List active sessions
+browser-use sessions
+
+# Close specific session
+browser-use --session work close
+
+# Close all sessions
+browser-use close --all
+
+# Env var fallback
+BROWSER_USE_SESSION=work browser-use state
+```
 
 ## Global Options
 
 | Option | Description |
 |--------|-------------|
-| `--session NAME` | Use named session (default: "default") |
-| `--browser MODE` | Browser mode: chromium, real, remote |
 | `--headed` | Show browser window |
-| `--profile NAME` | Browser profile (local name or cloud ID) |
+| `--profile [NAME]` | Use real Chrome (bare `--profile` uses "Default") |
+| `--connect` | Auto-discover and connect to running Chrome via CDP |
+| `--cdp-url <url>` | Connect to existing browser via CDP URL (`http://` or `ws://`) |
+| `--session NAME` | Target a named session (default: "default", env: `BROWSER_USE_SESSION`) |
 | `--json` | Output as JSON |
-| `--api-key KEY` | Override API key |
 | `--mcp` | Run as MCP server via stdin/stdout |
-
-**Session behavior**: All commands without `--session` use the same "default" session. The browser stays open and is reused across commands. Use `--session NAME` to run multiple browsers in parallel.
 
 ## Examples
 
@@ -365,15 +338,6 @@ browser-use open https://news.ycombinator.com
 browser-use eval "Array.from(document.querySelectorAll('.titleline a')).slice(0,5).map(a => a.textContent)"
 ```
 
-### Multi-Session Workflow
-```bash
-browser-use --session work open https://work.example.com
-browser-use --session personal open https://personal.example.com
-browser-use --session work state
-browser-use --session personal state
-browser-use close --all
-```
-
 ### Python Automation
 ```bash
 browser-use open https://example.com
@@ -383,19 +347,6 @@ for i in range(5):
     browser.wait(0.5)
 browser.screenshot('scrolled.png')
 "
-```
-
-### Cloud Agent with Session Reuse
-```bash
-# Start task, keep session alive
-browser-use -b remote run "Log into example.com" --keep-alive --no-wait
-# → task_id: task-123, session_id: sess-456
-
-# Check task status
-browser-use task status task-123
-
-# Run another task in same session (preserves login)
-browser-use -b remote run "Go to settings" --session-id sess-456
 ```
 
 ## Claude Code Skill
@@ -410,14 +361,32 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
 
 ## How It Works
 
-The CLI uses a session server architecture:
+The CLI uses a multi-session daemon architecture:
 
-1. First command starts a background server (browser stays open)
+1. First command starts a background daemon for that session (browser stays open)
 2. Subsequent commands communicate via Unix socket (or TCP on Windows)
 3. Browser persists across commands for fast interaction
-4. Server auto-starts when needed, stops with `browser-use server stop`
+4. Each `--session` gets its own daemon, socket, and PID file in `~/.browser-use/`
+5. Daemon auto-starts when needed, auto-exits when browser dies, or stops with `browser-use close`
 
 This gives you ~50ms command latency instead of waiting for browser startup each time.
+
+### File Layout
+
+All CLI-managed files live under `~/.browser-use/` (override with `BROWSER_USE_HOME`):
+
+```
+~/.browser-use/
+├── config.json          # API key, settings (shared with profile-use)
+├── bin/
+│   └── profile-use      # Managed Go binary (auto-downloaded)
+├── tunnels/
+│   ├── {port}.json      # Tunnel metadata
+│   └── {port}.log       # Tunnel logs
+├── default.sock         # Daemon socket (ephemeral)
+├── default.pid          # Daemon PID (ephemeral)
+└── cli.log              # Daemon log
+```
 
 <details>
 <summary>Windows Troubleshooting</summary>
@@ -444,11 +413,11 @@ echo $env:PATH
 & "C:\Program Files\Git\bin\bash.exe" -c 'browser-use --help'
 ```
 
-### "Failed to start session server" error
+### "Failed to start daemon" error
 Kill zombie processes:
 ```powershell
-# Find process on port
-netstat -ano | findstr 49698
+# Find browser-use Python processes
+tasklist | findstr python
 
 # Kill by PID
 taskkill /PID <pid> /F
