@@ -2,21 +2,6 @@
 
 from datetime import datetime, timezone
 
-from browser_use_sdk import BrowserUse
-
-_client: BrowserUse | None = None
-
-
-def get_sdk_client() -> BrowserUse:
-	"""Get authenticated SDK client (singleton)."""
-	global _client
-	if _client is None:
-		from browser_use.skill_cli.api_key import require_api_key
-
-		api_key = require_api_key('Cloud API')
-		_client = BrowserUse(api_key=api_key)
-	return _client
-
 
 def format_duration(started_at: datetime | None, finished_at: datetime | None) -> str:
 	"""Format duration between two timestamps, or elapsed time if still running."""
