@@ -2471,7 +2471,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Execute the task with maximum number of steps"""
 
-		loop = asyncio.get_event_loop()
+		loop = asyncio.get_running_loop()
 		agent_run_error: str | None = None  # Initialize error tracking variable
 		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
 		should_delay_close = False
@@ -3941,7 +3941,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug(f'🧵 Remaining threads ({len(threads)}): {[t.name for t in threads]}')
 
 			# Get all asyncio tasks
-			tasks = asyncio.all_tasks(asyncio.get_event_loop())
+			tasks = asyncio.all_tasks(asyncio.get_running_loop())
 			# Filter out the current task (this close() coroutine)
 			other_tasks = [t for t in tasks if t != asyncio.current_task()]
 			if other_tasks:
