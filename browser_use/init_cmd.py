@@ -31,6 +31,58 @@ TEMPLATE_REPO_URL = 'https://raw.githubusercontent.com/browser-use/template-libr
 # Templates are fetched at runtime via _get_template_list()
 INIT_TEMPLATES: dict[str, Any] = {}
 
+# Security: Allowed URL schemes and domains for SSRF protection
+_ALLOWED_SCHEMES = {'https'}
+_ALLOWED_DOMAINS = {'raw.githubusercontent.com', 'github.com'}
+
+
+def _validate_url(url: str) -> None:
+	"""Validate URL for security (SSRF protection).
+
+	Ensures only HTTPS requests to allowed GitHub domains are permitted.
+	This is a defense-in-depth measure.
+
+	Args:
+		url: The URL to validate
+
+	Raises:
+		ValueError: If URL scheme or domain is not allowed
+	"""
+	import urllib.parse
+
+	parsed = urllib.parse.urlparse(url)
+
+	if parsed.scheme not in _ALLOWED_SCHEMES:
+		raise ValueError(f'Disallowed URL scheme: {parsed.scheme}. Only HTTPS is allowed.')
+
+	# Domain names are case-insensitive per RFC 4343
+	if parsed.netloc.lower() not in _ALLOWED_DOMAINS:
+		raise ValueError(f'Disallowed domain: {parsed.netloc}. Only GitHub domains are allowed.')
+
+
+class _NoRedirectHandler(request.HTTPRedirectHandler):
+	"""HTTP handler that raises an error on redirects instead of following them.
+
+	This prevents SSRF attacks via open redirects on allowed domains.
+	"""
+
+	def redirect_request(self, req, fp, code, msg, headers, newurl):
+		raise ValueError(f'Redirects are not allowed for security. Redirect attempted to: {newurl}')
+
+
+def _safe_urlopen(url: str, timeout: int = 5):
+	"""Safely open a URL without following redirects.
+
+	Args:
+		url: The URL to open
+		timeout: Request timeout in seconds
+
+	Returns:
+		The response object
+	"""
+	opener = request.build_opener(_NoRedirectHandler)
+	return opener.open(url, timeout=timeout)
+
 
 def _fetch_template_list() -> dict[str, Any] | None:
 	"""
@@ -40,10 +92,11 @@ def _fetch_template_list() -> dict[str, Any] | None:
 	"""
 	try:
 		url = f'{TEMPLATE_REPO_URL}/templates.json'
-		with request.urlopen(url, timeout=5) as response:
+		_validate_url(url)
+		with _safe_urlopen(url, timeout=5) as response:
 			data = response.read().decode('utf-8')
 			return json.loads(data)
-	except (URLError, TimeoutError, json.JSONDecodeError, Exception):
+	except (URLError, TimeoutError, json.JSONDecodeError, ValueError, Exception):
 		return None
 
 
@@ -67,9 +120,10 @@ def _fetch_from_github(file_path: str) -> str | None:
 	"""
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
-		with request.urlopen(url, timeout=5) as response:
+		_validate_url(url)
+		with _safe_urlopen(url, timeout=5) as response:
 			return response.read().decode('utf-8')
-	except (URLError, TimeoutError, Exception):
+	except (URLError, TimeoutError, ValueError, Exception):
 		return None
 
 
@@ -81,9 +135,10 @@ def _fetch_binary_from_github(file_path: str) -> bytes | None:
 	"""
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
-		with request.urlopen(url, timeout=5) as response:
+		_validate_url(url)
+		with _safe_urlopen(url, timeout=5) as response:
 			return response.read()
-	except (URLError, TimeoutError, Exception):
+	except (URLError, TimeoutError, ValueError, Exception):
 		return None
 
 
