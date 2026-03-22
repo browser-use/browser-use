@@ -1922,6 +1922,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				# After first char on contenteditable: check if dropped and retype if needed
 				if i == 0 and _check_first_char and _first_char:
+					# Brief delay so React (and similar frameworks) can flush the
+					# virtual DOM after the key event.  Without this the
+					# textContent check races with React's async re-render and
+					# falsely reports the first char as missing, causing a
+					# duplicate first character.  See #4461.
+					await asyncio.sleep(0.1)
 					check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
 						params={'expression': 'document.activeElement.textContent'},
 						session_id=cdp_session.session_id,
