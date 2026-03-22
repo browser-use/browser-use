@@ -113,22 +113,15 @@ def _create_windows_mocks():
 class TestKillProcessWindows:
 	"""Tests for _kill_process on Windows.
 
-	These tests mock Windows-specific ctypes to allow running on non-Windows platforms.
-	The mocking ensures ctypes.windll is only accessed when the platform is explicitly
-	set to win32, preventing AttributeError on non-Windows systems.
+	These tests mock Windows-specific ctypes and sys.platform to run the Windows
+	code path on non-Windows platforms, enabling full CI coverage without skipping.
+	time.sleep is also mocked to avoid test slowness from retry loops.
 	"""
 
 	@staticmethod
 	def test_kill_process_windows_success_exits_immediately():
 		"""Test Windows path: TerminateProcess succeeds and process exits immediately."""
-		# Guard: require Windows platform for these tests
-		if sys.platform != 'win32':
-			pytest.skip('Windows-only test')
-
-		# Also check ctypes.windll availability as defense in depth
-		ctypes = _create_windows_mocks()
-		if ctypes is None:
-			pytest.skip('ctypes.windll not available')
+		import ctypes
 
 		from browser_use.skill_cli.tunnel import _kill_process
 
@@ -151,17 +144,14 @@ class TestKillProcessWindows:
 			ctypes.windll = MockWindll()
 			sys.platform = 'win32'
 
-			with MagicMock() as mock_is_alive:
-				mock_is_alive.return_value = False  # Process exits immediately
-				with patch('browser_use.skill_cli.tunnel._is_process_alive', mock_is_alive):
+			with patch('browser_use.skill_cli.tunnel.time.sleep'):
+				with patch('browser_use.skill_cli.tunnel._is_process_alive', return_value=False):
 					result = _kill_process(1234)
 
 			assert result is True
 			open_process.assert_called_once_with(0x0001, False, 1234)
 			terminate_process.assert_called_once_with(mock_handle, 1)
 			close_handle.assert_called_once_with(mock_handle)
-			# _is_process_alive should be called at least once
-			assert mock_is_alive.call_count >= 1
 		finally:
 			ctypes.windll = original_windll
 			sys.platform = original_platform
@@ -169,12 +159,7 @@ class TestKillProcessWindows:
 	@staticmethod
 	def test_kill_process_windows_success_waits_for_exit():
 		"""Test Windows path: TerminateProcess succeeds but process requires waiting."""
-		if sys.platform != 'win32':
-			pytest.skip('Windows-only test')
-
-		ctypes = _create_windows_mocks()
-		if ctypes is None:
-			pytest.skip('ctypes.windll not available')
+		import ctypes
 
 		from browser_use.skill_cli.tunnel import _kill_process
 
@@ -204,8 +189,9 @@ class TestKillProcessWindows:
 				call_count[0] += 1
 				return call_count[0] <= 3
 
-			with patch('browser_use.skill_cli.tunnel._is_process_alive', side_effect=fake_is_alive):
-				result = _kill_process(1234)
+			with patch('browser_use.skill_cli.tunnel.time.sleep'):
+				with patch('browser_use.skill_cli.tunnel._is_process_alive', side_effect=fake_is_alive):
+					result = _kill_process(1234)
 
 			assert result is True
 			assert call_count[0] == 4  # 3 alive checks + 1 exit
@@ -217,12 +203,7 @@ class TestKillProcessWindows:
 	@staticmethod
 	def test_kill_process_windows_open_process_returns_null():
 		"""Test Windows path: OpenProcess returns NULL handle (process not found)."""
-		if sys.platform != 'win32':
-			pytest.skip('Windows-only test')
-
-		ctypes = _create_windows_mocks()
-		if ctypes is None:
-			pytest.skip('ctypes.windll not available')
+		import ctypes
 
 		from browser_use.skill_cli.tunnel import _kill_process
 
@@ -238,7 +219,8 @@ class TestKillProcessWindows:
 			ctypes.windll = MockWindll()
 			sys.platform = 'win32'
 
-			result = _kill_process(9999)
+			with patch('browser_use.skill_cli.tunnel.time.sleep'):
+				result = _kill_process(9999)
 
 			assert result is False
 			open_process.assert_called_once()
@@ -249,12 +231,7 @@ class TestKillProcessWindows:
 	@staticmethod
 	def test_kill_process_windows_terminate_fails():
 		"""Test Windows path: TerminateProcess returns False."""
-		if sys.platform != 'win32':
-			pytest.skip('Windows-only test')
-
-		ctypes = _create_windows_mocks()
-		if ctypes is None:
-			pytest.skip('ctypes.windll not available')
+		import ctypes
 
 		from browser_use.skill_cli.tunnel import _kill_process
 
@@ -277,7 +254,8 @@ class TestKillProcessWindows:
 			ctypes.windll = MockWindll()
 			sys.platform = 'win32'
 
-			result = _kill_process(1234)
+			with patch('browser_use.skill_cli.tunnel.time.sleep'):
+				result = _kill_process(1234)
 
 			assert result is False
 			close_handle.assert_called_once_with(mock_handle)
@@ -326,8 +304,9 @@ class TestKillProcessUnix:
 				return True  # Always alive
 
 			with patch('os.kill') as mock_kill:
-				with patch('browser_use.skill_cli.tunnel._is_process_alive', side_effect=fake_is_alive):
-					result = _kill_process(1234)
+				with patch('browser_use.skill_cli.tunnel.time.sleep'):
+					with patch('browser_use.skill_cli.tunnel._is_process_alive', side_effect=fake_is_alive):
+						result = _kill_process(1234)
 
 			assert result is True
 			# Should have sent SIGTERM first, then SIGKILL after 10 sleeps

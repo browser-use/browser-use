@@ -696,8 +696,9 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					h['model_output'] = output_model.model_validate(h['model_output'])
 				else:
 					h['model_output'] = None
-			if 'interacted_element' not in h.get('state', {}):
-				h['state']['interacted_element'] = None
+			state = h.setdefault('state', {})
+			if 'interacted_element' not in state:
+				state['interacted_element'] = None
 
 		history = cls.model_validate(data)
 		return history
