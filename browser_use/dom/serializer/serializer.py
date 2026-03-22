@@ -619,6 +619,11 @@ class DOMTreeSerializer:
 		if not node:
 			return
 
+		# Initialize to False - will be set to True if conditions are met
+		should_make_interactive = False
+		is_file_input = False
+		is_shadow_dom_element = False
+
 		# Skip assigning index to excluded nodes, or ignored by paint order
 		if not node.excluded_by_parent and not node.ignored_by_paint_order:
 			# Regular interactive element assignment (including enhanced compound controls)
@@ -721,6 +726,41 @@ class DOMTreeSerializer:
 					previous_backend_node_ids = {node.backend_node_id for node in self._previous_cached_selector_map.values()}
 					if node.original_node.backend_node_id not in previous_backend_node_ids:
 						node.is_new = True
+
+		# LOG: If element is interactive but NOT being added to selector map
+		if not should_make_interactive:
+			is_interactive_check = self._is_interactive_cached(node.original_node)
+			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+
+			if is_interactive_check:
+				import logging
+
+				logger = logging.getLogger('browser_use.dom.serializer')
+				attrs = node.original_node.attributes or {}
+				element_tag = node.original_node.tag_name.lower() if node.original_node.tag_name else 'unknown'
+				element_id = attrs.get('id', '')
+				element_class = attrs.get('class', '')
+
+				reasons = []
+				if node.excluded_by_parent:
+					reasons.append('excluded_by_parent (bbox filtering)')
+				if node.ignored_by_paint_order:
+					reasons.append('ignored_by_paint_order (covered by overlay)')
+				if not is_visible and not is_file_input and not is_shadow_dom_element:
+					reasons.append('not_visible')
+				if not node.original_node.snapshot_node and not is_shadow_dom_element:
+					reasons.append('no_snapshot_node')
+
+				reason_str = ', '.join(reasons) if reasons else 'unknown'
+
+				logger.debug(
+					f'🔍 INTERACTIVE ELEMENT NOT ADDED: <{element_tag}> '
+					f'id="{element_id}" class="{element_class}" '
+					f'backendNodeId={node.original_node.backend_node_id} | '
+					f'Reason: {reason_str} | '
+					f'visible={is_visible} excluded_by_parent={node.excluded_by_parent} '
+					f'ignored_by_paint_order={node.ignored_by_paint_order}'
+				)
 
 		# Process children
 		for child in node.children:
@@ -835,6 +875,28 @@ class DOMTreeSerializer:
 				return False
 
 		# Default: exclude this child
+		# LOG: Element being excluded by bounding box filtering
+		import logging
+
+		logger = logging.getLogger('browser_use.dom.serializer')
+		attrs = node.original_node.attributes or {}
+		element_id = attrs.get('id', '')
+		element_class = attrs.get('class', '')
+		element_name = attrs.get('name', '')
+
+		logger.debug(
+			f'🔍 BBOX FILTER: Excluding element from selector_map - '
+			f'<{child_tag}> '
+			f'id="{element_id}" class="{element_class}" name="{element_name}" '
+			f'backendNodeId={node.original_node.backend_node_id} | '
+			f'Reason: Contained within propagating parent <{active_bounds.tag}> '
+			f'(nodeId={active_bounds.node_id}) | '
+			f'Child bounds: x={child_bounds.x:.1f} y={child_bounds.y:.1f} '
+			f'w={child_bounds.width:.1f} h={child_bounds.height:.1f} | '
+			f'Parent bounds: x={active_bounds.bounds.x:.1f} y={active_bounds.bounds.y:.1f} '
+			f'w={active_bounds.bounds.width:.1f} h={active_bounds.bounds.height:.1f}'
+		)
+
 		return True
 
 	def _is_contained(self, child: DOMRect, parent: DOMRect, threshold: float) -> bool:
