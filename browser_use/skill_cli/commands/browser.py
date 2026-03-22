@@ -19,6 +19,7 @@ COMMANDS = {
 	'back',
 	'screenshot',
 	'state',
+	'elements',
 	'switch',
 	'close-tab',
 	'keys',
@@ -99,6 +100,100 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 
 			result['live_url'] = f'https://live.browser-use.com/?wss={quote(bs.cdp_url, safe="")}'
 		return result
+
+	elif action == 'elements':
+		# 1. Navigate if URL is provided
+		url = params.get('url')
+		if url:
+			if not url.startswith(('http://', 'https://', 'file://')):
+				url = 'https://' + url
+			from browser_use.browser.events import NavigateToUrlEvent
+
+			await bs.event_bus.dispatch(NavigateToUrlEvent(url=url))
+			# Small grace period for page triggers to settle
+			await asyncio.sleep(1)
+
+		# 2. Get State with Screenshot
+		state = await bs.get_browser_state_summary(include_screenshot=True)
+		if state.dom_state is None:
+			return {'error': 'Failed to capture DOM state - page might be empty or loading.'}
+
+		selector_map = state.dom_state.selector_map
+
+		# 3. Filter by type if provided
+		filtered_selector_map = selector_map
+		types_filter = params.get('type')
+		if types_filter:
+			allowed_types = [t.strip().lower() for t in types_filter.split(',')]
+			filtered_selector_map = {}
+			for idx, node in selector_map.items():
+				tag = node.tag_name.lower()
+				# Expand aliases "links" -> 'a', "buttons" -> 'button'
+				resolved_tags = []
+				for t in allowed_types:
+					if t == 'links':
+						resolved_tags.append('a')
+					elif t == 'buttons':
+						resolved_tags.append('button')
+					else:
+						resolved_tags.append(t)
+				if tag in resolved_tags:
+					filtered_selector_map[idx] = node
+
+		# 4. Create Overlay Screenshot
+		from browser_use.browser.python_highlights import create_highlighted_screenshot_async
+
+		cdp_session = await bs.get_or_create_cdp_session(target_id=None, focus=False)
+		highlighted_b64 = state.screenshot
+		if state.screenshot:
+			try:
+				highlighted_b64 = await create_highlighted_screenshot_async(
+					state.screenshot, filtered_selector_map, cdp_session=cdp_session
+				)
+			except Exception as e:
+				logger.error(f'Failed to create highlighted screenshot for elements command: {e}')
+
+		# 5. Build output payload
+		elements_data = []
+		for idx, node in filtered_selector_map.items():
+			element_info = {
+				'index': idx,
+				'tag': node.tag_name,
+				'text': node.get_meaningful_text_for_llm(),
+				'xpath': node.xpath,
+				'attributes': dict(node.attributes or {}),
+			}
+			elements_data.append(element_info)
+
+		result_data: dict[str, Any] = {'elements': elements_data}
+		output_path = params.get('output')
+
+		# 6. Save or Return response
+		if output_path:
+			out_file = Path(output_path)
+			import json
+
+			# Ensure parent directory exists
+			await asyncio.to_thread(out_file.parent.mkdir, parents=True, exist_ok=True)
+			await asyncio.to_thread(out_file.write_text, json.dumps(result_data, indent=2), encoding='utf-8')
+
+			img_path = out_file.with_name(out_file.stem + '_overlay.png')
+			save_success = False
+			try:
+				decoded_img = base64.b64decode(highlighted_b64 or '')
+				await asyncio.to_thread(img_path.write_bytes, decoded_img)
+				save_success = True
+			except Exception as e:
+				logger.error(f'Failed to save overlay screenshot: {e}')
+
+			payload = {'saved_json': str(out_file), 'count': len(elements_data)}
+			if save_success:
+				payload['screenshot_overlay'] = str(img_path)
+			return payload
+
+		if highlighted_b64:
+			result_data['screenshot_overlay_b64'] = highlighted_b64[:100] + '...'  # Truncate for terminal representation
+		return result_data
 
 	elif action == 'click':
 		args = params.get('args', [])
