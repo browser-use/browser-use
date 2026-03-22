@@ -52,13 +52,14 @@ def _get_subcommand() -> str | None:
 # Handle 'install' command - installs Chromium browser + system dependencies
 if _get_subcommand() == 'install':
 	import platform
+	import shutil
 
 	print('📦 Installing Chromium browser + system dependencies...')
 	print('⏳ This may take a few minutes...\n')
 
-	# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
+	# Build command - only use --with-deps on Debian/Ubuntu Linux (apt-get required)
 	cmd = ['uvx', 'playwright', 'install', 'chromium']
-	if platform.system() == 'Linux':
+	if platform.system() == 'Linux' and shutil.which('apt-get'):
 		cmd.append('--with-deps')
 	cmd.append('--no-shell')
 
