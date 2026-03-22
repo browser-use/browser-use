@@ -222,8 +222,7 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 					chromium_path = Path.home() / '.config' / 'chromium'
 					if chromium_path.is_dir():
 						return str(chromium_path)
-					# chromium detected but no chromium directory — still prefer it over google-chrome
-					return str(chromium_path)
+					# chromium detected but no chromium directory — fall through to google-chrome
 				# Default to google-chrome for google-chrome variants
 				google_chrome_path = Path.home() / '.config' / 'google-chrome'
 				if google_chrome_path.is_dir():
