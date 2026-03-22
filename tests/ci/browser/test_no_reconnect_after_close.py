@@ -5,8 +5,6 @@ When an agent finishes (keep_alive=True) and the user manually closes Chrome,
 the CDP WebSocket-drop callback must NOT trigger auto-reconnect.
 """
 
-import asyncio
-
 import pytest
 
 from browser_use.browser.profile import BrowserProfile
@@ -71,8 +69,7 @@ class TestNoReconnectAfterClose:
 
 		# After reset, the flag must still be True (our fix)
 		assert session._intentional_stop is True, (
-			'reset() must not clear _intentional_stop; '
-			'delayed CDP callbacks could re-trigger auto-reconnect'
+			'reset() must not clear _intentional_stop; delayed CDP callbacks could re-trigger auto-reconnect'
 		)
 
 	async def test_start_clears_intentional_stop(self):
@@ -107,9 +104,7 @@ class TestNoReconnectAfterClose:
 		# Simulate what _on_message_handler_done checks
 		# This is the guard that must prevent reconnection
 		should_reconnect = not (session._intentional_stop or session._reconnecting or not session.cdp_url)
-		assert not should_reconnect, (
-			'With _intentional_stop=True, the WS drop callback must NOT trigger reconnection'
-		)
+		assert not should_reconnect, 'With _intentional_stop=True, the WS drop callback must NOT trigger reconnection'
 
 	async def test_sequential_reuse_after_fix(self):
 		"""Verify the session reuse pattern still works after the fix.
