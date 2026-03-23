@@ -689,25 +689,33 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
+		# Make a shallow copy to avoid mutating the caller's data dict
+		data = dict(data)
 		# Normalize history before iteration: use [] if missing or None
 		# (data.get('history') or []) handles both missing key AND explicit None
+		validated_history: list[dict[str, Any]] = []
 		for h in (data.get('history') or []):
-			if isinstance(h, dict) and 'model_output' in h:
+			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
+			if not isinstance(h, dict):
+				continue
+			if 'model_output' in h:
 				model_output = h['model_output']
 				if model_output is not None:
 					if isinstance(model_output, dict):
 						h['model_output'] = output_model.model_validate(model_output)
 					else:
 						h['model_output'] = None
-			elif isinstance(h, dict):
+			else:
 				h['model_output'] = None
-			state = h.get('state') if isinstance(h, dict) else None
+			state = h.get('state')
 			if not isinstance(state, dict):
 				state = {}
 				h['state'] = state
 			if 'interacted_element' not in state:
 				state['interacted_element'] = []
+			validated_history.append(h)
 
+		data['history'] = validated_history
 		history = cls.model_validate(data)
 		return history
 
