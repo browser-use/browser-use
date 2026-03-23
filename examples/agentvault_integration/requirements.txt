@@ -1,0 +1,22 @@
+# AgentVault Integration Requirements
+
+# Core dependencies
+browser-use>=0.1.0
+
+# AgentVault client library (for production use)
+# Install with: pip install agentvault
+# agentvault>=1.0.0
+
+# For this example (simulated vault)
+# No additional packages required - uses standard library
+
+# Optional: For better async support
+asyncio>=3.4.3
+
+# Optional: For type hints
+typing-extensions>=4.0.0
+
+# Development dependencies (optional)
+pytest>=7.0.0
+black>=22.0.0
+flake8>=4.0.0
