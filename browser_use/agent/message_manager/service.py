@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from typing import Literal
 
 from browser_use.agent.message_manager.views import (
@@ -46,20 +47,28 @@ def _log_get_message_emoji(message: BaseMessage) -> str:
 	return emoji_map.get(message.__class__.__name__, '🎮')
 
 
-def _log_format_message_line(message: BaseMessage, content: str, is_last_message: bool, terminal_width: int) -> list[str]:
+def _log_estimate_token_count(message: BaseMessage) -> int | None:
+	"""Estimate token count for a message when provider usage metadata is unavailable."""
+	text = message.text.strip()
+	if not text:
+		return None
+	return max(1, len(text) // 4)
+
+
+def _log_format_message_line(
+	message: BaseMessage, content: str, token_count: int | None, is_last_message: bool, terminal_width: int
+) -> list[str]:
 	"""Format a single message for logging display"""
 	try:
 		lines = []
 
 		# Get emoji and token info
 		emoji = _log_get_message_emoji(message)
-		# token_str = str(message.metadata.tokens).rjust(4)
-		# TODO: fix the token count
-		token_str = '??? (TODO)'
+		token_str = str(token_count).rjust(4) if token_count is not None else '   ?'
 		prefix = f'{emoji}[{token_str}]: '
 
 		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)
-		content_width = terminal_width - 10
+		content_width = max(10, terminal_width - 10)
 
 		# Handle last message wrapping
 		if is_last_message and len(content) > content_width:
@@ -501,47 +510,38 @@ class MessageManager:
 
 	def _log_history_lines(self) -> str:
 		"""Generate a formatted log string of message history for debugging / printing to terminal"""
-		# TODO: fix logging
+		try:
+			total_input_tokens = 0
+			message_lines: list[str] = []
+			messages = self.state.history.get_messages()
+			terminal_width = shutil.get_terminal_size((80, 20)).columns
 
-		# try:
-		# 	total_input_tokens = 0
-		# 	message_lines = []
-		# 	terminal_width = shutil.get_terminal_size((80, 20)).columns
+			for i, message in enumerate(messages):
+				try:
+					is_last_message = i == len(messages) - 1
+					token_count = _log_estimate_token_count(message)
+					if token_count is not None:
+						total_input_tokens += token_count
 
-		# 	for i, m in enumerate(self.state.history.messages):
-		# 		try:
-		# 			total_input_tokens += m.metadata.tokens
-		# 			is_last_message = i == len(self.state.history.messages) - 1
+					content = message.text
+					lines = _log_format_message_line(message, content, token_count, is_last_message, terminal_width)
+					message_lines.extend(lines)
+				except Exception as e:
+					logger.warning(f'Failed to format message {i} for logging: {e}')
+					message_lines.append('❓[   ?]: [Error formatting this message]')
 
-		# 			# Extract content for logging
-		# 			content = _log_extract_message_content(m.message, is_last_message, m.metadata)
-
-		# 			# Format the message line(s)
-		# 			lines = _log_format_message_line(m, content, is_last_message, terminal_width)
-		# 			message_lines.extend(lines)
-		# 		except Exception as e:
-		# 			logger.warning(f'Failed to format message {i} for logging: {e}')
-		# 			# Add a fallback line for this message
-		# 			message_lines.append('❓[   ?]: [Error formatting this message]')
-
-		# 	# Build final log message
-		# 	return (
-		# 		f'📜 LLM Message history ({len(self.state.history.messages)} messages, {total_input_tokens} tokens):\n'
-		# 		+ '\n'.join(message_lines)
-		# 	)
-		# except Exception as e:
-		# 	logger.warning(f'Failed to generate history log: {e}')
-		# 	# Return a minimal fallback message
-		# 	return f'📜 LLM Message history (error generating log: {e})'
-
-		return ''
+			return f'📜 LLM Message history ({len(messages)} messages, {total_input_tokens} tokens):\n' + '\n'.join(message_lines)
+		except Exception as e:
+			logger.warning(f'Failed to generate history log: {e}')
+			return f'📜 LLM Message history (error generating log: {e})'
 
 	@time_execution_sync('--get_messages')
 	def get_messages(self) -> list[BaseMessage]:
 		"""Get current message list, potentially trimmed to max tokens"""
 
 		# Log message history for debugging
-		logger.debug(self._log_history_lines())
+		if logger.isEnabledFor(logging.DEBUG):
+			logger.debug(self._log_history_lines())
 		self.last_input_messages = self.state.history.get_messages()
 		return self.last_input_messages
 
