@@ -184,7 +184,9 @@ We optimized **ChatBrowserUse()** specifically for browser automation tasks. On 
 - Cached input tokens: $0.02
 - Output tokens: $2.00
 
-For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
+For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/open-source/supported-models).
+
+If you're using open-source Browser Use fine-tuned models (for example `browser-use/bu-30b-a3b-preview`), keep the default Browser Use system prompt enabled. For general/non-fine-tuned models, run a short smoke task first; if action formatting is unstable, add explicit action-schema examples to your prompt.
 </details>
 
 <details>
