@@ -313,7 +313,7 @@ class TestKillProcessUnix:
 			assert mock_kill.call_count == 2
 			mock_kill.assert_any_call(1234, 15)  # SIGTERM
 			mock_kill.assert_any_call(1234, 9)  # SIGKILL
-			assert call_count[0] == 11  # 10 alive checks during grace + 1 final check
+			assert call_count[0] == 10  # 10 alive checks during grace period (then SIGKILL)
 		finally:
 			sys.platform = original_platform
 
