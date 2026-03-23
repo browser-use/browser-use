@@ -238,15 +238,15 @@ class BrowserUseServer:
 						'properties': {
 							'index': {
 								'type': 'integer',
-								'description': 'The index of the element to click (from browser_get_state). Use this OR coordinates.',
+								'description': 'The index of the element to click (from browser_get_state). Provide this OR coordinate_x+coordinate_y.',
 							},
 							'coordinate_x': {
 								'type': 'integer',
-								'description': 'X coordinate (pixels from left edge of viewport). Use with coordinate_y.',
+								'description': 'X coordinate in pixels from the left edge of the viewport. Must be used together with coordinate_y. Provide this OR index.',
 							},
 							'coordinate_y': {
 								'type': 'integer',
-								'description': 'Y coordinate (pixels from top edge of viewport). Use with coordinate_x.',
+								'description': 'Y coordinate in pixels from the top edge of the viewport. Must be used together with coordinate_x. Provide this OR index.',
 							},
 							'new_tab': {
 								'type': 'boolean',
@@ -254,10 +254,6 @@ class BrowserUseServer:
 								'default': False,
 							},
 						},
-						'oneOf': [
-							{'required': ['index']},
-							{'required': ['coordinate_x', 'coordinate_y']},
-						],
 					},
 				),
 				types.Tool(
