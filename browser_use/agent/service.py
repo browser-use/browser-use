@@ -205,6 +205,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
+		enable_signal_handler: bool = True,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -419,6 +420,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.token_cost_service.register_llm(judge_llm)
 		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
 			self.token_cost_service.register_llm(self.settings.message_compaction.compaction_llm)
+
+		# Store signal handler setting (not part of AgentSettings as it's runtime behavior)
+		self.enable_signal_handler = enable_signal_handler
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -2493,6 +2497,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			resume_callback=self.resume,
 			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
 			exit_on_second_int=True,
+			disabled=not self.enable_signal_handler,
 		)
 		signal_handler.register()
 
