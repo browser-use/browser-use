@@ -24,7 +24,7 @@ from asyncio import base_subprocess
 _original_del = base_subprocess.BaseSubprocessTransport.__del__
 
 
-def _patched_del(self):
+def _patched_del(self: base_subprocess.BaseSubprocessTransport) -> None:
 	"""Patched __del__ that handles closed event loops without throwing noisy red-herring errors like RuntimeError: Event loop is closed"""
 	try:
 		# Check if the event loop is closed before calling the original
