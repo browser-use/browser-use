@@ -147,6 +147,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
+		final_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
 			Callable[['BrowserStateSummary', 'AgentOutput', int], None]  # Sync callback
@@ -456,6 +457,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.initial_url = initial_url
 
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
+		self._final_actions_dicts = final_actions
+		self._final_actions_executed = False
 		# Verify we can connect to the model
 		self._verify_and_setup_llm()
 
@@ -988,6 +991,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Reset control flags so agent can continue
 		self.state.stopped = False
 		self.state.paused = False
+		self._final_actions_executed = False
 		agent_id_suffix = str(self.id)[-4:].replace('-', '_')
 		if agent_id_suffix and agent_id_suffix[0].isdigit():
 			agent_id_suffix = 'a' + agent_id_suffix
@@ -2244,6 +2248,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self.step(step_info)
 
 		if self.history.is_done():
+			# Execute final actions before completion callbacks
+			await self._execute_final_actions()
+
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled
@@ -2445,6 +2452,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await on_step_end(self)
 
 		if self.history.is_done():
+			# Execute final actions before completion callbacks
+			await self._execute_final_actions()
+
 			await self.log_completion()
 
 			# Run full judge before done callback if enabled
@@ -3269,6 +3279,42 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.history.add_item(history_item)
 			self.logger.debug('📝 Saved initial actions to history as step 0')
 			self.logger.debug('Initial actions completed')
+
+	async def _execute_final_actions(self) -> None:
+		"""Execute final actions before the agent finishes, if provided.
+
+		Final actions run exactly once after the agent calls done. They do NOT
+		modify agent history so that history[-1] semantics (is_done, is_successful,
+		final_result, judgement) remain correct for downstream consumers.
+
+		Errors in final actions are logged but never prevent done_callback or
+		judge from running.
+		"""
+		if not self._final_actions_dicts or self._final_actions_executed:
+			return
+
+		self._final_actions_executed = True
+
+		try:
+			# Convert lazily so that ActionModel is fully built (including skills)
+			final_actions = self._convert_initial_actions(self._final_actions_dicts)
+
+			self.logger.info(f'⚡ Executing {len(final_actions)} final actions...')
+			result = await self.multi_act(final_actions)
+
+			# Log results but do NOT append to history — appending would make
+			# history[-1] point to the final_actions step instead of the done
+			# step, breaking is_done(), is_successful(), final_result(), and
+			# _judge_and_log() which all rely on history[-1].
+			errors = [r.error for r in result if r.error]
+			if errors:
+				self.logger.warning(f'⚠️ Final actions completed with errors: {errors}')
+			else:
+				self.logger.info('✅ Final actions completed successfully')
+		except Exception as e:
+			self.logger.error(f'❌ Final actions failed: {type(e).__name__}: {e}')
+			# Swallow the exception — final actions must never prevent
+			# done_callback, judge, or log_completion from running.
 
 	async def _wait_for_minimum_elements(
 		self,
