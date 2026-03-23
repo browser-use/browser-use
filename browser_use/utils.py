@@ -77,6 +77,7 @@ class SignalHandler:
 	- Management of event loop state across signals
 	- Standardized handling of first and second Ctrl+C presses
 	- Cross-platform compatibility (with simplified behavior on Windows)
+	- Option to respect existing host application signal handlers
 	"""
 
 	def __init__(
@@ -87,6 +88,7 @@ class SignalHandler:
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
 		interruptible_task_patterns: list[str] | None = None,
+		respect_host_handlers: bool = True,
 	):
 		"""
 		Initialize the signal handler.
@@ -99,6 +101,9 @@ class SignalHandler:
 			exit_on_second_int: Whether to exit on second SIGINT (Ctrl+C)
 			interruptible_task_patterns: List of patterns to match task names that should be
 										 canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
+			respect_host_handlers: If True (default), check for existing signal handlers before
+								   overriding them. This allows browser-use to be embedded in applications
+								   that manage their own signal lifecycle (e.g., uvicorn, FastAPI).
 		"""
 		self.loop = loop or asyncio.get_event_loop()
 		self.pause_callback = pause_callback
@@ -106,6 +111,7 @@ class SignalHandler:
 		self.custom_exit_callback = custom_exit_callback
 		self.exit_on_second_int = exit_on_second_int
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
+		self.respect_host_handlers = respect_host_handlers
 		self.is_windows = platform.system() == 'Windows'
 
 		# Initialize loop state attributes
@@ -115,13 +121,45 @@ class SignalHandler:
 		self.original_sigint_handler = None
 		self.original_sigterm_handler = None
 
+	def _has_existing_handler(self) -> bool:
+		"""Check if the host application has already installed a custom signal handler.
+
+		Returns True if there's an existing non-default handler for SIGINT.
+		"""
+		try:
+			current_handler = signal.getsignal(signal.SIGINT)
+			# Check if it's not the default handler
+			if current_handler is None:
+				return False
+			if current_handler == signal.default_int_handler:
+				return False
+			# On Windows, SIG_DFL is the default
+			if current_handler == signal.SIG_DFL:
+				return False
+			# Check if it's a callable (custom handler)
+			return callable(current_handler)
+		except (ValueError, OSError):
+			# Signal operations may fail in some environments (e.g., threads)
+			return False
+
 	def _initialize_loop_state(self) -> None:
 		"""Initialize loop state attributes used for signal handling."""
 		setattr(self.loop, 'ctrl_c_pressed', False)
 		setattr(self.loop, 'waiting_for_input', False)
 
 	def register(self) -> None:
-		"""Register signal handlers for SIGINT and SIGTERM."""
+		"""Register signal handlers for SIGINT and SIGTERM.
+
+		If respect_host_handlers is True (default), this method will check for existing
+		signal handlers and skip registration if the host application has already
+		installed custom handlers. This allows browser-use to be embedded in server
+		frameworks like uvicorn or FastAPI without interfering with their signal lifecycle.
+		"""
+		# Check if we should respect existing host handlers
+		if self.respect_host_handlers and self._has_existing_handler():
+			logger.debug('Skipping signal handler registration - host application has existing handler')
+			return
+
 		try:
 			if self.is_windows:
 				# On Windows, use simple signal handling with immediate exit on Ctrl+C
