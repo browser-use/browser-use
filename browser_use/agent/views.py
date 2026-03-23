@@ -691,11 +691,15 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
 		# loop through history and validate output_model actions to enrich with custom actions
 		for h in data.get('history', []):
-			if isinstance(h, dict) and 'model_output' in h and h['model_output'] is not None:
-				if isinstance(h['model_output'], dict):
-					h['model_output'] = output_model.model_validate(h['model_output'])
-				else:
-					h['model_output'] = None
+			if isinstance(h, dict) and 'model_output' in h:
+				model_output = h['model_output']
+				if model_output is not None:
+					if isinstance(model_output, dict):
+						h['model_output'] = output_model.model_validate(model_output)
+					else:
+						h['model_output'] = None
+			elif isinstance(h, dict):
+				h['model_output'] = None
 			state = h.get('state') if isinstance(h, dict) else None
 			if not isinstance(state, dict):
 				state = {}
