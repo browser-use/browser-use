@@ -86,7 +86,7 @@ class AgentSettings(BaseModel):
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
 	# Loop detection settings
-	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
+	loop_detection_window: int = 30  # Rolling window size for action similarity tracking
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
 
@@ -163,7 +163,7 @@ class ActionLoopDetector(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	# Rolling window of recent action hashes
-	window_size: int = 20
+	window_size: int = 30
 	recent_action_hashes: list[str] = Field(default_factory=list)
 
 	# Page fingerprint tracking for stagnation detection
@@ -211,22 +211,22 @@ class ActionLoopDetector(BaseModel):
 		"""Return an escalating awareness nudge based on repetition severity, or None if no loop detected."""
 		messages: list[str] = []
 
-		# Action repetition nudges (escalating at 5, 8, 12)
-		if self.max_repetition_count >= 12:
+		# Action repetition nudges (escalating at 8, 12, 16)
+		if self.max_repetition_count >= 16:
 			messages.append(
 				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
 				f'in the last {len(self.recent_action_hashes)} actions. '
 				'If you are making progress with each repetition, keep going. '
 				'If not, a different approach might get you there faster.'
 			)
-		elif self.max_repetition_count >= 8:
+		elif self.max_repetition_count >= 12:
 			messages.append(
 				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
 				f'in the last {len(self.recent_action_hashes)} actions. '
 				'Are you still making progress with each attempt? '
 				'If so, carry on. Otherwise, it might be worth trying a different approach.'
 			)
-		elif self.max_repetition_count >= 5:
+		elif self.max_repetition_count >= 8:
 			messages.append(
 				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
 				f'in the last {len(self.recent_action_hashes)} actions. '
@@ -235,7 +235,7 @@ class ActionLoopDetector(BaseModel):
 			)
 
 		# Page stagnation nudge
-		if self.consecutive_stagnant_pages >= 5:
+		if self.consecutive_stagnant_pages >= 8:
 			messages.append(
 				f'The page content has not changed across {self.consecutive_stagnant_pages} consecutive actions. '
 				'Your actions might not be having the intended effect. '
