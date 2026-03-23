@@ -124,7 +124,7 @@ CHROME_DEFAULT_ARGS = [
 	'--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
 	'--disable-breakpad',
 	'--disable-client-side-phishing-detection',
-	'--disable-component-extensions-with-background-pages',
+	# '--disable-component-extensions-with-background-pages',  # kills user-loaded extensions on Chrome 145+
 	'--disable-component-update',  # Avoids unneeded network activity after startup.
 	'--no-default-browser-check',
 	# '--disable-default-apps',
@@ -150,7 +150,7 @@ CHROME_DEFAULT_ARGS = [
 	# added by us:
 	'--enable-features=NetworkService,NetworkServiceInProcess',
 	'--enable-network-information-downlink-max',
-	'--test-type=gpu',
+	# '--test-type=gpu',  # blocks unpacked extension loading on Chrome 145+
 	'--disable-sync',
 	'--allow-legacy-extension-manifests',
 	'--allow-pre-commit-input',
@@ -937,6 +937,25 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 		return args
 
+	@staticmethod
+	def _check_extension_manifest_version(ext_dir: Path, ext_name: str) -> bool:
+		"""Check that an extension uses Manifest V3. Returns False for MV2 extensions (unsupported by Chrome 145+)."""
+		import json
+
+		manifest_path = ext_dir / 'manifest.json'
+		if not manifest_path.exists():
+			return False
+		try:
+			with open(manifest_path, encoding='utf-8') as f:
+				manifest = json.load(f)
+			mv = manifest.get('manifest_version', 2)
+			if mv < 3:
+				logger.warning(f'Skipping {ext_name} extension: Manifest V{mv} is no longer supported by Chrome')
+				return False
+			return True
+		except Exception:
+			return False
+
 	def _ensure_default_extensions_downloaded(self) -> list[str]:
 		"""
 		Ensure default extensions are downloaded and cached locally.
@@ -944,22 +963,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""
 
 		# Extension definitions - optimized for automation and content extraction
-		# Combines uBlock Origin (ad blocking) + "I still don't care about cookies" (cookie banner handling)
+		# uBlock Origin Lite (ad blocking, MV3) + "I still don't care about cookies" (cookie banner handling)
 		extensions = [
 			{
-				'name': 'uBlock Origin',
-				'id': 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dcjpalhdlnbpafiamejdnhcphjbkeiagm%26uc',
+				'name': 'uBlock Origin Lite',
+				'id': 'ddkjiahejlhfcafbddmgiahcphecmpfh',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dddkjiahejlhfcafbddmgiahcphecmpfh%26uc',
 			},
 			{
 				'name': "I still don't care about cookies",
 				'id': 'edibdbjcniadpccecjdfdjjppcpchdlm',
 				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
-			},
-			{
-				'name': 'ClearURLs',
-				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
 			},
 			{
 				'name': 'Force Background Tab',
@@ -998,7 +1012,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 			# Check if extension is already extracted
 			if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
-				# logger.debug(f'✅ Using cached {ext["name"]} extension from {_log_pretty_path(ext_dir)}')
+				if not self._check_extension_manifest_version(ext_dir, ext['name']):
+					continue
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
 				continue
@@ -1014,6 +1029,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				# Extract extension
 				logger.info(f'📂 Extracting {ext["name"]} extension...')
 				self._extract_extension(crx_file, ext_dir)
+
+				if not self._check_extension_manifest_version(ext_dir, ext['name']):
+					continue
 
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
