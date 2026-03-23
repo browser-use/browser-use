@@ -698,7 +698,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					h['model_output'] = output_model.model_validate(model_output)
 				else:
 					h['model_output'] = None
-			state = h.get('state', {})
+			state = h.get('state') or {}
 			if 'interacted_element' not in state:
 				state['interacted_element'] = None
 				h['state'] = state
