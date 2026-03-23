@@ -85,7 +85,7 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
-	temperature: float | None = 0.5
+	temperature: float | None = None
 	top_p: float | None = None
 	seed: int | None = None
 	thinking_budget: int | None = None  # for Gemini 2.5: -1 for dynamic (default), 0 disables, or token count
@@ -222,6 +222,8 @@ class ChatGoogle(BaseChatModel):
 		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
+		else:
+			config['temperature'] = 1.0 if 'gemini-3' in self.model else 0.5
 
 		# Add system instruction if present
 		if system_instruction:
