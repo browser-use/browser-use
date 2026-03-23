@@ -220,6 +220,7 @@ class BrowserSession(BaseModel):
 		captcha_solver: bool | None = None,
 		window_size: dict | None = None,
 		window_position: dict | None = None,
+		manage_window_size: bool | None = None,
 		filter_highlight_ids: bool | None = None,
 		profile_directory: str | None = None,
 	) -> None: ...
@@ -287,6 +288,7 @@ class BrowserSession(BaseModel):
 		captcha_solver: bool | None = None,
 		window_size: dict | None = None,
 		window_position: dict | None = None,
+		manage_window_size: bool | None = None,
 		minimum_wait_page_load_time: float | None = None,
 		wait_for_network_idle_page_load_time: float | None = None,
 		wait_between_actions: float | None = None,
