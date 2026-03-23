@@ -19,12 +19,12 @@ class TestGetChromeUserDataDirs:
 	"""Test get_chrome_user_data_dirs() correctly filters by is_dir()."""
 
 	def test_linux_returns_only_existing_dirs(self):
-		"""Only directories that actually exist (is_dir returns True) are returned.
+		"""Only directories that the mocked is_dir reports as existing are returned.
 
-		The key issue this tests resolves: a naive mock that calls self.exists()
-		inside the fake is_dir function causes infinite recursion because
-		exists() internally uses is_dir(). The correct approach stores the real
-		Path.is_dir method and calls it via a side_effect that bypasses the mock.
+		This test patches Path.is_dir with a tracking function that records all
+		candidate paths checked and returns True only for a predefined set of
+		Linux Chrome/Chromium user-data directories. The result should include
+		only those mocked-as-existing directories.
 		"""
 
 		def fake_is_dir(self):
@@ -119,11 +119,13 @@ class TestIsChromiumBrowser:
 		assert _is_chromium_browser('/usr/bin/google-chrome') is False
 		assert _is_chromium_browser('/usr/bin/google-chrome-stable') is False
 
-	def test_brave_returns_true(self):
-		assert _is_chromium_browser('/usr/bin/brave-browser') is True
+	def test_brave_returns_false(self):
+		"""Brave is handled via explicit mapping in get_chrome_profile_path(), not via _is_chromium_browser."""
+		assert _is_chromium_browser('/usr/bin/brave-browser') is False
 
-	def test_edge_returns_true(self):
-		assert _is_chromium_browser('/usr/bin/microsoft-edge') is True
+	def test_edge_returns_false(self):
+		"""Edge is handled via explicit mapping in get_chrome_profile_path(), not via _is_chromium_browser."""
+		assert _is_chromium_browser('/usr/bin/microsoft-edge') is False
 
 	def test_windows_chrome_returns_false(self):
 		assert _is_chromium_browser('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe') is False
