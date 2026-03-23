@@ -689,15 +689,42 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
+		# Handle missing/None history gracefully
+		history_data = data.get('history')
+		if history_data is None:
+			data = dict(data)
+			data['history'] = []
+			history_data = []
+
 		# loop through history and validate output_model actions to enrich with custom actions
-		for h in data.get('history', []):
-			if h.get('model_output'):
-				if isinstance(h['model_output'], dict):
-					h['model_output'] = output_model.model_validate(h['model_output'])
+		for h in history_data:
+			# Skip if h is not a dict (e.g., None or other invalid types)
+			if not isinstance(h, dict):
+				continue
+
+			# Handle model_output: normalize to None if missing, empty, or invalid
+			# Catch ValidationError and other exceptions to prevent crashes
+			model_output = h.get('model_output')
+			if model_output:
+				if isinstance(model_output, dict):
+					try:
+						h['model_output'] = output_model.model_validate(model_output)
+					except Exception:
+						# Normalize to None if validation fails
+						h['model_output'] = None
 				else:
 					h['model_output'] = None
-			if 'interacted_element' not in h.get('state', {}):
-				h.setdefault('state', {})['interacted_element'] = None
+			else:
+				h['model_output'] = None
+
+			# Handle state: normalize to empty dict if missing, None, or not a dict
+			# Use setdefault to properly handle existing None or invalid values
+			h['state'] = h.get('state') or {}
+			if not isinstance(h['state'], dict):
+				h['state'] = {}
+			state = h['state']
+			if 'interacted_element' not in state:
+				state['interacted_element'] = None
 
 		history = cls.model_validate(data)
 		return history
