@@ -213,7 +213,32 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 		if system == 'Darwin':
 			return str(Path.home() / 'Library' / 'Application Support' / 'Google' / 'Chrome')
 		elif system == 'Linux':
-			return str(Path.home() / '.config' / 'google-chrome')
+			# Use the detected Chrome executable to determine the correct user-data path
+			# This ensures we don't pair e.g., Google Chrome executable with Chromium profile
+			executable = find_chrome_executable()
+			if executable:
+				executable_basename = os.path.basename(executable).lower()
+				if 'chromium' in executable_basename:
+					chromium_path = Path.home() / '.config' / 'chromium'
+					if chromium_path.is_dir():
+						return str(chromium_path)
+					# chromium detected but no chromium directory — fall through to google-chrome
+				# Default to google-chrome for google-chrome variants
+				google_chrome_path = Path.home() / '.config' / 'google-chrome'
+				if google_chrome_path.is_dir():
+					return str(google_chrome_path)
+				# Fall back to chromium if google-chrome doesn't exist
+				chromium_path = Path.home() / '.config' / 'chromium'
+				if chromium_path.is_dir():
+					return str(chromium_path)
+			# Fallback: no executable detected — check which paths actually exist
+			google_chrome_path = Path.home() / '.config' / 'google-chrome'
+			chromium_path = Path.home() / '.config' / 'chromium'
+			if google_chrome_path.is_dir():
+				return str(google_chrome_path)
+			if chromium_path.is_dir():
+				return str(chromium_path)
+			return str(google_chrome_path)
 		elif system == 'Windows':
 			return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')
 	else:
