@@ -231,11 +231,14 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 				chromium_path = Path.home() / '.config' / 'chromium'
 				if chromium_path.is_dir():
 					return str(chromium_path)
-			# Fallback: check both paths and prefer chromium if it exists
+			# Fallback: no executable detected — check which paths actually exist
+			google_chrome_path = Path.home() / '.config' / 'google-chrome'
 			chromium_path = Path.home() / '.config' / 'chromium'
+			if google_chrome_path.is_dir():
+				return str(google_chrome_path)
 			if chromium_path.is_dir():
 				return str(chromium_path)
-			return str(Path.home() / '.config' / 'google-chrome')
+			return str(google_chrome_path)
 		elif system == 'Windows':
 			return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')
 	else:

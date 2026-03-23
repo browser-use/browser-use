@@ -1,11 +1,16 @@
 """Tests for skill_cli/utils.py."""
 
+import pathlib
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from browser_use.skill_cli.utils import get_chrome_profile_path
+
+
+# Cache the real is_dir before any mock can shadow it
+_real_is_dir = pathlib.Path.is_dir
 
 
 def _make_linux_is_dir_mock(chromium_dir=True, google_chrome_dir=True):
@@ -17,8 +22,9 @@ def _make_linux_is_dir_mock(chromium_dir=True, google_chrome_dir=True):
 			return chromium_dir
 		if name == 'google-chrome':
 			return google_chrome_dir
-		# For other paths (e.g., sock_file), fall back to real is_dir
-		return Path(self_path).exists() and Path(self_path).is_dir()
+		# For other paths (e.g., sock_file), fall back to the real is_dir
+		# by calling pathlib.Path.is_dir directly to avoid mock recursion
+		return _real_is_dir(Path(self_path))
 
 	return mock_is_dir
 
