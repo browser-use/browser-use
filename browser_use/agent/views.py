@@ -689,8 +689,9 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
-		# loop through history and validate output_model actions to enrich with custom actions
-		for h in data.get('history', []):
+		# Normalize history before iteration: use [] if missing or None
+		# (data.get('history') or []) handles both missing key AND explicit None
+		for h in (data.get('history') or []):
 			if isinstance(h, dict) and 'model_output' in h:
 				model_output = h['model_output']
 				if model_output is not None:
