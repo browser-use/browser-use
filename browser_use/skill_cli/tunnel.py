@@ -18,6 +18,8 @@ import os
 import re
 import shutil
 import signal
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -156,21 +158,50 @@ def _is_process_alive(pid: int) -> bool:
 
 
 def _kill_process(pid: int) -> bool:
-	"""Kill a process by PID. Returns True if killed, False if already dead."""
-	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+	"""Kill a process by PID. Returns True if killed, False otherwise (not alive or insufficient privileges)."""
+	if sys.platform == 'win32':
+		import ctypes
+		from ctypes import wintypes
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
-	except (OSError, ProcessLookupError):
+		PROCESS_TERMINATE = 0x0001
+		TerminateProcess = ctypes.windll.kernel32.TerminateProcess
+		TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+		TerminateProcess.restype = wintypes.BOOL
+		CloseHandle = ctypes.windll.kernel32.CloseHandle
+		CloseHandle.argtypes = [wintypes.HANDLE]
+		OpenProcess = ctypes.windll.kernel32.OpenProcess
+		OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+		OpenProcess.restype = wintypes.HANDLE
+
+		handle = OpenProcess(PROCESS_TERMINATE, False, pid)
+		if handle:
+			success = TerminateProcess(handle, 1)
+			if success:
+				# Wait up to ~1s for the process to actually exit, mirroring non-Windows behavior
+				for _ in range(10):
+					if not _is_process_alive(pid):
+						CloseHandle(handle)
+						return True
+					time.sleep(0.1)
+				# Process still alive after timeout
+				CloseHandle(handle)
+				return False
+			CloseHandle(handle)
+			return False
 		return False
+	else:
+		try:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 # =============================================================================
