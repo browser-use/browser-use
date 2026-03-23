@@ -90,6 +90,9 @@ class AgentSettings(BaseModel):
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
 
+	# Signal handling settings
+	enable_signal_handling: bool = True  # If False, disables SIGINT/SIGTERM signal handlers (for server embeddings)
+
 
 class PageFingerprint(BaseModel):
 	"""Lightweight fingerprint of the browser page state."""
