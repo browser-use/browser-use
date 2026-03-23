@@ -28,7 +28,6 @@ dependencies = [
     "screeninfo==0.8.1; platform_system != 'darwin'",
     "typing-extensions==4.15.0",
     "uuid7==0.1.0",
-    "authlib==1.6.6",
     "google-genai==1.65.0",
     "openai==2.16.0",
     "anthropic==0.76.0",
@@ -38,11 +37,11 @@ dependencies = [
     "google-auth==2.48.0",
     "google-auth-oauthlib==1.2.4",
     "mcp==1.26.0",
-    "pypdf==6.6.2",
+    "pypdf==6.9.1",
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
     "pyotp==2.9.0",
-    "pillow==12.1.0",
+    "pillow==12.1.1",
     "cloudpickle==3.1.2",
     "markdownify==1.2.2",
     "python-docx==1.2.0",
@@ -61,7 +60,6 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = ["textual==7.4.0"]
-code = ["matplotlib==3.10.8", "numpy==2.4.1", "pandas==3.0.0", "tabulate==0.9.0"]
 aws = ["boto3==1.42.37"]
 oci = ["oci==2.166.0"]
 video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
@@ -172,7 +170,6 @@ include = [
     "!browser_use/**/tests/*.py",
     "!browser_use/**/tests.py",
 	"browser_use/agent/system_prompts/*.md",
-    "browser_use/code_use/system_prompt.md",
     "browser_use/cli_templates/*.py",
     "browser_use/py.typed",
     "browser_use/dom/**/*.js",

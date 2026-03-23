@@ -3599,7 +3599,10 @@ class BrowserSession(BaseModel):
 					continue  # Skip if no session available
 			else:
 				# Get cached session for this target (don't change focus - iterating frames)
-				cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				try:
+					cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				except ValueError:
+					continue  # Target may have detached between discovery and session creation
 
 			if cdp_session:
 				target_sessions[target_id] = cdp_session.session_id
