@@ -1072,37 +1072,28 @@ class Element:
 	async def _focus_element_simple(
 		self, backend_node_id: int, object_id: str, cdp_client, session_id: str, input_coordinates=None
 	) -> bool:
-		"""Focus element using multiple strategies with robust fallbacks."""
-		try:
-			# Strategy 1: CDP focus (most reliable)
-			logger.debug('Focusing element using CDP focus')
-			await cdp_client.send.DOM.focus(params={'backendNodeId': backend_node_id}, session_id=session_id)
-			logger.debug('Element focused successfully using CDP focus')
-			return True
-		except Exception as e:
-			logger.debug(f'CDP focus failed: {e}, trying JavaScript focus')
+		"""Focus element using multiple strategies with robust fallbacks.
+		Prioritizes clicking over DOM focus to trigger autocomplete dropdowns properly."""
 
+		# Strategy 1: Click to focus (Best for triggering dropdowns)
 		try:
-			# Strategy 2: JavaScript focus (fallback)
-			logger.debug('Focusing element using JavaScript focus')
-			await cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { this.focus(); }',
-					'objectId': object_id,
-				},
-				session_id=session_id,
-			)
-			logger.debug('Element focused successfully using JavaScript')
-			return True
-		except Exception as e:
-			logger.debug(f'JavaScript focus failed: {e}, trying click focus')
-
-		try:
-			# Strategy 3: Click to focus (last resort)
 			if input_coordinates:
 				logger.debug(f'Focusing element by clicking at coordinates: {input_coordinates}')
 				center_x = input_coordinates['input_x']
 				center_y = input_coordinates['input_y']
+
+				# Move mouse to element first for realism
+				await cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseMoved',
+						'x': center_x,
+						'y': center_y,
+					},
+					session_id=session_id,
+				)
+				import asyncio
+
+				await asyncio.sleep(0.05)
 
 				# Click on the element to focus it
 				await cdp_client.send.Input.dispatchMouseEvent(
@@ -1115,6 +1106,7 @@ class Element:
 					},
 					session_id=session_id,
 				)
+				await asyncio.sleep(0.05)
 				await cdp_client.send.Input.dispatchMouseEvent(
 					params={
 						'type': 'mouseReleased',
@@ -1128,9 +1120,34 @@ class Element:
 				logger.debug('Element focused using click')
 				return True
 			else:
-				logger.debug('No coordinates available for click focus')
+				logger.debug('No coordinates available for click focus, falling back to CDP focus')
+		except Exception as e:
+			logger.debug(f'Click focus failed: {e}, trying CDP focus')
+
+		# Strategy 2: CDP focus (reliable fallback)
+		try:
+			logger.debug('Focusing element using CDP focus')
+			await cdp_client.send.DOM.focus(params={'backendNodeId': backend_node_id}, session_id=session_id)
+			logger.debug('Element focused successfully using CDP focus')
+			return True
+		except Exception as e:
+			logger.debug(f'CDP focus failed: {e}, trying JavaScript focus')
+
+		# Strategy 3: JavaScript focus (last resort)
+		try:
+			logger.debug('Focusing element using JavaScript focus')
+			await cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': 'function() { this.focus(); }',
+					'objectId': object_id,
+				},
+				session_id=session_id,
+			)
+			logger.debug('Element focused successfully using JavaScript')
+			return True
 		except Exception as e:
 			logger.warning(f'All focus strategies failed: {e}')
+
 		return False
 
 	async def get_basic_info(self) -> ElementInfo:
