@@ -46,6 +46,24 @@ def _log_get_message_emoji(message: BaseMessage) -> str:
 	return emoji_map.get(message.__class__.__name__, '🎮')
 
 
+def _estimate_tokens(text: str) -> int:
+	"""Estimate token count based on text length.
+
+	Uses a simple heuristic: ~4 characters per token for English text.
+	This is an approximation - for accurate counts, use a proper tokenizer.
+	"""
+	if not text:
+		return 0
+	# Basic estimation: split by whitespace and count, then adjust for avg word length
+	# This gives a rough approximation suitable for logging display
+	words = text.split()
+	if words:
+		# Average English word is ~5 chars + 1 space = 6 chars/word
+		# 4 chars per token is a common heuristic
+		return len(text) // 4
+	return 0
+
+
 def _log_format_message_line(message: BaseMessage, content: str, is_last_message: bool, terminal_width: int) -> list[str]:
 	"""Format a single message for logging display"""
 	try:
@@ -53,9 +71,9 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 
 		# Get emoji and token info
 		emoji = _log_get_message_emoji(message)
-		# token_str = str(message.metadata.tokens).rjust(4)
-		# TODO: fix the token count
-		token_str = '??? (TODO)'
+		# Estimate token count based on message content
+		token_count = _estimate_tokens(content)
+		token_str = str(token_count).rjust(4)
 		prefix = f'{emoji}[{token_str}]: '
 
 		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)

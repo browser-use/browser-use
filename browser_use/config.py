@@ -50,17 +50,28 @@ class OldConfig:
 	# Cache for directory creation tracking
 	_dirs_created = False
 
+	def _parse_bool_env(var_name: str, default: str = 'true') -> bool:
+		"""Parse a boolean environment variable.
+		
+		Handles 'true', 'false', '1', '0', 'yes', 'no', 'y', 'n', etc.
+		Returns default value if empty or invalid.
+		"""
+		value = os.getenv(var_name, default).lower().strip()
+		if not value:
+			return default.lower() in 'ty1'
+		return value[:1] in 'ty1'
+
 	@property
 	def BROWSER_USE_LOGGING_LEVEL(self) -> str:
 		return os.getenv('BROWSER_USE_LOGGING_LEVEL', 'info').lower()
 
 	@property
 	def ANONYMIZED_TELEMETRY(self) -> bool:
-		return os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[:1] in 'ty1'
+		return self._parse_bool_env('ANONYMIZED_TELEMETRY', 'true')
 
 	@property
 	def BROWSER_USE_CLOUD_SYNC(self) -> bool:
-		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
+		return self._parse_bool_env('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY))
 
 	@property
 	def BROWSER_USE_CLOUD_API_URL(self) -> str:
@@ -157,7 +168,7 @@ class OldConfig:
 
 	@property
 	def SKIP_LLM_API_KEY_VERIFICATION(self) -> bool:
-		return os.getenv('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[:1] in 'ty1'
+		return self._parse_bool_env('SKIP_LLM_API_KEY_VERIFICATION', 'false')
 
 	@property
 	def DEFAULT_LLM(self) -> str:
@@ -166,15 +177,15 @@ class OldConfig:
 	# Runtime hints
 	@property
 	def IN_DOCKER(self) -> bool:
-		return os.getenv('IN_DOCKER', 'false').lower()[:1] in 'ty1' or is_running_in_docker()
+		return self._parse_bool_env('IN_DOCKER', 'false') or is_running_in_docker()
 
 	@property
 	def IS_IN_EVALS(self) -> bool:
-		return os.getenv('IS_IN_EVALS', 'false').lower()[:1] in 'ty1'
+		return self._parse_bool_env('IS_IN_EVALS', 'false')
 
 	@property
 	def BROWSER_USE_VERSION_CHECK(self) -> bool:
-		return os.getenv('BROWSER_USE_VERSION_CHECK', 'true').lower()[:1] in 'ty1'
+		return self._parse_bool_env('BROWSER_USE_VERSION_CHECK', 'true')
 
 	@property
 	def WIN_FONT_DIR(self) -> str:
