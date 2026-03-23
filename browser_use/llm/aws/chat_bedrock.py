@@ -118,18 +118,44 @@ class ChatAWSBedrock(BaseChatModel):
 		"""Format a Pydantic model as a tool for structured output."""
 		schema = output_format.model_json_schema()
 
+		# Remove title from schema if present (Bedrock doesn't need it)
+		schema.pop('title', None)
+
 		# Convert Pydantic schema to Bedrock tool format
+		# We need to preserve complex types (arrays, nested objects, enums, etc.)
 		properties = {}
-		required = []
+		required = schema.get('required', [])
 
 		for prop_name, prop_info in schema.get('properties', {}).items():
-			properties[prop_name] = {
-				'type': prop_info.get('type', 'string'),
+			# Copy the full property definition to preserve complex types
+			# (arrays with items, nested objects with properties, enums, etc.)
+			property_def = {
 				'description': prop_info.get('description', ''),
 			}
 
-		# Add required fields
-		required = schema.get('required', [])
+			# Add type if present
+			if 'type' in prop_info:
+				property_def['type'] = prop_info['type']
+
+			# Add array items specification
+			if 'items' in prop_info:
+				property_def['items'] = prop_info['items']
+
+			# Add nested object properties
+			if 'properties' in prop_info:
+				property_def['properties'] = prop_info['properties']
+
+			# Add enum values
+			if 'enum' in prop_info:
+				property_def['enum'] = prop_info['enum']
+
+			# Add anyOf/oneOf for union types
+			if 'anyOf' in prop_info:
+				property_def['anyOf'] = prop_info['anyOf']
+			if 'oneOf' in prop_info:
+				property_def['oneOf'] = prop_info['oneOf']
+
+			properties[prop_name] = property_def
 
 		return [
 			{
