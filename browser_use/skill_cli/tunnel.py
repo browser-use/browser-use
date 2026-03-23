@@ -253,8 +253,6 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 	# Poll the log file until we find the tunnel URL
 	url: str | None = None
 	try:
-		import time
-
 		deadline = time.time() + 15
 		while time.time() < deadline:
 			# Check if process died

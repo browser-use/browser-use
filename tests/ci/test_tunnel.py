@@ -307,7 +307,8 @@ class TestKillProcessUnix:
 					"browser_use.skill_cli.tunnel._is_process_alive",
 					side_effect=fake_is_alive,
 				):
-					result = _kill_process(1234)
+					with patch("browser_use.skill_cli.tunnel.time.sleep"):
+						result = _kill_process(1234)
 			assert result is True
 			# Should have sent SIGTERM first, then SIGKILL after 10 sleeps
 			assert mock_kill.call_count == 2
