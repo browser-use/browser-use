@@ -176,6 +176,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 		demo_mode: bool | None = None,
+		debug_highlight: bool = False,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		fallback_llm: BaseChatModel | None = None,
@@ -279,6 +280,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			base_profile = base_profile.model_copy()
 		if demo_mode is not None and base_profile.demo_mode != demo_mode:
 			base_profile = base_profile.model_copy(update={'demo_mode': demo_mode})
+		if debug_highlight and not base_profile.debug_highlight:
+			base_profile = base_profile.model_copy(update={'debug_highlight': debug_highlight})
 		browser_profile = base_profile
 
 		# Handle browser vs browser_session parameter (browser takes precedence)
@@ -288,6 +291,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		if browser_session is not None and demo_mode is not None and browser_session.browser_profile.demo_mode != demo_mode:
 			browser_session.browser_profile = browser_session.browser_profile.model_copy(update={'demo_mode': demo_mode})
+		if browser_session is not None and debug_highlight and not browser_session.browser_profile.debug_highlight:
+			browser_session.browser_profile = browser_session.browser_profile.model_copy(
+				update={'debug_highlight': debug_highlight}
+			)
 
 		self.browser_session = browser_session or BrowserSession(
 			browser_profile=browser_profile,
