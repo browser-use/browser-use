@@ -1046,6 +1046,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
 
+			# Clear previous step state after context preparation (which needs
+			# them for the "previous action result" prompt) but before the LLM
+			# call, so a timeout during _get_next_action or _execute_actions
+			# won't leave stale data from the previous step.
+			self.state.last_model_output = None
+			self.state.last_result = None
+
 			# Phase 2: Get model output and execute actions
 			await self._get_next_action(browser_state_summary)
 			await self._execute_actions()
@@ -2440,6 +2447,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1
 			self.state.last_result = [ActionResult(error=error_msg)]
+			# Ensure step counter advances on timeout — _finalize() may have
+			# been skipped or returned early due to the cancellation.
+			if self.state.n_steps == step + 1:
+				self.state.n_steps += 1
 
 		if on_step_end is not None:
 			await on_step_end(self)
