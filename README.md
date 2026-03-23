@@ -42,7 +42,7 @@
 
 # 🤖 LLM Quickstart
 
-1. Direct your favorite coding agent (Cursor, Claude Code, etc) to [Agents.md](https://docs.browser-use.com/llms-full.txt)
+1. Direct your favorite coding agent (Cursor, Claude Code, AdaL, etc) to [Agents.md](https://docs.browser-use.com/llms-full.txt)
 2. Prompt away!
 
 <br/>
