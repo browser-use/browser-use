@@ -695,7 +695,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			model_output = h.get('model_output')
 			if model_output:
 				if isinstance(model_output, dict):
-					h['model_output'] = output_model.model_validate(model_output)
+					try:
+						h['model_output'] = output_model.model_validate(model_output)
+					except ValidationError:
+						h['model_output'] = None
 				else:
 					h['model_output'] = None
 			else:
