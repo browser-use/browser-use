@@ -27,7 +27,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
-	from browser_use.browser.session import BrowserSession
+	from browser_use.browser.session import BrowserSession, CDPSession
 
 # Note: iframe limits are now configurable via BrowserProfile.max_iframes and BrowserProfile.max_iframe_depth
 
@@ -37,8 +37,6 @@ class DomService:
 	Service for getting the DOM tree and other DOM-related information.
 
 	Either browser or page must be provided.
-
-	TODO: currently we start a new websocket connection PER STEP, we should definitely keep this persistent
 	"""
 
 	logger: logging.Logger
@@ -61,11 +59,83 @@ class DomService:
 		self.max_iframe_depth = max_iframe_depth
 		self.viewport_threshold = viewport_threshold
 
+		# Cache for CDP sessions per target to avoid repeated get_or_create_cdp_session() calls
+		# Format: {target_id: CDPSession}
+		self._cached_cdp_sessions: dict[TargetID, 'CDPSession'] = {}
+
 	async def __aenter__(self):
 		return self
 
 	async def __aexit__(self, exc_type, exc_value, traceback):
-		pass  # no need to cleanup anything, browser_session auto handles cleaning up session cache
+		# Clear CDP session cache when exiting context
+		self._invalidate_cache_for_target()
+
+	async def _get_cached_cdp_session(self, target_id: TargetID, focus: bool = False) -> 'CDPSession':
+		"""
+		Get CDP session for target, using cache when possible.
+
+		This method:
+		1. Checks if we have a cached session for this target
+		2. Validates cached session is still active
+		3. If cache miss or invalid, gets new session and caches it
+		4. Returns the session
+
+		Args:
+			target_id: Target ID to get session for
+			focus: Whether to set focus (default: False for DOM operations)
+
+		Returns:
+			CDPSession for the target
+
+		Raises:
+			ValueError: If target doesn't exist or session cannot be created
+		"""
+		# Check if we have cached session for this target
+		if target_id in self._cached_cdp_sessions:
+			cached_session = self._cached_cdp_sessions[target_id]
+
+			# Validate session is still active
+			if self.browser_session.session_manager:
+				is_valid = await self.browser_session.session_manager.validate_session(target_id)
+				if is_valid:
+					self.logger.debug(f'CDP session cache HIT for target {target_id[:8]}...')
+					return cached_session
+				else:
+					# Session invalid - remove from cache
+					self.logger.debug(f'Cached CDP session invalid for target {target_id[:8]}..., removing from cache')
+					del self._cached_cdp_sessions[target_id]
+
+		# Cache miss or invalid - get new session
+		self.logger.debug(f'CDP session cache MISS for target {target_id[:8]}..., fetching new session')
+		session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=focus)
+
+		# Cache the session
+		self._cached_cdp_sessions[target_id] = session
+
+		return session
+
+	def _invalidate_cache_for_target(self, target_id: TargetID | None = None) -> None:
+		"""
+		Invalidate cached CDP session for a specific target or all targets.
+
+		Call this when:
+		- Target detaches
+		- Switching to a different target
+		- Session becomes invalid
+
+		Args:
+			target_id: Specific target to invalidate, or None to clear all cache
+		"""
+		if target_id is None:
+			# Clear all cached sessions
+			if self._cached_cdp_sessions:
+				self.logger.debug(f'Clearing all CDP session cache ({len(self._cached_cdp_sessions)} entries)')
+			self._cached_cdp_sessions.clear()
+		else:
+			# Remove specific target from cache
+			if target_id in self._cached_cdp_sessions:
+				self.logger.debug(f'Invalidating CDP session cache for target {target_id[:8]}...')
+				del self._cached_cdp_sessions[target_id]
 
 	def _count_hidden_elements_in_iframes(self, node: EnhancedDOMTreeNode) -> None:
 		"""Collect hidden interactive elements in iframes for LLM hints.
@@ -211,7 +281,7 @@ class DomService:
 
 	async def _get_viewport_ratio(self, target_id: TargetID) -> float:
 		"""Get viewport dimensions, device pixel ratio, and scroll position using CDP."""
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+		cdp_session = await self._get_cached_cdp_session(target_id=target_id, focus=False)
 
 		try:
 			# Get the layout metrics which includes the visual viewport
@@ -339,7 +409,7 @@ class DomService:
 	async def _get_ax_tree_for_all_frames(self, target_id: TargetID) -> GetFullAXTreeReturns:
 		"""Recursively collect all frames and merge their accessibility trees into a single array."""
 
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+		cdp_session = await self._get_cached_cdp_session(target_id=target_id, focus=False)
 		frame_tree = await cdp_session.cdp_client.send.Page.getFrameTree(session_id=cdp_session.session_id)
 
 		def collect_all_frame_ids(frame_tree_node) -> list[str]:
@@ -374,7 +444,7 @@ class DomService:
 		return {'nodes': merged_nodes}
 
 	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+		cdp_session = await self._get_cached_cdp_session(target_id=target_id, focus=False)
 
 		# Wait for the page to be ready first
 		try:
@@ -775,10 +845,11 @@ class DomService:
 				)
 
 			try:
-				session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+				session = await self._get_cached_cdp_session(target_id, focus=False)
 				session_id = session.session_id
 			except ValueError:
-				# Target may have detached during DOM construction
+				# Target may have detached during DOM construction, invalidate cache for this target
+				self._invalidate_cache_for_target(target_id)
 				session_id = None
 
 			dom_tree_node = EnhancedDOMTreeNode(
