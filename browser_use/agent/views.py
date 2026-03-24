@@ -692,14 +692,19 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
 		# Use deep copy to avoid mutating the caller's input
 		data = copy.deepcopy(data)
+		# Filter out malformed history items (non-dict entries) before processing
+		data['history'] = [h for h in data['history'] if isinstance(h, dict)]
 		# loop through history and validate output_model actions to enrich with custom actions
 		for h in data['history']:
-			if h['model_output']:
+			if 'model_output' in h and h['model_output']:
 				if isinstance(h['model_output'], dict):
-					h['model_output'] = output_model.model_validate(h['model_output'])
+					try:
+						h['model_output'] = output_model.model_validate(h['model_output'])
+					except (ValidationError, TypeError, AttributeError):
+						h['model_output'] = None
 				else:
 					h['model_output'] = None
-			if 'interacted_element' not in h['state']:
+			if 'state' in h and 'interacted_element' not in h['state']:
 				h['state']['interacted_element'] = None
 
 		history = cls.model_validate(data)
