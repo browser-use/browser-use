@@ -303,10 +303,10 @@ def ensure_daemon(
 		)
 
 	# Wait for daemon to be ready
-	for _ in range(100):  # 5 seconds max
+	for _ in range(300):  # 30 seconds max
 		if _is_daemon_alive(session):
 			return
-		time.sleep(0.05)
+		time.sleep(0.1)
 
 	print('Error: Failed to start daemon', file=sys.stderr)
 	sys.exit(1)
