@@ -354,7 +354,10 @@ class BrowserUseServer:
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'keys': {'type': 'string', 'description': 'Key or key combination to send (e.g. "Enter", "Tab", "ctrl+a", "cmd+c")'},
+							'keys': {
+								'type': 'string',
+								'description': 'Key or key combination to send (e.g. "Enter", "Tab", "ctrl+a", "cmd+c")',
+							},
 						},
 						'required': ['keys'],
 					},
@@ -375,7 +378,10 @@ class BrowserUseServer:
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'index': {'type': 'integer', 'description': 'The index of the dropdown element (from browser_get_state)'},
+							'index': {
+								'type': 'integer',
+								'description': 'The index of the dropdown element (from browser_get_state)',
+							},
 						},
 						'required': ['index'],
 					},
@@ -386,7 +392,10 @@ class BrowserUseServer:
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'index': {'type': 'integer', 'description': 'The index of the dropdown element (from browser_get_state)'},
+							'index': {
+								'type': 'integer',
+								'description': 'The index of the dropdown element (from browser_get_state)',
+							},
 							'text': {'type': 'string', 'description': 'The exact text of the option to select'},
 						},
 						'required': ['index', 'text'],
@@ -882,7 +891,9 @@ class BrowserUseServer:
 			return 'Error: No active CDP session'
 
 		if selector:
-			js = f'(function(){{ const el = document.querySelector({json.dumps(selector)}); return el ? el.innerText : null; }})()'
+			js = (
+				f'(function(){{ const el = document.querySelector({json.dumps(selector)}); return el ? el.innerText : null; }})()'
+			)
 		else:
 			js = 'document.body.innerText'
 
@@ -1123,7 +1134,7 @@ class BrowserUseServer:
 			# If this was the current session, clear it
 			if self.browser_session and self.browser_session.id == session_id:
 				self.browser_session = None
-		
+
 			return f'Successfully closed session {session_id}'
 		except Exception as e:
 			return f'Error closing session {session_id}: {str(e)}'
