@@ -335,7 +335,14 @@ install_browser_use() {
 	# Clone and install locally to ensure all dependencies are resolved
 	local tmp_dir=$(mktemp -d)
 	git clone --depth 1 --branch "$BROWSER_USE_BRANCH" "https://github.com/$BROWSER_USE_REPO.git" "$tmp_dir"
-	uv pip install "$tmp_dir"
+
+	# SECURITY NOTE:
+	# Installing from source will resolve transitive dependencies dynamically.
+	# To avoid supply chain risks, ensure dependencies are pinned (e.g., litellm)
+	# and consider using a lockfile for reproducible installs.
+	log_warn "Installing with dynamically resolved dependencies. For maximum security, use pinned dependencies or lockfiles."
+
+	uv pip install --no-cache-dir --upgrade-strategy only-if-needed "$tmp_dir"
 	rm -rf "$tmp_dir"
 
 	log_success "browser-use installed"
