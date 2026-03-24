@@ -382,6 +382,7 @@ configure_path() {
 	local shell_rc=$(get_shell_rc_path "$shell_name")
 
 	if [ "$shell_name" = "fish" ]; then
+		# Fish stores user config under ~/.config/fish/, which may not exist yet.
 		mkdir -p "$(dirname "$shell_rc")"
 	fi
 
