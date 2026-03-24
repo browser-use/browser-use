@@ -615,6 +615,14 @@ class BrowserSession(BaseModel):
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
 
+		# Disconnect Glazyr Vision MCP client if active (prevents stale SSE connections on any teardown path)
+		if getattr(self, '_vision_mcp_client', None):
+			try:
+				await self._vision_mcp_client.disconnect()
+			except Exception:
+				pass
+			self._vision_mcp_client = None
+
 		self.agent_focus_target_id = None
 		if self.is_local:
 			self.browser_profile.cdp_url = None
@@ -717,14 +725,7 @@ class BrowserSession(BaseModel):
 
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
-		# Disconnect Glazyr Vision MCP client if active (prevents stale SSE connections)
-		if getattr(self, '_vision_mcp_client', None):
-			try:
-				await self._vision_mcp_client.disconnect()
-			except Exception:
-				pass
-			self._vision_mcp_client = None
-		# Reset all state
+		# Reset all state (this also tears down the Glazyr vision MCP client via reset())
 		await self.reset()
 		# Create fresh event bus
 		self.event_bus = EventBus()
