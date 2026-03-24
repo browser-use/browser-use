@@ -125,6 +125,8 @@ class BrowserSession(BaseModel):
 		revalidate_instances='never',  # resets private attrs on every model rebuild
 	)
 
+	_vision_mcp_client: Any = PrivateAttr(default=None)
+
 	# Overload 1: Cloud browser mode (use cloud-specific params)
 	@overload
 	def __init__(
@@ -3867,6 +3869,43 @@ class BrowserSession(BaseModel):
 			Screenshot data as bytes
 		"""
 		import base64
+
+		# --- Glazyr Shared-Memory MCP Interceptor ---
+		if hasattr(self, 'browser_profile') and getattr(self.browser_profile, 'mcp_vision_url', None):
+			try:
+				import json
+				from browser_use.mcp.client import MCPClient
+				
+				if not self._vision_mcp_client:
+					self._vision_mcp_client = MCPClient(
+						server_name='glazyr-vision',
+						sse_url=self.browser_profile.mcp_vision_url,
+						sse_headers={'Authorization': f'Bearer {self.browser_profile.mcp_vision_token}'} if self.browser_profile.mcp_vision_token else None
+					)
+					await self._vision_mcp_client.connect()
+					self.logger.info("⚡ Glazyr Viz SSE persistent tunnel established. Bypassing Playwright base64 extraction.")
+				
+				result = await self._vision_mcp_client.session.call_tool('peek_vision_buffer', {'include_base64': True})
+				
+				for content in result.content:
+					if content.type == 'text':
+						try:
+							data = json.loads(content.text)
+							if "image_base64" in data:
+								screenshot_data = base64.b64decode(data["image_base64"])
+								if path:
+									Path(path).write_bytes(screenshot_data)
+								return screenshot_data
+						except Exception:
+							pass
+						# Fallback if raw text is base64
+						screenshot_data = base64.b64decode(content.text)
+						if path:
+							Path(path).write_bytes(screenshot_data)
+						return screenshot_data
+			except Exception as e:
+				self.logger.error(f"❌ Glazyr Viz MCP Gateway intercept failed: {e}. Falling back to standard CDP Playwright pipeline.")
+		# --------------------------------------------
 
 		from cdp_use.cdp.page import CaptureScreenshotParameters
 

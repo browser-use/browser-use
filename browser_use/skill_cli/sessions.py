@@ -26,6 +26,8 @@ async def create_browser_session(
 	headed: bool,
 	profile: str | None,
 	cdp_url: str | None = None,
+	*,
+	glazyr: bool = False,
 	use_cloud: bool = False,
 	cloud_timeout: int | None = None,
 	cloud_proxy_country_code: str | None = None,
@@ -38,8 +40,17 @@ async def create_browser_session(
 	- With profile: User's real Chrome with the specified profile
 	- No profile: Playwright-managed Chromium (default)
 	"""
+	from browser_use.browser.profile import BrowserProfile
+	bp = None
+	if glazyr:
+		import os
+		# Default to production tier big iron nodes for the zero-copy buffer
+		mcp_vision_url = os.environ.get('GLAZYR_VISION_URL', 'https://mcp.glazyr.com/mcp/sse')
+		mcp_vision_token = os.environ.get('GLAZYR_API_KEY', '')
+		bp = BrowserProfile(mcp_vision_url=mcp_vision_url, mcp_vision_token=mcp_vision_token)
+
 	if cdp_url is not None:
-		return BrowserSession(cdp_url=cdp_url)
+		return BrowserSession(cdp_url=cdp_url, browser_profile=bp)
 
 	if use_cloud:
 		kwargs: dict = {'use_cloud': True}
@@ -49,11 +60,14 @@ async def create_browser_session(
 			kwargs['cloud_proxy_country_code'] = cloud_proxy_country_code
 		if cloud_profile_id is not None:
 			kwargs['cloud_profile_id'] = cloud_profile_id
+		if bp is not None:
+			kwargs['browser_profile'] = bp
 		return BrowserSession(**kwargs)
 
 	if profile is None:
 		return BrowserSession(
 			headless=not headed,
+			browser_profile=bp,
 		)
 
 	from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
@@ -99,4 +113,5 @@ async def create_browser_session(
 		user_data_dir=user_data_dir,
 		profile_directory=profile_directory,
 		headless=not headed,
+		browser_profile=bp,
 	)

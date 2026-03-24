@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 # Import MCP SDK
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
+from mcp.client.sse import sse_client
+import httpx
 
 MCP_AVAILABLE = True
 
@@ -50,22 +52,28 @@ class MCPClient:
 	def __init__(
 		self,
 		server_name: str,
-		command: str,
+		command: str = "",
 		args: list[str] | None = None,
 		env: dict[str, str] | None = None,
+		sse_url: str | None = None,
+		sse_headers: dict[str, str] | None = None,
 	):
 		"""Initialize MCP client.
 
 		Args:
 			server_name: Name of the MCP server (for logging and identification)
-			command: Command to start the MCP server (e.g., "npx", "python")
-			args: Arguments for the command (e.g., ["@playwright/mcp@latest"])
+			command: Command to start local stdio MCP server (e.g., "npx", "python")
+			args: Arguments for the command
 			env: Environment variables for the server process
+			sse_url: URL for remote Server-Sent Events (SSE) MCP server
+			sse_headers: Headers for the SSE connection (e.g. Bearer auth)
 		"""
 		self.server_name = server_name
 		self.command = command
 		self.args = args or []
 		self.env = env
+		self.sse_url = sse_url
+		self.sse_headers = sse_headers
 
 		self.session: ClientSession | None = None
 		self._stdio_task = None
@@ -87,15 +95,17 @@ class MCPClient:
 		error_msg = None
 
 		try:
-			logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
-
-			# Create server parameters
-			server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
-
-			# Start stdio client in background task
-			self._stdio_task = create_task_with_error_handling(
-				self._run_stdio_client(server_params), name='mcp_stdio_client', suppress_exceptions=True
-			)
+			if self.sse_url:
+				logger.info(f"🔌 Connecting to remote MCP server '{self.server_name}' via SSE: {self.sse_url}")
+				self._stdio_task = create_task_with_error_handling(
+					self._run_sse_client(), name='mcp_sse_client', suppress_exceptions=True
+				)
+			else:
+				logger.info(f"🔌 Connecting to local MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
+				server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
+				self._stdio_task = create_task_with_error_handling(
+					self._run_stdio_client(server_params), name='mcp_stdio_client', suppress_exceptions=True
+				)
 
 			# Wait for connection to be established
 			retries = 0
@@ -119,7 +129,7 @@ class MCPClient:
 			self._telemetry.capture(
 				MCPClientTelemetryEvent(
 					server_name=self.server_name,
-					command=self.command,
+					command=self.command if not self.sse_url else f"SSE: {self.sse_url}",
 					tools_discovered=len(self._tools),
 					version=get_browser_use_version(),
 					action='connect',
@@ -127,6 +137,43 @@ class MCPClient:
 					error_message=error_msg,
 				)
 			)
+
+	async def _run_sse_client(self):
+		"""Run the SSE client connection in a background task."""
+		try:
+			kwargs = {}
+			if self.sse_headers:
+				# Use httpx.AsyncClient with custom headers for auth
+				client = httpx.AsyncClient(headers=self.sse_headers)
+				kwargs['httpx_client'] = client
+
+			async with sse_client(self.sse_url, **kwargs) as streams:
+				read_stream, write_stream = streams
+				self._read_stream = read_stream
+				self._write_stream = write_stream
+
+				# Create and initialize session
+				async with ClientSession(read_stream, write_stream) as session:
+					self.session = session
+					await session.initialize()
+
+					# Discover available tools
+					tools_response = await session.list_tools()
+					self._tools = {tool.name: tool for tool in tools_response.tools}
+
+					# Mark as connected
+					self._connected = True
+
+					# Keep the connection alive until disconnect is called
+					await self._disconnect_event.wait()
+
+		except Exception as e:
+			logger.error(f'MCP SSE server connection error: {e}')
+			self._connected = False
+			raise
+		finally:
+			self._connected = False
+			self.session = None
 
 	async def _run_stdio_client(self, server_params: StdioServerParameters):
 		"""Run the stdio client connection in a background task."""
