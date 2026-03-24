@@ -87,6 +87,7 @@ class SignalHandler:
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
 		interruptible_task_patterns: list[str] | None = None,
+		disabled: bool = False,
 	):
 		"""
 		Initialize the signal handler.
@@ -99,6 +100,10 @@ class SignalHandler:
 			exit_on_second_int: Whether to exit on second SIGINT (Ctrl+C)
 			interruptible_task_patterns: List of patterns to match task names that should be
 										 canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
+			disabled: If True, register() installs no signal handlers at all, leaving
+					  the host application's existing handlers in place. Useful for
+					  server embeddings (uvicorn, FastAPI, etc.) that manage their own
+					  shutdown lifecycle. Default: False.
 		"""
 		self.loop = loop or asyncio.get_event_loop()
 		self.pause_callback = pause_callback
@@ -106,6 +111,7 @@ class SignalHandler:
 		self.custom_exit_callback = custom_exit_callback
 		self.exit_on_second_int = exit_on_second_int
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
+		self.disabled = disabled
 		self.is_windows = platform.system() == 'Windows'
 
 		# Initialize loop state attributes
@@ -122,6 +128,8 @@ class SignalHandler:
 
 	def register(self) -> None:
 		"""Register signal handlers for SIGINT and SIGTERM."""
+		if self.disabled:
+			return
 		try:
 			if self.is_windows:
 				# On Windows, use simple signal handling with immediate exit on Ctrl+C
@@ -147,6 +155,8 @@ class SignalHandler:
 
 	def unregister(self) -> None:
 		"""Unregister signal handlers and restore original handlers if possible."""
+		if self.disabled:
+			return
 		try:
 			if self.is_windows:
 				# On Windows, just restore the original SIGINT handler
