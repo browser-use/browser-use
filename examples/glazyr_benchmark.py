@@ -23,7 +23,7 @@ async def main():
     mcp_vision_token = os.environ.get('GLAZYR_API_KEY')
     if not mcp_vision_token:
         print('ERROR: GLAZYR_API_KEY environment variable is required. Set it in your .env file.')
-        return
+        raise SystemExit(1)
     
     llm = get_llm_by_name('google_gemini_2_0_flash')
 

@@ -717,6 +717,13 @@ class BrowserSession(BaseModel):
 
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
+		# Disconnect Glazyr Vision MCP client if active (prevents stale SSE connections)
+		if getattr(self, '_vision_mcp_client', None):
+			try:
+				await self._vision_mcp_client.disconnect()
+			except Exception:
+				pass
+			self._vision_mcp_client = None
 		# Reset all state
 		await self.reset()
 		# Create fresh event bus
