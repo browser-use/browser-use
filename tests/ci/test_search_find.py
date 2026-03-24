@@ -108,13 +108,28 @@ def http_server():
 		content_type='text/html',
 	)
 
+	# /images-page route is registered dynamically in base_url fixture once port is known
 	yield server
 	server.stop()
 
 
 @pytest.fixture(scope='session')
 def base_url(http_server):
-	return f'http://{http_server.host}:{http_server.port}'
+	url = f'http://{http_server.host}:{http_server.port}'
+	# Register images page here so we can embed the absolute img src URL
+	http_server.expect_request('/images-page').respond_with_data(
+		f"""
+		<!DOCTYPE html>
+		<html>
+		<head><title>Images Page</title></head>
+		<body>
+			<img src="{url}/images/product.jpg" alt="Product">
+		</body>
+		</html>
+		""",
+		content_type='text/html',
+	)
+	return url
 
 
 @pytest.fixture(scope='module')
@@ -406,6 +421,25 @@ class TestFindElements:
 		assert result.error is None
 		assert result.extracted_content is not None
 		assert 'No elements found' in result.extracted_content
+
+	async def test_img_src_attribute_resolved(self, tools, browser_session, base_url):
+		"""find_elements with attributes=['src'] returns absolute URLs for img elements."""
+		await _navigate_and_wait(tools, browser_session, f'{base_url}/images-page')
+
+		result = await tools.find_elements(
+			selector='img',
+			attributes=['src'],
+			browser_session=browser_session,
+		)
+
+		assert isinstance(result, ActionResult)
+		assert result.error is None
+		assert result.extracted_content is not None
+		assert '1 element' in result.extracted_content
+		assert 'src=' in result.extracted_content
+		# The resolved DOM property should give the absolute URL (including the httpserver base URL)
+		assert base_url in result.extracted_content
+		assert 'product.jpg' in result.extracted_content
 
 
 # --- Registration tests ---

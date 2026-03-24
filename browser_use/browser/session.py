@@ -1720,7 +1720,10 @@ class BrowserSession(BaseModel):
 			# Remote CDP URLs should still respect proxy settings.
 			is_localhost = parsed_url.hostname in ('localhost', '127.0.0.1', '::1')
 			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
-				headers = self.browser_profile.headers or {}
+				headers = dict(self.browser_profile.headers or {})
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
 				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
@@ -1732,10 +1735,14 @@ class BrowserSession(BaseModel):
 
 		try:
 			# Create and store the CDP client for direct CDP communication
-			headers = getattr(self.browser_profile, 'headers', None)
+			headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+			if not self.is_local:
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 			self._cdp_client_root = CDPClient(
 				self.cdp_url,
-				additional_headers=headers,
+				additional_headers=headers or None,
 				max_ws_frame_size=200 * 1024 * 1024,  # Use 200MB limit to handle pages with very large DOMs
 			)
 			assert self._cdp_client_root is not None
@@ -2026,10 +2033,14 @@ class BrowserSession(BaseModel):
 		self.agent_focus_target_id = None
 
 		# 3. Create new CDPClient with the same cdp_url
-		headers = getattr(self.browser_profile, 'headers', None)
+		headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+		if not self.is_local:
+			from browser_use.utils import get_browser_use_version
+
+			headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 		self._cdp_client_root = CDPClient(
 			self.cdp_url,
-			additional_headers=headers,
+			additional_headers=headers or None,
 			max_ws_frame_size=200 * 1024 * 1024,
 		)
 		await self._cdp_client_root.start()
@@ -2476,6 +2487,62 @@ class BrowserSession(BaseModel):
 			and element.attributes.get('type', '').lower() == 'file'
 		)
 
+	def find_file_input_near_element(
+		self,
+		node: 'EnhancedDOMTreeNode',
+		max_height: int = 3,
+		max_descendant_depth: int = 3,
+	) -> 'EnhancedDOMTreeNode | None':
+		"""Find the closest file input to the given element.
+
+		Walks up the DOM tree (up to max_height levels), checking the node itself,
+		its descendants (up to max_descendant_depth deep), and siblings at each level.
+
+		Args:
+			node: Starting DOM element
+			max_height: Maximum levels to walk up the parent chain
+			max_descendant_depth: Maximum depth to search descendants
+
+		Returns:
+			The nearest file input element, or None if not found
+		"""
+		from browser_use.dom.views import EnhancedDOMTreeNode
+
+		def _find_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
+			if depth < 0:
+				return None
+			if self.is_file_input(n):
+				return n
+			for child in n.children_nodes or []:
+				result = _find_in_descendants(child, depth - 1)
+				if result:
+					return result
+			return None
+
+		current: EnhancedDOMTreeNode | None = node
+		for _ in range(max_height + 1):
+			if current is None:
+				break
+			# Check the current node itself
+			if self.is_file_input(current):
+				return current
+			# Check all descendants of the current node
+			result = _find_in_descendants(current, max_descendant_depth)
+			if result:
+				return result
+			# Check all siblings and their descendants
+			if current.parent_node:
+				for sibling in current.parent_node.children_nodes or []:
+					if sibling is current:
+						continue
+					if self.is_file_input(sibling):
+						return sibling
+					result = _find_in_descendants(sibling, max_descendant_depth)
+					if result:
+						return result
+			current = current.parent_node
+		return None
+
 	async def get_selector_map(self) -> dict[int, EnhancedDOMTreeNode]:
 		"""Get the current selector map from cached state or DOM watchdog.
 
@@ -2527,45 +2594,46 @@ class BrowserSession(BaseModel):
 
 	async def remove_highlights(self) -> None:
 		"""Remove highlights from the page using CDP."""
-		if not self.browser_profile.highlight_elements:
+		if not self.browser_profile.highlight_elements and not self.browser_profile.dom_highlight_elements:
 			return
 
 		try:
-			# Get cached session
-			cdp_session = await self.get_or_create_cdp_session()
+			async with asyncio.timeout(3.0):
+				# Get cached session
+				cdp_session = await self.get_or_create_cdp_session()
 
-			# Remove highlights via JavaScript - be thorough
-			script = """
-			(function() {
-				// Remove all browser-use highlight elements
-				const highlights = document.querySelectorAll('[data-browser-use-highlight]');
-				console.log('Removing', highlights.length, 'browser-use highlight elements');
-				highlights.forEach(el => el.remove());
+				# Remove highlights via JavaScript - be thorough
+				script = """
+				(function() {
+					// Remove all browser-use highlight elements
+					const highlights = document.querySelectorAll('[data-browser-use-highlight]');
+					console.log('Removing', highlights.length, 'browser-use highlight elements');
+					highlights.forEach(el => el.remove());
 
-				// Also remove by ID in case selector missed anything
-				const highlightContainer = document.getElementById('browser-use-debug-highlights');
-				if (highlightContainer) {
-					console.log('Removing highlight container by ID');
-					highlightContainer.remove();
-				}
+					// Also remove by ID in case selector missed anything
+					const highlightContainer = document.getElementById('browser-use-debug-highlights');
+					if (highlightContainer) {
+						console.log('Removing highlight container by ID');
+						highlightContainer.remove();
+					}
 
-				// Final cleanup - remove any orphaned tooltips
-				const orphanedTooltips = document.querySelectorAll('[data-browser-use-highlight="tooltip"]');
-				orphanedTooltips.forEach(el => el.remove());
+					// Final cleanup - remove any orphaned tooltips
+					const orphanedTooltips = document.querySelectorAll('[data-browser-use-highlight="tooltip"]');
+					orphanedTooltips.forEach(el => el.remove());
 
-				return { removed: highlights.length };
-			})();
-			"""
-			result = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
-			)
+					return { removed: highlights.length };
+				})();
+				"""
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
+				)
 
-			# Log the result for debugging
-			if result and 'result' in result and 'value' in result['result']:
-				removed_count = result['result']['value'].get('removed', 0)
-				self.logger.debug(f'Successfully removed {removed_count} highlight elements')
-			else:
-				self.logger.debug('Highlight removal completed')
+				# Log the result for debugging
+				if result and 'result' in result and 'value' in result['result']:
+					removed_count = result['result']['value'].get('removed', 0)
+					self.logger.debug(f'Successfully removed {removed_count} highlight elements')
+				else:
+					self.logger.debug('Highlight removal completed')
 
 		except Exception as e:
 			self.logger.warning(f'Failed to remove highlights: {e}')
@@ -3531,7 +3599,10 @@ class BrowserSession(BaseModel):
 					continue  # Skip if no session available
 			else:
 				# Get cached session for this target (don't change focus - iterating frames)
-				cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				try:
+					cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				except ValueError:
+					continue  # Target may have detached between discovery and session creation
 
 			if cdp_session:
 				target_sessions[target_id] = cdp_session.session_id
