@@ -40,6 +40,51 @@
 
 🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com)</b> for faster, scalable, stealth-enabled browser automation!
 
+---
+
+## ⚠️ Security Notice (March 24, 2026)
+
+A supply chain attack affected the `litellm` PyPI package. Malicious versions `1.82.7` and `1.82.8` were briefly published and may have been installed via the Browser Use CLI.
+
+### 🚨 Who is affected?
+
+If you installed Browser Use CLI on or around **March 24, 2026**, your system may be compromised.
+
+### 🔍 How to check
+
+```bash
+find ~/.cache/uv -name "litellm_init.pth" 2>/dev/null
+ls ~/.config/sysmon/sysmon.py 2>/dev/null
+```
+
+Any output indicates potential compromise.
+
+### 🛠️ Remediation Steps
+
+1. Rotate all credentials immediately:
+
+   * SSH keys
+   * API keys
+   * `.env` secrets
+   * Cloud credentials
+
+2. Remove infected environments:
+
+```bash
+rm -rf ~/.cache/uv/archive-v0/<infected-env-id>
+```
+
+3. Remove persistence files:
+
+```bash
+rm -rf ~/.config/sysmon
+rm -f /tmp/pglog /tmp/.pg_state
+```
+
+We have pinned `litellm` to a **verified safe version** to prevent further exposure.
+
+---
+
 # 🤖 LLM Quickstart
 
 1. Direct your favorite coding agent (Cursor, Claude Code, etc) to [Agents.md](https://docs.browser-use.com/llms-full.txt)
