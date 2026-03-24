@@ -9,6 +9,7 @@ from browser_use.llm.aws.serializer import AWSBedrockMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 if TYPE_CHECKING:
@@ -116,27 +117,14 @@ class ChatAWSBedrock(BaseChatModel):
 
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:
 		"""Format a Pydantic model as a tool for structured output."""
-		schema = output_format.model_json_schema()
-
-		# Convert Pydantic schema to Bedrock tool format
-		properties = {}
-		required = []
-
-		for prop_name, prop_info in schema.get('properties', {}).items():
-			properties[prop_name] = {
-				'type': prop_info.get('type', 'string'),
-				'description': prop_info.get('description', ''),
-			}
-
-		# Add required fields
-		required = schema.get('required', [])
-
+		# Use SchemaOptimizer to create an optimized JSON schema for the output format
+		schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 		return [
 			{
 				'toolSpec': {
 					'name': f'extract_{output_format.__name__.lower()}',
 					'description': f'Extract information in the format of {output_format.__name__}',
-					'inputSchema': {'json': {'type': 'object', 'properties': properties, 'required': required}},
+					'inputSchema': {'json': schema},
 				}
 			}
 		]
