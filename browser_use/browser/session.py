@@ -3871,7 +3871,16 @@ class BrowserSession(BaseModel):
 		import base64
 
 		# --- Glazyr Shared-Memory MCP Interceptor ---
-		if hasattr(self, 'browser_profile') and getattr(self.browser_profile, 'mcp_vision_url', None):
+		# Only intercept for simple full-viewport PNG captures (no clip, full_page, or custom quality).
+		# When specific options are requested, fall through to the standard CDP pipeline.
+		if (
+			hasattr(self, 'browser_profile')
+			and getattr(self.browser_profile, 'mcp_vision_url', None)
+			and clip is None
+			and not full_page
+			and format == 'png'
+			and quality is None
+		):
 			try:
 				import json
 				from browser_use.mcp.client import MCPClient
@@ -3905,6 +3914,13 @@ class BrowserSession(BaseModel):
 						return screenshot_data
 			except Exception as e:
 				self.logger.error(f"❌ Glazyr Viz MCP Gateway intercept failed: {e}. Falling back to standard CDP Playwright pipeline.")
+				# Tear down stale client so the next call can reconnect cleanly
+				if self._vision_mcp_client:
+					try:
+						await self._vision_mcp_client.disconnect()
+					except Exception:
+						pass
+					self._vision_mcp_client = None
 		# --------------------------------------------
 
 		from cdp_use.cdp.page import CaptureScreenshotParameters

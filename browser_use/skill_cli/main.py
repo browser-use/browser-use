@@ -245,6 +245,7 @@ def ensure_daemon(
 					and data.get('profile') == profile
 					and data.get('cdp_url') == cdp_url
 					and data.get('use_cloud') == use_cloud
+					and data.get('glazyr', False) == glazyr
 				):
 					return  # Already running with correct config
 

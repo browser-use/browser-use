@@ -68,6 +68,12 @@ class MCPClient:
 			sse_url: URL for remote Server-Sent Events (SSE) MCP server
 			sse_headers: Headers for the SSE connection (e.g. Bearer auth)
 		"""
+		if not sse_url and not command:
+			raise ValueError(
+				f"MCPClient '{server_name}' requires either an sse_url or a command. "
+				"Provide one to specify the transport."
+			)
+
 		self.server_name = server_name
 		self.command = command
 		self.args = args or []
@@ -96,7 +102,7 @@ class MCPClient:
 
 		try:
 			if self.sse_url:
-				logger.info(f"🔌 Connecting to remote MCP server '{self.server_name}' via SSE: {self.sse_url}")
+				logger.info(f"🔌 Connecting to remote MCP server '{self.server_name}' via SSE")
 				self._stdio_task = create_task_with_error_handling(
 					self._run_sse_client(), name='mcp_sse_client', suppress_exceptions=True
 				)
@@ -129,7 +135,7 @@ class MCPClient:
 			self._telemetry.capture(
 				MCPClientTelemetryEvent(
 					server_name=self.server_name,
-					command=self.command if not self.sse_url else f"SSE: {self.sse_url}",
+					command=self.command if not self.sse_url else "SSE",
 					tools_discovered=len(self._tools),
 					version=get_browser_use_version(),
 					action='connect',

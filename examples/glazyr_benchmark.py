@@ -7,8 +7,8 @@ from browser_use import Agent
 from browser_use.browser.profile import BrowserProfile
 
 async def main():
-    # Load environment from the root Claw workspace folder where all keys are stored
-    root_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', '.env')
+    # Load environment from the project root
+    root_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
     load_dotenv(root_env_path)
 
     # Automatically swap the api key name explicitly required by LangChain if using a different prefix
@@ -20,8 +20,10 @@ async def main():
     print("==================================================")
 
     mcp_vision_url = os.environ.get('GLAZYR_VISION_URL', 'https://mcp.glazyr.com/mcp/sse')
-    # Automatically injected from active console WMI scan
-    mcp_vision_token = os.environ.get('GLAZYR_API_KEY', 'dbe88b63-9af0-426a-af01-06e052378203')
+    mcp_vision_token = os.environ.get('GLAZYR_API_KEY')
+    if not mcp_vision_token:
+        print('ERROR: GLAZYR_API_KEY environment variable is required. Set it in your .env file.')
+        return
     
     llm = get_llm_by_name('google_gemini_2_0_flash')
 
