@@ -71,7 +71,7 @@ Any output indicates potential compromise.
 2. Remove infected environments:
 
 ```bash
-rm -rf ~/.cache/uv/archive-v0/<infected-env-id>
+rm -rf ~/.cache/uv/archive-v0/YOUR_ENV_ID
 ```
 
 3. Remove persistence files:
