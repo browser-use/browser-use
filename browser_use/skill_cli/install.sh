@@ -288,6 +288,10 @@ install_python() {
 install_uv() {
 	log_info "Installing uv package manager..."
 
+	# Add common uv install locations to PATH for current session
+	# (covers both curl-based and Homebrew installs)
+	export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
 	if command -v uv &> /dev/null; then
 		log_success "uv already installed"
 		return 0
@@ -295,9 +299,6 @@ install_uv() {
 
 	# Use official uv installer
 	curl -LsSf https://astral.sh/uv/install.sh | sh
-
-	# Add common uv install locations to PATH for current session
-	export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 	if command -v uv &> /dev/null; then
 		log_success "uv installed successfully"
