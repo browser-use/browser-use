@@ -206,7 +206,6 @@ class BrowserUseServer:
 		async def handle_list_tools() -> list[types.Tool]:
 			"""List all available browser-use tools."""
 			return [
-				# Agent tools
 				# Direct browser control tools
 				types.Tool(
 					name='browser_navigate',
@@ -719,6 +718,8 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		self._update_session_activity(self.browser_session.id)
+
 		element = await self.browser_session.get_dom_element_by_index(index)
 		if not element:
 			return f'Element with index {index} not found'
@@ -764,6 +765,8 @@ class BrowserUseServer:
 		"""Get current browser state. Returns (state_json, screenshot_b64 | None)."""
 		if not self.browser_session:
 			return 'Error: No browser session active', None
+
+		self._update_session_activity(self.browser_session.id)
 
 		state = await self.browser_session.get_browser_state_summary()
 
@@ -897,6 +900,8 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		self._update_session_activity(self.browser_session.id)
+
 		from browser_use.browser.events import ScrollEvent
 
 		# Scroll by a standard amount (500 pixels)
@@ -914,6 +919,8 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		self._update_session_activity(self.browser_session.id)
+
 		from browser_use.browser.events import GoBackEvent
 
 		event = self.browser_session.event_bus.dispatch(GoBackEvent())
@@ -924,6 +931,8 @@ class BrowserUseServer:
 		"""Go forward in browser history."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
+
+		self._update_session_activity(self.browser_session.id)
 
 		from browser_use.browser.events import GoForwardEvent
 
@@ -936,6 +945,8 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		self._update_session_activity(self.browser_session.id)
+
 		from browser_use.browser.events import RefreshEvent
 
 		event = self.browser_session.event_bus.dispatch(RefreshEvent())
@@ -946,6 +957,8 @@ class BrowserUseServer:
 		"""Send keyboard keys or shortcuts."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
+
+		self._update_session_activity(self.browser_session.id)
 
 		from browser_use.browser.events import SendKeysEvent
 
@@ -958,6 +971,8 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		self._update_session_activity(self.browser_session.id)
+
 		from browser_use.browser.events import WaitEvent
 
 		event = self.browser_session.event_bus.dispatch(WaitEvent(seconds=min(seconds, 10)))
@@ -968,6 +983,8 @@ class BrowserUseServer:
 		"""Get all options from a dropdown element."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
+
+		self._update_session_activity(self.browser_session.id)
 
 		element = await self.browser_session.get_dom_element_by_index(index)
 		if not element:
@@ -983,6 +1000,8 @@ class BrowserUseServer:
 		"""Select an option from a dropdown element by text."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
+
+		self._update_session_activity(self.browser_session.id)
 
 		element = await self.browser_session.get_dom_element_by_index(index)
 		if not element:
