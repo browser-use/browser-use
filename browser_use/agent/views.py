@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -689,6 +690,8 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
+		# Use deep copy to avoid mutating the caller's input
+		data = copy.deepcopy(data)
 		# loop through history and validate output_model actions to enrich with custom actions
 		for h in data['history']:
 			if h['model_output']:
