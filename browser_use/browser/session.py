@@ -402,7 +402,7 @@ class BrowserSession(BaseModel):
 				'  Windows: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 			)
 
-		user_data_dir = get_chrome_profile_path(None)
+		user_data_dir = get_chrome_profile_path(None, executable_path)
 		if user_data_dir is None:
 			raise RuntimeError(
 				'Could not detect Chrome profile directory for your platform.\n'
@@ -413,7 +413,7 @@ class BrowserSession(BaseModel):
 			)
 
 		# Auto-select profile if not specified
-		profiles = list_chrome_profiles()
+		profiles = list_chrome_profiles(executable_path)
 		if profile_directory is None:
 			if profiles:
 				# Use first available profile
@@ -434,9 +434,10 @@ class BrowserSession(BaseModel):
 	@classmethod
 	def list_chrome_profiles(cls) -> list[dict[str, str]]:
 		"""List available Chrome profiles on the system"""
-		from browser_use.skill_cli.utils import list_chrome_profiles
+		from browser_use.skill_cli.utils import find_chrome_executable, list_chrome_profiles
 
-		return list_chrome_profiles()
+		executable = find_chrome_executable()
+		return list_chrome_profiles(executable)
 
 	# Convenience properties for common browser settings
 	@property
