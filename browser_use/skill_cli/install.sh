@@ -376,33 +376,69 @@ install_profile_use() {
 # =============================================================================
 
 configure_path() {
-	local shell_rc=""
 	local bin_path=$(get_venv_bin_dir)
 	local local_bin="$HOME/.local/bin"
+	local shell_name=$(get_user_shell_name)
+	local shell_rc=$(get_shell_rc_path "$shell_name")
 
-	# Detect shell
-	if [ -n "$BASH_VERSION" ]; then
-		shell_rc="$HOME/.bashrc"
-	elif [ -n "$ZSH_VERSION" ]; then
-		shell_rc="$HOME/.zshrc"
-	else
-		shell_rc="$HOME/.profile"
+	if [ "$shell_name" = "fish" ]; then
+		mkdir -p "$(dirname "$shell_rc")"
 	fi
 
 	# Check if already in PATH (browser-use-env matches both /bin and /Scripts)
 	if grep -q "browser-use-env" "$shell_rc" 2>/dev/null; then
 		log_info "PATH already configured in $shell_rc"
 	else
-		# Add to shell config (includes ~/.local/bin for tools)
-		echo "" >> "$shell_rc"
-		echo "# Browser-Use" >> "$shell_rc"
-		echo "export PATH=\"$bin_path:$local_bin:\$PATH\"" >> "$shell_rc"
+		append_path_config "$shell_name" "$shell_rc" "$bin_path" "$local_bin"
 		log_success "Added to PATH in $shell_rc"
 	fi
 
 	# On Windows, also configure PowerShell profile
 	if [ "$PLATFORM" = "windows" ]; then
 		configure_powershell_path
+	fi
+}
+
+get_user_shell_name() {
+	if [ -n "$SHELL" ]; then
+		basename "$SHELL"
+	else
+		echo "sh"
+	fi
+}
+
+get_shell_rc_path() {
+	local shell_name="$1"
+
+	case "$shell_name" in
+		fish)
+			echo "$HOME/.config/fish/config.fish"
+			;;
+		bash)
+			echo "$HOME/.bashrc"
+			;;
+		zsh)
+			echo "$HOME/.zshrc"
+			;;
+		*)
+			echo "$HOME/.profile"
+			;;
+	esac
+}
+
+append_path_config() {
+	local shell_name="$1"
+	local shell_rc="$2"
+	local bin_path="$3"
+	local local_bin="$4"
+
+	echo "" >> "$shell_rc"
+	echo "# Browser-Use" >> "$shell_rc"
+
+	if [ "$shell_name" = "fish" ]; then
+		echo "set -gx PATH \"$bin_path\" \"$local_bin\" \$PATH" >> "$shell_rc"
+	else
+		echo "export PATH=\"$bin_path:$local_bin:\$PATH\"" >> "$shell_rc"
 	fi
 }
 
@@ -455,11 +491,8 @@ validate() {
 # =============================================================================
 
 print_next_steps() {
-	# Detect shell for source command
-	local shell_rc=".bashrc"
-	if [ -n "$ZSH_VERSION" ]; then
-		shell_rc=".zshrc"
-	fi
+	local shell_name=$(get_user_shell_name)
+	local shell_rc=$(get_shell_rc_path "$shell_name")
 
 	echo ""
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -471,7 +504,7 @@ print_next_steps() {
 	if [ "$PLATFORM" = "windows" ]; then
 		echo "  1. Restart PowerShell (PATH is now configured automatically)"
 	else
-		echo "  1. Restart your shell or run: source ~/$shell_rc"
+		echo "  1. Restart your shell or run: source $shell_rc"
 	fi
 	echo "  2. Try: browser-use open https://example.com"
 
