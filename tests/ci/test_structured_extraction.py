@@ -3,16 +3,20 @@
 import asyncio
 import json
 import tempfile
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from anthropic.types import Message, Usage
+from anthropic.types.tool_use_block import ToolUseBlock
 from pydantic import ValidationError
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import UserMessage
 from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.extraction.schema_utils import schema_dict_to_pydantic_model
 from browser_use.tools.extraction.views import ExtractionResult
@@ -632,51 +636,96 @@ class TestExtractionSchemaInjection:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests: Anthropic action-field JSON string parsing (issue #4510)
+# Integration tests: Anthropic action-field JSON string parsing (issue #4510)
 # ---------------------------------------------------------------------------
 
 
+def _make_fake_message(tool_name: str, input_dict: dict) -> Message:
+	"""Build a fake Anthropic Message carrying a tool_use block with the given input."""
+	return Message(
+		id='msg_test',
+		content=[ToolUseBlock(id='tu_test', input=input_dict, name=tool_name, type='tool_use')],
+		model='claude-3-5-sonnet-20241022',
+		role='assistant',
+		stop_reason='tool_use',
+		stop_sequence=None,
+		type='message',
+		usage=Usage(input_tokens=10, output_tokens=20, cache_creation_input_tokens=0, cache_read_input_tokens=0),
+	)
+
+
 class TestAnthropicActionJsonParse:
-	"""Unit tests for the action-as-JSON-string sanitization in ChatAnthropic.ainvoke."""
+	"""Integration tests: exercises ChatAnthropic.ainvoke() directly with mocked Anthropic client."""
 
-	def _parse_action_field(self, raw_input: dict) -> dict:
-		"""
-		Replicate the sanitization logic from ChatAnthropic.ainvoke so we can test
-		it in isolation without a real Anthropic client.
-		"""
-		_input = raw_input
-		if isinstance(_input, dict) and isinstance(_input.get('action'), str):
-			action_str = _input['action']
-			try:
-				_input = {**_input, 'action': json.loads(action_str)}
-			except json.JSONDecodeError:
-				sanitized = action_str.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-				try:
-					_input = {**_input, 'action': json.loads(sanitized)}
-				except json.JSONDecodeError:
-					pass
-		return _input
+	def _make_llm(self) -> ChatAnthropic:
+		return ChatAnthropic(model='claude-3-5-sonnet-20241022', api_key='test-key')
 
-	def test_action_string_valid_json(self):
-		"""action field is a valid JSON-encoded string — must be parsed to list."""
-		raw = {'action': '[{"done": {"text": "all done"}}]'}
-		result = self._parse_action_field(raw)
-		assert isinstance(result['action'], list)
-		assert result['action'] == [{'done': {'text': 'all done'}}]
+	def _make_output_format(self):
+		"""Return AgentOutputWithActions — the real output_format used in production."""
+		from browser_use.agent.views import AgentOutput
 
-	def test_action_string_with_literal_newlines(self):
+		tools = Tools()
+		ActionModel = tools.registry.create_action_model()
+		return AgentOutput.type_with_custom_actions(ActionModel)
+
+	def _base_input(self, action_field) -> dict:
+		"""Minimal valid AgentOutput dict with the given action field value."""
+		return {
+			'thinking': None,
+			'evaluation_previous_goal': 'ok',
+			'memory': '',
+			'next_goal': '',
+			'action': action_field,
+		}
+
+	async def test_action_string_valid_json(self):
+		"""action field is a valid JSON-encoded string (no control chars) — ainvoke parses it to a list."""
+		AgentOutputWithActions = self._make_output_format()
+		llm = self._make_llm()
+
+		# Claude Sonnet serialized the action array as a JSON string (valid, no control chars)
+		action_payload = '[{"done": {"text": "all done", "success": true}}]'
+		input_dict = self._base_input(action_payload)
+		fake_msg = _make_fake_message(AgentOutputWithActions.__name__, input_dict)
+
+		mock_client = MagicMock()
+		mock_client.messages.create = AsyncMock(return_value=fake_msg)
+
+		with patch.object(llm, 'get_client', return_value=mock_client):
+			result = await llm.ainvoke([UserMessage(content='go')], output_format=AgentOutputWithActions)
+
+		assert isinstance(result.completion.action, list)  # type: ignore[union-attr]
+
+	async def test_action_string_with_literal_newlines(self):
 		"""action field has literal chr(10) inside the JSON string — exact bug from issue #4510."""
-		done_text = 'line one\nline two'
-		# JSON string where the newline is NOT escaped — what Claude Sonnet emits
-		action_json = '[{"done": {"text": "' + done_text + '"}}]'
-		raw = {'action': action_json}
-		result = self._parse_action_field(raw)
-		assert isinstance(result['action'], list)
-		assert '\n' in result['action'][0]['done']['text']
+		AgentOutputWithActions = self._make_output_format()
+		llm = self._make_llm()
 
-	def test_action_string_unparseable(self):
-		"""action field is malformed JSON that cannot be recovered — left unchanged."""
-		raw = {'action': 'not valid json]['}
-		result = self._parse_action_field(raw)
-		# Must remain as-is; downstream model_validate will raise a descriptive error
-		assert result['action'] == 'not valid json]['
+		# Simulate what Claude Sonnet emits: newline NOT escaped inside the JSON string
+		done_text = 'line one\nline two'
+		action_payload = '[{"done": {"text": "' + done_text + '", "success": true}}]'
+		input_dict = self._base_input(action_payload)
+		fake_msg = _make_fake_message(AgentOutputWithActions.__name__, input_dict)
+
+		mock_client = MagicMock()
+		mock_client.messages.create = AsyncMock(return_value=fake_msg)
+
+		with patch.object(llm, 'get_client', return_value=mock_client):
+			result = await llm.ainvoke([UserMessage(content='go')], output_format=AgentOutputWithActions)
+
+		assert isinstance(result.completion.action, list)  # type: ignore[union-attr]
+
+	async def test_action_string_unparseable(self):
+		"""action field is malformed JSON that cannot be recovered — ModelProviderError is raised."""
+		AgentOutputWithActions = self._make_output_format()
+		llm = self._make_llm()
+
+		input_dict = self._base_input('not valid json][')
+		fake_msg = _make_fake_message(AgentOutputWithActions.__name__, input_dict)
+
+		mock_client = MagicMock()
+		mock_client.messages.create = AsyncMock(return_value=fake_msg)
+
+		with patch.object(llm, 'get_client', return_value=mock_client):
+			with pytest.raises(Exception):  # ModelProviderError wrapping ValidationError
+				await llm.ainvoke([UserMessage(content='go')], output_format=AgentOutputWithActions)
