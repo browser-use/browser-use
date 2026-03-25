@@ -698,21 +698,25 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
-			# Copy each entry so mutations don't affect the caller's data
-			h = dict(h)
+			# Copy each entry so mutations don't affect the caller's data.
+			# Also copy the result list: h = dict(h) is a shallow copy, so h['result']
+			# still references the caller's list; copy it to prevent in-place mutations.
+			item: dict[str, Any] = dict(h)
+			if 'result' in item:
+				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
 
-			if 'model_output' in h:
-				model_output = h['model_output']
+			if 'model_output' in item:
+				model_output = item['model_output']
 				if model_output is not None:
 					if isinstance(model_output, dict):
-						h['model_output'] = output_model.model_validate(model_output)
+						item['model_output'] = output_model.model_validate(model_output)
 					else:
-						h['model_output'] = None
+						item['model_output'] = None
 			else:
-				h['model_output'] = None
+				item['model_output'] = None
 
-			# Normalize state: always assign back to h['state'] to avoid mutating caller
-			state = h.get('state')
+			# Normalize state: always assign back to item['state'] to avoid mutating caller
+			state = item.get('state')
 			if not isinstance(state, dict):
 				state = {}
 			# Make a copy before mutating so caller is unaffected
@@ -726,9 +730,9 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				state['tabs'] = []
 			if 'interacted_element' not in state:
 				state['interacted_element'] = []
-			h['state'] = state
+			item['state'] = state
 
-			validated_history.append(h)
+			validated_history.append(item)
 
 		data['history'] = validated_history
 		history = cls.model_validate(data)

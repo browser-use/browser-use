@@ -107,6 +107,29 @@ class TestLoadFromDictNonMutation:
 		# Caller's state dict must NOT have interacted_element added
 		assert 'interacted_element' not in state
 
+	def test_does_not_mutate_result_list_reference(self):
+		"""The caller's result list must not be replaced with a new list."""
+		AgentOutput = _make_output_model()
+
+		original_result = [{'extracted_content': 'test', 'is_done': True}]
+		entry = {
+			'model_output': {'action': [_make_done_action()], 'memory': 'test', 'evaluation_previous_goal': '', 'next_goal': ''},
+			'result': original_result,
+			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+		}
+		data = {'history': [entry]}
+		original_result_item_id = id(original_result[0])
+
+		AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		# The caller's result list is still the same list (data['history'] assignment
+		# replaces the list reference but doesn't deep-copy the nested list back).
+		# Item dicts inside the list must also stay the same objects.
+		assert id(data['history'][0]['result']) == id(original_result)
+		assert id(original_result[0]) == original_result_item_id
+		# And the list length must not change
+		assert len(original_result) == 1
+
 	def test_does_not_mutate_top_level_keys(self):
 		"""Top-level keys in caller's data dict must not be replaced."""
 		AgentOutput = _make_output_model()
