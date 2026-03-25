@@ -179,6 +179,41 @@ class TestLoadFromDictMalformedHistory:
 
 		assert len(result.history) == 0
 
+	def test_result_non_list_does_not_crash(self):
+		"""Non-list result (string, int, etc.) must not crash load_from_dict."""
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': 'not a list',
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		# Must load gracefully with empty result
+		assert len(result.history) == 1
+		assert result.history[0].result == []
+
+	def test_result_non_iterable_does_not_crash(self):
+		"""Non-iterable result (int) must not crash load_from_dict."""
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': 42,
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].result == []
+
 
 class TestLoadFromDictStateNormalization:
 	"""State field normalization: non-dict/missing must not cause validation errors."""
@@ -252,6 +287,28 @@ class TestLoadFromDictStateNormalization:
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
+		assert result.history[0].state.interacted_element == []
+
+	def test_state_partial_missing_url_title_tabs_normalized(self):
+		"""State dict missing url/title/tabs must still load without a validation error."""
+		# State has interacted_element but is missing url, title, and tabs — all required
+		# BrowserStateHistory fields. load_from_dict must set defaults so validation passes.
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [{'extracted_content': 'test', 'is_done': True}],
+					'state': {'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].state.url == ''
+		assert result.history[0].state.title == ''
+		assert result.history[0].state.tabs == []
 		assert result.history[0].state.interacted_element == []
 
 	def test_state_interacted_element_existing_preserved(self):

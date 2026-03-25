@@ -702,8 +702,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# result is also deep-copied: h is a shallow copy so h['result'] still refers
 			# to the caller's list; copy it so in-place mutations can't reach caller data.
 			item: dict[str, Any] = dict(h)
-			if 'result' in item:
+			# Guard: result must be iterable to safely iterate.
+			# If non-iterable (str, int, etc.) replace with [] so downstream code doesn't crash.
+			if 'result' in item and isinstance(item.get('result'), list):
 				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
+			else:
+				item['result'] = []
 
 			if 'model_output' in item:
 				model_output = item['model_output']
@@ -719,6 +723,9 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# validation succeeds even when state is missing or non-dict.
 			if isinstance(h.get('state'), dict):
 				state: dict[str, Any] = dict(h['state'])
+				state.setdefault('url', '')
+				state.setdefault('title', '')
+				state.setdefault('tabs', [])
 				state.setdefault('interacted_element', [])
 			else:
 				state = {'url': '', 'title': '', 'tabs': [], 'interacted_element': []}
