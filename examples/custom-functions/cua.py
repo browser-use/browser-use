@@ -219,7 +219,7 @@ async def openai_cua_fallback(params: OpenAICUAAction, browser_session: BrowserS
 		screenshot_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
 		print(f'📸 Rescaled screenshot to viewport size: {page_info.viewport_width}x{page_info.viewport_height}')
 
-		client = AsyncOpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+		client = AsyncOpenAI(api_key=os.getenv('OPENAI_API_KEY'), timeout=60.0, max_retries=3)
 		print('🔄 Sending request to OpenAI CUA...')
 
 		prompt = f"""
