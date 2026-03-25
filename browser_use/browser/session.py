@@ -2288,17 +2288,31 @@ class BrowserSession(BaseModel):
 	async def get_dom_element_by_index(self, index: int) -> EnhancedDOMTreeNode | None:
 		"""Get DOM element by index.
 
-		Get element from cached selector map.
+		First checks the cached selector map (fast path). If not found — which happens when
+		the DOM has mutated since the last state fetch (SPA route change, dynamic content,
+		element re-render) — forces a DOM re-discovery via the DOM watchdog and tries once more.
 
 		Args:
 			index: The element index from the serialized DOM
 
 		Returns:
-			EnhancedDOMTreeNode or None if index not found
+			EnhancedDOMTreeNode or None if index not found even after re-discovery
 		"""
-		#  Check cached selector map
+		# Fast path: element is in the current cached map
 		if self._cached_selector_map and index in self._cached_selector_map:
 			return self._cached_selector_map[index]
+
+		# Cache miss — DOM may have mutated (SPA, dynamic content, etc.).
+		# Force a lightweight re-discovery before giving up.
+		if self._dom_watchdog is not None:
+			try:
+				self._dom_watchdog.clear_cache()
+				await self._dom_watchdog._build_dom_tree_without_highlights()
+				if self._cached_selector_map and index in self._cached_selector_map:
+					self.logger.debug(f'Element index {index} found after DOM re-discovery')
+					return self._cached_selector_map[index]
+			except Exception as e:
+				self.logger.debug(f'DOM re-discovery failed during stale element lookup: {e}')
 
 		return None
 

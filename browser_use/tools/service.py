@@ -108,6 +108,31 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 	raise e
 
 
+async def _element_not_found_error(index: int, browser_session: BrowserSession) -> str:
+	"""Return a contextual error for a missing element index.
+
+	Distinguishes between an out-of-bounds (hallucinated) index and a genuine
+	stale reference where the DOM mutated after the last state fetch.
+	get_element_by_index already attempted a DOM re-discovery before calling here.
+	"""
+	try:
+		selector_map = await browser_session.get_selector_map()
+		if selector_map:
+			max_index = max(selector_map.keys(), default=0)
+			if index > max_index:
+				return (
+					f'Element index {index} does not exist — '
+					f'page only has elements up to index {max_index}. '
+					f'Call get_browser_state to see current elements.'
+				)
+	except Exception:
+		pass
+	return (
+		f'Element index {index} not found — DOM changed since last state fetch and re-discovery did not find it. '
+		f'Call get_browser_state to get updated element indexes.'
+	)
+
+
 # --- JS templates for search_page and find_elements ---
 
 _SEARCH_PAGE_JS_BODY = """\
@@ -620,9 +645,9 @@ class Tools(Generic[Context]):
 				# Look up the node from the selector map
 				node = await browser_session.get_element_by_index(params.index)
 				if node is None:
-					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+					msg = await _element_not_found_error(params.index, browser_session)
 					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+					return ActionResult(error=msg)
 
 				# Get description of clicked element
 				element_desc = get_click_description(node)
@@ -691,9 +716,9 @@ class Tools(Generic[Context]):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				msg = await _element_not_found_error(params.index, browser_session)
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -812,13 +837,12 @@ class Tools(Generic[Context]):
 					msg = f'File {params.path} is empty (0 bytes). The file may not have been saved correctly.'
 					return ActionResult(error=msg)
 
-			# Get the selector map to find the node
-			selector_map = await browser_session.get_selector_map()
-			if params.index not in selector_map:
-				msg = f'Element with index {params.index} does not exist.'
+			# Look up the node (triggers DOM re-discovery if stale)
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				msg = await _element_not_found_error(params.index, browser_session)
+				logger.warning(f'⚠️ {msg}')
 				return ActionResult(error=msg)
-
-			node = selector_map[params.index]
 
 			# Try to find a file input element near the selected element
 			file_input_node = browser_session.find_file_input_near_element(node)
@@ -848,6 +872,7 @@ class Tools(Generic[Context]):
 					current_scroll_y = 0
 
 				# Find all file inputs in the selector map and pick the closest one to scroll position
+				selector_map = await browser_session.get_selector_map()
 				closest_file_input = None
 				min_distance = float('inf')
 
@@ -1273,8 +1298,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				if params.index is not None and params.index != 0:
 					node = await browser_session.get_element_by_index(params.index)
 					if node is None:
-						# Element does not exist
-						msg = f'Element index {params.index} not found in browser state'
+						msg = await _element_not_found_error(params.index, browser_session)
+						logger.warning(f'⚠️ {msg}')
 						return ActionResult(error=msg)
 
 				direction = 'down' if params.down else 'up'
@@ -1545,9 +1570,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				msg = await _element_not_found_error(params.index, browser_session)
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
 
@@ -1573,9 +1598,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				msg = await _element_not_found_error(params.index, browser_session)
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent
