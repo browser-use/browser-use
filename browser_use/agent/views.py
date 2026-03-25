@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -689,23 +690,20 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
-		# Make a shallow copy to avoid mutating the caller's data dict
-		data = dict(data)
-		# Normalize history before iteration: use [] if missing or None
-		# (data.get('history') or []) handles both missing key AND explicit None
+		# Deep-copy to guarantee no mutation of the caller's nested data.
+		data = copy.deepcopy(data)
+
 		validated_history: list[dict[str, Any]] = []
 		for h in data.get('history') or []:
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
-			# Copy each entry so mutations don't affect the caller's data.
-			# Also copy the result list: h = dict(h) is a shallow copy, so h['result']
-			# still references the caller's list; copy it to prevent in-place mutations.
-			item: dict[str, Any] = dict(h)
+			# item is already a deep copy of h, so we can safely mutate and reassign fields
+			item: dict[str, Any] = h
+			# Normalize result: coerce absent/None/non-list to [] so pydantic validation succeeds
 			if isinstance(item.get('result'), list):
 				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
 			else:
-				# result is absent, None, or wrong type — normalize to [] so pydantic validation succeeds
 				item['result'] = []
 
 			if 'model_output' in item:
@@ -718,15 +716,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			else:
 				item['model_output'] = None
 
-			# Normalize state: always assign back to item['state'] to avoid mutating caller
+			# Normalize state: fill in required BrowserStateHistory fields with safe defaults.
+			# Use isinstance checks so None and wrong-type values are also fixed.
 			state = item.get('state')
 			if not isinstance(state, dict):
 				state = {}
-			# Make a copy before mutating so caller is unaffected
-			state = dict(state)
-			# Fill in required BrowserStateHistory fields with safe defaults.
-			# Use isinstance checks so None and wrong-type values are also fixed,
-			# not just missing keys.
+				item['state'] = state
 			if not isinstance(state.get('url'), str):
 				state['url'] = ''
 			if not isinstance(state.get('title'), str):
@@ -735,7 +730,6 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				state['tabs'] = []
 			if not isinstance(state.get('interacted_element'), list):
 				state['interacted_element'] = []
-			item['state'] = state
 
 			validated_history.append(item)
 
