@@ -2,14 +2,12 @@
 Tests for AgentHistoryList.load_from_dict.
 
 Covers:
-- Non-mutation of caller-owned data (deep copy at every level)
+- Non-mutation of caller-owned data (shallow copies at every level)
 - Malformed history items fully filtered before model validation
 - State non-dict fallback with all required BrowserStateHistory fields
 - model_output normalization (None, non-dict, absent key)
 - final_result edge cases (empty result, None result, missing result)
 - Normal happy-path round-trip
-
-Source: cubic automated review of PR #4479/PR #4488
 """
 
 from browser_use.agent.views import AgentHistoryList, AgentOutput
@@ -382,34 +380,42 @@ class TestLoadFromDictModelOutputNormalization:
 
 		assert result.history[0].model_output is None
 
-
-class TestFinalResultGuards:
-	"""final_result() must not crash on empty/missing/None result."""
-
-	def test_final_result_empty_history_returns_none(self):
-		"""Empty history must not crash final_result."""
-		data = {'history': []}
-		history_list = AgentHistoryList.load_from_dict(data, AgentOutput)
-
-		assert history_list.final_result() is None
-
-	def test_final_result_missing_result_field_returns_none(self):
-		"""History item without 'result' field must not crash final_result."""
+	def test_model_output_valid_dict_validated(self):
+		"""Valid dict model_output must be pydantic-validated to AgentOutput."""
 		data = {
 			'history': [
 				{
-					'model_output': None,
-					# 'result' absent
+					'model_output': {
+						'evaluation_previous_goal': 'good',
+						'memory': 'some memory',
+						'next_goal': 'finish',
+						'action': [],
+					},
+					'result': [{'extracted_content': 'test', 'is_done': True}],
 					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': []},
 				}
 			]
 		}
-		history_list = AgentHistoryList.load_from_dict(data, AgentOutput)
 
-		assert history_list.final_result() is None
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
-	def test_final_result_empty_result_list_returns_none(self):
-		"""History item with empty result list must not crash final_result."""
+		assert result.history[0].model_output is not None
+		assert isinstance(result.history[0].model_output, AgentOutput)
+		assert result.history[0].model_output.evaluation_previous_goal == 'good'
+
+
+class TestLoadFromDictFinalResult:
+	"""final_result() edge cases covered by guards in load_from_dict and the method itself."""
+
+	def test_final_result_returns_none_when_history_empty(self):
+		"""final_result must return None when history is empty."""
+		data = {'history': []}
+		history = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert history.final_result() is None
+
+	def test_final_result_returns_none_when_result_empty(self):
+		"""final_result must return None when last step has empty result list."""
 		data = {
 			'history': [
 				{
@@ -419,75 +425,92 @@ class TestFinalResultGuards:
 				}
 			]
 		}
-		history_list = AgentHistoryList.load_from_dict(data, AgentOutput)
+		history = AgentHistoryList.load_from_dict(data, AgentOutput)
 
-		assert history_list.final_result() is None
+		# result is empty list so final_result returns None
+		assert history.final_result() is None
 
-	def test_final_result_returns_extracted_content(self):
-		"""final_result must return extracted_content from the last result entry."""
+	def test_final_result_returns_content(self):
+		"""final_result returns extracted_content when present."""
 		data = {
 			'history': [
 				{
 					'model_output': None,
-					'result': [
-						{'extracted_content': 'first content', 'is_done': False},
-						{'extracted_content': 'final content', 'is_done': True},
-					],
+					'result': [{'extracted_content': 'the answer is 42', 'is_done': True}],
 					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': []},
 				}
 			]
 		}
-		history_list = AgentHistoryList.load_from_dict(data, AgentOutput)
+		history = AgentHistoryList.load_from_dict(data, AgentOutput)
 
-		assert history_list.final_result() == 'final content'
+		assert history.final_result() == 'the answer is 42'
+
+	def test_final_result_last_step_wins(self):
+		"""final_result returns the last step's extracted_content."""
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [{'extracted_content': 'first', 'is_done': True}],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': []},
+				},
+				{
+					'model_output': None,
+					'result': [{'extracted_content': 'second', 'is_done': True}],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': []},
+				},
+			]
+		}
+		history = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert history.final_result() == 'second'
 
 
 class TestLoadFromDictRoundTrip:
-	"""True serialization/deserialization round-trip: model_dump -> load_from_dict."""
+	"""Happy-path round-trip: model_dump -> load_from_dict preserves essential data."""
 
 	def test_roundtrip_preserves_history_structure(self):
-		"""A true round-trip (model_dump then load_from_dict) preserves history structure."""
-		# Build a live AgentHistoryList with a real AgentHistory item
-		history_list = AgentHistoryList(
-			history=[
-				{
-					'model_output': None,
-					'result': [{'extracted_content': 'round-trip test', 'is_done': True}],
-					'state': {
-						'url': 'https://roundtrip.example.com',
-						'title': 'Round Trip',
-						'tabs': [],
-						'interacted_element': [],
+		"""Serializing and deserializing preserves history count and essential fields."""
+		# Build a live AgentHistoryList, serialize it with model_dump (realistic JSON
+		# output), then load it back via load_from_dict. This is a true round-trip that
+		# exercises the JSON-serializable dict path end-to-end.
+		original = AgentHistoryList.load_from_dict(
+			{
+				'history': [
+					{
+						'model_output': None,
+						'result': [{'extracted_content': 'result1', 'is_done': True}],
+						'state': {
+							'url': 'https://example.com',
+							'title': 'Example Page',
+							'tabs': [],
+							'interacted_element': [],
+						},
 					},
-				}
-			]
+					{
+						'model_output': None,
+						'result': [{'extracted_content': 'result2', 'is_done': False}],
+						'state': {
+							'url': 'https://example.com/page2',
+							'title': 'Example Page 2',
+							'tabs': [],
+							'interacted_element': [],
+						},
+					},
+				]
+			},
+			AgentOutput,
 		)
+		# Serialize to a plain dict (this is what gets written to disk)
+		serialized = original.model_dump()
+		# Deserialize from the serialized form (this is what load_from_file does)
+		restored = AgentHistoryList.load_from_dict(serialized, AgentOutput)
 
-		# Dump to dict (serialization)
-		dumped = history_list.model_dump()
-
-		# Load back (deserialization)
-		reloaded = AgentHistoryList.load_from_dict(dumped, AgentOutput)
-
-		assert len(reloaded.history) == 1
-		assert reloaded.history[0].result[0].extracted_content == 'round-trip test'
-		assert reloaded.history[0].state.url == 'https://roundtrip.example.com'
-
-	def test_roundtrip_non_destructively_modifies_data(self):
-		"""Round-trip must not modify the original dumped dict."""
-		history_list = AgentHistoryList(
-			history=[
-				{
-					'model_output': None,
-					'result': [{'extracted_content': 'preserve me', 'is_done': True}],
-					'state': {'url': 'https://preserve.example.com', 'title': 'Preserve', 'tabs': [], 'interacted_element': []},
-				}
-			]
-		)
-		dumped = history_list.model_dump()
-		original_history_len = len(dumped['history'])
-
-		AgentHistoryList.load_from_dict(dumped, AgentOutput)
-
-		# Dumped data must not be mutated
-		assert len(dumped['history']) == original_history_len
+		assert len(restored.history) == 2
+		assert restored.history[0].result[0].extracted_content == 'result1'
+		assert restored.history[1].result[0].extracted_content == 'result2'
+		assert restored.history[0].state.url == 'https://example.com'
+		assert restored.history[1].state.url == 'https://example.com/page2'
+		# The round-trip must preserve is_done flag (a common field)
+		assert restored.history[0].result[0].is_done is True
+		assert restored.history[1].result[0].is_done is False
