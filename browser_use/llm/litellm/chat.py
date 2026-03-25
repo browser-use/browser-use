@@ -1,3 +1,12 @@
+"""
+ChatLiteLLM - LiteLLM chat model wrapper.
+
+Requires the `litellm` package to be installed separately:
+    pip install litellm
+
+Note: litellm is NOT included as a dependency of browser-use.
+"""
+
 import logging
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, overload
@@ -33,7 +42,7 @@ class ChatLiteLLM(BaseChatModel):
 	def __post_init__(self) -> None:
 		"""Resolve provider info from the model string via litellm."""
 		try:
-			from litellm import get_llm_provider
+			from litellm import get_llm_provider  # type: ignore[reportMissingImports]
 
 			self._clean_model, self._provider_name, _, _ = get_llm_provider(self.model)
 		except Exception:
@@ -108,9 +117,9 @@ class ChatLiteLLM(BaseChatModel):
 		output_format: type[T] | None = None,
 		**kwargs: Any,
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
-		from litellm import acompletion
-		from litellm.exceptions import APIConnectionError, APIError, RateLimitError, Timeout
-		from litellm.types.utils import ModelResponse
+		from litellm import acompletion  # type: ignore[reportMissingImports]
+		from litellm.exceptions import APIConnectionError, APIError, RateLimitError, Timeout  # type: ignore[reportMissingImports]
+		from litellm.types.utils import ModelResponse  # type: ignore[reportMissingImports]
 
 		litellm_messages = LiteLLMMessageSerializer.serialize(messages)
 
