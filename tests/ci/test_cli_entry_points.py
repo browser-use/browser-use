@@ -151,3 +151,15 @@ class TestCliNoDeprecatedGetEventLoop:
 					exit_code = cli_main.main()
 				assert exit_code == 0
 				mock_get_loop.assert_not_called()
+
+	def test_tunnel_stop_all_no_get_event_loop(self):
+		"""Test that tunnel stop --all command does NOT call asyncio.get_event_loop()."""
+		async def mock_stop_all():
+			return {'stopped': [8080, 8081]}
+
+		with patch('browser_use.skill_cli.tunnel.stop_all_tunnels', mock_stop_all):
+			with patch('asyncio.get_event_loop', side_effect=RuntimeError('deprecated get_event_loop called')) as mock_get_loop:
+				with patch.object(sys, 'argv', ['browser-use', '--json', 'tunnel', 'stop', '--all']):
+					exit_code = cli_main.main()
+				assert exit_code == 0
+				mock_get_loop.assert_not_called()
