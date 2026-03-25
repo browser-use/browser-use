@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -689,22 +690,18 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
-		# Make a shallow copy to avoid mutating the caller's top-level dict
-		data = dict(data)
-		# Normalize history before iteration: use [] if missing or None
-		# (data.get('history') or []) handles both missing key AND explicit None
+		# Deep-copy to guarantee no mutation of the caller's nested data.
+		data = copy.deepcopy(data)
+
 		validated_history: list[dict[str, Any]] = []
 		for h in (data.get('history') or []):
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
-			# Shallow-copy the item so no top-level key writes mutate the caller's dict.
-			# result is also deep-copied: h is a shallow copy so h['result'] still refers
-			# to the caller's list; copy it so in-place mutations can't reach caller data.
-			item: dict[str, Any] = dict(h)
-			# Guard: result must be iterable to safely iterate.
-			# If non-iterable (str, int, etc.) replace with [] so downstream code doesn't crash.
-			if 'result' in item and isinstance(item.get('result'), list):
+			# item is already a deep copy of h, so we can safely mutate and reassign fields
+			item: dict[str, Any] = h
+			# Normalize result: coerce absent/None/non-list to [] so pydantic validation succeeds
+			if isinstance(item.get('result'), list):
 				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
 			else:
 				item['result'] = []
@@ -718,18 +715,20 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			else:
 				item['model_output'] = None
 
-			# Always build a fresh state dict so we never mutate the caller's state object.
-			# Provide defaults for all required BrowserStateHistory fields so pydantic
-			# validation succeeds even when state is missing or non-dict.
-			if isinstance(h.get('state'), dict):
-				state: dict[str, Any] = dict(h['state'])
-				state.setdefault('url', '')
-				state.setdefault('title', '')
-				state.setdefault('tabs', [])
-				state.setdefault('interacted_element', [])
-			else:
-				state = {'url': '', 'title': '', 'tabs': [], 'interacted_element': []}
-			item['state'] = state
+			# Normalize state: fill in required BrowserStateHistory fields with safe defaults.
+			# Use isinstance checks so None and wrong-type values are also fixed.
+			state = item.get('state')
+			if not isinstance(state, dict):
+				state = {}
+				item['state'] = state
+			if not isinstance(state.get('url'), str):
+				state['url'] = ''
+			if not isinstance(state.get('title'), str):
+				state['title'] = ''
+			if not isinstance(state.get('tabs'), list):
+				state['tabs'] = []
+			if not isinstance(state.get('interacted_element'), list):
+				state['interacted_element'] = []
 
 			validated_history.append(item)
 
