@@ -3916,16 +3916,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
 				else:
-					# keep_alive=True sessions shouldn't keep the event loop alive after agent.run()
-					await self.browser_session.event_bus.stop(
-						clear=False,
-						timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
-					)
-					try:
-						self.browser_session.event_bus.event_queue = None
-						self.browser_session.event_bus._on_idle = None
-					except Exception:
-						pass
+					# keep_alive=True: don't stop the browser session's event bus.
+					# The event bus manages CDP WebSocket message handlers — stopping it
+					# causes all handlers to exit, which triggers an unnecessary ~1.7s
+					# reconnection cycle and clears SessionManager state.
+					# See: https://github.com/browser-use/browser-use/issues/4374
+					#
+					# The event bus run loop is lightweight (dispatches events only) and
+					# won't keep the process alive on its own. The CDP WebSocket
+					# connections are managed by the CDP client, not the event bus.
+					# Simply detach the agent from the session without touching the bus.
+					pass
 
 			# Close skill service if configured
 			if self.skill_service is not None:

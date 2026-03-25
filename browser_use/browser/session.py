@@ -700,18 +700,34 @@ class BrowserSession(BaseModel):
 
 		This clears event buses and cached state but keeps the browser alive.
 		Useful when you want to clean up resources but plan to reconnect later.
+
+		When keep_alive=True, the CDP connections and event bus are preserved
+		to avoid the reconnection cycle described in:
+		https://github.com/browser-use/browser-use/issues/4374
 		"""
 		self._intentional_stop = True
 		self.logger.debug('⏸️  stop() called - stopping browser gracefully (force=False) and resetting state')
 
-		# First save storage state while CDP is still connected
+		# Dispatch BrowserStopEvent to notify watchdogs
+		# (with keep_alive=True, the handler returns early without closing anything)
+		await self.event_bus.dispatch(BrowserStopEvent(force=False))
+
+		if self.browser_profile.keep_alive:
+			# keep_alive=True: preserve CDP connections and event bus state.
+			# Stopping the event bus kills the run loop, which causes CDP WebSocket
+			# message handlers to exit and triggers an unnecessary reconnection cycle.
+			# Save storage state while CDP is still connected (for consistency)
+			from browser_use.browser.events import SaveStorageStateEvent
+
+			save_event = self.event_bus.dispatch(SaveStorageStateEvent())
+			await save_event
+			return
+
+		# Normal stop path: save storage state while CDP is still connected
 		from browser_use.browser.events import SaveStorageStateEvent
 
 		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
 		await save_event
-
-		# Now dispatch BrowserStopEvent to notify watchdogs
-		await self.event_bus.dispatch(BrowserStopEvent(force=False))
 
 		# Stop the event bus
 		await self.event_bus.stop(clear=True, timeout=5)
