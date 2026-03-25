@@ -29,6 +29,36 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 T = TypeVar('T', bound=BaseModel)
 
 
+def _escape_control_chars_in_strings(s: str) -> str:
+	"""Escape literal control chars only inside JSON string values, leaving structural whitespace untouched."""
+	result: list[str] = []
+	i = 0
+	in_string = False
+	while i < len(s):
+		c = s[i]
+		if c == '\\' and in_string:
+			# Already-escaped sequence — copy verbatim to avoid double-escaping
+			result.append(c)
+			i += 1
+			if i < len(s):
+				result.append(s[i])
+				i += 1
+			continue
+		if c == '"':
+			in_string = not in_string
+			result.append(c)
+		elif in_string and c == '\n':
+			result.append('\\n')
+		elif in_string and c == '\r':
+			result.append('\\r')
+		elif in_string and c == '\t':
+			result.append('\\t')
+		else:
+			result.append(c)
+		i += 1
+	return ''.join(result)
+
+
 @dataclass
 class ChatAnthropic(BaseChatModel):
 	"""
@@ -227,8 +257,8 @@ class ChatAnthropic(BaseChatModel):
 								try:
 									_input = {**_input, 'action': json.loads(action_str)}
 								except json.JSONDecodeError:
-									# Escape literal control characters and retry
-									sanitized = action_str.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+									# Escape literal control characters only inside JSON string values and retry
+									sanitized = _escape_control_chars_in_strings(action_str)
 									try:
 										_input = {**_input, 'action': json.loads(sanitized)}
 									except json.JSONDecodeError:
