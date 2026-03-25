@@ -698,8 +698,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
-			# Shallow-copy the item so no top-level key writes mutate the caller's dict
+			# Shallow-copy the item so no top-level key writes mutate the caller's dict.
+			# result is also deep-copied: h is a shallow copy so h['result'] still refers
+			# to the caller's list; copy it so in-place mutations can't reach caller data.
 			item: dict[str, Any] = dict(h)
+			if 'result' in item:
+				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
 
 			if 'model_output' in item:
 				model_output = item['model_output']

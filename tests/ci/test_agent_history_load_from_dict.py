@@ -88,11 +88,16 @@ class TestLoadFromDictNonMutation:
 			]
 		}
 		result_len_before = len(original_result)
+		original_result_item_id = id(original_result[0])
 
 		AgentHistoryList.load_from_dict(data, AgentOutput)
 
 		assert len(original_result) == result_len_before
+		# The caller's result list is still the same object (data['history'] assignment
+		# replaces the list reference, but doesn't deep-copy the nested list back).
+		# The item dicts inside the list must also stay the same objects.
 		assert id(data['history'][0]['result']) == id(original_result)
+		assert id(original_result[0]) == original_result_item_id
 
 
 class TestLoadFromDictMalformedHistory:
@@ -415,35 +420,46 @@ class TestLoadFromDictRoundTrip:
 
 	def test_roundtrip_preserves_history_structure(self):
 		"""Serializing and deserializing preserves history count and essential fields."""
-		data = {
-			'history': [
-				{
-					'model_output': None,
-					'result': [{'extracted_content': 'result1', 'is_done': True}],
-					'state': {
-						'url': 'https://example.com',
-						'title': 'Example Page',
-						'tabs': [],
-						'interacted_element': [],
+		# Build a live AgentHistoryList, serialize it with model_dump (realistic JSON
+		# output), then load it back via load_from_dict. This is a true round-trip that
+		# exercises the JSON-serializable dict path end-to-end.
+		original = AgentHistoryList.load_from_dict(
+			{
+				'history': [
+					{
+						'model_output': None,
+						'result': [{'extracted_content': 'result1', 'is_done': True}],
+						'state': {
+							'url': 'https://example.com',
+							'title': 'Example Page',
+							'tabs': [],
+							'interacted_element': [],
+						},
 					},
-				},
-				{
-					'model_output': None,
-					'result': [{'extracted_content': 'result2', 'is_done': False}],
-					'state': {
-						'url': 'https://example.com/page2',
-						'title': 'Example Page 2',
-						'tabs': [],
-						'interacted_element': [],
+					{
+						'model_output': None,
+						'result': [{'extracted_content': 'result2', 'is_done': False}],
+						'state': {
+							'url': 'https://example.com/page2',
+							'title': 'Example Page 2',
+							'tabs': [],
+							'interacted_element': [],
+						},
 					},
-				},
-			]
-		}
+				]
+			},
+			AgentOutput,
+		)
+		# Serialize to a plain dict (this is what gets written to disk)
+		serialized = original.model_dump()
+		# Deserialize from the serialized form (this is what load_from_file does)
+		restored = AgentHistoryList.load_from_dict(serialized, AgentOutput)
 
-		history = AgentHistoryList.load_from_dict(data, AgentOutput)
-
-		assert len(history.history) == 2
-		assert history.history[0].result[0].extracted_content == 'result1'
-		assert history.history[1].result[0].extracted_content == 'result2'
-		assert history.history[0].state.url == 'https://example.com'
-		assert history.history[1].state.url == 'https://example.com/page2'
+		assert len(restored.history) == 2
+		assert restored.history[0].result[0].extracted_content == 'result1'
+		assert restored.history[1].result[0].extracted_content == 'result2'
+		assert restored.history[0].state.url == 'https://example.com'
+		assert restored.history[1].state.url == 'https://example.com/page2'
+		# The round-trip must preserve is_done flag (a common field)
+		assert restored.history[0].result[0].is_done is True
+		assert restored.history[1].result[0].is_done is False
