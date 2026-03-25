@@ -408,7 +408,7 @@ class BrowserSession(BaseModel):
 				'Could not detect Chrome profile directory for your platform.\n'
 				'Expected locations:\n'
 				'  macOS: ~/Library/Application Support/Google/Chrome\n'
-				'  Linux: ~/.config/google-chrome\n'
+				'  Linux: ~/.config/google-chrome or ~/.config/chromium\n'
 				'  Windows: %LocalAppData%\\Google\\Chrome\\User Data'
 			)
 
