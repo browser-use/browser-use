@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from contextlib import contextmanager
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-import sys
 
 from browser_use.skill_cli.tunnel import TunnelManager, get_tunnel_manager
-
 
 # =============================================================================
 # Windows mocking helpers for _kill_process tests
@@ -27,7 +26,7 @@ def _windows_ctypes_mock():
 	"""
 	import ctypes
 
-	original_windll = getattr(ctypes, "windll", None)
+	original_windll = getattr(ctypes, 'windll', None)
 
 	class MockWindll:
 		"""Stands in for ctypes.windll on non-Windows."""
@@ -45,7 +44,7 @@ def _windows_ctypes_mock():
 	finally:
 		if original_windll is None:
 			try:
-				delattr(ctypes, "windll")  # type: ignore[attr-defined]
+				delattr(ctypes, 'windll')  # type: ignore[attr-defined]
 			except AttributeError:
 				pass
 		else:
@@ -62,7 +61,7 @@ def _windows_test_context():
 	with _windows_ctypes_mock():
 		original_platform = sys.platform
 		try:
-			sys.platform = "win32"
+			sys.platform = 'win32'
 			yield
 		finally:
 			sys.platform = original_platform
@@ -71,6 +70,7 @@ def _windows_test_context():
 # =============================================================================
 # TunnelManager tests
 # =============================================================================
+
 
 @pytest.fixture
 def tunnel_manager():
@@ -176,12 +176,12 @@ class TestKillProcessWindows:
 			terminate_process = MagicMock(return_value=True)
 			close_handle = MagicMock()
 
-			ctypes.windll.kernel32.OpenProcess = open_process
-			ctypes.windll.kernel32.TerminateProcess = terminate_process
-			ctypes.windll.kernel32.CloseHandle = close_handle
+			ctypes.windll.kernel32.OpenProcess = open_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.TerminateProcess = terminate_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.CloseHandle = close_handle  # type: ignore[attr-defined]
 
 			with patch(
-				"browser_use.skill_cli.tunnel._is_process_alive",
+				'browser_use.skill_cli.tunnel._is_process_alive',
 				return_value=False,
 			):
 				result = _kill_process(1234)
@@ -204,9 +204,9 @@ class TestKillProcessWindows:
 			terminate_process = MagicMock(return_value=True)
 			close_handle = MagicMock()
 
-			ctypes.windll.kernel32.OpenProcess = open_process
-			ctypes.windll.kernel32.TerminateProcess = terminate_process
-			ctypes.windll.kernel32.CloseHandle = close_handle
+			ctypes.windll.kernel32.OpenProcess = open_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.TerminateProcess = terminate_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.CloseHandle = close_handle  # type: ignore[attr-defined]
 
 			call_count = [0]
 
@@ -215,7 +215,7 @@ class TestKillProcessWindows:
 				return call_count[0] <= 3
 
 			with patch(
-				"browser_use.skill_cli.tunnel._is_process_alive",
+				'browser_use.skill_cli.tunnel._is_process_alive',
 				side_effect=fake_is_alive,
 			):
 				result = _kill_process(1234)
@@ -233,7 +233,7 @@ class TestKillProcessWindows:
 			import ctypes
 
 			open_process = MagicMock(return_value=None)
-			ctypes.windll.kernel32.OpenProcess = open_process
+			ctypes.windll.kernel32.OpenProcess = open_process  # type: ignore[attr-defined]
 
 			result = _kill_process(9999)
 
@@ -253,9 +253,9 @@ class TestKillProcessWindows:
 			terminate_process = MagicMock(return_value=False)
 			close_handle = MagicMock()
 
-			ctypes.windll.kernel32.OpenProcess = open_process
-			ctypes.windll.kernel32.TerminateProcess = terminate_process
-			ctypes.windll.kernel32.CloseHandle = close_handle
+			ctypes.windll.kernel32.OpenProcess = open_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.TerminateProcess = terminate_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.CloseHandle = close_handle  # type: ignore[attr-defined]
 
 			result = _kill_process(1234)
 
@@ -277,10 +277,10 @@ class TestKillProcessUnix:
 
 		original_platform = sys.platform
 		try:
-			sys.platform = "linux"
-			with patch("os.kill") as mock_kill:
+			sys.platform = 'linux'
+			with patch('os.kill') as mock_kill:
 				with patch(
-					"browser_use.skill_cli.tunnel._is_process_alive",
+					'browser_use.skill_cli.tunnel._is_process_alive',
 					return_value=False,
 				):
 					result = _kill_process(1234)
@@ -291,32 +291,41 @@ class TestKillProcessUnix:
 
 	def test_kill_process_unix_sigkill_after_grace_period(self):
 		"""Test Unix path: SIGKILL sent after SIGTERM grace period expires."""
+		import signal as signal_module
+
 		from browser_use.skill_cli.tunnel import _kill_process
 
 		original_platform = sys.platform
+		# signal.SIGKILL does not exist on Windows — inject it before the call
+		original_sigkill = getattr(signal_module, 'SIGKILL', None)
+		signal_module.SIGKILL = 9  # type: ignore[attr-defined]
 		try:
-			sys.platform = "linux"
+			sys.platform = 'linux'
 			call_count = [0]
 
 			def fake_is_alive(pid: int) -> bool:
 				call_count[0] += 1
 				return True  # Always alive
 
-			with patch("os.kill") as mock_kill:
+			with patch('os.kill') as mock_kill:
 				with patch(
-					"browser_use.skill_cli.tunnel._is_process_alive",
+					'browser_use.skill_cli.tunnel._is_process_alive',
 					side_effect=fake_is_alive,
 				):
-					with patch("browser_use.skill_cli.tunnel.time.sleep"):
+					with patch('browser_use.skill_cli.tunnel.time.sleep'):
 						result = _kill_process(1234)
 			assert result is True
 			# Should have sent SIGTERM first, then SIGKILL after 10 sleeps
 			assert mock_kill.call_count == 2
 			mock_kill.assert_any_call(1234, 15)  # SIGTERM
 			mock_kill.assert_any_call(1234, 9)  # SIGKILL
-			assert call_count[0] == 11  # 10 alive checks during grace + 1 final check
+			assert call_count[0] == 10  # 10 alive checks during grace period → no early return
 		finally:
 			sys.platform = original_platform
+			if original_sigkill is None:
+				del signal_module.SIGKILL  # type: ignore[attr-defined]
+			else:
+				signal_module.SIGKILL = original_sigkill  # type: ignore[attr-defined]
 
 	def test_kill_process_unix_process_not_found(self):
 		"""Test Unix path: ProcessLookupError when process doesn't exist."""
@@ -324,8 +333,8 @@ class TestKillProcessUnix:
 
 		original_platform = sys.platform
 		try:
-			sys.platform = "linux"
-			with patch("os.kill", side_effect=ProcessLookupError("No such process")):
+			sys.platform = 'linux'
+			with patch('os.kill', side_effect=ProcessLookupError('No such process')):
 				result = _kill_process(9999)
 			assert result is False
 		finally:
