@@ -69,6 +69,7 @@ jobs:
 
   publish_to_pypi:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    environment: pypi-publish
     runs-on: ubuntu-latest
     env:
       IN_DOCKER: 'True'
