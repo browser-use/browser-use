@@ -689,7 +689,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
-		# Make a shallow copy to avoid mutating the caller's data dict
+		# Make a shallow copy to avoid mutating the caller's top-level dict
 		data = dict(data)
 		# Normalize history before iteration: use [] if missing or None
 		# (data.get('history') or []) handles both missing key AND explicit None
@@ -698,26 +698,32 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
-			if 'model_output' in h:
-				model_output = h['model_output']
-				if model_output is not None:
-					if isinstance(model_output, dict):
-						h['model_output'] = output_model.model_validate(model_output)
-					else:
-						h['model_output'] = None
+			# Shallow-copy the item so no top-level key writes mutate the caller's dict
+			item: dict[str, Any] = dict(h)
+
+			if 'model_output' in item:
+				model_output = item['model_output']
+				if model_output is not None and isinstance(model_output, dict):
+					item['model_output'] = output_model.model_validate(model_output)
+				else:
+					item['model_output'] = None
 			else:
-				h['model_output'] = None
-			state = h.get('state')
-			if not isinstance(state, dict):
-				state = {}
-				h['state'] = state
-			if 'interacted_element' not in state:
-				state['interacted_element'] = []
-			validated_history.append(h)
+				item['model_output'] = None
+
+			# Always build a fresh state dict so we never mutate the caller's state object
+			state: dict[str, Any] = {'interacted_element': []}
+			if isinstance(h.get('state'), dict):
+				existing = dict(h['state'])
+				existing.setdefault('interacted_element', [])
+				state = existing
+			item['state'] = state
+
+			validated_history.append(item)
 
 		data['history'] = validated_history
 		history = cls.model_validate(data)
 		return history
+
 
 	@classmethod
 	def load_from_file(cls, filepath: str | Path, output_model: type[AgentOutput]) -> AgentHistoryList:
