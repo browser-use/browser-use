@@ -553,6 +553,33 @@ class TestResultEdgeCases:
 		assert len(result.history) == 1
 		assert result.history[0].result == []
 
+	def test_result_list_with_non_dict_items_filters_them(self):
+		"""result=['skip', 42, None, {'extracted_content': 'keep'}] must not crash; non-dict items filtered."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [
+						'skip me',
+						42,
+						None,
+						{'extracted_content': 'keep me', 'is_done': True},
+						{'extracted_content': 'keep me too', 'is_done': False},
+					],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert len(result.history[0].result) == 2
+		assert result.history[0].result[0].extracted_content == 'keep me'
+		assert result.history[0].result[1].extracted_content == 'keep me too'
+
 
 class TestFinalResult:
 	"""Verify final_result() is guarded against empty result list."""
