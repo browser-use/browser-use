@@ -44,15 +44,15 @@ class TestLoadFromDictNonMutation:
 			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': []},
 		}
 		data = {'history': [item]}
-		original_item_id = id(item)
-		original_state_id = id(item['state'])
+		before = {
+			'model_output': item['model_output'],
+			'result': [dict(r) if isinstance(r, dict) else r for r in item['result']],
+			'state': dict(item['state']),
+		}
 
 		AgentHistoryList.load_from_dict(data, AgentOutput)
 
-		# Item dict identity preserved
-		assert id(data['history'][0]) == original_item_id
-		# State dict identity preserved
-		assert id(data['history'][0]['state']) == original_state_id
+		assert item == before
 
 	def test_caller_owned_nested_state_not_mutated(self):
 		"""Caller-owned state dict inside history items must not be mutated."""
@@ -87,17 +87,11 @@ class TestLoadFromDictNonMutation:
 				}
 			]
 		}
-		result_len_before = len(original_result)
-		original_result_item_id = id(original_result[0])
+		before = [dict(r) if isinstance(r, dict) else r for r in original_result]
 
 		AgentHistoryList.load_from_dict(data, AgentOutput)
 
-		assert len(original_result) == result_len_before
-		# The caller's result list is still the same object (data['history'] assignment
-		# replaces the list reference, but doesn't deep-copy the nested list back).
-		# The item dicts inside the list must also stay the same objects.
-		assert id(data['history'][0]['result']) == id(original_result)
-		assert id(original_result[0]) == original_result_item_id
+		assert original_result == before
 
 
 class TestLoadFromDictMalformedHistory:
