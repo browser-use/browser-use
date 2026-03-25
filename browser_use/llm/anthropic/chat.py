@@ -217,8 +217,24 @@ class ChatAnthropic(BaseChatModel):
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
 						try:
+							_input = content_block.input
+							# Handle case where 'action' is a JSON-encoded string instead of a list.
+							# Claude Sonnet sometimes serializes the action array as a string; if that
+							# string contains literal chr(10)/chr(13)/chr(9) (e.g. newlines in done-text)
+							# a bare json.loads() raises JSONDecodeError per RFC 8259 §7.
+							if isinstance(_input, dict) and isinstance(_input.get('action'), str):
+								action_str: str = _input['action']  # type: ignore[assignment]
+								try:
+									_input = {**_input, 'action': json.loads(action_str)}
+								except json.JSONDecodeError:
+									# Escape literal control characters and retry
+									sanitized = action_str.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+									try:
+										_input = {**_input, 'action': json.loads(sanitized)}
+									except json.JSONDecodeError:
+										pass  # leave _input unchanged; model_validate will raise a descriptive error
 							return ChatInvokeCompletion(
-								completion=output_format.model_validate(content_block.input),
+								completion=output_format.model_validate(_input),
 								usage=usage,
 								stop_reason=response.stop_reason,
 							)

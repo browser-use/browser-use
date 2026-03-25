@@ -629,3 +629,54 @@ class TestExtractionSchemaInjection:
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
 		assert '<structured_result>' in result.extracted_content
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: Anthropic action-field JSON string parsing (issue #4510)
+# ---------------------------------------------------------------------------
+
+
+class TestAnthropicActionJsonParse:
+	"""Unit tests for the action-as-JSON-string sanitization in ChatAnthropic.ainvoke."""
+
+	def _parse_action_field(self, raw_input: dict) -> dict:
+		"""
+		Replicate the sanitization logic from ChatAnthropic.ainvoke so we can test
+		it in isolation without a real Anthropic client.
+		"""
+		_input = raw_input
+		if isinstance(_input, dict) and isinstance(_input.get('action'), str):
+			action_str = _input['action']
+			try:
+				_input = {**_input, 'action': json.loads(action_str)}
+			except json.JSONDecodeError:
+				sanitized = action_str.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+				try:
+					_input = {**_input, 'action': json.loads(sanitized)}
+				except json.JSONDecodeError:
+					pass
+		return _input
+
+	def test_action_string_valid_json(self):
+		"""action field is a valid JSON-encoded string — must be parsed to list."""
+		raw = {'action': '[{"done": {"text": "all done"}}]'}
+		result = self._parse_action_field(raw)
+		assert isinstance(result['action'], list)
+		assert result['action'] == [{'done': {'text': 'all done'}}]
+
+	def test_action_string_with_literal_newlines(self):
+		"""action field has literal chr(10) inside the JSON string — exact bug from issue #4510."""
+		done_text = 'line one\nline two'
+		# JSON string where the newline is NOT escaped — what Claude Sonnet emits
+		action_json = '[{"done": {"text": "' + done_text + '"}}]'
+		raw = {'action': action_json}
+		result = self._parse_action_field(raw)
+		assert isinstance(result['action'], list)
+		assert '\n' in result['action'][0]['done']['text']
+
+	def test_action_string_unparseable(self):
+		"""action field is malformed JSON that cannot be recovered — left unchanged."""
+		raw = {'action': 'not valid json]['}
+		result = self._parse_action_field(raw)
+		# Must remain as-is; downstream model_validate will raise a descriptive error
+		assert result['action'] == 'not valid json]['
