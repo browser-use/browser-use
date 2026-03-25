@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -689,16 +690,49 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
-		# loop through history and validate output_model actions to enrich with custom actions
-		for h in data.get('history', []):
-			if h.get('model_output'):
-				if isinstance(h['model_output'], dict):
-					h['model_output'] = output_model.model_validate(h['model_output'])
-				else:
-					h['model_output'] = None
-			if 'interacted_element' not in h.get('state', {}):
-				h.setdefault('state', {})['interacted_element'] = None
+		# Deep-copy to guarantee no mutation of the caller's nested data.
+		data = copy.deepcopy(data)
 
+		validated_history: list[dict[str, Any]] = []
+		for h in data.get('history') or []:
+			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
+			if not isinstance(h, dict):
+				continue
+			# item is already a deep copy of h, so we can safely mutate and reassign fields
+			item: dict[str, Any] = h
+			# Normalize result: coerce absent/None/non-list to [] so pydantic validation succeeds
+			if isinstance(item.get('result'), list):
+				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
+			else:
+				item['result'] = []
+
+			if 'model_output' in item:
+				model_output = item['model_output']
+				if model_output is not None and isinstance(model_output, dict):
+					item['model_output'] = output_model.model_validate(model_output)
+				else:
+					item['model_output'] = None
+			else:
+				item['model_output'] = None
+
+			# Normalize state: fill in required BrowserStateHistory fields with safe defaults.
+			# Use isinstance checks so None and wrong-type values are also fixed.
+			state = item.get('state')
+			if not isinstance(state, dict):
+				state = {}
+				item['state'] = state
+			if not isinstance(state.get('url'), str):
+				state['url'] = ''
+			if not isinstance(state.get('title'), str):
+				state['title'] = ''
+			if not isinstance(state.get('tabs'), list):
+				state['tabs'] = []
+			if not isinstance(state.get('interacted_element'), list):
+				state['interacted_element'] = []
+
+			validated_history.append(item)
+
+		data['history'] = validated_history
 		history = cls.model_validate(data)
 		return history
 
