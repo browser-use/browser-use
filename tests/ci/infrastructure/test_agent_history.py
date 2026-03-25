@@ -134,11 +134,20 @@ class TestLoadFromDictNonMutation:
 		"""Top-level keys in caller's data dict must not be replaced."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': {'action': [_make_done_action()], 'memory': 'test', 'evaluation_previous_goal': '', 'next_goal': ''},
-			'result': [],
-			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': {
+						'action': [_make_done_action()],
+						'memory': 'test',
+						'evaluation_previous_goal': '',
+						'next_goal': '',
+					},
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
 
 		original_history = data['history']
 
@@ -199,10 +208,14 @@ class TestLoadFromDictBackwardCompatibility:
 		"""Must handle entries without 'model_output' key."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'result': [],
-			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
-		}]}
+		data = {
+			'history': [
+				{
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -213,11 +226,15 @@ class TestLoadFromDictBackwardCompatibility:
 		"""Must handle model_output=None gracefully."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': None,
-			'result': [],
-			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -228,11 +245,15 @@ class TestLoadFromDictBackwardCompatibility:
 		"""model_output present but not a dict must be normalized to None."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': 'invalid-string',
-			'result': [],
-			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': 'invalid-string',
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -243,11 +264,15 @@ class TestLoadFromDictBackwardCompatibility:
 		"""state=None must be normalized to a valid dict with interacted_element=[]."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': None,
-			'result': [],
-			'state': None,
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': None,
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -258,10 +283,14 @@ class TestLoadFromDictBackwardCompatibility:
 		"""Missing state must be normalized to a valid dict with all required fields."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': None,
-			'result': [],
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -275,11 +304,15 @@ class TestLoadFromDictBackwardCompatibility:
 		"""state as non-dict (e.g., string) must be normalized to a valid dict."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': None,
-			'result': [],
-			'state': 'not-a-dict',
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': 'not-a-dict',
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -293,11 +326,15 @@ class TestLoadFromDictBackwardCompatibility:
 		"""state with missing url/title/tabs must get defaults, preserving interacted_element."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': None,
-			'result': [],
-			'state': {'interacted_element': [None]},
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': {'interacted_element': [None]},
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -311,11 +348,20 @@ class TestLoadFromDictBackwardCompatibility:
 		"""state without interacted_element must get interacted_element=[] added."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': {'action': [_make_done_action()], 'memory': 'test', 'evaluation_previous_goal': '', 'next_goal': ''},
-			'result': [],
-			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': []},
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': {
+						'action': [_make_done_action()],
+						'memory': 'test',
+						'evaluation_previous_goal': '',
+						'next_goal': '',
+					},
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': []},
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -326,16 +372,186 @@ class TestLoadFromDictBackwardCompatibility:
 		"""state with existing interacted_element must preserve the list."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': {'action': [_make_done_action()], 'memory': 'test', 'evaluation_previous_goal': '', 'next_goal': ''},
-			'result': [],
-			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': [None]},
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': {
+						'action': [_make_done_action()],
+						'memory': 'test',
+						'evaluation_previous_goal': '',
+						'next_goal': '',
+					},
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': [None]},
+				}
+			]
+		}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
 		assert len(result.history) == 1
 		assert result.history[0].state.interacted_element == [None]
+
+	def test_state_url_none_normalized_to_empty_string(self):
+		"""state with url=None must be normalized to '' (not left as None)."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': {'url': None, 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].state.url == ''
+		assert result.history[0].state.title == 'Example'
+
+	def test_state_title_none_normalized_to_empty_string(self):
+		"""state with title=None must be normalized to '' (not left as None)."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': None, 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].state.url == 'https://example.com'
+		assert result.history[0].state.title == ''
+
+	def test_state_tabs_none_normalized_to_empty_list(self):
+		"""state with tabs=None must be normalized to [] (not left as None)."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': None, 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].state.tabs == []
+
+	def test_state_all_required_fields_none_normalized(self):
+		"""state where url/title/tabs are all None must all become empty defaults."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': {'url': None, 'title': None, 'tabs': None, 'interacted_element': None},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].state.url == ''
+		assert result.history[0].state.title == ''
+		assert result.history[0].state.tabs == []
+		assert result.history[0].state.interacted_element == []
+
+	def test_state_interacted_element_wrong_type_normalized(self):
+		"""state with interacted_element as string (wrong type) must be normalized to []."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': 'not-a-list'},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].state.interacted_element == []
+
+
+class TestResultEdgeCases:
+	"""Verify load_from_dict handles result=None and non-list result values gracefully."""
+
+	def test_result_none_does_not_crash(self):
+		"""result=None must not cause TypeError when iterating the deep-copy step."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': None,
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].result == []
+
+	def test_result_string_does_not_crash(self):
+		"""result='not-a-list' must not crash; treated as [] for validation."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': 'not-a-list',
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].result == []
+
+	def test_result_int_does_not_crash(self):
+		"""result=42 must not crash; treated as [] for validation."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': 42,
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].result == []
 
 
 class TestFinalResult:
@@ -345,11 +561,20 @@ class TestFinalResult:
 		"""final_result() must return None (not IndexError) when last step has empty result."""
 		AgentOutput = _make_output_model()
 
-		data = {'history': [{
-			'model_output': {'action': [_make_done_action()], 'memory': '', 'evaluation_previous_goal': '', 'next_goal': ''},
-			'result': [],  # Empty result list
-			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
-		}]}
+		data = {
+			'history': [
+				{
+					'model_output': {
+						'action': [_make_done_action()],
+						'memory': '',
+						'evaluation_previous_goal': '',
+						'next_goal': '',
+					},
+					'result': [],  # Empty result list
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
 
 		history = AgentHistoryList.load_from_dict(data, AgentOutput)
 		result = history.final_result()

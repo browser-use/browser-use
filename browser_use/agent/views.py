@@ -694,7 +694,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		# Normalize history before iteration: use [] if missing or None
 		# (data.get('history') or []) handles both missing key AND explicit None
 		validated_history: list[dict[str, Any]] = []
-		for h in (data.get('history') or []):
+		for h in data.get('history') or []:
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
@@ -702,8 +702,11 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# Also copy the result list: h = dict(h) is a shallow copy, so h['result']
 			# still references the caller's list; copy it to prevent in-place mutations.
 			item: dict[str, Any] = dict(h)
-			if 'result' in item:
+			if isinstance(item.get('result'), list):
 				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
+			else:
+				# result is absent, None, or wrong type — normalize to [] so pydantic validation succeeds
+				item['result'] = []
 
 			if 'model_output' in item:
 				model_output = item['model_output']
@@ -721,14 +724,16 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				state = {}
 			# Make a copy before mutating so caller is unaffected
 			state = dict(state)
-			# Fill in required BrowserStateHistory fields with safe defaults
-			if 'url' not in state:
+			# Fill in required BrowserStateHistory fields with safe defaults.
+			# Use isinstance checks so None and wrong-type values are also fixed,
+			# not just missing keys.
+			if not isinstance(state.get('url'), str):
 				state['url'] = ''
-			if 'title' not in state:
+			if not isinstance(state.get('title'), str):
 				state['title'] = ''
-			if 'tabs' not in state:
+			if not isinstance(state.get('tabs'), list):
 				state['tabs'] = []
-			if 'interacted_element' not in state:
+			if not isinstance(state.get('interacted_element'), list):
 				state['interacted_element'] = []
 			item['state'] = state
 
