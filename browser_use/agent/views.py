@@ -698,6 +698,9 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
+			# Copy each entry so mutations don't affect the caller's data
+			h = dict(h)
+
 			if 'model_output' in h:
 				model_output = h['model_output']
 				if model_output is not None:
@@ -707,12 +710,24 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 						h['model_output'] = None
 			else:
 				h['model_output'] = None
+
+			# Normalize state: always assign back to h['state'] to avoid mutating caller
 			state = h.get('state')
 			if not isinstance(state, dict):
 				state = {}
-				h['state'] = state
+			# Make a copy before mutating so caller is unaffected
+			state = dict(state)
+			# Fill in required BrowserStateHistory fields with safe defaults
+			if 'url' not in state:
+				state['url'] = ''
+			if 'title' not in state:
+				state['title'] = ''
+			if 'tabs' not in state:
+				state['tabs'] = []
 			if 'interacted_element' not in state:
 				state['interacted_element'] = []
+			h['state'] = state
+
 			validated_history.append(h)
 
 		data['history'] = validated_history
