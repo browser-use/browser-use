@@ -710,12 +710,14 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			else:
 				item['model_output'] = None
 
-			# Always build a fresh state dict so we never mutate the caller's state object
-			state: dict[str, Any] = {'interacted_element': []}
+			# Always build a fresh state dict so we never mutate the caller's state object.
+			# Provide defaults for all required BrowserStateHistory fields so pydantic
+			# validation succeeds even when state is missing or non-dict.
 			if isinstance(h.get('state'), dict):
-				existing = dict(h['state'])
-				existing.setdefault('interacted_element', [])
-				state = existing
+				state: dict[str, Any] = dict(h['state'])
+				state.setdefault('interacted_element', [])
+			else:
+				state = {'url': '', 'title': '', 'tabs': [], 'interacted_element': []}
 			item['state'] = state
 
 			validated_history.append(item)
