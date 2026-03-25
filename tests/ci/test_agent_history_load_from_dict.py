@@ -13,7 +13,8 @@ Covers:
 Attribution: non-mutation regression issues identified by cubic.
 """
 
-from browser_use.agent.views import AgentHistoryList, AgentOutput
+from browser_use.agent.views import AgentHistoryList, AgentOutput, AgentHistory, ActionResult
+from browser_use.browser.views import BrowserStateHistory, TabInfo
 
 
 class TestLoadFromDictNonMutation:
@@ -161,6 +162,35 @@ class TestLoadFromDictNonMutation:
 		# original item still unchanged
 		assert history_list[0] == original_item
 
+	def test_caller_result_list_not_mutated_content(self):
+		"""Caller-owned result list must not be mutated even when normalization filters items.
+		
+		This specifically catches nested mutation of caller-owned result items during the
+		result normalization loop. Without deep-copy, items with non-dict elements
+		(caller's list is modified when result dicts are deep-copied into new list).
+		"""
+		original_result = [
+			'skip me',
+			{'extracted_content': 'keep me', 'is_done': True},
+		]
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': original_result,
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+		result_before = [dict(r) if isinstance(r, dict) else r for r in original_result]
+
+		AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		# Original result list content must not be modified
+		assert original_result == result_before
+		# history item result list must also be unchanged
+		assert data['history'][0]['result'] == result_before
+
 
 class TestLoadFromDictMalformedHistory:
 	"""Malformed history items must be silently filtered, not cause validation errors."""
@@ -241,6 +271,29 @@ class TestLoadFromDictMalformedHistory:
 
 		assert len(result.history) == 0
 
+	def test_non_dict_items_not_left_in_data_history(self):
+		"""Non-dict history items must be removed from data['history'] before model_validate.
+		
+		A bug where non-dict items are skipped in the loop but data['history'] is not updated
+		would leave invalid items that cause model_validate to fail. This test verifies the
+		caller's data dict itself has only valid dict items in its history list after the call.
+		"""
+		item1 = {
+			'model_output': None,
+			'result': [{'extracted_content': 'valid', 'is_done': True}],
+			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+		}
+		data = {'history': [item1]}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		# After call, data['history'] must contain only the valid item (no None/str/list remnants)
+		assert len(data['history']) == 1
+		assert isinstance(data['history'][0], dict)
+		assert data['history'][0]['result'][0]['extracted_content'] == 'valid'
+		# And the returned object should also have correct length
+		assert len(result.history) == 1
+
 	def test_result_non_list_coerced_to_empty(self):
 		"""Non-list result (string) must be coerced to [] without crashing."""
 		data = {
@@ -291,6 +344,57 @@ class TestLoadFromDictMalformedHistory:
 
 		assert len(result.history) == 1
 		assert result.history[0].result == []
+
+	def test_result_bare_dict_coerced_to_empty(self):
+		"""A bare dict result (not a list of result dicts) must be coerced to [].
+		
+		A bare dict is not a list, so it's not a valid result. Iterating a dict yields
+		keys (strings) which would cause pydantic validation to fail. Coerce to [].
+		"""
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': {'extracted_content': 'should be list'},
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].result == []
+
+	def test_result_list_non_dict_items_filtered(self):
+		"""Non-dict items in a result list must be silently dropped, not cause validation errors.
+		
+		A list like ['string', 42, None] is iterable but its items are not ActionResult dicts.
+		Filtering to only dict items prevents pydantic validation from failing on the remaining
+		valid dict items.
+		"""
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': [
+						'skip me',
+						42,
+						None,
+						{'extracted_content': 'keep me', 'is_done': True},
+						{'extracted_content': 'keep me too', 'is_done': False},
+					],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert len(result.history[0].result) == 2
+		assert result.history[0].result[0].extracted_content == 'keep me'
+		assert result.history[0].result[1].extracted_content == 'keep me too'
 
 
 class TestLoadFromDictStateNormalization:
@@ -694,3 +798,46 @@ class TestLoadFromDictRoundTrip:
 		assert restored.history[0].result[1].extracted_content == 'content2'
 		assert restored.history[0].result[1].is_done is False
 		assert restored.history[0].result[1].error == 'some error'
+
+
+	def test_roundtrip_from_constructed_model_exercises_full_dump_load_cycle(self):
+		"""Round-trip starting from a live pydantic model catches bugs in load_from_dict alone.
+		
+		Unlike test_roundtrip_preserves_history_structure which starts from load_from_dict
+		(and would miss load_from_dict bugs), this test builds a real AgentHistoryList with
+		properly constructed pydantic models (AgentHistory, BrowserStateHistory, TabInfo,
+		ActionResult), serializes it via model_dump, then deserializes via load_from_dict.
+		"""
+		# Build state with a real TabInfo object
+		state = BrowserStateHistory(
+			url='https://constructed.example/page',
+			title='Constructed Page',
+			tabs=[TabInfo(url='https://constructed.example/page', title='Constructed Page', target_id='tab-1')],
+			interacted_element=[],
+		)
+		# Build result with a real ActionResult object
+		result = [ActionResult(extracted_content='constructed result', is_done=True, success=True)]
+		# Build history with real AgentHistory
+		history_item = AgentHistory(
+			model_output=None,
+			result=result,
+			state=state,
+		)
+		# Wrap in AgentHistoryList (this is a properly constructed, fully-validated object)
+		original = AgentHistoryList(history=[history_item])
+
+		# Serialize as the file-save path does
+		serialized = original.model_dump()
+
+		# Deserialize as load_from_file does
+		restored = AgentHistoryList.load_from_dict(serialized, AgentOutput)
+
+		# Verify round-trip data integrity
+		assert len(restored.history) == 1
+		assert restored.history[0].state.url == 'https://constructed.example/page'
+		assert restored.history[0].state.title == 'Constructed Page'
+		assert len(restored.history[0].state.tabs) == 1
+		assert restored.history[0].state.tabs[0].url == 'https://constructed.example/page'
+		assert restored.history[0].result[0].extracted_content == 'constructed result'
+		assert restored.history[0].result[0].is_done is True
+		assert restored.history[0].result[0].success is True

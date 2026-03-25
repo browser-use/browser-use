@@ -700,9 +700,15 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				continue
 			# item is already a deep copy of h, so we can safely mutate and reassign fields
 			item: dict[str, Any] = h
-			# Normalize result: coerce absent/None/non-list to [] so pydantic validation succeeds
-			if isinstance(item.get('result'), list):
-				item['result'] = [dict(r) if isinstance(r, dict) else r for r in item['result']]
+			# Normalize result: coerce to list of dicts. Non-list/non-dict iterables (e.g. str, dict)
+			# cause unexpected iteration or pydantic validation failures.
+			# Filter result items to dicts only so that non-dict items in a list also can't fail validation.
+			result = item.get('result')
+			if isinstance(result, list):
+				item['result'] = [dict(r) for r in result if isinstance(r, dict)]
+			elif isinstance(result, dict):
+				# A bare dict is not a list of ActionResult dicts; treat as empty.
+				item['result'] = []
 			else:
 				item['result'] = []
 
