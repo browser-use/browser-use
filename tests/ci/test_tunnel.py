@@ -262,6 +262,36 @@ class TestKillProcessWindows:
 			assert result is False
 			close_handle.assert_called_once_with(mock_handle)
 
+	@staticmethod
+	def test_kill_process_windows_timeout_not_exit():
+		"""Test Windows path: TerminateProcess succeeds but process stays alive past timeout."""
+		from browser_use.skill_cli.tunnel import _kill_process
+
+		with _windows_test_context():
+			import ctypes
+
+			mock_handle = MagicMock()
+			open_process = MagicMock(return_value=mock_handle)
+			terminate_process = MagicMock(return_value=True)
+			close_handle = MagicMock()
+
+			ctypes.windll.kernel32.OpenProcess = open_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.TerminateProcess = terminate_process  # type: ignore[attr-defined]
+			ctypes.windll.kernel32.CloseHandle = close_handle  # type: ignore[attr-defined]
+
+			# Process stays alive through all 10 polling iterations (0.1s each = 1s total)
+			with patch(
+				'browser_use.skill_cli.tunnel._is_process_alive',
+				return_value=True,
+			):
+				with patch('browser_use.skill_cli.tunnel.time.sleep'):
+					result = _kill_process(1234)
+
+			# TerminateProcess succeeded but process didn't exit within timeout
+			assert result is False
+			terminate_process.assert_called_once_with(mock_handle, 1)
+			close_handle.assert_called_once_with(mock_handle)
+
 
 # =============================================================================
 # Tests for _kill_process — Unix path
