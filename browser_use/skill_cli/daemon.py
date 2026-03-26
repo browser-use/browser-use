@@ -36,6 +36,8 @@ class Daemon:
 		headed: bool,
 		profile: str | None,
 		cdp_url: str | None = None,
+		*,
+		glazyr: bool = False,
 		use_cloud: bool = False,
 		cloud_timeout: int | None = None,
 		cloud_proxy_country_code: str | None = None,
@@ -49,6 +51,7 @@ class Daemon:
 		self.headed = headed
 		self.profile = profile
 		self.cdp_url = cdp_url
+		self.glazyr = glazyr
 		self.use_cloud = use_cloud
 		self.cloud_timeout = cloud_timeout
 		self.cloud_proxy_country_code = cloud_proxy_country_code
@@ -75,6 +78,7 @@ class Daemon:
 			self.headed,
 			self.profile,
 			self.cdp_url,
+			glazyr=self.glazyr,
 			use_cloud=self.use_cloud,
 			cloud_timeout=self.cloud_timeout,
 			cloud_proxy_country_code=self.cloud_proxy_country_code,
@@ -326,19 +330,21 @@ def main() -> None:
 	parser.add_argument('--profile', help='Chrome profile (triggers real Chrome mode)')
 	parser.add_argument('--cdp-url', help='CDP URL to connect to')
 	parser.add_argument('--use-cloud', action='store_true', help='Use cloud browser')
+	parser.add_argument('--glazyr', action='store_true', help='Enable Glazyr Viz high-performance zero-copy vision (bypasses CDP latency)')
 	parser.add_argument('--cloud-timeout', type=int, help='Cloud browser timeout in seconds')
 	parser.add_argument('--cloud-proxy-country', help='Cloud browser proxy country code')
 	parser.add_argument('--cloud-profile-id', help='Cloud browser profile ID')
 	args = parser.parse_args()
 
 	logger.info(
-		f'Starting daemon: session={args.session}, headed={args.headed}, profile={args.profile}, cdp_url={args.cdp_url}, use_cloud={args.use_cloud}'
+		f'Starting daemon: session={args.session}, headed={args.headed}, profile={args.profile}, cdp_url={args.cdp_url}, glazyr={args.glazyr}, use_cloud={args.use_cloud}'
 	)
 
 	daemon = Daemon(
 		headed=args.headed,
 		profile=args.profile,
 		cdp_url=args.cdp_url,
+		glazyr=args.glazyr,
 		use_cloud=args.use_cloud,
 		cloud_timeout=args.cloud_timeout,
 		cloud_proxy_country_code=args.cloud_proxy_country,

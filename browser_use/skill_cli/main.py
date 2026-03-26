@@ -222,6 +222,7 @@ def ensure_daemon(
 	profile: str | None,
 	cdp_url: str | None = None,
 	*,
+	glazyr: bool = False,
 	session: str = 'default',
 	explicit_config: bool = False,
 	use_cloud: bool = False,
@@ -244,6 +245,7 @@ def ensure_daemon(
 					and data.get('profile') == profile
 					and data.get('cdp_url') == cdp_url
 					and data.get('use_cloud') == use_cloud
+					and data.get('glazyr', False) == glazyr
 				):
 					return  # Already running with correct config
 
@@ -274,6 +276,8 @@ def ensure_daemon(
 		cmd.extend(['--cdp-url', cdp_url])
 	if use_cloud:
 		cmd.append('--use-cloud')
+	if glazyr:
+		cmd.append('--glazyr')
 	if cloud_timeout is not None:
 		cmd.extend(['--cloud-timeout', str(cloud_timeout)])
 	if cloud_proxy_country_code is not None:
@@ -394,6 +398,7 @@ Setup:
 	parser.add_argument('--session', default=None, help='Session name (default: "default")')
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
+	parser.add_argument('--glazyr', action='store_true', help='Enable Glazyr Viz high-performance zero-copy vision (bypasses CDP latency)')
 	parser.add_argument('--template', help='Generate template file (use with --output for custom path)')
 
 	subparsers = parser.add_subparsers(dest='command', help='Command to execute')
@@ -1043,12 +1048,12 @@ def main() -> int:
 
 	# Ensure daemon is running
 	# Only restart on config mismatch if the user explicitly passed config flags
-	explicit_config = any(flag in sys.argv for flag in ('--headed', '--profile', '--cdp-url', '--connect'))
-	ensure_daemon(args.headed, args.profile, args.cdp_url, session=session, explicit_config=explicit_config)
+	explicit_config = any(flag in sys.argv for flag in ('--headed', '--profile', '--cdp-url', '--connect', '--glazyr'))
+	ensure_daemon(args.headed, args.profile, args.cdp_url, glazyr=args.glazyr, session=session, explicit_config=explicit_config)
 
 	# Build params from args
 	params = {}
-	skip_keys = {'command', 'headed', 'json', 'cdp_url', 'session', 'connect'}
+	skip_keys = {'command', 'headed', 'json', 'cdp_url', 'session', 'connect', 'glazyr'}
 
 	for key, value in vars(args).items():
 		if key not in skip_keys and value is not None:

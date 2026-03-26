@@ -566,6 +566,15 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Use browser-use cloud browser service instead of local browser',
 	)
 
+	mcp_vision_url: str | None = Field(
+		default=None,
+		description='Optional SSE URL for the Glazyr Viz shared-memory MCP gateway (bypasses Playwright extraction latency)',
+	)
+	mcp_vision_token: str | None = Field(
+		default=None,
+		description='Bearer token for the Glazyr Viz MCP gateway auth',
+	)
+
 	@property
 	def cloud_browser(self) -> bool:
 		"""Alias for use_cloud field for compatibility."""
