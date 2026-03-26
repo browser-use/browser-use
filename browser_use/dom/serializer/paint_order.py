@@ -177,15 +177,23 @@ class PaintOrderRemover:
 				if rect_union.contains(rect):
 					node.ignored_by_paint_order = True
 
-				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
+				# don't add to the nodes if opacity is less than 0.8, background-color is transparent,
+				# or pointer-events is none (element doesn't block interaction or occlude content)
 				if (
-					node.original_node.snapshot_node.computed_styles
-					and node.original_node.snapshot_node.computed_styles.get('background-color', 'rgba(0, 0, 0, 0)')
-					== 'rgba(0, 0, 0, 0)'
-				) or (
-					node.original_node.snapshot_node.computed_styles
-					and float(node.original_node.snapshot_node.computed_styles.get('opacity', '1'))
-					< 0.8  # this is highly vibes based number
+					(
+						node.original_node.snapshot_node.computed_styles
+						and node.original_node.snapshot_node.computed_styles.get('background-color', 'rgba(0, 0, 0, 0)')
+						== 'rgba(0, 0, 0, 0)'
+					)
+					or (
+						node.original_node.snapshot_node.computed_styles
+						and float(node.original_node.snapshot_node.computed_styles.get('opacity', '1'))
+						< 0.8  # this is highly vibes based number
+					)
+					or (
+						node.original_node.snapshot_node.computed_styles
+						and node.original_node.snapshot_node.computed_styles.get('pointer-events', 'auto') == 'none'
+					)
 				):
 					continue
 
