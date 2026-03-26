@@ -5,7 +5,6 @@ function, verifying that asyncio.run() is correctly used for Python 3.14
 compatibility.
 """
 
-import asyncio
 import sys
 from unittest.mock import patch
 
@@ -66,6 +65,7 @@ class TestCliTunnel:
 
 	def test_tunnel_stop_cli_entry_point(self):
 		"""Test that tunnel stop <port> can be invoked via main()."""
+
 		async def mock_stop(port):
 			return {'stopped': port}
 
@@ -76,6 +76,7 @@ class TestCliTunnel:
 
 	def test_tunnel_stop_all_cli_entry_point(self):
 		"""Test that tunnel stop --all can be invoked via main()."""
+
 		async def mock_stop_all():
 			return {'stopped': [8080, 8081]}
 
@@ -130,6 +131,7 @@ class TestCliNoDeprecatedGetEventLoop:
 
 	def test_tunnel_stop_no_get_event_loop(self):
 		"""Test that tunnel stop command does NOT call asyncio.get_event_loop()."""
+
 		async def mock_stop(port):
 			return {'stopped': port}
 
@@ -142,6 +144,7 @@ class TestCliNoDeprecatedGetEventLoop:
 
 	def test_tunnel_start_no_get_event_loop(self):
 		"""Test that tunnel <port> command does NOT call asyncio.get_event_loop()."""
+
 		async def mock_start(port):
 			return {'tunnel_id': 'test', 'local_port': port, 'remote_port': 12345}
 
@@ -154,6 +157,7 @@ class TestCliNoDeprecatedGetEventLoop:
 
 	def test_tunnel_stop_all_no_get_event_loop(self):
 		"""Test that tunnel stop --all command does NOT call asyncio.get_event_loop()."""
+
 		async def mock_stop_all():
 			return {'stopped': [8080, 8081]}
 
