@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from functools import cached_property
 from pathlib import Path
@@ -909,6 +910,7 @@ class BrowserSession(BaseModel):
 				target_id,
 				timeout=event.timeout_ms / 1000 if event.timeout_ms is not None else None,
 				wait_until=event.wait_until,
+				nav_timeout=event.event_timeout,
 			)
 
 			# Close any extension options pages that might have opened
@@ -952,11 +954,13 @@ class BrowserSession(BaseModel):
 		target_id: str,
 		timeout: float | None = None,
 		wait_until: str = 'load',
+		nav_timeout: float | None = None,
 	) -> None:
 		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
 
 		Polls stored lifecycle events (registered once per session in SessionManager).
 		wait_until controls the minimum acceptable signal: 'commit', 'domcontentloaded', 'load', 'networkidle'.
+		nav_timeout controls the timeout for the CDP Page.navigate() call itself (defaults to 20.0s).
 		"""
 		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
 
@@ -973,7 +977,9 @@ class BrowserSession(BaseModel):
 		nav_start_time = asyncio.get_event_loop().time()
 
 		# Wrap Page.navigate() with timeout — heavy sites can block here for 10s+
-		nav_timeout = 20.0
+		# Use nav_timeout parameter if provided, otherwise default to 20.0
+		if nav_timeout is None:
+			nav_timeout = 20.0
 		try:
 			nav_result = await asyncio.wait_for(
 				cdp_session.cdp_client.send.Page.navigate(
@@ -1184,6 +1190,14 @@ class BrowserSession(BaseModel):
 			else:
 				self.logger.debug(f'File already tracked: {event.path}')
 
+	def _cloud_session_id_from_cdp_url(self) -> str | None:
+		"""Derive cloud browser session ID from a Browser Use CDP URL."""
+		if not self.cdp_url:
+			return None
+		host = urlparse(self.cdp_url).hostname or ''
+		match = re.match(r'^([0-9a-fA-F-]{36})\.cdp\d+\.browser-use\.com$', host)
+		return match.group(1) if match else None
+
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Handle browser stop request."""
 
@@ -1193,13 +1207,16 @@ class BrowserSession(BaseModel):
 				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
 				return
 
-			# Clean up cloud browser session if using cloud browser
-			if self.browser_profile.use_cloud:
+			# Clean up cloud browser session for both:
+			# 1) native use_cloud sessions (current_session_id set by create_browser)
+			# 2) reconnected cdp_url sessions (derive UUID from host)
+			cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
+			if cloud_session_id:
 				try:
-					await self._cloud_browser_client.stop_browser()
-					self.logger.info('🌤️ Cloud browser session cleaned up')
+					await self._cloud_browser_client.stop_browser(cloud_session_id)
+					self.logger.info(f'🌤️ Cloud browser session cleaned up: {cloud_session_id}')
 				except Exception as e:
-					self.logger.debug(f'Failed to cleanup cloud browser session: {e}')
+					self.logger.debug(f'Failed to cleanup cloud browser session {cloud_session_id}: {e}')
 
 			# Clear CDP session cache before stopping
 			self.logger.info(
