@@ -39,10 +39,10 @@ async def create_browser_session(
 	- No profile: Playwright-managed Chromium (default)
 	"""
 	if cdp_url is not None:
-		return BrowserSession(cdp_url=cdp_url)
+		return BrowserSession(cdp_url=cdp_url, enable_default_extensions=False)
 
 	if use_cloud:
-		kwargs: dict = {'use_cloud': True}
+		kwargs: dict = {'use_cloud': True, 'enable_default_extensions': False}
 		if cloud_timeout is not None:
 			kwargs['cloud_timeout'] = cloud_timeout
 		if cloud_proxy_country_code is not None:
@@ -54,6 +54,7 @@ async def create_browser_session(
 	if profile is None:
 		return BrowserSession(
 			headless=not headed,
+			enable_default_extensions=False,
 		)
 
 	from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
@@ -99,4 +100,5 @@ async def create_browser_session(
 		user_data_dir=user_data_dir,
 		profile_directory=profile_directory,
 		headless=not headed,
+		enable_default_extensions=False,
 	)
