@@ -218,7 +218,8 @@ class TestKillProcessWindows:
 				'browser_use.skill_cli.tunnel._is_process_alive',
 				side_effect=fake_is_alive,
 			):
-				result = _kill_process(1234)
+				with patch('browser_use.skill_cli.tunnel.time.sleep'):
+					result = _kill_process(1234)
 
 			assert result is True
 			assert call_count[0] == 4  # 3 alive checks + 1 exit
