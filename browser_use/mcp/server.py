@@ -232,7 +232,7 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_click',
-					description='Click an element by index or at specific viewport coordinates. Use index for elements from browser_get_state, or coordinate_x/coordinate_y for pixel-precise clicking.',
+					description='Click an element by index or at specific viewport coordinates. Provide either index, or both coordinate_x and coordinate_y. Use index for elements from browser_get_state, or coordinates for pixel-precise clicking.',
 					inputSchema={
 						'type': 'object',
 						'properties': {
@@ -254,10 +254,6 @@ class BrowserUseServer:
 								'default': False,
 							},
 						},
-						'oneOf': [
-							{'required': ['index']},
-							{'required': ['coordinate_x', 'coordinate_y']},
-						],
 					},
 				),
 				types.Tool(
