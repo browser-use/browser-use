@@ -738,8 +738,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 			validated_history.append(item)
 
-		data['history'] = validated_history
-		history = cls.model_validate(data)
+		history = cls.model_validate({**data, 'history': validated_history})
 		return history
 
 	@classmethod

@@ -69,7 +69,7 @@ class TestLoadFromDictNonMutation:
 		assert item == before
 
 	def test_caller_owned_nested_state_keys_not_added(self):
-		"""Caller-owned state dict must not have new keys added."""
+		"""Caller-owned state dict must not have new keys added and values must not be mutated."""
 		original_state = {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []}
 		data = {
 			'history': [
@@ -81,13 +81,14 @@ class TestLoadFromDictNonMutation:
 			]
 		}
 		state_keys_before = set(original_state.keys())
+		state_values_before = dict(original_state)
 
 		AgentHistoryList.load_from_dict(data, AgentOutput)
 
 		# State dict must not have new keys added
 		assert set(original_state.keys()) == state_keys_before
-		# State dict identity preserved
-		assert id(data['history'][0]['state']) == id(original_state)
+		# State dict values must not be mutated (covers in-place value changes)
+		assert dict(original_state) == state_values_before
 
 	def test_caller_owned_result_list_not_mutated(self):
 		"""Caller-owned result list inside history items must not be mutated."""
