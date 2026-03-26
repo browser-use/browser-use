@@ -427,6 +427,9 @@ Setup:
 	p = subparsers.add_parser('open', help='Navigate to URL')
 	p.add_argument('url', help='URL to navigate to')
 
+	# new-tab
+	subparsers.add_parser('new-tab', help='Open a new blank tab')
+
 	# click <index> OR click <x> <y>
 	p = subparsers.add_parser('click', help='Click element by index or coordinates (x y)')
 	p.add_argument('args', nargs='+', type=int, help='Element index OR x y coordinates')
