@@ -9,6 +9,7 @@ Tests cover:
 5. Registry execution edge cases
 """
 
+import asyncio
 import logging
 
 import pytest
@@ -103,7 +104,10 @@ async def browser_session(base_url):
 		)
 	)
 	await browser_session.start()
-	await browser_session.navigate_to(f'{base_url}/test')
+	from browser_use.browser.events import NavigateToUrlEvent
+
+	browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test'))
+	await asyncio.sleep(0.5)  # Wait for navigation
 	yield browser_session
 	await browser_session.kill()
 
