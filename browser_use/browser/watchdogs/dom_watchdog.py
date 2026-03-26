@@ -1,6 +1,7 @@
 """DOM watchdog for browser DOM tree management using CDP."""
 
 import asyncio
+import logging
 import time
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.config import CONFIG
 from browser_use.dom.service import DomService
 from browser_use.dom.views import (
 	EnhancedDOMTreeNode,
@@ -531,6 +533,93 @@ class DOMWatchdog(BaseWatchdog):
 				else [],
 			)
 
+	@staticmethod
+	def _format_dom_timing_breakdown_lines(
+		timing_info: dict[str, float], total_time_ms: float, selector_map_size: int
+	) -> list[str]:
+		"""Human-readable DOM pipeline timings for DEBUG or BROWSER_USE_LOG_DOM_TIMING."""
+		timing_lines = [
+			f'⏱️ Total DOM tree time: {total_time_ms:.2f}ms',
+			f'📌 selector_map elements: {selector_map_size}',
+			'📊 Timing breakdown:',
+		]
+
+		get_all_trees_ms = timing_info.get('get_all_trees_total_ms', 0)
+		if get_all_trees_ms > 0:
+			timing_lines.append(f'  ├─ get_all_trees: {get_all_trees_ms:.2f}ms')
+			iframe_scroll_ms = timing_info.get('iframe_scroll_detection_ms', 0)
+			cdp_parallel_ms = timing_info.get('cdp_parallel_calls_ms', 0)
+			snapshot_proc_ms = timing_info.get('snapshot_processing_ms', 0)
+			if iframe_scroll_ms > 0.01:
+				timing_lines.append(f'  │  ├─ iframe_scroll_detection: {iframe_scroll_ms:.2f}ms')
+			if cdp_parallel_ms > 0.01:
+				timing_lines.append(f'  │  ├─ cdp_parallel_calls: {cdp_parallel_ms:.2f}ms')
+			if snapshot_proc_ms > 0.01:
+				timing_lines.append(f'  │  └─ snapshot_processing: {snapshot_proc_ms:.2f}ms')
+
+		build_ax_ms = timing_info.get('build_ax_lookup_ms', 0)
+		if build_ax_ms > 0.01:
+			timing_lines.append(f'  ├─ build_ax_lookup: {build_ax_ms:.2f}ms')
+
+		build_snapshot_ms = timing_info.get('build_snapshot_lookup_ms', 0)
+		if build_snapshot_ms > 0.01:
+			timing_lines.append(f'  ├─ build_snapshot_lookup: {build_snapshot_ms:.2f}ms')
+
+		construct_tree_ms = timing_info.get('construct_enhanced_tree_ms', 0)
+		if construct_tree_ms > 0.01:
+			timing_lines.append(f'  ├─ construct_enhanced_tree: {construct_tree_ms:.2f}ms')
+
+		serialize_total_ms = timing_info.get('serialize_accessible_elements_total_ms', 0)
+		if serialize_total_ms > 0.01:
+			timing_lines.append(f'  ├─ serialize_accessible_elements: {serialize_total_ms:.2f}ms')
+			create_simp_ms = timing_info.get('create_simplified_tree_ms', 0)
+			paint_order_ms = timing_info.get('calculate_paint_order_ms', 0)
+			optimize_ms = timing_info.get('optimize_tree_ms', 0)
+			bbox_ms = timing_info.get('bbox_filtering_ms', 0)
+			assign_idx_ms = timing_info.get('assign_interactive_indices_ms', 0)
+			clickable_ms = timing_info.get('clickable_detection_time_ms', 0)
+
+			if create_simp_ms > 0.01:
+				timing_lines.append(f'  │  ├─ create_simplified_tree: {create_simp_ms:.2f}ms')
+				if clickable_ms > 0.01:
+					timing_lines.append(f'  │  │  └─ clickable_detection: {clickable_ms:.2f}ms')
+			if paint_order_ms > 0.01:
+				timing_lines.append(f'  │  ├─ calculate_paint_order: {paint_order_ms:.2f}ms')
+			if optimize_ms > 0.01:
+				timing_lines.append(f'  │  ├─ optimize_tree: {optimize_ms:.2f}ms')
+			if bbox_ms > 0.01:
+				timing_lines.append(f'  │  ├─ bbox_filtering: {bbox_ms:.2f}ms')
+			if assign_idx_ms > 0.01:
+				timing_lines.append(f'  │  └─ assign_interactive_indices: {assign_idx_ms:.2f}ms')
+
+		get_dom_overhead_ms = timing_info.get('get_dom_tree_overhead_ms', 0)
+		serialize_overhead_ms = timing_info.get('serialization_overhead_ms', 0)
+		get_serialized_overhead_ms = timing_info.get('get_serialized_dom_tree_overhead_ms', 0)
+
+		if get_dom_overhead_ms > 0.1:
+			timing_lines.append(f'  ├─ get_dom_tree_overhead: {get_dom_overhead_ms:.2f}ms')
+		if serialize_overhead_ms > 0.1:
+			timing_lines.append(f'  ├─ serialization_overhead: {serialize_overhead_ms:.2f}ms')
+		if get_serialized_overhead_ms > 0.1:
+			timing_lines.append(f'  └─ get_serialized_dom_tree_overhead: {get_serialized_overhead_ms:.2f}ms')
+
+		main_operations_ms = (
+			get_all_trees_ms
+			+ build_ax_ms
+			+ build_snapshot_ms
+			+ construct_tree_ms
+			+ serialize_total_ms
+			+ get_dom_overhead_ms
+			+ serialize_overhead_ms
+			+ get_serialized_overhead_ms
+		)
+		untracked_time_ms = total_time_ms - main_operations_ms
+
+		if untracked_time_ms > 1.0:
+			timing_lines.append(f'  ⚠️  untracked_time: {untracked_time_ms:.2f}ms')
+
+		return timing_lines
+
 	@time_execution_async('build_dom_tree_without_highlights')
 	@observe_debug(ignore_input=True, ignore_output=True, name='build_dom_tree_without_highlights')
 	async def _build_dom_tree_without_highlights(self, previous_state: SerializedDOMState | None = None) -> SerializedDOMState:
@@ -561,92 +650,12 @@ class DOMWatchdog(BaseWatchdog):
 				'🔍 DOMWatchdog._build_dom_tree_without_highlights: ✅ DomService.get_serialized_dom_tree completed'
 			)
 
-			# Build hierarchical timing breakdown as single multi-line string
-			timing_lines = [f'⏱️ Total DOM tree time: {total_time_ms:.2f}ms', '📊 Timing breakdown:']
-
-			# get_all_trees breakdown
-			get_all_trees_ms = timing_info.get('get_all_trees_total_ms', 0)
-			if get_all_trees_ms > 0:
-				timing_lines.append(f'  ├─ get_all_trees: {get_all_trees_ms:.2f}ms')
-				iframe_scroll_ms = timing_info.get('iframe_scroll_detection_ms', 0)
-				cdp_parallel_ms = timing_info.get('cdp_parallel_calls_ms', 0)
-				snapshot_proc_ms = timing_info.get('snapshot_processing_ms', 0)
-				if iframe_scroll_ms > 0.01:
-					timing_lines.append(f'  │  ├─ iframe_scroll_detection: {iframe_scroll_ms:.2f}ms')
-				if cdp_parallel_ms > 0.01:
-					timing_lines.append(f'  │  ├─ cdp_parallel_calls: {cdp_parallel_ms:.2f}ms')
-				if snapshot_proc_ms > 0.01:
-					timing_lines.append(f'  │  └─ snapshot_processing: {snapshot_proc_ms:.2f}ms')
-
-			# build_ax_lookup
-			build_ax_ms = timing_info.get('build_ax_lookup_ms', 0)
-			if build_ax_ms > 0.01:
-				timing_lines.append(f'  ├─ build_ax_lookup: {build_ax_ms:.2f}ms')
-
-			# build_snapshot_lookup
-			build_snapshot_ms = timing_info.get('build_snapshot_lookup_ms', 0)
-			if build_snapshot_ms > 0.01:
-				timing_lines.append(f'  ├─ build_snapshot_lookup: {build_snapshot_ms:.2f}ms')
-
-			# construct_enhanced_tree
-			construct_tree_ms = timing_info.get('construct_enhanced_tree_ms', 0)
-			if construct_tree_ms > 0.01:
-				timing_lines.append(f'  ├─ construct_enhanced_tree: {construct_tree_ms:.2f}ms')
-
-			# serialize_accessible_elements breakdown
-			serialize_total_ms = timing_info.get('serialize_accessible_elements_total_ms', 0)
-			if serialize_total_ms > 0.01:
-				timing_lines.append(f'  ├─ serialize_accessible_elements: {serialize_total_ms:.2f}ms')
-				create_simp_ms = timing_info.get('create_simplified_tree_ms', 0)
-				paint_order_ms = timing_info.get('calculate_paint_order_ms', 0)
-				optimize_ms = timing_info.get('optimize_tree_ms', 0)
-				bbox_ms = timing_info.get('bbox_filtering_ms', 0)
-				assign_idx_ms = timing_info.get('assign_interactive_indices_ms', 0)
-				clickable_ms = timing_info.get('clickable_detection_time_ms', 0)
-
-				if create_simp_ms > 0.01:
-					timing_lines.append(f'  │  ├─ create_simplified_tree: {create_simp_ms:.2f}ms')
-					if clickable_ms > 0.01:
-						timing_lines.append(f'  │  │  └─ clickable_detection: {clickable_ms:.2f}ms')
-				if paint_order_ms > 0.01:
-					timing_lines.append(f'  │  ├─ calculate_paint_order: {paint_order_ms:.2f}ms')
-				if optimize_ms > 0.01:
-					timing_lines.append(f'  │  ├─ optimize_tree: {optimize_ms:.2f}ms')
-				if bbox_ms > 0.01:
-					timing_lines.append(f'  │  ├─ bbox_filtering: {bbox_ms:.2f}ms')
-				if assign_idx_ms > 0.01:
-					timing_lines.append(f'  │  └─ assign_interactive_indices: {assign_idx_ms:.2f}ms')
-
-			# Overheads
-			get_dom_overhead_ms = timing_info.get('get_dom_tree_overhead_ms', 0)
-			serialize_overhead_ms = timing_info.get('serialization_overhead_ms', 0)
-			get_serialized_overhead_ms = timing_info.get('get_serialized_dom_tree_overhead_ms', 0)
-
-			if get_dom_overhead_ms > 0.1:
-				timing_lines.append(f'  ├─ get_dom_tree_overhead: {get_dom_overhead_ms:.2f}ms')
-			if serialize_overhead_ms > 0.1:
-				timing_lines.append(f'  ├─ serialization_overhead: {serialize_overhead_ms:.2f}ms')
-			if get_serialized_overhead_ms > 0.1:
-				timing_lines.append(f'  └─ get_serialized_dom_tree_overhead: {get_serialized_overhead_ms:.2f}ms')
-
-			# Calculate total tracked time for validation
-			main_operations_ms = (
-				get_all_trees_ms
-				+ build_ax_ms
-				+ build_snapshot_ms
-				+ construct_tree_ms
-				+ serialize_total_ms
-				+ get_dom_overhead_ms
-				+ serialize_overhead_ms
-				+ get_serialized_overhead_ms
-			)
-			untracked_time_ms = total_time_ms - main_operations_ms
-
-			if untracked_time_ms > 1.0:  # Only log if significant
-				timing_lines.append(f'  ⚠️  untracked_time: {untracked_time_ms:.2f}ms')
-
-			# Single log call with all timing info
-			self.logger.debug('\n'.join(timing_lines))
+			selector_map_size = len(self.current_dom_state.selector_map)
+			timing_msg = '\n'.join(self._format_dom_timing_breakdown_lines(timing_info, total_time_ms, selector_map_size))
+			if CONFIG.BROWSER_USE_LOG_DOM_TIMING:
+				self.logger.info(timing_msg)
+			elif self.logger.isEnabledFor(logging.DEBUG):
+				self.logger.debug(timing_msg)
 
 			# Update selector map for other watchdogs
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: Updating selector maps...')
