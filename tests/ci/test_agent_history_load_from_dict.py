@@ -13,7 +13,7 @@ Covers:
 Attribution: non-mutation regression issues identified by cubic.
 """
 
-from browser_use.agent.views import AgentHistoryList, AgentOutput, AgentHistory, ActionResult
+from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentOutput
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 
 
