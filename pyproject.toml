@@ -23,7 +23,7 @@ dependencies = [
     "psutil==7.2.2",
     "pydantic==2.12.5",
     "pyobjc==12.1; platform_system == 'darwin'",
-    "python-dotenv==1.2.1",
+    "python-dotenv>=1.2.1",
     "requests==2.32.5",
     "screeninfo==0.8.1; platform_system != 'darwin'",
     "typing-extensions==4.15.0",
@@ -64,6 +64,7 @@ oci = ["oci==2.166.0"]
 video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
 examples = [
     "agentmail==0.0.59",
+    "inkbox==0.2.2",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore==1.42.37",
     "imgcat==0.6.0",
