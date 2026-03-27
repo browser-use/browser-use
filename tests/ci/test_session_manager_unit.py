@@ -94,3 +94,13 @@ class TestGetAllPageTargets:
         results = manager.get_all_page_targets()
         # 'not-chrome-extension://' does NOT start with 'chrome-extension://'
         assert {r.target_id for r in results} == {'p1', 'p3'}
+
+    def test_include_chrome_extensions_true(self):
+        """When include_chrome_extensions=True, chrome-extension URLs are included."""
+        targets = [
+            Target(target_id='p1', target_type='page', url='https://example.com'),
+            Target(target_id='p2', target_type='page', url='chrome-extension://abc/popup.html'),
+        ]
+        manager = self._make_manager(targets)
+        results = manager.get_all_page_targets(include_chrome_extensions=True)
+        assert {r.target_id for r in results} == {'p1', 'p2'}

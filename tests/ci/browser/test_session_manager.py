@@ -70,3 +70,15 @@ class TestGetAllPageTargets:
 		result = session_manager.get_all_page_targets()
 		target_ids = {t.target_id for t in result}
 		assert target_ids == {'normal-page'}
+
+	def test_include_chrome_extensions_true(self, session_manager: SessionManager) -> None:
+		"""When include_chrome_extensions=True, chrome-extension:// URLs are included."""
+		session_manager._targets = {
+			'normal-page': _make_target('normal-page', 'page', 'https://example.com'),
+			'extension-page': _make_target(
+				'extension-page', 'page', 'chrome-extension://abcdefghijklmnop/page.html'
+			),
+		}
+		result = session_manager.get_all_page_targets(include_chrome_extensions=True)
+		target_ids = {t.target_id for t in result}
+		assert target_ids == {'normal-page', 'extension-page'}
