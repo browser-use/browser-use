@@ -46,7 +46,7 @@ class ChatAnthropic(BaseChatModel):
 	api_key: str | None = None
 	auth_token: str | None = None
 	base_url: str | httpx.URL | None = None
-	timeout: float | Timeout | None | NotGiven = NotGiven()
+	timeout: float | Timeout | None | NotGiven = 60.0  # Default 60s timeout to prevent hanging requests
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
@@ -158,6 +158,13 @@ class ChatAnthropic(BaseChatModel):
 					)
 
 				usage = self._get_usage(response)
+
+				if not response.content:
+					raise ModelProviderError(
+						message='Anthropic API returned an empty content array',
+						status_code=502,
+						model=self.name,
+					)
 
 				# Extract text from the first content block
 				first_content = response.content[0]
