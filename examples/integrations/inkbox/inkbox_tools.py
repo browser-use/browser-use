@@ -1,30 +1,34 @@
 """
 Inkbox tools for Browser Use agents.
 
-Provides email, SMS, and vault/credential actions via an Inkbox AgentIdentity.
-Install: pip install inkbox
-API key: https://inkbox.ai/console
-Docs: https://inkbox.ai/docs
+Provides email, SMS, vault/credential, secure-fill, and QR-code actions
+via an Inkbox AgentIdentity.
 """
 
 import asyncio
 import dataclasses
+import itertools
 import json
 import logging
 import re
 import time
 from typing import Any
 
-from inkbox import Inkbox, LoginPayload, APIKeyPayload, OtherPayload  # type: ignore
+import cv2  # type: ignore
+import numpy as np  # type: ignore
+from inkbox import APIKeyPayload, Inkbox, LoginPayload, OtherPayload  # type: ignore
 from inkbox.agent_identity import AgentIdentity  # type: ignore
+from inkbox.vault.totp import TOTPConfig, parse_totp_uri  # type: ignore
 from inkbox.vault.types import KeyPairPayload, SSHKeyPayload  # type: ignore
 
 from browser_use import Tools
-
-if not logging.getLogger().handlers:
-	logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(name)s - %(message)s')
+from browser_use.browser import BrowserSession
+from browser_use.browser.events import TypeTextEvent
 
 logger = logging.getLogger(__name__)
+
+
+# ── Private helpers ──────────────────────────────────────────────────
 
 
 def _to_json(data: Any) -> str:
@@ -37,18 +41,53 @@ def _to_json(data: Any) -> str:
 
 
 def _html_to_text(html: str) -> str:
-	"""Simple HTML to plain text conversion."""
+	"""Strip tags/scripts/styles from HTML and return plain text."""
 	html = re.sub(r'<script\b[^>]*>.*?</script\s*>', '', html, flags=re.DOTALL | re.IGNORECASE)
 	html = re.sub(r'<style\b[^>]*>.*?</style\s*>', '', html, flags=re.DOTALL | re.IGNORECASE)
 	html = re.sub(r'<[^>]+>', '', html)
 	html = html.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<')
 	html = html.replace('&gt;', '>').replace('&quot;', '"').replace('&#39;', "'")
-	html = re.sub(r'\s+', ' ', html).strip()
-	return html
+	return re.sub(r'\s+', ' ', html).strip()
+
+
+def _parse_llm_json(raw: str) -> dict:
+	"""Parse a JSON string, tolerating backslash-escaped quotes from LLMs."""
+	cleaned = raw.replace('\\"', '"').replace("\\'", "'")
+	try:
+		return json.loads(cleaned)
+	except json.JSONDecodeError:
+		return json.loads(raw)
+
+
+# ── TOTP / payload builders ─────────────────────────────────────────
+
+
+def _dict_to_secret_payload(secret_type: str, data: dict) -> Any:
+	"""Build a typed SDK payload from a *secret_type* string and dict."""
+	if secret_type == 'login' and data.get('totp') is not None:
+		data = dict(data)
+		totp = data['totp']
+		uri = totp if isinstance(totp, str) else totp.get('uri')
+		data['totp'] = parse_totp_uri(uri) if uri else TOTPConfig(**{k: v for k, v in totp.items() if v is not None})
+
+	builders: dict[str, Any] = {
+		'login': lambda d: LoginPayload(**{k: v for k, v in d.items() if v is not None}),
+		'api_key': lambda d: APIKeyPayload(**{k: v for k, v in d.items() if v is not None}),
+		'key_pair': lambda d: KeyPairPayload(**{k: v for k, v in d.items() if v is not None}),
+		'ssh_key': lambda d: SSHKeyPayload(**{k: v for k, v in d.items() if v is not None}),
+		'other': lambda d: OtherPayload(**{k: v for k, v in d.items() if v is not None}),
+	}
+	builder = builders.get(secret_type)
+	if not builder:
+		raise ValueError(f'Unknown secret_type: {secret_type}. Use: {", ".join(builders)}')
+	return builder(data)
+
+
+# ── InkboxTools ─────────────────────────────────────────────────────
 
 
 class InkboxTools(Tools):
-	"""Browser Use tools backed by an Inkbox AgentIdentity."""
+	"""Browser Use :class:`Tools` subclass backed by an Inkbox :class:`AgentIdentity`."""
 
 	def __init__(
 		self,
@@ -59,11 +98,39 @@ class InkboxTools(Tools):
 		self.identity = identity
 		self.inkbox_client = inkbox_client
 
+		builtin_actions = set(self.registry.registry.actions.keys())
 		self._register_email_tools()
 		self._register_sms_tools()
 		self._register_vault_tools()
+		self._register_secure_fill_tools()
+		self._register_qr_tools()
+		self._inkbox_actions = set(self.registry.registry.actions.keys()) - builtin_actions
 
-	# ── Email tools ───────────────────────────────────────────────────
+		self._print_identity_summary()
+
+	def _print_identity_summary(self) -> None:
+		"""Print a summary of the agent identity and available capabilities."""
+		ident = self.identity
+		email = ident.mailbox.email_address if ident.mailbox else '(none)'
+		phone = ident.phone_number.number if ident.phone_number else '(none)'
+		vault_ok = self.inkbox_client and self.inkbox_client.vault._unlocked is not None
+		vault_status = 'unlocked' if vault_ok else 'locked / not configured'
+		tools_count = len(self._inkbox_actions)
+
+		print()
+		print(f'┌──────────────────────────────────────────────────┐')
+		print(f'│  Browser Use Inkbox Agent                        │')
+		print(f'├──────────────────────────────────────────────────┤')
+		print(f'│  Handle:  {ident.agent_handle:<39}│')
+		print(f'│  ID:      {str(ident.id):<39}│')
+		print(f'│  Email:   {email:<39}│')
+		print(f'│  Phone:   {phone:<39}│')
+		print(f'│  Vault:   {vault_status:<39}│')
+		print(f'│  Tools:   {f"{tools_count} Inkbox tools registered":<39}│')
+		print(f'└──────────────────────────────────────────────────┘')
+		print()
+
+	# ── Email tools ──────────────────────────────────────────────────
 
 	def _register_email_tools(self) -> None:
 		if not self.identity.mailbox:
@@ -79,12 +146,12 @@ class InkboxTools(Tools):
 
 		@self.action(
 			'Get the latest unread email. Polls for up to max_wait_seconds if none found yet. '
-			'Use this to retrieve 2FA codes, confirmation links, or any expected incoming email.'
+			'Use this to retrieve verification codes, confirmation links, or any expected incoming email.'
 		)
 		async def get_latest_email(max_wait_seconds: int = 30) -> str:
 			deadline = time.time() + max_wait_seconds
 			while True:
-				emails = list(await asyncio.to_thread(lambda: list(_take(self.identity.iter_unread_emails(), 1))))
+				emails = list(await asyncio.to_thread(lambda: list(itertools.islice(self.identity.iter_unread_emails(), 1))))
 				if emails:
 					msg = emails[0]
 					await asyncio.to_thread(self.identity.mark_emails_read, [str(msg.id)])
@@ -92,15 +159,15 @@ class InkboxTools(Tools):
 					body = detail.body_text or ''
 					if not body and detail.body_html:
 						body = _html_to_text(detail.body_html)
-					logger.info('Got email from %s: %s', msg.sender, msg.subject)
-					return f'From: {msg.sender}\nSubject: {msg.subject}\nBody: {body}'
+					logger.info('Got email from %s: %s', msg.from_address, msg.subject)
+					return f'From: {msg.from_address}\nSubject: {msg.subject}\nBody: {body}'
 				if time.time() >= deadline:
 					return f'No email received within {max_wait_seconds}s'
 				await asyncio.sleep(2)
 
 		@self.action('List recent emails in the inbox. Returns subject, sender, and ID for each.')
 		async def list_emails(limit: int = 10) -> str:
-			emails = await asyncio.to_thread(lambda: list(_take(self.identity.iter_emails(), limit)))
+			emails = await asyncio.to_thread(lambda: list(itertools.islice(self.identity.iter_emails(), limit)))
 			if not emails:
 				return 'No emails found.'
 			return _to_json(emails)
@@ -110,7 +177,7 @@ class InkboxTools(Tools):
 			detail = await asyncio.to_thread(self.identity.get_message, message_id)
 			return _to_json(detail)
 
-	# ── SMS tools ─────────────────────────────────────────────────────
+	# ── SMS tools ────────────────────────────────────────────────────
 
 	def _register_sms_tools(self) -> None:
 		if not self.identity.phone_number:
@@ -148,10 +215,9 @@ class InkboxTools(Tools):
 				return 'No text messages found.'
 			return _to_json(texts)
 
-	# ── Vault tools ───────────────────────────────────────────────────
+	# ── Vault tools ──────────────────────────────────────────────────
 
 	def _register_vault_tools(self) -> None:
-		# Only register vault tools if the vault has been unlocked
 		try:
 			self.identity.credentials
 		except Exception:
@@ -192,8 +258,7 @@ class InkboxTools(Tools):
 			'Only password (login) / api_key / access_key+secret_key / data are required; the rest are optional.'
 		)
 		async def store_credential(name: str, secret_type: str, payload: str, description: str | None = None) -> str:
-			payload_dict = json.loads(payload)
-			payload_obj = _build_payload(secret_type, payload_dict)
+			payload_obj = _dict_to_secret_payload(secret_type, _parse_llm_json(payload))
 			secret = await asyncio.to_thread(
 				self.identity.create_secret, name, payload_obj, description=description,
 			)
@@ -218,7 +283,7 @@ class InkboxTools(Tools):
 			if payload is not None:
 				if not secret_type:
 					return 'Error: secret_type is required when updating payload'
-				kwargs['payload'] = _build_payload(secret_type, json.loads(payload))
+				kwargs['payload'] = _dict_to_secret_payload(secret_type, _parse_llm_json(payload))
 
 			unlocked = self.inkbox_client.vault._unlocked  # type: ignore
 			secret = await asyncio.to_thread(unlocked.update_secret, secret_id, **kwargs)
@@ -230,31 +295,98 @@ class InkboxTools(Tools):
 		)
 		async def get_totp_code(secret_id: str) -> str:
 			code = await asyncio.to_thread(self.identity.get_totp_code, secret_id)
-			totp_code = str(code.code)
-			seconds_remaining = code.seconds_remaining
-			return f'TOTP code: {totp_code} (expires in {seconds_remaining}s). Enter this EXACT code: {totp_code}'
+			return f'TOTP code: {code.code} (expires in {code.seconds_remaining}s)'
 
+	# ── Secure fill tools ────────────────────────────────────────────
 
-def _build_payload(secret_type: str, data: dict) -> Any:
-	"""Build a typed SDK payload from a secret_type string and dict."""
-	builders = {
-		'login': lambda d: LoginPayload(**{k: v for k, v in d.items() if v is not None}),
-		'api_key': lambda d: APIKeyPayload(**{k: v for k, v in d.items() if v is not None}),
-		'key_pair': lambda d: KeyPairPayload(**{k: v for k, v in d.items() if v is not None}),
-		'ssh_key': lambda d: SSHKeyPayload(**{k: v for k, v in d.items() if v is not None}),
-		'other': lambda d: OtherPayload(**{k: v for k, v in d.items() if v is not None}),
-	}
-	builder = builders.get(secret_type)
-	if not builder:
-		raise ValueError(f'Unknown secret_type: {secret_type}. Use: {", ".join(builders)}')
-	return builder(data)
+	def _register_secure_fill_tools(self) -> None:
+		"""Tools that fill credentials directly into form fields without exposing secrets to the LLM."""
+		try:
+			self.identity.credentials
+		except Exception:
+			return
 
+		async def _type_into_index(browser_session: BrowserSession, index: int, text: str) -> bool:
+			"""Type *text* into the element at *index* via CDP (handles shadow DOM)."""
+			node = await browser_session.get_element_by_index(index)
+			if node is None:
+				return False
+			event = browser_session.event_bus.dispatch(
+				TypeTextEvent(node=node, text=text, clear=True, is_sensitive=True, sensitive_key_name='credential')
+			)
+			await event
+			await event.event_result(raise_if_any=True, raise_if_none=False)
+			return True
 
-def _take(iterator: Any, n: int) -> list:
-	"""Take up to n items from an iterator."""
-	results = []
-	for item in iterator:
-		results.append(item)
-		if len(results) >= n:
-			break
-	return results
+		@self.action(
+			'Fill a login credential into form fields by element index (the same numbers shown in the page state). '
+			'The actual values are NEVER shown to the agent — they are injected directly into the page. '
+			'Use this instead of get_credential + manual typing to keep secrets out of the conversation.'
+		)
+		async def fill_credential(
+			browser_session: BrowserSession,
+			secret_id: str,
+			username_index: int | None = None,
+			password_index: int | None = None,
+			email_index: int | None = None,
+		) -> str:
+			cred = await asyncio.to_thread(self.identity.get_secret, secret_id)
+			payload = cred.payload
+			filled = []
+
+			if username_index is not None and getattr(payload, 'username', None):
+				if await _type_into_index(browser_session, username_index, payload.username):
+					filled.append('username')
+
+			if email_index is not None and getattr(payload, 'email', None):
+				if await _type_into_index(browser_session, email_index, payload.email):
+					filled.append('email')
+
+			if password_index is not None and getattr(payload, 'password', None):
+				if await _type_into_index(browser_session, password_index, payload.password):
+					filled.append('password')
+
+			if not filled:
+				return 'No fields were filled — check your element indices or credential payload.'
+			logger.info('Securely filled %s for secret %s', ', '.join(filled), secret_id)
+			return f'Securely filled: {", ".join(filled)} (values hidden from agent)'
+
+		@self.action(
+			'Generate a TOTP code and fill it directly into a form field by element index '
+			'(the same numbers shown in the page state). '
+			'The code is NEVER shown to the agent — it is injected directly into the page. '
+			'Use this instead of get_totp_code + manual typing to keep 2FA codes out of the conversation.'
+		)
+		async def fill_totp_code(
+			browser_session: BrowserSession,
+			secret_id: str,
+			index: int,
+		) -> str:
+			code = await asyncio.to_thread(self.identity.get_totp_code, secret_id)
+			if not await _type_into_index(browser_session, index, str(code.code)):
+				return f'Element index {index} not found — page may have changed.'
+			logger.info('Securely filled TOTP code for secret %s', secret_id)
+			return f'TOTP code filled (expires in {code.seconds_remaining}s). Value hidden from agent.'
+
+	# ── QR code tools ────────────────────────────────────────────────
+
+	def _register_qr_tools(self) -> None:
+		@self.action(
+			'Read QR codes from the current page. Takes a screenshot and decodes any QR codes found. '
+			'Use this when you see a QR code on the page (e.g. for 2FA authenticator setup).'
+		)
+		async def read_qr_code(browser_session: BrowserSession) -> str:
+			screenshot_bytes = await browser_session.take_screenshot(full_page=False)
+			arr = np.frombuffer(screenshot_bytes, dtype=np.uint8)
+			image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+			detector = cv2.QRCodeDetector()
+			ok, decoded, *_ = detector.detectAndDecodeMulti(image)
+			if not ok:
+				decoded = ()
+			decoded = [d for d in decoded if d]
+			if not decoded:
+				return 'No QR codes found on the current page.'
+			logger.info('Decoded %d QR code(s)', len(decoded))
+			if len(decoded) == 1:
+				return f'QR code content: {decoded[0]}'
+			return 'QR codes found:\n' + '\n'.join(f'  {i + 1}. {d}' for i, d in enumerate(decoded))
