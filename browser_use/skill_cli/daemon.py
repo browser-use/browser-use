@@ -298,9 +298,11 @@ class Daemon:
 				# Only kill the browser if the daemon launched it.
 				# For external connections (--connect, --cdp-url, cloud), just disconnect.
 				if self.cdp_url or self.use_cloud:
-					await self._session.browser_session.stop()
+					await asyncio.wait_for(self._session.browser_session.stop(), timeout=10.0)
 				else:
-					await self._session.browser_session.kill()
+					await asyncio.wait_for(self._session.browser_session.kill(), timeout=10.0)
+			except asyncio.TimeoutError:
+				logger.warning('Browser cleanup timed out after 10s')
 			except Exception as e:
 				logger.warning(f'Error closing session: {e}')
 			self._session = None
