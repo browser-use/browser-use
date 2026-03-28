@@ -367,7 +367,7 @@ class TestLoadFromDictMalformedHistory:
 
 	def test_result_bare_dict_coerced_to_empty(self):
 		"""A bare dict result (not a list of result dicts) must be coerced to [].
-		
+
 		A bare dict is not a list, so it's not a valid result. Iterating a dict yields
 		keys (strings) which would cause pydantic validation to fail. Coerce to [].
 		"""
@@ -388,7 +388,7 @@ class TestLoadFromDictMalformedHistory:
 
 	def test_result_list_non_dict_items_filtered(self):
 		"""Non-dict items in a result list must be silently dropped, not cause validation errors.
-		
+
 		A list like ['string', 42, None] is iterable but its items are not ActionResult dicts.
 		Filtering to only dict items prevents pydantic validation from failing on the remaining
 		valid dict items.
@@ -819,10 +819,9 @@ class TestLoadFromDictRoundTrip:
 		assert restored.history[0].result[1].is_done is False
 		assert restored.history[0].result[1].error == 'some error'
 
-
 	def test_roundtrip_from_constructed_model_exercises_full_dump_load_cycle(self):
 		"""Round-trip starting from a live pydantic model catches bugs in load_from_dict alone.
-		
+
 		Unlike test_roundtrip_preserves_history_structure which starts from load_from_dict
 		(and would miss load_from_dict bugs), this test builds a real AgentHistoryList with
 		properly constructed pydantic models (AgentHistory, BrowserStateHistory, TabInfo,
