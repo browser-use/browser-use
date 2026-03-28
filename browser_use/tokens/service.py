@@ -50,10 +50,11 @@ class TokenCost:
 
 	CACHE_DIR_NAME = 'browser_use/token_cost'
 	CACHE_DURATION = timedelta(days=1)
-	PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
+	DEFAULT_PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
 
-	def __init__(self, include_cost: bool = False):
+	def __init__(self, include_cost: bool = False, pricing_url: str | None = None):
 		self.include_cost = include_cost or os.getenv('BROWSER_USE_CALCULATE_COST', 'false').lower() == 'true'
+		self.pricing_url = pricing_url or CONFIG.BROWSER_USE_MODEL_PRICING_URL or self.DEFAULT_PRICING_URL
 
 		self.usage_history: list[TokenUsageEntry] = []
 		self.registered_llms: dict[str, BaseChatModel] = {}
@@ -95,9 +96,10 @@ class TokenCost:
 
 			# Check each file until we find a valid one
 			for cache_file in cache_files:
-				if await self._is_cache_valid(cache_file):
+				is_valid, should_delete = await self._get_cache_status(cache_file)
+				if is_valid:
 					return cache_file
-				else:
+				if should_delete:
 					# Clean up old cache files
 					try:
 						os.remove(cache_file)
@@ -108,19 +110,30 @@ class TokenCost:
 		except Exception:
 			return None
 
-	async def _is_cache_valid(self, cache_file: Path) -> bool:
-		"""Check if a specific cache file is valid and not expired"""
+	async def _get_cache_status(self, cache_file: Path) -> tuple[bool, bool]:
+		"""Return whether a cache file is usable and whether it should be deleted."""
 		try:
 			if not cache_file.exists():
-				return False
+				return False, False
 
 			# Read the cached data
 			cached = CachedPricingData.model_validate_json(await anyio.Path(cache_file).read_text())
 
 			# Check if cache is still valid
-			return datetime.now() - cached.timestamp < self.CACHE_DURATION
+			if datetime.now() - cached.timestamp >= self.CACHE_DURATION:
+				return False, True
+
+			# Keep caches from other sources so different pricing URLs don't delete each other.
+			return self._cache_source_matches(cached), False
 		except Exception:
-			return False
+			return False, True
+
+	def _cache_source_matches(self, cached: CachedPricingData) -> bool:
+		"""Only use cached pricing files from the same source URL."""
+		if cached.source_url is None:
+			return self.pricing_url == self.DEFAULT_PRICING_URL
+
+		return cached.source_url == self.pricing_url
 
 	async def _load_from_cache(self, cache_file: Path) -> None:
 		"""Load pricing data from a specific cache file"""
@@ -137,13 +150,13 @@ class TokenCost:
 		"""Fetch pricing data from LiteLLM GitHub and cache it with timestamp"""
 		try:
 			async with httpx.AsyncClient() as client:
-				response = await client.get(self.PRICING_URL, timeout=30)
+				response = await client.get(self.pricing_url, timeout=30)
 				response.raise_for_status()
 
 				self._pricing_data = response.json()
 
 			# Create cache object with timestamp
-			cached = CachedPricingData(timestamp=datetime.now(), data=self._pricing_data or {})
+			cached = CachedPricingData(timestamp=datetime.now(), source_url=self.pricing_url, data=self._pricing_data or {})
 
 			# Ensure cache directory exists
 			self._cache_dir.mkdir(parents=True, exist_ok=True)
@@ -250,9 +263,7 @@ class TokenCost:
 
 		# ANSI color codes
 		C_CYAN = '\033[96m'
-		C_YELLOW = '\033[93m'
 		C_GREEN = '\033[92m'
-		C_BLUE = '\033[94m'
 		C_RESET = '\033[0m'
 
 		# Always get cost breakdown for token details (even if not showing costs)
@@ -402,7 +413,6 @@ class TokenCost:
 		total_completion = sum(u.usage.completion_tokens for u in filtered_usage)
 		total_tokens = total_prompt + total_completion
 		total_prompt_cached = sum(u.usage.prompt_cached_tokens or 0 for u in filtered_usage)
-		models = list({u.model for u in filtered_usage})
 
 		# Calculate per-model stats with record-by-record cost calculation
 		model_stats: dict[str, ModelUsageStats] = {}
@@ -555,19 +565,32 @@ class TokenCost:
 			await self._fetch_and_cache_pricing_data()
 
 	async def clean_old_caches(self, keep_count: int = 3) -> None:
-		"""Clean up old cache files, keeping only the most recent ones"""
+		"""Clean up old cache files, keeping only the most recent ones from this source URL"""
 		try:
 			# List all JSON files in the cache directory
 			cache_files = list(self._cache_dir.glob('*.json'))
 
-			if len(cache_files) <= keep_count:
+			if not cache_files:
+				return
+
+			# Only consider cache files from the same source URL
+			own_files: list[Path] = []
+			for cache_file in cache_files:
+				try:
+					cached = CachedPricingData.model_validate_json(cache_file.read_text())
+					if self._cache_source_matches(cached):
+						own_files.append(cache_file)
+				except Exception:
+					pass
+
+			if len(own_files) <= keep_count:
 				return
 
 			# Sort by modification time (oldest first)
-			cache_files.sort(key=lambda f: f.stat().st_mtime)
+			own_files.sort(key=lambda f: f.stat().st_mtime)
 
 			# Remove all but the most recent files
-			for cache_file in cache_files[:-keep_count]:
+			for cache_file in own_files[:-keep_count]:
 				try:
 					os.remove(cache_file)
 				except Exception:

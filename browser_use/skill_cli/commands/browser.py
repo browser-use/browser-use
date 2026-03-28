@@ -23,6 +23,7 @@ COMMANDS = {
 	'close-tab',
 	'keys',
 	'select',
+	'upload',
 	'eval',
 	'extract',
 	'cookies',
@@ -100,15 +101,26 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return result
 
 	elif action == 'click':
-		from browser_use.browser.events import ClickElementEvent
+		args = params.get('args', [])
+		if len(args) == 2:
+			# Coordinate click: browser-use click <x> <y>
+			from browser_use.browser.events import ClickCoordinateEvent
 
-		index = params['index']
-		# Look up node from selector map
-		node = await bs.get_element_by_index(index)
-		if node is None:
-			return {'error': f'Element index {index} not found - page may have changed'}
-		await bs.event_bus.dispatch(ClickElementEvent(node=node))
-		return {'clicked': index}
+			x, y = args
+			await bs.event_bus.dispatch(ClickCoordinateEvent(coordinate_x=x, coordinate_y=y))
+			return {'clicked_coordinate': {'x': x, 'y': y}}
+		elif len(args) == 1:
+			# Index click: browser-use click <index>
+			from browser_use.browser.events import ClickElementEvent
+
+			index = args[0]
+			node = await bs.get_element_by_index(index)
+			if node is None:
+				return {'error': f'Element index {index} not found - page may have changed'}
+			await bs.event_bus.dispatch(ClickElementEvent(node=node))
+			return {'clicked': index}
+		else:
+			return {'error': 'Usage: click <index> or click <x> <y>'}
 
 	elif action == 'type':
 		# Type into currently focused element using CDP directly
@@ -161,8 +173,19 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'screenshot': base64.b64encode(data).decode(), 'size': len(data)}
 
 	elif action == 'state':
-		# Return the same LLM representation that browser-use agents see
-		state_text = await bs.get_state_as_text()
+		# Return the LLM representation with viewport info for coordinate clicking
+		state = await bs.get_browser_state_summary()
+		assert state.dom_state is not None
+		state_text = state.dom_state.llm_representation()
+
+		# Prepend viewport dimensions so LLMs know the coordinate space
+		if state.page_info:
+			pi = state.page_info
+			viewport_text = f'viewport: {pi.viewport_width}x{pi.viewport_height}\n'
+			viewport_text += f'page: {pi.page_width}x{pi.page_height}\n'
+			viewport_text += f'scroll: ({pi.scroll_x}, {pi.scroll_y})\n'
+			state_text = viewport_text + state_text
+
 		return {'_raw_text': state_text}
 
 	elif action == 'switch':
@@ -214,6 +237,42 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		await bs.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=value))
 		return {'selected': value, 'element': index}
 
+	elif action == 'upload':
+		from browser_use.browser.events import UploadFileEvent
+
+		index = params['index']
+		file_path = params['path']
+
+		# Validate file exists and is non-empty
+		p = Path(file_path)
+		if not p.exists():
+			return {'error': f'File not found: {file_path}'}
+		if not p.is_file():
+			return {'error': f'Not a file: {file_path}'}
+		if p.stat().st_size == 0:
+			return {'error': f'File is empty (0 bytes): {file_path}'}
+
+		# Look up node
+		node = await bs.get_element_by_index(index)
+		if node is None:
+			return {'error': f'Element index {index} not found - page may have changed'}
+
+		# Find file input near the element (reuses core library heuristic)
+		file_input_node = bs.find_file_input_near_element(node)
+
+		if file_input_node is None:
+			# Scan selector map for file inputs and suggest them
+			selector_map = await bs.get_selector_map()
+			file_input_indices = [idx for idx, el in selector_map.items() if bs.is_file_input(el)]
+			if file_input_indices:
+				hint = f' File input(s) found at index: {", ".join(map(str, file_input_indices))}'
+			else:
+				hint = ' No file input found on the page.'
+			return {'error': f'Element {index} is not a file input.{hint}'}
+
+		await bs.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=file_path))
+		return {'uploaded': file_path, 'element': index}
+
 	elif action == 'eval':
 		js = params['js']
 		# Execute JavaScript via CDP
@@ -224,7 +283,7 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		query = params['query']
 		# This requires LLM integration
 		# For now, return a placeholder
-		return {'query': query, 'error': 'extract requires agent mode - use: browser-use run "extract ..."'}
+		return {'query': query, 'error': 'extract is not yet implemented'}
 
 	elif action == 'hover':
 		index = params['index']
@@ -473,7 +532,7 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 				]
 
 			file_path = Path(params['file'])
-			file_path.write_text(json.dumps(cookie_list, indent=2))
+			file_path.write_text(json.dumps(cookie_list, indent=2, ensure_ascii=False), encoding='utf-8')
 			return {'exported': len(cookie_list), 'file': str(file_path)}
 
 		elif cookies_command == 'import':

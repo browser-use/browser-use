@@ -59,11 +59,14 @@ class AboutBlankWatchdog(BaseWatchdog):
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Check tabs when a tab is closed and proactively create about:blank if needed."""
-		# logger.debug('[AboutBlankWatchdog] Tab closing, checking if we need to create about:blank tab')
-
 		# Don't create new tabs if browser is shutting down
 		if self._stopping:
-			# logger.debug('[AboutBlankWatchdog] Browser is stopping, not creating new tabs')
+			return
+
+		# Don't attempt CDP operations if the WebSocket is dead — dispatching
+		# NavigateToUrlEvent on a broken connection will hang until timeout
+		if not self.browser_session.is_cdp_connected:
+			self.logger.debug('[AboutBlankWatchdog] CDP not connected, skipping tab recovery')
 			return
 
 		# Check if we're about to close the last tab (event happens BEFORE tab closes)
@@ -89,6 +92,9 @@ class AboutBlankWatchdog(BaseWatchdog):
 	async def _check_and_ensure_about_blank_tab(self) -> None:
 		"""Check current tabs and ensure exactly one about:blank tab with animation exists."""
 		try:
+			if not self.browser_session.is_cdp_connected:
+				return
+
 			# For quick checks, just get page targets without titles to reduce noise
 			page_targets = await self.browser_session._cdp_get_all_pages()
 

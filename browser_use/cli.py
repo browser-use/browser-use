@@ -294,8 +294,8 @@ def save_user_config(config: dict[str, Any]) -> None:
 
 		# Save to separate history file
 		history_file = CONFIG.BROWSER_USE_CONFIG_DIR / 'command_history.json'
-		with open(history_file, 'w') as f:
-			json.dump(history, f, indent=2)
+		with open(history_file, 'w', encoding='utf-8') as f:
+			json.dump(history, f, indent=2, ensure_ascii=False)
 
 
 def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) -> dict[str, Any]:
@@ -694,8 +694,6 @@ class BrowserUseApp(App):
 			'trafilatura.htmlprocessing',
 			'trafilatura',
 			'groq',
-			'portalocker',
-			'portalocker.utils',
 		]:
 			third_party = logging.getLogger(logger_name)
 			third_party.setLevel(logging.ERROR)

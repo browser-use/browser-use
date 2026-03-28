@@ -88,6 +88,8 @@ def construct_judge_messages(
 					)
 				)
 
+	current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
 	# System prompt for judge - conditionally add ground truth section
 	ground_truth_section = ''
 	if ground_truth:
@@ -168,7 +170,7 @@ Set `reached_captcha` to true if:
 - **evaluate for action** - For each key step of the trace, double check whether the action that the agent tried to performed actually happened. If the required action did not actually occur, the verdict should be false.
 - **screenshot is not entire content** - The agent has the entire DOM content, but the screenshot is only part of the content. If the agent extracts information from the page, but you do not see it in the screenshot, you can assume this information is there.
 - **Penalize poor tool usage** - Wrong tools, inefficient approaches, ignoring available information.
-- **ignore unexpected dates and times** - These agent traces are from varying dates, you can assume the dates the agent uses for search or filtering are correct.
+- **current date/time is {current_date}** - content with recent dates is real, not fabricated.
 - **IMPORTANT**: be very picky about the user's request - Have very high standard for the agent completing the task exactly to the user's request. 
 - **IMPORTANT**: be initially doubtful of the agent's self reported success, be sure to verify that its methods are valid and fulfill the user's desires to a tee.
 
@@ -220,55 +222,4 @@ Evaluate this agent execution given the criteria and respond with the exact JSON
 	return [
 		SystemMessage(content=system_prompt),
 		UserMessage(content=content_parts),
-	]
-
-
-def construct_simple_judge_messages(
-	task: str,
-	final_result: str,
-) -> list[BaseMessage]:
-	"""Construct lightweight judge messages to validate agent success claims.
-
-	Always runs regardless of use_judge setting. Text-only — no screenshots,
-	no trajectory. Just task + final result.
-	"""
-	task_truncated = _truncate_text(task, 20000)
-	final_result_truncated = _truncate_text(final_result, 20000)
-
-	current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-
-	system_prompt = f"""You are a strict verifier checking whether a browser automation agent actually completed its task.
-
-Today's date is {current_date}. The agent ran recently — dates near today are expected and NOT fabricated.
-
-Given the task and the agent's final response, determine if the response genuinely satisfies ALL requirements.
-
-Check for these common failure patterns:
-1. **Incorrect data**: Wrong number of items, missing filters/criteria, wrong format
-2. **Unverified actions**: Agent claims to have submitted a form, posted a comment, or saved a file but there's no evidence
-3. **Incomplete results**: Some requirements from the task are not addressed in the response
-4. **Fabricated content**: Data that looks plausible but wasn't actually extracted from any page. NOTE: dates and times close to today's date ({current_date}) are NOT fabricated — the agent browses live websites and extracts real-time content.
-5. **Partial completion reported as success**: Response acknowledges failure or blockers (captcha, access denied, etc.) but still claims success
-
-Respond with EXACTLY this JSON structure:
-{{
-	"is_correct": true or false,
-	"reason": "Brief explanation if not correct, empty string if correct"
-}}
-
-Be strict: if the response doesn't clearly satisfy every requirement, set is_correct to false."""
-
-	user_prompt = f"""<task>
-{task_truncated or 'No task provided'}
-</task>
-
-<agent_final_response>
-{final_result_truncated or 'No response provided'}
-</agent_final_response>
-
-Does the agent's response fully satisfy all requirements of the task? Respond with the JSON structure."""
-
-	return [
-		SystemMessage(content=system_prompt),
-		UserMessage(content=user_prompt),
 	]

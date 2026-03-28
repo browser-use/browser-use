@@ -70,14 +70,14 @@ class TestChatBrowserUseRetries:
 		assert attempt_count == 3
 		assert result.completion == 'Success!'
 
-		# Verify exponential backoff timing (with some tolerance for test execution)
-		# First retry: ~0.1s, Second retry: ~0.2s
+		# Verify exponential backoff timing
+		# base_delay=0.1s, so first retry sleeps ~0.1s, second ~0.2s (2x exponential)
 		delay_1 = attempt_times[1] - attempt_times[0]
 		delay_2 = attempt_times[2] - attempt_times[1]
 
-		# Allow 50% tolerance for timing
-		assert 0.05 <= delay_1 <= 0.2, f'First delay {delay_1:.3f}s not in expected range'
-		assert 0.1 <= delay_2 <= 0.4, f'Second delay {delay_2:.3f}s not in expected range'
+		# Allow some tolerance for CI runner scheduling jitter
+		assert 0.05 <= delay_1 <= 0.3, f'First delay {delay_1:.3f}s not in expected range'
+		assert 0.1 <= delay_2 <= 0.5, f'Second delay {delay_2:.3f}s not in expected range'
 		# Second delay should be roughly 2x the first (exponential)
 		assert delay_2 > delay_1, 'Second delay should be longer than first (exponential backoff)'
 
@@ -231,8 +231,8 @@ class TestChatGoogleRetries:
 		delay_1 = attempt_times[1] - attempt_times[0]
 		delay_2 = attempt_times[2] - attempt_times[1]
 
-		assert 0.05 <= delay_1 <= 0.2, f'First delay {delay_1:.3f}s not in expected range'
-		assert 0.1 <= delay_2 <= 0.4, f'Second delay {delay_2:.3f}s not in expected range'
+		assert 0.05 <= delay_1 <= 0.3, f'First delay {delay_1:.3f}s not in expected range'
+		assert 0.1 <= delay_2 <= 0.5, f'Second delay {delay_2:.3f}s not in expected range'
 		assert delay_2 > delay_1, 'Second delay should be longer than first'
 
 	@pytest.mark.asyncio

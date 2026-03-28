@@ -1,52 +1,21 @@
-"""Platform utilities for CLI and server."""
+"""Platform utilities for CLI and daemon."""
 
-import hashlib
+import json as _json
 import os
 import platform
-import signal
+import re
 import subprocess
 import sys
-import tempfile
+import urllib.request
+import zlib
 from pathlib import Path
-from typing import IO
-
-import portalocker
 
 
-def get_socket_path(session: str) -> str:
-	"""Get socket path for session.
+def is_process_alive(pid: int) -> bool:
+	"""Check if a process is still running.
 
-	On Windows, returns a TCP address (tcp://127.0.0.1:PORT).
-	On Unix, returns a Unix socket path.
-	"""
-	if sys.platform == 'win32':
-		# Windows: use TCP on deterministic port (49152-65535)
-		# Use 127.0.0.1 explicitly (not localhost) to avoid IPv6 binding issues
-		port = 49152 + (int(hashlib.md5(session.encode()).hexdigest()[:4], 16) % 16383)
-		return f'tcp://127.0.0.1:{port}'
-	return str(Path(tempfile.gettempdir()) / f'browser-use-{session}.sock')
-
-
-def get_pid_path(session: str) -> Path:
-	"""Get PID file path for session."""
-	return Path(tempfile.gettempdir()) / f'browser-use-{session}.pid'
-
-
-def get_log_path(session: str) -> Path:
-	"""Get log file path for session."""
-	return Path(tempfile.gettempdir()) / f'browser-use-{session}.log'
-
-
-def get_lock_path(session: str) -> Path:
-	"""Get lock file path for session."""
-	return Path(tempfile.gettempdir()) / f'browser-use-{session}.lock'
-
-
-def _pid_exists(pid: int) -> bool:
-	"""Check if a process with given PID exists.
-
-	On Windows, uses ctypes to call OpenProcess (os.kill doesn't work reliably).
-	On Unix, uses os.kill(pid, 0) which is the standard approach.
+	On Windows, os.kill(pid, 0) calls TerminateProcess — so we use
+	OpenProcess via ctypes instead.
 	"""
 	if sys.platform == 'win32':
 		import ctypes
@@ -61,145 +30,137 @@ def _pid_exists(pid: int) -> bool:
 		try:
 			os.kill(pid, 0)
 			return True
-		except OSError:
+		except (OSError, ProcessLookupError):
 			return False
 
 
-def is_server_running(session: str) -> bool:
-	"""Check if server is running for session."""
-	pid_path = get_pid_path(session)
-	if not pid_path.exists():
-		return False
-	try:
-		pid = int(pid_path.read_text().strip())
-		return _pid_exists(pid)
-	except (OSError, ValueError):
-		# Can't read PID file or invalid PID
-		return False
+def validate_session_name(session: str) -> None:
+	"""Validate session name — reject path traversal and special characters.
 
-
-def try_acquire_server_lock(session: str) -> IO | None:
-	"""Try to acquire the server lock non-blocking.
-
-	Returns:
-		Lock file handle if acquired (caller must keep in scope to maintain lock),
-		None if lock is already held by another process.
+	Raises ValueError on invalid name.
 	"""
-	lock_path = get_lock_path(session)
-	lock_path.parent.mkdir(parents=True, exist_ok=True)
-	lock_path.touch(exist_ok=True)
-
-	lock_file = open(lock_path, 'r+')
-	try:
-		portalocker.lock(lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
-		return lock_file
-	except portalocker.LockException:
-		lock_file.close()
-		return None
+	if not re.match(r'^[a-zA-Z0-9_-]+$', session):
+		raise ValueError(f'Invalid session name {session!r}: only letters, digits, hyphens, and underscores allowed')
 
 
-def is_session_locked(session: str) -> bool:
-	"""Check if session has an active lock (server is holding it)."""
-	lock_path = get_lock_path(session)
-	if not lock_path.exists():
-		return False
+def get_home_dir() -> Path:
+	"""Get the browser-use home directory (~/.browser-use/).
 
-	try:
-		with open(lock_path, 'r+') as f:
-			portalocker.lock(f, portalocker.LOCK_EX | portalocker.LOCK_NB)
-			portalocker.unlock(f)
-			return False  # Lock acquired = no one holding it
-	except portalocker.LockException:
-		return True  # Lock failed = someone holding it
-	except OSError:
-		return False  # File access error
-
-
-def kill_orphaned_server(session: str) -> bool:
-	"""Kill an orphaned server (has PID file but no lock).
-
-	An orphaned server is one where the process is running but it doesn't
-	hold the session lock (e.g., because a newer server took over the lock
-	file but didn't kill the old process).
-
-	Returns:
-		True if an orphan was found and killed.
+	All CLI-managed files live here: config, sockets, PIDs, binaries, tunnels.
+	Override with BROWSER_USE_HOME env var.
 	"""
-	pid_path = get_pid_path(session)
-	if not pid_path.exists():
-		return False
+	env = os.environ.get('BROWSER_USE_HOME')
+	if env:
+		d = Path(env).expanduser()
+	else:
+		d = Path.home() / '.browser-use'
+	d.mkdir(parents=True, exist_ok=True)
+	return d
 
-	# Check if session is locked (server alive and holding lock)
-	if is_session_locked(session):
-		return False  # Not an orphan - server is healthy
 
-	# PID exists but no lock - orphan situation
-	try:
-		pid = int(pid_path.read_text().strip())
-		if _pid_exists(pid):
-			# Kill the orphaned process
-			if sys.platform == 'win32':
-				import ctypes
+def get_socket_path(session: str = 'default') -> str:
+	"""Get daemon socket path for a session.
 
-				PROCESS_TERMINATE = 1
-				handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
-				if handle:
-					ctypes.windll.kernel32.TerminateProcess(handle, 1)
-					ctypes.windll.kernel32.CloseHandle(handle)
-			else:
-				os.kill(pid, signal.SIGKILL)
+	On Windows, returns a TCP address (tcp://127.0.0.1:PORT).
+	On Unix, returns a Unix socket path.
+	"""
+	if sys.platform == 'win32':
+		port = 49152 + zlib.adler32(session.encode()) % 16383
+		return f'tcp://127.0.0.1:{port}'
+	return str(get_home_dir() / f'{session}.sock')
+
+
+def get_pid_path(session: str = 'default') -> Path:
+	"""Get PID file path for a session."""
+	return get_home_dir() / f'{session}.pid'
+
+
+def is_daemon_alive(session: str = 'default') -> bool:
+	"""Check daemon liveness by attempting socket connect.
+
+	If socket file exists but nobody is listening, removes the stale file.
+	"""
+	import socket
+
+	sock_path = get_socket_path(session)
+
+	if sock_path.startswith('tcp://'):
+		_, hostport = sock_path.split('://', 1)
+		host, port_str = hostport.split(':')
+		s = None
+		try:
+			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			s.settimeout(0.5)
+			s.connect((host, int(port_str)))
 			return True
-	except (OSError, ValueError):
-		pass
+		except OSError:
+			return False
+		finally:
+			if s:
+				s.close()
+	else:
+		sock_file = Path(sock_path)
+		if not sock_file.exists():
+			return False
+		s = None
+		try:
+			s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			s.settimeout(0.5)
+			s.connect(sock_path)
+			return True
+		except OSError:
+			# Stale socket file — remove it
+			sock_file.unlink(missing_ok=True)
+			return False
+		finally:
+			if s:
+				s.close()
 
-	# Clean up stale files even if we couldn't kill (process may be gone)
-	cleanup_session_files(session)
-	return False
 
+def list_sessions() -> list[dict]:
+	"""List active daemon sessions by scanning PID files.
 
-def find_all_sessions() -> list[str]:
-	"""Find all running browser-use sessions by scanning PID files."""
-	sessions = []
-	tmpdir = Path(tempfile.gettempdir())
-	for pid_file in tmpdir.glob('browser-use-*.pid'):
-		# Extract session name from filename: browser-use-{session}.pid
-		name = pid_file.stem.replace('browser-use-', '', 1)
-		if is_server_running(name):
-			sessions.append(name)
+	Returns list of {'name': str, 'pid': int, 'socket': str} for alive sessions.
+	Cleans up stale PID/socket files for dead sessions.
+	"""
+	home_dir = get_home_dir()
+	sessions: list[dict] = []
+
+	for pid_file in sorted(home_dir.glob('*.pid')):
+		session_name = pid_file.stem
+		if not session_name:
+			continue
+
+		try:
+			pid = int(pid_file.read_text().strip())
+		except (OSError, ValueError):
+			# Corrupt PID file — clean up
+			pid_file.unlink(missing_ok=True)
+			continue
+
+		# Check if process is alive
+		if not is_process_alive(pid):
+			# Dead process — clean up stale files
+			pid_file.unlink(missing_ok=True)
+			sock_path = get_socket_path(session_name)
+			if not sock_path.startswith('tcp://'):
+				Path(sock_path).unlink(missing_ok=True)
+			continue
+
+		sessions.append(
+			{
+				'name': session_name,
+				'pid': pid,
+				'socket': get_socket_path(session_name),
+			}
+		)
+
 	return sessions
 
 
-def cleanup_session_files(session: str) -> None:
-	"""Remove session socket, PID, lock, and metadata files."""
-	sock_path = get_socket_path(session)
-	pid_path = get_pid_path(session)
-	lock_path = get_lock_path(session)
-	meta_path = Path(tempfile.gettempdir()) / f'browser-use-{session}.meta'
-
-	# Remove socket file (Unix only)
-	if not sock_path.startswith('tcp://'):
-		try:
-			os.unlink(sock_path)
-		except OSError:
-			pass
-
-	# Remove PID file
-	try:
-		pid_path.unlink()
-	except OSError:
-		pass
-
-	# Remove lock file
-	try:
-		lock_path.unlink()
-	except OSError:
-		pass
-
-	# Remove metadata file
-	try:
-		meta_path.unlink()
-	except OSError:
-		pass
+def get_log_path() -> Path:
+	"""Get log file path for the daemon."""
+	return get_home_dir() / 'cli.log'
 
 
 def find_chrome_executable() -> str | None:
@@ -252,7 +213,11 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 		if system == 'Darwin':
 			return str(Path.home() / 'Library' / 'Application Support' / 'Google' / 'Chrome')
 		elif system == 'Linux':
-			return str(Path.home() / '.config' / 'google-chrome')
+			base = Path.home() / '.config'
+			for name in ('google-chrome', 'chromium'):
+				if (base / name).is_dir():
+					return str(base / name)
+			return str(base / 'google-chrome')
 		elif system == 'Windows':
 			return os.path.expandvars(r'%LocalAppData%\Google\Chrome\User Data')
 	else:
@@ -263,15 +228,181 @@ def get_chrome_profile_path(profile: str | None) -> str | None:
 	return None
 
 
-def get_config_dir() -> Path:
-	"""Get browser-use config directory."""
-	if sys.platform == 'win32':
-		base = Path(os.environ.get('APPDATA', Path.home()))
-	else:
-		base = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
-	return base / 'browser-use'
+def get_chrome_user_data_dirs() -> list[Path]:
+	"""Return candidate Chrome/Chromium user-data directories for the current OS.
+
+	Covers Google Chrome, Chrome Canary, Chromium, and Brave on macOS/Linux/Windows.
+	"""
+	system = platform.system()
+	home = Path.home()
+	candidates: list[Path] = []
+
+	if system == 'Darwin':
+		base = home / 'Library' / 'Application Support'
+		for name in ('Google/Chrome', 'Google/Chrome Canary', 'Chromium', 'BraveSoftware/Brave-Browser'):
+			candidates.append(base / name)
+	elif system == 'Linux':
+		base = home / '.config'
+		for name in ('google-chrome', 'google-chrome-unstable', 'chromium', 'BraveSoftware/Brave-Browser'):
+			candidates.append(base / name)
+	elif system == 'Windows':
+		local_app_data = os.environ.get('LOCALAPPDATA', str(home / 'AppData' / 'Local'))
+		base = Path(local_app_data)
+		for name in (
+			'Google\\Chrome\\User Data',
+			'Google\\Chrome SxS\\User Data',
+			'Chromium\\User Data',
+			'BraveSoftware\\Brave-Browser\\User Data',
+		):
+			candidates.append(base / name)
+
+	return [d for d in candidates if d.is_dir()]
+
+
+def discover_chrome_cdp_url() -> str:
+	"""Auto-discover a running Chrome instance's CDP WebSocket URL.
+
+	Strategy:
+	1. Read ``DevToolsActivePort`` from known Chrome data dirs.
+	2. Probe ``/json/version`` via HTTP to get ``webSocketDebuggerUrl``.
+	3. If HTTP fails, construct ``ws://`` URL directly from the port file.
+	4. Fallback: probe well-known ports 9222, 9229.
+
+	Raises ``RuntimeError`` if no running Chrome with remote debugging is found.
+	"""
+
+	def _probe_http(port: int) -> str | None:
+		"""Try GET http://127.0.0.1:{port}/json/version and return webSocketDebuggerUrl."""
+		try:
+			req = urllib.request.Request(f'http://127.0.0.1:{port}/json/version')
+			with urllib.request.urlopen(req, timeout=2) as resp:
+				data = _json.loads(resp.read())
+				url = data.get('webSocketDebuggerUrl')
+				if url and isinstance(url, str):
+					return url
+		except Exception:
+			pass
+		return None
+
+	def _port_is_open(port: int) -> bool:
+		"""Check if something is listening on 127.0.0.1:{port}."""
+		import socket
+
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		try:
+			s.settimeout(1)
+			s.connect(('127.0.0.1', port))
+			return True
+		except OSError:
+			return False
+		finally:
+			s.close()
+
+	# --- Phase 1: DevToolsActivePort files ---
+	for data_dir in get_chrome_user_data_dirs():
+		port_file = data_dir / 'DevToolsActivePort'
+		if not port_file.is_file():
+			continue
+		try:
+			lines = port_file.read_text().strip().splitlines()
+			if not lines:
+				continue
+			port = int(lines[0].strip())
+			ws_path = lines[1].strip() if len(lines) > 1 else '/devtools/browser'
+		except (ValueError, OSError):
+			continue
+
+		# Try HTTP probe first (gives us the full canonical URL)
+		ws_url = _probe_http(port)
+		if ws_url:
+			return ws_url
+
+		# HTTP may not respond (Chrome M144+), but if the port is open, trust the file
+		if _port_is_open(port):
+			return f'ws://127.0.0.1:{port}{ws_path}'
+
+	# --- Phase 2: well-known fallback ports ---
+	for port in (9222, 9229):
+		ws_url = _probe_http(port)
+		if ws_url:
+			return ws_url
+
+	raise RuntimeError(
+		'Could not discover a running Chrome instance with remote debugging enabled.\n'
+		'Enable remote debugging in Chrome (chrome://inspect, or launch with --remote-debugging-port=9222) and try again.'
+	)
+
+
+def list_chrome_profiles() -> list[dict[str, str]]:
+	"""List available Chrome profiles with their names.
+
+	Returns:
+		List of dicts with 'directory' and 'name' keys, ex:
+		[{'directory': 'Default', 'name': 'Person 1'}, {'directory': 'Profile 1', 'name': 'Work'}]
+	"""
+	import json
+
+	user_data_dir = get_chrome_profile_path(None)
+	if user_data_dir is None:
+		return []
+
+	local_state_path = Path(user_data_dir) / 'Local State'
+	if not local_state_path.exists():
+		return []
+
+	try:
+		with open(local_state_path) as f:
+			local_state = json.load(f)
+
+		info_cache = local_state.get('profile', {}).get('info_cache', {})
+		profiles = []
+		for directory, info in info_cache.items():
+			profiles.append(
+				{
+					'directory': directory,
+					'name': info.get('name', directory),
+				}
+			)
+		return sorted(profiles, key=lambda p: p['directory'])
+	except (json.JSONDecodeError, KeyError, OSError):
+		return []
 
 
 def get_config_path() -> Path:
 	"""Get browser-use config file path."""
-	return get_config_dir() / 'config.json'
+	return get_home_dir() / 'config.json'
+
+
+def get_bin_dir() -> Path:
+	"""Get directory for CLI-managed binaries."""
+	d = get_home_dir() / 'bin'
+	d.mkdir(parents=True, exist_ok=True)
+	return d
+
+
+def get_tunnel_dir() -> Path:
+	"""Get directory for tunnel metadata and logs."""
+	return get_home_dir() / 'tunnels'
+
+
+def migrate_legacy_paths() -> None:
+	"""One-time migration of config from old XDG location to ~/.browser-use/.
+
+	Copies (not moves) config.json if old location exists and new location does not.
+	"""
+	new_config = get_home_dir() / 'config.json'
+	if new_config.exists():
+		return
+
+	# Check old XDG location
+	if sys.platform == 'win32':
+		old_base = Path(os.environ.get('APPDATA', Path.home()))
+	else:
+		old_base = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
+	old_config = old_base / 'browser-use' / 'config.json'
+
+	if old_config.exists():
+		import shutil
+
+		shutil.copy2(str(old_config), str(new_config))
+		print(f'Migrated config from {old_config} to {new_config}', file=sys.stderr)

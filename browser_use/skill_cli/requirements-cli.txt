@@ -1,0 +1,12 @@
+# Minimal dependencies for the browser-use CLI.
+# Used by install_lite.sh — update this file if the CLI's import chain changes.
+aiohttp==3.13.3
+bubus==1.5.6
+cdp-use==1.4.5
+httpx==0.28.1
+psutil==7.2.2
+pydantic==2.12.5
+pydantic-settings==2.12.0
+python-dotenv==1.2.1
+typing-extensions==4.15.0
+uuid7==0.1.0

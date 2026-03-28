@@ -52,7 +52,6 @@ if TYPE_CHECKING:
 	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
-	from browser_use.code_use.service import CodeAgent
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
@@ -61,6 +60,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.kimi.chat import ChatKimi
+	from browser_use.llm.litellm.chat import ChatLiteLLM
 	from browser_use.llm.mistral.chat import ChatMistral
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
 	from browser_use.llm.ollama.chat import ChatOllama
@@ -73,8 +73,6 @@ if TYPE_CHECKING:
 _LAZY_IMPORTS = {
 	# Agent service (heavy due to dependencies)
 	# 'Agent': ('browser_use.agent.service', 'Agent'),
-	# Code-use agent (Jupyter notebook-like execution)
-	'CodeAgent': ('browser_use.code_use.service', 'CodeAgent'),
 	'Agent': ('browser_use.agent.service', 'Agent'),
 	# System prompt (moderate weight due to agent.views imports)
 	'SystemPrompt': ('browser_use.agent.prompts', 'SystemPrompt'),
@@ -97,6 +95,7 @@ _LAZY_IMPORTS = {
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
 	'ChatKimi': ('browser_use.llm.kimi.chat', 'ChatKimi'),
+	'ChatLiteLLM': ('browser_use.llm.litellm.chat', 'ChatLiteLLM'),
 	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
@@ -133,8 +132,6 @@ def __getattr__(name: str):
 
 __all__ = [
 	'Agent',
-	'CodeAgent',
-	# 'CodeAgent',
 	'BrowserSession',
 	'Browser',  # Alias for BrowserSession
 	'BrowserProfile',
@@ -151,6 +148,7 @@ __all__ = [
 	'ChatBrowserUse',
 	'ChatGroq',
 	'ChatKimi',
+	'ChatLiteLLM',
 	'ChatMistral',
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',

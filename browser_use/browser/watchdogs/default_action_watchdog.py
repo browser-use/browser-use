@@ -612,9 +612,47 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 
 						// Simple containment-based clickability logic
-						const isClickable = this === elementAtPoint ||
+						let isClickable = this === elementAtPoint ||
 							this.contains(elementAtPoint) ||
 							elementAtPoint.contains(this);
+
+						// Check label-input associations when containment check fails
+						if (!isClickable) {
+							const target = this;
+							const atPoint = elementAtPoint;
+
+							// Case 1: target is <input>, atPoint is its associated <label> (or child of that label)
+							if (target.tagName === 'INPUT' && target.id) {
+								const escapedId = CSS.escape(target.id);
+								const assocLabel = document.querySelector('label[for="' + escapedId + '"]');
+								if (assocLabel && (assocLabel === atPoint || assocLabel.contains(atPoint))) {
+									isClickable = true;
+								}
+							}
+
+							// Case 2: target is <input>, atPoint is inside a <label> ancestor that wraps the target
+							if (!isClickable && target.tagName === 'INPUT') {
+								let ancestor = atPoint;
+								for (let i = 0; i < 3 && ancestor; i++) {
+									if (ancestor.tagName === 'LABEL' && ancestor.contains(target)) {
+										isClickable = true;
+										break;
+									}
+									ancestor = ancestor.parentElement;
+								}
+							}
+
+							// Case 3: target is <label>, atPoint is the associated <input>
+							if (!isClickable && target.tagName === 'LABEL') {
+								if (target.htmlFor && atPoint.tagName === 'INPUT' && atPoint.id === target.htmlFor) {
+									isClickable = true;
+								}
+								// Also check if atPoint is an input inside the label
+								if (!isClickable && atPoint.tagName === 'INPUT' && target.contains(atPoint)) {
+									isClickable = true;
+								}
+							}
+						}
 
 						return {
 							targetInfo: getElementInfo(this),
@@ -685,6 +723,32 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Get element bounds
 			backend_node_id = element_node.backend_node_id
+
+			# For checkbox/radio: capture pre-click state to verify toggle worked
+			is_toggle_element = tag_name == 'input' and element_type in ('checkbox', 'radio')
+			pre_click_checked: bool | None = None
+			checkbox_object_id: str | None = None
+			if is_toggle_element and backend_node_id:
+				try:
+					resolve_res = await cdp_session.cdp_client.send.DOM.resolveNode(
+						params={'backendNodeId': backend_node_id}, session_id=session_id
+					)
+					obj_info = resolve_res.get('object', {})
+					checkbox_object_id = obj_info.get('objectId') if obj_info else None
+					if not checkbox_object_id:
+						raise Exception('Failed to resolve checkbox element objectId')
+					state_res = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': 'function() { return this.checked; }',
+							'objectId': checkbox_object_id,
+							'returnByValue': True,
+						},
+						session_id=session_id,
+					)
+					pre_click_checked = state_res.get('result', {}).get('value')
+					self.logger.debug(f'Checkbox pre-click state: checked={pre_click_checked}')
+				except Exception as e:
+					self.logger.debug(f'Could not capture pre-click checkbox state: {e}')
 
 			# Get viewport dimensions for visibility checks
 			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
@@ -882,6 +946,43 @@ class DefaultActionWatchdog(BaseWatchdog):
 					self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')
 
 				self.logger.debug('🖱️ Clicked successfully using x,y coordinates')
+
+				# For checkbox/radio: verify state toggled, fall back to JS element.click() if not
+				if is_toggle_element and pre_click_checked is not None and checkbox_object_id:
+					try:
+						await asyncio.sleep(0.05)
+						state_res = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': 'function() { return this.checked; }',
+								'objectId': checkbox_object_id,
+								'returnByValue': True,
+							},
+							session_id=session_id,
+						)
+						post_click_checked = state_res.get('result', {}).get('value')
+						if post_click_checked == pre_click_checked:
+							# CDP mouse events didn't toggle the checkbox — try JS element.click()
+							self.logger.debug(
+								f'Checkbox state unchanged after CDP click (checked={pre_click_checked}), using JS fallback'
+							)
+							await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+								params={'functionDeclaration': 'function() { this.click(); }', 'objectId': checkbox_object_id},
+								session_id=session_id,
+							)
+							await asyncio.sleep(0.05)
+							final_res = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+								params={
+									'functionDeclaration': 'function() { return this.checked; }',
+									'objectId': checkbox_object_id,
+									'returnByValue': True,
+								},
+								session_id=session_id,
+							)
+							post_click_checked = final_res.get('result', {}).get('value')
+						self.logger.debug(f'Checkbox post-click state: checked={post_click_checked}')
+						return {'click_x': center_x, 'click_y': center_y, 'checked': post_click_checked}
+					except Exception as e:
+						self.logger.debug(f'Checkbox state verification failed (non-critical): {e}')
 
 				# Return coordinates as dict for metadata
 				return {'click_x': center_x, 'click_y': center_y}

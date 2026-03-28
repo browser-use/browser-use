@@ -1286,3 +1286,137 @@ class TestFileSystemIntegration:
 				assert file_obj.content == f'Content for file {i}'
 
 			fs.nuke()
+
+
+class TestCsvNormalization:
+	"""Test CSV normalization that fixes common LLM output mistakes."""
+
+	def test_normalize_quotes_fields_with_commas(self):
+		"""LLMs often forget to quote fields that contain commas."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('name,city\n"Smith, John","San Francisco, CA"')
+		assert csv_file.content == 'name,city\n"Smith, John","San Francisco, CA"'
+
+	def test_normalize_escapes_internal_quotes(self):
+		"""Fields with double quotes inside must be escaped per RFC 4180."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('name,quote\nJohn,"He said ""hello"""')
+		assert csv_file.content == 'name,quote\nJohn,"He said ""hello"""'
+
+	def test_normalize_handles_empty_fields(self):
+		"""Empty fields between commas should be preserved."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('a,b,c\n1,,3\n,,\n4,5,')
+		assert csv_file.content == 'a,b,c\n1,,3\n,,\n4,5,'
+
+	def test_normalize_strips_blank_lines(self):
+		"""Leading/trailing blank lines should be stripped."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('\n\na,b\n1,2\n\n')
+		assert csv_file.content == 'a,b\n1,2'
+
+	def test_normalize_preserves_valid_csv(self):
+		"""Already-valid CSV should pass through unchanged."""
+		valid = 'name,age,city\nJohn,30,New York\nJane,25,London'
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content(valid)
+		assert csv_file.content == valid
+
+	def test_normalize_empty_content(self):
+		"""Empty or whitespace-only content should pass through."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('')
+		assert csv_file.content == ''
+		csv_file.write_file_content('   \n  ')
+		assert csv_file.content == '   \n  '
+
+	def test_normalize_on_append(self):
+		"""Appending rows should produce normalized combined output."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('name,city\nJohn,Boston')
+		csv_file.append_file_content('\n"Jane","New York, NY"')
+		assert csv_file.content == 'name,city\nJohn,Boston\nJane,"New York, NY"'
+
+	def test_normalize_append_with_leading_newlines(self):
+		"""LLMs often prefix appended content with newlines."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('a,b\n1,2')
+		csv_file.append_file_content('\n\n3,4')
+		assert csv_file.content == 'a,b\n1,2\n3,4'
+
+	async def test_normalize_through_filesystem_write(self):
+		"""CSV normalization works through the FileSystem.write_file path."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			await fs.write_file('data.csv', 'name,address\nJohn,"123 Main St, Apt 4"')
+			file_obj = fs.get_file('data.csv')
+			assert isinstance(file_obj, CsvFile)
+			assert file_obj.content == 'name,address\nJohn,"123 Main St, Apt 4"'
+
+			disk_content = (fs.data_dir / 'data.csv').read_text()
+			assert disk_content == 'name,address\nJohn,"123 Main St, Apt 4"'
+
+			fs.nuke()
+
+	async def test_normalize_through_filesystem_append(self):
+		"""CSV normalization works through the FileSystem.append_file path."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
+
+			await fs.write_file('data.csv', 'name,score\nAlice,95')
+			await fs.append_file('data.csv', '\n"Bob, Jr.",88')
+
+			file_obj = fs.get_file('data.csv')
+			assert file_obj is not None
+			assert file_obj.content == 'name,score\nAlice,95\n"Bob, Jr.",88'
+
+			fs.nuke()
+
+	def test_normalize_single_column(self):
+		"""Single-column CSV should work correctly."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('names\nAlice\nBob\nCharlie')
+		assert csv_file.content == 'names\nAlice\nBob\nCharlie'
+
+	def test_normalize_quoted_newlines_in_fields(self):
+		"""Fields with embedded newlines should be properly quoted."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content('name,bio\nJohn,"Line 1\nLine 2"')
+		assert 'Line 1\nLine 2' in csv_file.content
+		assert csv_file.content == 'name,bio\nJohn,"Line 1\nLine 2"'
+
+	def test_normalize_double_escaped_newlines(self):
+		"""LLM tool calls often produce literal \\n instead of real newlines."""
+		csv_file = CsvFile(name='test')
+		# Simulate double-escaped content: literal \n and \" (as they arrive from LLM)
+		csv_file.write_file_content('name,city\\n1,Jakarta\\n2,Dhaka')
+		assert csv_file.content == 'name,city\n1,Jakarta\n2,Dhaka'
+
+	def test_normalize_double_escaped_quotes_and_newlines(self):
+		"""The exact failure mode from the bug: literal \\n and \\" in population values."""
+		csv_file = CsvFile(name='test')
+		# This is what the LLM actually sends: literal \n for row breaks,
+		# literal \" around fields with commas
+		content = 'rank,city,country,population\\n1,Jakarta,Indonesia,\\"41,913,860\\"\\n2,Dhaka,Bangladesh,\\"36,585,479\\"'
+		csv_file.write_file_content(content)
+		# Should unescape and produce proper CSV
+		lines = csv_file.content.split('\n')
+		assert len(lines) == 3
+		assert lines[0] == 'rank,city,country,population'
+		assert lines[1] == '1,Jakarta,Indonesia,"41,913,860"'
+		assert lines[2] == '2,Dhaka,Bangladesh,"36,585,479"'
+
+	def test_normalize_does_not_unescape_when_real_newlines_exist(self):
+		"""If content has real newlines, don't touch literal \\n inside field values."""
+		csv_file = CsvFile(name='test')
+		# Content with real newlines AND a field that legitimately contains \n chars
+		csv_file.write_file_content('path,desc\n/tmp/a\\nb,test file')
+		# Real newlines present → no unescaping, literal \n stays in the field
+		assert csv_file.content == 'path,desc\n/tmp/a\\nb,test file'
+
+	def test_normalize_preserves_leading_trailing_spaces_in_fields(self):
+		"""Leading/trailing spaces in field values must not be stripped."""
+		csv_file = CsvFile(name='test')
+		csv_file.write_file_content(' name , age \nAlice, 30 ')
+		assert csv_file.content == ' name , age \nAlice, 30 '

@@ -7,7 +7,7 @@ Tunnels are managed independently of browser sessions - they are purely
 a network utility for exposing local ports via Cloudflare quick tunnels.
 
 Tunnels survive CLI process exit by:
-1. Spawning cloudflared as a daemon (start_new_session=True)
+1. Spawning cloudflared as a daemon (start_new_session on Unix, CREATE_NEW_PROCESS_GROUP on Windows)
 2. Tracking tunnel info via PID files in ~/.browser-use/tunnels/
 """
 
@@ -18,6 +18,8 @@ import os
 import re
 import shutil
 import signal
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +28,12 @@ logger = logging.getLogger(__name__)
 # Pattern to extract tunnel URL from cloudflared output
 _URL_PATTERN = re.compile(r'(https://\S+\.trycloudflare\.com)')
 
-# Directory for tunnel PID files
-_TUNNELS_DIR = Path.home() / '.browser-use' / 'tunnels'
+
+def _tunnels_dir() -> Path:
+	"""Get tunnel metadata directory (lazy to respect BROWSER_USE_HOME)."""
+	from browser_use.skill_cli.utils import get_tunnel_dir
+
+	return get_tunnel_dir()
 
 
 class TunnelManager:
@@ -111,12 +117,12 @@ def get_tunnel_manager() -> TunnelManager:
 
 def _get_tunnel_file(port: int) -> Path:
 	"""Get the path to a tunnel's info file."""
-	return _TUNNELS_DIR / f'{port}.json'
+	return _tunnels_dir() / f'{port}.json'
 
 
 def _save_tunnel_info(port: int, pid: int, url: str) -> None:
 	"""Save tunnel info to disk."""
-	_TUNNELS_DIR.mkdir(parents=True, exist_ok=True)
+	_tunnels_dir().mkdir(parents=True, exist_ok=True)
 	_get_tunnel_file(port).write_text(json.dumps({'port': port, 'pid': pid, 'url': url}))
 
 
@@ -146,29 +152,43 @@ def _delete_tunnel_info(port: int) -> None:
 
 def _is_process_alive(pid: int) -> bool:
 	"""Check if a process is still running."""
-	try:
-		os.kill(pid, 0)
-		return True
-	except (OSError, ProcessLookupError):
-		return False
+	from browser_use.skill_cli.utils import is_process_alive
+
+	return is_process_alive(pid)
 
 
 def _kill_process(pid: int) -> bool:
 	"""Kill a process by PID. Returns True if killed, False if already dead."""
-	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+	import time
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
-	except (OSError, ProcessLookupError):
-		return False
+	if sys.platform == 'win32':
+		import ctypes
+
+		PROCESS_TERMINATE = 0x0001
+		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+		if not handle:
+			return False
+		try:
+			ctypes.windll.kernel32.TerminateProcess(handle, 1)
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				time.sleep(0.1)
+			return not _is_process_alive(pid)
+		finally:
+			ctypes.windll.kernel32.CloseHandle(handle)
+	else:
+		try:
+			os.kill(pid, signal.SIGTERM)
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				time.sleep(0.1)
+			# Force kill if still alive
+			os.kill(pid, signal.SIGKILL)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 # =============================================================================
@@ -200,13 +220,19 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 		return {'error': str(e)}
 
 	# Create log file for cloudflared stderr (avoids SIGPIPE when parent exits)
-	_TUNNELS_DIR.mkdir(parents=True, exist_ok=True)
-	log_file_path = _TUNNELS_DIR / f'{port}.log'
+	_tunnels_dir().mkdir(parents=True, exist_ok=True)
+	log_file_path = _tunnels_dir() / f'{port}.log'
 	log_file = open(log_file_path, 'w')  # noqa: ASYNC230
 
 	# Spawn cloudflared as a daemon
-	# - start_new_session=True: survives parent exit
+	# - start_new_session / creationflags: survives parent exit
 	# - stderr to file: avoids SIGPIPE when parent's pipe closes
+	spawn_kwargs: dict[str, Any] = {}
+	if sys.platform == 'win32':
+		spawn_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+	else:
+		spawn_kwargs['start_new_session'] = True
+
 	process = await asyncio.create_subprocess_exec(
 		cloudflared_binary,
 		'tunnel',
@@ -214,7 +240,7 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 		f'http://localhost:{port}',
 		stdout=asyncio.subprocess.DEVNULL,
 		stderr=log_file,
-		start_new_session=True,
+		**spawn_kwargs,
 	)
 
 	# Poll the log file until we find the tunnel URL
@@ -268,8 +294,8 @@ def list_tunnels() -> dict[str, Any]:
 		Dict with 'tunnels' list and 'count'
 	"""
 	tunnels = []
-	if _TUNNELS_DIR.exists():
-		for tunnel_file in _TUNNELS_DIR.glob('*.json'):
+	if _tunnels_dir().exists():
+		for tunnel_file in _tunnels_dir().glob('*.json'):
 			try:
 				port = int(tunnel_file.stem)
 				info = _load_tunnel_info(port)
@@ -298,7 +324,7 @@ async def stop_tunnel(port: int) -> dict[str, Any]:
 	_kill_process(pid)
 	_delete_tunnel_info(port)
 	# Clean up log file
-	log_file = _TUNNELS_DIR / f'{port}.log'
+	log_file = _tunnels_dir() / f'{port}.log'
 	log_file.unlink(missing_ok=True)
 	logger.info(f'Tunnel stopped: localhost:{port}')
 
@@ -312,8 +338,8 @@ async def stop_all_tunnels() -> dict[str, Any]:
 		Dict with 'stopped' list of ports
 	"""
 	stopped = []
-	if _TUNNELS_DIR.exists():
-		for tunnel_file in _TUNNELS_DIR.glob('*.json'):
+	if _tunnels_dir().exists():
+		for tunnel_file in _tunnels_dir().glob('*.json'):
 			try:
 				port = int(tunnel_file.stem)
 				result = await stop_tunnel(port)

@@ -119,7 +119,7 @@ class NavigateToUrlEvent(BaseEvent[None]):
 	# existing_tab: PageHandle | None = None  # TODO
 
 	# time limits enforced by bubus, not exposed to LLM:
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_NavigateToUrlEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_NavigateToUrlEvent', 30.0))  # seconds
 
 
 class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
@@ -406,7 +406,7 @@ class TabClosedEvent(BaseEvent):
 	# new_focus_target_id: int | None = None
 	# new_focus_url: str | None = None
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TabClosedEvent', 10.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TabClosedEvent', 3.0))  # seconds
 
 
 # TODO: emit this when DOM changes significantly, inner frame navigates, form submits, history.pushState(), etc.
@@ -469,6 +469,26 @@ class BrowserErrorEvent(BaseEvent):
 	details: dict[str, Any] = Field(default_factory=dict)
 
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_BrowserErrorEvent', 30.0))  # seconds
+
+
+class BrowserReconnectingEvent(BaseEvent):
+	"""WebSocket reconnection attempt is starting."""
+
+	cdp_url: str
+	attempt: int
+	max_attempts: int
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_BrowserReconnectingEvent', 30.0))  # seconds
+
+
+class BrowserReconnectedEvent(BaseEvent):
+	"""WebSocket reconnection succeeded."""
+
+	cdp_url: str
+	attempt: int
+	downtime_seconds: float
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_BrowserReconnectedEvent', 30.0))  # seconds
 
 
 # ============================================================================
@@ -574,6 +594,42 @@ class DialogOpenedEvent(BaseEvent):
 	url: str
 	frame_id: str | None = None  # Can be None when frameId is not provided by CDP
 	# target_id: TargetID   # TODO: add this to avoid needing target_id_from_frame() later
+
+
+# ============================================================================
+# Captcha Solver Events
+# ============================================================================
+
+
+class CaptchaSolverStartedEvent(BaseEvent):
+	"""Captcha solving started by the browser proxy.
+
+	Emitted when the browser proxy detects a CAPTCHA and begins solving it.
+	The agent should wait for a corresponding CaptchaSolverFinishedEvent before proceeding.
+	"""
+
+	target_id: TargetID
+	vendor: str  # e.g. 'cloudflare', 'recaptcha', 'hcaptcha', 'datadome', 'perimeterx', 'geetest'
+	url: str
+	started_at: int  # Unix millis
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_CaptchaSolverStartedEvent', 5.0))
+
+
+class CaptchaSolverFinishedEvent(BaseEvent):
+	"""Captcha solving finished by the browser proxy.
+
+	Emitted when the browser proxy finishes solving a CAPTCHA (successfully or not).
+	"""
+
+	target_id: TargetID
+	vendor: str
+	url: str
+	duration_ms: int
+	finished_at: int  # Unix millis
+	success: bool  # Whether the captcha was solved successfully
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_CaptchaSolverFinishedEvent', 5.0))
 
 
 # Note: Model rebuilding for forward references is handled in the importing modules

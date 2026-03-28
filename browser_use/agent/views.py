@@ -35,7 +35,7 @@ class MessageCompactionSettings(BaseModel):
 	"""Summarizes older history into a compact memory block to reduce prompt size."""
 
 	enabled: bool = True
-	compact_every_n_steps: int = 15
+	compact_every_n_steps: int = 25
 	trigger_char_count: int | None = None  # Min char floor; set via trigger_token_count if preferred
 	trigger_token_count: int | None = None  # Alternative to trigger_char_count (~4 chars/token)
 	chars_per_token: float = 4.0
@@ -301,13 +301,6 @@ class JudgementResult(BaseModel):
 		default=False,
 		description='True if the agent encountered captcha challenges during task execution',
 	)
-
-
-class SimpleJudgeResult(BaseModel):
-	"""Result of lightweight always-on judge that validates agent success claims."""
-
-	is_correct: bool = Field(description='True if the agent response genuinely satisfies the task requirements')
-	reason: str = Field(default='', description='Brief explanation if not correct')
 
 
 class ActionResult(BaseModel):
@@ -652,7 +645,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			Path(filepath).parent.mkdir(parents=True, exist_ok=True)
 			data = self.model_dump(sensitive_data=sensitive_data)
 			with open(filepath, 'w', encoding='utf-8') as f:
-				json.dump(data, f, indent=2)
+				json.dump(data, f, indent=2, ensure_ascii=False)
 		except Exception as e:
 			raise e
 

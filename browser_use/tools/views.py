@@ -10,12 +10,20 @@ class ExtractAction(BaseModel):
 	extract_links: bool = Field(
 		default=False, description='Set True to true if the query requires links, else false to safe tokens'
 	)
+	extract_images: bool = Field(
+		default=False,
+		description='Set True to include image src URLs in extracted markdown. Auto-enabled when query contains image-related keywords.',
+	)
 	start_from_char: int = Field(
 		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
 	)
 	output_schema: SkipJsonSchema[dict | None] = Field(
 		default=None,
 		description='Optional JSON Schema dict. When provided, extraction returns validated JSON matching this schema instead of free-text.',
+	)
+	already_collected: list[str] = Field(
+		default_factory=list,
+		description='Item identifiers (name, URL, or ID) already collected in prior extract calls on other pages. The extractor will skip items matching these to prevent duplicates. Use when paginating across multiple pages.',
 	)
 
 
@@ -79,7 +87,16 @@ class InputTextAction(BaseModel):
 
 
 class DoneAction(BaseModel):
-	text: str = Field(description='Final user message in the format the user requested')
+	text: str = Field(
+		description=(
+			'Final message to the user. '
+			'ONLY report data you directly observed in browser_state, tool outputs, or screenshots during this session. '
+			'Do NOT use training knowledge to fill gaps — if information was not found on the page, say so explicitly. '
+			'Do NOT claim completion of steps from compacted_memory or prior session summaries '
+			'unless you explicitly verified them yourself. '
+			'If uncertain whether a prior step completed, say so explicitly.'
+		)
+	)
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	files_to_display: list[str] | None = Field(default=[])
 
@@ -87,16 +104,19 @@ class DoneAction(BaseModel):
 T = TypeVar('T', bound=BaseModel)
 
 
-def _hide_success_from_schema(schema: dict) -> None:
-	"""Remove 'success' from the JSON schema to avoid field name collisions with user models."""
-	schema.get('properties', {}).pop('success', None)
+def _hide_internal_fields_from_schema(schema: dict) -> None:
+	"""Remove internal fields from the JSON schema to avoid collisions with user models."""
+	props = schema.get('properties', {})
+	props.pop('success', None)
+	props.pop('files_to_display', None)
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
-	model_config = ConfigDict(json_schema_extra=_hide_success_from_schema)
+	model_config = ConfigDict(json_schema_extra=_hide_internal_fields_from_schema)
 
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	data: T = Field(description='The actual output data matching the requested schema')
+	files_to_display: list[str] | None = Field(default=[])
 
 
 class SwitchTabAction(BaseModel):
@@ -138,15 +158,18 @@ class ScreenshotAction(BaseModel):
 	)
 
 
-class ReadContentAction(BaseModel):
-	"""Action for intelligent reading of long content."""
-
-	goal: str = Field(description='What to look for or extract from the content')
-	source: str = Field(
-		default='page',
-		description='What to read: "page" for current webpage, or a file path',
+class SaveAsPdfAction(BaseModel):
+	file_name: str | None = Field(
+		default=None,
+		description='Output PDF filename (without path). Defaults to page title. Extension .pdf is added automatically if missing.',
 	)
-	context: str = Field(default='', description='Additional context about the task')
+	print_background: bool = Field(default=True, description='Include background graphics and colors')
+	landscape: bool = Field(default=False, description='Use landscape orientation')
+	scale: float = Field(default=1.0, ge=0.1, le=2.0, description='Scale of the webpage rendering (0.1 to 2.0)')
+	paper_format: str = Field(
+		default='Letter',
+		description='Paper size: Letter, Legal, A4, A3, or Tabloid',
+	)
 
 
 class GetDropdownOptionsAction(BaseModel):

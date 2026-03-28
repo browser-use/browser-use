@@ -401,6 +401,8 @@ class SessionManager:
 			if '-32001' not in error_str and 'Session with given id not found' not in error_str:
 				self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
 
+		from browser_use.browser.session import Target
+
 		async with self._lock:
 			# Track this session for the target
 			if target_id not in self._target_sessions:
@@ -409,23 +411,22 @@ class SessionManager:
 			self._target_sessions[target_id].add(session_id)
 			self._session_to_target[session_id] = target_id
 
-		# Create or update Target (source of truth for url/title)
-		if target_id not in self._targets:
-			from browser_use.browser.session import Target
-
-			target = Target(
-				target_id=target_id,
-				target_type=target_type,
-				url=target_info.get('url', 'about:blank'),
-				title=target_info.get('title', 'Unknown title'),
-			)
-			self._targets[target_id] = target
-			self.logger.debug(f'[SessionManager] Created target {target_id[:8]}... (type={target_type})')
-		else:
-			# Update existing target info
-			existing_target = self._targets[target_id]
-			existing_target.url = target_info.get('url', existing_target.url)
-			existing_target.title = target_info.get('title', existing_target.title)
+			# Create or update Target inside the same lock so that get_target() is never
+			# called in the window between _target_sessions being set and _targets being set.
+			if target_id not in self._targets:
+				target = Target(
+					target_id=target_id,
+					target_type=target_type,
+					url=target_info.get('url', 'about:blank'),
+					title=target_info.get('title', 'Unknown title'),
+				)
+				self._targets[target_id] = target
+				self.logger.debug(f'[SessionManager] Created target {target_id[:8]}... (type={target_type})')
+			else:
+				# Update existing target info
+				existing_target = self._targets[target_id]
+				existing_target.url = target_info.get('url', existing_target.url)
+				existing_target.title = target_info.get('title', existing_target.title)
 
 		# Create CDPSession (communication channel)
 		from browser_use.browser.session import CDPSession
@@ -440,6 +441,21 @@ class SessionManager:
 
 		# Add to sessions dict
 		self._sessions[session_id] = cdp_session
+
+		# If proxy auth is configured, enable Fetch auth handling on this session
+		# Avoids overwriting Target.attachedToTarget handlers elsewhere
+		try:
+			proxy_cfg = self.browser_session.browser_profile.proxy
+			username = proxy_cfg.username if proxy_cfg else None
+			password = proxy_cfg.password if proxy_cfg else None
+			if username and password:
+				await cdp_session.cdp_client.send.Fetch.enable(
+					params={'handleAuthRequests': True},
+					session_id=cdp_session.session_id,
+				)
+				self.logger.debug(f'[SessionManager] Fetch.enable(handleAuthRequests=True) on session {session_id[:8]}...')
+		except Exception as e:
+			self.logger.debug(f'[SessionManager] Fetch.enable on attached session failed: {type(e).__name__}: {e}')
 
 		self.logger.debug(
 			f'[SessionManager] Created session {session_id[:8]}... for target {target_id[:8]}... '
