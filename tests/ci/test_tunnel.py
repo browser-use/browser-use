@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal as signal_module
 import sys
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -314,7 +315,8 @@ class TestKillProcessUnix:
 					'browser_use.skill_cli.tunnel._is_process_alive',
 					return_value=False,
 				):
-					result = _kill_process(1234)
+					with patch('browser_use.skill_cli.tunnel.time.sleep'):
+						result = _kill_process(1234)
 			assert result is True
 			mock_kill.assert_called_once_with(1234, 15)  # 15 = SIGTERM
 		finally:
@@ -322,8 +324,6 @@ class TestKillProcessUnix:
 
 	def test_kill_process_unix_sigkill_after_grace_period(self):
 		"""Test Unix path: SIGKILL sent after SIGTERM grace period expires."""
-		import signal as signal_module
-
 		from browser_use.skill_cli.tunnel import _kill_process
 
 		original_platform = sys.platform
