@@ -698,7 +698,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
-			# item is already a deep copy of h, so we can safely mutate and reassign fields
+			# h is the deep-copied item (deepcopy was done at top of function), so safe to mutate
 			item: dict[str, Any] = h
 			# Normalize result: coerce to list of dicts. Non-list/non-dict iterables (e.g. str, dict)
 			# cause unexpected iteration or pydantic validation failures.
@@ -743,8 +743,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 			validated_history.append(item)
 
-		data['history'] = validated_history
-		history = cls.model_validate(data)
+		history = cls.model_validate({**data, 'history': validated_history})
 		return history
 
 	@classmethod
