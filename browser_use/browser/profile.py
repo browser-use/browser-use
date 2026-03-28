@@ -827,11 +827,30 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		if path_original_profile.exists():
 			import shutil
 
-			shutil.copytree(path_original_profile, path_temp_profile)
+			try:
+				shutil.copytree(path_original_profile, path_temp_profile)
+			except OSError as e:
+				# WinError 32 = "The process cannot access the file because it is being used by another process"
+				if getattr(e, 'winerror', None) == 32:
+					raise RuntimeError(
+						f"Failed to copy Chrome profile '{self.profile_directory}' — another Chrome process is using it.\n"
+						f'Please close all Chrome windows first, or use --cdp-url to connect to an existing Chrome instance.\n'
+						f'Example: browser-use --cdp-url http://localhost:9222'
+					) from e
+				raise
 			local_state_src = path_original_user_data / 'Local State'
 			local_state_dst = Path(temp_dir) / 'Local State'
 			if local_state_src.exists():
-				shutil.copy(local_state_src, local_state_dst)
+				try:
+					shutil.copy(local_state_src, local_state_dst)
+				except OSError as e:
+					if getattr(e, 'winerror', None) == 32:
+						raise RuntimeError(
+							f"Failed to copy Chrome 'Local State' file — another Chrome process is using it.\n"
+							f'Please close all Chrome windows first, or use --cdp-url to connect to an existing Chrome instance.\n'
+							f'Example: browser-use --cdp-url http://localhost:9222'
+						) from e
+					raise
 			logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
 
 		else:
