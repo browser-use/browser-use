@@ -761,18 +761,61 @@ def _handle_sessions(args: argparse.Namespace) -> int:
 	return 0
 
 
-def _kill_process_tree(pid: int) -> None:
-	"""Kill a process and all its children. Cross-platform."""
+def _is_our_process(pid: int, expected_name: str) -> bool:
+	"""Verify that the given PID actually belongs to our daemon.
+
+	Checks /proc on Linux or uses ps on other Unix/macOS to confirm
+	the process command line contains the expected session name,
+	preventing accidental kills of unrelated processes due to PID reuse.
+	"""
+	if sys.platform == 'win32':
+		# On Windows, check via wmic
+		try:
+			result = subprocess.run(
+				['wmic', 'process', 'where', f'ProcessId={pid}',
+				 'get', 'CommandLine', '/FORMAT:VALUE'],
+				capture_output=True, text=True, timeout=5,
+			)
+			return expected_name in result.stdout or 'browser_use' in result.stdout
+		except Exception:
+			return False  # Can't verify — don't kill
+	# On Linux, check /proc first (fastest path)
+	try:
+		cmdline = Path(f'/proc/{pid}/cmdline').read_bytes().decode(errors='replace')
+		if expected_name in cmdline or 'browser_use' in cmdline or 'skill_cli' in cmdline:
+			return True
+		# If cmdline exists but doesn't match, this is NOT our process
+		return False
+	except (FileNotFoundError, PermissionError):
+		pass
+	# Fallback: use ps
+	try:
+		result = subprocess.run(
+			['ps', '-p', str(pid), '-o', 'args='],
+			capture_output=True, text=True, timeout=5,
+		)
+		cmdline = result.stdout
+		return expected_name in cmdline or 'browser_use' in cmdline or 'skill_cli' in cmdline
+	except Exception:
+		return False  # Can't verify — don't kill
+
+
+def _kill_process_tree(pid: int) -> bool:
+	"""Kill a process and all its children. Cross-platform.
+
+	Returns True if the process was actually killed, False if it was
+	already dead or kill was skipped.
+	"""
 	if sys.platform == 'win32':
 		# On Windows, use taskkill to kill the process tree
 		try:
-			subprocess.run(
+			result = subprocess.run(
 				['taskkill', '/F', '/T', '/PID', str(pid)],
-				capture_output=True,
-				timeout=10,
+				capture_output=True, timeout=10,
 			)
+			return result.returncode == 0
 		except Exception:
-			pass
+			return False
 	else:
 		# On Unix, kill the process group
 		try:
@@ -782,40 +825,76 @@ def _kill_process_tree(pid: int) -> None:
 			try:
 				os.killpg(pid, signal.SIGTERM)
 			except ProcessLookupError:
-				return  # Already dead
+				return False  # Already dead
 			except PermissionError:
 				# Not a process group leader, kill just the process
 				try:
 					os.kill(pid, signal.SIGTERM)
 				except ProcessLookupError:
-					return
+					return False
 
 			# Wait up to 3 seconds for graceful shutdown
 			for _ in range(30):
 				try:
 					os.kill(pid, 0)  # Check if alive
 				except ProcessLookupError:
-					return
+					return True  # Exited gracefully
 				time.sleep(0.1)
 
 			# Force kill if still alive
 			try:
 				os.killpg(pid, signal.SIGKILL)
 			except ProcessLookupError:
-				return
+				return True
 			except PermissionError:
 				try:
 					os.kill(pid, signal.SIGKILL)
 				except ProcessLookupError:
-					return
+					return True
+			# Verify it's actually dead
+			try:
+				os.kill(pid, 0)
+				return False  # Still alive after SIGKILL
+			except ProcessLookupError:
+				return True
 		except Exception:
-			pass
+			return False
+
+
+def _kill_chrome_process(chrome_pid: int) -> bool:
+	"""Kill a single Chrome process with verification.
+
+	Sends SIGTERM, waits up to 2s, then SIGKILL if still alive.
+	Returns True only if the process was actually terminated.
+	"""
+	try:
+		import signal as _sig
+
+		os.kill(chrome_pid, _sig.SIGTERM)
+		for _ in range(20):  # Wait up to 2s
+			try:
+				os.kill(chrome_pid, 0)
+			except ProcessLookupError:
+				return True
+			time.sleep(0.1)
+		# Still alive — escalate
+		os.kill(chrome_pid, _sig.SIGKILL)
+		time.sleep(0.3)
+		try:
+			os.kill(chrome_pid, 0)
+			return False  # Survived SIGKILL
+		except ProcessLookupError:
+			return True
+	except ProcessLookupError:
+		return False  # Already gone (not our kill)
+	except Exception:
+		return False
 
 
 def _cleanup_orphaned_chrome() -> int:
 	"""Find and kill Chrome processes using browseruse-tmp profiles.
 
-	Returns the number of processes killed.
+	Returns the number of processes actually terminated.
 	"""
 	killed = 0
 
@@ -836,8 +915,9 @@ def _cleanup_orphaned_chrome() -> int:
 					if len(parts) >= 3:
 						try:
 							chrome_pid = int(parts[-1].strip())
-							subprocess.run(['taskkill', '/F', '/PID', str(chrome_pid)], capture_output=True, timeout=5)
-							killed += 1
+							r = subprocess.run(['taskkill', '/F', '/PID', str(chrome_pid)], capture_output=True, timeout=5)
+							if r.returncode == 0:
+								killed += 1
 						except (ValueError, Exception):
 							pass
 		except Exception:
@@ -857,9 +937,9 @@ def _cleanup_orphaned_chrome() -> int:
 					if len(parts) >= 2:
 						try:
 							chrome_pid = int(parts[1])
-							os.kill(chrome_pid, 15)  # SIGTERM
-							killed += 1
-						except (ValueError, ProcessLookupError, Exception):
+							if _kill_chrome_process(chrome_pid):
+								killed += 1
+						except (ValueError, Exception):
 							pass
 		except Exception:
 			pass
@@ -961,9 +1041,12 @@ def _handle_close_all(args: argparse.Namespace) -> int:
 			time.sleep(0.1)
 
 		if not daemon_exited:
-			# Force kill daemon and its children
-			_kill_process_tree(pid)
-			killed += 1
+			# Verify PID actually belongs to our daemon before killing
+			# (guards against PID reuse making stale PID files dangerous)
+			if _is_our_process(pid, name):
+				if _kill_process_tree(pid):
+					killed += 1
+			# else: PID was reused by another process — skip kill, just clean files
 
 		# Clean up PID file
 		pid_file.unlink(missing_ok=True)
