@@ -694,11 +694,11 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		# Without this, history items and their nested dicts are shared references.
 		data = copy.deepcopy(data)
 
-		# Rebuild history with only valid dict items, properly normalized.
-		# Since `data` is a deep copy, mutations below are safe.
+		# Rebuild history: filter malformed (non-dict) items, normalize each entry.
+		# Since `data` is a deep copy (line 695), mutations below are safe.
+		# Non-dict items are dropped so data['history'] is fully clean for model_validate.
 		history_data = data.get('history')
 		if not isinstance(history_data, list):
-			# history is absent, None, or a non-list (e.g. string, number) — treat as empty
 			history_data = []
 		validated_history: list[dict[str, Any]] = []
 		for h in history_data:
@@ -744,7 +744,11 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 			validated_history.append(h)
 
-		history = cls.model_validate({**data, 'history': validated_history})
+		# Replace the history list with the filtered, normalized version so the
+		# deep-copied data dict is fully clean.  model_validate then operates on
+		# a dict that has no malformed items left in it.
+		data['history'] = validated_history
+		history = cls.model_validate(data)
 		return history
 
 	@classmethod

@@ -41,7 +41,14 @@ class TestLoadFromDictNonMutation:
 		assert id(data['history']) == original_history_id
 
 	def test_history_item_dicts_not_mutated(self):
-		"""Individual history item dicts must not be modified (id check catches replacement)."""
+		"""Individual history item dicts must not be modified.
+
+		Unlike id() checks alone (which only guard against replacement), this
+		test also verifies in-place mutations of nested values by capturing
+		the actual string/list values and asserting them unchanged after the
+		call.  Together the id checks and the value checks give complete
+		coverage of both replacement and mutation of caller-owned data.
+		"""
 		item = {
 			'model_output': None,
 			'result': [{'extracted_content': 'test', 'is_done': True}],
@@ -51,11 +58,13 @@ class TestLoadFromDictNonMutation:
 		item_id = id(item)
 		state_id = id(item['state'])
 		result_id = id(item['result'])
-		before = {
-			'model_output': item['model_output'],
-			'result': [dict(r) if isinstance(r, dict) else r for r in item['result']],
-			'state': dict(item['state']),
-		}
+		# Capture nested values directly (not as dict copies) so that any
+		# in-place mutation of those values would be visible here.
+		before_url = item['state']['url']
+		before_title = item['state']['title']
+		before_tabs_len = len(item['state']['tabs'])
+		before_result_content = item['result'][0]['extracted_content']
+		before_result_is_done = item['result'][0]['is_done']
 
 		AgentHistoryList.load_from_dict(data, AgentOutput)
 
@@ -65,8 +74,12 @@ class TestLoadFromDictNonMutation:
 		assert id(data['history'][0]['state']) == state_id
 		# result list identity preserved
 		assert id(data['history'][0]['result']) == result_id
-		# content also unchanged
-		assert item == before
+		# Nested values also unchanged (catches in-place mutation of state/result)
+		assert item['state']['url'] == before_url
+		assert item['state']['title'] == before_title
+		assert len(item['state']['tabs']) == before_tabs_len
+		assert item['result'][0]['extracted_content'] == before_result_content
+		assert item['result'][0]['is_done'] == before_result_is_done
 
 	def test_caller_owned_nested_state_keys_not_added(self):
 		"""Caller-owned state dict must not have new keys added and values must not be mutated."""
