@@ -761,13 +761,158 @@ def _handle_sessions(args: argparse.Namespace) -> int:
 	return 0
 
 
+def _kill_process_tree(pid: int) -> None:
+	"""Kill a process and all its children. Cross-platform."""
+	if sys.platform == 'win32':
+		# On Windows, use taskkill to kill the process tree
+		try:
+			subprocess.run(
+				['taskkill', '/F', '/T', '/PID', str(pid)],
+				capture_output=True,
+				timeout=10,
+			)
+		except Exception:
+			pass
+	else:
+		# On Unix, kill the process group
+		try:
+			import signal
+
+			# Try to kill the whole process group first
+			try:
+				os.killpg(pid, signal.SIGTERM)
+			except ProcessLookupError:
+				return  # Already dead
+			except PermissionError:
+				# Not a process group leader, kill just the process
+				try:
+					os.kill(pid, signal.SIGTERM)
+				except ProcessLookupError:
+					return
+
+			# Wait up to 3 seconds for graceful shutdown
+			for _ in range(30):
+				try:
+					os.kill(pid, 0)  # Check if alive
+				except ProcessLookupError:
+					return
+				time.sleep(0.1)
+
+			# Force kill if still alive
+			try:
+				os.killpg(pid, signal.SIGKILL)
+			except ProcessLookupError:
+				return
+			except PermissionError:
+				try:
+					os.kill(pid, signal.SIGKILL)
+				except ProcessLookupError:
+					return
+		except Exception:
+			pass
+
+
+def _cleanup_orphaned_chrome() -> int:
+	"""Find and kill Chrome processes using browseruse-tmp profiles.
+
+	Returns the number of processes killed.
+	"""
+	killed = 0
+
+	if sys.platform == 'win32':
+		# On Windows, use wmic to find Chrome processes with temp profiles
+		try:
+			result = subprocess.run(
+				['wmic', 'process', 'where',
+				 "name='chrome.exe' or name='chromium.exe' or name='Google Chrome'",
+				 'get', 'ProcessId,CommandLine', '/FORMAT:CSV'],
+				capture_output=True,
+				text=True,
+				timeout=10,
+			)
+			for line in result.stdout.splitlines():
+				if 'browseruse-tmp-' in line:
+					parts = line.strip().split(',')
+					if len(parts) >= 3:
+						try:
+							chrome_pid = int(parts[-1].strip())
+							subprocess.run(['taskkill', '/F', '/PID', str(chrome_pid)], capture_output=True, timeout=5)
+							killed += 1
+						except (ValueError, Exception):
+							pass
+		except Exception:
+			pass
+	else:
+		# On Unix, use ps to find Chrome processes with temp profiles
+		try:
+			result = subprocess.run(
+				['ps', 'aux'],
+				capture_output=True,
+				text=True,
+				timeout=10,
+			)
+			for line in result.stdout.splitlines():
+				if 'browseruse-tmp-' in line and ('chrome' in line.lower() or 'chromium' in line.lower()):
+					parts = line.split()
+					if len(parts) >= 2:
+						try:
+							chrome_pid = int(parts[1])
+							os.kill(chrome_pid, 15)  # SIGTERM
+							killed += 1
+						except (ValueError, ProcessLookupError, Exception):
+							pass
+		except Exception:
+			pass
+
+	return killed
+
+
+def _cleanup_temp_dirs() -> int:
+	"""Clean up leftover browseruse-tmp- directories in the system temp dir.
+
+	Returns the number of directories cleaned up.
+	"""
+	import shutil
+
+	cleaned = 0
+	temp_base = Path(tempfile.gettempdir())
+
+	try:
+		for entry in temp_base.iterdir():
+			if entry.is_dir() and 'browseruse-tmp-' in entry.name:
+				try:
+					shutil.rmtree(entry, ignore_errors=True)
+					cleaned += 1
+				except Exception:
+					pass
+	except Exception:
+		pass
+
+	# Also clean up in the browser-use home directory
+	home_dir = _get_home_dir()
+	try:
+		for entry in home_dir.iterdir():
+			if entry.is_dir() and 'browseruse-tmp-' in entry.name:
+				try:
+					shutil.rmtree(entry, ignore_errors=True)
+					cleaned += 1
+				except Exception:
+					pass
+	except Exception:
+		pass
+
+	return cleaned
+
+
 def _handle_close_all(args: argparse.Namespace) -> int:
-	"""Close all active sessions."""
+	"""Close all active sessions, killing daemon and Chrome processes."""
 	home_dir = _get_home_dir()
 	# Snapshot the list first to avoid mutating during iteration
 	pid_files = list(home_dir.glob('*.pid'))
 	closed = 0
+	killed = 0
 
+	# Phase 1: Try graceful shutdown via socket
 	for pid_file in pid_files:
 		name = pid_file.stem
 		if not name:
@@ -780,11 +925,79 @@ def _handle_close_all(args: argparse.Namespace) -> int:
 			except Exception:
 				pass
 
+	# Phase 2: Wait for daemons to exit, then force-kill any survivors
+	for pid_file in pid_files:
+		name = pid_file.stem
+		if not name:
+			continue
+
+		try:
+			pid = int(pid_file.read_text().strip())
+		except (OSError, ValueError):
+			pid_file.unlink(missing_ok=True)
+			continue
+
+		# Wait up to 3 seconds for the daemon to exit
+		daemon_exited = False
+		for _ in range(30):
+			try:
+				if sys.platform == 'win32':
+					import ctypes
+
+					_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+					handle = ctypes.windll.kernel32.OpenProcess(
+						_PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+					)
+					if handle:
+						ctypes.windll.kernel32.CloseHandle(handle)
+					else:
+						daemon_exited = True
+						break
+				else:
+					os.kill(pid, 0)  # Check if alive
+			except (ProcessLookupError, OSError):
+				daemon_exited = True
+				break
+			time.sleep(0.1)
+
+		if not daemon_exited:
+			# Force kill daemon and its children
+			_kill_process_tree(pid)
+			killed += 1
+
+		# Clean up PID file
+		pid_file.unlink(missing_ok=True)
+
+		# Clean up socket file on Unix
+		sock_path = _get_socket_path(name)
+		if not sock_path.startswith('tcp://'):
+			Path(sock_path).unlink(missing_ok=True)
+
+	# Phase 3: Kill orphaned Chrome processes using temp profiles
+	chrome_killed = _cleanup_orphaned_chrome()
+
+	# Phase 4: Clean up temp directories
+	dirs_cleaned = _cleanup_temp_dirs()
+
 	if args.json:
-		print(json.dumps({'closed': closed}))
+		print(json.dumps({
+			'closed': closed,
+			'force_killed': killed,
+			'chrome_killed': chrome_killed,
+			'dirs_cleaned': dirs_cleaned,
+		}))
 	else:
-		if closed:
-			print(f'Closed {closed} session(s)')
+		if closed or killed or chrome_killed or dirs_cleaned:
+			parts = []
+			if closed:
+				parts.append(f'{closed} session(s) shut down gracefully')
+			if killed:
+				parts.append(f'{killed} daemon(s) force-killed')
+			if chrome_killed:
+				parts.append(f'{chrome_killed} orphaned Chrome process(es) killed')
+			if dirs_cleaned:
+				parts.append(f'{dirs_cleaned} temp director(ies) cleaned up')
+			print(f'Cleanup complete: {", ".join(parts)}')
 		else:
 			print('No active sessions')
 
