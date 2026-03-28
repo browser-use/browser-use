@@ -81,7 +81,13 @@ async def test_cdp_client_headers_passed_on_connect():
 
 			# Check positional args and keyword args
 			assert call_kwargs[0][0] == 'wss://remote-browser.example.com/cdp', 'CDP URL should be first arg'
-			assert call_kwargs[1].get('additional_headers') == test_headers, 'Headers should be passed as additional_headers'
+			actual_headers = call_kwargs[1].get('additional_headers')
+			# All user-provided headers must be present
+			for key, value in test_headers.items():
+				assert actual_headers[key] == value, f'Header {key} should be passed as additional_headers'
+			# User-Agent should be injected for remote connections
+			assert 'User-Agent' in actual_headers, 'User-Agent should be injected for remote connections'
+			assert actual_headers['User-Agent'].startswith('browser-use/'), 'User-Agent should start with browser-use/'
 			assert call_kwargs[1].get('max_ws_frame_size') == 200 * 1024 * 1024, 'max_ws_frame_size should be set'
 
 
@@ -114,9 +120,11 @@ async def test_cdp_client_no_headers_when_none():
 			except Exception:
 				pass
 
-			# Verify CDPClient was called with None for additional_headers
+			# Verify CDPClient was called with User-Agent even when no user headers are set (remote connection)
 			call_kwargs = mock_cdp_client_class.call_args
-			assert call_kwargs[1].get('additional_headers') is None
+			actual_headers = call_kwargs[1].get('additional_headers')
+			assert actual_headers is not None, 'Remote connections should always have headers with User-Agent'
+			assert actual_headers['User-Agent'].startswith('browser-use/'), 'User-Agent should be injected for remote connections'
 
 
 @pytest.mark.asyncio
@@ -159,4 +167,11 @@ async def test_headers_used_for_json_version_endpoint():
 				# Verify headers were passed to the HTTP GET request
 				mock_client.get.assert_called_once()
 				call_kwargs = mock_client.get.call_args
-				assert call_kwargs[1].get('headers') == test_headers
+				actual_headers = call_kwargs[1].get('headers')
+				# All user-provided headers must be present
+				for key, value in test_headers.items():
+					assert actual_headers[key] == value, f'Header {key} should be passed to /json/version'
+				# User-Agent should be injected
+				assert actual_headers['User-Agent'].startswith('browser-use/'), (
+					'User-Agent should be injected for /json/version fetch'
+				)

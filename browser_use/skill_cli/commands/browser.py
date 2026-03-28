@@ -23,6 +23,7 @@ COMMANDS = {
 	'close-tab',
 	'keys',
 	'select',
+	'upload',
 	'eval',
 	'extract',
 	'cookies',
@@ -236,6 +237,42 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		await bs.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=value))
 		return {'selected': value, 'element': index}
 
+	elif action == 'upload':
+		from browser_use.browser.events import UploadFileEvent
+
+		index = params['index']
+		file_path = params['path']
+
+		# Validate file exists and is non-empty
+		p = Path(file_path)
+		if not p.exists():
+			return {'error': f'File not found: {file_path}'}
+		if not p.is_file():
+			return {'error': f'Not a file: {file_path}'}
+		if p.stat().st_size == 0:
+			return {'error': f'File is empty (0 bytes): {file_path}'}
+
+		# Look up node
+		node = await bs.get_element_by_index(index)
+		if node is None:
+			return {'error': f'Element index {index} not found - page may have changed'}
+
+		# Find file input near the element (reuses core library heuristic)
+		file_input_node = bs.find_file_input_near_element(node)
+
+		if file_input_node is None:
+			# Scan selector map for file inputs and suggest them
+			selector_map = await bs.get_selector_map()
+			file_input_indices = [idx for idx, el in selector_map.items() if bs.is_file_input(el)]
+			if file_input_indices:
+				hint = f' File input(s) found at index: {", ".join(map(str, file_input_indices))}'
+			else:
+				hint = ' No file input found on the page.'
+			return {'error': f'Element {index} is not a file input.{hint}'}
+
+		await bs.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=file_path))
+		return {'uploaded': file_path, 'element': index}
+
 	elif action == 'eval':
 		js = params['js']
 		# Execute JavaScript via CDP
@@ -246,7 +283,7 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		query = params['query']
 		# This requires LLM integration
 		# For now, return a placeholder
-		return {'query': query, 'error': 'extract requires agent mode - use: browser-use run "extract ..."'}
+		return {'query': query, 'error': 'extract is not yet implemented'}
 
 	elif action == 'hover':
 		index = params['index']
