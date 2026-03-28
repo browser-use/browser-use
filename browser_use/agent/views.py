@@ -690,43 +690,49 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
-		# Deep-copy to guarantee no mutation of the caller's nested data.
+		# Deep copy to avoid mutating the caller's nested data.
+		# Without this, history items and their nested dicts are shared references.
 		data = copy.deepcopy(data)
 
+		# Rebuild history with only valid dict items, properly normalized.
+		# Since `data` is a deep copy, mutations below are safe.
+		history_data = data.get('history')
+		if not isinstance(history_data, list):
+			# history is absent, None, or a non-list (e.g. string, number) — treat as empty
+			history_data = []
 		validated_history: list[dict[str, Any]] = []
-		for h in data.get('history') or []:
+		for h in history_data:
 			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
 			if not isinstance(h, dict):
 				continue
-			# item is already a deep copy of h, so we can safely mutate and reassign fields
-			item: dict[str, Any] = h
+			# h is the deep-copied item (deepcopy was done at top of function), so safe to mutate
 			# Normalize result: coerce to list of dicts. Non-list/non-dict iterables (e.g. str, dict)
 			# cause unexpected iteration or pydantic validation failures.
 			# Filter result items to dicts only so that non-dict items in a list also can't fail validation.
-			result = item.get('result')
+			result = h.get('result')
 			if isinstance(result, list):
-				item['result'] = [dict(r) for r in result if isinstance(r, dict)]
+				h['result'] = [dict(r) for r in result if isinstance(r, dict)]
 			elif isinstance(result, dict):
 				# A bare dict is not a list of ActionResult dicts; treat as empty.
-				item['result'] = []
+				h['result'] = []
 			else:
-				item['result'] = []
+				h['result'] = []
 
-			if 'model_output' in item:
-				model_output = item['model_output']
+			if 'model_output' in h:
+				model_output = h['model_output']
 				if model_output is not None and isinstance(model_output, dict):
-					item['model_output'] = output_model.model_validate(model_output)
+					h['model_output'] = output_model.model_validate(model_output)
 				else:
-					item['model_output'] = None
+					h['model_output'] = None
 			else:
-				item['model_output'] = None
+				h['model_output'] = None
 
 			# Normalize state: fill in required BrowserStateHistory fields with safe defaults.
 			# Use isinstance checks so None and wrong-type values are also fixed.
-			state = item.get('state')
+			state = h.get('state')
 			if not isinstance(state, dict):
 				state = {}
-				item['state'] = state
+				h['state'] = state
 			if not isinstance(state.get('url'), str):
 				state['url'] = ''
 			if not isinstance(state.get('title'), str):
@@ -736,7 +742,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			if not isinstance(state.get('interacted_element'), list):
 				state['interacted_element'] = []
 
-			validated_history.append(item)
+			validated_history.append(h)
 
 		history = cls.model_validate({**data, 'history': validated_history})
 		return history

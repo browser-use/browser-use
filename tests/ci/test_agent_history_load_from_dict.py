@@ -164,11 +164,11 @@ class TestLoadFromDictNonMutation:
 		assert history_list[0] == original_item
 
 	def test_caller_result_list_not_mutated_content(self):
-		"""Caller-owned result list must not be mutated even when normalization filters items.
-		
-		This specifically catches nested mutation of caller-owned result items during the
-		result normalization loop. Without deep-copy, items with non-dict elements
-		(caller's list is modified when result dicts are deep-copied into new list).
+		"""Caller-owned result list items that are dicts are preserved; non-dict items are filtered in result.
+
+		Non-dict items in result lists (e.g. strings) are filtered out by the normalization
+		logic, which is the expected behavior for data cleaning. Only dict items are kept in the
+		returned result. The caller's original result list is preserved (deep-copy protects it).
 		"""
 		original_result = [
 			'skip me',
@@ -183,14 +183,14 @@ class TestLoadFromDictNonMutation:
 				}
 			]
 		}
-		result_before = [dict(r) if isinstance(r, dict) else r for r in original_result]
 
-		AgentHistoryList.load_from_dict(data, AgentOutput)
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
-		# Original result list content must not be modified
-		assert original_result == result_before
-		# history item result list must also be unchanged
-		assert data['history'][0]['result'] == result_before
+		# Returned result is filtered to only dict items
+		assert len(result.history[0].result) == 1
+		assert result.history[0].result[0].extracted_content == 'keep me'
+		# Caller's original result list is preserved (not modified due to deep-copy)
+		assert original_result == ['skip me', {'extracted_content': 'keep me', 'is_done': True}]
 
 
 class TestLoadFromDictMalformedHistory:
@@ -273,27 +273,33 @@ class TestLoadFromDictMalformedHistory:
 		assert len(result.history) == 0
 
 	def test_non_dict_items_not_left_in_data_history(self):
-		"""Non-dict history items must be removed from data['history'] before model_validate.
-		
-		A bug where non-dict items are skipped in the loop but data['history'] is not updated
-		would leave invalid items that cause model_validate to fail. This test verifies the
-		caller's data dict itself has only valid dict items in its history list after the call.
+		"""Non-dict history items must be removed before model_validate.
+
+		Non-dict items (None, string, int) in history are filtered out so that
+		model_validate receives only valid dict items. The returned object has
+		correct length; the caller's data is not mutated due to deep-copy protection.
 		"""
-		item1 = {
+		valid_item1 = {
 			'model_output': None,
-			'result': [{'extracted_content': 'valid', 'is_done': True}],
+			'result': [{'extracted_content': 'valid1', 'is_done': True}],
 			'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
 		}
-		data = {'history': [item1]}
+		valid_item2 = {
+			'model_output': None,
+			'result': [{'extracted_content': 'valid2', 'is_done': False}],
+			'state': {'url': 'https://test.com', 'title': 'Test', 'tabs': [], 'interacted_element': []},
+		}
+		# Mix valid dicts with non-dict items (None, string, int)
+		data = {'history': [None, valid_item1, 'not a dict', 42, valid_item2]}
 
 		result = AgentHistoryList.load_from_dict(data, AgentOutput)
 
-		# After call, data['history'] must contain only the valid item (no None/str/list remnants)
-		assert len(data['history']) == 1
-		assert isinstance(data['history'][0], dict)
-		assert data['history'][0]['result'][0]['extracted_content'] == 'valid'
-		# And the returned object should also have correct length
-		assert len(result.history) == 1
+		# Returned object has correct history (non-dict items filtered)
+		assert len(result.history) == 2
+		assert result.history[0].result[0].extracted_content == 'valid1'
+		assert result.history[1].result[0].extracted_content == 'valid2'
+		# Caller's data is not mutated (deep-copy protects it)
+		assert len(data['history']) == 5
 
 	def test_result_non_list_coerced_to_empty(self):
 		"""Non-list result (string) must be coerced to [] without crashing."""
