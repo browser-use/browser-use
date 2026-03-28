@@ -714,11 +714,15 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 			if 'model_output' in item:
 				model_output = item['model_output']
-				if model_output is not None:
-					if isinstance(model_output, dict):
+				if isinstance(model_output, dict) and model_output:
+					try:
 						item['model_output'] = output_model.model_validate(model_output)
-					else:
+					except Exception:
+						# Malformed dict (e.g. missing required fields like 'action')
+						# must not crash load_from_dict; degrade to None.
 						item['model_output'] = None
+				else:
+					item['model_output'] = None
 			else:
 				item['model_output'] = None
 

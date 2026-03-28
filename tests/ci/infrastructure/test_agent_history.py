@@ -607,3 +607,100 @@ class TestFinalResult:
 		result = history.final_result()
 
 		assert result is None
+
+
+class TestModelOutputEdgeCases:
+	"""Verify load_from_dict handles malformed model_output values without crashing."""
+
+	def test_model_output_empty_dict_normalized_to_none(self):
+		"""model_output={} must be treated as None, not passed to model_validate (which requires 'action')."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': {},  # empty dict - missing required 'action' field
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].model_output is None
+
+	def test_model_output_missing_required_action_normalized_to_none(self):
+		"""model_output={'other_field': 'x'} (missing 'action') must not crash model_validate."""
+		AgentOutput = _make_output_model()
+
+		data = {
+			'history': [
+				{
+					'model_output': {'memory': 'partial write', 'evaluation_previous_goal': '', 'next_goal': ''},
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert len(result.history) == 1
+		assert result.history[0].model_output is None
+
+
+class TestStateDictNonMutation:
+	"""Verify load_from_dict never mutates the VALUES in the caller's state dicts.
+
+	This is distinct from the reference test: deepcopy creates new dict objects,
+	so replacing the dict works. But when the caller's state IS a valid dict
+	(e.g. url='https://example.com'), the deepcopy shares the same state dict
+	object until the first field mutation — so only the *values* inside a
+	valid-dict state are at risk of mutation.
+	"""
+
+	def test_does_not_mutate_state_values_when_state_is_valid(self):
+		"""State dict values (url/title/tabs) must not be overwritten in the caller's state."""
+		AgentOutput = _make_output_model()
+
+		# State without interacted_element — the normalization would add it to the
+		# deep-copy only if absent, so the caller's state must not be touched.
+		state = {'url': 'https://example.com', 'title': 'Example', 'tabs': []}
+		entry = {
+			'model_output': {'action': [_make_done_action()], 'memory': 'test', 'evaluation_previous_goal': '', 'next_goal': ''},
+			'result': [],
+			'state': state,
+		}
+		data = {'history': [entry]}
+
+		AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		# The caller's state dict values must not be overwritten
+		assert state['url'] == 'https://example.com'
+		assert state['title'] == 'Example'
+		assert state['tabs'] == []
+		assert 'interacted_element' not in state  # was never added to caller's state
+
+	def test_does_not_mutate_state_values_when_state_has_none_fields(self):
+		"""Caller state with None values must not be overwritten (deepcopy isolates the dict)."""
+		AgentOutput = _make_output_model()
+
+		# Caller passes state with None values — deepcopy isolates it so normalization
+		# writes to the copy, not the original.
+		state = {'url': None, 'title': None, 'tabs': None, 'interacted_element': None}
+		entry = {
+			'model_output': None,
+			'result': [],
+			'state': state,
+		}
+		data = {'history': [entry]}
+
+		AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		# Original state values must be preserved
+		assert state['url'] is None
+		assert state['title'] is None
+		assert state['tabs'] is None
+		assert state['interacted_element'] is None
