@@ -71,27 +71,45 @@ async def main():
 
 	inkbox_client = Inkbox(api_key=api_key)
 
+	# Create identity first (needed for org_id if vault doesn't exist yet)
+	handle = f'bu-{uuid.uuid4().hex[:8]}'
 	try:
-		inkbox_client.vault.info()
+		identity = inkbox_client.create_identity(handle)
 	except Exception as e:
 		print(f'\nInvalid API key: {e}')
 		print('Get a valid key at https://inkbox.ai/console')
 		return
+	identity.create_mailbox()
 
+	# Vault setup: check if vault exists, create if needed, then unlock
 	vault_key = os.environ.get('INKBOX_VAULT_KEY')
 	if not vault_key:
 		vault_key = input(f'Enter your Inkbox vault key (press Enter for "{DEFAULT_VAULT_KEY}"): ').strip() or DEFAULT_VAULT_KEY
+
+	try:
+		inkbox_client.vault.info()
+	except Exception:
+		# No vault exists — offer to create one
+		print('No vault found for this organization.')
+		create = input('Create a new vault? [Y/n]: ').strip().lower()
+		if create and create != 'y':
+			print('Vault required for this demo. Exiting.')
+			return
+		try:
+			result = inkbox_client.vault.initialize(vault_key, identity.organization_id)
+			print(f'Vault created! Save these recovery codes somewhere safe:')
+			for i, code in enumerate(result.recovery_codes, 1):
+				print(f'  {i}. {code}')
+		except Exception as e:
+			print(f'\nFailed to create vault: {e}')
+			return
+
 	try:
 		inkbox_client.vault.unlock(vault_key)
 	except Exception as e:
 		print(f'\nFailed to unlock vault: {e}')
-		print('Make sure you have a vault set up at https://inkbox.ai/console')
-		print('and that the vault key matches the one you used to create it.')
+		print('Check that the vault key matches the one used to create it.')
 		return
-
-	handle = f'bu-{uuid.uuid4().hex[:8]}'
-	identity = inkbox_client.create_identity(handle)
-	identity.create_mailbox()
 
 	tools = InkboxTools(identity=identity, inkbox_client=inkbox_client)
 	llm = ChatBrowserUse(model='bu-2-0')
