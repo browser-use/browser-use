@@ -22,14 +22,14 @@ async def handle() -> dict[str, Any]:
 	# 2. Browser availability
 	checks['browser'] = _check_browser()
 
-	# 3. API key configuration
-	checks['api_key'] = _check_api_key_config()
+	# 3. Network connectivity (basic check)
+	checks['network'] = await _check_network()
 
-	# 4. Cloudflared availability
+	# 4. Optional: cloudflared (for browser-use tunnel)
 	checks['cloudflared'] = _check_cloudflared()
 
-	# 5. Network connectivity (basic check)
-	checks['network'] = await _check_network()
+	# 5. Optional: profile-use (for browser-use profile)
+	checks['profile_use'] = _check_profile_use()
 
 	# Determine overall status
 	all_ok = all(check.get('status') == 'ok' for check in checks.values())
@@ -78,45 +78,6 @@ def _check_browser() -> dict[str, Any]:
 		}
 
 
-def _check_api_key_config() -> dict[str, Any]:
-	"""Check if API key is configured."""
-	from browser_use.skill_cli.api_key import check_api_key
-
-	status = check_api_key()
-	if status['available']:
-		return {
-			'status': 'ok',
-			'message': f'API key configured ({status["source"]})',
-		}
-	else:
-		return {
-			'status': 'missing',
-			'message': 'No API key configured',
-			'note': 'Required for remote browser. Get one at https://browser-use.com/new-api-key',
-		}
-
-
-def _check_cloudflared() -> dict[str, Any]:
-	"""Check if cloudflared is available."""
-	from browser_use.skill_cli.tunnel import get_tunnel_manager
-
-	tunnel_mgr = get_tunnel_manager()
-	status_info = tunnel_mgr.get_status()
-
-	if status_info['available']:
-		return {
-			'status': 'ok',
-			'message': f'Cloudflared available ({status_info["source"]})',
-			'note': status_info.get('note'),
-		}
-	else:
-		return {
-			'status': 'missing',
-			'message': 'Cloudflared not available',
-			'note': 'Will be auto-installed on first tunnel use',
-		}
-
-
 async def _check_network() -> dict[str, Any]:
 	"""Check basic network connectivity."""
 	try:
@@ -137,6 +98,40 @@ async def _check_network() -> dict[str, Any]:
 		'status': 'warning',
 		'message': 'Network connectivity check inconclusive',
 		'note': 'Some features may not work offline',
+	}
+
+
+def _check_cloudflared() -> dict[str, Any]:
+	"""Check if cloudflared is available (needed for browser-use tunnel)."""
+	from browser_use.skill_cli.tunnel import get_tunnel_manager
+
+	status = get_tunnel_manager().get_status()
+	if status['available']:
+		return {
+			'status': 'ok',
+			'message': f'cloudflared installed ({status["path"]})',
+		}
+	return {
+		'status': 'missing',
+		'message': 'cloudflared not installed (needed for browser-use tunnel)',
+		'fix': 'Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/',
+	}
+
+
+def _check_profile_use() -> dict[str, Any]:
+	"""Check if profile-use binary is available (needed for browser-use profile)."""
+	from browser_use.skill_cli.profile_use import get_profile_use_binary
+
+	binary = get_profile_use_binary()
+	if binary:
+		return {
+			'status': 'ok',
+			'message': f'profile-use installed ({binary})',
+		}
+	return {
+		'status': 'missing',
+		'message': 'profile-use not installed (needed for browser-use profile)',
+		'fix': 'browser-use profile update',
 	}
 
 

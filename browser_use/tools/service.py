@@ -207,9 +207,16 @@ try {
 		if (ATTRIBUTES && ATTRIBUTES.length > 0) {
 			item.attrs = {};
 			for (var j = 0; j < ATTRIBUTES.length; j++) {
-				var val = el.getAttribute(ATTRIBUTES[j]);
+				var attrName = ATTRIBUTES[j];
+				var val;
+				// Use resolved DOM property for src/href to get absolute URLs
+				if ((attrName === 'src' || attrName === 'href') && typeof el[attrName] === 'string' && el[attrName] !== '') {
+					val = el[attrName];
+				} else {
+					val = el.getAttribute(attrName);
+				}
 				if (val !== null) {
-					item.attrs[ATTRIBUTES[j]] = val.length > 500 ? val.slice(0, 500) + '...' : val;
+					item.attrs[attrName] = val.length > 500 ? val.slice(0, 500) + '...' : val;
 				}
 			}
 		}
@@ -415,22 +422,37 @@ class Tools(Generic[Context]):
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				# Health check: detect empty DOM for http/https pages and retry once
+				# Health check: detect empty DOM for http/https pages and retry once.
+				# Uses _root is None (truly blank) OR empty llm_representation() (no actionable
+				# content for the LLM, e.g. SPA not yet rendered, empty body).
+				# NOTE: llm_representation() returns a non-empty placeholder when _root is None,
+				# so we must check _root is None separately — not rely on the repr string alone.
+				def _page_appears_empty(s) -> bool:
+					return s.dom_state._root is None or not s.dom_state.llm_representation().strip()
+
 				if not params.new_tab:
 					state = await browser_session.get_browser_state_summary(include_screenshot=False)
 					url_is_http = state.url.lower().startswith(('http://', 'https://'))
-					if url_is_http and state.dom_state._root is None:
+					if url_is_http and _page_appears_empty(state):
 						browser_session.logger.warning(
 							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 3s and rechecking...'
 						)
 						await asyncio.sleep(3.0)
 						state = await browser_session.get_browser_state_summary(include_screenshot=False)
-						if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
-							return ActionResult(
-								error=f'Page loaded but returned empty content for {params.url}. '
-								f'The page may require JavaScript that failed to render, use anti-bot measures, '
-								f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
-							)
+						if state.url.lower().startswith(('http://', 'https://')) and _page_appears_empty(state):
+							# Second attempt: reload the page and wait longer
+							browser_session.logger.warning(f'⚠️ Still empty after 3s, attempting page reload for {params.url}...')
+							reload_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=False))
+							await reload_event
+							await reload_event.event_result(raise_if_any=False, raise_if_none=False)
+							await asyncio.sleep(5.0)
+							state = await browser_session.get_browser_state_summary(include_screenshot=False)
+							if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
+								return ActionResult(
+									error=f'Page loaded but returned empty content for {params.url}. '
+									f'The page may require JavaScript that failed to render, use anti-bot measures, '
+									f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
+								)
 
 				if params.new_tab:
 					memory = f'Opened new tab with URL {params.url}'
@@ -519,9 +541,7 @@ class Tools(Generic[Context]):
 			browser_session: BrowserSession,
 			tabs_before: set[str],
 		) -> str:
-			"""Detect if a click opened a new tab, and return a note for the agent.
-			Waits briefly for CDP events to propagate, then checks if any new tabs appeared.
-			"""
+			"""Detect if a click opened a new tab and automatically switch to it."""
 			try:
 				# Brief delay to allow CDP Target.attachedToTarget events to propagate
 				# and be processed by SessionManager._handle_target_attached
@@ -530,8 +550,16 @@ class Tools(Generic[Context]):
 				tabs_after = await browser_session.get_tabs()
 				new_tabs = [t for t in tabs_after if t.target_id not in tabs_before]
 				if new_tabs:
-					new_tab_id = new_tabs[0].target_id[-4:]
-					return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
+					new_tab = new_tabs[0]
+					new_tab_id = new_tab.target_id[-4:]
+					# Auto-switch to the new tab so the agent can immediately interact with it
+					try:
+						switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=new_tab.target_id))
+						await switch_event
+						await switch_event.event_result(raise_if_any=False, raise_if_none=False)
+						return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
+					except Exception:
+						return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
 			except Exception:
 				pass
 			return ''
@@ -792,49 +820,8 @@ class Tools(Generic[Context]):
 
 			node = selector_map[params.index]
 
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
 			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
+			file_input_node = browser_session.find_file_input_near_element(node)
 
 			# Highlight the file input element if found (truly non-blocking)
 			if file_input_node:
@@ -963,7 +950,7 @@ class Tools(Generic[Context]):
 				)
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -977,11 +964,17 @@ class Tools(Generic[Context]):
 			MAX_CHAR_LIMIT = 100000
 			query = params['query'] if isinstance(params, dict) else params.query
 			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
+			extract_images = params.get('extract_images', False) if isinstance(params, dict) else params.extract_images
 			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
 			output_schema: dict | None = params.get('output_schema') if isinstance(params, dict) else params.output_schema
 			already_collected: list[str] = (
 				params.get('already_collected', []) if isinstance(params, dict) else params.already_collected
 			)
+
+			# Auto-enable extract_images if query contains image-related keywords
+			_IMAGE_KEYWORDS = ['image', 'photo', 'picture', 'thumbnail', 'img url', 'image url', 'photo url', 'product image']
+			if not extract_images and any(kw in query.lower() for kw in _IMAGE_KEYWORDS):
+				extract_images = True
 
 			# If the LLM didn't provide an output_schema, use the agent-injected extraction_schema
 			if output_schema is None and extraction_schema is not None:
@@ -1003,7 +996,7 @@ class Tools(Generic[Context]):
 				from browser_use.dom.markdown_extractor import extract_clean_markdown
 
 				content, content_stats = await extract_clean_markdown(
-					browser_session=browser_session, extract_links=extract_links
+					browser_session=browser_session, extract_links=extract_links, extract_images=extract_images
 				)
 			except Exception as e:
 				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
@@ -2165,306 +2158,3 @@ Validated Code (after quote fixing):
 
 # Alias for backwards compatibility
 Controller = Tools
-
-
-class CodeAgentTools(Tools[Context]):
-	"""Specialized Tools for CodeAgent agent optimized for Python-based browser automation.
-
-	Includes:
-	- All browser interaction tools (click, input, scroll, navigate, etc.)
-	- JavaScript evaluation
-	- Tab management (switch, close)
-	- Navigation actions (go_back)
-	- Upload file support
-	- Dropdown interactions
-
-	Excludes (optimized for code-use mode):
-	- extract: Use Python + evaluate() instead
-	- find_text: Use Python string operations
-	- screenshot: Not needed in code-use mode
-	- search: Use navigate() directly
-	- File system actions (write_file, read_file, replace_file): Use Python file operations instead
-	"""
-
-	def __init__(
-		self,
-		exclude_actions: list[str] | None = None,
-		output_model: type[T] | None = None,
-		display_files_in_done_text: bool = True,
-	):
-		# Default exclusions for CodeAgent agent
-		if exclude_actions is None:
-			exclude_actions = [
-				# 'scroll',  # Keep for code-use
-				'extract',  # Exclude - use Python + evaluate()
-				'find_text',  # Exclude - use Python string ops
-				# 'select_dropdown',  # Keep for code-use
-				# 'dropdown_options',  # Keep for code-use
-				'screenshot',  # Exclude - not needed
-				'search',  # Exclude - use navigate() directly
-				# 'click',  # Keep for code-use
-				# 'input',  # Keep for code-use
-				# 'switch',  # Keep for code-use
-				# 'send_keys',  # Keep for code-use
-				# 'close',  # Keep for code-use
-				# 'go_back',  # Keep for code-use
-				# 'upload_file',  # Keep for code-use
-				# Exclude file system actions - CodeAgent should use Python file operations
-				'write_file',
-				'read_file',
-				'replace_file',
-			]
-
-		super().__init__(
-			exclude_actions=exclude_actions,
-			output_model=output_model,
-			display_files_in_done_text=display_files_in_done_text,
-		)
-
-		# Override done action for CodeAgent with enhanced file handling
-		self._register_code_use_done_action(output_model, display_files_in_done_text)
-
-	def _register_code_use_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
-		"""Register enhanced done action for CodeAgent that can read files from disk."""
-		if output_model is not None:
-			# Structured output done - use parent's implementation
-			return
-
-		# Override the done action with enhanced version
-		@self.registry.action(
-			'Complete task. Only report actions you performed and data you extracted in this session.',
-			param_model=DoneAction,
-		)
-		async def done(params: DoneAction, file_system: FileSystem):
-			user_message = params.text
-
-			len_text = len(params.text)
-			len_max_memory = 100
-			memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
-			if len_text > len_max_memory:
-				memory += f' - {len_text - len_max_memory} more characters'
-
-			attachments = []
-			if params.files_to_display:
-				if self.display_files_in_done_text:
-					file_msg = ''
-					for file_name in params.files_to_display:
-						file_content = file_system.display_file(file_name)
-						if file_content:
-							file_msg += f'\n\n{file_name}:\n{file_content}'
-							attachments.append(file_name)
-						elif os.path.exists(file_name):
-							# File exists on disk but not in FileSystem - just add to attachments
-							attachments.append(file_name)
-					if file_msg:
-						user_message += '\n\nAttachments:'
-						user_message += file_msg
-					else:
-						logger.warning('Agent wanted to display files but none were found')
-				else:
-					for file_name in params.files_to_display:
-						file_content = file_system.display_file(file_name)
-						if file_content:
-							attachments.append(file_name)
-						elif os.path.exists(file_name):
-							attachments.append(file_name)
-
-			# Convert relative paths to absolute paths - handle both FileSystem-managed and regular files
-			resolved_attachments = []
-			for file_name in attachments:
-				if os.path.isabs(file_name):
-					# Already absolute
-					resolved_attachments.append(file_name)
-				elif file_system.get_file(file_name):
-					# Managed by FileSystem
-					resolved_attachments.append(str(file_system.get_dir() / file_name))
-				elif os.path.exists(file_name):
-					# Regular file in current directory
-					resolved_attachments.append(os.path.abspath(file_name))
-				else:
-					# File doesn't exist, but include the path anyway for error visibility
-					resolved_attachments.append(str(file_system.get_dir() / file_name))
-			attachments = resolved_attachments
-
-			return ActionResult(
-				is_done=True,
-				success=params.success,
-				extracted_content=user_message,
-				long_term_memory=memory,
-				attachments=attachments,
-			)
-
-		# Override upload_file for code agent with relaxed path validation
-		@self.registry.action(
-			'Upload a file to a file input element. For code-use mode, any file accessible from the current directory can be uploaded.',
-			param_model=UploadFileAction,
-		)
-		async def upload_file(
-			params: UploadFileAction,
-			browser_session: BrowserSession,
-			available_file_paths: list[str],
-			file_system: FileSystem,
-		):
-			# Path validation logic for code-use mode:
-			# 1. If available_file_paths provided (security mode), enforce it as a whitelist
-			# 2. If no whitelist, for local browsers just check file exists
-			# 3. For remote browsers, allow any path (assume it exists remotely)
-
-			# If whitelist provided, validate path is in it
-			if available_file_paths:
-				if params.path not in available_file_paths:
-					# Also check if it's a recently downloaded file
-					downloaded_files = browser_session.downloaded_files
-					if params.path not in downloaded_files:
-						# Finally, check if it's a file in the FileSystem service (if provided)
-						if file_system is not None and file_system.get_dir():
-							# Check if the file is actually managed by the FileSystem service
-							# The path should be just the filename for FileSystem files
-							file_obj = file_system.get_file(params.path)
-							if file_obj:
-								# File is managed by FileSystem, construct the full path
-								file_system_path = str(file_system.get_dir() / params.path)
-								params = UploadFileAction(index=params.index, path=file_system_path)
-							else:
-								# If browser is remote, allow passing a remote-accessible absolute path
-								if not browser_session.is_local:
-									pass
-								else:
-									msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
-									logger.error(f'❌ {msg}')
-									return ActionResult(error=msg)
-						else:
-							# If browser is remote, allow passing a remote-accessible absolute path
-							if not browser_session.is_local:
-								pass
-							else:
-								msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
-								logger.error(f'❌ {msg}')
-								return ActionResult(error=msg)
-
-			# For local browsers, ensure the file exists on the local filesystem
-			if browser_session.is_local:
-				if not os.path.exists(params.path):
-					msg = f'File {params.path} does not exist'
-					return ActionResult(error=msg)
-
-			# Get the selector map to find the node
-			selector_map = await browser_session.get_selector_map()
-			if params.index not in selector_map:
-				msg = f'Element with index {params.index} does not exist.'
-				return ActionResult(error=msg)
-
-			node = selector_map[params.index]
-
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
-			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
-
-			# Highlight the file input element if found (truly non-blocking)
-			if file_input_node:
-				create_task_with_error_handling(
-					browser_session.highlight_interaction_element(file_input_node),
-					name='highlight_file_input',
-					suppress_exceptions=True,
-				)
-
-			# If not found near the selected element, fallback to finding the closest file input to current scroll position
-			if file_input_node is None:
-				logger.info(
-					f'No file upload element found near index {params.index}, searching for closest file input to scroll position'
-				)
-
-				# Get current scroll position
-				cdp_session = await browser_session.get_or_create_cdp_session()
-				try:
-					scroll_info = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={'expression': 'window.scrollY || window.pageYOffset || 0'}, session_id=cdp_session.session_id
-					)
-					current_scroll_y = scroll_info.get('result', {}).get('value', 0)
-				except Exception:
-					current_scroll_y = 0
-
-				# Find all file inputs in the selector map and pick the closest one to scroll position
-				closest_file_input = None
-				min_distance = float('inf')
-
-				for idx, element in selector_map.items():
-					if browser_session.is_file_input(element):
-						# Get element's Y position
-						if element.absolute_position:
-							element_y = element.absolute_position.y
-							distance = abs(element_y - current_scroll_y)
-							if distance < min_distance:
-								min_distance = distance
-								closest_file_input = element
-
-				if closest_file_input:
-					file_input_node = closest_file_input
-					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
-
-					# Highlight the fallback file input element (truly non-blocking)
-					create_task_with_error_handling(
-						browser_session.highlight_interaction_element(file_input_node),
-						name='highlight_file_input_fallback',
-						suppress_exceptions=True,
-					)
-				else:
-					msg = 'No file upload element found on the page'
-					logger.error(msg)
-					raise BrowserError(msg)
-					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
-
-			# Dispatch upload file event with the file input node
-			try:
-				event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
-				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'Successfully uploaded file to index {params.index}'
-				logger.info(f'📁 {msg}')
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=f'Uploaded file {params.path} to element {params.index}',
-				)
-			except Exception as e:
-				logger.error(f'Failed to upload file: {e}')
-				raise BrowserError(f'Failed to upload file: {e}')

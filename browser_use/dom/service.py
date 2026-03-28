@@ -936,38 +936,57 @@ class DomService:
 
 						# Use pre-fetched all_frames to find the iframe's target (no redundant CDP call)
 						frame_id = node.get('frameId', None)
+
+						# Fallback: if frameId is missing or not in all_frames, try URL matching via
+						# the src attribute. This handles dynamically-injected iframes (e.g. HubSpot
+						# popups, chat widgets) where Chrome hasn't yet registered the frameId in the
+						# frame tree at DOM-snapshot time.
+						if (not frame_id or frame_id not in all_frames) and attributes:
+							src = attributes.get('src', '')
+							if src:
+								src_base = src.split('?')[0].rstrip('/')
+								for fid, finfo in all_frames.items():
+									frame_url = finfo.get('url', '').split('?')[0].rstrip('/')
+									if frame_url and frame_url == src_base:
+										frame_id = fid
+										self.logger.debug(f'Matched cross-origin iframe by src URL: {src!r} -> frameId={fid}')
+										break
+
+						iframe_document_target = None
 						if frame_id:
 							frame_info = all_frames.get(frame_id)
-							iframe_document_target = None
 							if frame_info and frame_info.get('frameTargetId'):
 								iframe_target_id = frame_info['frameTargetId']
+								# Use frameTargetId directly from all_frames — get_all_frames() already
+								# validated connectivity. Do NOT gate on session_manager.get_target():
+								# there is a race where _target_sessions is set (inside the lock in
+								# _handle_target_attached) before _targets is populated (outside the
+								# lock), so get_target() can transiently return None for a live target.
 								iframe_target = self.browser_session.session_manager.get_target(iframe_target_id)
-								if iframe_target:
-									iframe_document_target = {
-										'targetId': iframe_target.target_id,
-										'url': iframe_target.url,
-										'title': iframe_target.title,
-										'type': iframe_target.target_type,
-									}
-						else:
-							iframe_document_target = None
+								iframe_document_target = {
+									'targetId': iframe_target_id,
+									'url': iframe_target.url if iframe_target else frame_info.get('url', ''),
+									'title': iframe_target.title if iframe_target else frame_info.get('title', ''),
+									'type': iframe_target.target_type if iframe_target else 'iframe',
+								}
+
 						# if target actually exists in one of the frames, just recursively build the dom tree for it
 						if iframe_document_target:
 							self.logger.debug(
 								f'Getting content document for iframe {node.get("frameId", None)} at depth {iframe_depth + 1}'
 							)
-							content_document, _ = await self.get_dom_tree(
-								target_id=iframe_document_target['targetId'],
-								all_frames=all_frames,
-								# TODO: experiment with this values -> not sure whether the whole cross origin iframe should be ALWAYS included as soon as some part of it is visible or not.
-								# Current config: if the cross origin iframe is AT ALL visible, then just include everything inside of it!
-								# initial_html_frames=updated_html_frames,
-								initial_total_frame_offset=total_frame_offset,
-								iframe_depth=iframe_depth + 1,
-							)
-
-							dom_tree_node.content_document = content_document
-							dom_tree_node.content_document.parent_node = dom_tree_node
+							try:
+								content_document, _ = await self.get_dom_tree(
+									target_id=iframe_document_target['targetId'],
+									all_frames=all_frames,
+									# Current config: if the cross origin iframe is AT ALL visible, include everything inside it
+									initial_total_frame_offset=total_frame_offset,
+									iframe_depth=iframe_depth + 1,
+								)
+								dom_tree_node.content_document = content_document
+								dom_tree_node.content_document.parent_node = dom_tree_node
+							except Exception as e:
+								self.logger.debug(f'Failed to get DOM tree for cross-origin iframe {frame_id}: {e}')
 
 			return dom_tree_node
 

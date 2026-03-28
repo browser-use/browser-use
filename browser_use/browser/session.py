@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from functools import cached_property
 from pathlib import Path
@@ -408,7 +409,7 @@ class BrowserSession(BaseModel):
 				'Could not detect Chrome profile directory for your platform.\n'
 				'Expected locations:\n'
 				'  macOS: ~/Library/Application Support/Google/Chrome\n'
-				'  Linux: ~/.config/google-chrome\n'
+				'  Linux: ~/.config/google-chrome or ~/.config/chromium\n'
 				'  Windows: %LocalAppData%\\Google\\Chrome\\User Data'
 			)
 
@@ -909,6 +910,7 @@ class BrowserSession(BaseModel):
 				target_id,
 				timeout=event.timeout_ms / 1000 if event.timeout_ms is not None else None,
 				wait_until=event.wait_until,
+				nav_timeout=event.event_timeout,
 			)
 
 			# Close any extension options pages that might have opened
@@ -952,11 +954,13 @@ class BrowserSession(BaseModel):
 		target_id: str,
 		timeout: float | None = None,
 		wait_until: str = 'load',
+		nav_timeout: float | None = None,
 	) -> None:
 		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
 
 		Polls stored lifecycle events (registered once per session in SessionManager).
 		wait_until controls the minimum acceptable signal: 'commit', 'domcontentloaded', 'load', 'networkidle'.
+		nav_timeout controls the timeout for the CDP Page.navigate() call itself (defaults to 20.0s).
 		"""
 		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
 
@@ -973,7 +977,9 @@ class BrowserSession(BaseModel):
 		nav_start_time = asyncio.get_event_loop().time()
 
 		# Wrap Page.navigate() with timeout — heavy sites can block here for 10s+
-		nav_timeout = 20.0
+		# Use nav_timeout parameter if provided, otherwise default to 20.0
+		if nav_timeout is None:
+			nav_timeout = 20.0
 		try:
 			nav_result = await asyncio.wait_for(
 				cdp_session.cdp_client.send.Page.navigate(
@@ -1184,6 +1190,14 @@ class BrowserSession(BaseModel):
 			else:
 				self.logger.debug(f'File already tracked: {event.path}')
 
+	def _cloud_session_id_from_cdp_url(self) -> str | None:
+		"""Derive cloud browser session ID from a Browser Use CDP URL."""
+		if not self.cdp_url:
+			return None
+		host = urlparse(self.cdp_url).hostname or ''
+		match = re.match(r'^([0-9a-fA-F-]{36})\.cdp\d+\.browser-use\.com$', host)
+		return match.group(1) if match else None
+
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Handle browser stop request."""
 
@@ -1193,13 +1207,16 @@ class BrowserSession(BaseModel):
 				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
 				return
 
-			# Clean up cloud browser session if using cloud browser
-			if self.browser_profile.use_cloud:
+			# Clean up cloud browser session for both:
+			# 1) native use_cloud sessions (current_session_id set by create_browser)
+			# 2) reconnected cdp_url sessions (derive UUID from host)
+			cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
+			if cloud_session_id:
 				try:
-					await self._cloud_browser_client.stop_browser()
-					self.logger.info('🌤️ Cloud browser session cleaned up')
+					await self._cloud_browser_client.stop_browser(cloud_session_id)
+					self.logger.info(f'🌤️ Cloud browser session cleaned up: {cloud_session_id}')
 				except Exception as e:
-					self.logger.debug(f'Failed to cleanup cloud browser session: {e}')
+					self.logger.debug(f'Failed to cleanup cloud browser session {cloud_session_id}: {e}')
 
 			# Clear CDP session cache before stopping
 			self.logger.info(
@@ -1720,7 +1737,10 @@ class BrowserSession(BaseModel):
 			# Remote CDP URLs should still respect proxy settings.
 			is_localhost = parsed_url.hostname in ('localhost', '127.0.0.1', '::1')
 			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
-				headers = self.browser_profile.headers or {}
+				headers = dict(self.browser_profile.headers or {})
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
 				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
@@ -1732,10 +1752,14 @@ class BrowserSession(BaseModel):
 
 		try:
 			# Create and store the CDP client for direct CDP communication
-			headers = getattr(self.browser_profile, 'headers', None)
+			headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+			if not self.is_local:
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 			self._cdp_client_root = CDPClient(
 				self.cdp_url,
-				additional_headers=headers,
+				additional_headers=headers or None,
 				max_ws_frame_size=200 * 1024 * 1024,  # Use 200MB limit to handle pages with very large DOMs
 			)
 			assert self._cdp_client_root is not None
@@ -2026,10 +2050,14 @@ class BrowserSession(BaseModel):
 		self.agent_focus_target_id = None
 
 		# 3. Create new CDPClient with the same cdp_url
-		headers = getattr(self.browser_profile, 'headers', None)
+		headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+		if not self.is_local:
+			from browser_use.utils import get_browser_use_version
+
+			headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 		self._cdp_client_root = CDPClient(
 			self.cdp_url,
-			additional_headers=headers,
+			additional_headers=headers or None,
 			max_ws_frame_size=200 * 1024 * 1024,
 		)
 		await self._cdp_client_root.start()
@@ -2475,6 +2503,62 @@ class BrowserSession(BaseModel):
 			and hasattr(element, 'attributes')
 			and element.attributes.get('type', '').lower() == 'file'
 		)
+
+	def find_file_input_near_element(
+		self,
+		node: 'EnhancedDOMTreeNode',
+		max_height: int = 3,
+		max_descendant_depth: int = 3,
+	) -> 'EnhancedDOMTreeNode | None':
+		"""Find the closest file input to the given element.
+
+		Walks up the DOM tree (up to max_height levels), checking the node itself,
+		its descendants (up to max_descendant_depth deep), and siblings at each level.
+
+		Args:
+			node: Starting DOM element
+			max_height: Maximum levels to walk up the parent chain
+			max_descendant_depth: Maximum depth to search descendants
+
+		Returns:
+			The nearest file input element, or None if not found
+		"""
+		from browser_use.dom.views import EnhancedDOMTreeNode
+
+		def _find_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
+			if depth < 0:
+				return None
+			if self.is_file_input(n):
+				return n
+			for child in n.children_nodes or []:
+				result = _find_in_descendants(child, depth - 1)
+				if result:
+					return result
+			return None
+
+		current: EnhancedDOMTreeNode | None = node
+		for _ in range(max_height + 1):
+			if current is None:
+				break
+			# Check the current node itself
+			if self.is_file_input(current):
+				return current
+			# Check all descendants of the current node
+			result = _find_in_descendants(current, max_descendant_depth)
+			if result:
+				return result
+			# Check all siblings and their descendants
+			if current.parent_node:
+				for sibling in current.parent_node.children_nodes or []:
+					if sibling is current:
+						continue
+					if self.is_file_input(sibling):
+						return sibling
+					result = _find_in_descendants(sibling, max_descendant_depth)
+					if result:
+						return result
+			current = current.parent_node
+		return None
 
 	async def get_selector_map(self) -> dict[int, EnhancedDOMTreeNode]:
 		"""Get the current selector map from cached state or DOM watchdog.
@@ -3532,7 +3616,10 @@ class BrowserSession(BaseModel):
 					continue  # Skip if no session available
 			else:
 				# Get cached session for this target (don't change focus - iterating frames)
-				cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				try:
+					cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				except ValueError:
+					continue  # Target may have detached between discovery and session creation
 
 			if cdp_session:
 				target_sessions[target_id] = cdp_session.session_id
