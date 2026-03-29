@@ -288,16 +288,18 @@ class InkboxTools(Tools):
 		async def list_credentials(secret_type: str | None = None) -> str:
 			def _collect() -> list:
 				creds = self.identity.credentials
+				if not secret_type:
+					return list(creds.list())
 				type_map = {
 					'login': creds.list_logins,
 					'api_key': creds.list_api_keys,
 					'key_pair': creds.list_key_pairs,
 					'ssh_key': creds.list_ssh_keys,
 				}
-				if secret_type:
-					fn = type_map.get(secret_type)
-					return list(fn()) if fn else []
-				return list(creds.list())
+				fn = type_map.get(secret_type)
+				if fn:
+					return list(fn())
+				return [s for s in creds.list() if s.secret_type == secret_type]
 
 			secrets = await asyncio.to_thread(_collect)
 			if not secrets:
@@ -349,7 +351,7 @@ class InkboxTools(Tools):
 				kwargs['payload'] = _dict_to_secret_payload(secret_type, _parse_llm_json(payload))
 
 			unlocked = self.inkbox_client.vault._unlocked  # type: ignore[union-attr]
-			secret = await asyncio.to_thread(unlocked.update_secret, secret_id, **kwargs)
+			secret = await asyncio.to_thread(unlocked.update_secret, secret_id, **kwargs)  # type: ignore[union-attr]
 			return f'Credential updated. ID: {secret.id}, name: {secret.name}'
 
 		@self.action('Generate a TOTP (2FA) code for a login credential. Returns the code and how many seconds until it expires.')
