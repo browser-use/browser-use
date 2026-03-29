@@ -971,6 +971,59 @@ class SerializedDOMState:
 
 		return DOMEvalSerializer.serialize_tree(self._root, include_attributes)
 
+	def reduced_llm_representation(
+		self,
+		config: 'ReductionConfig | None' = None,
+		previous_selector_map: dict[int, 'EnhancedDOMTreeNode'] | None = None,
+		viewport_height: float = 900,
+		include_attributes: list[str] | None = None,
+	) -> str:
+		"""Return a reduced LLM representation of the DOM state.
+
+		If config is None or not enabled, falls back to regular llm_representation().
+		If config.use_compact_format is True, returns the compact pipe-delimited format.
+		Otherwise, prunes the tree to only include budgeted elements and serializes normally.
+		"""
+		from browser_use.dom.reduction.pipeline import ReductionConfig, apply_reduction
+		from browser_use.dom.serializer.serializer import DOMTreeSerializer
+
+		if config is None or not config.enabled:
+			return self.llm_representation(include_attributes)
+
+		if not self._root:
+			return 'Empty DOM tree (you might have to wait for the page to load)'
+
+		# Run the reduction pipeline
+		result = apply_reduction(
+			self.selector_map,
+			config,
+			previous_selector_map=previous_selector_map,
+			viewport_height=viewport_height,
+		)
+
+		# Compact format path — return pipe-delimited lines directly
+		if config.use_compact_format and result.compact_representation is not None:
+			return result.compact_representation
+
+		# Pruned tree path — mark non-budgeted interactive elements as excluded
+		budgeted_ids = set(result.filtered_selector_map.keys())
+		self._mark_excluded_nodes(self._root, budgeted_ids)
+
+		include_attributes = include_attributes or DEFAULT_INCLUDE_ATTRIBUTES
+		return DOMTreeSerializer.serialize_tree(self._root, include_attributes)
+
+	@staticmethod
+	def _mark_excluded_nodes(node: 'SimplifiedNode', budgeted_ids: set[int]) -> None:
+		"""Walk tree and mark interactive nodes NOT in budgeted_ids as excluded_by_parent."""
+		if node.is_interactive:
+			bid = node.original_node.backend_node_id
+			if bid not in budgeted_ids:
+				node.excluded_by_parent = True
+			else:
+				node.excluded_by_parent = False
+		for child in node.children:
+			SerializedDOMState._mark_excluded_nodes(child, budgeted_ids)
+
 
 @dataclass
 class DOMInteractedElement:
