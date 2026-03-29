@@ -149,7 +149,7 @@ class InkboxTools(Tools):
 	def __init__(
 		self,
 		identity: AgentIdentity,
-		inkbox_client: Inkbox | None = None,
+		inkbox_client: Inkbox,
 	):
 		super().__init__()
 		self.identity = identity
@@ -275,9 +275,6 @@ class InkboxTools(Tools):
 	# ── Vault tools ──────────────────────────────────────────────────
 
 	def _register_vault_tools(self) -> None:
-		if not self.inkbox_client:
-			logger.info('No inkbox_client provided — skipping vault tools')
-			return
 		try:
 			self.identity.credentials
 		except Exception:
@@ -345,7 +342,7 @@ class InkboxTools(Tools):
 					return 'Error: secret_type is required when updating payload'
 				kwargs['payload'] = _dict_to_secret_payload(secret_type, _parse_llm_json(payload))
 
-			unlocked = self.inkbox_client.vault._unlocked  # type: ignore
+			unlocked = self.inkbox_client.vault._unlocked
 			secret = await asyncio.to_thread(unlocked.update_secret, secret_id, **kwargs)
 			return f'Credential updated. ID: {secret.id}, name: {secret.name}'
 
