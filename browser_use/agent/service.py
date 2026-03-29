@@ -2136,7 +2136,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		success_indicator = f'✅ {success_count}' if success_count > 0 else ''
 		failure_indicator = f'❌ {failure_count}' if failure_count > 0 else ''
 		status_parts = [part for part in [success_indicator, failure_indicator] if part]
-		status_str = ' | '.join(status_parts) if status_parts else '✅ 0'
+		status_str = ' | '.join(status_parts) if status_parts else '➖ 0'
 
 		message = (
 			f'📍 Step {self.state.n_steps}: Ran {action_count} action{"" if action_count == 1 else "s"} '
@@ -2277,7 +2277,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		import re
 
 		# Remove email addresses from task before looking for URLs
-		task_without_emails = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', task)
+		task_without_emails = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', '', task)
 
 		# Look for common URL patterns
 		patterns = [
@@ -2379,7 +2379,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				url_lower = url.lower()
 				should_exclude = False
 				for ext in excluded_extensions:
-					if f'.{ext}' in url_lower:
+					if url_lower.endswith(f'.{ext}'):
 						should_exclude = True
 						break
 
@@ -2390,7 +2390,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# If in the 20 characters before the url position is a word in excluded_words skip to avoid "Never go to this url"
 				context_start = max(0, original_position - 20)
 				context_text = task_without_emails[context_start:original_position]
-				if any(word.lower() in context_text.lower() for word in excluded_words):
+				# Check for exact word matches (not substrings)
+				if any(re.search(rf'\b{re.escape(word)}\b', context_text, re.IGNORECASE) for word in excluded_words):
 					self.logger.debug(
 						f'Excluding URL with word in excluded words from auto-navigation: {url} (context: "{context_text.strip()}")'
 					)
@@ -2575,8 +2576,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if (self.state.consecutive_failures) >= self.settings.max_failures + int(
 					self.settings.final_response_after_failure
 				):
-					self.logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
-					agent_run_error = f'Stopped due to {self.settings.max_failures} consecutive failures'
+					self.logger.error(f'❌ Stopping due to {self.state.consecutive_failures} consecutive failures')
+					agent_run_error = f'Stopped due to {self.state.consecutive_failures} consecutive failures'
 					break
 
 				# Check control flags before each step
