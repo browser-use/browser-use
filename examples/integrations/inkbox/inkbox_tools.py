@@ -91,8 +91,8 @@ def setup_vault(inkbox_client: Inkbox, vault_key: str | None = None) -> bool:
 def _to_json(data: Any) -> str:
 	"""Serialize SDK dataclasses (or lists of them) to a JSON string."""
 	if isinstance(data, list):
-		data = [dataclasses.asdict(d) if dataclasses.is_dataclass(d) else d for d in data]
-	elif dataclasses.is_dataclass(data):
+		data = [dataclasses.asdict(d) if dataclasses.is_dataclass(d) and not isinstance(d, type) else d for d in data]
+	elif dataclasses.is_dataclass(data) and not isinstance(data, type):
 		data = dataclasses.asdict(data)
 	return json.dumps(data, indent=2, default=str)
 
@@ -124,8 +124,11 @@ def _dict_to_secret_payload(secret_type: str, data: dict) -> Any:
 	if secret_type == 'login' and data.get('totp') is not None:
 		data = dict(data)
 		totp = data['totp']
-		uri = totp if isinstance(totp, str) else totp.get('uri')
-		data['totp'] = parse_totp_uri(uri) if uri else TOTPConfig(**{k: v for k, v in totp.items() if v is not None})
+		if isinstance(totp, str):
+			data['totp'] = parse_totp_uri(totp)
+		elif isinstance(totp, dict):
+			uri = totp.get('uri')
+			data['totp'] = parse_totp_uri(uri) if uri else TOTPConfig(**{k: v for k, v in totp.items() if v is not None})
 
 	builders: dict[str, Any] = {
 		'login': lambda d: LoginPayload(**{k: v for k, v in d.items() if v is not None}),
@@ -175,16 +178,16 @@ class InkboxTools(Tools):
 		tools_count = len(self._inkbox_actions)
 
 		print()
-		print(f'┌──────────────────────────────────────────────────┐')
-		print(f'│  Browser Use Inkbox Agent                        │')
-		print(f'├──────────────────────────────────────────────────┤')
+		print('┌──────────────────────────────────────────────────┐')
+		print('│  Browser Use Inkbox Agent                        │')
+		print('├──────────────────────────────────────────────────┤')
 		print(f'│  Handle:  {ident.agent_handle:<39}│')
 		print(f'│  ID:      {str(ident.id):<39}│')
 		print(f'│  Email:   {email:<39}│')
 		print(f'│  Phone:   {phone:<39}│')
 		print(f'│  Vault:   {vault_status:<39}│')
 		print(f'│  Tools:   {f"{tools_count} Inkbox tools registered":<39}│')
-		print(f'└──────────────────────────────────────────────────┘')
+		print('└──────────────────────────────────────────────────┘')
 		print()
 
 	# ── Email tools ──────────────────────────────────────────────────
@@ -317,7 +320,10 @@ class InkboxTools(Tools):
 		async def store_credential(name: str, secret_type: str, payload: str, description: str | None = None) -> str:
 			payload_obj = _dict_to_secret_payload(secret_type, _parse_llm_json(payload))
 			secret = await asyncio.to_thread(
-				self.identity.create_secret, name, payload_obj, description=description,
+				self.identity.create_secret,
+				name,
+				payload_obj,
+				description=description,
 			)
 			return f'Credential stored. ID: {secret.id}, name: {secret.name}, type: {secret_type}'
 
@@ -342,14 +348,11 @@ class InkboxTools(Tools):
 					return 'Error: secret_type is required when updating payload'
 				kwargs['payload'] = _dict_to_secret_payload(secret_type, _parse_llm_json(payload))
 
-			unlocked = self.inkbox_client.vault._unlocked
+			unlocked = self.inkbox_client.vault._unlocked  # type: ignore[union-attr]
 			secret = await asyncio.to_thread(unlocked.update_secret, secret_id, **kwargs)
 			return f'Credential updated. ID: {secret.id}, name: {secret.name}'
 
-		@self.action(
-			'Generate a TOTP (2FA) code for a login credential. '
-			'Returns the code and how many seconds until it expires.'
-		)
+		@self.action('Generate a TOTP (2FA) code for a login credential. Returns the code and how many seconds until it expires.')
 		async def get_totp_code(secret_id: str) -> str:
 			code = await asyncio.to_thread(self.identity.get_totp_code, secret_id)
 			return f'TOTP code: {code.code} (expires in {code.seconds_remaining}s)'
@@ -391,16 +394,19 @@ class InkboxTools(Tools):
 			payload = cred.payload
 			filled = []
 
-			if username_index is not None and getattr(payload, 'username', None):
-				if await _type_into_index(browser_session, username_index, payload.username):
+			username = getattr(payload, 'username', None)
+			if username_index is not None and username:
+				if await _type_into_index(browser_session, username_index, username):
 					filled.append('username')
 
-			if email_index is not None and getattr(payload, 'email', None):
-				if await _type_into_index(browser_session, email_index, payload.email):
+			email = getattr(payload, 'email', None)
+			if email_index is not None and email:
+				if await _type_into_index(browser_session, email_index, email):
 					filled.append('email')
 
-			if password_index is not None and getattr(payload, 'password', None):
-				if await _type_into_index(browser_session, password_index, payload.password):
+			password = getattr(payload, 'password', None)
+			if password_index is not None and password:
+				if await _type_into_index(browser_session, password_index, password):
 					filled.append('password')
 
 			if not filled:
@@ -435,9 +441,9 @@ class InkboxTools(Tools):
 		async def read_qr_code(browser_session: BrowserSession) -> str:
 			screenshot_bytes = await browser_session.take_screenshot(full_page=False)
 			arr = np.frombuffer(screenshot_bytes, dtype=np.uint8)
-			image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+			image = cv2.imdecode(arr, cv2.IMREAD_COLOR)  # type: ignore[arg-type]
 			detector = cv2.QRCodeDetector()
-			ok, decoded, *_ = detector.detectAndDecodeMulti(image)
+			ok, decoded, *_ = detector.detectAndDecodeMulti(image)  # type: ignore[misc]
 			if not ok:
 				decoded = ()
 			decoded = [d for d in decoded if d]
