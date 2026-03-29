@@ -827,7 +827,21 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		if path_original_profile.exists():
 			import shutil
 
-			shutil.copytree(path_original_profile, path_temp_profile)
+			try:
+				shutil.copytree(path_original_profile, path_temp_profile)
+			except OSError as e:
+				shutil.rmtree(temp_dir, ignore_errors=True)
+				if sys.platform == 'win32' and getattr(e, 'winerror', None) == 32:
+					msg = (
+						"Cannot copy Chrome profile while Chrome is running (WinError 32).\n"
+						f"Profile: {path_original_profile}\n\n"
+						"Options:\n"
+						"  1. Quit Chrome completely, then retry\n"
+						"  2. Use --connect with a Chrome instance started with --remote-debugging-port=9222\n"
+						"  3. Use --headless (no profile needed)"
+					)
+					raise RuntimeError(msg) from e
+				raise
 			local_state_src = path_original_user_data / 'Local State'
 			local_state_dst = Path(temp_dir) / 'Local State'
 			if local_state_src.exists():
