@@ -16,16 +16,73 @@ from typing import Any
 
 import cv2  # type: ignore
 import numpy as np  # type: ignore
-from inkbox import APIKeyPayload, Inkbox, LoginPayload, OtherPayload  # type: ignore
-from inkbox.agent_identity import AgentIdentity  # type: ignore
-from inkbox.vault.totp import TOTPConfig, parse_totp_uri  # type: ignore
-from inkbox.vault.types import KeyPairPayload, SSHKeyPayload  # type: ignore
+from inkbox import APIKeyPayload, Inkbox, LoginPayload, OtherPayload
+from inkbox.agent_identity import AgentIdentity
+from inkbox.vault.totp import TOTPConfig, parse_totp_uri
+from inkbox.vault.types import KeyPairPayload, SSHKeyPayload
 
 from browser_use import Tools
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import TypeTextEvent
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_VAULT_KEY = 'Bu_Inkbox_Demo_Vault!2026'
+
+
+# ── Vault setup ─────────────────────────────────────────────────────
+
+
+def setup_vault(inkbox_client: Inkbox, vault_key: str | None = None) -> bool:
+	"""Ensure the vault is created and unlocked. Returns True on success.
+
+	Logic:
+	  A) vault_key provided (e.g. from env var) → unlock with it
+	  B) No vault exists → create one with the demo default key
+	  C) Vault exists, no key provided → try default key, ask if it fails
+	"""
+	if not vault_key:
+		# Check if a vault already exists for this org
+		try:
+			inkbox_client.vault.info()
+			vault_exists = True
+		except Exception:
+			vault_exists = False
+
+		if not vault_exists:
+			# Scenario B: First run — create a vault with the demo default key
+			print(f'No vault found — creating one with default key: "{DEFAULT_VAULT_KEY}"')
+			try:
+				result = inkbox_client.vault.initialize(DEFAULT_VAULT_KEY)
+				print('Vault created! Save these recovery codes somewhere safe:')
+				for i, code in enumerate(result.recovery_codes, 1):
+					print(f'  {i}. {code}')
+			except Exception as e:
+				print(f'\nFailed to create vault: {e}')
+				return False
+			vault_key = DEFAULT_VAULT_KEY
+		else:
+			# Scenario C: Vault exists — try the default key silently
+			try:
+				inkbox_client.vault.unlock(DEFAULT_VAULT_KEY)
+				return True
+			except Exception:
+				# Default key didn't work — ask the user
+				vault_key = input('Enter your Inkbox vault master key: ').strip()
+				if not vault_key:
+					print('No vault key provided. Exiting.')
+					return False
+
+	# Unlock (skips if already unlocked above)
+	if not inkbox_client.vault._unlocked:
+		try:
+			inkbox_client.vault.unlock(vault_key)
+		except Exception as e:
+			print(f'\nFailed to unlock vault: {e}')
+			print('Check that the vault key matches the one used to create it.')
+			return False
+
+	return True
 
 
 # ── Private helpers ──────────────────────────────────────────────────
@@ -218,6 +275,9 @@ class InkboxTools(Tools):
 	# ── Vault tools ──────────────────────────────────────────────────
 
 	def _register_vault_tools(self) -> None:
+		if not self.inkbox_client:
+			logger.info('No inkbox_client provided — skipping vault tools')
+			return
 		try:
 			self.identity.credentials
 		except Exception:

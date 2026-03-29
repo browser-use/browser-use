@@ -28,10 +28,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from inkbox import Inkbox  # type: ignore
+from inkbox import Inkbox
 
 from browser_use import Agent, ChatBrowserUse
-from examples.integrations.inkbox.inkbox_tools import InkboxTools
+from examples.integrations.inkbox.inkbox_tools import InkboxTools, setup_vault
 
 TASK = """
 Go make a Reddit account with your email address (make up a username and password).
@@ -58,10 +58,10 @@ Steps:
 7. Log back in using fill_credential (with element indices) and fill_totp_code for the 2FA code.
 """
 
-DEFAULT_VAULT_KEY = 'Bu_Inkbox_Demo_Vault!2026'
-
 
 async def main():
+	# ── Step 1: Connect to Inkbox ────────────────────────────────────
+
 	api_key = os.environ.get('INKBOX_API_KEY')
 	if not api_key:
 		api_key = input('Enter your Inkbox API key (get one at https://inkbox.ai/console): ').strip()
@@ -71,7 +71,11 @@ async def main():
 
 	inkbox_client = Inkbox(api_key=api_key)
 
-	# Create identity first (needed for org_id if vault doesn't exist yet)
+	# ── Step 2: Create a fresh agent identity with a mailbox ─────────
+	#
+	# Each run gets its own identity and email address so demos
+	# don't collide. The handle is a random unique identifier.
+
 	handle = f'bu-{uuid.uuid4().hex[:8]}'
 	try:
 		identity = inkbox_client.create_identity(handle, create_mailbox=True)
@@ -83,48 +87,25 @@ async def main():
 			print('This may be a temporary server issue — try again in a moment.')
 		return
 
-	# Vault setup: check if vault exists, create if needed, then unlock
-	vault_key = os.environ.get('INKBOX_VAULT_KEY')
-	vault_exists = True
-	try:
-		inkbox_client.vault.info()
-	except Exception:
-		vault_exists = False
+	# ── Step 3: Set up and unlock the vault ──────────────────────────
+	#
+	# Creates a vault if one doesn't exist, then unlocks it.
+	# See setup_vault() in inkbox_tools.py for the full logic.
 
-	if not vault_exists:
-		vault_key = DEFAULT_VAULT_KEY
-		print(f'No vault found — creating one with default key: "{DEFAULT_VAULT_KEY}"')
-		try:
-			result = inkbox_client.vault.initialize(vault_key)
-			print(f'Vault created! Save these recovery codes somewhere safe:')
-			for i, code in enumerate(result.recovery_codes, 1):
-				print(f'  {i}. {code}')
-		except Exception as e:
-			print(f'\nFailed to create vault: {e}')
-			return
-	elif not vault_key:
-		# Try default key first, ask only if it fails
-		try:
-			inkbox_client.vault.unlock(DEFAULT_VAULT_KEY)
-			vault_key = DEFAULT_VAULT_KEY
-		except Exception:
-			vault_key = input('Enter your Inkbox vault master key: ').strip()
-			if not vault_key:
-				print('No vault key provided. Exiting.')
-				return
-
-	if not inkbox_client.vault._unlocked:
-		try:
-			inkbox_client.vault.unlock(vault_key)
-		except Exception as e:
-			print(f'\nFailed to unlock vault: {e}')
-			print('Check that the vault key matches the one used to create it.')
-			return
+	if not setup_vault(inkbox_client, vault_key=os.environ.get('INKBOX_VAULT_KEY')):
 		return
+
+	# ── Step 4: Wire up the agent ────────────────────────────────────
+	#
+	# InkboxTools registers all Inkbox actions (email, SMS, vault,
+	# secure-fill, QR decode) as Browser Use tools the agent can call.
+	# The agent uses ChatBrowserUse (bu-2-0) as its LLM backbone.
 
 	tools = InkboxTools(identity=identity, inkbox_client=inkbox_client)
 	llm = ChatBrowserUse(model='bu-2-0')
 	agent = Agent(task=TASK, tools=tools, llm=llm, max_steps=100)
+
+	# ── Step 5: Run the agent ────────────────────────────────────────
 
 	try:
 		await agent.run()
