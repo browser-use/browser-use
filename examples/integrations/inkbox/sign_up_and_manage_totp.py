@@ -58,7 +58,7 @@ Steps:
 7. Log back in using fill_credential (with element indices) and fill_totp_code for the 2FA code.
 """
 
-DEFAULT_VAULT_KEY = 'BU_INKBOX_DEMO_VAULT_MASTER_PASSWORD'
+DEFAULT_VAULT_KEY = 'Bu_Inkbox_Demo_Vault!2026'
 
 
 async def main():
@@ -103,13 +103,23 @@ async def main():
 			print(f'\nFailed to create vault: {e}')
 			return
 	elif not vault_key:
-		vault_key = input(f'Set Inkbox vault master key (press Enter for "{DEFAULT_VAULT_KEY}"): ').strip() or DEFAULT_VAULT_KEY
+		# Try default key first, ask only if it fails
+		try:
+			inkbox_client.vault.unlock(DEFAULT_VAULT_KEY)
+			vault_key = DEFAULT_VAULT_KEY
+		except Exception:
+			vault_key = input('Enter your Inkbox vault master key: ').strip()
+			if not vault_key:
+				print('No vault key provided. Exiting.')
+				return
 
-	try:
-		inkbox_client.vault.unlock(vault_key)
-	except Exception as e:
-		print(f'\nFailed to unlock vault: {e}')
-		print('Check that the vault key matches the one used to create it.')
+	if not inkbox_client.vault._unlocked:
+		try:
+			inkbox_client.vault.unlock(vault_key)
+		except Exception as e:
+			print(f'\nFailed to unlock vault: {e}')
+			print('Check that the vault key matches the one used to create it.')
+			return
 		return
 
 	tools = InkboxTools(identity=identity, inkbox_client=inkbox_client)
