@@ -3933,16 +3933,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
 				else:
-					# keep_alive=True sessions shouldn't keep the event loop alive after agent.run()
-					await self.browser_session.event_bus.stop(
-						clear=False,
-						timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
-					)
-					try:
-						self.browser_session.event_bus.event_queue = None
-						self.browser_session.event_bus._on_idle = None
-					except Exception:
-						pass
+					# keep_alive=True: preserve the event bus and CDP WebSocket connections
+					# so the browser session remains fully connected and ready for the next agent.
+					# Stopping the event bus or nullifying the event queue would cause CDP
+					# WebSocket message handlers to exit, triggering unnecessary reconnection
+					# cycles that clear session manager data (targets, sessions, mappings).
+					pass
 
 			# Close skill service if configured
 			if self.skill_service is not None:

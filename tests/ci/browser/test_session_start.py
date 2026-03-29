@@ -227,6 +227,61 @@ class TestBrowserSessionReusePatterns:
 		finally:
 			await reused_session.kill()
 
+	async def test_keep_alive_preserves_event_bus_and_cdp(self, mock_llm):
+		"""Test that Agent.close() with keep_alive=True preserves CDP WebSocket connections.
+
+		Regression test for https://github.com/browser-use/browser-use/issues/4374
+		When keep_alive=True, Agent.close() should NOT stop the event bus or null
+		the event queue, as that causes CDP WebSocket handlers to exit and triggers
+		unnecessary reconnection cycles that clear session manager data.
+		"""
+		from browser_use import Agent, BrowserSession
+
+		session = BrowserSession(
+			browser_profile=BrowserProfile(
+				user_data_dir=None,
+				headless=True,
+				keep_alive=True,
+			),
+		)
+
+		try:
+			await session.start()
+
+			# Capture event bus state before agent run
+			event_bus_before = session.event_bus
+			cdp_client_before = session._cdp_client_root
+
+			agent = Agent(
+				task='Navigate somewhere',
+				llm=mock_llm,
+				browser_session=session,
+			)
+			await agent.run()
+
+			# After agent.close(), event bus should be the same object and still functional
+			assert session.event_bus is event_bus_before, 'Event bus was replaced after Agent.close()'
+			assert session.event_bus.event_queue is not None, 'Event queue was nullified after Agent.close()'
+
+			# CDP client should still be connected
+			assert session._cdp_client_root is not None, 'CDP client was lost after Agent.close()'
+			assert session._cdp_client_root is cdp_client_before, 'CDP client was replaced after Agent.close()'
+
+			# The session should still be usable for another agent
+			agent2 = Agent(
+				task='Do another thing',
+				llm=mock_llm,
+				browser_session=session,
+			)
+			await agent2.run()
+
+			# Still connected after second agent
+			assert session._cdp_client_root is not None
+			assert session.event_bus.event_queue is not None
+
+		finally:
+			await session.kill()
+
 
 class TestBrowserSessionEventSystem:
 	"""Tests for the new event system integration in BrowserSession."""
