@@ -72,7 +72,7 @@ class PhoneTools(Tools):
 				)
 			try:
 				otp: OtpResult = await session.wait_for_otp(timeout=timeout_seconds)
-				logger.info(f"OTP received for session {session_id}: {otp.otp_code}")
+				logger.info(f"OTP received for session {session_id}")
 				return ActionResult(
 					extracted_content=(
 						f"OTP received: {otp.otp_code}. "
@@ -96,9 +96,10 @@ class PhoneTools(Tools):
 			)
 		)
 		async def release_phone_number(session_id: str) -> ActionResult:
-			session = self._sessions.pop(session_id, None)
+			session = self._sessions.get(session_id)
 			if session:
 				await session.release()
+				self._sessions.pop(session_id, None)
 				logger.info(f"Released session {session_id}")
 			return ActionResult(
 				extracted_content=f"Phone number released (session {session_id}).",

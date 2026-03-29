@@ -22,7 +22,8 @@ import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Add the repo root to sys.path so 'examples.integrations...' imports work
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -48,7 +49,15 @@ async def main():
 	llm = ChatBrowserUse(model="bu-2-0")
 
 	agent = Agent(task=TASK, tools=tools, llm=llm)
-	await agent.run()
+	try:
+		await agent.run()
+	finally:
+		# Ensure all provisioned numbers are released even if the agent errors
+		for sid, session in list(tools._sessions.items()):
+			try:
+				await session.release()
+			except Exception:
+				pass
 
 
 if __name__ == "__main__":
