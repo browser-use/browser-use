@@ -42,6 +42,9 @@ class DOMWatchdog(BaseWatchdog):
 	# Internal DOM service
 	_dom_service: DomService | None = None
 
+	# Previous selector map for reduction diffing between steps
+	_previous_selector_map: dict[int, EnhancedDOMTreeNode] | None = None
+
 	# Network tracking - maps request_id to (url, start_time, method, resource_type)
 	_pending_requests: dict[str, tuple[str, float, str, str | None]] = {}
 
@@ -647,6 +650,35 @@ class DOMWatchdog(BaseWatchdog):
 
 			# Single log call with all timing info
 			self.logger.debug('\n'.join(timing_lines))
+
+			# Apply DOM reduction if enabled
+			if self.browser_session.browser_profile.dom_reduction_enabled:
+				from browser_use.dom.reduction.pipeline import ReductionConfig, apply_reduction
+
+				full_selector_map = self.current_dom_state.selector_map
+				full_count = len(full_selector_map)
+
+				reduction_config = ReductionConfig(enabled=True)
+				result = apply_reduction(
+					full_selector_map,
+					reduction_config,
+					previous_selector_map=self._previous_selector_map,
+				)
+
+				# Store previous map for next step's diffing
+				self._previous_selector_map = dict(full_selector_map)
+
+				# Replace selector_map with filtered version
+				self.current_dom_state.selector_map = result.filtered_selector_map
+				# Store reduction result on the dom state for prompt generation
+				self.current_dom_state._reduction_result = result
+
+				reduced_count = len(result.filtered_selector_map)
+				self.logger.debug(
+					f'🔍 DOM reduction: {full_count} → {reduced_count} elements '
+					f'({full_count - reduced_count} filtered, '
+					f'dominant_group={"yes" if result.dominant_group else "no"})'
+				)
 
 			# Update selector map for other watchdogs
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: Updating selector maps...')

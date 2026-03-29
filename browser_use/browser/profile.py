@@ -655,6 +655,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
+	dom_reduction_enabled: bool = Field(
+		default=True,
+		description='Enable DOM reduction pipeline (importance scoring, element budgeting, goal-based filtering). Reduces token usage by showing only the most relevant interactive elements to the LLM.',
+	)
 	interaction_highlight_color: str = Field(
 		default='rgb(255, 127, 39)',
 		description='Color to use for highlighting elements during interactions (CSS color string).',

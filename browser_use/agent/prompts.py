@@ -240,7 +240,11 @@ class AgentMessagePrompt:
 		stats_text += f', {page_stats["total_elements"]} total elements'
 		stats_text += '</page_stats>\n'
 
-		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
+		# Use reduced representation if reduction pipeline was applied, otherwise fall back to full
+		if self.browser_state.dom_state._reduction_result is not None:
+			elements_text = self.browser_state.dom_state.reduced_llm_representation(include_attributes=self.include_attributes)
+		else:
+			elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
 
 		if len(elements_text) > self.max_clickable_elements_length:
 			elements_text = elements_text[: self.max_clickable_elements_length]
