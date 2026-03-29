@@ -529,6 +529,7 @@ class BrowserSession(BaseModel):
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
 	_captcha_watchdog: Any | None = PrivateAttr(default=None)
+	_execution_freeze_watchdog: Any | None = PrivateAttr(default=None)
 	_watchdogs_attached: bool = PrivateAttr(default=False)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
@@ -630,6 +631,7 @@ class BrowserSession(BaseModel):
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
 		self._captcha_watchdog = None
+		self._execution_freeze_watchdog = None
 		self._watchdogs_attached = False
 		if self._demo_mode:
 			self._demo_mode.reset()
@@ -1500,6 +1502,25 @@ class BrowserSession(BaseModel):
 
 	# region - ========== Helper Methods ==========
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_browser_state_summary')
+	# --- Execution freeze delegation ---
+
+	async def freeze_execution(self) -> None:
+		"""Freeze JS execution if execution freezing is enabled."""
+		if self._execution_freeze_watchdog:
+			await self._execution_freeze_watchdog.freeze()
+
+	async def unfreeze_execution(self) -> None:
+		"""Unfreeze JS execution if execution freezing is enabled."""
+		if self._execution_freeze_watchdog:
+			await self._execution_freeze_watchdog.unfreeze()
+
+	async def settle_and_freeze_execution(self) -> None:
+		"""Run settle detection then freeze, if execution freezing is enabled."""
+		if self._execution_freeze_watchdog:
+			await self._execution_freeze_watchdog.settle_and_freeze()
+
+	# --- Browser state ---
+
 	async def get_browser_state_summary(
 		self,
 		include_screenshot: bool = True,
@@ -1692,6 +1713,15 @@ class BrowserSession(BaseModel):
 			CaptchaWatchdog.model_rebuild()
 			self._captcha_watchdog = CaptchaWatchdog(event_bus=self.event_bus, browser_session=self)
 			self._captcha_watchdog.attach_to_session()
+
+		# Initialize ExecutionFreezeWatchdog if enabled
+		if self.browser_profile.freeze_execution_between_steps:
+			from browser_use.browser.watchdogs.execution_freeze_watchdog import ExecutionFreezeWatchdog
+
+			ExecutionFreezeWatchdog.model_rebuild()
+			self._execution_freeze_watchdog = ExecutionFreezeWatchdog(event_bus=self.event_bus, browser_session=self)
+			self._execution_freeze_watchdog.attach_to_session()
+			self.logger.info('⏸️ Execution freezing enabled — JS will be paused between agent steps')
 
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True

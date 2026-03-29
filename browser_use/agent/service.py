@@ -1048,7 +1048,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				except Exception as e:
 					self.logger.warning(f'Phase 0 captcha wait failed (non-fatal): {e}')
 
-			# Phase 1: Prepare context and timing
+			# Phase 1: Prepare context (page is frozen if execution freezing is enabled — reads stable DOM)
 			browser_state_summary = await self._prepare_context(step_info)
 
 			# Clear previous step state after context preparation (which needs
@@ -1060,7 +1060,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Phase 2: Get model output and execute actions
 			await self._get_next_action(browser_state_summary)
+
+			# Unfreeze before executing actions (no-op if freezing disabled)
+			if self.browser_session:
+				await self.browser_session.unfreeze_execution()
+
 			await self._execute_actions()
+
+			# Settle and re-freeze after actions (skip if task is done — no next step)
+			task_is_done = (
+				self.state.last_result
+				and len(self.state.last_result) > 0
+				and self.state.last_result[-1].is_done
+			)
+			if self.browser_session and not task_is_done:
+				await self.browser_session.settle_and_freeze_execution()
 
 			# Phase 3: Post-processing
 			await self._post_process()

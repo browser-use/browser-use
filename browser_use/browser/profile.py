@@ -646,6 +646,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
 
+	# --- Execution freezing ---
+	freeze_execution_between_steps: bool = Field(
+		default=True,
+		description='Freeze JavaScript execution between agent steps using CDP Debugger.pause. '
+		'Eliminates race conditions by ensuring the page is stable during DOM/screenshot capture. ',
+	)
+
 	# --- UI/viewport/DOM ---
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
 	dom_highlight_elements: bool = Field(

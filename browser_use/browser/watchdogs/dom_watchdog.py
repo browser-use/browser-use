@@ -273,8 +273,14 @@ class DOMWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.debug(f'Failed to get pending requests before wait: {e}')
 		pending_requests = pending_requests_before_wait
+		# Skip stability wait if execution is frozen — page is already stable by definition
+		_is_frozen = (
+			self.browser_session._execution_freeze_watchdog is not None
+			and self.browser_session._execution_freeze_watchdog.is_frozen
+		)
+
 		# Wait for page stability using browser profile settings (main branch pattern)
-		if not not_a_meaningful_website:
+		if not not_a_meaningful_website and not _is_frozen:
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
 			try:
 				if pending_requests_before_wait:
