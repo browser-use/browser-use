@@ -350,8 +350,10 @@ class InkboxTools(Tools):
 					return 'Error: secret_type is required when updating payload'
 				kwargs['payload'] = _dict_to_secret_payload(secret_type, _parse_llm_json(payload))
 
-			unlocked = self.inkbox_client.vault._unlocked  # type: ignore[union-attr]
-			secret = await asyncio.to_thread(unlocked.update_secret, secret_id, **kwargs)  # type: ignore[union-attr]
+			unlocked = self.inkbox_client.vault._unlocked
+			if not unlocked:
+				return 'Error: vault is not unlocked'
+			secret = await asyncio.to_thread(unlocked.update_secret, secret_id, **kwargs)
 			return f'Credential updated. ID: {secret.id}, name: {secret.name}'
 
 		@self.action('Generate a TOTP (2FA) code for a login credential. Returns the code and how many seconds until it expires.')
