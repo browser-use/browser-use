@@ -68,7 +68,7 @@ def setup_vault(inkbox_client: Inkbox, vault_key: str | None = None) -> bool:
 				return True
 			except Exception:
 				# Default key didn't work — ask the user
-				vault_key = input('Enter your Inkbox vault master key: ').strip()
+				vault_key = input('Vault found. Enter your vault key to unlock: ').strip()
 				if not vault_key:
 					print('No vault key provided. Exiting.')
 					return False
