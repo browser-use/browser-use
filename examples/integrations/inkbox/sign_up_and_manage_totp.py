@@ -47,6 +47,7 @@ IMPORTANT — keep secrets out of this conversation:
   password fields — do NOT type credentials manually.
 - fill_credential and fill_totp_code accept element indices (the same index numbers you
   see in the page state), NOT CSS selectors.
+- If you dont see email, ask reddit to resent it.
 
 Steps:
 1. Sign up with your email, pick a username, set a password.
