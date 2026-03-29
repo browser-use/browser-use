@@ -70,48 +70,45 @@ async def main():
 			print('No API key provided. Exiting.')
 			return
 
-	inkbox_client = Inkbox(api_key=api_key)
+	# Context manager ensures inkbox_client.close() is called on any exit path.
+	with Inkbox(api_key=api_key) as inkbox_client:
+		# ── Step 2: Create a fresh agent identity with a mailbox ─────
+		#
+		# Each run gets its own identity and email address so demos
+		# don't collide. The handle is a random unique identifier.
 
-	# ── Step 2: Create a fresh agent identity with a mailbox ─────────
-	#
-	# Each run gets its own identity and email address so demos
-	# don't collide. The handle is a random unique identifier.
+		handle = f'bu-{uuid.uuid4().hex[:8]}'
+		try:
+			identity = inkbox_client.create_identity(handle, create_mailbox=True)
+		except Exception as e:
+			print(f'\nFailed to create identity: {e}')
+			if '401' in str(e) or '403' in str(e):
+				print('Check your API key at https://inkbox.ai/console')
+			else:
+				print('This may be a temporary server issue — try again in a moment.')
+			return
 
-	handle = f'bu-{uuid.uuid4().hex[:8]}'
-	try:
-		identity = inkbox_client.create_identity(handle, create_mailbox=True)
-	except Exception as e:
-		print(f'\nFailed to create identity: {e}')
-		if '401' in str(e) or '403' in str(e):
-			print('Check your API key at https://inkbox.ai/console')
-		else:
-			print('This may be a temporary server issue — try again in a moment.')
-		return
+		# ── Step 3: Set up and unlock the vault ──────────────────────
+		#
+		# Creates a vault if one doesn't exist, then unlocks it.
+		# See setup_vault() in inkbox_tools.py for the full logic.
 
-	# ── Step 3: Set up and unlock the vault ──────────────────────────
-	#
-	# Creates a vault if one doesn't exist, then unlocks it.
-	# See setup_vault() in inkbox_tools.py for the full logic.
+		if not setup_vault(inkbox_client, vault_key=os.environ.get('INKBOX_VAULT_KEY')):
+			return
 
-	if not setup_vault(inkbox_client, vault_key=os.environ.get('INKBOX_VAULT_KEY')):
-		return
+		# ── Step 4: Wire up the agent ────────────────────────────────
+		#
+		# InkboxTools registers all Inkbox actions (email, SMS, vault,
+		# secure-fill, QR decode) as Browser Use tools the agent can call.
+		# The agent uses ChatBrowserUse (bu-2-0) as its LLM backbone.
 
-	# ── Step 4: Wire up the agent ────────────────────────────────────
-	#
-	# InkboxTools registers all Inkbox actions (email, SMS, vault,
-	# secure-fill, QR decode) as Browser Use tools the agent can call.
-	# The agent uses ChatBrowserUse (bu-2-0) as its LLM backbone.
+		tools = InkboxTools(identity=identity, inkbox_client=inkbox_client)
+		llm = ChatBrowserUse(model='bu-2-0')
+		agent = Agent(task=TASK, tools=tools, llm=llm, max_steps=100)
 
-	tools = InkboxTools(identity=identity, inkbox_client=inkbox_client)
-	llm = ChatBrowserUse(model='bu-2-0')
-	agent = Agent(task=TASK, tools=tools, llm=llm, max_steps=100)
+		# ── Step 5: Run the agent ────────────────────────────────────
 
-	# ── Step 5: Run the agent ────────────────────────────────────────
-
-	try:
 		await agent.run()
-	finally:
-		inkbox_client.close()
 
 
 if __name__ == '__main__':
