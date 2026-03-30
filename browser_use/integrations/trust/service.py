@@ -50,11 +50,11 @@ class TrustClaims(BaseModel):
 
 	def meets_policy(self, policy: dict) -> bool:
 		"""Check if claims meet a threshold policy dict."""
-		if policy.get('min_trust_score') and self.trust_score < policy['min_trust_score']:
+		if 'min_trust_score' in policy and self.trust_score < policy['min_trust_score']:
 			return False
-		if policy.get('max_scarring_score') and self.scarring_score > policy['max_scarring_score']:
+		if 'max_scarring_score' in policy and self.scarring_score > policy['max_scarring_score']:
 			return False
-		if policy.get('max_risk_score') and self.risk_score > policy['max_risk_score']:
+		if 'max_risk_score' in policy and self.risk_score > policy['max_risk_score']:
 			return False
 		required = policy.get('required_attestations', [])
 		for req in required:
@@ -118,7 +118,8 @@ class AgentIDTrustProvider(TrustProvider):
 			httpx.HTTPStatusError: If the API returns a non-200 status.
 			Exception: If the response is missing the expected 'header' field.
 		"""
-		assert agent_id, 'agent_id must not be empty'
+		if not agent_id:
+			raise ValueError('agent_id must not be empty')
 
 		# Check cache
 		if agent_id in self._cache:
@@ -168,7 +169,8 @@ class AgentIDTrustProvider(TrustProvider):
 		Raises:
 			ValueError: If the JWT format is invalid, expired, or from an unknown provider.
 		"""
-		assert jwt, 'jwt must not be empty'
+		if not jwt:
+			raise ValueError('jwt must not be empty')
 
 		parts = jwt.split('.')
 		if len(parts) != 3:

@@ -6,7 +6,7 @@ Agents present Agent-Trust-Score JWTs that site operators can evaluate
 against configurable policies before granting access.
 
 Usage:
-	from agentid_trust_provider import AgentIDTrustProvider, TrustPolicy
+	from browser_use.integrations.trust import AgentIDTrustProvider, TrustPolicy
 
 	# Initialize provider
 	provider = AgentIDTrustProvider()
@@ -20,11 +20,14 @@ Usage:
 	result = policy.evaluate(claims)
 """
 
-try:
-	from .agentid_trust_provider import AgentIDTrustProvider, TrustClaims, TrustProvider
-	from .policy_engine import TrustPolicy
-except ImportError:
-	from agentid_trust_provider import AgentIDTrustProvider, TrustClaims, TrustProvider
-	from policy_engine import TrustPolicy
+from .policy import PolicyResult, TrustPolicy, TrustPolicyChain
+from .service import AgentIDTrustProvider, TrustClaims, TrustProvider
 
-__all__ = ['AgentIDTrustProvider', 'TrustClaims', 'TrustPolicy', 'TrustProvider']
+__all__ = [
+	'AgentIDTrustProvider',
+	'TrustClaims',
+	'TrustProvider',
+	'TrustPolicy',
+	'TrustPolicyChain',
+	'PolicyResult',
+]

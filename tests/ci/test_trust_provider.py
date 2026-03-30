@@ -10,8 +10,8 @@ import time
 
 import pytest
 
-from agentid_trust_provider import AgentIDTrustProvider, TrustClaims
-from policy_engine import PolicyResult, TrustPolicy, TrustPolicyChain
+from browser_use.integrations.trust.policy import TrustPolicy, TrustPolicyChain
+from browser_use.integrations.trust.service import AgentIDTrustProvider, TrustClaims
 
 
 def _make_jwt(payload: dict) -> str:
@@ -120,7 +120,7 @@ class TestVerifyTrustJWT:
 
 	async def test_verify_empty_jwt_raises(self):
 		provider = AgentIDTrustProvider()
-		with pytest.raises(AssertionError):
+		with pytest.raises(ValueError, match='jwt must not be empty'):
 			await provider.verify_trust_jwt('')
 
 	async def test_verify_no_provider_field_ok(self):
@@ -218,11 +218,13 @@ class TestTrustPolicy:
 		assert result.action == 'degrade'
 
 	def test_multiple_failures(self):
-		policy = TrustPolicy({
-			'min_trust_score': 90,
-			'max_risk_score': 5,
-			'required_attestations': ['sandbox_certified'],
-		})
+		policy = TrustPolicy(
+			{
+				'min_trust_score': 90,
+				'max_risk_score': 5,
+				'required_attestations': ['sandbox_certified'],
+			}
+		)
 		claims = TrustClaims(**_default_payload(trust_score=50, risk_score=20))
 		result = policy.evaluate(claims)
 		assert not result.passed
@@ -243,39 +245,47 @@ class TestTrustPolicy:
 
 class TestTrustPolicyChain:
 	def test_all_pass(self):
-		chain = TrustPolicyChain([
-			TrustPolicy({'min_trust_score': 50}),
-			TrustPolicy({'max_risk_score': 30}),
-		])
+		chain = TrustPolicyChain(
+			[
+				TrustPolicy({'min_trust_score': 50}),
+				TrustPolicy({'max_risk_score': 30}),
+			]
+		)
 		claims = TrustClaims(**_default_payload())
 		result = chain.evaluate(claims)
 		assert result.passed
 		assert result.action == 'allow'
 
 	def test_block_wins_over_degrade(self):
-		chain = TrustPolicyChain([
-			TrustPolicy({'min_trust_score': 100, 'action_on_fail': 'degrade'}),
-			TrustPolicy({'max_risk_score': 1, 'action_on_fail': 'block'}),
-		])
+		chain = TrustPolicyChain(
+			[
+				TrustPolicy({'min_trust_score': 100, 'action_on_fail': 'degrade'}),
+				TrustPolicy({'max_risk_score': 1, 'action_on_fail': 'block'}),
+			]
+		)
 		claims = TrustClaims(**_default_payload(trust_score=50, risk_score=20))
 		result = chain.evaluate(claims)
 		assert not result.passed
 		assert result.action == 'block'
 
 	def test_degrade_wins_over_log(self):
-		chain = TrustPolicyChain([
-			TrustPolicy({'min_trust_score': 100, 'action_on_fail': 'log'}),
-			TrustPolicy({'max_risk_score': 1, 'action_on_fail': 'degrade'}),
-		])
+		chain = TrustPolicyChain(
+			[
+				TrustPolicy({'min_trust_score': 100, 'action_on_fail': 'log'}),
+				TrustPolicy({'max_risk_score': 1, 'action_on_fail': 'degrade'}),
+			]
+		)
 		claims = TrustClaims(**_default_payload(trust_score=50, risk_score=20))
 		result = chain.evaluate(claims)
 		assert result.action == 'degrade'
 
 	def test_failures_aggregated(self):
-		chain = TrustPolicyChain([
-			TrustPolicy({'min_trust_score': 100, 'action_on_fail': 'log'}),
-			TrustPolicy({'max_risk_score': 1, 'action_on_fail': 'log'}),
-		])
+		chain = TrustPolicyChain(
+			[
+				TrustPolicy({'min_trust_score': 100, 'action_on_fail': 'log'}),
+				TrustPolicy({'max_risk_score': 1, 'action_on_fail': 'log'}),
+			]
+		)
 		claims = TrustClaims(**_default_payload(trust_score=50, risk_score=20))
 		result = chain.evaluate(claims)
 		assert len(result.failures) == 2
@@ -283,5 +293,5 @@ class TestTrustPolicyChain:
 	def test_empty_chain_raises(self):
 		chain = TrustPolicyChain()
 		claims = TrustClaims(**_default_payload())
-		with pytest.raises(AssertionError):
+		with pytest.raises(ValueError, match='Policy chain must have at least one policy'):
 			chain.evaluate(claims)
