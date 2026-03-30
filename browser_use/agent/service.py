@@ -7,6 +7,7 @@ import re
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
@@ -65,7 +66,7 @@ from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
-from browser_use.dom.views import DOMInteractedElement, MatchLevel
+from browser_use.dom.views import DOMInteractedElement, EnhancedDOMTreeNode, MatchLevel
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.telemetry.service import ProductTelemetry
@@ -126,6 +127,63 @@ Context = TypeVar('Context')
 
 
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
+
+
+@dataclass(slots=True)
+class _SelectorMapMatchLookups:
+	"""First-win indices per key (iteration order of selector_map). Built in one pass."""
+
+	stable_hash_to_idx: dict[int, int]
+	xpath_to_idx: dict[str, int]
+	tag_ax_to_idx: dict[tuple[str, str], int]
+	attr_name_to_idx: dict[tuple[str, str], int]
+	attr_id_to_idx: dict[tuple[str, str], int]
+	attr_aria_to_idx: dict[tuple[str, str], int]
+
+
+def _build_selector_map_match_lookups(selector_map: dict[int, EnhancedDOMTreeNode]) -> _SelectorMapMatchLookups:
+	"""Single O(n) pass: compute_stable_hash once per node; first index wins for each lookup key."""
+	stable_hash_to_idx: dict[int, int] = {}
+	xpath_to_idx: dict[str, int] = {}
+	tag_ax_to_idx: dict[tuple[str, str], int] = {}
+	attr_name_to_idx: dict[tuple[str, str], int] = {}
+	attr_id_to_idx: dict[tuple[str, str], int] = {}
+	attr_aria_to_idx: dict[tuple[str, str], int] = {}
+
+	for idx, elem in selector_map.items():
+		sh = elem.compute_stable_hash()
+		if sh not in stable_hash_to_idx:
+			stable_hash_to_idx[sh] = idx
+		xp = elem.xpath
+		if xp not in xpath_to_idx:
+			xpath_to_idx[xp] = idx
+		tag = elem.node_name.lower()
+		if elem.ax_node and elem.ax_node.name:
+			axk = (tag, elem.ax_node.name)
+			if axk not in tag_ax_to_idx:
+				tag_ax_to_idx[axk] = idx
+		if elem.attributes:
+			if elem.attributes.get('name'):
+				k = (tag, elem.attributes['name'])
+				if k not in attr_name_to_idx:
+					attr_name_to_idx[k] = idx
+			if elem.attributes.get('id'):
+				k = (tag, elem.attributes['id'])
+				if k not in attr_id_to_idx:
+					attr_id_to_idx[k] = idx
+			if elem.attributes.get('aria-label'):
+				k = (tag, elem.attributes['aria-label'])
+				if k not in attr_aria_to_idx:
+					attr_aria_to_idx[k] = idx
+
+	return _SelectorMapMatchLookups(
+		stable_hash_to_idx=stable_hash_to_idx,
+		xpath_to_idx=xpath_to_idx,
+		tag_ax_to_idx=tag_ax_to_idx,
+		attr_name_to_idx=attr_name_to_idx,
+		attr_id_to_idx=attr_id_to_idx,
+		attr_aria_to_idx=attr_aria_to_idx,
+	)
 
 
 class Agent(Generic[Context, AgentStructuredOutput]):
@@ -3512,8 +3570,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'🔍 Searching for element: <{historical_element.node_name}> '
 			f'hash={historical_element.element_hash} stable_hash={historical_element.stable_hash}'
 		)
-		# Log what elements are in selector_map for debugging
-		if historical_element.node_name:
+		# Log what elements are in selector_map for debugging (full scan; only when INFO is enabled)
+		if historical_element.node_name and self.logger.isEnabledFor(logging.INFO):
 			hist_name = historical_element.node_name.lower()
 			matching_nodes = [
 				(idx, elem.node_name, elem.attributes.get('name') if elem.attributes else None)
@@ -3525,7 +3583,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				f'{len(matching_nodes)} are <{hist_name.upper()}>: {matching_nodes}'
 			)
 
-		# Level 1: EXACT hash match
+		# Level 1: EXACT hash match (single linear scan; often succeeds — no lookup tables)
 		for idx, elem in selector_map.items():
 			if elem.element_hash == historical_element.element_hash:
 				highlight_index = idx
@@ -3535,46 +3593,45 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if highlight_index is None:
 			self.logger.debug(f'EXACT hash match failed (checked {len(selector_map)} elements)')
 
+		lookups: _SelectorMapMatchLookups | None = None
+		if highlight_index is None:
+			lookups = _build_selector_map_match_lookups(selector_map)
+
 		# Level 2: STABLE hash match (dynamic classes filtered)
 		# Use stored stable_hash (computed at save time from EnhancedDOMTreeNode - single source of truth)
-		if highlight_index is None and historical_element.stable_hash is not None:
-			for idx, elem in selector_map.items():
-				if elem.compute_stable_hash() == historical_element.stable_hash:
-					highlight_index = idx
-					match_level = MatchLevel.STABLE
-					self.logger.info('Element matched at STABLE level (dynamic classes filtered)')
-					break
+		if highlight_index is None and historical_element.stable_hash is not None and lookups is not None:
+			idx = lookups.stable_hash_to_idx.get(historical_element.stable_hash)
+			if idx is not None:
+				highlight_index = idx
+				match_level = MatchLevel.STABLE
+				self.logger.info('Element matched at STABLE level (dynamic classes filtered)')
 			if highlight_index is None:
 				self.logger.debug('STABLE hash match failed')
 		elif highlight_index is None:
 			self.logger.debug('STABLE hash match skipped (no stable_hash in history)')
 
 		# Level 3: XPATH match
-		if highlight_index is None and historical_element.x_path:
-			for idx, elem in selector_map.items():
-				if elem.xpath == historical_element.x_path:
-					highlight_index = idx
-					match_level = MatchLevel.XPATH
-					self.logger.info(f'Element matched at XPATH level: {historical_element.x_path}')
-					break
+		if highlight_index is None and historical_element.x_path and lookups is not None:
+			idx = lookups.xpath_to_idx.get(historical_element.x_path)
+			if idx is not None:
+				highlight_index = idx
+				match_level = MatchLevel.XPATH
+				self.logger.info(f'Element matched at XPATH level: {historical_element.x_path}')
 			if highlight_index is None:
 				self.logger.debug(f'XPATH match failed for: {historical_element.x_path[-60:]}')
 
 		# Level 4: ax_name (accessible name) match - robust for dynamic SPAs with menus
 		# This uses the accessible name from the accessibility tree which is stable
 		# even when DOM structure changes (e.g., dynamically generated menu items)
-		if highlight_index is None and historical_element.ax_name:
+		if highlight_index is None and historical_element.ax_name and lookups is not None:
 			hist_name = historical_element.node_name.lower()
 			hist_ax_name = historical_element.ax_name
-			for idx, elem in selector_map.items():
-				# Match by node type and accessible name
-				elem_ax_name = elem.ax_node.name if elem.ax_node else None
-				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
-					highlight_index = idx
-					match_level = MatchLevel.AX_NAME
-					self.logger.info(f'Element matched at AX_NAME level: "{hist_ax_name}"')
-					break
-			if highlight_index is None:
+			idx = lookups.tag_ax_to_idx.get((hist_name, hist_ax_name))
+			if idx is not None:
+				highlight_index = idx
+				match_level = MatchLevel.AX_NAME
+				self.logger.info(f'Element matched at AX_NAME level: "{hist_ax_name}"')
+			if highlight_index is None and self.logger.isEnabledFor(logging.DEBUG):
 				# Log available ax_names for debugging
 				same_type_ax_names = [
 					(idx, elem.ax_node.name if elem.ax_node else None)
@@ -3588,27 +3645,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 
 		# Level 5: Unique attribute fallback (for old history files without stable_hash)
-		if highlight_index is None and historical_element.attributes:
+		if highlight_index is None and historical_element.attributes and lookups is not None:
 			hist_attrs = historical_element.attributes
 			hist_name = historical_element.node_name.lower()
 
-			# Try matching by unique identifiers: name, id, or aria-label
-			for attr_key in ['name', 'id', 'aria-label']:
+			attr_tries: list[tuple[str, dict[tuple[str, str], int]]] = [
+				('name', lookups.attr_name_to_idx),
+				('id', lookups.attr_id_to_idx),
+				('aria-label', lookups.attr_aria_to_idx),
+			]
+			for attr_key, amap in attr_tries:
 				if attr_key in hist_attrs and hist_attrs[attr_key]:
-					for idx, elem in selector_map.items():
-						if (
-							elem.node_name.lower() == hist_name
-							and elem.attributes
-							and elem.attributes.get(attr_key) == hist_attrs[attr_key]
-						):
-							highlight_index = idx
-							match_level = MatchLevel.ATTRIBUTE
-							self.logger.info(f'Element matched via {attr_key} attribute: {hist_attrs[attr_key]}')
-							break
-					if highlight_index is not None:
+					idx = amap.get((hist_name, hist_attrs[attr_key]))
+					if idx is not None:
+						highlight_index = idx
+						match_level = MatchLevel.ATTRIBUTE
+						self.logger.info(f'Element matched via {attr_key} attribute: {hist_attrs[attr_key]}')
 						break
 
-			if highlight_index is None:
+			if highlight_index is None and self.logger.isEnabledFor(logging.INFO):
 				tried_attrs = [k for k in ['name', 'id', 'aria-label'] if k in hist_attrs and hist_attrs[k]]
 				# Log what was tried and what's available on the page for debugging
 				same_node_elements = [
