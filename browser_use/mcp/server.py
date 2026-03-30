@@ -38,7 +38,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 # Configure logging for MCP mode - redirect to stderr but preserve critical diagnostics
 logging.basicConfig(
 	stream=sys.stderr, level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True
@@ -1128,10 +1127,7 @@ class BrowserUseServer:
 
 			# Filter by domain if specified
 			if domain:
-				cookie_list = [
-					c for c in cookie_list
-					if domain in c['domain'] or c['domain'].endswith('.' + domain)
-				]
+				cookie_list = [c for c in cookie_list if domain in c['domain'] or c['domain'].endswith('.' + domain)]
 
 			return json.dumps(cookie_list, indent=2)
 		except Exception as e:
@@ -1158,7 +1154,7 @@ class BrowserUseServer:
 				}
 				for c in cookies
 			]
-			await self.browser_session._cdp_set_cookies(cdp_cookies)
+			await self.browser_session._cdp_set_cookies(cdp_cookies)  # type: ignore[arg-type]
 			return f'Successfully set {len(cdp_cookies)} cookie(s)'
 		except Exception as e:
 			logger.error(f'Failed to set cookies: {e}')
@@ -1175,10 +1171,7 @@ class BrowserUseServer:
 			if domain:
 				# Get all cookies, remove matching domain, re-set the rest
 				cookies = await self.browser_session._cdp_get_cookies()
-				remaining = [
-					c for c in cookies
-					if domain not in c.get('domain', '') and not c.get('domain', '').endswith('.' + domain)
-				]
+				remaining = [c for c in cookies if domain not in c.get('domain', '') and not c.get('domain', '').endswith('.' + domain)]
 				await self.browser_session._cdp_clear_cookies()
 				if remaining:
 					await self.browser_session._cdp_set_cookies(remaining)
@@ -1281,7 +1274,7 @@ class BrowserUseServer:
 			# If this was the current session, clear it
 			if self.browser_session and self.browser_session.id == session_id:
 				self.browser_session = None
-	
+
 			return f'Successfully closed session {session_id}'
 		except Exception as e:
 			return f'Error closing session {session_id}: {str(e)}'
@@ -1306,7 +1299,6 @@ class BrowserUseServer:
 
 		# Clear current session references
 		self.browser_session = None
-		self.tools = None
 
 		result = f'Closed {closed_count} sessions'
 		if errors:
