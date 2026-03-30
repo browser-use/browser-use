@@ -194,6 +194,61 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
 
 <br/>
 
+# 🔌 MCP Server
+
+Browser-Use can run as a standalone **MCP (Model Context Protocol) server**, allowing **any MCP-compatible AI** (Claude, ChatGPT, Gemini, local models, etc.) to directly control a real browser — no API keys or internal LLM needed. The calling AI is the brain; the MCP server is the hands.
+
+### Setup
+
+**In Claude Desktop / Cursor / any MCP client:**
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use[cli]", "--mcp"]
+    }
+  }
+}
+```
+
+Or run directly from terminal:
+```bash
+uvx browser-use --mcp
+```
+
+### Available Tools
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Navigation** | `browser_navigate`, `browser_go_back`, `browser_scroll`, `browser_wait` | Open URLs, go back, scroll pages, wait for loading |
+| **Interaction** | `browser_click`, `browser_type`, `browser_send_keys`, `browser_select_option`, `browser_get_dropdown_options` | Click elements, type text, keyboard shortcuts, dropdowns |
+| **Observation** | `browser_get_state`, `browser_screenshot`, `browser_extract_content`, `browser_get_html` | Get interactive elements, take screenshots, extract markdown text, get raw HTML |
+| **Tabs** | `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab` | Multi-tab management |
+| **Cookies** | `browser_get_cookies`, `browser_set_cookies`, `browser_clear_cookies`, `browser_save_storage_state` | Cookie persistence, import/export, session management |
+| **Sessions** | `browser_list_sessions`, `browser_close_session`, `browser_close_all` | Manage browser sessions |
+
+### Cookie Persistence
+
+Cookies and localStorage are **automatically persisted** to `~/.config/browseruse/cookies/storage_state.json`. This means:
+
+- Login sessions survive MCP server restarts — no need to re-authenticate
+- Use `browser_save_storage_state` to force an immediate save
+- Use `browser_set_cookies` to inject authentication tokens
+- Use `browser_clear_cookies` to reset session state for a specific domain
+
+### Typical Workflow
+
+The AI interacts with the browser through a simple loop:
+
+1. `browser_navigate` — go to a URL
+2. `browser_get_state` — see all interactive elements with indices
+3. `browser_click` / `browser_type` — interact with elements by index
+4. `browser_extract_content` — read page content as markdown
+5. `browser_screenshot` — see the page visually (for vision-capable models)
+
+<br/>
+
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
 
 <br/>
