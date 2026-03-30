@@ -1171,7 +1171,9 @@ class BrowserUseServer:
 			if domain:
 				# Get all cookies, remove matching domain, re-set the rest
 				cookies = await self.browser_session._cdp_get_cookies()
-				remaining = [c for c in cookies if domain not in c.get('domain', '') and not c.get('domain', '').endswith('.' + domain)]
+				remaining = [
+					c for c in cookies if domain not in c.get('domain', '') and not c.get('domain', '').endswith('.' + domain)
+				]
 				await self.browser_session._cdp_clear_cookies()
 				if remaining:
 					await self.browser_session._cdp_set_cookies(remaining)
