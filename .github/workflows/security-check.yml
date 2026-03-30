@@ -1,0 +1,77 @@
+name: security-check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  sensitive-files:
+    name: sensitive-file-changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for sensitive file changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+
+          SENSITIVE_PATTERNS=(
+            '.github/'
+            '.claude/'
+            'CLAUDE.md'
+            'Dockerfile'
+            'docker-compose'
+            'docker/'
+            'pyproject.toml'
+            'uv.lock'
+            '.pre-commit-config.yaml'
+            '.gitignore'
+            '.env'
+            'bin/'
+            'browser_use/agent/system_prompt'
+            'browser_use/browser/profile.py'
+            'browser_use/browser/cloud/'
+            'browser_use/sandbox/'
+            'browser_use/mcp/'
+            'browser_use/config.py'
+            'browser_use/skill_cli/install.sh'
+          )
+
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          NEW_FILES=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA")
+          FLAGGED=""
+
+          # Check for changes to sensitive paths
+          for file in $CHANGED_FILES; do
+            for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+              if [[ "$file" == ${pattern}* ]]; then
+                FLAGGED="${FLAGGED}  ⚠️  ${file}\n"
+                break
+              fi
+            done
+          done
+
+          # Check for new executable/script files anywhere in the repo
+          for file in $NEW_FILES; do
+            if [[ "$file" == *.sh || "$file" == *.bash || "$file" == *.dockerfile ]]; then
+              FLAGGED="${FLAGGED}  ⚠️  ${file} (new script/executable file)\n"
+            fi
+          done
+
+          if [ -n "$FLAGGED" ]; then
+            echo "::warning::This PR modifies sensitive files that require extra scrutiny."
+            echo ""
+            echo "⚠️  SENSITIVE FILE CHANGES DETECTED"
+            echo "════════════════════════════════════"
+            echo ""
+            echo -e "$FLAGGED"
+            echo ""
+            echo "These files affect CI, dependencies, or security configuration."
+            echo "A maintainer should carefully review these changes before merging."
+          fi
