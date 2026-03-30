@@ -1,7 +1,16 @@
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from browser_use.logging_config import setup_logging
+
+# Ensure tiktoken caches its BPE vocabulary files to a proper hidden directory
+# instead of the default tempdir, which can confuse users with mysterious base64 files.
+# Only set if user hasn't already configured it.
+if 'TIKTOKEN_CACHE_DIR' not in os.environ and 'DATA_GYM_CACHE_DIR' not in os.environ:
+	_tiktoken_cache = Path.home() / '.cache' / 'browser_use' / 'tiktoken'
+	_tiktoken_cache.mkdir(parents=True, exist_ok=True)
+	os.environ['TIKTOKEN_CACHE_DIR'] = str(_tiktoken_cache)
 
 # Only set up logging if not in MCP mode or if explicitly requested
 if os.environ.get('BROWSER_USE_SETUP_LOGGING', 'true').lower() != 'false':
