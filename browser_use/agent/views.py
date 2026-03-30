@@ -711,7 +711,17 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			# Filter result items to dicts only so that non-dict items in a list also can't fail validation.
 			result = h.get('result')
 			if isinstance(result, list):
-				h['result'] = [dict(r) for r in result if isinstance(r, dict)]
+				# Safely normalize result items: skip any that can't be converted to a plain dict
+				# (e.g. pydantic models, TabInfo-like dicts with extra fields, etc.)
+				normalized_result = []
+				for r in result:
+					if isinstance(r, dict):
+						try:
+							normalized_result.append(dict(r))
+						except (TypeError, ValueError):
+							# Dict-like objects that fail plain-dict coercion are skipped
+							pass
+				h['result'] = normalized_result
 			elif isinstance(result, dict):
 				# A bare dict is not a list of ActionResult dicts; treat as empty.
 				h['result'] = []
@@ -741,6 +751,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				state['tabs'] = []
 			if not isinstance(state.get('interacted_element'), list):
 				state['interacted_element'] = []
+			# screenshot_path is optional (None default); ensure the key exists to avoid
+			# pydantic from complaining about missing a field that has no default
+			if 'screenshot_path' not in state:
+				state['screenshot_path'] = None
 
 			validated_history.append(h)
 
