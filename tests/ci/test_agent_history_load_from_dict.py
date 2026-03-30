@@ -641,13 +641,40 @@ class TestLoadFromDictModelOutputNormalization:
 		assert isinstance(result.history[0].model_output, AgentOutput)
 		assert result.history[0].model_output.evaluation_previous_goal == 'good'
 
-
-
 	def test_model_output_invalid_dict_normalized_to_none(self):
-		"""Dict-shaped but invalid model_output (missing required fields / extra fields) must not crash.
+		"""A dict-shaped but pydantic-invalid model_output must be degraded to None.
+
+		A dict with wrong field types or missing required fields is not None, not a
+		string, and not excluded — but it fails AgentOutput.model_validate().
+		load_from_dict must catch the ValidationError and normalize to None.
+		"""
+		data = {
+			'history': [
+				{
+					# evaluation_previous_goal is required; wrong type (int instead of str)
+					'model_output': {
+						'evaluation_previous_goal': 123,
+						'memory': 'some memory',
+						'next_goal': 'finish',
+						'action': [],
+					},
+					'result': [{'extracted_content': 'test', 'is_done': True}],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data, AgentOutput)
+
+		assert result.history[0].model_output is None
+
+
+
+	def test_model_output_invalid_dict_extra_fields_normalized_to_none(self):
+		"""Dict-shaped model_output with extra/forbid fields must not crash.
 		ValidationError is caught and model_output is set to None so load_from_dict succeeds.
 		"""
-		# Case 1: dict with extra fields — AgentOutput has extra='forbid', causes ValidationError
+		# AgentOutput has extra='forbid', so any dict with unexpected fields raises ValidationError
 		data_extra = {
 			'history': [
 				{
@@ -668,7 +695,7 @@ class TestLoadFromDictModelOutputNormalization:
 		# Must not crash; ValidationError caught, falls back to None
 		assert result.history[0].model_output is None
 
-		# Case 2: missing required 'action' field — required by Field(..., ...)
+		# Missing required 'action' field — Field(..., ...) makes it required
 		data_missing_action = {
 			'history': [
 				{
