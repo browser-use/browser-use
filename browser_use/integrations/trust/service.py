@@ -130,12 +130,8 @@ class AgentIDTrustProvider(TrustProvider):
 			'iat': int(time.time()),
 			'exp': int(time.time()) + 300,  # 5 min expiry for no-data headers
 		}
-		header = base64.urlsafe_b64encode(
-			json.dumps({'alg': 'none', 'typ': 'Agent-Trust-Score'}).encode()
-		).decode().rstrip('=')
-		body = base64.urlsafe_b64encode(
-			json.dumps(payload).encode()
-		).decode().rstrip('=')
+		header = base64.urlsafe_b64encode(json.dumps({'alg': 'none', 'typ': 'Agent-Trust-Score'}).encode()).decode().rstrip('=')
+		body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
 		return f'{header}.{body}.'
 
 	async def get_trust_jwt(self, agent_id: str) -> str:
