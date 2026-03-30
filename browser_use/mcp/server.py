@@ -85,8 +85,9 @@ def _configure_mcp_server_logging():
 # Configure MCP server logging before any browser_use imports to capture early log lines
 _configure_mcp_server_logging()
 
-# Additional suppression - disable all logging completely for MCP mode
-logging.disable(logging.CRITICAL)
+# Suppress most logging but keep WARNING+ visible on stderr for diagnostics
+# logging.disable(logging.CRITICAL) was too aggressive — it swallowed all error output
+logging.disable(logging.INFO)
 
 # Import browser_use modules
 from browser_use.browser import BrowserProfile, BrowserSession
