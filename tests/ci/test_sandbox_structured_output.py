@@ -8,7 +8,7 @@ through serialization/deserialization.
 
 from pydantic import BaseModel
 
-from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, BrowserStateHistory
+from browser_use.agent.views import ActionModel, ActionResult, AgentHistory, AgentHistoryList, AgentOutput, BrowserStateHistory
 from browser_use.sandbox.sandbox import _parse_with_type_annotation
 
 
@@ -225,3 +225,44 @@ class TestStructuredOutputPropertyFallback:
 		explicit_result = history.get_structured_output(ExtractedData)
 		assert explicit_result is not None
 		assert explicit_result.title == 'Test'
+
+
+class TestAgentHistoryListDefensiveLoading:
+	"""Regression tests for partially-populated history payloads."""
+
+	def test_load_from_dict_handles_missing_model_output_and_interacted_element(self):
+		data = {
+			'history': [
+				{
+					'result': [],
+					'state': {'url': 'https://example.com', 'title': 'Test', 'tabs': []},
+				}
+			]
+		}
+
+		output_model = AgentOutput.type_with_custom_actions(ActionModel)
+		history = AgentHistoryList.load_from_dict(data, output_model)
+
+		assert len(history.history) == 1
+		assert history.history[0].model_output is None
+		assert history.history[0].state.interacted_element == []
+
+	def test_load_from_dict_defaults_missing_history_to_empty_list(self):
+		output_model = AgentOutput.type_with_custom_actions(ActionModel)
+
+		history = AgentHistoryList.load_from_dict({}, output_model)
+
+		assert history.history == []
+
+	def test_final_result_returns_none_when_last_step_has_no_results(self):
+		history = AgentHistoryList(
+			history=[
+				AgentHistory(
+					model_output=None,
+					result=[],
+					state=BrowserStateHistory(url='https://example.com', title='Test', tabs=[], interacted_element=[]),
+				)
+			]
+		)
+
+		assert history.final_result() is None
