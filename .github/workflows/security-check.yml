@@ -43,12 +43,12 @@ jobs:
             'browser_use/skill_cli/install.sh'
           )
 
-          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-          NEW_FILES=$(git diff --name-only --diff-filter=A "$BASE_SHA" "$HEAD_SHA")
+          readarray -d '' CHANGED_FILES < <(git diff --name-only -z "$BASE_SHA" "$HEAD_SHA")
+          readarray -d '' NEW_FILES < <(git diff --name-only -z --diff-filter=A "$BASE_SHA" "$HEAD_SHA")
           FLAGGED=""
 
           # Check for changes to sensitive paths
-          for file in $CHANGED_FILES; do
+          for file in "${CHANGED_FILES[@]}"; do
             for pattern in "${SENSITIVE_PATTERNS[@]}"; do
               if [[ "$file" == ${pattern}* ]]; then
                 FLAGGED="${FLAGGED}  ⚠️  ${file}\n"
@@ -58,7 +58,7 @@ jobs:
           done
 
           # Check for new executable/script files anywhere in the repo
-          for file in $NEW_FILES; do
+          for file in "${NEW_FILES[@]}"; do
             if [[ "$file" == *.sh || "$file" == *.bash || "$file" == *.dockerfile ]]; then
               FLAGGED="${FLAGGED}  ⚠️  ${file} (new script/executable file)\n"
             fi
