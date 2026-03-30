@@ -834,8 +834,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				if getattr(e, 'winerror', None) == 32:
 					raise RuntimeError(
 						f"Failed to copy Chrome profile '{self.profile_directory}' — another Chrome process is using it.\n"
-						f'Please close all Chrome windows first, or use --cdp-url to connect to an existing Chrome instance.\n'
-						f'Example: browser-use --cdp-url http://localhost:9222'
+						'Please close all Chrome windows first, or use --cdp-url to connect to an existing Chrome instance.\n'
+						'Example: browser-use --cdp-url http://localhost:9222'
 					) from e
 				raise
 			local_state_src = path_original_user_data / 'Local State'
@@ -846,9 +846,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				except OSError as e:
 					if getattr(e, 'winerror', None) == 32:
 						raise RuntimeError(
-							f"Failed to copy Chrome 'Local State' file — another Chrome process is using it.\n"
-							f'Please close all Chrome windows first, or use --cdp-url to connect to an existing Chrome instance.\n'
-							f'Example: browser-use --cdp-url http://localhost:9222'
+							"Failed to copy Chrome 'Local State' file — another Chrome process is using it.\n"
+							'Please close all Chrome windows first, or use --cdp-url to connect to an existing Chrome instance.\n'
+							'Example: browser-use --cdp-url http://localhost:9222'
 						) from e
 					raise
 			logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
