@@ -187,6 +187,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		file_system_path: str | None = None,
 		task_id: str | None = None,
 		calculate_cost: bool = False,
+		pricing_url: str | None = None,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
@@ -205,6 +206,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
+		enable_signal_handler: bool = True,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -413,12 +415,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		# Token cost service
-		self.token_cost_service = TokenCost(include_cost=calculate_cost)
+		self.token_cost_service = TokenCost(include_cost=calculate_cost, pricing_url=pricing_url)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
 		self.token_cost_service.register_llm(judge_llm)
 		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
 			self.token_cost_service.register_llm(self.settings.message_compaction.compaction_llm)
+
+		# Store signal handler setting (not part of AgentSettings as it's runtime behavior)
+		self.enable_signal_handler = enable_signal_handler
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -1045,6 +1050,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
+
+			# Clear previous step state after context preparation (which needs
+			# them for the "previous action result" prompt) but before the LLM
+			# call, so a timeout during _get_next_action or _execute_actions
+			# won't leave stale data from the previous step.
+			self.state.last_model_output = None
+			self.state.last_result = None
 
 			# Phase 2: Get model output and execute actions
 			await self._get_next_action(browser_state_summary)
@@ -2440,6 +2452,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1
 			self.state.last_result = [ActionResult(error=error_msg)]
+			# Ensure step counter advances on timeout — _finalize() may have
+			# been skipped or returned early due to the cancellation.
+			if self.state.n_steps == step + 1:
+				self.state.n_steps += 1
 
 		if on_step_end is not None:
 			await on_step_end(self)
@@ -2493,6 +2509,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			resume_callback=self.resume,
 			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
 			exit_on_second_int=True,
+			disabled=not self.enable_signal_handler,
 		)
 		signal_handler.register()
 

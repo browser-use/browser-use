@@ -68,7 +68,6 @@ class SecurityWatchdog(BaseWatchdog):
 				await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
 				self.logger.info(f'⛔️ Navigated to about:blank after blocked URL: {event.url}')
 			except Exception as e:
-				pass
 				self.logger.error(f'⛔️ Failed to navigate to about:blank: {type(e).__name__} {e}')
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
