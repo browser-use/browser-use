@@ -731,7 +731,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			if 'model_output' in h:
 				model_output = h['model_output']
 				if model_output is not None and isinstance(model_output, dict):
-					h['model_output'] = output_model.model_validate(model_output)
+					try:
+						h['model_output'] = output_model.model_validate(model_output)
+					except ValidationError:
+						# Invalid dict-shaped model_output: fall back to None so load_from_dict
+						# can still succeed rather than crashing on a validation error.
+						h['model_output'] = None
 				else:
 					h['model_output'] = None
 			else:

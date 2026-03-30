@@ -642,6 +642,50 @@ class TestLoadFromDictModelOutputNormalization:
 		assert result.history[0].model_output.evaluation_previous_goal == 'good'
 
 
+
+	def test_model_output_invalid_dict_normalized_to_none(self):
+		"""Dict-shaped but invalid model_output (missing required fields / extra fields) must not crash.
+		ValidationError is caught and model_output is set to None so load_from_dict succeeds.
+		"""
+		# Case 1: dict with extra fields — AgentOutput has extra='forbid', causes ValidationError
+		data_extra = {
+			'history': [
+				{
+					'model_output': {
+						'evaluation_previous_goal': 'good',
+						'memory': 'some memory',
+						'next_goal': 'finish',
+						'action': [],
+						'illegal_extra_field': 'oops',
+					},
+					'result': [{'extracted_content': 'test', 'is_done': True}],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result = AgentHistoryList.load_from_dict(data_extra, AgentOutput)
+		# Must not crash; ValidationError caught, falls back to None
+		assert result.history[0].model_output is None
+
+		# Case 2: missing required 'action' field — required by Field(..., ...)
+		data_missing_action = {
+			'history': [
+				{
+					'model_output': {
+						'evaluation_previous_goal': 'good',
+						'memory': 'some memory',
+						'next_goal': 'finish',
+					},
+					'result': [{'extracted_content': 'test', 'is_done': True}],
+					'state': {'url': 'https://example.com', 'title': 'Example', 'tabs': [], 'interacted_element': []},
+				}
+			]
+		}
+
+		result2 = AgentHistoryList.load_from_dict(data_missing_action, AgentOutput)
+		assert result2.history[0].model_output is None
+
 class TestLoadFromDictFinalResult:
 	"""final_result() edge cases covered by guards in load_from_dict and the method itself."""
 
