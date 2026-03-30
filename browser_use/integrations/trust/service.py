@@ -33,6 +33,8 @@ class TrustClaims(BaseModel):
 	attestations: list[str] = Field(default_factory=list)
 	attestation_count: int = 0
 	provider: str = ''
+	no_trust_data: bool = False
+	reason: str = ''
 	iat: int = 0
 	exp: int = 0
 
@@ -101,6 +103,41 @@ class AgentIDTrustProvider(TrustProvider):
 			self.BASE_URL = base_url
 		self._cache: dict[str, tuple[str, float]] = {}
 
+	async def get_no_trust_header(self, reason: str = 'provider_unreachable') -> str:
+		"""Return a minimal JWT indicating no trust data is available.
+
+		Sites need to distinguish 'no data' from 'low trust'. This produces
+		an unsigned JWT with ``no_trust_data: true`` so recipients can apply
+		their ``action_on_fail`` policy immediately.
+
+		Args:
+			reason: Human-readable explanation (e.g. the exception message).
+
+		Returns:
+			An unsigned JWT string with ``alg: none``.
+		"""
+		payload = {
+			'agent_id': 'unknown',
+			'trust_score': 0,
+			'trust_level': 'L0',
+			'scarring_score': 0,
+			'risk_score': 1.0,
+			'attestations': [],
+			'attestation_count': 0,
+			'provider': 'agentid',
+			'no_trust_data': True,
+			'reason': reason,
+			'iat': int(time.time()),
+			'exp': int(time.time()) + 300,  # 5 min expiry for no-data headers
+		}
+		header = base64.urlsafe_b64encode(
+			json.dumps({'alg': 'none', 'typ': 'Agent-Trust-Score'}).encode()
+		).decode().rstrip('=')
+		body = base64.urlsafe_b64encode(
+			json.dumps(payload).encode()
+		).decode().rstrip('=')
+		return f'{header}.{body}.'
+
 	async def get_trust_jwt(self, agent_id: str) -> str:
 		"""
 		Get a signed Agent-Trust-Score JWT for an agent.
@@ -108,49 +145,53 @@ class AgentIDTrustProvider(TrustProvider):
 		Checks the local cache first. If the cached JWT is still valid, returns it.
 		Otherwise fetches a fresh JWT from the AgentID API.
 
+		If the provider is unreachable or any error occurs, returns a no-trust-data
+		header instead of raising, so callers always get a usable JWT.
+
 		Args:
 			agent_id: The agent's unique identifier.
 
 		Returns:
-			A signed JWT string suitable for the Agent-Trust-Score header.
-
-		Raises:
-			httpx.HTTPStatusError: If the API returns a non-200 status.
-			Exception: If the response is missing the expected 'header' field.
+			A signed JWT string suitable for the Agent-Trust-Score header,
+			or an unsigned no-trust-data JWT on failure.
 		"""
 		if not agent_id:
 			raise ValueError('agent_id must not be empty')
 
-		# Check cache
-		if agent_id in self._cache:
-			jwt, expiry = self._cache[agent_id]
-			if time.time() < expiry:
-				logger.debug(f'Cache hit for agent {agent_id}')
+		try:
+			# Check cache
+			if agent_id in self._cache:
+				jwt, expiry = self._cache[agent_id]
+				if time.time() < expiry:
+					logger.debug(f'Cache hit for agent {agent_id}')
+					return jwt
+
+			headers = {}
+			if self.api_key:
+				headers['Authorization'] = f'Bearer {self.api_key}'
+
+			async with httpx.AsyncClient() as client:
+				resp = await client.get(
+					f'{self.BASE_URL}/agents/trust-header',
+					params={'agent_id': agent_id},
+					headers=headers,
+					timeout=10,
+				)
+				resp.raise_for_status()
+
+				data = resp.json()
+				jwt = data.get('header')
+				if not jwt:
+					raise Exception(f'API response missing "header" field: {data}')
+
+				# Cache it
+				self._cache[agent_id] = (jwt, time.time() + self.CACHE_TTL_SECONDS)
+				logger.info(f'Fetched trust JWT for agent {agent_id}')
+
 				return jwt
-
-		headers = {}
-		if self.api_key:
-			headers['Authorization'] = f'Bearer {self.api_key}'
-
-		async with httpx.AsyncClient() as client:
-			resp = await client.get(
-				f'{self.BASE_URL}/agents/trust-header',
-				params={'agent_id': agent_id},
-				headers=headers,
-				timeout=10,
-			)
-			resp.raise_for_status()
-
-			data = resp.json()
-			jwt = data.get('header')
-			if not jwt:
-				raise Exception(f'API response missing "header" field: {data}')
-
-			# Cache it
-			self._cache[agent_id] = (jwt, time.time() + self.CACHE_TTL_SECONDS)
-			logger.info(f'Fetched trust JWT for agent {agent_id}')
-
-			return jwt
+		except Exception as e:
+			logger.warning(f'Failed to fetch trust JWT for agent {agent_id}: {e}')
+			return await self.get_no_trust_header(reason=str(e))
 
 	async def verify_trust_jwt(self, jwt: str) -> TrustClaims:
 		"""

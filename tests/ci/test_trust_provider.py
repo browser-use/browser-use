@@ -86,6 +86,16 @@ class TestTrustClaims:
 		claims = TrustClaims(**_default_payload(custom_field='hello'))
 		assert claims.agent_id == 'agent_test_001'
 
+	def test_no_trust_data_defaults_false(self):
+		claims = TrustClaims(**_default_payload())
+		assert claims.no_trust_data is False
+		assert claims.reason == ''
+
+	def test_no_trust_data_flag(self):
+		claims = TrustClaims(**_default_payload(no_trust_data=True, reason='provider_unreachable'))
+		assert claims.no_trust_data is True
+		assert claims.reason == 'provider_unreachable'
+
 
 # ---------------------------------------------------------------------------
 # AgentIDTrustProvider — verify_trust_jwt (local, no network)
@@ -129,6 +139,61 @@ class TestVerifyTrustJWT:
 		jwt = _make_jwt(_default_payload(provider=''))
 		claims = await provider.verify_trust_jwt(jwt)
 		assert claims.provider == ''
+
+
+# ---------------------------------------------------------------------------
+# AgentIDTrustProvider — no-trust-data header
+# ---------------------------------------------------------------------------
+
+
+class TestNoTrustDataHeader:
+	async def test_get_no_trust_header_structure(self):
+		"""The no-trust header should be a valid 3-part JWT with empty signature."""
+		provider = AgentIDTrustProvider()
+		jwt = await provider.get_no_trust_header(reason='test_reason')
+		parts = jwt.split('.')
+		assert len(parts) == 3
+		assert parts[2] == ''  # empty signature for alg:none
+
+	async def test_get_no_trust_header_payload(self):
+		"""Payload should contain no_trust_data=True and the supplied reason."""
+		provider = AgentIDTrustProvider()
+		jwt = await provider.get_no_trust_header(reason='connection_timeout')
+		# Decode the payload
+		payload_b64 = jwt.split('.')[1]
+		payload_b64 += '=' * (-len(payload_b64) % 4)
+		payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+		assert payload['no_trust_data'] is True
+		assert payload['reason'] == 'connection_timeout'
+		assert payload['agent_id'] == 'unknown'
+		assert payload['trust_score'] == 0
+		assert payload['trust_level'] == 'L0'
+
+	async def test_get_no_trust_header_decodable_by_verify(self):
+		"""verify_trust_jwt should successfully decode a no-trust header."""
+		provider = AgentIDTrustProvider()
+		jwt = await provider.get_no_trust_header(reason='test')
+		claims = await provider.verify_trust_jwt(jwt)
+		assert claims.no_trust_data is True
+		assert claims.reason == 'test'
+		assert claims.trust_level == 'L0'
+
+	async def test_get_no_trust_header_default_reason(self):
+		provider = AgentIDTrustProvider()
+		jwt = await provider.get_no_trust_header()
+		payload_b64 = jwt.split('.')[1]
+		payload_b64 += '=' * (-len(payload_b64) % 4)
+		payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+		assert payload['reason'] == 'provider_unreachable'
+
+	async def test_get_trust_jwt_returns_no_trust_on_failure(self):
+		"""When the API is unreachable, get_trust_jwt should return a no-trust header."""
+		provider = AgentIDTrustProvider(base_url='https://localhost:1')  # unreachable
+		jwt = await provider.get_trust_jwt('agent_test')
+		# Should be a valid JWT, not an exception
+		claims = await provider.verify_trust_jwt(jwt)
+		assert claims.no_trust_data is True
+		assert claims.agent_id == 'unknown'
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +301,41 @@ class TestTrustPolicy:
 		result = policy.evaluate(claims)
 		assert result.trust_level == 'L2'
 		assert result.provider == 'agentid'
+
+	def test_no_trust_data_triggers_action_on_fail_block(self):
+		"""Claims with no_trust_data should immediately fail with the configured action."""
+		policy = TrustPolicy({'min_trust_score': 50, 'action_on_fail': 'block'})
+		claims = TrustClaims(**_default_payload(no_trust_data=True, reason='provider_unreachable'))
+		result = policy.evaluate(claims)
+		assert not result.passed
+		assert result.action == 'block'
+		assert 'no_trust_data' in result.failures[0]
+
+	def test_no_trust_data_triggers_action_on_fail_degrade(self):
+		policy = TrustPolicy({'action_on_fail': 'degrade'})
+		claims = TrustClaims(**_default_payload(no_trust_data=True, reason='timeout'))
+		result = policy.evaluate(claims)
+		assert not result.passed
+		assert result.action == 'degrade'
+		assert 'timeout' in result.failures[0]
+
+	def test_no_trust_data_triggers_action_on_fail_log(self):
+		policy = TrustPolicy({'action_on_fail': 'log'})
+		claims = TrustClaims(**_default_payload(no_trust_data=True, reason='dns_failure'))
+		result = policy.evaluate(claims)
+		assert not result.passed
+		assert result.action == 'log'
+
+	def test_no_trust_data_skips_normal_checks(self):
+		"""Even with high trust_score in payload, no_trust_data should short-circuit."""
+		policy = TrustPolicy({'min_trust_score': 10, 'action_on_fail': 'block'})
+		claims = TrustClaims(**_default_payload(trust_score=99, no_trust_data=True, reason='test'))
+		result = policy.evaluate(claims)
+		assert not result.passed
+		assert result.action == 'block'
+		# Should only have the no_trust_data failure, not any threshold failures
+		assert len(result.failures) == 1
+		assert 'no_trust_data' in result.failures[0]
 
 
 # ---------------------------------------------------------------------------

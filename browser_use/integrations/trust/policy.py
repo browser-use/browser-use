@@ -84,6 +84,18 @@ class TrustPolicy:
 		Returns:
 			PolicyResult indicating whether the agent passed and what action to take.
 		"""
+		# Short-circuit when no trust data is available
+		if claims.no_trust_data:
+			reason = claims.reason or 'no trust data available'
+			logger.warning(f'No trust data for agent {claims.agent_id}: {reason} -> action={self.action_on_fail}')
+			return PolicyResult(
+				passed=False,
+				action=self.action_on_fail,
+				failures=[f'no_trust_data: {reason}'],
+				trust_level=claims.trust_level,
+				provider=claims.provider,
+			)
+
 		failures: list[str] = []
 
 		if claims.trust_score < self.min_trust_score:
