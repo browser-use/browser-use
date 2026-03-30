@@ -1741,9 +1741,27 @@ class BrowserSession(BaseModel):
 				from browser_use.utils import get_browser_use_version
 
 				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
-				version_info = await client.get(url, headers=headers)
-				self.logger.debug(f'Raw version info: {str(version_info)}')
-				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+
+				# Retry /json/version requests — Chrome's CDP port may not be ready
+				# immediately after launch, especially on slower machines or when the
+				# browser is restoring a large session.
+				max_attempts = 15
+				last_exc: Exception | None = None
+				for attempt in range(max_attempts):
+					try:
+						version_info = await client.get(url, headers=headers)
+						self.logger.debug(f'Raw version info: {str(version_info)}')
+						self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+						break
+					except Exception as e:
+						last_exc = e
+						if attempt < max_attempts - 1:
+							self.logger.debug(f'CDP /json/version attempt {attempt + 1}/{max_attempts} failed: {e}, retrying...')
+							await asyncio.sleep(1)
+						else:
+							raise RuntimeError(
+								f'Failed to fetch CDP WebSocket URL from {url} after {max_attempts} attempts: {last_exc}'
+							) from last_exc
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
 
@@ -1762,8 +1780,65 @@ class BrowserSession(BaseModel):
 				additional_headers=headers or None,
 				max_ws_frame_size=200 * 1024 * 1024,  # Use 200MB limit to handle pages with very large DOMs
 			)
+
+			async def _start_cdp_client(client: CDPClient) -> None:
+				"""Start CDP WebSocket connection, bypassing system proxy for local connections.
+
+				System proxies (Surge, ClashX, etc.) intercept WebSocket upgrade requests
+				to localhost and return invalid HTTP responses. For local connections we
+				call websockets.connect with proxy=None to avoid this.
+				"""
+				if self.is_local:
+					import websockets as _ws
+
+					if client.ws is not None:
+						raise RuntimeError('Client is already started')
+					connect_kwargs: dict[str, Any] = {
+						'max_size': client.max_ws_frame_size,
+						'proxy': None,  # Bypass system proxy for localhost
+					}
+					if client.additional_headers:
+						connect_kwargs['additional_headers'] = client.additional_headers
+					client.ws = await _ws.connect(client.url, **connect_kwargs)
+					client._message_handler_task = asyncio.create_task(client._handle_messages())
+				else:
+					await client.start()
+
+			# Retry WebSocket connection — Chrome may not be ready for WebSocket
+			# handshake immediately after launch.
+			ws_max_attempts = 10 if self.is_local else 1
+			ws_last_exc: Exception | None = None
+			for ws_attempt in range(ws_max_attempts):
+				try:
+					await _start_cdp_client(self._cdp_client_root)
+					break
+				except Exception as e:
+					ws_last_exc = e
+					if ws_attempt < ws_max_attempts - 1:
+						# Clean up failed client before retry
+						try:
+							await self._cdp_client_root.stop()
+						except Exception:
+							pass
+						# Re-create client for next attempt (stop() invalidates internal state)
+						self._cdp_client_root = CDPClient(
+							self.cdp_url,
+							additional_headers=headers or None,
+							max_ws_frame_size=200 * 1024 * 1024,
+						)
+						self.logger.debug(
+							f'CDP WebSocket attempt {ws_attempt + 1}/{ws_max_attempts} failed: {e}, retrying in 1s...'
+						)
+						await asyncio.sleep(1)
+					else:
+						self._cdp_client_root = None
+						if ws_max_attempts > 1:
+							raise RuntimeError(
+								f'CDP WebSocket connection failed after {ws_max_attempts} attempts: {ws_last_exc}'
+							) from ws_last_exc
+						raise
+
 			assert self._cdp_client_root is not None
-			await self._cdp_client_root.start()
 
 			# Initialize event-driven session manager FIRST (before enabling autoAttach)
 			# SessionManager will:
