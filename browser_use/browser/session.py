@@ -3204,8 +3204,8 @@ class BrowserSession(BaseModel):
 	async def _close_extension_options_pages(self) -> None:
 		"""Close any extension options/welcome pages that have opened."""
 		try:
-			# Get all page targets from SessionManager
-			page_targets = self.session_manager.get_all_page_targets()
+			# Get all page targets from SessionManager (include chrome-extension URLs for cleanup)
+			page_targets = self.session_manager.get_all_page_targets(include_chrome_extensions=True)
 
 			for target in page_targets:
 				target_url = target.url

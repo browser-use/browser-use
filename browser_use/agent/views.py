@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -689,16 +690,83 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
-		# loop through history and validate output_model actions to enrich with custom actions
-		for h in data['history']:
-			if h['model_output']:
-				if isinstance(h['model_output'], dict):
-					h['model_output'] = output_model.model_validate(h['model_output'])
+		# Deep copy to avoid mutating the caller's nested data.
+		# Without this, history items and their nested dicts are shared references.
+		data = copy.deepcopy(data)
+
+		# Rebuild history: filter malformed (non-dict) items, normalize each entry.
+		# Since `data` is a deep copy (line 695), mutations below are safe.
+		# Non-dict items are dropped so data['history'] is fully clean for model_validate.
+		history_data = data.get('history')
+		if not isinstance(history_data, list):
+			history_data = []
+		validated_history: list[dict[str, Any]] = []
+		for h in history_data:
+			# Skip non-dict items (None, string, list, etc.) to prevent model_validate from failing
+			if not isinstance(h, dict):
+				continue
+			# h is the deep-copied item (deepcopy was done at top of function), so safe to mutate
+			# Normalize result: coerce to list of dicts. Non-list/non-dict iterables (e.g. str, dict)
+			# cause unexpected iteration or pydantic validation failures.
+			# Filter result items to dicts only so that non-dict items in a list also can't fail validation.
+			result = h.get('result')
+			if isinstance(result, list):
+				# Safely normalize result items: skip any that can't be converted to a plain dict
+				# (e.g. pydantic models, TabInfo-like dicts with extra fields, etc.)
+				normalized_result = []
+				for r in result:
+					if isinstance(r, dict):
+						try:
+							normalized_result.append(dict(r))
+						except (TypeError, ValueError):
+							# Dict-like objects that fail plain-dict coercion are skipped
+							pass
+				h['result'] = normalized_result
+			elif isinstance(result, dict):
+				# A bare dict is not a list of ActionResult dicts; treat as empty.
+				h['result'] = []
+			else:
+				h['result'] = []
+
+			if 'model_output' in h:
+				model_output = h['model_output']
+				if model_output is not None and isinstance(model_output, dict):
+					try:
+						h['model_output'] = output_model.model_validate(model_output)
+					except ValidationError:
+						# Invalid dict-shaped model_output: fall back to None so load_from_dict
+						# can still succeed rather than crashing on a validation error.
+						h['model_output'] = None
 				else:
 					h['model_output'] = None
-			if 'interacted_element' not in h['state']:
-				h['state']['interacted_element'] = None
+			else:
+				h['model_output'] = None
 
+			# Normalize state: fill in required BrowserStateHistory fields with safe defaults.
+			# Use isinstance checks so None and wrong-type values are also fixed.
+			state = h.get('state')
+			if not isinstance(state, dict):
+				state = {}
+				h['state'] = state
+			if not isinstance(state.get('url'), str):
+				state['url'] = ''
+			if not isinstance(state.get('title'), str):
+				state['title'] = ''
+			if not isinstance(state.get('tabs'), list):
+				state['tabs'] = []
+			if not isinstance(state.get('interacted_element'), list):
+				state['interacted_element'] = []
+			# screenshot_path is optional (None default); ensure the key exists to avoid
+			# pydantic from complaining about missing a field that has no default
+			if 'screenshot_path' not in state:
+				state['screenshot_path'] = None
+
+			validated_history.append(h)
+
+		# Replace the history list with the filtered, normalized version so the
+		# deep-copied data dict is fully clean.  model_validate then operates on
+		# a dict that has no malformed items left in it.
+		data['history'] = validated_history
 		history = cls.model_validate(data)
 		return history
 
@@ -727,7 +795,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def final_result(self) -> None | str:
 		"""Final result from history"""
-		if self.history and self.history[-1].result[-1].extracted_content:
+		if self.history and self.history[-1].result and self.history[-1].result[-1].extracted_content:
 			return self.history[-1].result[-1].extracted_content
 		return None
 
