@@ -710,10 +710,12 @@ class BrowserUseServer:
 		if new_tab:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
 			await event
+			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Opened new tab with URL: {url}'
 		else:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
 			await event
+			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Navigated to: {url}'
 
 	async def _click(
@@ -738,6 +740,7 @@ class BrowserUseServer:
 				ClickCoordinateEvent(coordinate_x=coordinate_x, coordinate_y=coordinate_y)
 			)
 			await event
+			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Clicked at coordinates ({coordinate_x}, {coordinate_y})'
 
 		# Index-based clicking
@@ -770,6 +773,7 @@ class BrowserUseServer:
 
 				event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=full_url, new_tab=True))
 				await event
+				await event.event_result(raise_if_any=True, raise_if_none=False)
 				return f'Clicked element {index} and opened in new tab {full_url[:20]}...'
 			else:
 				# For non-link elements, just do a normal click
@@ -777,6 +781,7 @@ class BrowserUseServer:
 
 				event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
 				await event
+				await event.event_result(raise_if_any=True, raise_if_none=False)
 				return f'Clicked element {index} (new tab not supported for non-link elements)'
 		else:
 			# Normal click
@@ -784,6 +789,7 @@ class BrowserUseServer:
 
 			event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
 			await event
+			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Clicked element {index}'
 
 	async def _type_text(self, index: int, text: str) -> str:
@@ -823,6 +829,7 @@ class BrowserUseServer:
 			TypeTextEvent(node=element, text=text, is_sensitive=is_potentially_sensitive, sensitive_key_name=sensitive_key_name)
 		)
 		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 
 		if is_potentially_sensitive:
 			if sensitive_key_name:
@@ -837,7 +844,9 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active', None
 
-		state = await self.browser_session.get_browser_state_summary()
+		self._update_session_activity(self.browser_session.id)
+
+		state = await self.browser_session.get_browser_state_summary(include_screenshot=include_screenshot)
 
 		result: dict[str, Any] = {
 			'url': state.url,
@@ -963,9 +972,10 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		self._update_session_activity(self.browser_session.id)
+
 		from browser_use.browser.events import ScrollEvent
 
-		# Scroll by a standard amount (500 pixels)
 		event = self.browser_session.event_bus.dispatch(
 			ScrollEvent(
 				direction=direction,  # type: ignore
@@ -973,6 +983,7 @@ class BrowserUseServer:
 			)
 		)
 		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 		return f'Scrolled {direction}'
 
 	async def _go_back(self) -> str:
@@ -980,10 +991,13 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		self._update_session_activity(self.browser_session.id)
+
 		from browser_use.browser.events import GoBackEvent
 
 		event = self.browser_session.event_bus.dispatch(GoBackEvent())
 		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 		return 'Navigated back'
 
 	async def _close_browser(self) -> str:
@@ -993,6 +1007,7 @@ class BrowserUseServer:
 
 			event = self.browser_session.event_bus.dispatch(BrowserStopEvent())
 			await event
+			await event.event_result(raise_if_any=True, raise_if_none=False)
 			self.browser_session = None
 			return 'Browser closed'
 		return 'No browser session to close'
@@ -1018,6 +1033,7 @@ class BrowserUseServer:
 		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
 		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 		state = await self.browser_session.get_browser_state_summary()
 		return f'Switched to tab {tab_id}: {state.url}'
 
@@ -1031,6 +1047,7 @@ class BrowserUseServer:
 		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
 		event = self.browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
 		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 		current_url = await self.browser_session.get_current_page_url()
 		return f'Closed tab # {tab_id}, now on {current_url}'
 
