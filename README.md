@@ -20,7 +20,7 @@
 
 # Fork Changes
 
-This fork (`wangyaominde/browser-use-mcp`) contains bug fixes and test coverage on top of the original [browser-use](https://github.com/browser-use/browser-use). MCP server and CLI are unchanged from upstream.
+This fork (`wangyaominde/browser-use`) contains bug fixes and test coverage on top of the original [browser-use](https://github.com/browser-use/browser-use). MCP server and CLI are unchanged from upstream.
 
 ### Bug Fixes (not yet in upstream)
 - **fix: `clear_cookies()` was broken** — the public API called deprecated `Network.clearBrowserCookies` which no longer exists in CDP; now delegates to `Storage.clearCookies`
@@ -64,7 +64,7 @@ await session.clear_cookies()
 
 ```bash
 # Clone the fork
-git clone https://github.com/wangyaominde/browser-use-mcp.git
+git clone https://github.com/wangyaominde/browser-use.git
 cd browser-use-mcp
 
 # Set up environment
@@ -78,7 +78,7 @@ uv sync
 
 To use as a dependency in another project:
 ```bash
-uv add git+https://github.com/wangyaominde/browser-use-mcp.git
+uv add git+https://github.com/wangyaominde/browser-use.git
 ```
 
 ### Install the original upstream version
