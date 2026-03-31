@@ -352,10 +352,8 @@ class TestCookieSaveLoad:
 		await asyncio.sleep(1)
 
 		# Also inject a cookie for a different domain via CDP
-		from cdp_use.cdp.network import Cookie
-
-		extra_cookie = Cookie(name='other_domain_cookie', value='other_val', domain='.otherdomain.test', path='/')
-		await session._cdp_set_cookies([extra_cookie])
+		extra_cookie = {'name': 'other_domain_cookie', 'value': 'other_val', 'domain': '.otherdomain.test', 'path': '/'}
+		await session._cdp_set_cookies([extra_cookie])  # type: ignore[list-item]
 
 		# Save
 		save_event = session.event_bus.dispatch(SaveStorageStateEvent())
