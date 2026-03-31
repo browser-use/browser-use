@@ -145,7 +145,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
 		skill_service: Any | None = None,
 		# Skillbase (domain knowledge)
-		use_skillbase: bool = False,
+		use_skillbase: bool = True,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
