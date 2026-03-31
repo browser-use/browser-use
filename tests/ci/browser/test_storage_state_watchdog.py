@@ -26,7 +26,6 @@ import pytest
 from pytest_httpserver import HTTPServer
 
 from browser_use.browser.events import (
-	LoadStorageStateEvent,
 	SaveStorageStateEvent,
 	StorageStateLoadedEvent,
 	StorageStateSavedEvent,
@@ -34,7 +33,6 @@ from browser_use.browser.events import (
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -339,9 +337,7 @@ class TestCookieSaveLoad:
 
 			cookies2 = await session2._cdp_get_cookies()
 			cookie_names = [c.get('name', '') for c in cookies2]
-			assert 'test_session' in cookie_names, (
-				f'Cookie from session 1 should persist to session 2, got: {cookie_names}'
-			)
+			assert 'test_session' in cookie_names, f'Cookie from session 1 should persist to session 2, got: {cookie_names}'
 			matching = [c for c in cookies2 if c.get('name') == 'test_session']
 			assert matching[0].get('value') == 'abc123'
 		finally:
@@ -416,7 +412,9 @@ class TestSessionCookieNormalization:
 
 			cookies = await session._cdp_get_cookies()
 			session_cookies = [c for c in cookies if c.get('name') == 'session_cookie']
-			assert len(session_cookies) == 1, f'Session cookie should survive normalization, got: {[c.get("name") for c in cookies]}'
+			assert len(session_cookies) == 1, (
+				f'Session cookie should survive normalization, got: {[c.get("name") for c in cookies]}'
+			)
 			assert session_cookies[0].get('value') == 'sess_val'
 		finally:
 			await session.kill()
@@ -718,9 +716,7 @@ class TestStorageStateEvents:
 			await save_event
 
 			# Check event history for StorageStateSavedEvent
-			saved_events = [
-				e for e in session.event_bus.event_history.values() if isinstance(e, StorageStateSavedEvent)
-			]
+			saved_events = [e for e in session.event_bus.event_history.values() if isinstance(e, StorageStateSavedEvent)]
 			assert len(saved_events) >= 1, 'StorageStateSavedEvent should be emitted after save'
 			assert saved_events[-1].cookies_count > 0, 'Saved event should report cookie count > 0'
 		finally:
@@ -759,9 +755,7 @@ class TestStorageStateEvents:
 			await asyncio.sleep(1)
 
 			# Check event history
-			loaded_events = [
-				e for e in session.event_bus.event_history.values() if isinstance(e, StorageStateLoadedEvent)
-			]
+			loaded_events = [e for e in session.event_bus.event_history.values() if isinstance(e, StorageStateLoadedEvent)]
 			assert len(loaded_events) >= 1, 'StorageStateLoadedEvent should be emitted on startup'
 			assert loaded_events[-1].cookies_count == 1
 		finally:
