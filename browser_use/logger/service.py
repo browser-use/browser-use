@@ -63,6 +63,10 @@ class EventLogger:
             if line.strip()
         ]
 
+    def close(self) -> None:
+        """Flush and release the file handle. Must be called before deleting the file on Windows."""
+        pass  # Since we use 'a' mode (open/close per write), nothing to flush.
+        # If you ever switch to a persistent file handle, close it here.
     # ------------------------------------------------------------------ #
     #  Internal                                                            #
     # ------------------------------------------------------------------ #
@@ -70,3 +74,4 @@ class EventLogger:
     def _write(self, entry: dict) -> None:
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
+    

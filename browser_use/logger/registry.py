@@ -33,7 +33,9 @@ def register_logger(task_id: str, log_dir: str | Path = "logs") -> EventLogger:
 
 def unregister_logger(task_id: str) -> None:
     """Clean up after a task finishes."""
-    _loggers.pop(task_id, None)
+    logger = _loggers.pop(task_id, None)
+    if logger:
+        logger.close()
 
 
 def current_task_ids() -> list[str]:
