@@ -59,7 +59,9 @@ from browser_use.tools.views import (
 	UploadFileAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
+from langfuse import get_client, observe
 
+langfuse = get_client()
 logger = logging.getLogger(__name__)
 
 # Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
@@ -953,6 +955,7 @@ class Tools(Generic[Context]):
 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
 			param_model=ExtractAction,
 		)
+		@observe(name="extract", as_type="span")
 		async def extract(
 			params: ExtractAction,
 			browser_session: BrowserSession,
@@ -1178,14 +1181,20 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
-				return ActionResult(
+				resuult =  ActionResult(
 					extracted_content=extracted_content,
 					include_extracted_content_only_once=include_extracted_content_only_once,
 					long_term_memory=memory,
 				)
+				return result
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
 				raise RuntimeError(str(e))
+			
+			langfuse.update(
+				input={"message": [SystemMessage(content=system_prompt), UserMessage(content=prompt)]},
+				output=result 
+			)
 
 		# --- Page search and exploration tools (zero LLM cost) ---
 

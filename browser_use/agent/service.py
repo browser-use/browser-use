@@ -1,3 +1,4 @@
+from logger.registry import unregister_logger
 import asyncio
 import gc
 import inspect
@@ -10,12 +11,12 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
-
+from langfuse import observe, get_client
 if TYPE_CHECKING:
 	from browser_use.skills.views import Skill
 
 from dotenv import load_dotenv
-
+from logger.registry import set_current_task, register_logger
 from browser_use.agent.cloud_events import (
 	CreateAgentOutputFileEvent,
 	CreateAgentSessionEvent,
@@ -81,8 +82,10 @@ from browser_use.utils import (
 	time_execution_sync,
 )
 
+
 logger = logging.getLogger(__name__)
 
+langfuse = get_client()
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 	"""Utility function to log the model's response."""
@@ -207,6 +210,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		workflow_dir = Path.parent() / "workflows"
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -274,6 +278,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
+
+		register_logger(self.task_id, workflow_dir)
+		set_current_task(task_id=self.task_id)
 		self.session_id: str = uuid7str()
 
 		base_profile = browser_profile or DEFAULT_BROWSER_PROFILE
@@ -1018,7 +1025,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.state.paused:
 			raise InterruptedError
 
-	@observe(name='agent.step', ignore_output=True, ignore_input=True)
+	@observe(name='step', as_type='span')
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task"""
@@ -1160,7 +1167,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_info=step_info,
 		)
 
-	@observe_debug(ignore_input=True, name='get_next_action')
+	@observe(name='_get_next_action', as_type='span')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
@@ -1577,7 +1584,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
 
-	@observe(ignore_input=True, ignore_output=False)
+	@observe(name='_judge_trace', as_type='generation')
 	async def _judge_trace(self) -> JudgementResult | None:
 		"""Judge the trace of the agent"""
 		task = self.task
@@ -1926,7 +1933,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	# endregion - URL replacement
 
 	@time_execution_async('--get_next_action')
-	@observe_debug(ignore_input=True, ignore_output=True, name='get_model_output')
+	@observe(name='get_model_output', as_type='generation')
 	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 
@@ -2414,6 +2421,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return None
 
+
+	@observe(name="execute_step", as_type="span")
 	async def _execute_step(
 		self,
 		step: int,
@@ -2477,7 +2486,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return False
 
-	@observe(name='agent.run', ignore_input=True, ignore_output=True)
+	@observe(name='run', as_type='span')
 	@time_execution_async('--run')
 	async def run(
 		self,
@@ -2687,11 +2696,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Configurable via TIMEOUT_AgentEventBusStop env var (default: 3.0s)
 			await self.eventbus.stop(clear=True, timeout=_get_timeout('TIMEOUT_AgentEventBusStop', 3.0))
-
+			unregister_logger(self.task_id)
 			await self.close()
 
-	@observe_debug(ignore_input=True, ignore_output=True)
+	
 	@time_execution_async('--multi_act')
+	@observe(name='multi_act', as_type='span')
 	async def multi_act(self, actions: list[ActionModel]) -> list[ActionResult]:
 		"""Execute multiple actions with page-change guards.
 
@@ -2861,6 +2871,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.info('✅ Task completed successfully')
 			await self._demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
 
+	@observe(name="generate_rerun_summary", as_type="span")
 	async def _generate_rerun_summary(
 		self, original_task: str, results: list[ActionResult], summary_llm: BaseChatModel | None = None
 	) -> ActionResult:
@@ -2931,6 +2942,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					completion_status='complete' if error_count == 0 else ('partial' if success_count > 0 else 'failed'),
 				)
 
+			with langfuse.start_as_current_observation(as_type="generation", name="rerun_summary_prompt") as rerun_observation:
+				rerun_observation.update_trace(
+					input={"prompt": messages},
+       				output={"response": response, "summary": summary}
+				)
+
 			self.logger.info(f'📊 Rerun Summary: {summary.summary}')
 			self.logger.info(f'📊 Status: {summary.completion_status} (success={summary.success})')
 
@@ -2952,6 +2969,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				long_term_memory=f'Rerun completed: {success_count} steps succeeded, {error_count} errors',
 			)
 
+	@observe(name="execute_ai_step", as_type="generation")
 	async def _execute_ai_step(
 		self,
 		query: str,

@@ -23,11 +23,13 @@ from browser_use.tools.registry.views import (
 	SpecialActionParameters,
 )
 from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, time_execution_async
+from langfuse import observe
+from logger.registry import get_current_logger
 
 Context = TypeVar('Context')
 
 logger = logging.getLogger(__name__)
-
+GLOBAL_STEP_COUNTER = [1]
 
 class Registry(Generic[Context]):
 	"""Service for registering and managing actions"""
@@ -325,8 +327,8 @@ class Registry(Generic[Context]):
 
 		return decorator
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='execute_action')
 	@time_execution_async('--execute_action')
+	@observe(name='execute_action', as_type="span")
 	async def execute_action(
 		self,
 		action_name: str,
@@ -341,8 +343,53 @@ class Registry(Generic[Context]):
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
 			raise ValueError(f'Action {action_name} not found')
-
+		events_logger = get_current_logger()
 		action = self.registry.actions[action_name]
+		node = await browser_session.get_dom_element_by_index(params.get("index")) or {}
+		elements_data = []
+		if node:
+			# Get bounding box using absolute position (includes iframe translations) if available
+			if node.absolute_position:
+				# Use absolute position which includes iframe coordinate translations
+				rect = node.absolute_position
+				bbox = {'x': rect.x, 'y': rect.y, 'width': rect.width, 'height': rect.height}
+
+				# Only include elements with valid bounding boxes
+				if bbox and bbox.get('width', 0) > 0 and bbox.get('height', 0) > 0:
+					element = {
+						'x': bbox['x'],
+						'y': bbox['y'],
+						'width': bbox['width'],
+						'height': bbox['height'],
+						'element_name': node.node_name,
+						'is_clickable': node.snapshot_node.is_clickable if node.snapshot_node else True,
+						'is_scrollable': getattr(node, 'is_scrollable', False),
+						'attributes': node.attributes or {},
+						'frame_id': getattr(node, 'frame_id', None),
+						'node_id': node.node_id,
+						'backend_node_id': node.backend_node_id,
+						'xpath': node.xpath,
+						'text_content': node.get_all_children_text()[:50]
+						if hasattr(node, 'get_all_children_text')
+						else node.node_value[:50],
+					}
+					elements_data.append(element)
+		# print(elements_data)
+		params_data = {
+			**params,
+			"elements": elements_data
+		}
+		# self.log_event({
+		# 	"event": "event_start",
+		# 	"step": GLOBAL_STEP_COUNTER[0],
+		# 	"tool": action_name,
+		# 	"action": params_data,
+		# 	# "timestamp": time.time(),
+    	# })
+		events_logger.log_start(
+			tool=action_name,
+			action=params_data
+		)
 		try:
 			# Create the validated Pydantic model
 			try:
@@ -391,12 +438,23 @@ class Registry(Generic[Context]):
 			# All functions are now normalized to accept kwargs only
 			# Call with params and unpacked special context
 			try:
-				return await action.function(params=validated_params, **special_context)
+				res = await action.function(params=validated_params, **special_context)
 			except Exception as e:
 				raise
+			events_logger.log_end(tool=action_name, status="success")
+			return res
 
 		except ValueError as e:
 			# Preserve ValueError messages from validation
+			# self.log_event({
+			# 	"event": "event_end",
+			# 	"step": GLOBAL_STEP_COUNTER[0],
+			# 	"tool": action_name,
+			# 	"status": "failure",
+			# 	"error": str(e),
+			# 	"timestamp": time.time(),
+			# })
+			events_logger.log_end(action_name, "failure", str(e))
 			if 'requires browser_session but none provided' in str(e) or 'requires page_extraction_llm but none provided' in str(
 				e
 			):
@@ -404,8 +462,26 @@ class Registry(Generic[Context]):
 			else:
 				raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 		except TimeoutError as e:
+			# self.log_event({
+			# 	"event": "event_end",
+			# 	"step": GLOBAL_STEP_COUNTER[0],
+			# 	"tool": action_name,
+			# 	"status": "failure",
+			# 	"error": "timeout",
+			# 	"timestamp": time.time(),
+			# })
+			events_logger.log_end(action_name, "failure", str(e))
 			raise RuntimeError(f'Error executing action {action_name} due to timeout.') from e
 		except Exception as e:
+			# self.log_event({
+			# 	"event": "event_end",
+			# 	"step": GLOBAL_STEP_COUNTER[0],
+			# 	"tool": action_name,
+			# 	"status": "failure",
+			# 	"error": str(e),
+			# 	"timestamp": time.time(),
+			# })
+			events_logger.log_end(action_name, "failure", str(e))
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 
 	def _log_sensitive_data_usage(self, placeholders_used: set[str], current_url: str | None) -> None:

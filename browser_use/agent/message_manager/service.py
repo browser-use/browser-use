@@ -26,7 +26,9 @@ from browser_use.llm.messages import (
 )
 from browser_use.observability import observe_debug
 from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
+from langfuse import observe, get_client
 
+langfuse = get_client()
 logger = logging.getLogger(__name__)
 
 
@@ -205,6 +207,7 @@ class MessageManager:
 			self.sensitive_data = effective_sensitive_data
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
 
+	@observe(name="maybe_compact_messages", as_type="span")
 	async def maybe_compact_messages(
 		self,
 		llm: BaseChatModel | None,
@@ -276,6 +279,9 @@ class MessageManager:
 
 		if settings.summary_max_chars and len(summary) > settings.summary_max_chars:
 			summary = summary[: settings.summary_max_chars].rstrip() + '…'
+
+		with langfuse.start_as_current_observation(as_type="generation", name="summarize_message") as summarize_message:
+			summarize_message.update(input={"messages": messages}, output={"summary":summary})
 
 		self.state.compacted_memory = summary
 		self.state.compaction_count += 1
