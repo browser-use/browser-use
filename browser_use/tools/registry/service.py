@@ -23,8 +23,8 @@ from browser_use.tools.registry.views import (
 	SpecialActionParameters,
 )
 from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, time_execution_async
+from browser_use.logger.registry import get_current_logger
 from langfuse import observe
-from logger.registry import get_current_logger
 
 Context = TypeVar('Context')
 
@@ -386,6 +386,7 @@ class Registry(Generic[Context]):
 		# 	"action": params_data,
 		# 	# "timestamp": time.time(),
     	# })
+		
 		events_logger.log_start(
 			tool=action_name,
 			action=params_data
