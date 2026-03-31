@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 	from browser_use.skills.views import Skill
 
 from dotenv import load_dotenv
-from logger.registry import set_current_task, register_logger
 from browser_use.agent.cloud_events import (
 	CreateAgentOutputFileEvent,
 	CreateAgentSessionEvent,
@@ -210,7 +209,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
-		workflow_dir = Path.parent() / "workflows"
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -279,8 +277,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
 
-		register_logger(self.task_id, workflow_dir)
-		set_current_task(task_id=self.task_id)
 		self.session_id: str = uuid7str()
 
 		base_profile = browser_profile or DEFAULT_BROWSER_PROFILE
@@ -2696,7 +2692,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Configurable via TIMEOUT_AgentEventBusStop env var (default: 3.0s)
 			await self.eventbus.stop(clear=True, timeout=_get_timeout('TIMEOUT_AgentEventBusStop', 3.0))
-			unregister_logger(self.task_id)
 			await self.close()
 
 	
