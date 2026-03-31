@@ -123,6 +123,7 @@ class AgentMessagePrompt:
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
+		domain_skills_info: str | None = None,
 		plan_description: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
@@ -142,6 +143,7 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
+		self.domain_skills_info: str | None = domain_skills_info
 		self.plan_description: str | None = plan_description
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
@@ -418,6 +420,9 @@ Available tabs:
 		# Add unavailable skills information if any
 		if self.unavailable_skills_info:
 			state_description += '\n' + self.unavailable_skills_info + '\n'
+
+		if self.domain_skills_info:
+			state_description += '<domain_skills>\n' + self.domain_skills_info + '\n</domain_skills>\n'
 
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)

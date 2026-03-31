@@ -144,6 +144,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
 		skill_service: Any | None = None,
+		# Skillbase (domain knowledge)
+		use_skillbase: bool = False,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
@@ -342,6 +344,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			self.skill_service = SkillService(skill_ids=skill_ids)
 
+		# Skillbase integration (domain knowledge from skillbase server)
+		self._skillbase = None
+		if use_skillbase:
+			from browser_use.skillbase import SkillbaseService
+
+			self._skillbase = SkillbaseService()
+			self._register_skillbase_tool()
+
 		# Structured output - use explicit param or detect from tools
 		tools_output_model = self.tools.get_output_model()
 		if output_model_schema is not None and tools_output_model is not None:
@@ -494,6 +504,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Check if model is a browser-use fine-tuned model (uses simplified prompts)
 		is_browser_use_model = 'browser-use/' in self.llm.model.lower()
 
+		# Append skillbase instructions to system prompt when enabled
+		_extend = extend_system_message or ''
+		if self._skillbase:
+			_extend += (
+				'\n<skillbase>\n'
+				'You have access to a skillbase — a library of domain-specific skills (tips, workflows, known patterns) '
+				'for websites you visit. When you navigate to a domain that has skills, a <domain_skills> block will appear '
+				'listing available skills with their "for:" descriptions. Read any skill whose description is relevant to '
+				'what you are currently doing by calling read_skill with the domain and filename. Continue checking for and '
+				'reading relevant skills as your task evolves (e.g. if a popup appears, check if there is a popup-handling skill).\n'
+				'</skillbase>'
+			)
+		_extend = _extend.strip() or None
+
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
 		self._message_manager = MessageManager(
@@ -501,7 +525,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			system_message=SystemPrompt(
 				max_actions_per_step=self.settings.max_actions_per_step,
 				override_system_message=override_system_message,
-				extend_system_message=extend_system_message,
+				extend_system_message=_extend,
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
 				is_anthropic=is_anthropic,
@@ -821,6 +845,44 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			return slug
 
+	def _register_skillbase_tool(self) -> None:
+		"""Register the read_skill tool for fetching skill content from the skillbase server."""
+		from pydantic import Field
+
+		from browser_use.agent.views import ActionResult
+
+		assert self._skillbase is not None
+		sb = self._skillbase
+
+		class ReadSkillParams(BaseModel):
+			domain: str = Field(description='Normalized domain (e.g. "wikipedia.org")')
+			filename: str = Field(description='Skill filename from the index (e.g. "navigation.md")')
+
+		async def read_skill(params: ReadSkillParams) -> ActionResult:
+			content = await sb.fetch_skill(params.domain, params.filename)
+			if content:
+				return ActionResult(extracted_content=content)
+			return ActionResult(error=f'Skill {params.domain}/{params.filename} not found')
+
+		self.tools.registry.action(
+			description='Read a skill from the skillbase. Use when you see a relevant skill in the domain skill index.',
+			param_model=ReadSkillParams,
+		)(read_skill)
+
+	async def _fetch_domain_skills_info(self, url: str) -> str | None:
+		"""Fetch and format the skill index for the current page domain, once per domain."""
+		if not self._skillbase or not url:
+			return None
+		from browser_use.skillbase.service import normalize_domain
+
+		domain = normalize_domain(url)
+		if not domain:
+			return None
+		skills = await self._skillbase.fetch_index(domain)
+		if skills:
+			return self._skillbase.format_index(domain, skills)
+		return None
+
 	async def _register_skills_as_actions(self) -> None:
 		"""Register each skill as a separate action using slug as action name"""
 		if not self.skill_service or self._skills_registered:
@@ -1111,6 +1173,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.skill_service is not None:
 			unavailable_skills_info = await self._get_unavailable_skills_info()
 
+		# Fetch domain skill index from skillbase
+		domain_skills_info = await self._fetch_domain_skills_info(browser_state_summary.url)
+
 		# Render plan description for injection into agent context
 		plan_description = self._render_plan_description()
 
@@ -1134,6 +1199,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			sensitive_data=self.sensitive_data,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 			unavailable_skills_info=unavailable_skills_info,
+			domain_skills_info=domain_skills_info,
 			plan_description=plan_description,
 			skip_state_update=True,
 		)
