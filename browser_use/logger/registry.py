@@ -23,9 +23,11 @@ def get_logger(task_id: str) -> EventLogger:
     return _loggers[task_id]
 
 
-def register_logger(task_id: str, log_dir: str | Path = "logs") -> EventLogger:
+def register_logger(task_id: str, log_dir_or_path: str | Path = "logs") -> EventLogger:
     """Create and register a new logger for this task_id."""
-    path = Path(log_dir) / f"events_{task_id}.json"
+    path = Path(log_dir_or_path)
+    if path.suffix == '':
+        path = path / f"event_{task_id}.json"
     logger = EventLogger(path)
     _loggers[task_id] = logger
     return logger
