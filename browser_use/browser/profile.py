@@ -827,12 +827,35 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		if path_original_profile.exists():
 			import shutil
 
-			shutil.copytree(path_original_profile, path_temp_profile)
-			local_state_src = path_original_user_data / 'Local State'
-			local_state_dst = Path(temp_dir) / 'Local State'
-			if local_state_src.exists():
-				shutil.copy(local_state_src, local_state_dst)
-			logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
+			try:
+				shutil.copytree(path_original_profile, path_temp_profile)
+				local_state_src = path_original_user_data / 'Local State'
+				local_state_dst = Path(temp_dir) / 'Local State'
+				if local_state_src.exists():
+					shutil.copy(local_state_src, local_state_dst)
+				logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
+			except (OSError, PermissionError) as e:
+				# Clean up partial temp dir before raising
+				if Path(temp_dir).exists():
+					shutil.rmtree(temp_dir, ignore_errors=True)
+				# WinError 32 = ERROR_SHARING_VIOLATION: file is locked by another process (usually Chrome itself)
+				# WinError 5 = ERROR_ACCESS_DENIED: same symptom on Windows when Chrome has exclusive lock
+				winerror = getattr(e, 'winerror', None)
+				errno_val = getattr(e, 'errno', None)
+				is_windows_lock_error = (
+					sys.platform == 'win32'
+					and (winerror in (32, 5) or errno_val in (32, 5))
+				)
+				if is_windows_lock_error:
+					raise RuntimeError(
+						f'Failed to copy Chrome profile because Chrome is currently running and holding files locked. '
+						f'Details: {e}. '
+						'To fix: close Chrome completely, then run browser-use again. '
+						'Alternatively, use --cdp-url to connect to an existing Chrome instance with remote debugging enabled '
+						'(browser-use --headed --connect), which does not require copying the profile.'
+					) from e
+				# On non-Windows or other OSError, re-raise as-is
+				raise
 
 		else:
 			Path(temp_dir).mkdir(parents=True, exist_ok=True)
