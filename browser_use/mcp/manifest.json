@@ -4,8 +4,8 @@
   "name": "browser-use",
   "display_name": "Browser-Use AI Browser Automation",
   "version": "0.5.0",
-  "description": "Browser automation MCP server - any MCP-compatible AI can control web browsers directly",
-  "long_description": "Browser-Use MCP Server exposes browser control primitives via the Model Context Protocol. Any AI that supports MCP (Claude, ChatGPT, Gemini, etc.) can directly navigate, click, type, scroll, and extract content from web pages. No internal LLM required - the calling AI is the brain.\n\n### Key Features:\n- **Universal AI Compatibility**: Works with any MCP-compatible AI client\n- **Direct Browser Control**: Navigate, click, type, scroll, and interact with any website\n- **Content Extraction**: Extract page text as clean markdown\n- **Keyboard & Form Control**: Send keyboard shortcuts, select dropdown options\n- **Tab Management**: Handle multiple tabs and complex workflows\n- **Vision Capabilities**: Take screenshots for visual understanding\n- **Security Features**: Domain restrictions and sandboxed execution\n\n### Use Cases:\n- Web scraping and data extraction\n- Automated testing and QA\n- Research and information gathering\n- Form filling and submissions\n- Multi-step workflow automation",
+  "description": "AI-powered browser automation that lets Claude control web browsers to complete tasks autonomously",
+  "long_description": "Browser-Use is a powerful extension that enables Claude to control real web browsers through an AI agent. It can navigate websites, fill forms, extract data, and perform complex multi-step tasks autonomously. Perfect for web scraping, testing, research, and automation workflows.\n\n### Key Features:\n- **Autonomous AI Agent**: High-level task execution with minimal supervision\n- **Direct Browser Control**: Navigate, click, type, and interact with any website\n- **Content Extraction**: Smart extraction of structured data from web pages\n- **Tab Management**: Handle multiple tabs and complex workflows\n- **Vision Capabilities**: Use screenshots for visual understanding\n- **Security Features**: Domain restrictions and sandboxed execution\n\n### Use Cases:\n- Web scraping and data extraction\n- Automated testing and QA\n- Research and information gathering\n- Form filling and submissions\n- Multi-step workflow automation",
   "icon": "icon.png",
   "homepage": "https://browser-use.com",
   "documentation": "https://docs.browser-use.com",
@@ -26,63 +26,46 @@
       "command": "uvx",
       "args": ["browser-use", "--mcp"],
       "env": {
+        "OPENAI_API_KEY": "${user_config.openai_api_key}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
         "BROWSER_USE_HEADLESS": "${user_config.headless}",
-        "BROWSER_USE_ALLOWED_DOMAINS": "${user_config.allowed_domains}"
+        "BROWSER_USE_ALLOWED_DOMAINS": "${user_config.allowed_domains}",
+        "BROWSER_USE_LLM_MODEL": "${user_config.llm_model}"
       }
     }
   },
   "tools": [
     {
+      "name": "retry_with_browser_use_agent",
+      "description": "Execute a high-level task using the AI browser agent. Best for complex multi-step workflows"
+    },
+    {
       "name": "browser_navigate",
-      "description": "Navigate to a URL in the current tab or open a new tab"
+      "description": "Navigate to a URL in the current tab or open a new tab. Example: Navigate to https://example.com"
     },
     {
       "name": "browser_click",
-      "description": "Click on an element by its index or at specific viewport coordinates"
+      "description": "Click on an element by its index from browser_get_state. Supports opening links in new tabs"
     },
     {
       "name": "browser_type",
-      "description": "Type text into an input field identified by its index"
+      "description": "Type text into an input field identified by its index. Use after browser_get_state to find inputs"
     },
     {
       "name": "browser_get_state",
-      "description": "Get the current page state including all interactive elements with their indices"
-    },
-    {
-      "name": "browser_get_html",
-      "description": "Get the raw HTML of the current page or a specific element"
-    },
-    {
-      "name": "browser_screenshot",
-      "description": "Take a screenshot of the current page"
+      "description": "Get the current page state including all interactive elements with their indices. Essential for interaction"
     },
     {
       "name": "browser_extract_content",
-      "description": "Extract the text content of the current page as clean markdown"
+      "description": "Extract structured content from the page using AI. Perfect for scraping specific information"
     },
     {
       "name": "browser_scroll",
-      "description": "Scroll the page up or down"
+      "description": "Scroll the page up or down by one viewport height"
     },
     {
       "name": "browser_go_back",
       "description": "Navigate back to the previous page in browser history"
-    },
-    {
-      "name": "browser_send_keys",
-      "description": "Send keyboard keys or shortcuts (Enter, Escape, ctrl+a, etc.)"
-    },
-    {
-      "name": "browser_select_option",
-      "description": "Select an option from a dropdown/select element"
-    },
-    {
-      "name": "browser_get_dropdown_options",
-      "description": "Get all available options from a dropdown/select element"
-    },
-    {
-      "name": "browser_wait",
-      "description": "Wait for a specified number of seconds"
     },
     {
       "name": "browser_list_tabs",
@@ -95,34 +78,23 @@
     {
       "name": "browser_close_tab",
       "description": "Close a specific tab by its index"
-    },
-    {
-      "name": "browser_get_cookies",
-      "description": "Get all cookies, optionally filtered by domain"
-    },
-    {
-      "name": "browser_set_cookies",
-      "description": "Set one or more cookies in the browser"
-    },
-    {
-      "name": "browser_clear_cookies",
-      "description": "Clear all cookies or cookies for a specific domain"
-    },
-    {
-      "name": "browser_save_storage_state",
-      "description": "Force save cookies and localStorage to disk"
     }
   ],
   "prompts": [
     {
       "name": "scrape_data",
       "description": "Extract structured data from a website",
-      "text": "Use browser_navigate to go to {url}, then use browser_extract_content to get page text. If the page requires interaction, use browser_get_state to find elements and browser_click/browser_type as needed."
+      "text": "Use browser_navigate to go to {url}, then use browser_extract_content to extract {data_type}. If the page requires interaction, use browser_get_state to find elements and browser_click/browser_type as needed."
     },
     {
       "name": "fill_form",
       "description": "Fill out and submit a web form",
       "text": "Navigate to {url}, use browser_get_state to identify form fields, then use browser_type to fill in: {field_data}. Finally, click the submit button."
+    },
+    {
+      "name": "multi_step_task",
+      "description": "Execute a complex multi-step task",
+      "text": "Use retry_with_browser_use_agent with task: '{task_description}'. Set max_steps based on complexity and use_vision=true for better understanding."
     },
     {
       "name": "research_topic",
@@ -159,6 +131,44 @@
       "title": "User Data Directory",
       "description": "Chrome profile directory for persistent sessions (cookies, localStorage, etc)",
       "default": "${HOME}/.config/browseruse/profiles/default",
+      "required": false
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API Key",
+      "description": "API key for OpenAI models (used by browser agent for content extraction). Get one at https://platform.openai.com",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API Key",
+      "description": "API key for Anthropic Claude models (alternative to OpenAI). Get one at https://console.anthropic.com",
+      "default": "",
+      "required": false,
+      "sensitive": true
+    },
+    "llm_model": {
+      "type": "string",
+      "title": "LLM Model",
+      "description": "Which AI model to use for browser agent tasks",
+      "enum": ["gpt-4o", "gpt-4o-mini", "claude-3-opus-20240229", "claude-3-sonnet-20240229"],
+      "default": "gpt-4o-mini",
+      "required": false
+    },
+    "llm_endpoint": {
+      "type": "string",
+      "title": "LLM API Endpoint",
+      "description": "Custom API endpoint for LLM (e.g., for Azure OpenAI or self-hosted models)",
+      "default": "",
+      "required": false
+    },
+    "use_vision": {
+      "type": "boolean",
+      "title": "Use Vision",
+      "description": "Enable vision capabilities for the agent to understand page content via screenshots",
+      "default": true,
       "required": false
     },
     "disable_security": {
@@ -222,6 +232,15 @@
       "default": 0.5,
       "minimum": 0,
       "maximum": 10,
+      "required": false
+    },
+    "max_steps": {
+      "type": "number",
+      "title": "Max Agent Steps",
+      "description": "Maximum number of steps the agent can take in a single task",
+      "default": 100,
+      "minimum": 1,
+      "maximum": 1000,
       "required": false
     }
   },

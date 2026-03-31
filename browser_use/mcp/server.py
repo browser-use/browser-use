@@ -1,24 +1,23 @@
-"""MCP Server for browser-use - exposes browser control primitives via Model Context Protocol.
+"""MCP Server for browser-use - exposes browser automation capabilities via Model Context Protocol.
 
-Any MCP-compatible AI (Claude, ChatGPT, Gemini, etc.) can use this server to control
-a real web browser. No internal LLM required - the calling AI makes all decisions.
-
-Tools provided:
-- Navigation: navigate, go_back, scroll, wait
-- Interaction: click, type, send_keys, select_option
-- Observation: get_state, screenshot, extract_content, get_html
-- Tabs: list_tabs, switch_tab, close_tab
-- Sessions: list_sessions, close_session, close_all
+This server provides tools for:
+- Running autonomous browser tasks with an AI agent
+- Direct browser control (navigation, clicking, typing, etc.)
+- Content extraction from web pages
+- File system operations
 
 Usage:
     uvx browser-use --mcp
 
-Or configure in any MCP client:
+Or as an MCP server in Claude Desktop or other MCP clients:
     {
         "mcpServers": {
             "browser-use": {
                 "command": "uvx",
-                "args": ["browser-use[cli]", "--mcp"]
+                "args": ["browser-use[cli]", "--mcp"],
+                "env": {
+                    "OPENAI_API_KEY": "sk-proj-1234567890",
+                }
             }
         }
     }
@@ -37,6 +36,8 @@ import logging
 import time
 from pathlib import Path
 from typing import Any
+
+from browser_use.llm import ChatAWSBedrock
 
 # Configure logging for MCP mode - redirect to stderr but preserve critical diagnostics
 logging.basicConfig(
@@ -85,13 +86,16 @@ def _configure_mcp_server_logging():
 # Configure MCP server logging before any browser_use imports to capture early log lines
 _configure_mcp_server_logging()
 
-# Suppress most logging but keep WARNING+ visible on stderr for diagnostics
-# logging.disable(logging.CRITICAL) was too aggressive — it swallowed all error output
-logging.disable(logging.INFO)
+# Additional suppression - disable all logging completely for MCP mode
+logging.disable(logging.CRITICAL)
 
 # Import browser_use modules
+from browser_use import ActionModel, Agent
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.config import get_default_profile, load_browser_use_config
+from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.tools.service import Tools
 
 logger = logging.getLogger(__name__)
 
@@ -189,9 +193,12 @@ class BrowserUseServer:
 
 		self.server = Server('browser-use')
 		self.config = load_browser_use_config()
+		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
+		self.tools: Tools | None = None
+		self.llm: ChatOpenAI | None = None
+		self.file_system: FileSystem | None = None
 		self._telemetry = ProductTelemetry()
-		self._cookie_storage_path = Path.home() / '.config' / 'browseruse' / 'cookies' / 'storage_state.json'
 		self._start_time = time.time()
 
 		# Session management
@@ -209,7 +216,8 @@ class BrowserUseServer:
 		async def handle_list_tools() -> list[types.Tool]:
 			"""List all available browser-use tools."""
 			return [
-				# Browser control tools
+				# Agent tools
+				# Direct browser control tools
 				types.Tool(
 					name='browser_navigate',
 					description='Navigate to a URL in the browser',
@@ -279,16 +287,18 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_extract_content',
-					description='Extract the text content of the current page as clean markdown. Useful for reading articles, getting page text, etc.',
+					description='Extract structured content from the current page based on a query',
 					inputSchema={
 						'type': 'object',
 						'properties': {
+							'query': {'type': 'string', 'description': 'What information to extract from the page'},
 							'extract_links': {
 								'type': 'boolean',
 								'description': 'Whether to include links in the extraction',
 								'default': False,
 							},
 						},
+						'required': ['query'],
 					},
 				),
 				types.Tool(
@@ -360,64 +370,46 @@ class BrowserUseServer:
 						'required': ['tab_id'],
 					},
 				),
+				# types.Tool(
+				# 	name="browser_close",
+				# 	description="Close the browser session",
+				# 	inputSchema={
+				# 		"type": "object",
+				# 		"properties": {}
+				# 	}
+				# ),
 				types.Tool(
-					name='browser_send_keys',
-					description='Send keyboard keys or shortcuts. Examples: "Enter", "Escape", "Tab", "Backspace", "ctrl+a", "cmd+c", "ArrowDown", "Space".',
+					name='retry_with_browser_use_agent',
+					description='Retry a task using the browser-use agent. Only use this as a last resort if you fail to interact with a page multiple times.',
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'keys': {
+							'task': {
 								'type': 'string',
-								'description': 'The key or key combination to send (e.g., "Enter", "ctrl+a", "cmd+c", "Escape", "Tab", "ArrowDown")',
+								'description': 'The high-level goal and detailed step-by-step description of the task the AI browser agent needs to attempt, along with any relevant data needed to complete the task and info about previous attempts.',
 							},
-						},
-						'required': ['keys'],
-					},
-				),
-				types.Tool(
-					name='browser_select_option',
-					description='Select an option from a dropdown/select element by its visible text',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'index': {
+							'max_steps': {
 								'type': 'integer',
-								'description': 'The index of the dropdown element (from browser_get_state)',
+								'description': 'Maximum number of steps an agent can take.',
+								'default': 100,
 							},
-							'text': {
+							'model': {
 								'type': 'string',
-								'description': 'The visible text of the option to select',
+								'description': 'LLM model to use (e.g., gpt-4o, claude-3-opus-20240229). Defaults to the configured model.',
+							},
+							'allowed_domains': {
+								'type': 'array',
+								'items': {'type': 'string'},
+								'description': 'List of domains the agent is allowed to visit (security feature)',
+								'default': [],
+							},
+							'use_vision': {
+								'type': 'boolean',
+								'description': 'Whether to use vision capabilities (screenshots) for the agent',
+								'default': True,
 							},
 						},
-						'required': ['index', 'text'],
-					},
-				),
-				types.Tool(
-					name='browser_get_dropdown_options',
-					description='Get all available options from a dropdown/select element',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'index': {
-								'type': 'integer',
-								'description': 'The index of the dropdown element (from browser_get_state)',
-							},
-						},
-						'required': ['index'],
-					},
-				),
-				types.Tool(
-					name='browser_wait',
-					description='Wait for a specified number of seconds. Useful for waiting for page load, animations, or dynamic content.',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'seconds': {
-								'type': 'number',
-								'description': 'Number of seconds to wait (0.5 to 30)',
-								'default': 2,
-							},
-						},
+						'required': ['task'],
 					},
 				),
 				# Browser session management tools
@@ -443,70 +435,6 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_close_all',
 					description='Close all active browser sessions and clean up resources',
-					inputSchema={'type': 'object', 'properties': {}},
-				),
-				# Cookie management tools
-				types.Tool(
-					name='browser_get_cookies',
-					description='Get all cookies for the current browser session. Optionally filter by domain.',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'domain': {
-								'type': 'string',
-								'description': 'Optional domain to filter cookies (e.g., "github.com")',
-							},
-						},
-					},
-				),
-				types.Tool(
-					name='browser_set_cookies',
-					description='Set one or more cookies in the browser. Each cookie needs at least name, value, and domain.',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'cookies': {
-								'type': 'array',
-								'description': 'List of cookies to set',
-								'items': {
-									'type': 'object',
-									'properties': {
-										'name': {'type': 'string', 'description': 'Cookie name'},
-										'value': {'type': 'string', 'description': 'Cookie value'},
-										'domain': {'type': 'string', 'description': 'Cookie domain (e.g., ".github.com")'},
-										'path': {'type': 'string', 'description': 'Cookie path', 'default': '/'},
-										'secure': {'type': 'boolean', 'description': 'Secure flag', 'default': False},
-										'httpOnly': {'type': 'boolean', 'description': 'HttpOnly flag', 'default': False},
-										'sameSite': {
-											'type': 'string',
-											'enum': ['Lax', 'Strict', 'None'],
-											'description': 'SameSite policy',
-											'default': 'Lax',
-										},
-									},
-									'required': ['name', 'value', 'domain'],
-								},
-							},
-						},
-						'required': ['cookies'],
-					},
-				),
-				types.Tool(
-					name='browser_clear_cookies',
-					description='Clear all cookies in the browser, or only cookies for a specific domain',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'domain': {
-								'type': 'string',
-								'description': 'Optional domain to clear cookies for. If omitted, clears all cookies.',
-							},
-						},
-					},
-				),
-				types.Tool(
-					name='browser_save_storage_state',
-					description='Save current cookies and localStorage to disk for persistence across sessions. Cookies are auto-saved periodically, but use this to force an immediate save.',
 					inputSchema={'type': 'object', 'properties': {}},
 				),
 			]
@@ -552,6 +480,16 @@ class BrowserUseServer:
 		self, tool_name: str, arguments: dict[str, Any]
 	) -> str | list[types.TextContent | types.ImageContent]:
 		"""Execute a browser-use tool. Returns str for most tools, or a content list for tools with image output."""
+
+		# Agent-based tools
+		if tool_name == 'retry_with_browser_use_agent':
+			return await self._retry_with_browser_use_agent(
+				task=arguments['task'],
+				max_steps=arguments.get('max_steps', 100),
+				model=arguments.get('model'),
+				allowed_domains=arguments.get('allowed_domains', []),
+				use_vision=arguments.get('use_vision', True),
+			)
 
 		# Browser session management tools (don't require active session)
 		if tool_name == 'browser_list_sessions':
@@ -601,7 +539,7 @@ class BrowserUseServer:
 				return content
 
 			elif tool_name == 'browser_extract_content':
-				return await self._extract_content(arguments.get('extract_links', False))
+				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
 
 			elif tool_name == 'browser_scroll':
 				return await self._scroll(arguments.get('direction', 'down'))
@@ -621,30 +559,6 @@ class BrowserUseServer:
 			elif tool_name == 'browser_close_tab':
 				return await self._close_tab(arguments['tab_id'])
 
-			elif tool_name == 'browser_send_keys':
-				return await self._send_keys(arguments['keys'])
-
-			elif tool_name == 'browser_select_option':
-				return await self._select_option(arguments['index'], arguments['text'])
-
-			elif tool_name == 'browser_get_dropdown_options':
-				return await self._get_dropdown_options(arguments['index'])
-
-			elif tool_name == 'browser_wait':
-				return await self._wait(arguments.get('seconds', 2))
-
-			elif tool_name == 'browser_get_cookies':
-				return await self._get_cookies(arguments.get('domain'))
-
-			elif tool_name == 'browser_set_cookies':
-				return await self._set_cookies(arguments['cookies'])
-
-			elif tool_name == 'browser_clear_cookies':
-				return await self._clear_cookies(arguments.get('domain'))
-
-			elif tool_name == 'browser_save_storage_state':
-				return await self._save_storage_state()
-
 		return f'Unknown tool: {tool_name}'
 
 	async def _init_browser_session(self, allowed_domains: list[str] | None = None, **kwargs):
@@ -660,11 +574,6 @@ class BrowserUseServer:
 		# Get profile config
 		profile_config = get_default_profile(self.config)
 
-		# Default cookie storage path
-		cookie_dir = Path.home() / '.config' / 'browseruse' / 'cookies'
-		cookie_dir.mkdir(parents=True, exist_ok=True)
-		self._cookie_storage_path = cookie_dir / 'storage_state.json'
-
 		# Merge profile config with defaults and overrides
 		profile_data = {
 			'downloads_path': str(Path.home() / 'Downloads' / 'browser-use-mcp'),
@@ -674,7 +583,6 @@ class BrowserUseServer:
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
-			'storage_state': str(self._cookie_storage_path),
 			**profile_config,  # Config values override defaults
 		}
 
@@ -696,7 +604,129 @@ class BrowserUseServer:
 		# Track the session for management
 		self._track_session(self.browser_session)
 
+		# Create tools for direct actions
+		self.tools = Tools()
+
+		# Initialize LLM from config
+		llm_config = get_default_llm(self.config)
+		base_url = llm_config.get('base_url', None)
+		kwargs = {}
+		if base_url:
+			kwargs['base_url'] = base_url
+		if api_key := llm_config.get('api_key'):
+			self.llm = ChatOpenAI(
+				model=llm_config.get('model', 'gpt-o4-mini'),
+				api_key=api_key,
+				temperature=llm_config.get('temperature', 0.7),
+				**kwargs,
+			)
+
+		# Initialize FileSystem for extraction actions
+		file_system_path = profile_config.get('file_system_path', '~/.browser-use-mcp')
+		self.file_system = FileSystem(base_dir=Path(file_system_path).expanduser())
+
 		logger.debug('Browser session initialized')
+
+	async def _retry_with_browser_use_agent(
+		self,
+		task: str,
+		max_steps: int = 100,
+		model: str | None = None,
+		allowed_domains: list[str] | None = None,
+		use_vision: bool = True,
+	) -> str:
+		"""Run an autonomous agent task."""
+		logger.debug(f'Running agent task: {task}')
+
+		# Get LLM config
+		llm_config = get_default_llm(self.config)
+
+		# Get LLM provider
+		model_provider = llm_config.get('model_provider') or os.getenv('MODEL_PROVIDER')
+
+		# Get Bedrock-specific config
+		if model_provider and model_provider.lower() == 'bedrock':
+			llm_model = llm_config.get('model') or os.getenv('MODEL') or 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+			aws_region = llm_config.get('region') or os.getenv('REGION')
+			if not aws_region:
+				aws_region = 'us-east-1'
+			aws_sso_auth = llm_config.get('aws_sso_auth', False)
+			llm = ChatAWSBedrock(
+				model=llm_model,  # or any Bedrock model
+				aws_region=aws_region,
+				aws_sso_auth=aws_sso_auth,
+			)
+		else:
+			api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
+			if not api_key:
+				return 'Error: OPENAI_API_KEY not set in config or environment'
+
+			# Use explicit model from tool call, otherwise fall back to configured default
+			llm_model = model or llm_config.get('model', 'gpt-4o')
+
+			base_url = llm_config.get('base_url', None)
+			kwargs = {}
+			if base_url:
+				kwargs['base_url'] = base_url
+			llm = ChatOpenAI(
+				model=llm_model,
+				api_key=api_key,
+				temperature=llm_config.get('temperature', 0.7),
+				**kwargs,
+			)
+
+		# Get profile config and merge with tool parameters
+		profile_config = get_default_profile(self.config)
+
+		# Override allowed_domains if provided in tool call
+		if allowed_domains is not None:
+			profile_config['allowed_domains'] = allowed_domains
+
+		# Create browser profile using config
+		profile = BrowserProfile(**profile_config)
+
+		# Create and run agent
+		agent = Agent(
+			task=task,
+			llm=llm,
+			browser_profile=profile,
+			use_vision=use_vision,
+		)
+
+		try:
+			history = await agent.run(max_steps=max_steps)
+
+			# Format results
+			results = []
+			results.append(f'Task completed in {len(history.history)} steps')
+			results.append(f'Success: {history.is_successful()}')
+
+			# Get final result if available
+			final_result = history.final_result()
+			if final_result:
+				results.append(f'\nFinal result:\n{final_result}')
+
+			# Include any errors
+			errors = history.errors()
+			if errors:
+				results.append(f'\nErrors encountered:\n{json.dumps(errors, indent=2)}')
+
+			# Include URLs visited
+			urls = history.urls()
+			if urls:
+				# Filter out None values and convert to strings
+				valid_urls = [str(url) for url in urls if url is not None]
+				if valid_urls:
+					results.append(f'\nURLs visited: {", ".join(valid_urls)}')
+
+			return '\n'.join(results)
+
+		except Exception as e:
+			logger.error(f'Agent task failed: {e}', exc_info=True)
+			return f'Agent task failed: {str(e)}'
+		finally:
+			# Clean up
+			await agent.close()
 
 	async def _navigate(self, url: str, new_tab: bool = False) -> str:
 		"""Navigate to a URL."""
@@ -711,12 +741,10 @@ class BrowserUseServer:
 		if new_tab:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
 			await event
-			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Opened new tab with URL: {url}'
 		else:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
 			await event
-			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Navigated to: {url}'
 
 	async def _click(
@@ -741,7 +769,6 @@ class BrowserUseServer:
 				ClickCoordinateEvent(coordinate_x=coordinate_x, coordinate_y=coordinate_y)
 			)
 			await event
-			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Clicked at coordinates ({coordinate_x}, {coordinate_y})'
 
 		# Index-based clicking
@@ -774,7 +801,6 @@ class BrowserUseServer:
 
 				event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=full_url, new_tab=True))
 				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
 				return f'Clicked element {index} and opened in new tab {full_url[:20]}...'
 			else:
 				# For non-link elements, just do a normal click
@@ -782,7 +808,6 @@ class BrowserUseServer:
 
 				event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
 				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
 				return f'Clicked element {index} (new tab not supported for non-link elements)'
 		else:
 			# Normal click
@@ -790,7 +815,6 @@ class BrowserUseServer:
 
 			event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
 			await event
-			await event.event_result(raise_if_any=True, raise_if_none=False)
 			return f'Clicked element {index}'
 
 	async def _type_text(self, index: int, text: str) -> str:
@@ -830,7 +854,6 @@ class BrowserUseServer:
 			TypeTextEvent(node=element, text=text, is_sensitive=is_potentially_sensitive, sensitive_key_name=sensitive_key_name)
 		)
 		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
 
 		if is_potentially_sensitive:
 			if sensitive_key_name:
@@ -845,9 +868,7 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active', None
 
-		self._update_session_activity(self.browser_session.id)
-
-		state = await self.browser_session.get_browser_state_summary(include_screenshot=include_screenshot)
+		state = await self.browser_session.get_browser_state_summary()
 
 		result: dict[str, Any] = {
 			'url': state.url,
@@ -949,34 +970,56 @@ class BrowserUseServer:
 			}
 		return json.dumps(result), b64
 
-	async def _extract_content(self, extract_links: bool = False) -> str:
-		"""Extract page content as clean markdown without using LLM."""
+	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
+		"""Extract content from current page."""
+		if not self.llm:
+			return 'Error: LLM not initialized (set OPENAI_API_KEY)'
+
+		if not self.file_system:
+			return 'Error: FileSystem not initialized'
+
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		self._update_session_activity(self.browser_session.id)
+		if not self.tools:
+			return 'Error: Tools not initialized'
 
-		from browser_use.dom.markdown_extractor import extract_clean_markdown
+		state = await self.browser_session.get_browser_state_summary()
 
-		try:
-			markdown_text, metadata = await extract_clean_markdown(
-				browser_session=self.browser_session,
-				extract_links=extract_links,
-			)
-			return markdown_text or 'No content extracted'
-		except Exception as e:
-			logger.error(f'Content extraction failed: {e}')
-			return f'Error extracting content: {str(e)}'
+		# Use the extract action
+		# Create a dynamic action model that matches the tools's expectations
+		from pydantic import create_model
+
+		# Create action model dynamically
+		ExtractAction = create_model(
+			'ExtractAction',
+			__base__=ActionModel,
+			extract=dict[str, Any],
+		)
+
+		# Use model_validate because Pyright does not understand the dynamic model
+		action = ExtractAction.model_validate(
+			{
+				'extract': {'query': query, 'extract_links': extract_links},
+			}
+		)
+		action_result = await self.tools.act(
+			action=action,
+			browser_session=self.browser_session,
+			page_extraction_llm=self.llm,
+			file_system=self.file_system,
+		)
+
+		return action_result.extracted_content or 'No content extracted'
 
 	async def _scroll(self, direction: str = 'down') -> str:
 		"""Scroll the page."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		self._update_session_activity(self.browser_session.id)
-
 		from browser_use.browser.events import ScrollEvent
 
+		# Scroll by a standard amount (500 pixels)
 		event = self.browser_session.event_bus.dispatch(
 			ScrollEvent(
 				direction=direction,  # type: ignore
@@ -984,7 +1027,6 @@ class BrowserUseServer:
 			)
 		)
 		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
 		return f'Scrolled {direction}'
 
 	async def _go_back(self) -> str:
@@ -992,13 +1034,10 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		self._update_session_activity(self.browser_session.id)
-
 		from browser_use.browser.events import GoBackEvent
 
 		event = self.browser_session.event_bus.dispatch(GoBackEvent())
 		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
 		return 'Navigated back'
 
 	async def _close_browser(self) -> str:
@@ -1008,8 +1047,8 @@ class BrowserUseServer:
 
 			event = self.browser_session.event_bus.dispatch(BrowserStopEvent())
 			await event
-			await event.event_result(raise_if_any=True, raise_if_none=False)
 			self.browser_session = None
+			self.tools = None
 			return 'Browser closed'
 		return 'No browser session to close'
 
@@ -1034,7 +1073,6 @@ class BrowserUseServer:
 		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
 		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
 		state = await self.browser_session.get_browser_state_summary()
 		return f'Switched to tab {tab_id}: {state.url}'
 
@@ -1048,189 +1086,8 @@ class BrowserUseServer:
 		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
 		event = self.browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
 		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
 		current_url = await self.browser_session.get_current_page_url()
 		return f'Closed tab # {tab_id}, now on {current_url}'
-
-	async def _send_keys(self, keys: str) -> str:
-		"""Send keyboard keys or shortcuts."""
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		self._update_session_activity(self.browser_session.id)
-
-		from browser_use.browser.events import SendKeysEvent
-
-		event = self.browser_session.event_bus.dispatch(SendKeysEvent(keys=keys))
-		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
-		return f'Sent keys: {keys}'
-
-	async def _select_option(self, index: int, text: str) -> str:
-		"""Select an option from a dropdown element."""
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		self._update_session_activity(self.browser_session.id)
-
-		element = await self.browser_session.get_dom_element_by_index(index)
-		if not element:
-			return f'Element with index {index} not found'
-
-		from browser_use.browser.events import SelectDropdownOptionEvent
-
-		event = self.browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=element, text=text))
-		await event
-		result = await event.event_result(raise_if_any=True, raise_if_none=False)
-		return f'Selected option "{text}" in element {index}'
-
-	async def _get_dropdown_options(self, index: int) -> str:
-		"""Get all options from a dropdown element."""
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		self._update_session_activity(self.browser_session.id)
-
-		element = await self.browser_session.get_dom_element_by_index(index)
-		if not element:
-			return f'Element with index {index} not found'
-
-		from browser_use.browser.events import GetDropdownOptionsEvent
-
-		event = self.browser_session.event_bus.dispatch(GetDropdownOptionsEvent(node=element))
-		await event
-		result = await event.event_result(raise_if_any=True, raise_if_none=False)
-		if result:
-			return json.dumps(result, indent=2)
-		return 'No options found'
-
-	async def _wait(self, seconds: float = 2) -> str:
-		"""Wait for specified seconds."""
-		# Clamp to reasonable range
-		seconds = max(0.5, min(seconds, 30))
-
-		from browser_use.browser.events import WaitEvent
-
-		if self.browser_session:
-			self._update_session_activity(self.browser_session.id)
-			event = self.browser_session.event_bus.dispatch(WaitEvent(seconds=seconds))
-			await event
-		else:
-			await asyncio.sleep(seconds)
-
-		return f'Waited {seconds} seconds'
-
-	async def _get_cookies(self, domain: str | None = None) -> str:
-		"""Get cookies, optionally filtered by domain."""
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		self._update_session_activity(self.browser_session.id)
-
-		try:
-			cookies = await self.browser_session._cdp_get_cookies()
-			cookie_list = [
-				{
-					'name': c['name'],
-					'value': c['value'],
-					'domain': c['domain'],
-					'path': c.get('path', '/'),
-					'secure': c.get('secure', False),
-					'httpOnly': c.get('httpOnly', False),
-					'sameSite': c.get('sameSite', 'Lax'),
-					'expires': c.get('expires', -1),
-				}
-				for c in cookies
-			]
-
-			# Filter by domain if specified
-			if domain:
-				cookie_list = [c for c in cookie_list if domain in c['domain'] or c['domain'].endswith('.' + domain)]
-
-			return json.dumps(cookie_list, indent=2)
-		except Exception as e:
-			logger.error(f'Failed to get cookies: {e}')
-			return f'Error getting cookies: {str(e)}'
-
-	async def _set_cookies(self, cookies: list[dict[str, Any]]) -> str:
-		"""Set cookies in the browser."""
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		self._update_session_activity(self.browser_session.id)
-
-		try:
-			cdp_cookies = [
-				{
-					'name': c['name'],
-					'value': c['value'],
-					'domain': c['domain'],
-					'path': c.get('path', '/'),
-					'secure': c.get('secure', False),
-					'httpOnly': c.get('httpOnly', False),
-					'sameSite': c.get('sameSite', 'Lax'),
-				}
-				for c in cookies
-			]
-			await self.browser_session._cdp_set_cookies(cdp_cookies)  # type: ignore[arg-type]
-			return f'Successfully set {len(cdp_cookies)} cookie(s)'
-		except Exception as e:
-			logger.error(f'Failed to set cookies: {e}')
-			return f'Error setting cookies: {str(e)}'
-
-	async def _clear_cookies(self, domain: str | None = None) -> str:
-		"""Clear cookies, optionally for a specific domain."""
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		self._update_session_activity(self.browser_session.id)
-
-		try:
-			if domain:
-				# Get all cookies, remove matching domain, re-set the rest
-				cookies = await self.browser_session._cdp_get_cookies()
-				remaining = [
-					c for c in cookies if domain not in c.get('domain', '') and not c.get('domain', '').endswith('.' + domain)
-				]
-				await self.browser_session._cdp_clear_cookies()
-				if remaining:
-					await self.browser_session._cdp_set_cookies(remaining)
-				return f'Cleared cookies for domain: {domain}'
-			else:
-				await self.browser_session.clear_cookies()
-				return 'Cleared all cookies'
-		except Exception as e:
-			logger.error(f'Failed to clear cookies: {e}')
-			return f'Error clearing cookies: {str(e)}'
-
-	async def _save_storage_state(self) -> str:
-		"""Force save current storage state (cookies + localStorage) to disk."""
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		self._update_session_activity(self.browser_session.id)
-
-		try:
-			from browser_use.browser.events import SaveStorageStateEvent
-
-			event = self.browser_session.event_bus.dispatch(SaveStorageStateEvent())
-			await event
-			result = await event.event_result(raise_if_any=True, raise_if_none=False)
-
-			cookie_path = getattr(self, '_cookie_storage_path', 'default location')
-			return f'Storage state saved to {cookie_path}'
-		except Exception as e:
-			# Fallback: use export_storage_state directly
-			try:
-				cookie_path = getattr(self, '_cookie_storage_path', None)
-				if cookie_path:
-					await self.browser_session.export_storage_state(output_path=cookie_path)
-					return f'Storage state exported to {cookie_path}'
-				else:
-					return 'Error: No storage path configured'
-			except Exception as e2:
-				logger.error(f'Failed to save storage state: {e2}')
-				return f'Error saving storage state: {str(e2)}'
 
 	def _track_session(self, session: BrowserSession) -> None:
 		"""Track a browser session for management."""
@@ -1294,6 +1151,7 @@ class BrowserUseServer:
 			# If this was the current session, clear it
 			if self.browser_session and self.browser_session.id == session_id:
 				self.browser_session = None
+				self.tools = None
 
 			return f'Successfully closed session {session_id}'
 		except Exception as e:
@@ -1319,6 +1177,7 @@ class BrowserUseServer:
 
 		# Clear current session references
 		self.browser_session = None
+		self.tools = None
 
 		result = f'Closed {closed_count} sessions'
 		if errors:

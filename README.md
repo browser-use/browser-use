@@ -20,13 +20,7 @@
 
 # Fork Changes
 
-This fork (`wangyaominde/browser-use-mcp`) adds the following features on top of the original [browser-use](https://github.com/browser-use/browser-use):
-
-### MCP Server: AI-Agnostic Browser Control
-- **Removed all internal LLM dependencies** (OpenAI, Bedrock, Agent) from the MCP server — any MCP-compatible AI (Claude, ChatGPT, Gemini, local models) can directly control the browser without needing API keys or an internal LLM
-- **New MCP tools**: `browser_send_keys`, `browser_select_option`, `browser_get_dropdown_options`, `browser_wait`
-- **Cookie management MCP tools**: `browser_get_cookies`, `browser_set_cookies`, `browser_clear_cookies`, `browser_save_storage_state`
-- **Automatic cookie persistence** via `StorageStateWatchdog` — login sessions survive MCP server restarts
+This fork (`wangyaominde/browser-use-mcp`) contains bug fixes and test coverage on top of the original [browser-use](https://github.com/browser-use/browser-use). MCP server and CLI are unchanged from upstream.
 
 ### Bug Fixes (not yet in upstream)
 - **fix: `clear_cookies()` was broken** — the public API called deprecated `Network.clearBrowserCookies` which no longer exists in CDP; now delegates to `Storage.clearCookies`
@@ -37,11 +31,36 @@ This fork (`wangyaominde/browser-use-mcp`) adds the following features on top of
 ### Test Coverage
 - **27 new tests** for cookie/storage state persistence (`tests/ci/browser/test_storage_state_watchdog.py`) covering: save/load round-trips, cross-restart persistence, session cookie normalization, merge logic, localStorage persistence, auto-save monitoring, atomic file writes, edge cases, event emission
 
+### Cookie Persistence Usage
+
+Cookie persistence is a **core library feature** (not MCP-specific). Use it in your Python code:
+
+```python
+from browser_use import Agent, BrowserSession, BrowserProfile
+
+# Cookies auto-load on start, auto-save every 30s
+session = BrowserSession(
+    browser_profile=BrowserProfile(
+        storage_state='cookies.json',  # file path or dict
+        user_data_dir=None,
+    )
+)
+
+agent = Agent(task='...', llm=llm, browser_session=session)
+await agent.run()
+
+# Or manually export
+await session.export_storage_state('cookies.json')
+
+# Or clear
+await session.clear_cookies()
+```
+
 ---
 
 ## Installation
 
-### Install from this fork (recommended for openclaw / MCP usage)
+### Install from this fork (includes bug fixes)
 
 ```bash
 # Clone the fork
@@ -70,58 +89,6 @@ uv init && uv add browser-use && uv sync
 ```
 
 Or see the [upstream README](https://github.com/browser-use/browser-use) for full instructions.
-
----
-
-## MCP Server (Fork Feature)
-
-The MCP server in this fork is **AI-agnostic** — the calling AI is the brain, the server is pure browser control. No internal LLM needed.
-
-### Setup
-
-**In Claude Desktop / Cursor / any MCP client:**
-```json
-{
-  "mcpServers": {
-    "browser-use": {
-      "command": "uvx",
-      "args": ["browser-use[cli]", "--mcp"]
-    }
-  }
-}
-```
-
-Or run from a local clone:
-```json
-{
-  "mcpServers": {
-    "browser-use": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/browser-use-mcp", "run", "python", "-m", "browser_use.mcp.server"]
-    }
-  }
-}
-```
-
-### Available Tools
-
-| Category | Tools | Description |
-|----------|-------|-------------|
-| **Navigation** | `browser_navigate`, `browser_go_back`, `browser_scroll`, `browser_wait` | Open URLs, go back, scroll pages, wait for loading |
-| **Interaction** | `browser_click`, `browser_type`, `browser_send_keys`, `browser_select_option`, `browser_get_dropdown_options` | Click elements, type text, keyboard shortcuts, dropdowns |
-| **Observation** | `browser_get_state`, `browser_screenshot`, `browser_extract_content`, `browser_get_html` | Get interactive elements, take screenshots, extract markdown text, get raw HTML |
-| **Tabs** | `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab` | Multi-tab management |
-| **Cookies** | `browser_get_cookies`, `browser_set_cookies`, `browser_clear_cookies`, `browser_save_storage_state` | Cookie persistence, import/export, session management |
-| **Sessions** | `browser_list_sessions`, `browser_close_session`, `browser_close_all` | Manage browser sessions |
-
-### Cookie Persistence
-
-Cookies and localStorage are **automatically persisted** to `~/.config/browseruse/cookies/storage_state.json`. This means:
-
-- Login sessions survive MCP server restarts — no need to re-authenticate
-- Use `browser_save_storage_state` to force an immediate save
-- Use `browser_set_cookies` to inject authentication tokens
-- Use `browser_clear_cookies` to reset session state for a specific domain
 
 ---
 
