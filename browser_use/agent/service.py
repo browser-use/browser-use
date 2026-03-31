@@ -1,4 +1,3 @@
-from logger.registry import unregister_logger
 import asyncio
 import gc
 import inspect
