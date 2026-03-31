@@ -34,12 +34,11 @@ confirm who signed it. For CI-bound signing, see T1 in the Assay docs.
 """
 
 import asyncio
-import os
 
 from dotenv import load_dotenv
 
 try:
-	from assay.integrations.anthropic import get_trace_id, patch
+	from assay.integrations.anthropic import get_trace_id, patch  # type: ignore[import-untyped]
 except ImportError:
 	print('assay-ai is not installed. Run: pip install assay-ai')
 	exit(1)
