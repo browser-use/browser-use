@@ -12,6 +12,125 @@
     </picture>
 </div>
 
+---
+
+> **Fork Notice**: This is a fork of [browser-use/browser-use](https://github.com/browser-use/browser-use) maintained by [@wangyaominde](https://github.com/wangyaominde). See the [Fork Changes](#-fork-changes) section below for differences from upstream.
+
+---
+
+# Fork Changes
+
+This fork (`wangyaominde/browser-use-mcp`) adds the following features on top of the original [browser-use](https://github.com/browser-use/browser-use):
+
+### MCP Server: AI-Agnostic Browser Control
+- **Removed all internal LLM dependencies** (OpenAI, Bedrock, Agent) from the MCP server — any MCP-compatible AI (Claude, ChatGPT, Gemini, local models) can directly control the browser without needing API keys or an internal LLM
+- **New MCP tools**: `browser_send_keys`, `browser_select_option`, `browser_get_dropdown_options`, `browser_wait`
+- **Cookie management MCP tools**: `browser_get_cookies`, `browser_set_cookies`, `browser_clear_cookies`, `browser_save_storage_state`
+- **Automatic cookie persistence** via `StorageStateWatchdog` — login sessions survive MCP server restarts
+
+### Bug Fixes (not yet in upstream)
+- **fix: `clear_cookies()` was broken** — the public API called deprecated `Network.clearBrowserCookies` which no longer exists in CDP; now delegates to `Storage.clearCookies`
+- **fix: dict-based `storage_state` was silently ignored** — passing a dict to `BrowserProfile(storage_state={...})` did nothing because the watchdog only handled file paths; now dicts are loaded directly into the browser
+- **fix: bypass system proxy for local CDP WebSocket connections** — prevents connection failures when system proxy is configured
+- **fix: add `event_result()` awaits to all event dispatches** — prevents dropped events
+
+### Test Coverage
+- **27 new tests** for cookie/storage state persistence (`tests/ci/browser/test_storage_state_watchdog.py`) covering: save/load round-trips, cross-restart persistence, session cookie normalization, merge logic, localStorage persistence, auto-save monitoring, atomic file writes, edge cases, event emission
+
+---
+
+## Installation
+
+### Install from this fork (recommended for openclaw / MCP usage)
+
+```bash
+# Clone the fork
+git clone https://github.com/wangyaominde/browser-use-mcp.git
+cd browser-use-mcp
+
+# Set up environment
+uv venv --python 3.11
+source .venv/bin/activate
+uv sync
+
+# Install Chromium if needed
+# uvx browser-use install
+```
+
+To use as a dependency in another project:
+```bash
+uv add git+https://github.com/wangyaominde/browser-use-mcp.git
+```
+
+### Install the original upstream version
+
+```bash
+uv init && uv add browser-use && uv sync
+# uvx browser-use install  # Run if you don't have Chromium installed
+```
+
+Or see the [upstream README](https://github.com/browser-use/browser-use) for full instructions.
+
+---
+
+## MCP Server (Fork Feature)
+
+The MCP server in this fork is **AI-agnostic** — the calling AI is the brain, the server is pure browser control. No internal LLM needed.
+
+### Setup
+
+**In Claude Desktop / Cursor / any MCP client:**
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use[cli]", "--mcp"]
+    }
+  }
+}
+```
+
+Or run from a local clone:
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/browser-use-mcp", "run", "python", "-m", "browser_use.mcp.server"]
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Category | Tools | Description |
+|----------|-------|-------------|
+| **Navigation** | `browser_navigate`, `browser_go_back`, `browser_scroll`, `browser_wait` | Open URLs, go back, scroll pages, wait for loading |
+| **Interaction** | `browser_click`, `browser_type`, `browser_send_keys`, `browser_select_option`, `browser_get_dropdown_options` | Click elements, type text, keyboard shortcuts, dropdowns |
+| **Observation** | `browser_get_state`, `browser_screenshot`, `browser_extract_content`, `browser_get_html` | Get interactive elements, take screenshots, extract markdown text, get raw HTML |
+| **Tabs** | `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab` | Multi-tab management |
+| **Cookies** | `browser_get_cookies`, `browser_set_cookies`, `browser_clear_cookies`, `browser_save_storage_state` | Cookie persistence, import/export, session management |
+| **Sessions** | `browser_list_sessions`, `browser_close_session`, `browser_close_all` | Manage browser sessions |
+
+### Cookie Persistence
+
+Cookies and localStorage are **automatically persisted** to `~/.config/browseruse/cookies/storage_state.json`. This means:
+
+- Login sessions survive MCP server restarts — no need to re-authenticate
+- Use `browser_save_storage_state` to force an immediate save
+- Use `browser_set_cookies` to inject authentication tokens
+- Use `browser_clear_cookies` to reset session state for a specific domain
+
+---
+
+# Original README (upstream)
+
+> Everything below is from the original [browser-use/browser-use](https://github.com/browser-use/browser-use) project.
+
+---
+
 <div align="center">
 <a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
 </div>
@@ -191,61 +310,6 @@ mkdir -p ~/.claude/skills/browser-use
 curl -o ~/.claude/skills/browser-use/SKILL.md \
   https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md
 ```
-
-<br/>
-
-# 🔌 MCP Server
-
-Browser-Use can run as a standalone **MCP (Model Context Protocol) server**, allowing **any MCP-compatible AI** (Claude, ChatGPT, Gemini, local models, etc.) to directly control a real browser — no API keys or internal LLM needed. The calling AI is the brain; the MCP server is the hands.
-
-### Setup
-
-**In Claude Desktop / Cursor / any MCP client:**
-```json
-{
-  "mcpServers": {
-    "browser-use": {
-      "command": "uvx",
-      "args": ["browser-use[cli]", "--mcp"]
-    }
-  }
-}
-```
-
-Or run directly from terminal:
-```bash
-uvx browser-use --mcp
-```
-
-### Available Tools
-
-| Category | Tools | Description |
-|----------|-------|-------------|
-| **Navigation** | `browser_navigate`, `browser_go_back`, `browser_scroll`, `browser_wait` | Open URLs, go back, scroll pages, wait for loading |
-| **Interaction** | `browser_click`, `browser_type`, `browser_send_keys`, `browser_select_option`, `browser_get_dropdown_options` | Click elements, type text, keyboard shortcuts, dropdowns |
-| **Observation** | `browser_get_state`, `browser_screenshot`, `browser_extract_content`, `browser_get_html` | Get interactive elements, take screenshots, extract markdown text, get raw HTML |
-| **Tabs** | `browser_list_tabs`, `browser_switch_tab`, `browser_close_tab` | Multi-tab management |
-| **Cookies** | `browser_get_cookies`, `browser_set_cookies`, `browser_clear_cookies`, `browser_save_storage_state` | Cookie persistence, import/export, session management |
-| **Sessions** | `browser_list_sessions`, `browser_close_session`, `browser_close_all` | Manage browser sessions |
-
-### Cookie Persistence
-
-Cookies and localStorage are **automatically persisted** to `~/.config/browseruse/cookies/storage_state.json`. This means:
-
-- Login sessions survive MCP server restarts — no need to re-authenticate
-- Use `browser_save_storage_state` to force an immediate save
-- Use `browser_set_cookies` to inject authentication tokens
-- Use `browser_clear_cookies` to reset session state for a specific domain
-
-### Typical Workflow
-
-The AI interacts with the browser through a simple loop:
-
-1. `browser_navigate` — go to a URL
-2. `browser_get_state` — see all interactive elements with indices
-3. `browser_click` / `browser_type` — interact with elements by index
-4. `browser_extract_content` — read page content as markdown
-5. `browser_screenshot` — see the page visually (for vision-capable models)
 
 <br/>
 

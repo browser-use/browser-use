@@ -1338,7 +1338,7 @@ class BrowserSession(BaseModel):
 
 	async def clear_cookies(self) -> None:
 		"""Clear all cookies."""
-		await self.cdp_client.send.Network.clearBrowserCookies()
+		await self._cdp_clear_cookies()
 
 	async def export_storage_state(self, output_path: str | Path | None = None) -> dict[str, Any]:
 		"""Export all browser cookies and storage to storage_state format.
