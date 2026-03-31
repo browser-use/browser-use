@@ -225,3 +225,129 @@ class TestStructuredOutputPropertyFallback:
 		explicit_result = history.get_structured_output(ExtractedData)
 		assert explicit_result is not None
 		assert explicit_result.title == 'Test'
+
+
+class TestAgentHistoryListResultNone:
+	"""Test that AgentHistoryList methods handle result=None gracefully.
+
+	This guards against crashes when history is loaded from malformed or
+	incomplete JSON where a history item's result field is None instead of
+	a list. See cubic issue: load_from_dict can crash when history item
+	result=None because code iterates item[result] without validating type.
+
+	Note: AgentHistory model (pydantic) rejects result=None at construction
+	time via direct instantiation -- the bug only manifests when loading from
+	a dict (e.g. from a JSON file), where pydantic will try to coerce None
+	to list[ActionResult]. load_from_dict fixes this by replacing None/[]
+	_before_ model_validate runs.
+	"""
+
+	def _make_history(self, result_list: list) -> AgentHistoryList:
+		"""Helper: build a minimal AgentHistoryList with the given result list."""
+		return AgentHistoryList(
+			history=[
+				AgentHistory(
+					model_output=None,
+					result=result_list,
+					state=BrowserStateHistory(
+						url='https://example.com',
+						title='Test',
+						tabs=[],
+						interacted_element=[],
+					),
+				)
+			]
+		)
+
+	def test_errors_returns_none_when_result_is_empty_list(self):
+		"""errors() must return [None] when h.result is an empty list."""
+		history = self._make_history([])
+		assert history.errors() == [None]
+
+	def test_errors_returns_error_from_result_list(self):
+		"""errors() must extract the first error from result when result is populated."""
+		history = self._make_history(
+			[ActionResult(error='something went wrong'), ActionResult(error=None)]
+		)
+		assert history.errors() == ['something went wrong']
+
+	def test_final_result_returns_none_when_result_is_empty(self):
+		"""final_result() must return None when h.result is an empty list."""
+		history = self._make_history([])
+		assert history.final_result() is None
+
+	def test_is_done_returns_false_when_result_is_empty(self):
+		"""is_done() must return False when h.result is an empty list."""
+		history = self._make_history([])
+		assert history.is_done() is False
+
+	def test_is_successful_returns_none_when_result_is_empty(self):
+		"""is_successful() must return None when h.result is an empty list."""
+		history = self._make_history([])
+		assert history.is_successful() is None
+
+	def test_judgement_returns_none_when_result_is_empty(self):
+		"""judgement() must return None when h.result is an empty list."""
+		history = self._make_history([])
+		assert history.judgement() is None
+
+	def test_is_judged_returns_false_when_result_is_empty(self):
+		"""is_judged() must return False when h.result is an empty list."""
+		history = self._make_history([])
+		assert history.is_judged() is False
+
+	def test_is_validated_returns_none_when_result_is_empty(self):
+		"""is_validated() must return None when h.result is an empty list."""
+		history = self._make_history([])
+		assert history.is_validated() is None
+
+	def test_load_from_dict_replaces_result_none_with_empty_list(self):
+		"""load_from_dict must replace a None result with [] so downstream methods don't crash.
+
+		Before the fix, this would cause errors() to raise:
+		TypeError: 'NoneType' object is not iterable
+		"""
+		from browser_use.agent.views import AgentOutput
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					'result': None,  # malformed - should be a list
+					'state': {
+						'url': 'https://example.com',
+						'title': 'Test',
+						'tabs': [],
+						'interacted_element': [],
+					},
+				}
+			]
+		}
+		history = AgentHistoryList.load_from_dict(data, AgentOutput)
+		# Must not raise; errors() would have crashed before the fix
+		assert history.errors() == [None]
+		assert history.final_result() is None
+		assert history.is_successful() is None
+		assert history.is_judged() is False
+
+	def test_load_from_dict_handles_missing_result_key(self):
+		"""load_from_dict must handle history items that omit the result key entirely."""
+		from browser_use.agent.views import AgentOutput
+
+		data = {
+			'history': [
+				{
+					'model_output': None,
+					# 'result' key is missing
+					'state': {
+						'url': 'https://example.com',
+						'title': 'Test',
+						'tabs': [],
+						'interacted_element': [],
+					},
+				}
+			]
+		}
+		history = AgentHistoryList.load_from_dict(data, AgentOutput)
+		assert history.errors() == [None]
+		assert history.final_result() is None

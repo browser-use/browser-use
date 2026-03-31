@@ -696,6 +696,9 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					h['model_output'] = output_model.model_validate(h['model_output'])
 				else:
 					h['model_output'] = None
+			# Guard: ensure result is a list so downstream methods don't crash on None
+			if 'result' not in h or not isinstance(h['result'], list):
+				h['result'] = []
 			if 'interacted_element' not in h['state']:
 				h['state']['interacted_element'] = None
 
@@ -719,7 +722,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Get all errors from history, with None for steps without errors"""
 		errors = []
 		for h in self.history:
-			step_errors = [r.error for r in h.result if r.error]
+			step_errors = [r.error for r in h.result if r.error] if h.result else []
 
 			# each step can have only one error
 			errors.append(step_errors[0] if step_errors else None)
@@ -727,7 +730,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def final_result(self) -> None | str:
 		"""Final result from history"""
-		if self.history and self.history[-1].result[-1].extracted_content:
+		if self.history and self.history[-1].result and self.history[-1].result[-1].extracted_content:
 			return self.history[-1].result[-1].extracted_content
 		return None
 
@@ -740,7 +743,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def is_successful(self) -> bool | None:
 		"""Check if the agent completed successfully - the agent decides in the last step if it was successful or not. None if not done yet."""
-		if self.history and len(self.history[-1].result) > 0:
+		if self.history and self.history[-1].result and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			if last_result.is_done is True:
 				return last_result.success
@@ -752,7 +755,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def judgement(self) -> dict | None:
 		"""Get the judgement result as a dictionary if it exists"""
-		if self.history and len(self.history[-1].result) > 0:
+		if self.history and self.history[-1].result and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			if last_result.judgement:
 				return last_result.judgement.model_dump()
@@ -760,14 +763,14 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def is_judged(self) -> bool:
 		"""Check if the agent trace has been judged"""
-		if self.history and len(self.history[-1].result) > 0:
+		if self.history and self.history[-1].result and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			return last_result.judgement is not None
 		return False
 
 	def is_validated(self) -> bool | None:
 		"""Check if the judge validated the agent execution (verdict is True). Returns None if not judged yet."""
-		if self.history and len(self.history[-1].result) > 0:
+		if self.history and self.history[-1].result and len(self.history[-1].result) > 0:
 			last_result = self.history[-1].result[-1]
 			if last_result.judgement:
 				return last_result.judgement.verdict
