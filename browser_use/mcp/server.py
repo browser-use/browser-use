@@ -609,8 +609,9 @@ class BrowserUseServer:
 		self.browser_session = BrowserSession(browser_profile=profile)
 		await self.browser_session.start()
 
-		# Track the session for management
-		self._track_session(self.browser_session)
+		# Track the session for management with its profile dir for cleanup
+		_auto_profile = _default_profile_dir if 'user_data_dir' not in profile_config else None
+		self._track_session(self.browser_session, profile_dir=_auto_profile)
 
 		# Remember the auto-generated profile dir so we can clean it up on close.
 		# Only track if the user did NOT explicitly configure user_data_dir.
@@ -1108,13 +1109,14 @@ class BrowserUseServer:
 		current_url = await self.browser_session.get_current_page_url()
 		return f'Closed tab # {tab_id}, now on {current_url}'
 
-	def _track_session(self, session: BrowserSession) -> None:
+	def _track_session(self, session: BrowserSession, profile_dir: str | None = None) -> None:
 		"""Track a browser session for management."""
 		self.active_sessions[session.id] = {
 			'session': session,
 			'created_at': time.time(),
 			'last_activity': time.time(),
 			'url': getattr(session, 'current_url', None),
+			'profile_dir': profile_dir,
 		}
 
 	def _update_session_activity(self, session_id: str) -> None:
@@ -1156,6 +1158,7 @@ class BrowserUseServer:
 
 		session_data = self.active_sessions[session_id]
 		session = session_data['session']
+		profile_dir = session_data.get('profile_dir')
 
 		try:
 			# Close the session
@@ -1171,6 +1174,12 @@ class BrowserUseServer:
 			if self.browser_session and self.browser_session.id == session_id:
 				self.browser_session = None
 				self.tools = None
+
+			# Clean up auto-generated profile directory
+			if profile_dir:
+				profile_path = Path(profile_dir).expanduser()
+				if profile_path.exists():
+					shutil.rmtree(profile_path, ignore_errors=True)
 
 			return f'Successfully closed session {session_id}'
 		except Exception as e:
