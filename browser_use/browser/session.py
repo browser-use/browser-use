@@ -3260,7 +3260,7 @@ class BrowserSession(BaseModel):
 
 		try:
 			cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
-			js = '''(function() {
+			js = """(function() {
 				const labelMatcher = /continue/i;
 				const candidates = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
 				const continueButton = candidates.find(el => {
@@ -3290,7 +3290,7 @@ class BrowserSession(BaseModel):
 				}
 
 				return {found: true};
-			})();'''
+			})();"""
 
 			await cdp_session.cdp_client.send.Runtime.evaluate(
 				params={'expression': js, 'returnByValue': True}, session_id=cdp_session.session_id

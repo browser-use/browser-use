@@ -5,7 +5,10 @@ def test_is_welcome_page_url_detects_welcome_keyword():
 	assert BrowserSession._is_welcome_page_url('https://app.browser-use.com/welcome') is True
 	assert BrowserSession._is_welcome_page_url('https://app.browser-use.com/onboarding') is True
 	assert BrowserSession._is_welcome_page_url('https://example.com/get-started') is True
+	assert BrowserSession._is_welcome_page_url('https://survey.example.com/') is True
 	assert BrowserSession._is_welcome_page_url('https://example.com/profile') is False
+	assert BrowserSession._is_welcome_page_url('https://google.com') is False
+	assert BrowserSession._is_welcome_page_url('https://stackoverflow.com/questions') is False
 
 
 def test_is_extension_onboarding_url_detects_extension_paths():
