@@ -916,6 +916,9 @@ class BrowserSession(BaseModel):
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
 
+			# Ensure Continue button stays visible on welcome/onboarding flows
+			await self._fix_continue_button_visibility(target_id, event.url)
+
 			# Dispatch navigation complete
 			self.logger.debug(f'Dispatching NavigationCompleteEvent for {event.url} (tab #{target_id[-4:]})')
 			await self.event_bus.dispatch(
@@ -3207,6 +3210,29 @@ class BrowserSession(BaseModel):
 
 			self.logger.debug(f'Browser highlight traceback: {traceback.format_exc()}')
 
+	@staticmethod
+	def _is_extension_onboarding_url(url: str) -> bool:
+		"""Return True for extension pages that appear like welcome/onboarding prompts."""
+		try:
+			parsed = urlparse(url)
+		except Exception:
+			return False
+
+		if parsed.scheme != 'chrome-extension':
+			return False
+
+		text = (parsed.path or '').lower() + ' ' + (parsed.query or '').lower()
+		keywords = ['options', 'welcome', 'onboarding', 'gettingstarted', 'setup', 'tour']
+		return any(keyword in text for keyword in keywords)
+
+	@staticmethod
+	def _is_welcome_page_url(url: str) -> bool:
+		"""Return True for URLs where continue-button layout patch should be applied."""
+		if not isinstance(url, str):
+			return False
+		lower_url = url.lower()
+		return any(kw in lower_url for kw in ['welcome', 'onboarding', 'browser-use', 'survey', 'get-started'])
+
 	async def _close_extension_options_pages(self) -> None:
 		"""Close any extension options/welcome pages that have opened."""
 		try:
@@ -3217,10 +3243,7 @@ class BrowserSession(BaseModel):
 				target_url = target.url
 				target_id = target.target_id
 
-				# Check if this is an extension options/welcome page
-				if 'chrome-extension://' in target_url and (
-					'options.html' in target_url or 'welcome.html' in target_url or 'onboarding.html' in target_url
-				):
+				if self._is_extension_onboarding_url(target_url):
 					self.logger.info(f'[BrowserSession] 🚫 Closing extension options page: {target_url}')
 					try:
 						await self._cdp_close_page(target_id)
@@ -3229,6 +3252,51 @@ class BrowserSession(BaseModel):
 
 		except Exception as e:
 			self.logger.debug(f'[BrowserSession] Error closing extension options pages: {e}')
+
+	async def _fix_continue_button_visibility(self, target_id: str, url: str) -> None:
+		"""If we detect a narrow/welcome-like page with a Continue button, keep it visible."""
+		if not self._is_welcome_page_url(url):
+			return
+
+		try:
+			cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+			js = '''(function() {
+				const labelMatcher = /continue/i;
+				const candidates = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a'));
+				const continueButton = candidates.find(el => {
+					const text = (el.innerText || el.value || el.textContent || '').trim();
+					return labelMatcher.test(text);
+				});
+
+				if (!continueButton) {
+					return {found: false};
+				}
+
+				const style = continueButton.style;
+				style.position = 'fixed';
+				style.bottom = '14px';
+				style.left = '50%';
+				style.transform = 'translateX(-50%)';
+				style.zIndex = '99999';
+				style.maxWidth = '92vw';
+				style.minWidth = '220px';
+				style.boxShadow = '0 0 18px rgba(0,0,0,0.24)';
+				style.background = style.background || '#ff8c00';
+				style.color = style.color || '#fff';
+
+				const body = document.body;
+				if (body && !body.style.overflowY) {
+					body.style.overflowY = 'auto';
+				}
+
+				return {found: true};
+			})();'''
+
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': js, 'returnByValue': True}, session_id=cdp_session.session_id
+			)
+		except Exception as e:
+			self.logger.debug(f'[BrowserSession] Could not set Continue button sticky style for {url}: {e}')
 
 	async def send_demo_mode_log(self, message: str, level: str = 'info', metadata: dict[str, Any] | None = None) -> None:
 		"""Send a message to the in-browser demo panel if enabled."""
