@@ -52,11 +52,11 @@ class TrustClaims(BaseModel):
 
 	def meets_policy(self, policy: dict) -> bool:
 		"""Check if claims meet a threshold policy dict."""
-		if 'min_trust_score' in policy and self.trust_score < policy['min_trust_score']:
+		if policy.get('min_trust_score') is not None and self.trust_score < policy['min_trust_score']:
 			return False
-		if 'max_scarring_score' in policy and self.scarring_score > policy['max_scarring_score']:
+		if policy.get('max_scarring_score') is not None and self.scarring_score > policy['max_scarring_score']:
 			return False
-		if 'max_risk_score' in policy and self.risk_score > policy['max_risk_score']:
+		if policy.get('max_risk_score') is not None and self.risk_score > policy['max_risk_score']:
 			return False
 		required = policy.get('required_attestations', [])
 		for req in required:
@@ -193,9 +193,13 @@ class AgentIDTrustProvider(TrustProvider):
 		"""
 		Decode and verify an Agent-Trust-Score JWT.
 
-		Performs local decoding of the JWT payload (base64url) and validates
-		basic structural requirements. Does NOT verify the cryptographic
-		signature — that should be done server-side or with the public key.
+		Decodes the JWT header and payload, validates structural requirements,
+		and checks the ``alg`` field. Unsigned JWTs (``alg: none``) are only
+		accepted when the payload carries ``no_trust_data: true`` — all other
+		JWTs must have a non-empty signature segment.
+
+		Full cryptographic signature verification should be done server-side
+		or with the provider's public key.
 
 		Args:
 			jwt: The raw JWT string (three dot-separated base64url segments).
@@ -213,6 +217,14 @@ class AgentIDTrustProvider(TrustProvider):
 		if len(parts) != 3:
 			raise ValueError(f'Invalid JWT format: expected 3 parts, got {len(parts)}')
 
+		# Decode header to inspect alg
+		header_b64 = parts[0]
+		header_b64 += '=' * (-len(header_b64) % 4)
+		try:
+			header = json.loads(base64.urlsafe_b64decode(header_b64))
+		except Exception as e:
+			raise ValueError(f'Failed to decode JWT header: {e}')
+
 		# Decode payload (base64url -> JSON)
 		payload_b64 = parts[1]
 		# Add padding for base64
@@ -222,6 +234,18 @@ class AgentIDTrustProvider(TrustProvider):
 			payload = json.loads(payload_json)
 		except Exception as e:
 			raise ValueError(f'Failed to decode JWT payload: {e}')
+
+		alg = header.get('alg', '')
+		signature_segment = parts[2]
+		is_no_trust = payload.get('no_trust_data', False)
+
+		# Reject unsigned JWTs that claim to carry real trust data
+		if alg == 'none' or not signature_segment:
+			if not is_no_trust:
+				raise ValueError(
+					'Unsigned JWT (alg=none / empty signature) is only accepted '
+					'for no_trust_data payloads — refusing unverified trust claims'
+				)
 
 		claims = TrustClaims(**payload)
 

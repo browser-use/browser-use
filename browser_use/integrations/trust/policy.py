@@ -20,7 +20,13 @@ Example:
 import logging
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+try:
+	from pydantic import BaseModel, ConfigDict, Field
+except ImportError as e:
+	raise ImportError(
+		'browser_use.integrations.trust.policy requires pydantic. '
+		'Install it with: pip install pydantic'
+	) from e
 
 from .service import TrustClaims
 
@@ -66,13 +72,19 @@ class TrustPolicy:
 		self.action_on_fail: ActionType = action
 
 		if not isinstance(self.min_trust_score, int):
-			raise TypeError(f'min_trust_score must be int, got {type(self.min_trust_score).__name__}')
+			raise ValueError(f'min_trust_score must be int, got {type(self.min_trust_score).__name__}')
 		if not isinstance(self.max_scarring_score, int):
-			raise TypeError(f'max_scarring_score must be int, got {type(self.max_scarring_score).__name__}')
+			raise ValueError(f'max_scarring_score must be int, got {type(self.max_scarring_score).__name__}')
 		if not isinstance(self.max_risk_score, int):
-			raise TypeError(f'max_risk_score must be int, got {type(self.max_risk_score).__name__}')
+			raise ValueError(f'max_risk_score must be int, got {type(self.max_risk_score).__name__}')
 		if not isinstance(self.required_attestations, list):
-			raise TypeError(f'required_attestations must be list, got {type(self.required_attestations).__name__}')
+			raise ValueError(f'required_attestations must be list, got {type(self.required_attestations).__name__}')
+		if self.min_trust_score < 0:
+			raise ValueError(f'min_trust_score must be >= 0, got {self.min_trust_score}')
+		if self.max_scarring_score < 0:
+			raise ValueError(f'max_scarring_score must be >= 0, got {self.max_scarring_score}')
+		if self.max_risk_score < 0:
+			raise ValueError(f'max_risk_score must be >= 0, got {self.max_risk_score}')
 
 	def evaluate(self, claims: TrustClaims) -> PolicyResult:
 		"""

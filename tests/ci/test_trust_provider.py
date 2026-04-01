@@ -78,7 +78,7 @@ class TestTrustClaims:
 		assert not claims.meets_policy({'required_attestations': ['sandbox_certified']})
 
 	def test_invalid_trust_level_rejected(self):
-		with pytest.raises(Exception):
+		with pytest.raises(ValueError, match='Invalid trust level'):
 			TrustClaims(**_default_payload(trust_level='INVALID'))
 
 	def test_extra_fields_allowed(self):

@@ -6,7 +6,7 @@ Agents present Agent-Trust-Score JWTs that site operators can evaluate
 against configurable policies before granting access.
 
 Usage:
-	from browser_use.integrations.trust import AgentIDTrustProvider, TrustPolicy
+	from browser_use.integrations.trust import AgentIDTrustProvider, TrustPolicy, TrustPolicyChain
 
 	# Initialize provider
 	provider = AgentIDTrustProvider()
@@ -20,8 +20,25 @@ Usage:
 	result = policy.evaluate(claims)
 """
 
-from .policy import PolicyResult, TrustPolicy, TrustPolicyChain
-from .service import AgentIDTrustProvider, TrustClaims, TrustProvider
+try:
+	from .policy import PolicyResult, TrustPolicy, TrustPolicyChain
+except ImportError as e:
+	if 'pydantic' in str(e):
+		raise ImportError(
+			'browser_use.integrations.trust requires pydantic. '
+			'Install it with: pip install pydantic'
+		) from e
+	raise
+
+try:
+	from .service import AgentIDTrustProvider, TrustClaims, TrustProvider
+except ImportError as e:
+	if 'httpx' in str(e):
+		raise ImportError(
+			'browser_use.integrations.trust requires httpx. '
+			'Install it with: pip install httpx'
+		) from e
+	raise
 
 __all__ = [
 	'AgentIDTrustProvider',
