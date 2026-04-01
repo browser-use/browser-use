@@ -1217,6 +1217,12 @@ class BrowserSession(BaseModel):
 					self.logger.info(f'🌤️ Cloud browser session cleaned up: {cloud_session_id}')
 				except Exception as e:
 					self.logger.debug(f'Failed to cleanup cloud browser session {cloud_session_id}: {e}')
+				finally:
+					# Always close the httpx client to free connection pool memory
+					try:
+						await self._cloud_browser_client.close()
+					except Exception:
+						pass
 
 			# Clear CDP session cache before stopping
 			self.logger.info(
