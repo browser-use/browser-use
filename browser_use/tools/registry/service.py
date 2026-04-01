@@ -346,7 +346,6 @@ class Registry(Generic[Context]):
 		events_logger = get_current_logger()
 		action = self.registry.actions[action_name]
 		node = await browser_session.get_dom_element_by_index(params.get("index")) or {}
-		elements_data = []
 		if node:
 			# Get bounding box using absolute position (includes iframe translations) if available
 			if node.absolute_position:
@@ -364,28 +363,18 @@ class Registry(Generic[Context]):
 						'element_name': node.node_name,
 						'is_clickable': node.snapshot_node.is_clickable if node.snapshot_node else True,
 						'is_scrollable': getattr(node, 'is_scrollable', False),
-						'attributes': node.attributes or {},
-						'frame_id': getattr(node, 'frame_id', None),
-						'node_id': node.node_id,
-						'backend_node_id': node.backend_node_id,
+						'tag_name': node.tag_name,
+						'node_name': node.ax_node_name,
 						'xpath': node.xpath,
 						'text_content': node.get_all_children_text()[:50]
 						if hasattr(node, 'get_all_children_text')
 						else node.node_value[:50],
 					}
-					elements_data.append(element)
-		# print(elements_data)
+					
 		params_data = {
 			**params,
-			"elements": elements_data
+			"element": element
 		}
-		# self.log_event({
-		# 	"event": "event_start",
-		# 	"step": GLOBAL_STEP_COUNTER[0],
-		# 	"tool": action_name,
-		# 	"action": params_data,
-		# 	# "timestamp": time.time(),
-    	# })
 		
 		events_logger.log_start(
 			tool=action_name,
@@ -447,14 +436,7 @@ class Registry(Generic[Context]):
 
 		except ValueError as e:
 			# Preserve ValueError messages from validation
-			# self.log_event({
-			# 	"event": "event_end",
-			# 	"step": GLOBAL_STEP_COUNTER[0],
-			# 	"tool": action_name,
-			# 	"status": "failure",
-			# 	"error": str(e),
-			# 	"timestamp": time.time(),
-			# })
+
 			events_logger.log_end(action_name, "failure", str(e))
 			if 'requires browser_session but none provided' in str(e) or 'requires page_extraction_llm but none provided' in str(
 				e
@@ -463,25 +445,11 @@ class Registry(Generic[Context]):
 			else:
 				raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 		except TimeoutError as e:
-			# self.log_event({
-			# 	"event": "event_end",
-			# 	"step": GLOBAL_STEP_COUNTER[0],
-			# 	"tool": action_name,
-			# 	"status": "failure",
-			# 	"error": "timeout",
-			# 	"timestamp": time.time(),
-			# })
+
 			events_logger.log_end(action_name, "failure", str(e))
 			raise RuntimeError(f'Error executing action {action_name} due to timeout.') from e
 		except Exception as e:
-			# self.log_event({
-			# 	"event": "event_end",
-			# 	"step": GLOBAL_STEP_COUNTER[0],
-			# 	"tool": action_name,
-			# 	"status": "failure",
-			# 	"error": str(e),
-			# 	"timestamp": time.time(),
-			# })
+
 			events_logger.log_end(action_name, "failure", str(e))
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 
