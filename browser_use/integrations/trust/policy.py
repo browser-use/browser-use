@@ -23,10 +23,7 @@ from typing import Literal
 try:
 	from pydantic import BaseModel, ConfigDict, Field
 except ImportError as e:
-	raise ImportError(
-		'browser_use.integrations.trust.policy requires pydantic. '
-		'Install it with: pip install pydantic'
-	) from e
+	raise ImportError('browser_use.integrations.trust.policy requires pydantic. Install it with: pip install pydantic') from e
 
 from .service import TrustClaims
 
