@@ -509,11 +509,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self._skillbase:
 			_extend += (
 				'\n<skillbase>\n'
-				'You have access to a skillbase — a library of domain-specific skills (tips, workflows, known patterns) '
-				'for websites you visit. When you navigate to a domain that has skills, a <domain_skills> block will appear '
-				'listing available skills with their "for:" descriptions. Read any skill whose description is relevant to '
-				'what you are currently doing by calling read_skill with the domain and filename. Continue checking for and '
-				'reading relevant skills as your task evolves (e.g. if a popup appears, check if there is a popup-handling skill).\n'
+				'You have access to a skillbase — a library of verified, accurate instructions for interacting with specific '
+				'websites. Skills contain optimal navigation paths, known pitfalls to avoid, and correct workflows that have '
+				'been validated on real sites. When you navigate to a domain that has skills, a <domain_skills> block will '
+				'appear listing available skills. Read any skill relevant to your current task by calling read_skill.\n\n'
+				'IMPORTANT: Skills are authoritative. When a skill tells you to use a specific URL pattern, avoid a certain '
+				'UI element, or follow a particular workflow — do exactly that. Skills exist because the default approach '
+				'often fails on that site. Ignoring skill advice will lead to wasted steps or incorrect results.\n'
 				'</skillbase>'
 			)
 		_extend = _extend.strip() or None
