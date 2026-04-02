@@ -80,6 +80,8 @@ class DOMTreeSerializer:
 		self.paint_order_filtering = paint_order_filtering
 		# Session ID for session-specific exclude attribute
 		self.session_id = session_id
+		# Set once per serialize_accessible_elements when previous_cached_selector_map is non-empty
+		self._previous_backend_node_ids: frozenset[int] | None = None
 
 	def _safe_parse_number(self, value_str: str, default: float) -> float:
 		"""Parse string to float, handling negatives and decimals."""
@@ -138,6 +140,12 @@ class DOMTreeSerializer:
 
 		# Step 4: Assign interactive indices to clickable elements
 		start_step4 = time.time()
+		# Build once per serialization (not inside recursive assign). Empty dict {} must stay falsy
+		# so _previous_backend_node_ids stays None and is_new is never set (old: elif previous map).
+		if self._previous_cached_selector_map:
+			self._previous_backend_node_ids = frozenset(n.backend_node_id for n in self._previous_cached_selector_map.values())
+		else:
+			self._previous_backend_node_ids = None
 		self._assign_interactive_indices_and_mark_new_nodes(filtered_tree)
 		end_step4 = time.time()
 		self.timing_info['assign_interactive_indices'] = end_step4 - start_step4
@@ -716,10 +724,8 @@ class DOMTreeSerializer:
 				# Mark compound components as new for visibility
 				if node.is_compound_component:
 					node.is_new = True
-				elif self._previous_cached_selector_map:
-					# Check if node is new for regular elements
-					previous_backend_node_ids = {node.backend_node_id for node in self._previous_cached_selector_map.values()}
-					if node.original_node.backend_node_id not in previous_backend_node_ids:
+				elif self._previous_backend_node_ids is not None:
+					if node.original_node.backend_node_id not in self._previous_backend_node_ids:
 						node.is_new = True
 
 		# Process children
