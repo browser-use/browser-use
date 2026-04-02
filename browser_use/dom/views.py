@@ -519,21 +519,19 @@ class EnhancedDOMTreeNode:
 		if not element.parent_node or not element.parent_node.children_nodes:
 			return 0
 
-		same_tag_siblings = [
-			child
-			for child in element.parent_node.children_nodes
-			if child.node_type == NodeType.ELEMENT_NODE and child.node_name.lower() == element.node_name.lower()
-		]
+		tag = element.node_name.lower()
+		same_tag_count = 0
+		position_one_based = 0
+		for child in element.parent_node.children_nodes:
+			if child.node_type != NodeType.ELEMENT_NODE or child.node_name.lower() != tag:
+				continue
+			same_tag_count += 1
+			if child is element:
+				position_one_based = same_tag_count
 
-		if len(same_tag_siblings) <= 1:
-			return 0  # No index needed if it's the only one
-
-		try:
-			# XPath is 1-indexed
-			position = same_tag_siblings.index(element) + 1
-			return position
-		except ValueError:
+		if same_tag_count <= 1:
 			return 0
+		return position_one_based if position_one_based > 0 else 0
 
 	def __json__(self) -> dict:
 		"""Serializes the node and its descendants to a dictionary, omitting parent references."""
