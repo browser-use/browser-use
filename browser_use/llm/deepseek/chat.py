@@ -123,8 +123,11 @@ class ChatDeepSeek(BaseChatModel):
 					messages=ds_messages,  # type: ignore
 					**common,
 				)
+				choice = resp.choices[0] if resp.choices else None
+				if choice is None:
+					raise ModelProviderError('Invalid DeepSeek chat completion response: missing or empty `choices`.', model=self.name)
 				return ChatInvokeCompletion(
-					completion=resp.choices[0].message.content or '',
+					completion=choice.message.content or '',
 					usage=None,
 				)
 			except RateLimitError as e:
@@ -161,7 +164,10 @@ class ChatDeepSeek(BaseChatModel):
 					tool_choice=tool_choice,  # type: ignore
 					**common,
 				)
-				msg = resp.choices[0].message
+				choice = resp.choices[0] if resp.choices else None
+				if choice is None:
+					raise ModelProviderError('Invalid DeepSeek chat completion response: missing or empty `choices`.', model=self.name)
+				msg = choice.message
 				if not msg.tool_calls:
 					raise ValueError('Expected tool_calls in response but got none')
 				raw_args = msg.tool_calls[0].function.arguments
@@ -197,7 +203,10 @@ class ChatDeepSeek(BaseChatModel):
 					response_format={'type': 'json_object'},
 					**common,
 				)
-				content = resp.choices[0].message.content
+				choice = resp.choices[0] if resp.choices else None
+				if choice is None:
+					raise ModelProviderError('Invalid DeepSeek chat completion response: missing or empty `choices`.', model=self.name)
+				content = choice.message.content
 				if not content:
 					raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
 				parsed = output_format.model_validate_json(content)

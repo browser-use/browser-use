@@ -158,9 +158,18 @@ class ChatGroq(BaseChatModel):
 			top_p=self.top_p,
 			seed=self.seed,
 		)
+
+		choice = chat_completion.choices[0] if chat_completion.choices else None
+		if choice is None:
+			raise ModelProviderError(
+				message='Invalid Groq chat completion response: missing or empty `choices`.',
+				status_code=502,
+				model=self.name,
+			)
+
 		usage = self._get_usage(chat_completion)
 		return ChatInvokeCompletion(
-			completion=chat_completion.choices[0].message.content or '',
+			completion=choice.message.content or '',
 			usage=usage,
 		)
 
@@ -173,14 +182,22 @@ class ChatGroq(BaseChatModel):
 		else:
 			response = await self._invoke_with_json_schema(groq_messages, output_format, schema)
 
-		if not response.choices[0].message.content:
+		choice = response.choices[0] if response.choices else None
+		if choice is None:
+			raise ModelProviderError(
+				message='Invalid Groq chat completion response: missing or empty `choices`.',
+				status_code=502,
+				model=self.name,
+			)
+
+		if not choice.message.content:
 			raise ModelProviderError(
 				message='No content in response',
 				status_code=500,
 				model=self.name,
 			)
 
-		parsed_response = output_format.model_validate_json(response.choices[0].message.content)
+		parsed_response = output_format.model_validate_json(choice.message.content)
 		usage = self._get_usage(response)
 
 		return ChatInvokeCompletion(

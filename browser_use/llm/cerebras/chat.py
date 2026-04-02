@@ -120,9 +120,12 @@ class ChatCerebras(BaseChatModel):
 					messages=cerebras_messages,  # type: ignore
 					**common,
 				)
+				choice = resp.choices[0] if resp.choices else None
+				if choice is None:
+					raise ModelProviderError('Invalid Cerebras chat completion response: missing or empty `choices`.', model=self.name)
 				usage = self._get_usage(resp)
 				return ChatInvokeCompletion(
-					completion=resp.choices[0].message.content or '',
+					completion=choice.message.content or '',
 					usage=usage,
 				)
 			except RateLimitError as e:
@@ -166,7 +169,10 @@ Your response must be valid JSON only, no other text.
 					messages=cerebras_messages,  # type: ignore
 					**common,
 				)
-				content = resp.choices[0].message.content
+				choice = resp.choices[0] if resp.choices else None
+				if choice is None:
+					raise ModelProviderError('Invalid Cerebras chat completion response: missing or empty `choices`.', model=self.name)
+				content = choice.message.content
 				if not content:
 					raise ModelProviderError('Empty JSON content in Cerebras response', model=self.name)
 
