@@ -1749,7 +1749,29 @@ class BrowserSession(BaseModel):
 				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
-				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+
+				if version_info.status_code != 200:
+					raise RuntimeError(
+						f'CDP endpoint {url} returned HTTP {version_info.status_code}. '
+						f'Ensure the browser is running and the CDP endpoint is reachable.'
+					)
+
+				try:
+					version_data = version_info.json()
+				except Exception as e:
+					raise RuntimeError(
+						f'CDP endpoint {url} returned a non-JSON response (HTTP {version_info.status_code}). '
+						f'This usually means the URL is not a Chrome DevTools Protocol endpoint.'
+					) from e
+
+				ws_url = version_data.get('webSocketDebuggerUrl')
+				if not ws_url:
+					raise RuntimeError(
+						f'CDP endpoint {url} response is missing "webSocketDebuggerUrl". '
+						f'Response keys: {list(version_data.keys())}. '
+						f'Ensure the browser supports Chrome DevTools Protocol.'
+					)
+				self.browser_profile.cdp_url = ws_url
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
 
