@@ -498,6 +498,12 @@ Setup:
 	p = subparsers.add_parser('rightclick', help='Right-click element')
 	p.add_argument('index', type=int, help='Element index')
 
+	# elements <url> [--output file.json] [--type tags]
+	p = subparsers.add_parser('elements', help='Get clickable elements with overlay view')
+	p.add_argument('url', help='URL to navigate to')
+	p.add_argument('--output', '-o', help='Output file path for JSON (saves screenshot nearby)')
+	p.add_argument('--type', '-t', help='Filter items by type (comma-separated, e.g., "buttons,links")')
+
 	# -------------------------------------------------------------------------
 	# Cookies Commands
 	# -------------------------------------------------------------------------
@@ -1054,11 +1060,18 @@ def main() -> int:
 		if key not in skip_keys and value is not None:
 			params[key] = value
 
+	# Convert output path to absolute to avoid server-side relative path issues
+	if hasattr(args, 'output') and args.output:
+		params['output'] = str(Path(args.output).resolve())
+
 	# Resolve file paths to absolute before sending to daemon (daemon may have different CWD)
 	if args.command == 'upload' and 'path' in params:
 		params['path'] = str(Path(params['path']).expanduser().resolve())
 
-	# Add profile to params for commands that need it
+	# Add profile to params for commands that need it (agent tasks, etc.)
+	# Note: profile is passed to ensure_server for local browser profile,
+	# but also needs to be in params for cloud profile ID in remote mode
+
 	if args.profile:
 		params['profile'] = args.profile
 

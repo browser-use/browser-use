@@ -40,8 +40,8 @@ class ChatOpenAI(BaseChatModel):
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
 	top_p: float | None = None
-	add_schema_to_system_prompt: bool = False  # Add JSON schema to system prompt instead of using response_format
-	dont_force_structured_output: bool = False  # If True, the model will not be forced to output a structured output
+	add_schema_to_system_prompt: bool | None = None  # Add JSON schema to system prompt instead of using response_format
+	dont_force_structured_output: bool | None = None  # If True, the model will not be forced to output a structured output
 	remove_min_items_from_schema: bool = (
 		False  # If True, remove minItems from JSON schema (for compatibility with some providers)
 	)
@@ -75,6 +75,19 @@ class ChatOpenAI(BaseChatModel):
 			'gpt-5-nano',
 		]
 	)
+
+	def __post_init__(self):
+		if 'deepseek' in str(self.model).lower():
+			if self.dont_force_structured_output is None:
+				self.dont_force_structured_output = True
+			if self.add_schema_to_system_prompt is None:
+				self.add_schema_to_system_prompt = True
+
+		# Fallback to False if still None
+		if self.dont_force_structured_output is None:
+			self.dont_force_structured_output = False
+		if self.add_schema_to_system_prompt is None:
+			self.add_schema_to_system_prompt = False
 
 	# Static
 	@property
