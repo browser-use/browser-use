@@ -1749,7 +1749,29 @@ class BrowserSession(BaseModel):
 				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
-				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+
+				if not version_info.is_success:
+					raise RuntimeError(
+						f'CDP /json/version request to {url} failed with HTTP {version_info.status_code}. '
+						f'Response: {version_info.text[:500]}'
+					)
+
+				try:
+					version_data = version_info.json()
+				except Exception as e:
+					raise RuntimeError(
+						f'CDP /json/version response from {url} is not valid JSON: {e}. '
+						f'Response (HTTP {version_info.status_code}): {version_info.text[:500]}'
+					) from e
+
+				ws_url = version_data.get('webSocketDebuggerUrl')
+				if not ws_url:
+					raise RuntimeError(
+						f'CDP /json/version response from {url} is missing "webSocketDebuggerUrl". '
+						f'Available keys: {list(version_data.keys())}'
+					)
+
+				self.browser_profile.cdp_url = ws_url
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
 
