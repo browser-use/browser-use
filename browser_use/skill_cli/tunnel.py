@@ -73,12 +73,6 @@ class TunnelManager:
 			'Then retry: browser-use tunnel <port>'
 		)
 
-	def is_available(self) -> bool:
-		"""Check if cloudflared is available."""
-		if self._binary_path:
-			return True
-		return shutil.which('cloudflared') is not None
-
 	def get_status(self) -> dict[str, Any]:
 		"""Get tunnel capability status for doctor command."""
 		system_binary = shutil.which('cloudflared')

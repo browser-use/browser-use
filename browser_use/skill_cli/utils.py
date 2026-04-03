@@ -75,94 +75,6 @@ def get_pid_path(session: str = 'default') -> Path:
 	return get_home_dir() / f'{session}.pid'
 
 
-def is_daemon_alive(session: str = 'default') -> bool:
-	"""Check daemon liveness by attempting socket connect.
-
-	If socket file exists but nobody is listening, removes the stale file.
-	"""
-	import socket
-
-	sock_path = get_socket_path(session)
-
-	if sock_path.startswith('tcp://'):
-		_, hostport = sock_path.split('://', 1)
-		host, port_str = hostport.split(':')
-		s = None
-		try:
-			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			s.settimeout(0.5)
-			s.connect((host, int(port_str)))
-			return True
-		except OSError:
-			return False
-		finally:
-			if s:
-				s.close()
-	else:
-		sock_file = Path(sock_path)
-		if not sock_file.exists():
-			return False
-		s = None
-		try:
-			s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-			s.settimeout(0.5)
-			s.connect(sock_path)
-			return True
-		except OSError:
-			# Stale socket file — remove it
-			sock_file.unlink(missing_ok=True)
-			return False
-		finally:
-			if s:
-				s.close()
-
-
-def list_sessions() -> list[dict]:
-	"""List active daemon sessions by scanning PID files.
-
-	Returns list of {'name': str, 'pid': int, 'socket': str} for alive sessions.
-	Cleans up stale PID/socket files for dead sessions.
-	"""
-	home_dir = get_home_dir()
-	sessions: list[dict] = []
-
-	for pid_file in sorted(home_dir.glob('*.pid')):
-		session_name = pid_file.stem
-		if not session_name:
-			continue
-
-		try:
-			pid = int(pid_file.read_text().strip())
-		except (OSError, ValueError):
-			# Corrupt PID file — clean up
-			pid_file.unlink(missing_ok=True)
-			continue
-
-		# Check if process is alive
-		if not is_process_alive(pid):
-			# Dead process — clean up stale files
-			pid_file.unlink(missing_ok=True)
-			sock_path = get_socket_path(session_name)
-			if not sock_path.startswith('tcp://'):
-				Path(sock_path).unlink(missing_ok=True)
-			continue
-
-		sessions.append(
-			{
-				'name': session_name,
-				'pid': pid,
-				'socket': get_socket_path(session_name),
-			}
-		)
-
-	return sessions
-
-
-def get_log_path() -> Path:
-	"""Get log file path for the daemon."""
-	return get_home_dir() / 'cli.log'
-
-
 def find_chrome_executable() -> str | None:
 	"""Find Chrome/Chromium executable on the system."""
 	system = platform.system()
@@ -266,7 +178,7 @@ def discover_chrome_cdp_url() -> str:
 	1. Read ``DevToolsActivePort`` from known Chrome data dirs.
 	2. Probe ``/json/version`` via HTTP to get ``webSocketDebuggerUrl``.
 	3. If HTTP fails, construct ``ws://`` URL directly from the port file.
-	4. Fallback: probe well-known ports 9222, 9229.
+	4. Fallback: probe well-known port 9222.
 
 	Raises ``RuntimeError`` if no running Chrome with remote debugging is found.
 	"""
@@ -322,7 +234,7 @@ def discover_chrome_cdp_url() -> str:
 			return f'ws://127.0.0.1:{port}{ws_path}'
 
 	# --- Phase 2: well-known fallback ports ---
-	for port in (9222, 9229):
+	for port in (9222,):
 		ws_url = _probe_http(port)
 		if ws_url:
 			return ws_url
