@@ -1,11 +1,14 @@
+"""
+Helper class for maintaining a union of rectangles (used for order of elements calculation)
+"""
+
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
 
 from browser_use.dom.views import SimplifiedNode
 
-"""
-Helper class for maintaining a union of rectangles (used for order of elements calculation)
-"""
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +154,26 @@ class PaintOrderRemover:
 	def __init__(self, root: SimplifiedNode):
 		self.root = root
 
+	@staticmethod
+	def _log_element_excluded_by_paint_order(node: 'SimplifiedNode', paint_order: int) -> None:
+		"""Log when an element is excluded because it is fully covered by higher paint-order elements."""
+		if not logger.isEnabledFor(logging.DEBUG):
+			return
+		snapshot = node.original_node.snapshot_node
+		if not snapshot or not snapshot.bounds:
+			return
+		attrs = node.original_node.attributes or {}
+		tag = (node.original_node.tag_name or 'unknown').lower()
+		bounds = snapshot.bounds
+		logger.debug(
+			f'Paint order filter: excluding <{tag}> '
+			f'id="{attrs.get("id", "")}" class="{attrs.get("class", "")}" '
+			f'backendNodeId={node.original_node.backend_node_id} | '
+			f'Fully covered by elements with higher paint order | '
+			f'Paint order: {paint_order} | '
+			f'Bounds: x={bounds.x:.1f} y={bounds.y:.1f} w={bounds.width:.1f} h={bounds.height:.1f}'
+		)
+
 	def calculate_paint_order(self) -> None:
 		all_simplified_nodes_with_paint_order: list[SimplifiedNode] = []
 
@@ -191,6 +214,7 @@ class PaintOrderRemover:
 
 				if rect_union.contains(rect):
 					node.ignored_by_paint_order = True
+					self._log_element_excluded_by_paint_order(node, paint_order)
 
 				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
 				if (
