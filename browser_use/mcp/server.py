@@ -198,6 +198,10 @@ class BrowserUseServer:
 		self.tools: Tools | None = None
 		self.llm: ChatOpenAI | None = None
 		self.file_system: FileSystem | None = None
+		# Last LLM usage from browser_extract_content (for HTTP / embedded adapters)
+		self._last_llm_usage: dict[str, Any] | None = None
+		self._last_llm_model: str | None = None
+		self._last_llm_provider: str | None = None
 		self._telemetry = ProductTelemetry()
 		self._start_time = time.time()
 
@@ -480,6 +484,10 @@ class BrowserUseServer:
 		self, tool_name: str, arguments: dict[str, Any]
 	) -> str | list[types.TextContent | types.ImageContent]:
 		"""Execute a browser-use tool. Returns str for most tools, or a content list for tools with image output."""
+
+		self._last_llm_usage = None
+		self._last_llm_model = None
+		self._last_llm_provider = None
 
 		# Agent-based tools
 		if tool_name == 'retry_with_browser_use_agent':
@@ -1009,6 +1017,12 @@ class BrowserUseServer:
 			page_extraction_llm=self.llm,
 			file_system=self.file_system,
 		)
+
+		if action_result.metadata and action_result.metadata.get('llm_usage'):
+			self._last_llm_usage = action_result.metadata['llm_usage']
+		if self.llm is not None:
+			self._last_llm_model = str(self.llm.model)
+			self._last_llm_provider = str(self.llm.provider)
 
 		return action_result.extracted_content or 'No content extracted'
 

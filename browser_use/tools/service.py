@@ -1114,11 +1114,16 @@ You will be given a query, a JSON Schema, and the markdown of a webpage that has
 						include_extracted_content_only_once = True
 
 					logger.info(f'📄 {memory}')
+					llm_usage_payload = response.usage.model_dump(mode='json') if response.usage else None
 					return ActionResult(
 						extracted_content=extracted_content,
 						include_extracted_content_only_once=include_extracted_content_only_once,
 						long_term_memory=memory,
-						metadata={'structured_extraction': True, 'extraction_result': extraction_meta.model_dump(mode='json')},
+						metadata={
+							'structured_extraction': True,
+							'extraction_result': extraction_meta.model_dump(mode='json'),
+							'llm_usage': llm_usage_payload,
+						},
 					)
 				except Exception as e:
 					logger.debug(f'Error in structured extraction: {e}')
@@ -1178,10 +1183,12 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
+				llm_usage_payload = response.usage.model_dump(mode='json') if response.usage else None
 				return ActionResult(
 					extracted_content=extracted_content,
 					include_extracted_content_only_once=include_extracted_content_only_once,
 					long_term_memory=memory,
+					metadata={'llm_usage': llm_usage_payload},
 				)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
