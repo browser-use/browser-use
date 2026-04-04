@@ -4,9 +4,7 @@ import logging
 import os
 from typing import Any, Literal
 
-from browser_use_sdk import AsyncBrowserUse
-from browser_use_sdk.types.execute_skill_response import ExecuteSkillResponse
-from browser_use_sdk.types.skill_list_response import SkillListResponse
+from browser_use_sdk import AsyncBrowserUse, ExecuteSkillResponse, SkillListResponse
 from cdp_use.cdp.network import Cookie
 from pydantic import BaseModel, ValidationError
 
@@ -60,7 +58,7 @@ class SkillService:
 
 			if use_wildcard:
 				# Wildcard: fetch only first page (max 100 skills) to avoid LLM tool overload
-				skills_response: SkillListResponse = await self._client.skills.list_skills(
+				skills_response: SkillListResponse = await self._client.skills.list(
 					page_size=page_size,
 					page_number=1,
 					is_enabled=True,
@@ -81,7 +79,7 @@ class SkillService:
 				max_pages = 5  # Safety limit
 
 				while page <= max_pages:
-					skills_response = await self._client.skills.list_skills(
+					skills_response = await self._client.skills.list(
 						page_size=page_size,
 						page_number=page,
 						is_enabled=True,
@@ -89,7 +87,7 @@ class SkillService:
 					all_items.extend(skills_response.items)
 
 					# Check if we've found all requested skills
-					found_ids = {s.id for s in all_items if s.id in requested_ids}
+					found_ids = {str(s.id) for s in all_items if str(s.id) in requested_ids}
 					if found_ids == requested_ids:
 						break
 
@@ -104,7 +102,7 @@ class SkillService:
 				logger.debug(f'Fetched {len(all_items)} skills across {page} page(s)')
 
 			# Filter to only finished skills (is_enabled already filtered by API)
-			all_available_skills = [skill for skill in all_items if skill.status == 'finished']
+			all_available_skills = [skill for skill in all_items if skill.status.value == 'finished']
 
 			logger.info(f'Found {len(all_available_skills)} available skills from API')
 
@@ -114,10 +112,10 @@ class SkillService:
 				skills_to_load = all_available_skills
 			else:
 				# Load only the requested skill IDs
-				skills_to_load = [skill for skill in all_available_skills if skill.id in requested_ids]
+				skills_to_load = [skill for skill in all_available_skills if str(skill.id) in requested_ids]
 
 				# Warn about any requested skills that weren't found
-				found_ids = {skill.id for skill in skills_to_load}
+				found_ids = {str(skill.id) for skill in skills_to_load}
 				missing_ids = requested_ids - found_ids
 				if missing_ids:
 					logger.warning(f'Requested skills not found or not available: {missing_ids}')
@@ -256,8 +254,8 @@ class SkillService:
 		# Execute skill via API
 		try:
 			logger.info(f'Executing skill: {skill.title} ({skill_id})')
-			result: ExecuteSkillResponse = await self._client.skills.execute_skill(
-				skill_id=skill_id, parameters=validated_params_dict
+			result: ExecuteSkillResponse = await self._client.skills.execute(
+				skill_id, parameters=validated_params_dict
 			)
 
 			if result.success:
