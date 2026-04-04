@@ -863,7 +863,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		async def read_skill(params: ReadSkillParams) -> ActionResult:
 			content = await sb.fetch_skill(params.domain, params.filename)
 			if content:
-				return ActionResult(extracted_content=content)
+				formatted = f'Read skill {params.domain}/{params.filename}:\n<skill>\n{content}\n</skill>'
+				return ActionResult(extracted_content=formatted)
 			return ActionResult(error=f'Skill {params.domain}/{params.filename} not found')
 
 		self.tools.registry.action(
