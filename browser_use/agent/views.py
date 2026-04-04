@@ -58,7 +58,7 @@ class MessageCompactionSettings(BaseModel):
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
-	use_vision: bool | Literal['auto'] = True
+	use_vision: bool | Literal['auto'] = False
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
