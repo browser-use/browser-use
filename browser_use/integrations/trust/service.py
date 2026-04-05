@@ -102,6 +102,17 @@ class AgentIDTrustProvider(TrustProvider):
 		if base_url:
 			self.BASE_URL = base_url
 		self._cache: dict[str, tuple[str, float]] = {}
+		self._last_prune: float = 0.0
+
+	def _prune_expired(self) -> None:
+		"""Remove expired entries from the cache. Runs at most once per 60 seconds."""
+		now = time.time()
+		if now - self._last_prune < 60:
+			return
+		self._last_prune = now
+		expired = [k for k, (_, expiry) in self._cache.items() if now > expiry]
+		for k in expired:
+			del self._cache[k]
 
 	async def get_no_trust_header(self, reason: str = 'provider_unreachable') -> str:
 		"""Return a minimal JWT indicating no trust data is available.
@@ -153,6 +164,8 @@ class AgentIDTrustProvider(TrustProvider):
 		"""
 		if not agent_id:
 			raise ValueError('agent_id must not be empty')
+
+		self._prune_expired()
 
 		try:
 			# Check cache
@@ -246,6 +259,11 @@ class AgentIDTrustProvider(TrustProvider):
 					'Unsigned JWT (alg=none / empty signature) is only accepted '
 					'for no_trust_data payloads — refusing unverified trust claims'
 				)
+
+		# Note: AgentID JWTs are signed by the AgentID server. The client api_key
+		# is a bearer token for API access, not the HMAC signing secret. Full
+		# cryptographic verification requires the provider's public key and should
+		# be done server-side. Client-side decoding here is for claim extraction only.
 
 		claims = TrustClaims(**payload)
 

@@ -123,11 +123,22 @@ class VeroQShieldTrustProvider(TrustProvider):
 			self.BASE_URL = base_url
 		self.max_claims = max_claims
 		self._cache: dict[str, tuple[str, float]] = {}
+		self._last_prune: float = 0.0
 
 	@staticmethod
 	def _text_hash(text: str) -> str:
 		"""SHA-256 hash of text, used for cache keys and claim dedup."""
 		return hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]
+
+	def _prune_expired(self) -> None:
+		"""Remove expired entries from the cache. Runs at most once per 60 seconds."""
+		now = time.time()
+		if now - self._last_prune < 60:
+			return
+		self._last_prune = now
+		expired = [k for k, (_, expiry) in self._cache.items() if now > expiry]
+		for k in expired:
+			del self._cache[k]
 
 	@staticmethod
 	def _confidence_to_trust_score(confidence: float) -> int:
@@ -268,6 +279,8 @@ class VeroQShieldTrustProvider(TrustProvider):
 		if not agent_id:
 			raise ValueError('agent_id must not be empty')
 
+		self._prune_expired()
+
 		# No text to verify — return no-trust-data
 		if not output_text or len(output_text.strip()) < 20:
 			return await self.get_no_trust_header(
@@ -275,8 +288,8 @@ class VeroQShieldTrustProvider(TrustProvider):
 				reason='no output text provided for verification',
 			)
 
-		# Cache key: agent + text content hash
-		cache_key = f'{agent_id}:{self._text_hash(output_text)}'
+		# Cache key: agent + text content hash + source (different sources = different verification contexts)
+		cache_key = f'{agent_id}:{self._text_hash(output_text)}:{source or "default"}'
 
 		try:
 			# Check cache
@@ -431,6 +444,17 @@ class VeroQShieldTrustProvider(TrustProvider):
 					'Unsigned JWT (alg=none / empty signature) is only accepted '
 					'for no_trust_data payloads — refusing unverified trust claims'
 				)
+
+		# Verify HMAC-SHA256 signature when api_key is available
+		if self.api_key and alg == 'HS256' and signature_segment:
+			import hmac as _hmac
+			sig_input = f'{parts[0]}.{parts[1]}'.encode()
+			expected_sig = _hmac.new(
+				self.api_key.encode(), sig_input, hashlib.sha256,
+			).digest()
+			expected_b64 = base64.urlsafe_b64encode(expected_sig).decode().rstrip('=')
+			if not _hmac.compare_digest(expected_b64, signature_segment):
+				raise ValueError('JWT signature verification failed — HMAC mismatch')
 
 		claims = TrustClaims(**payload)
 

@@ -12,6 +12,7 @@ import hmac
 import json
 import time
 
+import httpx
 import pytest
 
 from browser_use.integrations.trust.policy import TrustPolicy, TrustPolicyChain
@@ -95,9 +96,9 @@ class TestVeroQConstructor:
 		assert provider.max_claims == 3
 
 	def test_max_claims_bounds(self):
-		with pytest.raises(AssertionError):
+		with pytest.raises(ValueError):
 			VeroQShieldTrustProvider(max_claims=0)
-		with pytest.raises(AssertionError):
+		with pytest.raises(ValueError):
 			VeroQShieldTrustProvider(max_claims=11)
 
 
@@ -219,11 +220,15 @@ class TestVeroQNoTrustData:
 			await provider.get_trust_jwt(agent_id='')
 
 	async def test_get_trust_jwt_unreachable_api_returns_no_trust(self):
-		"""When the API is unreachable, should fall back to no-trust-data."""
-		provider = VeroQShieldTrustProvider(
-			api_key='test',
-			base_url='https://localhost:1',
-		)
+		"""When the API call fails, should fall back to no-trust-data."""
+		provider = VeroQShieldTrustProvider(api_key='test')
+
+		# Patch _call_shield to simulate a network failure without making a real HTTP call
+		async def _failing_shield(*args, **kwargs):
+			raise httpx.ConnectError('simulated connection failure')
+
+		provider._call_shield = _failing_shield  # type: ignore[assignment]
+
 		jwt = await provider.get_trust_jwt(
 			agent_id='agent_test',
 			output_text='This is a long enough text to trigger verification of claims.',
@@ -323,7 +328,7 @@ class TestReceiptURL:
 
 	def test_receipt_url_empty_raises(self):
 		provider = VeroQShieldTrustProvider()
-		with pytest.raises(AssertionError):
+		with pytest.raises(ValueError):
 			provider.get_receipt_url('')
 
 

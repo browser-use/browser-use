@@ -171,7 +171,7 @@ class TrustPolicyChain:
 			if self.ACTION_PRIORITY.get(result.action, 0) > self.ACTION_PRIORITY.get(worst_action, 0):
 				worst_action = result.action
 
-		passed = worst_action == 'allow'
+		passed = all(r.passed for r in results)
 
 		return PolicyResult(
 			passed=passed,
