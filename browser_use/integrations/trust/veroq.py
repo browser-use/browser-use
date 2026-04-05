@@ -437,6 +437,11 @@ class VeroQShieldTrustProvider(TrustProvider):
 		signature_segment = parts[2]
 		is_no_trust = payload.get('no_trust_data', False)
 
+		# Only accept algorithms we can verify — reject everything else
+		SUPPORTED_ALGS = {'none', 'HS256'}
+		if alg not in SUPPORTED_ALGS:
+			raise ValueError(f'Unsupported JWT algorithm: {alg}. Only {SUPPORTED_ALGS} are accepted.')
+
 		# Reject unsigned JWTs that claim to carry real trust data
 		if alg == 'none' or not signature_segment:
 			if not is_no_trust:
@@ -445,8 +450,11 @@ class VeroQShieldTrustProvider(TrustProvider):
 					'for no_trust_data payloads — refusing unverified trust claims'
 				)
 
-		# Verify HMAC-SHA256 signature when api_key is available
-		if self.api_key and alg == 'HS256' and signature_segment:
+		# Verify HMAC-SHA256 signature
+		if alg == 'HS256' and signature_segment:
+			if not self.api_key:
+				raise ValueError('Cannot verify HS256 JWT without api_key')
+			import hmac as _hmac
 			import hmac as _hmac
 			sig_input = f'{parts[0]}.{parts[1]}'.encode()
 			expected_sig = _hmac.new(
