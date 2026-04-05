@@ -113,8 +113,10 @@ class VeroQShieldTrustProvider(TrustProvider):
 		base_url: str | None = None,
 		max_claims: int = 5,
 	):
-		assert api_key is None or isinstance(api_key, str), 'api_key must be a string or None'
-		assert 1 <= max_claims <= 10, 'max_claims must be between 1 and 10'
+		if api_key is not None and not isinstance(api_key, str):
+			raise ValueError('api_key must be a string or None')
+		if not (1 <= max_claims <= 10):
+			raise ValueError('max_claims must be between 1 and 10')
 
 		self.api_key = api_key
 		if base_url:
@@ -159,7 +161,7 @@ class VeroQShieldTrustProvider(TrustProvider):
 			httpx.HTTPStatusError: On non-2xx response.
 			httpx.TimeoutException: On timeout.
 		"""
-		assert len(text) >= 20, 'text must be at least 20 characters'
+		if len(text) < 20: raise ValueError('text must be at least 20 characters')
 
 		headers: dict[str, str] = {'Content-Type': 'application/json'}
 		if self.api_key:
@@ -243,7 +245,7 @@ class VeroQShieldTrustProvider(TrustProvider):
 		body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
 		return f'{header}.{body}.'
 
-	async def get_trust_jwt(self, agent_id: str, output_text: str | None = None, source: str | None = None) -> str:
+	async def get_trust_jwt(self, agent_id: str, output_text: str | None = None, source: str | None = None) -> str:  # type: ignore[override]  # extends base with optional output_text/source params
 		"""
 		Get an Agent-Trust-Score JWT based on output accuracy verification.
 
@@ -452,7 +454,7 @@ class VeroQShieldTrustProvider(TrustProvider):
 		Returns:
 			Public URL for the verification receipt.
 		"""
-		assert receipt_id, 'receipt_id must not be empty'
+		if not receipt_id: raise ValueError('receipt_id must not be empty')
 		return f'{self.BASE_URL}/api/v1/verify/receipt/{receipt_id}'
 
 	def clear_cache(self) -> None:
