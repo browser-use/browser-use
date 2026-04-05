@@ -4,16 +4,29 @@ on:
     paths:
       - 'SKILL.md'
       - 'skill.json'
+  workflow_run:
+    workflows: ['Validate Skill']
+    types: [requested]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: Validate skill definition
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashgraph-online/skill-publish@v1
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate skill
+        uses: hashgraph-online/skill-publish@v1
         with:
           mode: validate
           skill-dir: .
