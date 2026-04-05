@@ -528,6 +528,13 @@ main() {
 	# Step 6: Install profile-use
 	install_profile_use
 
+	# Step 6.5: Create config.json if it doesn't exist
+	config_file="$HOME/.browser-use/config.json"
+	if [ ! -f "$config_file" ]; then
+		echo '{}' > "$config_file"
+		chmod 600 "$config_file"
+	fi
+
 	# Step 7: Configure PATH
 	configure_path
 

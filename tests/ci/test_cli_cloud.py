@@ -13,15 +13,31 @@ from werkzeug.wrappers import Request, Response
 # ---------------------------------------------------------------------------
 
 
-def run_cli(*args: str, env_override: dict | None = None) -> subprocess.CompletedProcess:
-	"""Run the CLI as a subprocess, returning the result."""
+def run_cli(*args: str, env_override: dict | None = None, api_key: str | None = None) -> subprocess.CompletedProcess:
+	"""Run the CLI as a subprocess, returning the result.
+
+	If api_key is provided, writes it to a temp config.json via BROWSER_USE_HOME
+	(the CLI reads API keys from config.json only, not env vars).
+	"""
 	import os
+	import tempfile
 
 	env = os.environ.copy()
 	# Prevent real API key from leaking into tests
 	env.pop('BROWSER_USE_API_KEY', None)
 	if env_override:
 		env.update(env_override)
+
+	# Write API key to temp config.json if requested
+	if api_key is not None:
+		tmp_home = env.get('BROWSER_USE_HOME')
+		if not tmp_home:
+			tmp_home = tempfile.mkdtemp()
+			env['BROWSER_USE_HOME'] = tmp_home
+		config_path = Path(tmp_home) / 'config.json'
+		existing = json.loads(config_path.read_text()) if config_path.exists() else {}
+		existing['api_key'] = api_key
+		config_path.write_text(json.dumps(existing))
 
 	return subprocess.run(
 		[sys.executable, '-m', 'browser_use.skill_cli.main', 'cloud', *args],
@@ -104,9 +120,9 @@ def test_cloud_rest_get(httpserver: HTTPServer):
 		'GET',
 		'/browsers',
 		env_override={
-			'BROWSER_USE_API_KEY': 'sk-test',
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 		},
+		api_key='sk-test',
 	)
 	assert result.returncode == 0
 	data = json.loads(result.stdout)
@@ -130,9 +146,9 @@ def test_cloud_rest_post_with_body(httpserver: HTTPServer):
 		'/tasks',
 		json.dumps(body_to_send),
 		env_override={
-			'BROWSER_USE_API_KEY': 'sk-test',
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 		},
+		api_key='sk-test',
 	)
 	assert result.returncode == 0
 	data = json.loads(result.stdout)
@@ -151,9 +167,9 @@ def test_cloud_rest_sends_auth_header(httpserver: HTTPServer):
 		'GET',
 		'/test',
 		env_override={
-			'BROWSER_USE_API_KEY': 'sk-secret-key',
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 		},
+		api_key='sk-secret-key',
 	)
 	assert result.returncode == 0
 
@@ -166,11 +182,11 @@ def test_cloud_rest_4xx_exits_2(httpserver: HTTPServer):
 		'GET',
 		'/bad',
 		env_override={
-			'BROWSER_USE_API_KEY': 'sk-test',
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 			# Prevent spec fetch from hanging
 			'BROWSER_USE_OPENAPI_SPEC_URL_V2': 'http://127.0.0.1:1/nope',
 		},
+		api_key='sk-test',
 	)
 	assert result.returncode == 2
 	assert 'HTTP 404' in result.stderr
@@ -212,9 +228,9 @@ def test_cloud_poll_finishes(httpserver: HTTPServer):
 		'poll',
 		't-123',
 		env_override={
-			'BROWSER_USE_API_KEY': 'sk-test',
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 		},
+		api_key='sk-test',
 	)
 	assert result.returncode == 0
 	data = json.loads(result.stdout)
@@ -232,9 +248,9 @@ def test_cloud_poll_failed_exits_2(httpserver: HTTPServer):
 		'poll',
 		't-fail',
 		env_override={
-			'BROWSER_USE_API_KEY': 'sk-test',
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 		},
+		api_key='sk-test',
 	)
 	assert result.returncode == 2
 
@@ -253,9 +269,9 @@ def test_cloud_url_construction(httpserver: HTTPServer):
 		'GET',
 		'browsers',  # no leading /
 		env_override={
-			'BROWSER_USE_API_KEY': 'sk-test',
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 		},
+		api_key='sk-test',
 	)
 	assert result.returncode == 0
 	data = json.loads(result.stdout)

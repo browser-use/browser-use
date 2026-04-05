@@ -264,12 +264,16 @@ class DOMWatchdog(BaseWatchdog):
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
 
 		# Check for pending network requests BEFORE waiting (so we can see what's loading)
+		# Timeout after 2s — on slow CI machines or heavy pages, this call can hang
+		# for 15s+ eating into the 30s BrowserStateRequestEvent budget.
 		pending_requests_before_wait = []
 		if not not_a_meaningful_website:
 			try:
-				pending_requests_before_wait = await self._get_pending_network_requests()
+				pending_requests_before_wait = await asyncio.wait_for(self._get_pending_network_requests(), timeout=2.0)
 				if pending_requests_before_wait:
 					self.logger.debug(f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait')
+			except TimeoutError:
+				self.logger.debug('Pending network request check timed out (2s), skipping')
 			except Exception as e:
 				self.logger.debug(f'Failed to get pending requests before wait: {e}')
 		pending_requests = pending_requests_before_wait

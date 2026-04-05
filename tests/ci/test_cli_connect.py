@@ -170,18 +170,11 @@ def test_discover_fallback_well_known_port(chrome_data_dir: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_connect_mutual_exclusivity_with_cdp_url():
-	"""--connect + --cdp-url should error."""
-	result = run_cli('--connect', '--cdp-url', 'ws://localhost:9222', 'open', 'https://example.com')
+def test_connect_shows_deprecation():
+	"""--connect should show deprecation message."""
+	result = run_cli('--connect', 'open', 'https://example.com')
 	assert result.returncode == 1
-	assert 'mutually exclusive' in result.stderr.lower()
-
-
-def test_connect_mutual_exclusivity_with_profile():
-	"""--connect + --profile should error."""
-	result = run_cli('--connect', '--profile', 'Default', 'open', 'https://example.com')
-	assert result.returncode == 1
-	assert 'mutually exclusive' in result.stderr.lower()
+	assert '--connect has been replaced' in result.stderr
 
 
 def test_connect_shows_in_help():

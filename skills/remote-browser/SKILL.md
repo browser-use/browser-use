@@ -42,8 +42,10 @@ browser-use open <url>                    # Navigate to URL
 browser-use back                          # Go back in history
 browser-use scroll down                   # Scroll down (--amount N for pixels)
 browser-use scroll up                     # Scroll up
-browser-use switch <tab>                  # Switch to tab by index
-browser-use close-tab [tab]              # Close tab (current if no index)
+browser-use tab list                      # List all tabs with lock status
+browser-use tab new [url]                 # Open a new tab (blank or with URL)
+browser-use tab switch <index>            # Switch to tab by index
+browser-use tab close <index> [index...]  # Close one or more tabs
 
 # Page State — always run state first to get element indices
 browser-use state                         # URL, title, clickable elements with indices
@@ -128,6 +130,23 @@ browser-use open https://abc.trycloudflare.com     # Browse the tunnel
 ```
 
 Tunnels are independent of browser sessions and persist across `browser-use close`.
+
+## Multi-Agent (--connect mode)
+
+Multiple agents can share one browser via `--connect`. Each agent gets its own tab — other agents can't interfere.
+
+**Setup**: Register once, then pass the index with every `--connect` command:
+
+```bash
+INDEX=$(browser-use register)                    # → prints "1"
+browser-use --connect $INDEX open <url>          # Navigate in agent's own tab
+browser-use --connect $INDEX state               # Get state from agent's tab
+browser-use --connect $INDEX click <element>     # Click in agent's tab
+```
+
+- **Tab locking**: When an agent mutates a tab (click, type, navigate), that tab is locked to it. Other agents get an error if they try to mutate the same tab.
+- **Read-only access**: `state`, `screenshot`, `get`, and `wait` commands work on any tab regardless of locks.
+- **Agent sessions expire** after 5 minutes of inactivity. Run `browser-use register` again to get a new index.
 
 ## Global Options
 

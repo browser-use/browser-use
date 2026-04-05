@@ -1,6 +1,6 @@
 # Minimal dependencies for the browser-use CLI.
 # Used by install_lite.sh — update this file if the CLI's import chain changes.
-aiohttp==3.13.3
+aiohttp==3.13.4
 bubus==1.5.6
 cdp-use==1.4.5
 httpx==0.28.1
