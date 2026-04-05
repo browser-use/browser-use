@@ -53,6 +53,7 @@ class TestClickCommandHandler:
 	async def test_coordinate_click_handler(self, httpserver):
 		"""Coordinate click dispatches ClickCoordinateEvent."""
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -74,6 +75,7 @@ class TestClickCommandHandler:
 				profile=None,
 				cdp_url=None,
 				browser_session=session,
+				actions=ActionHandler(session),
 			)
 
 			result = await handle('click', session_info, {'args': [100, 200]})
@@ -85,6 +87,7 @@ class TestClickCommandHandler:
 	async def test_index_click_handler(self, httpserver):
 		"""Index click dispatches ClickElementEvent."""
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -106,6 +109,7 @@ class TestClickCommandHandler:
 				profile=None,
 				cdp_url=None,
 				browser_session=session,
+				actions=ActionHandler(session),
 			)
 
 			# Index 999 won't exist, so we expect the error path
@@ -117,6 +121,7 @@ class TestClickCommandHandler:
 	async def test_invalid_args_count(self):
 		"""Three args returns error without touching the browser."""
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -128,6 +133,7 @@ class TestClickCommandHandler:
 			profile=None,
 			cdp_url=None,
 			browser_session=BrowserSession(headless=True),
+			actions=ActionHandler(BrowserSession(headless=True)),
 		)
 
 		result = await handle('click', session_info, {'args': [1, 2, 3]})

@@ -1,80 +1,31 @@
 #!/usr/bin/env bash
-# Browser-Use Bootstrap Installer
+# Browser-Use Lightweight CLI Installer
+#
+# Installs only the minimal dependencies needed for the CLI (~10 packages
+# instead of ~50). Use this if you only need the browser-use CLI commands
+# and don't need the Python library (Agent, LLM integrations, etc.).
 #
 # Usage:
-#   curl -fsSL https://browser-use.com/cli/install.sh | bash
+#   curl -fsSL <url>/install_lite.sh | bash
 #
 # For development testing:
 #   curl -fsSL <raw-url> | BROWSER_USE_BRANCH=<branch-name> bash
 #
-# =============================================================================
-# WINDOWS INSTALLATION NOTES
-# =============================================================================
-#
-# Windows requires Git Bash to run this script. Install Git for Windows first:
-#   winget install Git.Git
-#
-# Then run from PowerShell:
-#   & "C:\Program Files\Git\bin\bash.exe" -c 'curl -fsSL https://browser-use.com/cli/install.sh | bash'
-#
-# KNOWN ISSUES AND SOLUTIONS:
-#
-# 1. Python 3.14+ not yet tested
-#    - If you encounter asyncio/runtime issues on 3.14, use Python 3.11, 3.12, or 3.13
-#    - You can install 3.13 alongside an existing 3.14:
-#      winget install Python.Python.3.13
-#
-# 2. ARM64 Windows (Surface Pro X, Snapdragon laptops)
-#    - Many Python packages don't have pre-built ARM64 wheels
-#    - Solution: Install x64 Python (runs via emulation):
-#      winget install Python.Python.3.13 --architecture x64
-#
-# 3. Multiple Python versions installed
-#    - Windows uses the 'py' launcher, not 'python3.x' commands
-#    - The script may pick the wrong version if multiple are installed
-#    - Solution: Uninstall unwanted Python versions, or set PY_PYTHON=3.13
-#
-# 4. Stale virtual environment
-#    - If you reinstall with a different Python version, delete the old venv
-#    - First kill any Python processes holding it open:
-#      taskkill /IM python.exe /F
-#    - Then delete:
-#      Remove-Item -Recurse -Force "$env:USERPROFILE\.browser-use-env"
-#
-# 5. PATH not working in PowerShell after install
-#    - The script modifies your Windows user PATH directly (no execution policy needed)
-#    - You must restart PowerShell for changes to take effect
-#    - If it still doesn't work, check your PATH:
-#      echo $env:PATH
-#    - Or run commands through Git Bash:
-#      & "C:\Program Files\Git\bin\bash.exe" -c 'browser-use open https://example.com'
-#
-# 6. "Failed to start session server" error
-#    This generic error usually means a zombie server process is holding the port.
-#
-#    Step 1: Find the process using the port
-#      netstat -ano | findstr 49698
-#      # Output shows PID in last column, e.g.: TCP 127.0.0.1:49698 ... LISTENING 1234
-#
-#    Step 2: Kill the zombie process
-#      taskkill /PID 1234 /F
-#
-#    Step 3: Try again
-#      bu open https://example.com
-#
-#    If it keeps happening after bu close:
-#    - The server cleanup may be hanging during browser shutdown
-#    - Always kill stale processes before retrying
-#    - Or kill all Python: taskkill /IM python.exe /F
-#
-# 7. Debugging daemon issues
-#    To see actual error messages instead of "Failed to start daemon":
-#      & "$env:USERPROFILE\.browser-use-env\Scripts\python.exe" -m browser_use.skill_cli.daemon
-#    This runs the daemon in foreground and shows all errors.
+# To install the full library instead, use install.sh.
 #
 # =============================================================================
 
 set -e
+
+# =============================================================================
+# Prerequisites
+# =============================================================================
+
+if ! command -v curl &> /dev/null; then
+	echo "Error: curl is required but not installed."
+	echo "Install it and try again."
+	exit 1
+fi
 
 # =============================================================================
 # Configuration
@@ -116,14 +67,14 @@ parse_args() {
 	while [[ $# -gt 0 ]]; do
 		case $1 in
 			--help|-h)
-				echo "Browser-Use Installer"
+				echo "Browser-Use Lightweight CLI Installer"
 				echo ""
-				echo "Usage: install.sh [OPTIONS]"
+				echo "Usage: install_lite.sh [OPTIONS]"
 				echo ""
 				echo "Options:"
 				echo "  --help, -h        Show this help"
 				echo ""
-				echo "Installs Python 3.11+ (if needed), uv, browser-use, and Chromium."
+				echo "Installs Python 3.11+ (if needed), uv, browser-use CLI (minimal deps), and Chromium."
 				exit 0
 				;;
 			*)
@@ -298,6 +249,10 @@ install_uv() {
 	fi
 
 	# Use official uv installer
+	if ! command -v curl &> /dev/null; then
+		log_error "curl is required but not found. Install curl and try again."
+		exit 1
+	fi
 	curl -LsSf https://astral.sh/uv/install.sh | sh
 
 	if command -v uv &> /dev/null; then
@@ -309,11 +264,11 @@ install_uv() {
 }
 
 # =============================================================================
-# Browser-Use installation
+# Browser-Use installation (lightweight - CLI deps only)
 # =============================================================================
 
 install_browser_use() {
-	log_info "Installing browser-use..."
+	log_info "Installing browser-use (lightweight CLI)..."
 
 	# Create or use existing virtual environment
 	if [ ! -d "$HOME/.browser-use-env" ]; then
@@ -332,13 +287,23 @@ install_browser_use() {
 	BROWSER_USE_BRANCH="${BROWSER_USE_BRANCH:-main}"
 	BROWSER_USE_REPO="${BROWSER_USE_REPO:-browser-use/browser-use}"
 	log_info "Installing from GitHub: $BROWSER_USE_REPO@$BROWSER_USE_BRANCH"
-	# Clone and install locally to ensure all dependencies are resolved
+	# Clone and install the package without its declared dependencies,
+	# then install only the minimal deps the CLI actually needs at runtime.
+	# This avoids pulling ~50 packages (LLM clients, PDF tools, etc.) that
+	# the CLI never imports.
 	local tmp_dir=$(mktemp -d)
 	git clone --depth 1 --branch "$BROWSER_USE_BRANCH" "https://github.com/$BROWSER_USE_REPO.git" "$tmp_dir"
-	uv pip install "$tmp_dir"
+	uv pip install "$tmp_dir" --no-deps
+
+	# Install only the dependencies the CLI actually needs (~10 packages).
+	# The list lives in requirements-cli.txt so it's discoverable and testable.
+	# Transitive deps (e.g. websockets via cdp-use) are resolved automatically.
+	log_info "Installing minimal CLI dependencies..."
+	uv pip install -r "$tmp_dir/browser_use/skill_cli/requirements-cli.txt"
+
 	rm -rf "$tmp_dir"
 
-	log_success "browser-use installed"
+	log_success "browser-use CLI installed (lightweight)"
 }
 
 install_chromium() {
@@ -380,13 +345,14 @@ configure_path() {
 	local bin_path=$(get_venv_bin_dir)
 	local local_bin="$HOME/.local/bin"
 
-	# Detect user's login shell (not the running shell, since this script
-	# is typically executed via "curl ... | bash" which always sets BASH_VERSION)
-	case "$(basename "$SHELL")" in
-		zsh)  shell_rc="$HOME/.zshrc" ;;
-		bash) shell_rc="$HOME/.bashrc" ;;
-		*)    shell_rc="$HOME/.profile" ;;
-	esac
+	# Detect shell
+	if [ -n "$BASH_VERSION" ]; then
+		shell_rc="$HOME/.bashrc"
+	elif [ -n "$ZSH_VERSION" ]; then
+		shell_rc="$HOME/.zshrc"
+	else
+		shell_rc="$HOME/.profile"
+	fi
 
 	# Check if already in PATH (browser-use-env matches both /bin and /Scripts)
 	if grep -q "browser-use-env" "$shell_rc" 2>/dev/null; then
@@ -454,17 +420,16 @@ validate() {
 # =============================================================================
 
 print_next_steps() {
-	# Detect shell for source command (must match configure_path logic)
-	case "$(basename "$SHELL")" in
-		zsh)  local shell_rc=".zshrc" ;;
-		bash) local shell_rc=".bashrc" ;;
-		*)    local shell_rc=".profile" ;;
-	esac
+	# Detect shell for source command
+	local shell_rc=".bashrc"
+	if [ -n "$ZSH_VERSION" ]; then
+		shell_rc=".zshrc"
+	fi
 
 	echo ""
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	echo ""
-	log_success "Browser-Use installed successfully!"
+	log_success "Browser-Use CLI installed successfully! (lightweight)"
 	echo ""
 
 	echo "Next steps:"
@@ -474,6 +439,9 @@ print_next_steps() {
 		echo "  1. Restart your shell or run: source ~/$shell_rc"
 	fi
 	echo "  2. Try: browser-use open https://example.com"
+	echo ""
+	echo "To install the full library (Agent, LLMs, etc.):"
+	echo "  uv pip install browser-use"
 
 	echo ""
 	echo "Documentation: https://docs.browser-use.com"
@@ -488,7 +456,7 @@ print_next_steps() {
 main() {
 	echo ""
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	echo "  Browser-Use Installer"
+	echo "  Browser-Use Lightweight CLI Installer"
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	echo ""
 
@@ -519,7 +487,7 @@ main() {
 	# Step 3: Install uv
 	install_uv
 
-	# Step 4: Install browser-use package
+	# Step 4: Install browser-use package (minimal deps only)
 	install_browser_use
 
 	# Step 5: Install Chromium
@@ -528,18 +496,11 @@ main() {
 	# Step 6: Install profile-use
 	install_profile_use
 
-	# Step 6.5: Create config.json if it doesn't exist
-	config_file="$HOME/.browser-use/config.json"
-	if [ ! -f "$config_file" ]; then
-		echo '{}' > "$config_file"
-		chmod 600 "$config_file"
-	fi
-
 	# Step 7: Configure PATH
 	configure_path
 
-	# Step 8: Validate
-	validate
+	# Step 8: Validate (non-fatal — warnings shouldn't block next-step instructions)
+	validate || true
 
 	# Step 9: Print next steps
 	print_next_steps

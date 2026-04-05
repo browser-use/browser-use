@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
+	from browser_use.skill_cli.actions import ActionHandler
 
 
 @dataclass
@@ -48,7 +49,11 @@ class PythonSession:
 		)
 
 	def execute(
-		self, code: str, browser_session: 'BrowserSession', loop: asyncio.AbstractEventLoop | None = None
+		self,
+		code: str,
+		browser_session: 'BrowserSession',
+		loop: asyncio.AbstractEventLoop | None = None,
+		actions: 'ActionHandler | None' = None,
 	) -> ExecutionResult:
 		"""Execute code in persistent namespace.
 
@@ -59,10 +64,11 @@ class PythonSession:
 			code: Python code to execute
 			browser_session: The browser session for browser operations
 			loop: The event loop for async operations (required for browser access)
+			actions: Optional ActionHandler for direct execution (no event bus)
 		"""
 		# Inject browser wrapper with the event loop for async operations
-		if loop is not None:
-			self.namespace['browser'] = BrowserWrapper(browser_session, loop)
+		if loop is not None and actions is not None:
+			self.namespace['browser'] = BrowserWrapper(browser_session, loop, actions)
 		self.execution_count += 1
 
 		stdout = io.StringIO()
@@ -115,9 +121,10 @@ class BrowserWrapper:
 	Runs coroutines on the server's event loop using run_coroutine_threadsafe.
 	"""
 
-	def __init__(self, session: 'BrowserSession', loop: asyncio.AbstractEventLoop) -> None:
+	def __init__(self, session: 'BrowserSession', loop: asyncio.AbstractEventLoop, actions: 'ActionHandler') -> None:
 		self._session = session
 		self._loop = loop
+		self._actions = actions
 
 	def _run(self, coro: Any) -> Any:
 		"""Run coroutine on the server's event loop."""
@@ -147,21 +154,17 @@ class BrowserWrapper:
 		self._run(self._goto_async(url))
 
 	async def _goto_async(self, url: str) -> None:
-		from browser_use.browser.events import NavigateToUrlEvent
-
-		await self._session.event_bus.dispatch(NavigateToUrlEvent(url=url))
+		await self._actions.navigate(url)
 
 	def click(self, index: int) -> None:
 		"""Click element by index."""
 		self._run(self._click_async(index))
 
 	async def _click_async(self, index: int) -> None:
-		from browser_use.browser.events import ClickElementEvent
-
 		node = await self._session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'Element index {index} not found')
-		await self._session.event_bus.dispatch(ClickElementEvent(node=node))
+		await self._actions.click_element(node)
 
 	def type(self, text: str) -> None:
 		"""Type text into focused element."""
@@ -181,13 +184,11 @@ class BrowserWrapper:
 		self._run(self._input_async(index, text))
 
 	async def _input_async(self, index: int, text: str) -> None:
-		from browser_use.browser.events import ClickElementEvent, TypeTextEvent
-
 		node = await self._session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'Element index {index} not found')
-		await self._session.event_bus.dispatch(ClickElementEvent(node=node))
-		await self._session.event_bus.dispatch(TypeTextEvent(node=node, text=text))
+		await self._actions.click_element(node)
+		await self._actions.type_text(node, text)
 
 	def upload(self, index: int, path: str) -> None:
 		"""Upload a file to a file input element."""
@@ -195,8 +196,6 @@ class BrowserWrapper:
 
 	async def _upload_async(self, index: int, path: str) -> None:
 		from pathlib import Path as P
-
-		from browser_use.browser.events import UploadFileEvent
 
 		file_path = str(P(path).expanduser().resolve())
 		p = P(file_path)
@@ -215,16 +214,14 @@ class BrowserWrapper:
 		if file_input_node is None:
 			raise ValueError(f'Element {index} is not a file input and no file input found nearby')
 
-		await self._session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=file_path))
+		await self._actions.upload_file(file_input_node, file_path)
 
 	def scroll(self, direction: Literal['up', 'down', 'left', 'right'] = 'down', amount: int = 500) -> None:
 		"""Scroll the page."""
 		self._run(self._scroll_async(direction, amount))
 
 	async def _scroll_async(self, direction: Literal['up', 'down', 'left', 'right'], amount: int) -> None:
-		from browser_use.browser.events import ScrollEvent
-
-		await self._session.event_bus.dispatch(ScrollEvent(direction=direction, amount=amount))
+		await self._actions.scroll(direction, amount)
 
 	def screenshot(self, path: str | None = None) -> bytes:
 		"""Take screenshot, optionally save to file."""
@@ -261,18 +258,14 @@ class BrowserWrapper:
 		self._run(self._keys_async(keys))
 
 	async def _keys_async(self, keys: str) -> None:
-		from browser_use.browser.events import SendKeysEvent
-
-		await self._session.event_bus.dispatch(SendKeysEvent(keys=keys))
+		await self._actions.send_keys(keys)
 
 	def back(self) -> None:
 		"""Go back in history."""
 		self._run(self._back_async())
 
 	async def _back_async(self) -> None:
-		from browser_use.browser.events import GoBackEvent
-
-		await self._session.event_bus.dispatch(GoBackEvent())
+		await self._actions.go_back()
 
 	def wait(self, seconds: float) -> None:
 		"""Wait for specified seconds."""

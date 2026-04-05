@@ -427,6 +427,10 @@ class DomService:
 		iframe_scroll_ms = (time.time() - start_iframe_scroll) * 1000
 
 		# Detect elements with JavaScript click event listeners (without mutating DOM)
+		# On heavy pages (>10k elements) the querySelectorAll('*') + getEventListeners()
+		# loop plus per-element DOM.describeNode CDP calls can take 10s+.
+		# The JS expression below bails out early if the page is too heavy.
+		# Elements are still detected via the accessibility tree and ClickableElementDetector.
 		start_js_listener_detection = time.time()
 		js_click_listener_backend_ids: set[int] = set()
 		try:
@@ -440,8 +444,14 @@ class DomService:
 							return null;
 						}
 
-						const elementsWithListeners = [];
 						const allElements = document.querySelectorAll('*');
+
+						// Skip on heavy pages — listener detection is too expensive
+						if (allElements.length > 10000) {
+							return null;
+						}
+
+						const elementsWithListeners = [];
 
 						for (const el of allElements) {
 							try {

@@ -192,7 +192,10 @@ class CloudBrowserClient:
 			raise CloudBrowserError(f'Unexpected error stopping cloud browser: {e}')
 
 	async def close(self):
-		"""Close the HTTP client and cleanup any active sessions."""
+		"""Close the HTTP client and cleanup any active sessions.
+
+		Safe to call multiple times — subsequent calls are no-ops.
+		"""
 		# Try to stop current session if active
 		if self.current_session_id:
 			try:
@@ -200,4 +203,5 @@ class CloudBrowserClient:
 			except Exception as e:
 				logger.debug(f'Failed to stop cloud browser session during cleanup: {e}')
 
-		await self.client.aclose()
+		if not self.client.is_closed:
+			await self.client.aclose()

@@ -19,8 +19,7 @@ COMMANDS = {
 	'back',
 	'screenshot',
 	'state',
-	'switch',
-	'close-tab',
+	'tab',
 	'keys',
 	'select',
 	'upload',
@@ -82,18 +81,16 @@ async def _get_element_center(session: SessionInfo, node: Any) -> tuple[float, f
 async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> Any:
 	"""Handle browser control command."""
 	bs = session.browser_session
+	actions = session.actions
+	if actions is None:
+		return {'error': 'ActionHandler not initialized'}
 
 	if action == 'open':
 		url = params['url']
-		# Ensure URL has scheme
 		if not url.startswith(('http://', 'https://', 'file://')):
 			url = 'https://' + url
-
-		from browser_use.browser.events import NavigateToUrlEvent
-
-		await bs.event_bus.dispatch(NavigateToUrlEvent(url=url))
+		await actions.navigate(url)
 		result: dict[str, Any] = {'url': url}
-		# Add live preview URL for cloud browsers
 		if bs.browser_profile.use_cloud and bs.cdp_url:
 			from urllib.parse import quote
 
@@ -103,27 +100,20 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 	elif action == 'click':
 		args = params.get('args', [])
 		if len(args) == 2:
-			# Coordinate click: browser-use click <x> <y>
-			from browser_use.browser.events import ClickCoordinateEvent
-
 			x, y = args
-			await bs.event_bus.dispatch(ClickCoordinateEvent(coordinate_x=x, coordinate_y=y))
+			await actions.click_coordinate(x, y)
 			return {'clicked_coordinate': {'x': x, 'y': y}}
 		elif len(args) == 1:
-			# Index click: browser-use click <index>
-			from browser_use.browser.events import ClickElementEvent
-
 			index = args[0]
 			node = await bs.get_element_by_index(index)
 			if node is None:
 				return {'error': f'Element index {index} not found - page may have changed'}
-			await bs.event_bus.dispatch(ClickElementEvent(node=node))
+			await actions.click_element(node)
 			return {'clicked': index}
 		else:
 			return {'error': 'Usage: click <index> or click <x> <y>'}
 
 	elif action == 'type':
-		# Type into currently focused element using CDP directly
 		text = params['text']
 		cdp_session = await bs.get_or_create_cdp_session(target_id=None, focus=False)
 		if not cdp_session:
@@ -135,30 +125,23 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'typed': text}
 
 	elif action == 'input':
-		from browser_use.browser.events import ClickElementEvent, TypeTextEvent
-
 		index = params['index']
 		text = params['text']
-		# Look up node from selector map
 		node = await bs.get_element_by_index(index)
 		if node is None:
 			return {'error': f'Element index {index} not found - page may have changed'}
-		await bs.event_bus.dispatch(ClickElementEvent(node=node))
-		await bs.event_bus.dispatch(TypeTextEvent(node=node, text=text))
+		await actions.click_element(node)
+		await actions.type_text(node, text)
 		return {'input': text, 'element': index}
 
 	elif action == 'scroll':
-		from browser_use.browser.events import ScrollEvent
-
 		direction = params.get('direction', 'down')
 		amount = params.get('amount', 500)
-		await bs.event_bus.dispatch(ScrollEvent(direction=direction, amount=amount))
+		await actions.scroll(direction, amount)
 		return {'scrolled': direction, 'amount': amount}
 
 	elif action == 'back':
-		from browser_use.browser.events import GoBackEvent
-
-		await bs.event_bus.dispatch(GoBackEvent())
+		await actions.go_back()
 		return {'back': True}
 
 	elif action == 'screenshot':
@@ -173,12 +156,11 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		return {'screenshot': base64.b64encode(data).decode(), 'size': len(data)}
 
 	elif action == 'state':
-		# Return the LLM representation with viewport info for coordinate clicking
-		state = await bs.get_browser_state_summary()
+		state = await actions.get_state()
 		assert state.dom_state is not None
 		state_text = state.dom_state.llm_representation()
 
-		# Prepend viewport dimensions so LLMs know the coordinate space
+		# Prepend viewport dimensions
 		if state.page_info:
 			pi = state.page_info
 			viewport_text = f'viewport: {pi.viewport_width}x{pi.viewport_height}\n'
@@ -186,64 +168,95 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 			viewport_text += f'scroll: ({pi.scroll_x}, {pi.scroll_y})\n'
 			state_text = viewport_text + state_text
 
+		# Append auto-dismissed popup messages
+		if bs._closed_popup_messages:
+			state_text += '\nAuto-closed dialogs:\n'
+			for msg in bs._closed_popup_messages:
+				state_text += f'  {msg}\n'
+			bs._closed_popup_messages.clear()
+
 		return {'_raw_text': state_text}
 
-	elif action == 'switch':
-		from browser_use.browser.events import SwitchTabEvent
+	elif action == 'tab':
+		tab_command = params.get('tab_command')
 
-		tab_index = params['tab']
-		# Get target_id from tab index
-		page_targets = bs.session_manager.get_all_page_targets() if bs.session_manager else []
-		if tab_index < 0 or tab_index >= len(page_targets):
-			return {'error': f'Invalid tab index {tab_index}. Available: 0-{len(page_targets) - 1}'}
-		target_id = page_targets[tab_index].target_id
-		await bs.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-		return {'switched': tab_index}
+		if tab_command == 'list':
+			page_targets = bs.session_manager.get_all_page_targets() if bs.session_manager else []
+			lines = ['TAB  URL']
+			for i, t in enumerate(page_targets):
+				lines.append(f'{i:<4} {t.url}')
+			return {'_raw_text': '\n'.join(lines)}
 
-	elif action == 'close-tab':
-		from browser_use.browser.events import CloseTabEvent
+		elif tab_command == 'new':
+			url = params.get('url', 'about:blank')
+			target_id = await bs._cdp_create_new_page(url, background=True)
+			bs.agent_focus_target_id = target_id
+			return {'created': target_id[:8], 'url': url}
 
-		tab_index = params.get('tab')
-		# Get target_id from tab index
-		page_targets = bs.session_manager.get_all_page_targets() if bs.session_manager else []
-		if tab_index is not None:
+		elif tab_command == 'switch':
+			tab_index = params['tab']
+			page_targets = bs.session_manager.get_all_page_targets() if bs.session_manager else []
 			if tab_index < 0 or tab_index >= len(page_targets):
 				return {'error': f'Invalid tab index {tab_index}. Available: 0-{len(page_targets) - 1}'}
-			target_id = page_targets[tab_index].target_id
-		else:
-			# Close current/focused tab
-			target_id = bs.session_manager.get_focused_target().target_id if bs.session_manager else None
-			if not target_id:
-				return {'error': 'No focused tab to close'}
-		await bs.event_bus.dispatch(CloseTabEvent(target_id=target_id))
-		return {'closed': tab_index}
+			bs.agent_focus_target_id = page_targets[tab_index].target_id
+			return {'switched': tab_index}
+
+		elif tab_command == 'close':
+			tab_indices = params.get('tabs', [])
+
+			page_targets = bs.session_manager.get_all_page_targets() if bs.session_manager else []
+
+			async def _close_target(tid: str) -> None:
+				cdp_session = await bs.get_or_create_cdp_session(target_id=None, focus=False)
+				if cdp_session:
+					await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': tid})
+
+			if not tab_indices:
+				# Use caller's logical focus, not Chrome's global focus
+				target_id = bs.agent_focus_target_id
+				if not target_id:
+					target_id = bs.session_manager.get_focused_target().target_id if bs.session_manager else None
+				if not target_id:
+					return {'error': 'No focused tab to close'}
+				await _close_target(target_id)
+				return {'closed': [0]}
+
+			closed = []
+			errors = []
+			for idx in sorted(tab_indices, reverse=True):
+				if idx < 0 or idx >= len(page_targets):
+					errors.append(f'Tab {idx} out of range')
+					continue
+				try:
+					await _close_target(page_targets[idx].target_id)
+					closed.append(idx)
+				except Exception as e:
+					errors.append(f'Tab {idx}: {e}')
+			result: dict[str, Any] = {'closed': closed}
+			if errors:
+				result['errors'] = errors
+			return result
+
+		return {'error': 'Invalid tab command. Use: list, new, switch, close'}
 
 	elif action == 'keys':
-		from browser_use.browser.events import SendKeysEvent
-
 		keys = params['keys']
-		await bs.event_bus.dispatch(SendKeysEvent(keys=keys))
+		await actions.send_keys(keys)
 		return {'sent': keys}
 
 	elif action == 'select':
-		from browser_use.browser.events import SelectDropdownOptionEvent
-
 		index = params['index']
 		value = params['value']
-		# Look up node from selector map
 		node = await bs.get_element_by_index(index)
 		if node is None:
 			return {'error': f'Element index {index} not found - page may have changed'}
-		await bs.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=value))
+		await actions.select_dropdown(node, value)
 		return {'selected': value, 'element': index}
 
 	elif action == 'upload':
-		from browser_use.browser.events import UploadFileEvent
-
 		index = params['index']
 		file_path = params['path']
 
-		# Validate file exists and is non-empty
 		p = Path(file_path)
 		if not p.exists():
 			return {'error': f'File not found: {file_path}'}
@@ -252,16 +265,13 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		if p.stat().st_size == 0:
 			return {'error': f'File is empty (0 bytes): {file_path}'}
 
-		# Look up node
 		node = await bs.get_element_by_index(index)
 		if node is None:
 			return {'error': f'Element index {index} not found - page may have changed'}
 
-		# Find file input near the element (reuses core library heuristic)
 		file_input_node = bs.find_file_input_near_element(node)
 
 		if file_input_node is None:
-			# Scan selector map for file inputs and suggest them
 			selector_map = await bs.get_selector_map()
 			file_input_indices = [idx for idx, el in selector_map.items() if bs.is_file_input(el)]
 			if file_input_indices:
@@ -270,7 +280,7 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 				hint = ' No file input found on the page.'
 			return {'error': f'Element {index} is not a file input.{hint}'}
 
-		await bs.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=file_path))
+		await actions.upload_file(file_input_node, file_path)
 		return {'uploaded': file_path, 'element': index}
 
 	elif action == 'eval':
