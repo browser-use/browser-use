@@ -172,7 +172,8 @@ class VeroQShieldTrustProvider(TrustProvider):
 			httpx.HTTPStatusError: On non-2xx response.
 			httpx.TimeoutException: On timeout.
 		"""
-		if len(text) < 20: raise ValueError('text must be at least 20 characters')
+		if len(text) < 20:
+			raise ValueError('text must be at least 20 characters')
 
 		headers: dict[str, str] = {'Content-Type': 'application/json'}
 		if self.api_key:
@@ -250,9 +251,7 @@ class VeroQShieldTrustProvider(TrustProvider):
 			'iat': int(time.time()),
 			'exp': int(time.time()) + 300,
 		}
-		header = base64.urlsafe_b64encode(
-			json.dumps({'alg': 'none', 'typ': 'Agent-Trust-Score'}).encode()
-		).decode().rstrip('=')
+		header = base64.urlsafe_b64encode(json.dumps({'alg': 'none', 'typ': 'Agent-Trust-Score'}).encode()).decode().rstrip('=')
 		body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
 		return f'{header}.{body}.'
 
@@ -318,9 +317,7 @@ class VeroQShieldTrustProvider(TrustProvider):
 			scarring = min(verification.claims_contradicted * 3, 10)
 
 			# Risk: inverse of trust score, weighted by contradiction ratio
-			contradiction_ratio = (
-				verification.claims_contradicted / max(verification.claims_verified, 1)
-			)
+			contradiction_ratio = verification.claims_contradicted / max(verification.claims_verified, 1)
 			risk_score = max(0, min(100, int(round(contradiction_ratio * 100))))
 
 			payload = {
@@ -356,18 +353,17 @@ class VeroQShieldTrustProvider(TrustProvider):
 
 			# Build JWT (HMAC signed if api_key available, unsigned otherwise)
 			header_data = {'alg': 'HS256', 'typ': 'Agent-Trust-Score'}
-			header = base64.urlsafe_b64encode(
-				json.dumps(header_data).encode()
-			).decode().rstrip('=')
-			body = base64.urlsafe_b64encode(
-				json.dumps(payload).encode()
-			).decode().rstrip('=')
+			header = base64.urlsafe_b64encode(json.dumps(header_data).encode()).decode().rstrip('=')
+			body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
 
 			if self.api_key:
 				import hmac
+
 				sig_input = f'{header}.{body}'.encode()
 				sig = hmac.new(
-					self.api_key.encode(), sig_input, hashlib.sha256,
+					self.api_key.encode(),
+					sig_input,
+					hashlib.sha256,
 				).digest()
 				sig_b64 = base64.urlsafe_b64encode(sig).decode().rstrip('=')
 			else:
@@ -455,10 +451,12 @@ class VeroQShieldTrustProvider(TrustProvider):
 			if not self.api_key:
 				raise ValueError('Cannot verify HS256 JWT without api_key')
 			import hmac as _hmac
-			import hmac as _hmac
+
 			sig_input = f'{parts[0]}.{parts[1]}'.encode()
 			expected_sig = _hmac.new(
-				self.api_key.encode(), sig_input, hashlib.sha256,
+				self.api_key.encode(),
+				sig_input,
+				hashlib.sha256,
 			).digest()
 			expected_b64 = base64.urlsafe_b64encode(expected_sig).decode().rstrip('=')
 			if not _hmac.compare_digest(expected_b64, signature_segment):
@@ -486,7 +484,8 @@ class VeroQShieldTrustProvider(TrustProvider):
 		Returns:
 			Public URL for the verification receipt.
 		"""
-		if not receipt_id: raise ValueError('receipt_id must not be empty')
+		if not receipt_id:
+			raise ValueError('receipt_id must not be empty')
 		return f'{self.BASE_URL}/api/v1/verify/receipt/{receipt_id}'
 
 	def clear_cache(self) -> None:

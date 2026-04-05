@@ -26,9 +26,7 @@ from browser_use.integrations.trust.veroq import (
 
 def _make_veroq_jwt(payload: dict, api_key: str | None = 'test_key') -> str:
 	"""Build a VeroQ Shield JWT with the given payload."""
-	header = base64.urlsafe_b64encode(
-		json.dumps({'alg': 'HS256', 'typ': 'Agent-Trust-Score'}).encode()
-	).rstrip(b'=').decode()
+	header = base64.urlsafe_b64encode(json.dumps({'alg': 'HS256', 'typ': 'Agent-Trust-Score'}).encode()).rstrip(b'=').decode()
 	body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=').decode()
 	if api_key:
 		sig_input = f'{header}.{body}'.encode()
@@ -59,9 +57,24 @@ def _default_veroq_payload(**overrides) -> dict:
 			'receipt_ids': ['vr_test_001', 'vr_test_002', 'vr_test_003'],
 			'summary': 'All 3 claims verified with 82% average confidence.',
 			'claim_verdicts': [
-				{'text': 'NVIDIA reported $22.1B in Q4 2024 revenue', 'verdict': 'supported', 'confidence': 0.91, 'receipt_id': 'vr_test_001'},
-				{'text': 'Revenue was up 265% year-over-year', 'verdict': 'supported', 'confidence': 0.87, 'receipt_id': 'vr_test_002'},
-				{'text': 'Data center revenue reached $18.4B', 'verdict': 'supported', 'confidence': 0.68, 'receipt_id': 'vr_test_003'},
+				{
+					'text': 'NVIDIA reported $22.1B in Q4 2024 revenue',
+					'verdict': 'supported',
+					'confidence': 0.91,
+					'receipt_id': 'vr_test_001',
+				},
+				{
+					'text': 'Revenue was up 265% year-over-year',
+					'verdict': 'supported',
+					'confidence': 0.87,
+					'receipt_id': 'vr_test_002',
+				},
+				{
+					'text': 'Data center revenue reached $18.4B',
+					'verdict': 'supported',
+					'confidence': 0.68,
+					'receipt_id': 'vr_test_003',
+				},
 			],
 		},
 		'iat': int(time.time()),
@@ -120,14 +133,14 @@ class TestVeroQVerifyJWT:
 		assert 'receipt_available' in claims.attestations
 
 	async def test_verify_expired_jwt_raises(self):
-		provider = VeroQShieldTrustProvider()
-		jwt = _make_veroq_jwt(_default_veroq_payload(exp=int(time.time()) - 100))
+		provider = VeroQShieldTrustProvider(api_key='test_key')
+		jwt = _make_veroq_jwt(_default_veroq_payload(exp=int(time.time()) - 100), api_key='test_key')
 		with pytest.raises(ValueError, match='expired'):
 			await provider.verify_trust_jwt(jwt)
 
 	async def test_verify_wrong_provider_raises(self):
-		provider = VeroQShieldTrustProvider()
-		jwt = _make_veroq_jwt(_default_veroq_payload(provider='agentid'))
+		provider = VeroQShieldTrustProvider(api_key='test_key')
+		jwt = _make_veroq_jwt(_default_veroq_payload(provider='agentid'), api_key='test_key')
 		with pytest.raises(ValueError, match='Wrong provider'):
 			await provider.verify_trust_jwt(jwt)
 
@@ -141,17 +154,24 @@ class TestVeroQVerifyJWT:
 		with pytest.raises(ValueError, match='Invalid JWT format'):
 			await provider.verify_trust_jwt('not.a.valid.jwt.at.all')
 
+	async def test_verify_hs256_without_api_key_raises(self):
+		"""HS256 JWT cannot be verified without provider api_key."""
+		provider = VeroQShieldTrustProvider()
+		jwt = _make_veroq_jwt(_default_veroq_payload(), api_key='test_key')
+		with pytest.raises(ValueError, match='Cannot verify HS256 JWT without api_key'):
+			await provider.verify_trust_jwt(jwt)
+
 	async def test_verify_empty_provider_ok(self):
 		"""A JWT with empty provider should pass (backwards compatibility)."""
-		provider = VeroQShieldTrustProvider()
-		jwt = _make_veroq_jwt(_default_veroq_payload(provider=''))
+		provider = VeroQShieldTrustProvider(api_key='test_key')
+		jwt = _make_veroq_jwt(_default_veroq_payload(provider=''), api_key='test_key')
 		claims = await provider.verify_trust_jwt(jwt)
 		assert claims.provider == ''
 
 	async def test_verification_details_in_extra(self):
 		"""The verification field should be accessible via model_extra."""
-		provider = VeroQShieldTrustProvider()
-		jwt = _make_veroq_jwt(_default_veroq_payload())
+		provider = VeroQShieldTrustProvider(api_key='test_key')
+		jwt = _make_veroq_jwt(_default_veroq_payload(), api_key='test_key')
 		claims = await provider.verify_trust_jwt(jwt)
 		assert claims.model_extra is not None
 		verification = claims.model_extra.get('verification', {})
@@ -403,27 +423,33 @@ class TestPolicyIntegration:
 
 	def test_shield_no_trust_data_triggers_policy(self):
 		policy = TrustPolicy({'min_trust_score': 50, 'action_on_fail': 'block'})
-		claims = TrustClaims(**_default_veroq_payload(
-			no_trust_data=True,
-			reason='api_timeout',
-			trust_score=0,
-			trust_level='L0',
-		))
+		claims = TrustClaims(
+			**_default_veroq_payload(
+				no_trust_data=True,
+				reason='api_timeout',
+				trust_score=0,
+				trust_level='L0',
+			)
+		)
 		result = policy.evaluate(claims)
 		assert not result.passed
 		assert result.action == 'block'
 
 	def test_shield_in_policy_chain(self):
 		"""VeroQ Shield policy can be composed with identity policies."""
-		identity_policy = TrustPolicy({
-			'min_trust_score': 50,
-			'action_on_fail': 'log',
-		})
-		accuracy_policy = TrustPolicy({
-			'min_trust_score': 70,
-			'required_attestations': ['output_verified'],
-			'action_on_fail': 'degrade',
-		})
+		identity_policy = TrustPolicy(
+			{
+				'min_trust_score': 50,
+				'action_on_fail': 'log',
+			}
+		)
+		accuracy_policy = TrustPolicy(
+			{
+				'min_trust_score': 70,
+				'required_attestations': ['output_verified'],
+				'action_on_fail': 'degrade',
+			}
+		)
 		chain = TrustPolicyChain([identity_policy, accuracy_policy])
 
 		# High-trust output
@@ -434,10 +460,12 @@ class TestPolicyIntegration:
 
 	def test_shield_scarring_from_contradictions(self):
 		"""Contradicted claims should produce scarring that triggers policy."""
-		policy = TrustPolicy({
-			'max_scarring_score': 2,
-			'action_on_fail': 'block',
-		})
+		policy = TrustPolicy(
+			{
+				'max_scarring_score': 2,
+				'action_on_fail': 'block',
+			}
+		)
 		# Agent with contradictions: scarring_score = 6
 		claims = TrustClaims(**_default_veroq_payload(scarring_score=6))
 		result = policy.evaluate(claims)
@@ -447,10 +475,12 @@ class TestPolicyIntegration:
 
 	def test_shield_required_attestation_output_verified(self):
 		"""Policy can require the output_verified attestation."""
-		policy = TrustPolicy({
-			'required_attestations': ['output_verified'],
-			'action_on_fail': 'block',
-		})
+		policy = TrustPolicy(
+			{
+				'required_attestations': ['output_verified'],
+				'action_on_fail': 'block',
+			}
+		)
 		# Has output_verified
 		claims = TrustClaims(**_default_veroq_payload())
 		result = policy.evaluate(claims)
