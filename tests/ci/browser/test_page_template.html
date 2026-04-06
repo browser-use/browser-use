@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>DOM Serializer Test - Main Page</title>
+	<style>
+		body { font-family: Arial; padding: 20px; }
+		.section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+		#click-counter {
+			position: fixed;
+			top: 20px;
+			right: 20px;
+			background: #4CAF50;
+			color: white;
+			padding: 30px 50px;
+			border-radius: 15px;
+			font-size: 48px;
+			font-weight: bold;
+			box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+			transition: all 0.2s ease;
+			z-index: 9999;
+		}
+		#counter-value {
+			font-size: 64px;
+			display: inline-block;
+			min-width: 60px;
+			text-align: center;
+		}
+		@keyframes flash {
+			0% { transform: scale(1); }
+			50% { transform: scale(1.3); background: #FFC107; }
+			100% { transform: scale(1); }
+		}
+		.flash {
+			animation: flash 0.3s ease;
+		}
+	</style>
+</head>
+<body>
+	<div id="click-counter">Clicks: <span id="counter-value">0</span></div>
+	<h1>DOM Serializer Test Page</h1>
+
+	<!-- Regular DOM elements (3 interactive elements) -->
+	<div class="section">
+		<h2>Regular DOM Elements</h2>
+		<button id="regular-btn-1">Regular Button 1</button>
+		<input type="text" id="regular-input" placeholder="Regular input" />
+		<a href="#test" id="regular-link">Regular Link</a>
+	</div>
+
+	<!-- Shadow DOM elements (3 interactive elements inside shadow) -->
+	<div class="section">
+		<h2>Shadow DOM Elements</h2>
+		<div id="shadow-host"></div>
+	</div>
+
+	<!-- Same-origin iframe (2 interactive elements inside) -->
+	<div class="section">
+		<h2>Same-Origin Iframe</h2>
+		<iframe id="same-origin-iframe" src="/iframe-same-origin" style="width:100%; height:200px; border:1px solid #999;"></iframe>
+	</div>
+
+	<!-- Cross-origin iframe placeholder (external domain removed for test isolation) -->
+	<div class="section">
+		<h2>Cross-Origin Iframe (Placeholder)</h2>
+		<iframe id="cross-origin-iframe" src="about:blank" style="width:100%; height:200px; border:1px solid #999;"></iframe>
+	</div>
+
+	<script>
+		// Global click counter
+		let clickCount = 0;
+
+		function incrementCounter(source) {
+			clickCount++;
+			const counter = document.getElementById('click-counter');
+			const counterValue = document.getElementById('counter-value');
+
+			counterValue.textContent = clickCount;
+			console.log(`Click #${clickCount} from: ${source}`);
+
+			// Add flash animation
+			counter.classList.remove('flash');
+			void counter.offsetWidth; // Trigger reflow
+			counter.classList.add('flash');
+		}
+
+		// Expose counter for testing
+		window.getClickCount = function() {
+			return clickCount;
+		};
+
+		// Add click handler to regular button using addEventListener
+		document.getElementById('regular-btn-1').addEventListener('click', function() {
+			incrementCounter('Regular DOM');
+		});
+
+		// Create shadow DOM with interactive elements
+		const shadowHost = document.getElementById('shadow-host');
+		const shadowRoot = shadowHost.attachShadow({mode: 'open'});
+
+		shadowRoot.innerHTML = `
+			<style>
+				.shadow-content { padding: 10px; background: #f0f0f0; }
+			</style>
+			<div class="shadow-content">
+				<p>Content inside Shadow DOM:</p>
+				<button id="shadow-btn-1">Shadow Button 1</button>
+				<input type="text" id="shadow-input" placeholder="Shadow input" />
+				<button id="shadow-btn-2">Shadow Button 2</button>
+			</div>
+		`;
+
+		// Add click handler to shadow DOM button using addEventListener
+		shadowRoot.getElementById('shadow-btn-1').addEventListener('click', function() {
+			incrementCounter('Shadow DOM');
+		});
+	</script>
+</body>
+</html>

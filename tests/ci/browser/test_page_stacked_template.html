@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Stacked DOM Elements Test</title>
+	<style>
+		body { font-family: Arial; padding: 20px; min-height: 3000px; }
+		.section {
+			margin: 20px 0;
+			padding: 15px;
+			border: 2px solid #333;
+			background: #f9f9f9;
+		}
+		#click-counter {
+			position: fixed;
+			top: 20px;
+			right: 20px;
+			background: #4CAF50;
+			color: white;
+			padding: 30px 50px;
+			border-radius: 15px;
+			font-size: 48px;
+			font-weight: bold;
+			box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+			transition: all 0.2s ease;
+			z-index: 9999;
+		}
+		#counter-value {
+			font-size: 64px;
+			display: inline-block;
+			min-width: 60px;
+			text-align: center;
+		}
+		@keyframes flash {
+			0% { transform: scale(1); }
+			50% { transform: scale(1.3); background: #FFC107; }
+			100% { transform: scale(1); }
+		}
+		.flash {
+			animation: flash 0.3s ease;
+		}
+		.final-button {
+			margin-top: 50px;
+			padding: 20px 40px;
+			font-size: 24px;
+			background: #2196F3;
+			color: white;
+			border: none;
+			border-radius: 8px;
+			cursor: pointer;
+		}
+	</style>
+</head>
+<body>
+	<div id="click-counter">Clicks: <span id="counter-value">0</span></div>
+	<h1>Nested DOM Test</h1>
+
+	<!-- Root: Open Shadow DOM (contains everything else) -->
+	<div class="section">
+		<div id="open-shadow-host"></div>
+	</div>
+
+	<script>
+		// Global click counter
+		let clickCount = 0;
+
+		function incrementCounter(source) {
+			clickCount++;
+			const counter = document.getElementById('click-counter');
+			const counterValue = document.getElementById('counter-value');
+
+			counterValue.textContent = clickCount;
+			console.log(`Click #${clickCount} from: ${source}`);
+
+			// Add flash animation
+			counter.classList.remove('flash');
+			void counter.offsetWidth; // Trigger reflow
+			counter.classList.add('flash');
+		}
+
+		// Expose counter for testing
+		window.getClickCount = function() {
+			return clickCount;
+		};
+
+		// Build nested structure: Open Shadow → Closed Shadow → Iframe → Final Button
+
+		// 1. Create Open Shadow DOM (contains everything else)
+		const openShadowHost = document.getElementById('open-shadow-host');
+		const openShadowRoot = openShadowHost.attachShadow({mode: 'open'});
+		openShadowRoot.innerHTML = `
+			<style>
+				.shadow-content { padding: 15px; background: #e3f2fd; border: 2px solid #2196F3; margin: 10px 0; }
+				button { padding: 10px 20px; font-size: 16px; margin: 10px 0; display: block; }
+				.nested-info { font-weight: bold; color: #1976D2; }
+			</style>
+			<div class="shadow-content">
+				<button id="open-shadow-btn">Open Shadow Button</button>
+				<div id="closed-shadow-host"></div>
+			</div>
+		`;
+
+		openShadowRoot.getElementById('open-shadow-btn').addEventListener('click', function() {
+			incrementCounter('Open Shadow DOM');
+		});
+
+		// 2. Create Closed Shadow DOM INSIDE Open Shadow (nested!)
+		const closedShadowHost = openShadowRoot.getElementById('closed-shadow-host');
+		const closedShadowRoot = closedShadowHost.attachShadow({mode: 'closed'});
+		closedShadowRoot.innerHTML = `
+			<style>
+				.shadow-content { padding: 15px; background: #fff3e0; border: 2px solid #FF9800; margin: 10px 0; }
+				button { padding: 10px 20px; font-size: 16px; margin: 10px 0; display: block; }
+				iframe { width: 100%; height: 250px; border: 2px solid #4CAF50; margin: 10px 0; }
+				.nested-info { font-weight: bold; color: #F57C00; }
+				.iframe-label { font-size: 14px; color: #666; margin-top: 10px; }
+			</style>
+			<div class="shadow-content">
+				<button id="closed-shadow-btn">Closed Shadow Button</button>
+				<iframe id="cross-origin-iframe" src="about:blank"></iframe>
+				<iframe id="nested-iframe" src="/iframe-same-origin"></iframe>
+			</div>
+		`;
+
+		closedShadowRoot.getElementById('closed-shadow-btn').addEventListener('click', function() {
+			incrementCounter('Closed Shadow DOM');
+		});
+	</script>
+</body>
+</html>

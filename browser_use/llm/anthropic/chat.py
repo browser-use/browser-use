@@ -5,12 +5,12 @@ from typing import Any, TypeVar, overload
 
 import httpx
 from anthropic import (
-	NOT_GIVEN,
 	APIConnectionError,
 	APIStatusError,
 	AsyncAnthropic,
 	NotGiven,
 	RateLimitError,
+	omit,
 )
 from anthropic.types import CacheControlEphemeralParam, Message, ToolParam
 from anthropic.types.model_param import ModelParam
@@ -50,6 +50,7 @@ class ChatAnthropic(BaseChatModel):
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
+	http_client: httpx.AsyncClient | None = None
 
 	# Static
 	@property
@@ -67,6 +68,7 @@ class ChatAnthropic(BaseChatModel):
 			'max_retries': self.max_retries,
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
+			'http_client': self.http_client,
 		}
 
 		# Create client_params dict with non-None values and non-NotGiven values
@@ -125,13 +127,15 @@ class ChatAnthropic(BaseChatModel):
 		return usage
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
+	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 
@@ -141,7 +145,7 @@ class ChatAnthropic(BaseChatModel):
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
+					system=system_prompt or omit,
 					**self._get_client_params_for_invoke(),
 				)
 
@@ -166,6 +170,7 @@ class ChatAnthropic(BaseChatModel):
 				return ChatInvokeCompletion(
 					completion=response_text,
 					usage=usage,
+					stop_reason=response.stop_reason,
 				)
 
 			else:
@@ -192,7 +197,7 @@ class ChatAnthropic(BaseChatModel):
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
+					system=system_prompt or omit,
 					tool_choice=tool_choice,
 					**self._get_client_params_for_invoke(),
 				)
@@ -212,16 +217,35 @@ class ChatAnthropic(BaseChatModel):
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(content_block.input),
+								usage=usage,
+								stop_reason=response.stop_reason,
+							)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
-							raise e
+							# If validation fails, try to fix common model output issues
+							_input = content_block.input
+							if isinstance(_input, str):
+								_input = json.loads(_input)
+							elif isinstance(_input, dict):
+								# Model sometimes double-serializes fields
+								for key, value in _input.items():
+									if isinstance(value, str) and value.startswith(('[', '{')):
+										try:
+											_input[key] = json.loads(value)
+										except json.JSONDecodeError:
+											cleaned = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+											try:
+												_input[key] = json.loads(cleaned)
+											except json.JSONDecodeError:
+												pass
+							else:
+								raise
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(_input),
+								usage=usage,
+								stop_reason=response.stop_reason,
+							)
 
 				# If no tool use block found, raise an error
 				raise ValueError('Expected tool use in response but none found')

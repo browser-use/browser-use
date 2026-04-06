@@ -38,7 +38,7 @@ async def debug_iframe_scrolling():
 			"next_goal": "Navigate to the iframe test page",
 			"action": [
 				{
-					"go_to_url": {
+					"navigate": {
 						"url": "https://browser-use.github.io/stress-tests/challenges/iframe-inception-level1.html",
 						"new_tab": false
 					}
@@ -131,9 +131,7 @@ async def debug_iframe_scrolling():
 			"""Capture DOM state and return analysis"""
 			print(f'\n📸 Capturing DOM state: {label}')
 			state_event = browser_session.event_bus.dispatch(
-				BrowserStateRequestEvent(
-					include_dom=True, include_screenshot=False, cache_clickable_elements_hashes=True, include_recent_events=False
-				)
+				BrowserStateRequestEvent(include_dom=True, include_screenshot=False, include_recent_events=False)
 			)
 			browser_state = await state_event.event_result()
 

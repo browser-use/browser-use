@@ -13,8 +13,8 @@ from browser_use import Agent, ChatOpenAI
 llm = ChatOpenAI(model='gpt-4.1-mini')
 
 initial_actions = [
-	{'go_to_url': {'url': 'https://www.google.com', 'new_tab': True}},
-	{'go_to_url': {'url': 'https://en.wikipedia.org/wiki/Randomness', 'new_tab': True}},
+	{'navigate': {'url': 'https://www.google.com', 'new_tab': True}},
+	{'navigate': {'url': 'https://en.wikipedia.org/wiki/Randomness', 'new_tab': True}},
 ]
 agent = Agent(
 	task='What theories are displayed on the page?',

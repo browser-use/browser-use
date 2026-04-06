@@ -43,3 +43,6 @@ class ChatInvokeCompletion(BaseModel, Generic[T]):
 
 	usage: ChatInvokeUsage | None
 	"""The usage of the response."""
+
+	stop_reason: str | None = None
+	"""The reason the model stopped generating. Common values: 'end_turn', 'max_tokens', 'stop_sequence'."""

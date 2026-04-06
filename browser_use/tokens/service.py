@@ -5,19 +5,20 @@ Fetches pricing data from LiteLLM repository and caches it for 1 day.
 Automatically tracks token usage when LLMs are registered and invoked.
 """
 
-import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import aiofiles
+import anyio
 import httpx
 from dotenv import load_dotenv
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.views import ChatInvokeUsage
+from browser_use.tokens.custom_pricing import CUSTOM_MODEL_PRICING
+from browser_use.tokens.mappings import MODEL_TO_LITELLM
 from browser_use.tokens.views import (
 	CachedPricingData,
 	ModelPricing,
@@ -27,6 +28,7 @@ from browser_use.tokens.views import (
 	TokenUsageEntry,
 	UsageSummary,
 )
+from browser_use.utils import create_task_with_error_handling
 
 load_dotenv()
 
@@ -48,10 +50,11 @@ class TokenCost:
 
 	CACHE_DIR_NAME = 'browser_use/token_cost'
 	CACHE_DURATION = timedelta(days=1)
-	PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
+	DEFAULT_PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
 
-	def __init__(self, include_cost: bool = False):
+	def __init__(self, include_cost: bool = False, pricing_url: str | None = None):
 		self.include_cost = include_cost or os.getenv('BROWSER_USE_CALCULATE_COST', 'false').lower() == 'true'
+		self.pricing_url = pricing_url or CONFIG.BROWSER_USE_MODEL_PRICING_URL or self.DEFAULT_PRICING_URL
 
 		self.usage_history: list[TokenUsageEntry] = []
 		self.registered_llms: dict[str, BaseChatModel] = {}
@@ -93,9 +96,10 @@ class TokenCost:
 
 			# Check each file until we find a valid one
 			for cache_file in cache_files:
-				if await self._is_cache_valid(cache_file):
+				is_valid, should_delete = await self._get_cache_status(cache_file)
+				if is_valid:
 					return cache_file
-				else:
+				if should_delete:
 					# Clean up old cache files
 					try:
 						os.remove(cache_file)
@@ -106,29 +110,37 @@ class TokenCost:
 		except Exception:
 			return None
 
-	async def _is_cache_valid(self, cache_file: Path) -> bool:
-		"""Check if a specific cache file is valid and not expired"""
+	async def _get_cache_status(self, cache_file: Path) -> tuple[bool, bool]:
+		"""Return whether a cache file is usable and whether it should be deleted."""
 		try:
 			if not cache_file.exists():
-				return False
+				return False, False
 
 			# Read the cached data
-			async with aiofiles.open(cache_file, 'r') as f:
-				content = await f.read()
-				cached = CachedPricingData.model_validate_json(content)
+			cached = CachedPricingData.model_validate_json(await anyio.Path(cache_file).read_text())
 
 			# Check if cache is still valid
-			return datetime.now() - cached.timestamp < self.CACHE_DURATION
+			if datetime.now() - cached.timestamp >= self.CACHE_DURATION:
+				return False, True
+
+			# Keep caches from other sources so different pricing URLs don't delete each other.
+			return self._cache_source_matches(cached), False
 		except Exception:
-			return False
+			return False, True
+
+	def _cache_source_matches(self, cached: CachedPricingData) -> bool:
+		"""Only use cached pricing files from the same source URL."""
+		if cached.source_url is None:
+			return self.pricing_url == self.DEFAULT_PRICING_URL
+
+		return cached.source_url == self.pricing_url
 
 	async def _load_from_cache(self, cache_file: Path) -> None:
 		"""Load pricing data from a specific cache file"""
 		try:
-			async with aiofiles.open(cache_file, 'r') as f:
-				content = await f.read()
-				cached = CachedPricingData.model_validate_json(content)
-				self._pricing_data = cached.data
+			content = await anyio.Path(cache_file).read_text()
+			cached = CachedPricingData.model_validate_json(content)
+			self._pricing_data = cached.data
 		except Exception as e:
 			logger.debug(f'Error loading cached pricing data from {cache_file}: {e}')
 			# Fall back to fetching
@@ -138,13 +150,13 @@ class TokenCost:
 		"""Fetch pricing data from LiteLLM GitHub and cache it with timestamp"""
 		try:
 			async with httpx.AsyncClient() as client:
-				response = await client.get(self.PRICING_URL, timeout=30)
+				response = await client.get(self.pricing_url, timeout=30)
 				response.raise_for_status()
 
 				self._pricing_data = response.json()
 
 			# Create cache object with timestamp
-			cached = CachedPricingData(timestamp=datetime.now(), data=self._pricing_data or {})
+			cached = CachedPricingData(timestamp=datetime.now(), source_url=self.pricing_url, data=self._pricing_data or {})
 
 			# Ensure cache directory exists
 			self._cache_dir.mkdir(parents=True, exist_ok=True)
@@ -153,9 +165,7 @@ class TokenCost:
 			timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
 			cache_file = self._cache_dir / f'pricing_{timestamp_str}.json'
 
-			async with aiofiles.open(cache_file, 'w') as f:
-				await f.write(cached.model_dump_json(indent=2))
-
+			await anyio.Path(cache_file).write_text(cached.model_dump_json(indent=2))
 		except Exception as e:
 			logger.debug(f'Error fetching pricing data: {e}')
 			# Fall back to empty pricing data
@@ -167,10 +177,27 @@ class TokenCost:
 		if not self._initialized:
 			await self.initialize()
 
-		if not self._pricing_data or model_name not in self._pricing_data:
+		# Check custom pricing first
+		if model_name in CUSTOM_MODEL_PRICING:
+			data = CUSTOM_MODEL_PRICING[model_name]
+			return ModelPricing(
+				model=model_name,
+				input_cost_per_token=data.get('input_cost_per_token'),
+				output_cost_per_token=data.get('output_cost_per_token'),
+				max_tokens=data.get('max_tokens'),
+				max_input_tokens=data.get('max_input_tokens'),
+				max_output_tokens=data.get('max_output_tokens'),
+				cache_read_input_token_cost=data.get('cache_read_input_token_cost'),
+				cache_creation_input_token_cost=data.get('cache_creation_input_token_cost'),
+			)
+
+		# Map model name to LiteLLM model name if needed
+		litellm_model_name = MODEL_TO_LITELLM.get(model_name, model_name)
+
+		if not self._pricing_data or litellm_model_name not in self._pricing_data:
 			return None
 
-		data = self._pricing_data[model_name]
+		data = self._pricing_data[litellm_model_name]
 		return ModelPricing(
 			model=model_name,
 			input_cost_per_token=data.get('input_cost_per_token'),
@@ -236,9 +263,7 @@ class TokenCost:
 
 		# ANSI color codes
 		C_CYAN = '\033[96m'
-		C_YELLOW = '\033[93m'
 		C_GREEN = '\033[92m'
-		C_BLUE = '\033[94m'
 		C_RESET = '\033[0m'
 
 		# Always get cost breakdown for token details (even if not showing costs)
@@ -322,17 +347,20 @@ class TokenCost:
 		token_cost_service = self
 
 		# Create a wrapped version that tracks usage
-		async def tracked_ainvoke(messages, output_format=None):
-			# Call the original method
-			result = await original_ainvoke(messages, output_format)
+		async def tracked_ainvoke(messages, output_format=None, **kwargs):
+			# Call the original method, passing through any additional kwargs
+			result = await original_ainvoke(messages, output_format, **kwargs)
 
 			# Track usage if available (no await needed since add_usage is now sync)
+			# Use llm.model instead of llm.name for consistency with get_usage_tokens_for_model()
 			if result.usage:
 				usage = token_cost_service.add_usage(llm.model, result.usage)
 
 				logger.debug(f'Token cost service: {usage}')
 
-				asyncio.create_task(token_cost_service._log_usage(llm.model, usage))
+				create_task_with_error_handling(
+					token_cost_service._log_usage(llm.model, usage), name='log_token_usage', suppress_exceptions=True
+				)
 
 			# else:
 			# 	await token_cost_service._log_non_usage_llm(llm)
@@ -385,7 +413,6 @@ class TokenCost:
 		total_completion = sum(u.usage.completion_tokens for u in filtered_usage)
 		total_tokens = total_prompt + total_completion
 		total_prompt_cached = sum(u.usage.prompt_cached_tokens or 0 for u in filtered_usage)
-		models = list({u.model for u in filtered_usage})
 
 		# Calculate per-model stats with record-by-record cost calculation
 		model_stats: dict[str, ModelUsageStats] = {}
@@ -480,9 +507,6 @@ class TokenCost:
 				f'⬅️ {C_YELLOW}{prompt_tokens_fmt}{prompt_cost_part}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{completion_cost_part}{C_RESET}'
 			)
 
-		# Log per-model breakdown
-		cost_logger.debug(f'📊 {C_BOLD}Per-Model Usage Breakdown{C_RESET}:')
-
 		for model, stats in summary.by_model.items():
 			# Format tokens
 			model_total_fmt = self._format_tokens(stats.total_tokens)
@@ -541,19 +565,32 @@ class TokenCost:
 			await self._fetch_and_cache_pricing_data()
 
 	async def clean_old_caches(self, keep_count: int = 3) -> None:
-		"""Clean up old cache files, keeping only the most recent ones"""
+		"""Clean up old cache files, keeping only the most recent ones from this source URL"""
 		try:
 			# List all JSON files in the cache directory
 			cache_files = list(self._cache_dir.glob('*.json'))
 
-			if len(cache_files) <= keep_count:
+			if not cache_files:
+				return
+
+			# Only consider cache files from the same source URL
+			own_files: list[Path] = []
+			for cache_file in cache_files:
+				try:
+					cached = CachedPricingData.model_validate_json(cache_file.read_text())
+					if self._cache_source_matches(cached):
+						own_files.append(cache_file)
+				except Exception:
+					pass
+
+			if len(own_files) <= keep_count:
 				return
 
 			# Sort by modification time (oldest first)
-			cache_files.sort(key=lambda f: f.stat().st_mtime)
+			own_files.sort(key=lambda f: f.stat().st_mtime)
 
 			# Remove all but the most recent files
-			for cache_file in cache_files[:-keep_count]:
+			for cache_file in own_files[:-keep_count]:
 				try:
 					os.remove(cache_file)
 				except Exception:

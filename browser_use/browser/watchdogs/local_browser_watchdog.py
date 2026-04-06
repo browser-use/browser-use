@@ -1,5 +1,7 @@
 """Local browser watchdog for managing browser subprocess lifecycle."""
 
+from __future__ import annotations
+
 import asyncio
 import os
 import shutil
@@ -18,9 +20,10 @@ from browser_use.browser.events import (
 	BrowserStopEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
-	pass
+	from browser_use.browser.profile import BrowserChannel
 
 
 class LocalBrowserWatchdog(BaseWatchdog):
@@ -42,6 +45,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	_temp_dirs_to_cleanup: list[Path] = PrivateAttr(default_factory=list)
 	_original_user_data_dir: str | None = PrivateAttr(default=None)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='browser_launch_event')
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> BrowserLaunchResult:
 		"""Launch a local browser process."""
 
@@ -85,6 +89,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			# Dispatch BrowserKillEvent without awaiting so it gets processed after all BrowserStopEvent handlers
 			self.event_bus.dispatch(BrowserKillEvent())
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='launch_browser_process')
 	async def _launch_browser(self, max_retries: int = 3) -> tuple[psutil.Process, str]:
 		"""Launch browser process and return (process, cdp_url).
 
@@ -122,7 +127,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				else:
 					# self.logger.debug('[LocalBrowserWatchdog] 🔍 Looking for local browser binary path...')
 					# Try fallback paths first (system browsers preferred)
-					browser_path = self._find_installed_browser_path()
+					browser_path = self._find_installed_browser_path(channel=profile.channel)
 					if not browser_path:
 						self.logger.error(
 							'[LocalBrowserWatchdog] ⚠️ No local browser binary found, installing browser using playwright subprocess...'
@@ -135,6 +140,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 				# Launch browser subprocess directly
 				self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching browser subprocess with {len(launch_args)} args...')
+				self.logger.debug(
+					f'[LocalBrowserWatchdog] 📂 user_data_dir={profile.user_data_dir}, profile_directory={profile.profile_directory}'
+				)
 				subprocess = await asyncio.create_subprocess_exec(
 					browser_path,
 					*launch_args,
@@ -151,12 +159,21 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				# Wait for CDP to be ready and get the URL
 				cdp_url = await self._wait_for_cdp_url(debug_port)
 
-				# Success! Clean up any temp dirs we created but didn't use
-				for tmp_dir in self._temp_dirs_to_cleanup:
+				# Success! Clean up only the temp dirs we created but didn't use
+				currently_used_dir = str(profile.user_data_dir)
+				unused_temp_dirs = [tmp_dir for tmp_dir in self._temp_dirs_to_cleanup if str(tmp_dir) != currently_used_dir]
+
+				for tmp_dir in unused_temp_dirs:
 					try:
 						shutil.rmtree(tmp_dir, ignore_errors=True)
 					except Exception:
 						pass
+
+				# Keep only the in-use directory for cleanup during browser kill
+				if currently_used_dir and 'browseruse-tmp-' in currently_used_dir:
+					self._temp_dirs_to_cleanup = [Path(currently_used_dir)]
+				else:
+					self._temp_dirs_to_cleanup = []
 
 				return process, cdp_url
 
@@ -200,14 +217,18 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		raise RuntimeError(f'Failed to launch browser after {max_retries} attempts')
 
 	@staticmethod
-	def _find_installed_browser_path() -> str | None:
+	def _find_installed_browser_path(channel: BrowserChannel | None = None) -> str | None:
 		"""Try to find browser executable from common fallback locations.
 
+		If a channel is specified, paths for that browser are searched first.
+		Falls back to all known browser paths if the channel-specific search fails.
+
 		Prioritizes:
-		1. System Chrome Stable
-		1. Playwright chromium
-		2. Other system native browsers (Chromium -> Chrome Canary/Dev -> Brave)
-		3. Playwright headless-shell fallback
+		1. Channel-specific paths (if channel is set)
+		2. System Chrome stable
+		3. Playwright chromium
+		4. Other system native browsers (Chromium -> Chrome Canary/Dev -> Brave -> Edge)
+		5. Playwright headless-shell fallback
 
 		Returns:
 			Path to browser executable or None if not found
@@ -216,60 +237,90 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		import platform
 		from pathlib import Path
 
+		from browser_use.browser.profile import BROWSERUSE_DEFAULT_CHANNEL, BrowserChannel
+
 		system = platform.system()
-		patterns = []
 
 		# Get playwright browsers path from environment variable if set
 		playwright_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH')
 
+		# Build tagged pattern lists per OS: (browser_group, path)
+		# browser_group is used to match against the requested channel
 		if system == 'Darwin':  # macOS
 			if not playwright_path:
 				playwright_path = '~/Library/Caches/ms-playwright'
-			patterns = [
-				'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-				f'{playwright_path}/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium',
-				'/Applications/Chromium.app/Contents/MacOS/Chromium',
-				'/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-				'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-				f'{playwright_path}/chromium_headless_shell-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+			all_patterns = [
+				('chrome', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+				('chromium', f'{playwright_path}/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium'),
+				('chromium', '/Applications/Chromium.app/Contents/MacOS/Chromium'),
+				('chrome-canary', '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary'),
+				('brave', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'),
+				('msedge', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
+				('chromium', f'{playwright_path}/chromium_headless_shell-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium'),
 			]
 		elif system == 'Linux':
 			if not playwright_path:
 				playwright_path = '~/.cache/ms-playwright'
-			patterns = [
-				'/usr/bin/google-chrome-stable',
-				'/usr/bin/google-chrome',
-				'/usr/local/bin/google-chrome',
-				f'{playwright_path}/chromium-*/chrome-linux/chrome',
-				'/usr/bin/chromium',
-				'/usr/bin/chromium-browser',
-				'/usr/local/bin/chromium',
-				'/snap/bin/chromium',
-				'/usr/bin/google-chrome-beta',
-				'/usr/bin/google-chrome-dev',
-				'/usr/bin/brave-browser',
-				f'{playwright_path}/chromium_headless_shell-*/chrome-linux/chrome',
+			all_patterns = [
+				('chrome', '/usr/bin/google-chrome-stable'),
+				('chrome', '/usr/bin/google-chrome'),
+				('chrome', '/usr/local/bin/google-chrome'),
+				('chromium', f'{playwright_path}/chromium-*/chrome-linux*/chrome'),
+				('chromium', '/usr/bin/chromium'),
+				('chromium', '/usr/bin/chromium-browser'),
+				('chromium', '/usr/local/bin/chromium'),
+				('chromium', '/snap/bin/chromium'),
+				('chrome-beta', '/usr/bin/google-chrome-beta'),
+				('chrome-dev', '/usr/bin/google-chrome-dev'),
+				('brave', '/usr/bin/brave-browser'),
+				('msedge', '/usr/bin/microsoft-edge-stable'),
+				('msedge', '/usr/bin/microsoft-edge'),
+				('chromium', f'{playwright_path}/chromium_headless_shell-*/chrome-linux*/chrome'),
 			]
 		elif system == 'Windows':
 			if not playwright_path:
 				playwright_path = r'%LOCALAPPDATA%\ms-playwright'
-			patterns = [
-				r'C:\Program Files\Google\Chrome\Application\chrome.exe',
-				r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
-				r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe',
-				r'%PROGRAMFILES%\Google\Chrome\Application\chrome.exe',
-				r'%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe',
-				f'{playwright_path}\\chromium-*\\chrome-win\\chrome.exe',
-				r'C:\Program Files\Chromium\Application\chrome.exe',
-				r'C:\Program Files (x86)\Chromium\Application\chrome.exe',
-				r'%LOCALAPPDATA%\Chromium\Application\chrome.exe',
-				r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
-				r'C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe',
-				r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
-				r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
-				r'%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe',
-				f'{playwright_path}\\chromium_headless_shell-*\\chrome-win\\chrome.exe',
+			all_patterns = [
+				('chrome', r'C:\Program Files\Google\Chrome\Application\chrome.exe'),
+				('chrome', r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'),
+				('chrome', r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe'),
+				('chrome', r'%PROGRAMFILES%\Google\Chrome\Application\chrome.exe'),
+				('chrome', r'%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe'),
+				('chromium', f'{playwright_path}\\chromium-*\\chrome-win\\chrome.exe'),
+				('chromium', r'C:\Program Files\Chromium\Application\chrome.exe'),
+				('chromium', r'C:\Program Files (x86)\Chromium\Application\chrome.exe'),
+				('chromium', r'%LOCALAPPDATA%\Chromium\Application\chrome.exe'),
+				('brave', r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe'),
+				('brave', r'C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe'),
+				('msedge', r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'),
+				('msedge', r'C:\Program Files\Microsoft\Edge\Application\msedge.exe'),
+				('msedge', r'%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe'),
+				('chromium', f'{playwright_path}\\chromium_headless_shell-*\\chrome-win\\chrome.exe'),
 			]
+		else:
+			all_patterns = []
+
+		# Map channel enum values to browser group tags
+		_channel_to_group: dict[BrowserChannel, str] = {
+			BrowserChannel.CHROME: 'chrome',
+			BrowserChannel.CHROME_BETA: 'chrome-beta',
+			BrowserChannel.CHROME_DEV: 'chrome-dev',
+			BrowserChannel.CHROME_CANARY: 'chrome-canary',
+			BrowserChannel.CHROMIUM: 'chromium',
+			BrowserChannel.MSEDGE: 'msedge',
+			BrowserChannel.MSEDGE_BETA: 'msedge',
+			BrowserChannel.MSEDGE_DEV: 'msedge',
+			BrowserChannel.MSEDGE_CANARY: 'msedge',
+		}
+
+		# If a non-default channel is specified, put matching patterns first, then the rest as fallback
+		if channel and channel != BROWSERUSE_DEFAULT_CHANNEL and channel in _channel_to_group:
+			target_group = _channel_to_group[channel]
+			prioritized = [p for g, p in all_patterns if g == target_group]
+			rest = [p for g, p in all_patterns if g != target_group]
+			patterns = prioritized + rest
+		else:
+			patterns = [p for _, p in all_patterns]
 
 		for pattern in patterns:
 			# Expand user home directory
@@ -308,14 +359,16 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	async def _install_browser_with_playwright(self) -> str:
 		"""Get browser executable path from playwright in a subprocess to avoid thread issues."""
+		import platform
+
+		# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
+		cmd = ['uvx', 'playwright', 'install', 'chrome']
+		if platform.system() == 'Linux':
+			cmd.append('--with-deps')
 
 		# Run in subprocess with timeout
 		process = await asyncio.create_subprocess_exec(
-			'uvx',
-			'playwright',
-			'install',
-			'chrome',
-			'--with-deps',
+			*cmd,
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 		)
@@ -327,7 +380,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			if browser_path:
 				return browser_path
 			self.logger.error(f'[LocalBrowserWatchdog] ❌ Playwright local browser installation error: \n{stdout}\n{stderr}')
-			raise RuntimeError('No local browser path found after: uvx playwright install chrome --with-deps')
+			raise RuntimeError('No local browser path found after: uvx playwright install chrome')
 		except TimeoutError:
 			# Kill the subprocess if it times out
 			process.kill()
@@ -361,10 +414,10 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		while asyncio.get_event_loop().time() - start_time < timeout:
 			try:
 				async with aiohttp.ClientSession() as session:
-					async with session.get(f'http://localhost:{port}/json/version') as resp:
+					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
 						if resp.status == 200:
 							# Chrome is ready
-							return f'http://localhost:{port}/'
+							return f'http://127.0.0.1:{port}/'
 						else:
 							# Chrome is starting up and returning 502/500 errors
 							await asyncio.sleep(0.1)

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import re
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
 
-from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
@@ -26,40 +28,240 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.tokens.views import UsageSummary
 from browser_use.tools.registry.views import ActionModel
 
+logger = logging.getLogger(__name__)
+
+
+class MessageCompactionSettings(BaseModel):
+	"""Summarizes older history into a compact memory block to reduce prompt size."""
+
+	enabled: bool = True
+	compact_every_n_steps: int = 25
+	trigger_char_count: int | None = None  # Min char floor; set via trigger_token_count if preferred
+	trigger_token_count: int | None = None  # Alternative to trigger_char_count (~4 chars/token)
+	chars_per_token: float = 4.0
+	keep_last_items: int = 6
+	summary_max_chars: int = 6000
+	include_read_state: bool = False
+	compaction_llm: BaseChatModel | None = None
+
+	@model_validator(mode='after')
+	def _resolve_trigger_threshold(self) -> MessageCompactionSettings:
+		if self.trigger_char_count is not None and self.trigger_token_count is not None:
+			raise ValueError('Set trigger_char_count or trigger_token_count, not both.')
+		if self.trigger_token_count is not None:
+			self.trigger_char_count = int(self.trigger_token_count * self.chars_per_token)
+		elif self.trigger_char_count is None:
+			self.trigger_char_count = 40000  # ~10k tokens
+		return self
+
 
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
-	use_vision: bool = True
+	use_vision: bool | Literal['auto'] = True
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
-	max_failures: int = 3
+	max_failures: int = 5
 	generate_gif: bool | str = False
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
 	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
-	max_actions_per_step: int = 10
+	max_actions_per_step: int = 5
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
+	use_judge: bool = True
+	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
+	message_compaction: MessageCompactionSettings | None = None
+	enable_planning: bool = True
+	planning_replan_on_stall: int = 3  # consecutive failures before replan nudge; 0 = disabled
+	planning_exploration_limit: int = 5  # steps without a plan before nudge; 0 = disabled
 
 	page_extraction_llm: BaseChatModel | None = None
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
-	llm_timeout: int = 60  # Timeout in seconds for LLM calls
+	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
 	step_timeout: int = 180  # Timeout in seconds for each step
+	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
+
+	# Loop detection settings
+	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
+	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
+	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
+
+
+class PageFingerprint(BaseModel):
+	"""Lightweight fingerprint of the browser page state."""
+
+	model_config = ConfigDict(frozen=True)
+
+	url: str
+	element_count: int
+	text_hash: str  # First 16 chars of SHA-256 of the DOM text representation
+
+	@staticmethod
+	def from_browser_state(url: str, dom_text: str, element_count: int) -> PageFingerprint:
+		text_hash = hashlib.sha256(dom_text.encode('utf-8', errors='replace')).hexdigest()[:16]
+		return PageFingerprint(url=url, element_count=element_count, text_hash=text_hash)
+
+
+def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
+	"""Normalize action parameters for similarity hashing.
+
+	For search actions: strip minor keyword variations by sorting tokens.
+	For click actions: hash by element type + rough text content, ignoring index.
+	For navigate: hash by URL domain only.
+	For others: hash by action_name + sorted params.
+	"""
+	if action_name == 'search':
+		query = str(params.get('query', ''))
+		# Normalize search: lowercase, sort tokens, collapse whitespace
+		tokens = sorted(set(re.sub(r'[^\w\s]', ' ', query.lower()).split()))
+		engine = params.get('engine', 'google')
+		return f'search|{engine}|{"|".join(tokens)}'
+
+	if action_name in ('click', 'input'):
+		# For element-interaction actions, we only use the index (element identity).
+		# Two clicks on the same element index are the same action.
+		index = params.get('index')
+		if action_name == 'input':
+			text = str(params.get('text', ''))
+			# Normalize input text: lowercase, strip whitespace
+			return f'input|{index}|{text.strip().lower()}'
+		return f'click|{index}'
+
+	if action_name == 'navigate':
+		url = str(params.get('url', ''))
+		# Hash by full URL — navigating to different paths is genuine exploration,
+		# only repeated navigation to the exact same URL is a loop signal.
+		return f'navigate|{url}'
+
+	if action_name == 'scroll':
+		direction = 'down' if params.get('down', True) else 'up'
+		index = params.get('index')
+		return f'scroll|{direction}|{index}'
+
+	# Default: hash by action name + sorted params (excluding None values)
+	filtered = {k: v for k, v in sorted(params.items()) if v is not None}
+	return f'{action_name}|{json.dumps(filtered, sort_keys=True, default=str)}'
+
+
+def compute_action_hash(action_name: str, params: dict[str, Any]) -> str:
+	"""Compute a stable hash string for an action based on type + normalized parameters."""
+	normalized = _normalize_action_for_hash(action_name, params)
+	return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:12]
+
+
+class ActionLoopDetector(BaseModel):
+	"""Tracks action repetition and page stagnation to detect behavioral loops.
+
+	This is a soft detection system — it generates context messages for the LLM
+	but never blocks actions. The agent can still repeat if it wants to.
+	"""
+
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
+	# Rolling window of recent action hashes
+	window_size: int = 20
+	recent_action_hashes: list[str] = Field(default_factory=list)
+
+	# Page fingerprint tracking for stagnation detection
+	recent_page_fingerprints: list[PageFingerprint] = Field(default_factory=list)
+
+	# Current repetition state
+	max_repetition_count: int = 0  # Highest count of any single hash in the window
+	most_repeated_hash: str | None = None
+	consecutive_stagnant_pages: int = 0  # How many consecutive steps had the same page fingerprint
+
+	def record_action(self, action_name: str, params: dict[str, Any]) -> None:
+		"""Record an action and update repetition statistics."""
+		h = compute_action_hash(action_name, params)
+		self.recent_action_hashes.append(h)
+		# Trim to window size
+		if len(self.recent_action_hashes) > self.window_size:
+			self.recent_action_hashes = self.recent_action_hashes[-self.window_size :]
+		self._update_repetition_stats()
+
+	def record_page_state(self, url: str, dom_text: str, element_count: int) -> None:
+		"""Record the current page fingerprint and update stagnation count."""
+		fp = PageFingerprint.from_browser_state(url, dom_text, element_count)
+		if self.recent_page_fingerprints and self.recent_page_fingerprints[-1] == fp:
+			self.consecutive_stagnant_pages += 1
+		else:
+			self.consecutive_stagnant_pages = 0
+		self.recent_page_fingerprints.append(fp)
+		# Keep only last few fingerprints (no need for a large window)
+		if len(self.recent_page_fingerprints) > 5:
+			self.recent_page_fingerprints = self.recent_page_fingerprints[-5:]
+
+	def _update_repetition_stats(self) -> None:
+		"""Recompute max_repetition_count from the current window."""
+		if not self.recent_action_hashes:
+			self.max_repetition_count = 0
+			self.most_repeated_hash = None
+			return
+		counts: dict[str, int] = {}
+		for h in self.recent_action_hashes:
+			counts[h] = counts.get(h, 0) + 1
+		self.most_repeated_hash = max(counts, key=lambda k: counts[k])
+		self.max_repetition_count = counts[self.most_repeated_hash]
+
+	def get_nudge_message(self) -> str | None:
+		"""Return an escalating awareness nudge based on repetition severity, or None if no loop detected."""
+		messages: list[str] = []
+
+		# Action repetition nudges (escalating at 5, 8, 12)
+		if self.max_repetition_count >= 12:
+			messages.append(
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
+				f'in the last {len(self.recent_action_hashes)} actions. '
+				'If you are making progress with each repetition, keep going. '
+				'If not, a different approach might get you there faster.'
+			)
+		elif self.max_repetition_count >= 8:
+			messages.append(
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
+				f'in the last {len(self.recent_action_hashes)} actions. '
+				'Are you still making progress with each attempt? '
+				'If so, carry on. Otherwise, it might be worth trying a different approach.'
+			)
+		elif self.max_repetition_count >= 5:
+			messages.append(
+				f'Heads up: you have repeated a similar action {self.max_repetition_count} times '
+				f'in the last {len(self.recent_action_hashes)} actions. '
+				'If this is intentional and making progress, carry on. '
+				'If not, it might be worth reconsidering your approach.'
+			)
+
+		# Page stagnation nudge
+		if self.consecutive_stagnant_pages >= 5:
+			messages.append(
+				f'The page content has not changed across {self.consecutive_stagnant_pages} consecutive actions. '
+				'Your actions might not be having the intended effect. '
+				'It could be worth trying a different element or approach.'
+			)
+
+		if messages:
+			return '\n\n'.join(messages)
+		return None
 
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
 
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
 	agent_id: str = Field(default_factory=uuid7str)
 	n_steps: int = 1
 	consecutive_failures: int = 0
 	last_result: list[ActionResult] | None = None
-	last_plan: str | None = None
+	plan: list[PlanItem] | None = None
+	current_plan_item_index: int = 0
+	plan_generation_step: int | None = None
 	last_model_output: AgentOutput | None = None
+
+	# Pause/resume state (kept serialisable for checkpointing)
 	paused: bool = False
 	stopped: bool = False
 	session_initialized: bool = False  # Track if session events have been dispatched
@@ -68,8 +270,8 @@ class AgentState(BaseModel):
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
 
-	# class Config:
-	# 	arbitrary_types_allowed = True
+	# Loop detection state
+	loop_detector: ActionLoopDetector = Field(default_factory=ActionLoopDetector)
 
 
 @dataclass
@@ -82,6 +284,25 @@ class AgentStepInfo:
 		return self.step_number >= self.max_steps - 1
 
 
+class JudgementResult(BaseModel):
+	"""LLM judgement of agent trace"""
+
+	reasoning: str | None = Field(default=None, description='Explanation of the judgement')
+	verdict: bool = Field(description='Whether the trace was successful or not')
+	failure_reason: str | None = Field(
+		default=None,
+		description='Max 5 sentences explanation of why the task was not completed successfully in case of failure. If verdict is true, use an empty string.',
+	)
+	impossible_task: bool = Field(
+		default=False,
+		description='True if the task was impossible to complete due to vague instructions, broken website, inaccessible links, missing login credentials, or other insurmountable obstacles',
+	)
+	reached_captcha: bool = Field(
+		default=False,
+		description='True if the agent encountered captcha challenges during task execution',
+	)
+
+
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
@@ -89,11 +310,17 @@ class ActionResult(BaseModel):
 	is_done: bool | None = False
 	success: bool | None = None
 
+	# For trace judgement
+	judgement: JudgementResult | None = None
+
 	# Error handling - always include in long term memory
 	error: str | None = None
 
 	# Files
 	attachments: list[str] | None = None  # Files to display in the done message
+
+	# Images (base64 encoded) - separate from text content for efficient handling
+	images: list[dict[str, Any]] | None = None  # [{"name": "file.jpg", "data": "base64_string"}]
 
 	# Always include in long term memory
 	long_term_memory: str | None = None  # Memory of this action
@@ -121,17 +348,33 @@ class ActionResult(BaseModel):
 		return self
 
 
+class RerunSummaryAction(BaseModel):
+	"""AI-generated summary for rerun completion"""
+
+	summary: str = Field(description='Summary of what happened during the rerun')
+	success: bool = Field(description='Whether the rerun completed successfully based on visual inspection')
+	completion_status: Literal['complete', 'partial', 'failed'] = Field(
+		description='Status of rerun completion: complete (all steps succeeded), partial (some steps succeeded), failed (task did not complete)'
+	)
+
+
 class StepMetadata(BaseModel):
 	"""Metadata for a single step including timing and token information"""
 
 	step_start_time: float
 	step_end_time: float
 	step_number: int
+	step_interval: float | None = None
 
 	@property
 	def duration_seconds(self) -> float:
 		"""Calculate step duration in seconds"""
 		return self.step_end_time - self.step_start_time
+
+
+class PlanItem(BaseModel):
+	text: str
+	status: Literal['pending', 'current', 'done', 'skipped'] = 'pending'
 
 
 class AgentBrain(BaseModel):
@@ -148,9 +391,10 @@ class AgentOutput(BaseModel):
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
+	current_plan_item: int | None = None
+	plan_update: list[str] | None = None
 	action: list[ActionModel] = Field(
 		...,
-		description='List of actions to execute',
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
 	)
 
@@ -183,7 +427,6 @@ class AgentOutput(BaseModel):
 			),
 			__module__=AgentOutput.__module__,
 		)
-		model_.__doc__ = 'AgentOutput model with custom actions'
 		return model_
 
 	@staticmethod
@@ -203,12 +446,11 @@ class AgentOutput(BaseModel):
 			__base__=AgentOutputNoThinking,
 			action=(
 				list[custom_actions],  # type: ignore
-				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+				Field(..., json_schema_extra={'min_items': 1}),
 			),
 			__module__=AgentOutputNoThinking.__module__,
 		)
 
-		model.__doc__ = 'AgentOutput model with custom actions'
 		return model
 
 	@staticmethod
@@ -219,10 +461,12 @@ class AgentOutput(BaseModel):
 			@classmethod
 			def model_json_schema(cls, **kwargs):
 				schema = super().model_json_schema(**kwargs)
-				# Remove thinking, evaluation_previous_goal, and next_goal fields
+				# Remove thinking, evaluation_previous_goal, next_goal, and plan fields
 				del schema['properties']['thinking']
 				del schema['properties']['evaluation_previous_goal']
 				del schema['properties']['next_goal']
+				schema['properties'].pop('current_plan_item', None)
+				schema['properties'].pop('plan_update', None)
 				# Update required fields to only include remaining properties
 				schema['required'] = ['memory', 'action']
 				return schema
@@ -232,12 +476,11 @@ class AgentOutput(BaseModel):
 			__base__=AgentOutputFlashMode,
 			action=(
 				list[custom_actions],  # type: ignore
-				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+				Field(..., json_schema_extra={'min_items': 1}),
 			),
 			__module__=AgentOutputFlashMode.__module__,
 		)
 
-		model.__doc__ = 'AgentOutput model with custom actions'
 		return model
 
 
@@ -248,6 +491,7 @@ class AgentHistory(BaseModel):
 	result: list[ActionResult]
 	state: BrowserStateHistory
 	metadata: StepMetadata | None = None
+	state_message: str | None = None
 
 	model_config = ConfigDict(arbitrary_types_allowed=True, protected_namespaces=())
 
@@ -263,13 +507,76 @@ class AgentHistory(BaseModel):
 				elements.append(None)
 		return elements
 
-	def model_dump(self, **kwargs) -> dict[str, Any]:
-		"""Custom serialization handling circular references"""
+	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: dict[str, str | dict[str, str]] | None) -> str:
+		"""Filter out sensitive data from a string value"""
+		if not sensitive_data:
+			return value
+
+		# Collect all sensitive values, immediately converting old format to new format
+		sensitive_values: dict[str, str] = {}
+
+		# Process all sensitive data entries
+		for key_or_domain, content in sensitive_data.items():
+			if isinstance(content, dict):
+				# Already in new format: {domain: {key: value}}
+				for key, val in content.items():
+					if val:  # Skip empty values
+						sensitive_values[key] = val
+			elif content:  # Old format: {key: value} - convert to new format internally
+				# We treat this as if it was {'http*://*': {key_or_domain: content}}
+				sensitive_values[key_or_domain] = content
+
+		# If there are no valid sensitive data entries, just return the original value
+		if not sensitive_values:
+			return value
+
+		# Replace all valid sensitive data values with their placeholder tags
+		for key, val in sensitive_values.items():
+			value = value.replace(val, f'<secret>{key}</secret>')
+
+		return value
+
+	def _filter_sensitive_data_from_dict(
+		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
+	) -> dict[str, Any]:
+		"""Recursively filter sensitive data from a dictionary"""
+		if not sensitive_data:
+			return data
+
+		filtered_data = {}
+		for key, value in data.items():
+			if isinstance(value, str):
+				filtered_data[key] = self._filter_sensitive_data_from_string(value, sensitive_data)
+			elif isinstance(value, dict):
+				filtered_data[key] = self._filter_sensitive_data_from_dict(value, sensitive_data)
+			elif isinstance(value, list):
+				filtered_data[key] = [
+					self._filter_sensitive_data_from_string(item, sensitive_data)
+					if isinstance(item, str)
+					else self._filter_sensitive_data_from_dict(item, sensitive_data)
+					if isinstance(item, dict)
+					else item
+					for item in value
+				]
+			else:
+				filtered_data[key] = value
+		return filtered_data
+
+	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
+		"""Custom serialization handling circular references and filtering sensitive data"""
 
 		# Handle action serialization
 		model_output_dump = None
 		if self.model_output:
-			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
+			action_dump = [action.model_dump(exclude_none=True, mode='json') for action in self.model_output.action]
+
+			# Filter sensitive data only from input action parameters if sensitive_data is provided
+			if sensitive_data:
+				action_dump = [
+					self._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
+					for action in action_dump
+				]
+
 			model_output_dump = {
 				'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
 				'memory': self.model_output.memory,
@@ -279,12 +586,21 @@ class AgentHistory(BaseModel):
 			# Only include thinking if it's present
 			if self.model_output.thinking is not None:
 				model_output_dump['thinking'] = self.model_output.thinking
+			if self.model_output.current_plan_item is not None:
+				model_output_dump['current_plan_item'] = self.model_output.current_plan_item
+			if self.model_output.plan_update is not None:
+				model_output_dump['plan_update'] = self.model_output.plan_update
+
+		# Handle result serialization - don't filter ActionResult data
+		# as it should contain meaningful information for the agent
+		result_dump = [r.model_dump(exclude_none=True, mode='json') for r in self.result]
 
 		return {
 			'model_output': model_output_dump,
-			'result': [r.model_dump(exclude_none=True) for r in self.result],
+			'result': result_dump,
 			'state': self.state.to_dict(),
 			'metadata': self.metadata.model_dump() if self.metadata else None,
+			'state_message': self.state_message,
 		}
 
 
@@ -323,13 +639,13 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Representation of the AgentHistoryList object"""
 		return self.__str__()
 
-	def save_to_file(self, filepath: str | Path) -> None:
-		"""Save history to JSON file with proper serialization"""
+	def save_to_file(self, filepath: str | Path, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> None:
+		"""Save history to JSON file with proper serialization and optional sensitive data filtering"""
 		try:
 			Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-			data = self.model_dump()
+			data = self.model_dump(sensitive_data=sensitive_data)
 			with open(filepath, 'w', encoding='utf-8') as f:
-				json.dump(data, f, indent=2)
+				json.dump(data, f, indent=2, ensure_ascii=False)
 		except Exception as e:
 			raise e
 
@@ -372,10 +688,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		}
 
 	@classmethod
-	def load_from_file(cls, filepath: str | Path, output_model: type[AgentOutput]) -> AgentHistoryList:
-		"""Load history from JSON file"""
-		with open(filepath, encoding='utf-8') as f:
-			data = json.load(f)
+	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
 		# loop through history and validate output_model actions to enrich with custom actions
 		for h in data['history']:
 			if h['model_output']:
@@ -385,13 +698,21 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					h['model_output'] = None
 			if 'interacted_element' not in h['state']:
 				h['state']['interacted_element'] = None
+
 		history = cls.model_validate(data)
 		return history
+
+	@classmethod
+	def load_from_file(cls, filepath: str | Path, output_model: type[AgentOutput]) -> AgentHistoryList:
+		"""Load history from JSON file"""
+		with open(filepath, encoding='utf-8') as f:
+			data = json.load(f)
+		return cls.load_from_dict(data, output_model)
 
 	def last_action(self) -> None | dict:
 		"""Last action in history"""
 		if self.history and self.history[-1].model_output:
-			return self.history[-1].model_output.action[-1].model_dump(exclude_none=True)
+			return self.history[-1].model_output.action[-1].model_dump(exclude_none=True, mode='json')
 		return None
 
 	def errors(self) -> list[str | None]:
@@ -428,6 +749,29 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	def has_errors(self) -> bool:
 		"""Check if the agent has any non-None errors"""
 		return any(error is not None for error in self.errors())
+
+	def judgement(self) -> dict | None:
+		"""Get the judgement result as a dictionary if it exists"""
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			if last_result.judgement:
+				return last_result.judgement.model_dump()
+		return None
+
+	def is_judged(self) -> bool:
+		"""Check if the agent trace has been judged"""
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			return last_result.judgement is not None
+		return False
+
+	def is_validated(self) -> bool | None:
+		"""Check if the judge validated the agent execution (verdict is True). Returns None if not judged yet."""
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			if last_result.judgement:
+				return last_result.judgement.verdict
+		return None
 
 	def urls(self) -> list[str | None]:
 		"""Get all unique URLs from history"""
@@ -494,7 +838,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				# Guard against None interacted_element before zipping
 				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
 				for action, interacted_element in zip(h.model_output.action, interacted_elements):
-					output = action.model_dump(exclude_none=True)
+					output = action.model_dump(exclude_none=True, mode='json')
 					output['interacted_element'] = interacted_element
 					outputs.append(output)
 		return outputs
@@ -510,7 +854,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
 				# Zip actions with interacted elements and results
 				for action, interacted_element, result in zip(h.model_output.action, interacted_elements, h.result):
-					action_output = action.model_dump(exclude_none=True)
+					action_output = action.model_dump(exclude_none=True, mode='json')
 					action_output['interacted_element'] = interacted_element
 					# Only keep long_term_memory from result
 					action_output['result'] = result.long_term_memory if result and result.long_term_memory else None
@@ -549,6 +893,36 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Get the number of steps in the history"""
 		return len(self.history)
 
+	def agent_steps(self) -> list[str]:
+		"""Format agent history as readable step descriptions for judge evaluation."""
+		steps = []
+
+		# Iterate through history items (each is an AgentHistory)
+		for i, h in enumerate(self.history):
+			step_text = f'Step {i + 1}:\n'
+
+			# Get actions from model_output
+			if h.model_output and h.model_output.action:
+				# Use model_dump with mode='json' to serialize enums properly
+				actions_list = [action.model_dump(exclude_none=True, mode='json') for action in h.model_output.action]
+				action_json = json.dumps(actions_list, indent=1)
+				step_text += f'Actions: {action_json}\n'
+
+			# Get results (already a list[ActionResult] in h.result)
+			if h.result:
+				for j, result in enumerate(h.result):
+					if result.extracted_content:
+						content = str(result.extracted_content)
+						step_text += f'Result {j + 1}: {content}\n'
+
+					if result.error:
+						error = str(result.error)
+						step_text += f'Error {j + 1}: {error}\n'
+
+			steps.append(step_text)
+
+		return steps
+
 	@property
 	def structured_output(self) -> AgentStructuredOutput | None:
 		"""Get the structured output from the history
@@ -561,6 +935,23 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		if final_result is not None and self._output_model_schema is not None:
 			return self._output_model_schema.model_validate_json(final_result)
 
+		return None
+
+	def get_structured_output(self, output_model: type[AgentStructuredOutput]) -> AgentStructuredOutput | None:
+		"""Get the structured output from history, parsing with the provided schema.
+
+		Use this method when accessing structured output from sandbox execution,
+		since the _output_model_schema private attribute is not preserved during serialization.
+
+		Args:
+			output_model: The Pydantic model class to parse the output with
+
+		Returns:
+			The parsed structured output, or None if no final result exists
+		"""
+		final_result = self.final_result()
+		if final_result is not None:
+			return output_model.model_validate_json(final_result)
 		return None
 
 
@@ -577,8 +968,42 @@ class AgentError:
 		message = ''
 		if isinstance(error, ValidationError):
 			return f'{AgentError.VALIDATION_ERROR}\nDetails: {str(error)}'
+		# Lazy import to avoid loading openai SDK (~800ms) at module level
+		from openai import RateLimitError
+
 		if isinstance(error, RateLimitError):
 			return AgentError.RATE_LIMIT_ERROR
+
+		# Handle LLM response validation errors from llm_use
+		error_str = str(error)
+		if 'LLM response missing required fields' in error_str or 'Expected format: AgentOutput' in error_str:
+			# Extract the main error message without the huge stacktrace
+			lines = error_str.split('\n')
+			main_error = lines[0] if lines else error_str
+
+			# Provide a clearer error message
+			helpful_msg = f'{main_error}\n\nThe previous response had an invalid output structure. Please stick to the required output format. \n\n'
+
+			if include_trace:
+				helpful_msg += f'\n\nFull stacktrace:\n{traceback.format_exc()}'
+
+			return helpful_msg
+
 		if include_trace:
 			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
 		return f'{str(error)}'
+
+
+class DetectedVariable(BaseModel):
+	"""A detected variable in agent history"""
+
+	name: str
+	original_value: str
+	type: str = 'string'
+	format: str | None = None
+
+
+class VariableMetadata(BaseModel):
+	"""Metadata about detected variables in history"""
+
+	detected_variables: dict[str, DetectedVariable] = Field(default_factory=dict)

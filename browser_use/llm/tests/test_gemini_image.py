@@ -3,7 +3,6 @@ import base64
 import io
 import random
 
-from lmnr import Laminar
 from PIL import Image, ImageDraw, ImageFont
 
 from browser_use.llm.google.chat import ChatGoogle
@@ -16,8 +15,6 @@ from browser_use.llm.messages import (
 	SystemMessage,
 	UserMessage,
 )
-
-Laminar.initialize()
 
 
 def create_random_text_image(text: str = 'hello world', width: int = 4000, height: int = 4000) -> str:
@@ -45,10 +42,10 @@ def create_random_text_image(text: str = 'hello world', width: int = 4000, heigh
 
 	# Convert to base64
 	buffer = io.BytesIO()
-	image.save(buffer, format='PNG')
+	image.save(buffer, format='JPEG')
 	img_data = base64.b64encode(buffer.getvalue()).decode()
 
-	return f'data:image/png;base64,{img_data}'
+	return f'data:image/jpeg;base64,{img_data}'
 
 
 async def test_gemini_image_vision():

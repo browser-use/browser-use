@@ -42,8 +42,7 @@ async def _format_conversation(messages: list[BaseMessage], response: Any) -> st
 		lines.append('')  # Empty line after each message
 
 	# Format response
-	lines.append(' RESPONSE')
-	lines.append(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2))
+	lines.append(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2, ensure_ascii=False))
 
 	return '\n'.join(lines)
 

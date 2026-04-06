@@ -1,0 +1,56 @@
+name: Evaluate PR
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  trigger-evaluation:
+    runs-on: ubuntu-latest
+    # Only run if PR author has write access
+    if: |
+      github.event.pull_request.author_association == 'OWNER' ||
+      github.event.pull_request.author_association == 'MEMBER' ||
+      github.event.pull_request.author_association == 'COLLABORATOR'
+
+    steps:
+      - name: Trigger Evaluation settings
+        id: trigger
+        continue-on-error: true
+        run: |
+          echo "🚀 Triggering evaluation - PR #${{ github.event.pull_request.number }}"
+          echo "Commit: ${{ github.event.pull_request.head.sha }}"
+
+          # You can customize the test here
+          TEST_CASE="${{ vars.EVAL_TEST_CASE }}"
+          if [ -z "$TEST_CASE" ]; then
+            TEST_CASE="InteractionTasks_v8"
+          fi
+
+          response=$(curl -X POST \
+            "${{ secrets.EVAL_PLATFORM_URL }}/api/triggerInteractionTasksV6" \
+            -H "Authorization: Bearer ${{ secrets.EVAL_PLATFORM_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"commitSha\": \"${{ github.event.pull_request.head.sha }}\",
+              \"prNumber\": ${{ github.event.pull_request.number }},
+              \"branchName\": \"${{ github.event.pull_request.head.ref }}\",
+              \"testCase\": \"${TEST_CASE}\",
+              \"githubRepo\": \"${{ github.repository }}\"
+            }" -s)
+
+          echo "Response: $response"
+
+          # Check if trigger was was successful
+          if echo "$response" | jq -e '.success == true' > /dev/null; then
+            echo "✅ Evaluation triggered successfully"
+            exit 0
+          else
+            echo "Failed"
+            echo "$response"
+            exit 1
+          fi
