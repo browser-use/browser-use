@@ -530,8 +530,7 @@ class AgentHistory(BaseModel):
 		if not sensitive_values:
 			return value
 
-		# Replace all valid sensitive data values with their placeholder tags
-		for key, val in sensitive_values.items():
+		for key, val in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
 			value = value.replace(val, f'<secret>{key}</secret>')
 
 		return value

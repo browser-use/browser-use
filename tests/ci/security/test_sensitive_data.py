@@ -2,8 +2,8 @@ import pytest
 from pydantic import BaseModel, Field
 
 from browser_use.agent.message_manager.service import MessageManager
-from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
-from browser_use.browser.views import BrowserStateSummary
+from browser_use.agent.views import ActionResult, AgentHistory, AgentOutput, AgentStepInfo, MessageManagerState
+from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary
 from browser_use.dom.views import SerializedDOMState
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm import SystemMessage, UserMessage
@@ -255,6 +255,28 @@ def test_filter_sensitive_data(message_manager):
 	assert '<secret>username</secret>' in result.content
 	assert '<secret>password</secret>' in result.content
 	assert '<secret>email</secret>' in result.content
+
+	message_manager.sensitive_data = {'short_token': 'abc', 'long_token': 'abc123'}
+	overlapping_message = UserMessage(content='Token pair: abc abc123')
+	result = message_manager._filter_sensitive_data(overlapping_message)
+	assert result.content == 'Token pair: <secret>short_token</secret> <secret>long_token</secret>'
+	assert '123' not in result.content
+
+
+def test_agent_history_redacts_longer_overlapping_secrets_first():
+	history_item = AgentHistory(
+		model_output=None,
+		result=[],
+		state=BrowserStateHistory(url='https://example.com', title='Test', tabs=[], interacted_element=[]),
+	)
+
+	filtered = history_item._filter_sensitive_data_from_string(
+		'Token pair: abc abc123',
+		{'short_token': 'abc', 'long_token': 'abc123'},
+	)
+
+	assert filtered == 'Token pair: <secret>short_token</secret> <secret>long_token</secret>'
+	assert '123' not in filtered
 
 
 def test_is_new_tab_page():
