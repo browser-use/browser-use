@@ -280,12 +280,20 @@ Style: Modern TikTok advertisement, viral potential, authentic energy, minimal t
 def open_file(file_path: str):
 	"""Open file with default system viewer"""
 	try:
+		# Resolve and validate the path to prevent shell injection via crafted filenames
+		resolved = Path(file_path).resolve()
+		if not resolved.is_file():
+			print(f'❌ Could not open file: path does not point to a valid file: {file_path}')
+			return
+		safe_path = str(resolved)
 		if sys.platform.startswith('darwin'):
-			subprocess.run(['open', file_path], check=True)
+			subprocess.run(['open', safe_path], check=True)
 		elif sys.platform.startswith('win'):
-			subprocess.run(['cmd', '/c', 'start', '', file_path], check=True)
+			# Use os.startfile() instead of 'cmd /c start' to avoid shell invocation
+			# and prevent metacharacter injection through the filename
+			os.startfile(safe_path)
 		else:
-			subprocess.run(['xdg-open', file_path], check=True)
+			subprocess.run(['xdg-open', safe_path], check=True)
 	except Exception as e:
 		print(f'❌ Could not open file: {e}')
 
