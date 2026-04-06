@@ -4,13 +4,17 @@ on:
     paths:
       - 'SKILL.md'
       - 'skill.json'
-  workflow_run:
-    workflows: ['Validate Skill']
-    types: [requested]
+      - 'skills/**'
+  push:
+    branches: [main, master]
+    paths:
+      - 'SKILL.md'
+      - 'skill.json'
+      - 'skills/**'
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,13 +24,12 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Validate skill
-        uses: hashgraph-online/skill-publish@v1
+        uses: hashgraph-online/skill-publish@c182a4aa4dba68fb7f3c01be4ca560dfb759ae9e # v1
         with:
           mode: validate
           skill-dir: .
