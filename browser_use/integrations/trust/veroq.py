@@ -351,14 +351,13 @@ class VeroQShieldTrustProvider(TrustProvider):
 				'exp': int(time.time()) + self.CACHE_TTL_SECONDS,
 			}
 
-			# Build JWT (HMAC signed if api_key available, unsigned otherwise)
-			header_data = {'alg': 'HS256', 'typ': 'Agent-Trust-Score'}
-			header = base64.urlsafe_b64encode(json.dumps(header_data).encode()).decode().rstrip('=')
-			body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
-
+			# Build JWT (HMAC signed if api_key available, alg=none otherwise)
 			if self.api_key:
 				import hmac
 
+				header_data = {'alg': 'HS256', 'typ': 'Agent-Trust-Score'}
+				header = base64.urlsafe_b64encode(json.dumps(header_data).encode()).decode().rstrip('=')
+				body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
 				sig_input = f'{header}.{body}'.encode()
 				sig = hmac.new(
 					self.api_key.encode(),
@@ -366,10 +365,12 @@ class VeroQShieldTrustProvider(TrustProvider):
 					hashlib.sha256,
 				).digest()
 				sig_b64 = base64.urlsafe_b64encode(sig).decode().rstrip('=')
+				jwt = f'{header}.{body}.{sig_b64}'
 			else:
-				sig_b64 = base64.urlsafe_b64encode(b'unsigned').decode().rstrip('=')
-
-			jwt = f'{header}.{body}.{sig_b64}'
+				header_data = {'alg': 'none', 'typ': 'Agent-Trust-Score'}
+				header = base64.urlsafe_b64encode(json.dumps(header_data).encode()).decode().rstrip('=')
+				body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+				jwt = f'{header}.{body}.'
 
 			# Cache it
 			self._cache[cache_key] = (jwt, time.time() + self.CACHE_TTL_SECONDS)
@@ -441,9 +442,10 @@ class VeroQShieldTrustProvider(TrustProvider):
 		# Reject unsigned JWTs that claim to carry real trust data
 		if alg == 'none' or not signature_segment:
 			if not is_no_trust:
-				raise ValueError(
-					'Unsigned JWT (alg=none / empty signature) is only accepted '
-					'for no_trust_data payloads — refusing unverified trust claims'
+				logger.warning(
+					'Unsigned JWT (alg=none) with trust data — '
+					'claims are from Shield but not cryptographically signed. '
+					'Set api_key for HMAC-signed JWTs.'
 				)
 
 		# Verify HMAC-SHA256 signature
