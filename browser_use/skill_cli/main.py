@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Fast CLI for browser-use. STDLIB ONLY - must start in <50ms.
 
 This is the main entry point for the browser-use CLI. It uses only stdlib
@@ -54,8 +54,8 @@ def _get_subcommand() -> str | None:
 if _get_subcommand() == 'install':
 	import platform
 
-	print('📦 Installing Chromium browser + system dependencies...')
-	print('⏳ This may take a few minutes...\n')
+	print('馃摝 Installing Chromium browser + system dependencies...')
+	print('鈴?This may take a few minutes...\n')
 
 	# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
 	cmd = ['uvx', 'playwright', 'install', 'chromium']
@@ -66,10 +66,10 @@ if _get_subcommand() == 'install':
 	result = subprocess.run(cmd)
 
 	if result.returncode == 0:
-		print('\n✅ Installation complete!')
-		print('🚀 Ready to use! Run: uvx browser-use')
+		print('\n鉁?Installation complete!')
+		print('馃殌 Ready to use! Run: uvx browser-use')
 	else:
-		print('\n❌ Installation failed')
+		print('\n鉂?Installation failed')
 		sys.exit(1)
 	sys.exit(0)
 
@@ -133,7 +133,7 @@ if '--template' in sys.argv:
 	init_main()
 	sys.exit(0)
 
-# Handle 'cloud --help' / 'cloud -h' early — argparse intercepts --help before
+# Handle 'cloud --help' / 'cloud -h' early 鈥?argparse intercepts --help before
 # REMAINDER can capture it, so we route to our custom usage printer directly.
 # Only intercept when --help is immediately after 'cloud' (not 'cloud v2 --help').
 if _get_subcommand() == 'cloud':
@@ -315,7 +315,7 @@ def _get_state_path(session: str) -> Path:
 
 
 class _SessionProbe:
-	"""Snapshot of a session's health. Never deletes anything — callers decide cleanup."""
+	"""Snapshot of a session's health. Never deletes anything 鈥?callers decide cleanup."""
 
 	__slots__ = ('name', 'phase', 'updated_at', 'pid', 'pid_alive', 'socket_reachable', 'socket_pid')
 
@@ -385,7 +385,7 @@ def _probe_session(session: str) -> _SessionProbe:
 		elif probe.socket_pid == pid_file_pid:
 			probe.pid = pid_file_pid
 		else:
-			# Socket unreachable or answers with unknown PID — can't resolve
+			# Socket unreachable or answers with unknown PID 鈥?can't resolve
 			probe.pid = pid_file_pid  # .pid file is written later, so prefer it
 		probe.pid_alive = True
 	elif state_alive:
@@ -430,12 +430,12 @@ def ensure_daemon(
 	"""Start daemon if not running. Uses state file for phase-aware decisions."""
 	probe = _probe_session(session)
 
-	# Socket reachable — daemon is alive and responding
+	# Socket reachable 鈥?daemon is alive and responding
 	if probe.socket_reachable:
 		if not explicit_config:
 			return  # Reuse it
 
-		# User explicitly set --headed/--profile/--cdp-url — check config matches
+		# User explicitly set --headed/--profile/--cdp-url 鈥?check config matches
 		try:
 			response = send_command('ping', {}, session=session)
 			if response.get('success'):
@@ -448,18 +448,18 @@ def ensure_daemon(
 				):
 					return  # Already running with correct config
 
-				# Config mismatch — error, don't auto-restart (avoids orphan cascades)
+				# Config mismatch 鈥?error, don't auto-restart (avoids orphan cascades)
 				print(
 					f'Error: Session {session!r} is already running with different config.\n'
 					f'Run `browser-use{" --session " + session if session != "default" else ""} close` first.',
 					file=sys.stderr,
 				)
 				sys.exit(1)
-			return  # Ping returned failure — daemon alive but can't verify config, reuse it
+			return  # Ping returned failure 鈥?daemon alive but can't verify config, reuse it
 		except Exception:
-			return  # Daemon alive but not responsive — reuse it, can't safely restart
+			return  # Daemon alive but not responsive 鈥?reuse it, can't safely restart
 
-	# Socket unreachable but process alive — phase-aware decisions
+	# Socket unreachable but process alive 鈥?phase-aware decisions
 	if probe.pid_alive and probe.phase:
 		now = time.time()
 		age = now - probe.updated_at if probe.updated_at else float('inf')
@@ -470,7 +470,7 @@ def ensure_daemon(
 				time.sleep(0.5)
 				if _is_daemon_alive(session):
 					return
-			# Still not reachable — fall through to error
+			# Still not reachable 鈥?fall through to error
 
 		elif probe.phase in ('starting', 'ready', 'running') and age < 60:
 			# Daemon is alive but socket broke, or starting browser
@@ -489,7 +489,7 @@ def ensure_daemon(
 					break
 			# Fall through to spawn
 
-		# Stale phase — daemon stuck or crashed without terminal state
+		# Stale phase 鈥?daemon stuck or crashed without terminal state
 		elif probe.pid and _is_daemon_process(probe.pid):
 			_terminate_pid(probe.pid)
 
@@ -550,17 +550,17 @@ def ensure_daemon(
 			stderr=subprocess.DEVNULL,
 		)
 
-	# Wait for daemon to be ready — use state file for phase-aware waiting
+	# Wait for daemon to be ready 鈥?use state file for phase-aware waiting
 	deadline = time.time() + 15
 	while time.time() < deadline:
 		probe = _probe_session(session)
 		if probe.socket_reachable:
 			return
-		# Daemon wrote state and PID is alive — still booting, keep waiting
+		# Daemon wrote state and PID is alive 鈥?still booting, keep waiting
 		if probe.pid_alive and probe.phase in ('initializing', 'ready', 'starting', 'running'):
 			time.sleep(0.2)
 			continue
-		# Daemon wrote terminal state — startup failed
+		# Daemon wrote terminal state 鈥?startup failed
 		if probe.phase in ('failed', 'stopped'):
 			break
 		time.sleep(0.2)
@@ -918,7 +918,7 @@ Setup:
 
 
 def _handle_cloud_connect(cloud_args: list[str], args: argparse.Namespace, session: str) -> int:
-	"""Handle `browser-use cloud connect` — zero-config cloud browser provisioning."""
+	"""Handle `browser-use cloud connect` 鈥?zero-config cloud browser provisioning."""
 	# Mutual exclusivity checks
 	if getattr(args, 'connect', False):
 		print('Error: --connect and cloud connect are mutually exclusive', file=sys.stderr)
@@ -996,14 +996,14 @@ def _handle_sessions(args: argparse.Namespace) -> int:
 		probe = _probe_session(name)
 
 		if not probe.pid_alive:
-			# Don't delete if socket is still reachable — daemon alive despite stale PID
+			# Don't delete if socket is still reachable 鈥?daemon alive despite stale PID
 			if not probe.socket_reachable:
 				_clean_session_files(name)
 				continue
 
 		# Terminal state + dead PID already handled above.
 		# If phase is terminal but PID is alive, the daemon restarted and
-		# the stale state file belongs to a previous instance — only clean
+		# the stale state file belongs to a previous instance 鈥?only clean
 		# the state file, not the PID/socket which the live daemon owns.
 		if probe.phase in ('stopped', 'failed'):
 			_get_state_path(name).unlink(missing_ok=True)
@@ -1086,7 +1086,7 @@ def _close_session(session: str) -> bool:
 			_clean_session_files(session)
 		return dead
 
-	# Nothing alive — clean up stale files if any exist
+	# Nothing alive 鈥?clean up stale files if any exist
 	if probe.pid or probe.phase:
 		_clean_session_files(session)
 	return False
@@ -1189,7 +1189,7 @@ def main() -> int:
 	if args.command == 'cloud':
 		cloud_args = getattr(args, 'cloud_args', [])
 
-		# Intercept 'cloud connect' — needs daemon, not REST passthrough
+		# Intercept 'cloud connect' 鈥?needs daemon, not REST passthrough
 		if cloud_args and cloud_args[0] == 'connect':
 			return _handle_cloud_connect(cloud_args[1:], args, session)
 
@@ -1198,7 +1198,7 @@ def main() -> int:
 
 		return handle_cloud_command(cloud_args)
 
-	# Handle profile subcommand — passthrough to profile-use Go binary
+	# Handle profile subcommand 鈥?passthrough to profile-use Go binary
 	if args.command == 'profile':
 		from browser_use.skill_cli.profile_use import run_profile_use
 
@@ -1222,8 +1222,7 @@ def main() -> int:
 	if args.command == 'doctor':
 		from browser_use.skill_cli.commands import doctor
 
-		loop = asyncio.get_event_loop()
-		result = loop.run_until_complete(doctor.handle())
+		result = asyncio.run(doctor.handle())
 
 		if args.json:
 			print(json.dumps(result))
@@ -1238,13 +1237,13 @@ def main() -> int:
 				fix = check.get('fix', '')
 
 				if status == 'ok':
-					icon = '✓'
+					icon = '鉁?
 				elif status == 'warning':
-					icon = '⚠'
+					icon = '鈿?
 				elif status == 'missing':
-					icon = '○'
+					icon = '鈼?
 				else:
-					icon = '✗'
+					icon = '鉁?
 
 				print(f'  {icon} {name}: {message}')
 				if note:
@@ -1254,9 +1253,9 @@ def main() -> int:
 
 			print('')
 			if result.get('status') == 'healthy':
-				print('✓ All checks passed!')
+				print('鉁?All checks passed!')
 			else:
-				print(f'⚠ {result.get("summary", "Some checks need attention")}')
+				print(f'鈿?{result.get("summary", "Some checks need attention")}')
 
 			# Show config state
 			from browser_use.skill_cli.config import CLI_DOCS_URL, get_config_display
@@ -1265,10 +1264,10 @@ def main() -> int:
 			print(f'\nConfig ({_get_home_dir() / "config.json"}):\n')
 			for entry in entries:
 				if entry['is_set']:
-					icon = '✓'
+					icon = '鉁?
 					val = 'set' if entry['sensitive'] else entry['value']
 				else:
-					icon = '○'
+					icon = '鈼?
 					val = entry['value'] if entry['value'] else 'not set'
 				print(f'  {icon} {entry["key"]}: {val}')
 			print(f'  Docs: {CLI_DOCS_URL}')
@@ -1315,10 +1314,10 @@ def main() -> int:
 			print(f'Config ({_get_home_dir() / "config.json"}):')
 			for entry in entries:
 				if entry['is_set']:
-					icon = '✓'
+					icon = '鉁?
 					val = 'set' if entry['sensitive'] else entry['value']
 				else:
-					icon = '○'
+					icon = '鈼?
 					val = entry['value'] if entry['value'] else 'not set'
 				print(f'  {icon} {entry["key"]}: {val}')
 			print(f'  Docs: {CLI_DOCS_URL}')
@@ -1337,9 +1336,9 @@ def main() -> int:
 			port_arg = getattr(args, 'port_arg', None)
 			if getattr(args, 'all', False):
 				# stop --all
-				result = asyncio.get_event_loop().run_until_complete(tunnel.stop_all_tunnels())
+				result = asyncio.run(tunnel.stop_all_tunnels())
 			elif port_arg is not None:
-				result = asyncio.get_event_loop().run_until_complete(tunnel.stop_tunnel(port_arg))
+				result = asyncio.run(tunnel.stop_tunnel(port_arg))
 			else:
 				print('Usage: browser-use tunnel stop <port> | --all', file=sys.stderr)
 				return 1
@@ -1349,7 +1348,7 @@ def main() -> int:
 			except ValueError:
 				print(f'Unknown tunnel subcommand: {pos}', file=sys.stderr)
 				return 1
-			result = asyncio.get_event_loop().run_until_complete(tunnel.start_tunnel(port))
+			result = asyncio.run(tunnel.start_tunnel(port))
 		else:
 			print('Usage: browser-use tunnel <port> | list | stop <port>', file=sys.stderr)
 			return 0
@@ -1380,7 +1379,7 @@ def main() -> int:
 					print(f'Stopped tunnel on port {result["stopped"]}')
 		return 0
 
-	# Handle close — shutdown daemon
+	# Handle close 鈥?shutdown daemon
 	if args.command == 'close':
 		if getattr(args, 'all', False):
 			return _handle_close_all(args)
