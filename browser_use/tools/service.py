@@ -1360,6 +1360,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 				msg = f'🔍 {long_term_memory}'
 				logger.info(msg)
+
+				if browser_session._dom_watchdog:
+					browser_session._dom_watchdog.clear_cache()
+
 				return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
