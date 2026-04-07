@@ -1170,4 +1170,3 @@ class DomService:
 				)
 
 		return pagination_buttons
-
