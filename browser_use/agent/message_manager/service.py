@@ -593,7 +593,8 @@ class MessageManager:
 				return value
 
 			# Replace all valid sensitive data values with their placeholder tags
-			for key, val in sensitive_values.items():
+			# Sort by length descending to avoid partial leaks when one secret is a substring of another
+			for key, val in sorted(sensitive_values.items(), key=lambda x: len(x[1]), reverse=True):
 				value = value.replace(val, f'<secret>{key}</secret>')
 
 			return value
