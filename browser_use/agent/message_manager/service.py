@@ -116,6 +116,9 @@ class MessageManager:
 		llm_screenshot_size: tuple[int, int] | None = None,
 		max_clickable_elements_length: int = 40000,
 	):
+		if max_history_items is not None and max_history_items <= 5:
+			raise ValueError('max_history_items must be None or greater than 5')
+
 		self.task = task
 		self.state = state
 		self.system_prompt = system_message
@@ -129,8 +132,6 @@ class MessageManager:
 		self.sample_images = sample_images
 		self.llm_screenshot_size = llm_screenshot_size
 		self.max_clickable_elements_length = max_clickable_elements_length
-
-		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
 		# Store settings as direct attributes instead of in a settings object
 		self.include_attributes = include_attributes or []
