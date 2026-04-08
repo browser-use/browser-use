@@ -2,7 +2,7 @@
 
 import asyncio
 from typing import TYPE_CHECKING, Literal, Union
-
+from browser_use.logger.registry import get_current_logger
 from cdp_use.client import logger
 from typing_extensions import TypedDict
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 # Type definitions for element operations
 ModifierType = Literal['Alt', 'Control', 'Meta', 'Shift']
-
+events_logger = get_current_logger()
 
 class Position(TypedDict):
 	"""2D position coordinates."""
@@ -97,7 +97,7 @@ class Element:
 		modifiers: list[ModifierType] | None = None,
 	) -> None:
 		"""Click the element using the advanced watchdog implementation."""
-
+		
 		try:
 			# Get viewport dimensions for visibility checks
 			layout_metrics = await self._client.send.Page.getLayoutMetrics(session_id=self._session_id)
@@ -307,6 +307,14 @@ class Element:
 
 				# Mouse up
 				try:
+					events_logger.log({
+						'type': 'mouseReleased',
+						'x': center_x,
+						'y': center_y,
+						'button': button,
+						'clickCount': click_count,
+						'modifiers': modifier_value,
+					})
 					await asyncio.wait_for(
 						self._client.send.Input.dispatchMouseEvent(
 							params={

@@ -19,7 +19,7 @@ from cdp_use.cdp.target import SessionID, TargetID
 from cdp_use.cdp.target.commands import CreateTargetParameters
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
-
+from langfuse import observe
 from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, CloudBrowserError
 
 # CDP logging is now handled by setup_logging() in logging_config.py
@@ -2321,6 +2321,9 @@ class BrowserSession(BaseModel):
 		"""
 		#  Check cached selector map
 		if self._cached_selector_map and index in self._cached_selector_map:
+			# with open("elements_2.txt", "a") as f:
+			# 	# f.write(self._cached_selector_map[index])
+			# 	f.write(self._cached_selector_map[index].tag_name + ' ' + self._cached_selector_map[index].ax_node.name + '\n') 
 			return self._cached_selector_map[index]
 
 		return None

@@ -46,6 +46,7 @@ dependencies = [
     "markdownify==1.2.2",
     "python-docx==1.2.0",
     "browser-use-sdk==2.0.15",
+    "langfuse==4.0.1"
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste

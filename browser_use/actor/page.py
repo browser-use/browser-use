@@ -387,6 +387,7 @@ class Page:
 			backend_node_id = node_result['node']['backendNodeId']
 			elements.append(Element_(self._browser_session, backend_node_id, session_id))
 
+		print(elements)
 		return elements
 
 	# AI METHODS
