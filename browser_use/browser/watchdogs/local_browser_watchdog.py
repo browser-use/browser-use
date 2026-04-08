@@ -361,9 +361,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		"""Get browser executable path from playwright in a subprocess to avoid thread issues."""
 		import platform
 
-		# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
+		# Build command - only use --with-deps on Debian/Ubuntu Linux (apt-get required by Playwright)
 		cmd = ['uvx', 'playwright', 'install', 'chrome']
-		if platform.system() == 'Linux':
+		if platform.system() == 'Linux' and shutil.which('apt-get'):
 			cmd.append('--with-deps')
 
 		# Run in subprocess with timeout
