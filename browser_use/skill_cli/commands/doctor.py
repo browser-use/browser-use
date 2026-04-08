@@ -9,8 +9,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-COMMANDS = {'doctor'}
-
 
 async def handle() -> dict[str, Any]:
 	"""Run health checks and return results."""
@@ -64,8 +62,7 @@ def _check_browser() -> dict[str, Any]:
 	try:
 		from browser_use.browser.profile import BrowserProfile
 
-		# Just check if we can import and create a profile
-		profile = BrowserProfile(headless=True)
+		BrowserProfile(headless=True)  # verify import + constructor work
 		return {
 			'status': 'ok',
 			'message': 'Browser profile available',

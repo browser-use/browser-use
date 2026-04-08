@@ -56,6 +56,7 @@ class TestUploadCommandHandler:
 	async def test_upload_file_not_found(self):
 		"""Non-existent file returns error without touching the browser."""
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -65,6 +66,7 @@ class TestUploadCommandHandler:
 			profile=None,
 			cdp_url=None,
 			browser_session=BrowserSession(headless=True),
+			actions=ActionHandler(BrowserSession(headless=True)),
 		)
 
 		result = await handle('upload', session_info, {'index': 0, 'path': '/nonexistent/file.txt'})
@@ -74,6 +76,7 @@ class TestUploadCommandHandler:
 	async def test_upload_empty_file(self):
 		"""Empty file returns error."""
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -83,6 +86,7 @@ class TestUploadCommandHandler:
 			profile=None,
 			cdp_url=None,
 			browser_session=BrowserSession(headless=True),
+			actions=ActionHandler(BrowserSession(headless=True)),
 		)
 
 		with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
@@ -99,6 +103,7 @@ class TestUploadCommandHandler:
 		"""Invalid element index returns error."""
 		from browser_use.browser.events import NavigateToUrlEvent
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -118,6 +123,7 @@ class TestUploadCommandHandler:
 				profile=None,
 				cdp_url=None,
 				browser_session=session,
+				actions=ActionHandler(session),
 			)
 
 			with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
@@ -137,6 +143,7 @@ class TestUploadCommandHandler:
 		"""Upload to a file input element succeeds."""
 		from browser_use.browser.events import NavigateToUrlEvent
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -156,6 +163,7 @@ class TestUploadCommandHandler:
 				profile=None,
 				cdp_url=None,
 				browser_session=session,
+				actions=ActionHandler(session),
 			)
 
 			# Get state to populate selector map
@@ -187,6 +195,7 @@ class TestUploadCommandHandler:
 		"""Targeting a non-file-input element with no nearby file input returns error with suggestions."""
 		from browser_use.browser.events import NavigateToUrlEvent
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -210,6 +219,7 @@ class TestUploadCommandHandler:
 				profile=None,
 				cdp_url=None,
 				browser_session=session,
+				actions=ActionHandler(session),
 			)
 
 			await session.get_browser_state_summary()
@@ -242,6 +252,7 @@ class TestUploadCommandHandler:
 		"""File input wrapped in a label/div is found via find_file_input_near_element."""
 		from browser_use.browser.events import NavigateToUrlEvent
 		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
 		from browser_use.skill_cli.commands.browser import handle
 		from browser_use.skill_cli.sessions import SessionInfo
 
@@ -266,6 +277,7 @@ class TestUploadCommandHandler:
 				profile=None,
 				cdp_url=None,
 				browser_session=session,
+				actions=ActionHandler(session),
 			)
 
 			await session.get_browser_state_summary()

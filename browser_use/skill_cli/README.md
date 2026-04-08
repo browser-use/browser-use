@@ -145,9 +145,10 @@ browser-use --cdp-url ws://localhost:9222/devtools/browser/... state
 ### Tabs
 | Command | Description |
 |---------|-------------|
-| `switch <tab>` | Switch to tab by index |
-| `close-tab` | Close current tab |
-| `close-tab <tab>` | Close specific tab |
+| `tab list` | List all tabs |
+| `tab new [url]` | Open new tab |
+| `tab switch <index>` | Switch to tab by index |
+| `tab close [index...]` | Close tab(s) (current if no index) |
 
 ### Cookies
 | Command | Description |
@@ -204,10 +205,7 @@ Generic REST passthrough to the Browser-Use Cloud API, plus cloud browser provis
 
 | Command | Description |
 |---------|-------------|
-| `cloud connect` | Provision cloud browser and connect |
-| `cloud connect --timeout 120` | Cloud browser with custom timeout |
-| `cloud connect --proxy-country US` | Cloud browser with proxy |
-| `cloud connect --profile-id <id>` | Cloud browser with profile |
+| `cloud connect` | Provision cloud browser and connect (zero-config, auto-manages profile) |
 | `cloud login <api-key>` | Save API key |
 | `cloud logout` | Remove API key |
 | `cloud v2 GET <path>` | GET request to API v2 |
@@ -218,7 +216,7 @@ Generic REST passthrough to the Browser-Use Cloud API, plus cloud browser provis
 | `cloud v3 --help` | Show API v3 endpoints |
 
 ```bash
-# Save API key (or set BROWSER_USE_API_KEY env var)
+# Save API key to ~/.browser-use/config.json
 browser-use cloud login sk-abc123...
 
 # Provision a cloud browser and connect
@@ -383,6 +381,7 @@ All CLI-managed files live under `~/.browser-use/` (override with `BROWSER_USE_H
 ├── tunnels/
 │   ├── {port}.json      # Tunnel metadata
 │   └── {port}.log       # Tunnel logs
+├── default.state.json   # Daemon lifecycle state (phase, PID, config)
 ├── default.sock         # Daemon socket (ephemeral)
 ├── default.pid          # Daemon PID (ephemeral)
 └── cli.log              # Daemon log

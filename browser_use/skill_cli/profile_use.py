@@ -94,9 +94,11 @@ def run_profile_use(args: list[str]) -> int:
 	from browser_use.skill_cli.utils import get_home_dir
 
 	env = {**os.environ, 'BROWSER_USE_CONFIG_DIR': str(get_home_dir())}
-	# Forward BROWSER_USE_API_KEY if set
-	api_key = os.environ.get('BROWSER_USE_API_KEY')
+	# Forward API key from config.json for profile-use binary
+	from browser_use.skill_cli.config import get_config_value
+
+	api_key = get_config_value('api_key')
 	if api_key:
-		env['BROWSER_USE_API_KEY'] = api_key
+		env['BROWSER_USE_API_KEY'] = str(api_key)
 
 	return subprocess.call([str(binary)] + args, env=env)

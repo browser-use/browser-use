@@ -24,18 +24,28 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_BASE_URL = 'https://api.browser-use.com/api'
+_DEFAULT_BASE_URL = 'https://api.browser-use.com'
 _AUTH_HEADER = 'X-Browser-Use-API-Key'
 
 
+def _get_base() -> str:
+	"""Get the API host URL. All paths are appended by callers."""
+	return os.environ.get('BROWSER_USE_CLOUD_BASE_URL', _DEFAULT_BASE_URL).rstrip('/')
+
+
 def _base_url(version: str) -> str:
-	env_key = f'BROWSER_USE_CLOUD_BASE_URL_{version.upper()}'
-	return os.environ.get(env_key, f'{_DEFAULT_BASE_URL}/{version}')
+	"""Get versioned API URL: {base}/api/{version}"""
+	per_version = os.environ.get(f'BROWSER_USE_CLOUD_BASE_URL_{version.upper()}')
+	if per_version:
+		return per_version
+	return f'{_get_base()}/api/{version}'
 
 
 def _spec_url(version: str) -> str:
-	env_key = f'BROWSER_USE_OPENAPI_SPEC_URL_{version.upper()}'
-	return os.environ.get(env_key, f'{_DEFAULT_BASE_URL}/{version}/openapi.json')
+	per_version = os.environ.get(f'BROWSER_USE_OPENAPI_SPEC_URL_{version.upper()}')
+	if per_version:
+		return per_version
+	return f'{_get_base()}/api/{version}/openapi.json'
 
 
 # ---------------------------------------------------------------------------
@@ -50,40 +60,101 @@ def _get_config_path() -> Path:
 
 
 def _read_config() -> dict:
-	path = _get_config_path()
-	if path.exists():
-		try:
-			return json.loads(path.read_text())
-		except (json.JSONDecodeError, OSError):
-			return {}
-	return {}
+	from browser_use.skill_cli.config import read_config
+
+	return read_config()
 
 
 def _write_config(data: dict) -> None:
-	path = _get_config_path()
-	path.parent.mkdir(parents=True, exist_ok=True)
-	path.write_text(json.dumps(data, indent=2) + '\n')
-	try:
-		path.chmod(0o600)
-	except OSError:
-		pass
+	from browser_use.skill_cli.config import write_config
+
+	write_config(data)
+
+
+def _get_api_key_or_none() -> str | None:
+	"""Return API key from CLI config file, or None if not found."""
+	from browser_use.skill_cli.config import get_config_value
+
+	val = get_config_value('api_key')
+	return str(val) if val is not None else None
 
 
 def _get_api_key() -> str:
-	"""Return API key from env var or config file. Exits with error if missing."""
-	key = os.environ.get('BROWSER_USE_API_KEY')
-	if key:
-		return key
-
-	config = _read_config()
-	key = config.get('api_key')
+	"""Return API key from config file. Exits with error if missing."""
+	key = _get_api_key_or_none()
 	if key:
 		return key
 
 	print('Error: No API key found.', file=sys.stderr)
-	print('Get one at: https://cloud.browser-use.com/settings?tab=api-keys&new=1', file=sys.stderr)
-	print('Then run: browser-use cloud login <key>', file=sys.stderr)
+	if os.environ.get('BROWSER_USE_API_KEY'):
+		print('  Note: BROWSER_USE_API_KEY env var is set but not used by the CLI.', file=sys.stderr)
+		print('  Run: browser-use config set api_key "$BROWSER_USE_API_KEY"', file=sys.stderr)
+	else:
+		print('Already have an account? Get a key at: https://cloud.browser-use.com/settings?tab=api-keys&new=1', file=sys.stderr)
+		print('  Then run: browser-use cloud login <key>', file=sys.stderr)
+		print('No account? Run: browser-use cloud signup', file=sys.stderr)
+		print('  This creates an agent account you can claim later with: browser-use cloud signup --claim', file=sys.stderr)
 	sys.exit(1)
+
+
+def _create_cloud_profile_inner(api_key: str) -> str:
+	"""Create a new cloud profile and save to config. Returns profile ID.
+
+	Raises RuntimeError on failure — safe to call from daemon context.
+	"""
+	body = json.dumps({'name': 'Browser Use CLI'}).encode()
+	status, resp = _http_request('POST', f'{_base_url("v2")}/profiles', body, api_key)
+	if status >= 400:
+		raise RuntimeError(f'Error creating cloud profile: HTTP {status} — {resp}')
+
+	try:
+		data = json.loads(resp)
+		new_id = data['id']
+	except (json.JSONDecodeError, KeyError, TypeError):
+		raise RuntimeError(f'Unexpected response from cloud API: {resp}')
+
+	config = _read_config()
+	config['cloud_connect_profile_id'] = new_id
+	_write_config(config)
+	return new_id
+
+
+def _create_cloud_profile() -> str:
+	"""Create a new cloud profile and save to config. Returns profile ID.
+
+	CLI entry point — exits on error.
+	"""
+	api_key = _get_api_key()
+	try:
+		return _create_cloud_profile_inner(api_key)
+	except RuntimeError as e:
+		print(str(e), file=sys.stderr)
+		sys.exit(1)
+
+
+def _get_or_create_cloud_profile() -> str:
+	"""Return cloud profile ID from config, creating one if missing. No validation HTTP call."""
+	config = _read_config()
+	profile_id = config.get('cloud_connect_profile_id')
+	if profile_id:
+		return profile_id
+	return _create_cloud_profile()
+
+
+def _get_cloud_connect_proxy() -> str | None:
+	"""Return the cloud connect proxy country code from config."""
+	from browser_use.skill_cli.config import get_config_value
+
+	val = get_config_value('cloud_connect_proxy')
+	return str(val) if val is not None else None
+
+
+def _get_cloud_connect_timeout() -> int | None:
+	"""Return the cloud connect timeout (minutes) from config."""
+	from browser_use.skill_cli.config import get_config_value
+
+	val = get_config_value('cloud_connect_timeout')
+	return int(val) if val is not None else None
 
 
 def _save_api_key(key: str) -> None:
@@ -473,6 +544,84 @@ def _cloud_versioned(argv: list[str], version: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Signup (agent self-registration)
+# ---------------------------------------------------------------------------
+
+
+def _signup_challenge() -> int:
+	"""Request a signup challenge."""
+	if _get_api_key_or_none():
+		print('You already have an API key configured.', file=sys.stderr)
+		print('Run `browser-use cloud signup --claim` to claim your account.', file=sys.stderr)
+		return 1
+
+	body = json.dumps({}).encode()
+	status, resp = _http_request('POST', f'{_get_base()}/cloud/signup', body, api_key='')
+	if status >= 400:
+		print(f'Error: HTTP {status}', file=sys.stderr)
+		_print_json(resp, file=sys.stderr)
+		return 1
+
+	try:
+		data = json.loads(resp)
+	except (json.JSONDecodeError, ValueError):
+		print('Error: invalid response', file=sys.stderr)
+		return 1
+
+	print(f'Challenge ID: {data["challenge_id"]}')
+	print(f'Challenge: {data["challenge_text"]}')
+	print()
+	print('Verify to create your agent account:')
+	print('  browser-use cloud signup --verify <challenge-id> <answer>')
+	return 0
+
+
+def _signup_verify(challenge_id: str, answer: str) -> int:
+	"""Verify a signup challenge and save the API key."""
+	if _get_api_key_or_none():
+		print('You already have an API key configured.', file=sys.stderr)
+		print('Run `browser-use cloud signup --claim` to claim your account.', file=sys.stderr)
+		return 1
+
+	body = json.dumps({'challenge_id': challenge_id, 'answer': answer}).encode()
+	status, resp = _http_request('POST', f'{_get_base()}/cloud/signup/verify', body, api_key='')
+	if status >= 400:
+		print(f'Error: HTTP {status}', file=sys.stderr)
+		_print_json(resp, file=sys.stderr)
+		return 1
+
+	try:
+		data = json.loads(resp)
+	except (json.JSONDecodeError, ValueError):
+		print('Error: invalid response', file=sys.stderr)
+		return 1
+
+	_save_api_key(data['api_key'])
+	print('API key saved')
+	return 0
+
+
+def _signup_claim() -> int:
+	"""Generate a claim URL for the current API key."""
+	api_key = _get_api_key()
+	status, resp = _http_request('POST', f'{_get_base()}/cloud/signup/claim', None, api_key)
+	if status >= 400:
+		print(f'Error: HTTP {status}', file=sys.stderr)
+		_print_json(resp, file=sys.stderr)
+		return 1
+
+	try:
+		data = json.loads(resp)
+	except (json.JSONDecodeError, ValueError):
+		print('Error: invalid response', file=sys.stderr)
+		return 1
+
+	print(f'Claim URL: {data["claim_url"]}')
+	print('Share this URL with a human to claim ownership of this account.')
+	return 0
+
+
+# ---------------------------------------------------------------------------
 # Main dispatcher
 # ---------------------------------------------------------------------------
 
@@ -494,6 +643,17 @@ def handle_cloud_command(argv: list[str]) -> int:
 	if subcmd in ('v2', 'v3'):
 		return _cloud_versioned(argv[1:], subcmd)
 
+	if subcmd == 'signup':
+		if '--verify' in argv:
+			idx = argv.index('--verify')
+			if idx + 2 >= len(argv):
+				print('Usage: browser-use cloud signup --verify <challenge-id> <answer>', file=sys.stderr)
+				return 1
+			return _signup_verify(argv[idx + 1], argv[idx + 2])
+		if '--claim' in argv:
+			return _signup_claim()
+		return _signup_challenge()
+
 	if subcmd == 'connect':
 		# Normally intercepted by main.py before reaching here
 		print('Error: cloud connect must be run via the main CLI (browser-use cloud connect)', file=sys.stderr)
@@ -513,6 +673,9 @@ def _print_cloud_usage() -> None:
 	print()
 	print('Commands:')
 	print('  connect                           Provision cloud browser and connect')
+	print('  signup                            Create an agent account (challenge-response)')
+	print('  signup --verify <id> <answer>     Verify challenge and save API key')
+	print('  signup --claim                    Generate URL to claim your agent account')
 	print('  login <api-key>                   Save API key')
 	print('  logout                            Remove API key')
 	print('  v2 <METHOD> <path> [body]         REST passthrough (API v2)')

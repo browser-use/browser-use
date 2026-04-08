@@ -18,25 +18,29 @@ For setup details, see https://github.com/browser-use/browser-use/blob/main/brow
 
 ## Core Workflow
 
-1. **Navigate**: `browser-use open <url>` — starts browser if needed
+1. **Navigate**: `browser-use open <url>` — launches headless browser and opens page
 2. **Inspect**: `browser-use state` — returns clickable elements with indices
 3. **Interact**: use indices from state (`browser-use click 5`, `browser-use input 3 "text"`)
 4. **Verify**: `browser-use state` or `browser-use screenshot` to confirm
 5. **Repeat**: browser stays open between commands
-6. **Cleanup**: `browser-use close` when done
+
+If a command fails, run `browser-use close` first to clear any broken session, then retry.
+
+To use the user's existing Chrome (preserves logins/cookies): run `browser-use connect` first.
+To use a cloud browser instead: run `browser-use cloud connect` first.
+After either, commands work the same way.
 
 ## Browser Modes
 
 ```bash
-browser-use open <url>                         # Default: headless Chromium
-browser-use --headed open <url>                # Visible window
-browser-use --profile "Default" open <url>      # Real Chrome with Default profile (existing logins/cookies)
-browser-use --profile "Profile 1" open <url>   # Real Chrome with named profile
-browser-use --connect open <url>               # Auto-discover running Chrome via CDP
-browser-use --cdp-url ws://localhost:9222/... open <url>  # Connect via CDP URL
+browser-use open <url>                         # Default: headless Chromium (no setup needed)
+browser-use --headed open <url>                # Visible window (for debugging)
+browser-use connect                            # Connect to user's Chrome (preserves logins/cookies)
+browser-use cloud connect                      # Cloud browser (zero-config, requires API key)
+browser-use --profile "Default" open <url>     # Real Chrome with specific profile
 ```
 
-`--connect`, `--cdp-url`, and `--profile` are mutually exclusive.
+After `connect` or `cloud connect`, all subsequent commands go to that browser — no extra flags needed.
 
 ## Commands
 
@@ -46,8 +50,10 @@ browser-use open <url>                    # Navigate to URL
 browser-use back                          # Go back in history
 browser-use scroll down                   # Scroll down (--amount N for pixels)
 browser-use scroll up                     # Scroll up
-browser-use switch <tab>                  # Switch to tab by index
-browser-use close-tab [tab]              # Close tab (current if no index)
+browser-use tab list                      # List all tabs
+browser-use tab new [url]                 # Open a new tab (blank or with URL)
+browser-use tab switch <index>            # Switch to tab by index
+browser-use tab close <index> [index...]  # Close one or more tabs
 
 # Page State — always run state first to get element indices
 browser-use state                         # URL, title, clickable elements with indices
@@ -85,25 +91,18 @@ browser-use cookies clear [--url <url>]   # Clear cookies
 browser-use cookies export <file>         # Export to JSON
 browser-use cookies import <file>         # Import from JSON
 
-# Python — persistent session with browser access
-browser-use python "code"                 # Execute Python (variables persist across calls)
-browser-use python --file script.py       # Run file
-browser-use python --vars                 # Show defined variables
-browser-use python --reset                # Clear namespace
-
 # Session
 browser-use close                         # Close browser and stop daemon
 browser-use sessions                      # List active sessions
 browser-use close --all                   # Close all sessions
 ```
 
-The Python `browser` object provides: `browser.url`, `browser.title`, `browser.html`, `browser.goto(url)`, `browser.back()`, `browser.click(index)`, `browser.type(text)`, `browser.input(index, text)`, `browser.keys(keys)`, `browser.upload(index, path)`, `browser.screenshot(path)`, `browser.scroll(direction, amount)`, `browser.wait(seconds)`.
+For advanced browser control (CDP, device emulation, tab activation), see `references/cdp-python.md`.
 
 ## Cloud API
 
 ```bash
-browser-use cloud connect                 # Provision cloud browser and connect
-browser-use cloud connect --timeout 120 --proxy-country US  # With options
+browser-use cloud connect                 # Provision cloud browser and connect (zero-config)
 browser-use cloud login <api-key>         # Save API key (or set BROWSER_USE_API_KEY)
 browser-use cloud logout                  # Remove API key
 browser-use cloud v2 GET /browsers        # REST passthrough (v2 or v3)
@@ -112,7 +111,16 @@ browser-use cloud v2 poll <task-id>       # Poll task until done
 browser-use cloud v2 --help               # Show API endpoints
 ```
 
-`cloud connect` provisions a cloud browser, connects via CDP, and prints a live URL. `browser-use close` disconnects AND stops the cloud browser.
+`cloud connect` provisions a cloud browser with a persistent profile (auto-created on first use), connects via CDP, and prints a live URL. `browser-use close` disconnects AND stops the cloud browser. For custom browser settings (proxy, timeout, specific profile), use `cloud v2 POST /browsers` directly with the desired parameters.
+
+### Agent Self-Registration
+
+Only use this if you don't already have an API key (check `browser-use doctor` to see if api_key is set). If already logged in, skip this entirely.
+
+1. `browser-use cloud signup` — get a challenge
+2. Solve the challenge
+3. `browser-use cloud signup --verify <challenge-id> <answer>` — verify and save API key
+4. `browser-use cloud signup --claim` — generate URL for a human to claim the account
 
 ## Tunnels
 
@@ -154,14 +162,6 @@ browser-use profile list                           # Check available profiles
 browser-use --profile "Default" open https://github.com  # Already logged in
 ```
 
-### Connecting to Existing Chrome
-
-```bash
-browser-use --connect open https://example.com     # Auto-discovers Chrome's CDP endpoint
-```
-
-Requires Chrome with remote debugging enabled. Falls back to probing ports 9222/9229.
-
 ### Exposing Local Dev Servers
 
 ```bash
@@ -169,13 +169,29 @@ browser-use tunnel 3000                            # → https://abc.trycloudfla
 browser-use open https://abc.trycloudflare.com     # Browse the tunnel
 ```
 
+## Multiple Browsers
+
+For subagent workflows or running multiple browsers in parallel, use `--session NAME`. Each session gets its own browser. See `references/multi-session.md`.
+
+## Configuration
+
+```bash
+browser-use config list                            # Show all config values
+browser-use config set cloud_connect_proxy jp      # Set a value
+browser-use config get cloud_connect_proxy         # Get a value
+browser-use config unset cloud_connect_timeout     # Remove a value
+browser-use doctor                                 # Shows config + diagnostics
+browser-use setup                                  # Interactive post-install setup
+```
+
+Config stored in `~/.browser-use/config.json`.
+
 ## Global Options
 
 | Option | Description |
 |--------|-------------|
 | `--headed` | Show browser window |
 | `--profile [NAME]` | Use real Chrome (bare `--profile` uses "Default") |
-| `--connect` | Auto-discover running Chrome via CDP |
 | `--cdp-url <url>` | Connect via CDP URL (`http://` or `ws://`) |
 | `--session NAME` | Target a named session (default: "default") |
 | `--json` | Output as JSON |
@@ -187,6 +203,7 @@ browser-use open https://abc.trycloudflare.com     # Browse the tunnel
 2. **Use `--headed` for debugging** to see what the browser is doing
 3. **Sessions persist** — browser stays open between commands
 4. **CLI aliases**: `bu`, `browser`, and `browseruse` all work
+5. **If commands fail**, run `browser-use close` first, then retry
 
 ## Troubleshooting
 
