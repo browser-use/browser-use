@@ -802,16 +802,13 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Get all recording paths from history"""
 		if n_last == 0:
 			return []
-		if n_last is None:
-			if return_none_if_not_recording:
-				return [h.state.recording_path if h.state.recording_path is not None else None for h in self.history]
-			else:
-				return [h.state.recording_path for h in self.history if h.state.recording_path is not None]
+
+		history_items = self.history if n_last is None else self.history[-n_last:]
+
+		if return_none_if_not_recording:
+			return [h.state.recording_path for h in history_items]
 		else:
-			if return_none_if_not_recording:
-				return [h.state.recording_path if h.state.recording_path is not None else None for h in self.history[-n_last:]]
-			else:
-				return [h.state.recording_path for h in self.history[-n_last:] if h.state.recording_path is not None]
+			return [h.state.recording_path for h in history_items if h.state.recording_path is not None]
 
 	def screenshots(self, n_last: int | None = None, return_none_if_not_screenshot: bool = True) -> list[str | None]:
 		"""Get all screenshots from history as base64 strings"""
