@@ -1358,6 +1358,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					await event.event_result(raise_if_any=True, raise_if_none=False)
 					long_term_memory = f'Scrolled {direction} {target} {params.pages} pages'.replace('  ', ' ')
 
+				# Clear cached DOM state since scroll changed the viewport
+				if browser_session._dom_watchdog:
+					browser_session._dom_watchdog.clear_cache()
+
 				msg = f'🔍 {long_term_memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
