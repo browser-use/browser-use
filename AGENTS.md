@@ -1,4 +1,5 @@
 # AGENTS.md Version 2
+[简体中文](AGENTS.zh.md)
 <guidelines>
 Browser-Use is an AI agent that autonomously interacts with the web. It takes a user-defined task, navigates web pages using Chromium via CDP, processes HTML, and repeatedly queries a language model to decide the next action—until the task is completed.
 
@@ -237,11 +238,8 @@ To use your local authentication in production:
 
 **Then**, sync your local cookies:
 
-```bash  theme={null}
-export BROWSER_USE_API_KEY=your_key && curl -fsSL https://browser-use.com/profile.sh | sh
-```
-
-This opens a browser where you log into your accounts. You'll get a `profile_id`.
+Please follow the secure steps recommended in the [official documentation](https://docs.browser-use.com/) to configure your `BROWSER_USE_API_KEY` and sync your profile.
+This process will open a browser where you log into your accounts, and you'll get a `profile_id`.
 
 **Finally**, use it in production:
 
