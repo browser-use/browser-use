@@ -119,6 +119,7 @@ class BrowserStateHistory:
 	tabs: list[TabInfo]
 	interacted_element: list[DOMInteractedElement | None] | list[None]
 	screenshot_path: str | None = None
+	recording_path: str | None = None
 
 	def get_screenshot(self) -> str | None:
 		"""Load screenshot from disk and return as base64 string"""
@@ -143,6 +144,7 @@ class BrowserStateHistory:
 		data = {}
 		data['tabs'] = [tab.model_dump() for tab in self.tabs]
 		data['screenshot_path'] = self.screenshot_path
+		data['recording_path'] = self.recording_path
 		data['interacted_element'] = [el.to_dict() if el else None for el in self.interacted_element]
 		data['url'] = self.url
 		data['title'] = self.title

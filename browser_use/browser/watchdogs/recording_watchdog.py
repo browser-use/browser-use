@@ -28,6 +28,13 @@ class RecordingWatchdog(BaseWatchdog):
 	_current_session_id: str | None = PrivateAttr(default=None)
 	_screencast_params: dict[str, Any] | None = PrivateAttr(default=None)
 
+	@property
+	def recording_path(self) -> str | None:
+		"""Return the output path of the active recording, or None if not recording."""
+		if self._recorder is not None:
+			return str(self._recorder.output_path)
+		return None
+
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""
 		Starts video recording if it is configured in the browser profile.

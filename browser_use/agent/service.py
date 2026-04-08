@@ -1746,12 +1746,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			self.logger.debug(f'📸 No screenshot in browser_state_summary for step {self.state.n_steps}')
 
+		# Get recording path from session if available
+		recording_path = None
+		if self.browser_session._recording_watchdog is not None:
+			recording_path = self.browser_session._recording_watchdog.recording_path
+
 		state_history = BrowserStateHistory(
 			url=browser_state_summary.url,
 			title=browser_state_summary.title,
 			tabs=browser_state_summary.tabs,
 			interacted_element=interacted_elements,
 			screenshot_path=screenshot_path,
+			recording_path=recording_path,
 		)
 
 		history_item = AgentHistory(
