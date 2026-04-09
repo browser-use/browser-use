@@ -1028,22 +1028,22 @@ class DOMTreeSerializer:
 				formatted_text.append(line)
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM representation - show clearly to LLM
-			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
-				formatted_text.append(f'{depth_str}Closed Shadow')
-			else:
-				formatted_text.append(f'{depth_str}Open Shadow')
-
 			next_depth += 1
 
-			# Process shadow DOM children
+			# Process shadow DOM children first to check if any produce output
+			shadow_children_text = []
 			for child in node.children:
 				child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, next_depth)
 				if child_text:
-					formatted_text.append(child_text)
+					shadow_children_text.append(child_text)
 
-			# Close shadow DOM indicator
-			if node.children:  # Only show close if we had content
+			# Only emit shadow DOM markers if children produced output
+			if shadow_children_text:
+				if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
+					formatted_text.append(f'{depth_str}Closed Shadow')
+				else:
+					formatted_text.append(f'{depth_str}Open Shadow')
+				formatted_text.extend(shadow_children_text)
 				formatted_text.append(f'{depth_str}Shadow End')
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
