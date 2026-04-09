@@ -1223,6 +1223,9 @@ class BrowserUseServer:
 		# Start the cleanup task
 		await self._start_cleanup_task()
 
+		if sys.stdin is None:
+			raise RuntimeError('MCP stdio transport requires stdin, but this process was launched without one.')
+
 		async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
 			await self.server.run(
 				read_stream,
