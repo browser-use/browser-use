@@ -31,6 +31,7 @@ COMMANDS = {
 	'dblclick',
 	'rightclick',
 	'get',
+	'text',
 }
 
 
