@@ -799,6 +799,69 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		self.detect_display_configuration()
 		self._copy_profile()
 
+	def _copytree_robust(self, src: Path, dst: Path) -> None:
+		"""Robustly copy directory tree, handling locked files on Windows.
+
+		On Windows, Chrome holds exclusive locks on some profile files while running.
+		This function retries locked files a few times with a small delay, and
+		finally skips any files that remain locked (logging a warning).
+		"""
+		import shutil
+
+		def _copy_file_with_retry(src_path: Path, dst_path: Path, max_retries: int = 3) -> bool:
+			"""Try to copy a single file, handling locked files on Windows."""
+			for attempt in range(max_retries):
+				try:
+					shutil.copy2(src_path, dst_path)
+					return True
+				except (OSError, PermissionError) as e:
+					# Check if it's a lock-related error
+					errno_val = getattr(e, 'errno', None)
+					# errno 13 = EACCES (Permission denied)
+					# WinError 32 = ERROR_SHARING_VIOLATION (32)
+					is_locked = (
+						errno_val == 13
+						or (hasattr(e, 'winerror') and e.winerror in (32, 33))  # 33 = ERROR_LOCK_VIOLATION
+						or 'being used by another process' in str(e).lower()
+						or 'locked' in str(e).lower()
+					)
+					if is_locked and attempt < max_retries - 1:
+						import time
+
+						time.sleep(0.1 * (attempt + 1))  # Slightly longer wait each retry
+						continue
+					# Either not a lock error or out of retries
+					raise
+			return False
+
+		def _robust_copytree_listdir(src: Path, dst: Path) -> None:
+			"""Copy directory tree, listing contents first to avoid iterating locked dirs."""
+			try:
+				names = list(src.iterdir())
+			except PermissionError as e:
+				logger.warning(f'⚠️ Cannot read directory {src}: {e}')
+				return
+
+			dst.mkdir(parents=True, exist_ok=True)
+
+			skipped = []
+			for name in names:
+				src_path = src / name
+				dst_path = dst / name.name
+				try:
+					if src_path.is_dir():
+						_robust_copytree_listdir(src_path, dst_path)
+					else:
+						_copy_file_with_retry(src_path, dst_path)
+				except (OSError, PermissionError) as e:
+					skipped.append(str(src_path))
+					logger.debug(f'⚠️ Could not copy locked file {src_path}: {e}')
+
+			if skipped:
+				logger.warning(f'⚠️ Skipped {len(skipped)} locked file(s) in {src}')
+
+		_robust_copytree_listdir(src, dst)
+
 	def _copy_profile(self) -> None:
 		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
 		if self.user_data_dir is None:
@@ -825,13 +888,16 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		path_temp_profile = Path(temp_dir) / self.profile_directory
 
 		if path_original_profile.exists():
-			import shutil
-
-			shutil.copytree(path_original_profile, path_temp_profile)
+			self._copytree_robust(path_original_profile, path_temp_profile)
 			local_state_src = path_original_user_data / 'Local State'
 			local_state_dst = Path(temp_dir) / 'Local State'
 			if local_state_src.exists():
-				shutil.copy(local_state_src, local_state_dst)
+				import shutil
+
+				try:
+					shutil.copy2(local_state_src, local_state_dst)
+				except (OSError, PermissionError) as e:
+					logger.warning(f'⚠️ Could not copy locked Local State file: {e}')
 			logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
 
 		else:

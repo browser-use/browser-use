@@ -170,7 +170,10 @@ class LocalBrowserWatchdog(BaseWatchdog):
 						pass
 
 				# Keep only the in-use directory for cleanup during browser kill
-				if currently_used_dir and 'browseruse-tmp-' in currently_used_dir:
+				# Check for BOTH prefixes: browseruse-tmp- (from retries) and browser-use-user-data-dir- (from _copy_profile)
+				if currently_used_dir and (
+					'browseruse-tmp-' in currently_used_dir or 'browser-use-user-data-dir-' in currently_used_dir
+				):
 					self._temp_dirs_to_cleanup = [Path(currently_used_dir)]
 				else:
 					self._temp_dirs_to_cleanup = []
@@ -472,7 +475,8 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		try:
 			temp_path = Path(temp_dir)
 			# Only remove if it's actually a temp directory we created
-			if 'browseruse-tmp-' in str(temp_path):
+			# Check for both prefixes: browseruse-tmp- (from retries) and browser-use-user-data-dir- (from _copy_profile)
+			if 'browseruse-tmp-' in str(temp_path) or 'browser-use-user-data-dir-' in str(temp_path):
 				shutil.rmtree(temp_path, ignore_errors=True)
 		except Exception as e:
 			self.logger.debug(f'Failed to cleanup temp dir {temp_dir}: {e}')
