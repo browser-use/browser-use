@@ -177,6 +177,19 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 
 		return {'_raw_text': state_text}
 
+	elif action == 'text':
+		import json as json_module
+
+		selector = params.get('selector')
+		if selector:
+			js = f'(function(){{ const el = document.querySelector({json_module.dumps(selector)}); return el ? el.innerText : null; }})()'
+		else:
+			js = 'document.body.innerText'
+		text = await _execute_js(session, js)
+		if text is None:
+			return {'error': f'Selector {selector!r} not found' if selector else 'No text content found'}
+		return {'_raw_text': text}
+
 	elif action == 'tab':
 		tab_command = params.get('tab_command')
 
