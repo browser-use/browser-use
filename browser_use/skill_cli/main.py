@@ -1168,6 +1168,11 @@ def _migrate_legacy_files() -> None:
 
 def main() -> int:
 	"""Main entry point."""
+	# Ensure UTF-8 output on Windows (default cp1252 can't encode emoji/unicode from web pages)
+	if sys.platform == 'win32' and hasattr(sys.stdout, 'reconfigure'):
+		sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+		sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 	parser = build_parser()
 	args = parser.parse_args()
 
