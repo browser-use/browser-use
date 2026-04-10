@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from autogen import AssistantAgent, GroupChat, GroupChatManager, LLMConfig, UserProxyAgent
+from autogen import AssistantAgent, GroupChat, GroupChatManager, LLMConfig, UserProxyAgent  # type: ignore[import-not-found]
 
 from browser_use import Agent as BrowserUseAgent
 from browser_use import Browser, BrowserProfile, ChatOpenAI
