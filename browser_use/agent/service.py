@@ -1647,8 +1647,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if judgement.failure_reason:
 					judge_log += f'   Failure Reason: {judgement.failure_reason}\n'
 				if judgement.reached_captcha:
-					judge_log += '   🤖 Captcha Detected: Agent encountered captcha challenges\n'
-					judge_log += '   👉 🥷 Use Browser Use Cloud for the most stealth browser infra: https://docs.browser-use.com/customize/browser/remote\n'
+					self.logger.warning(
+						'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
+						'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
+					)
 				judge_log += f'   {judgement.reasoning}\n'
 				self.logger.info(judge_log)
 
@@ -2160,11 +2162,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			has_captcha_issue = any(keyword in final_result_str for keyword in captcha_keywords)
 
 			if has_captcha_issue:
-				# Suggest use_cloud=True for captcha/cloudflare issues
-				task_preview = self.task[:10] if len(self.task) > 10 else self.task
-				self.logger.info('')
-				self.logger.info('Failed because of CAPTCHA? For better browser stealth, try:')
-				self.logger.info(f'   agent = Agent(task="{task_preview}...", browser=Browser(use_cloud=True))')
+				self.logger.warning(
+					'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
+					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
+				)
 
 			# General failure message
 			self.logger.info('')

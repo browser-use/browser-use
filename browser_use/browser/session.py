@@ -749,9 +749,7 @@ class BrowserSession(BaseModel):
 						self.browser_profile.is_local = False
 						self.logger.info('🌤️ Successfully connected to cloud browser service')
 					except CloudBrowserAuthError:
-						raise CloudBrowserAuthError(
-							'Authentication failed for cloud browser service. Set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com/new-api-key'
-						)
+						raise
 					except CloudBrowserError as e:
 						raise CloudBrowserError(f'Failed to create cloud browser: {e}')
 				elif self.is_local:
@@ -836,6 +834,11 @@ class BrowserSession(BaseModel):
 					details={'cdp_url': self.cdp_url, 'is_local': self.is_local},
 				)
 			)
+			if self.is_local and not isinstance(e, (CloudBrowserAuthError, CloudBrowserError)):
+				self.logger.warning(
+					'Local browser failed to start. Cloud browsers require no local install and work out of the box.\n'
+					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=browser_launch_failure'
+				)
 			raise
 
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:

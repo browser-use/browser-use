@@ -367,9 +367,9 @@ class TokenCost:
 
 			return result
 
-		# Replace the method with our tracked version
-		# Using setattr to avoid type checking issues with overloaded methods
-		setattr(llm, 'ainvoke', tracked_ainvoke)
+		# Replace the method with our tracked version.
+		# Use setattr so Pydantic-backed models don't reject runtime patch
+		object.__setattr__(llm, 'ainvoke', tracked_ainvoke)
 
 		return llm
 

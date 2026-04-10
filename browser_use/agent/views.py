@@ -690,14 +690,18 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
 		# loop through history and validate output_model actions to enrich with custom actions
-		for h in data['history']:
-			if h['model_output']:
-				if isinstance(h['model_output'], dict):
-					h['model_output'] = output_model.model_validate(h['model_output'])
+		for h in data.get('history', []):
+			# Use .get() to avoid KeyError on incomplete or legacy history entries
+			model_output = h.get('model_output')
+			if model_output:
+				if isinstance(model_output, dict):
+					h['model_output'] = output_model.model_validate(model_output)
 				else:
 					h['model_output'] = None
-			if 'interacted_element' not in h['state']:
-				h['state']['interacted_element'] = None
+			state = h.get('state') or {}
+			if 'interacted_element' not in state:
+				state['interacted_element'] = None
+				h['state'] = state
 
 		history = cls.model_validate(data)
 		return history
@@ -727,8 +731,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def final_result(self) -> None | str:
 		"""Final result from history"""
-		if self.history and self.history[-1].result[-1].extracted_content:
-			return self.history[-1].result[-1].extracted_content
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			if last_result.extracted_content:
+				return last_result.extracted_content
 		return None
 
 	def is_done(self) -> bool:

@@ -95,7 +95,7 @@ class TestCloudBrowserClient:
 		with pytest.raises(CloudBrowserAuthError) as exc_info:
 			await client.create_browser(CreateBrowserRequest())
 
-		assert 'BROWSER_USE_API_KEY environment variable' in str(exc_info.value)
+		assert 'BROWSER_USE_API_KEY is not set' in str(exc_info.value)
 
 	async def test_create_browser_http_401(self, mock_auth_config, monkeypatch):
 		"""Test cloud browser creation with HTTP 401 response."""
@@ -118,7 +118,7 @@ class TestCloudBrowserClient:
 			with pytest.raises(CloudBrowserAuthError) as exc_info:
 				await client.create_browser(CreateBrowserRequest())
 
-			assert 'Authentication failed' in str(exc_info.value)
+			assert 'BROWSER_USE_API_KEY is invalid' in str(exc_info.value)
 
 	async def test_create_browser_with_env_var(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation using BROWSER_USE_API_KEY environment variable."""
