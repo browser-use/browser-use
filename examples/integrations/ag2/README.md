@@ -42,7 +42,7 @@ The `browse_web` tool bridges AG2 (sync) and browser-use (async) — each call s
 ## Install
 
 ```bash
-pip install browser-use "ag2[openai]>=0.11.4,<1.0" langchain-openai
+pip install browser-use "ag2[openai]>=0.11.4,<1.0"
 playwright install chromium
 ```
 

@@ -21,10 +21,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from autogen import AssistantAgent, GroupChat, GroupChatManager, LLMConfig, UserProxyAgent
-from langchain_openai import ChatOpenAI
 
 from browser_use import Agent as BrowserUseAgent
-from browser_use import Browser, BrowserProfile
+from browser_use import Browser, BrowserProfile, ChatOpenAI
 
 # --- Configuration ---
 
@@ -38,8 +37,8 @@ MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 # AG2 LLM config (for agent reasoning)
 llm_config = LLMConfig({'model': MODEL, 'api_key': OPENAI_API_KEY, 'api_type': 'openai'})
 
-# browser-use LLM (LangChain ChatOpenAI, separate from AG2's config)
-browser_llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY)  # type: ignore[arg-type]
+# browser-use LLM (browser-use's own ChatOpenAI, separate from AG2's config)
+browser_llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY)
 
 
 # --- Termination ---
@@ -108,8 +107,8 @@ def browse_web(task: str) -> str:
 	async def _run() -> str:
 		browser = Browser(browser_profile=BrowserProfile(headless=HEADLESS))
 		try:
-			agent = BrowserUseAgent(task=task, llm=browser_llm, browser=browser)  # type: ignore[arg-type]
-			result = await agent.run()
+			agent = BrowserUseAgent(task=task, llm=browser_llm, browser=browser)
+			result = await agent.run(max_steps=50)
 			return result.final_result() or 'No results found.'
 		except Exception as e:
 			return f'Browsing error: {e}'
