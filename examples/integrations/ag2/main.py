@@ -45,8 +45,8 @@ browser_llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY)
 
 
 def is_termination(msg):
-	content = msg.get('content', '') or ''
-	return 'TERMINATE' in content
+	content = (msg.get('content', '') or '').strip()
+	return content.endswith('TERMINATE')
 
 
 # --- AG2 Agents ---
