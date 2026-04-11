@@ -1,5 +1,6 @@
 """Screenshot watchdog for handling screenshot requests using CDP."""
 
+import asyncio
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from bubus import BaseEvent
@@ -12,6 +13,9 @@ from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
 	pass
+
+_SCREENSHOT_MAX_RETRIES = 3
+_SCREENSHOT_RETRY_DELAY = 0.5
 
 
 class ScreenshotWatchdog(BaseWatchdog):
@@ -73,16 +77,29 @@ class ScreenshotWatchdog(BaseWatchdog):
 				}
 			params = CaptureScreenshotParameters(**params_dict)
 
-			# Take screenshot using CDP
-			self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params}')
-			result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
+			# Take screenshot using CDP, retrying on transient timeouts
+			last_error: Exception | None = None
+			for attempt in range(_SCREENSHOT_MAX_RETRIES):
+				try:
+					self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params} (attempt {attempt + 1}/{_SCREENSHOT_MAX_RETRIES})')
+					result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
 
-			# Return base64-encoded screenshot data
-			if result and 'data' in result:
-				self.logger.debug('[ScreenshotWatchdog] Screenshot captured successfully')
-				return result['data']
+					# Return base64-encoded screenshot data
+					if result and 'data' in result:
+						self.logger.debug('[ScreenshotWatchdog] Screenshot captured successfully')
+						return result['data']
 
-			raise BrowserError('[ScreenshotWatchdog] Screenshot result missing data')
+					raise BrowserError('[ScreenshotWatchdog] Screenshot result missing data')
+				except RuntimeError as e:
+					if 'timed out' in str(e) and attempt < _SCREENSHOT_MAX_RETRIES - 1:
+						last_error = e
+						self.logger.warning(f'[ScreenshotWatchdog] Screenshot timed out (attempt {attempt + 1}/{_SCREENSHOT_MAX_RETRIES}), retrying in {_SCREENSHOT_RETRY_DELAY}s...')
+						await asyncio.sleep(_SCREENSHOT_RETRY_DELAY)
+						continue
+					raise
+
+			# Should not be reached, but satisfies type checker
+			raise last_error or BrowserError('[ScreenshotWatchdog] Screenshot failed after retries')
 		except Exception as e:
 			self.logger.error(f'[ScreenshotWatchdog] Screenshot failed: {e}')
 			raise
