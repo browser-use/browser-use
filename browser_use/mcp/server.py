@@ -29,6 +29,9 @@ import sys
 # Set environment variables BEFORE any browser_use imports to prevent early logging
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
 os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
+# MCP startup can be slower on some Windows setups; use safer defaults unless user overrides.
+os.environ.setdefault('TIMEOUT_BrowserStartEvent', '60')
+os.environ.setdefault('TIMEOUT_BrowserLaunchEvent', '60')
 
 import asyncio
 import json
@@ -579,7 +582,9 @@ class BrowserUseServer:
 			'downloads_path': str(Path.home() / 'Downloads' / 'browser-use-mcp'),
 			'wait_between_actions': 0.5,
 			'keep_alive': True,
-			'user_data_dir': '~/.config/browseruse/profiles/default',
+			# Use a per-session temp profile by default.
+			# A fixed shared profile can cause startup hangs/timeouts on Windows when files are locked.
+			'user_data_dir': None,
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
