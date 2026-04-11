@@ -286,15 +286,15 @@ class DomService:
 			# Gather JS hints for environments where CDP metrics can flatten to ~1
 			# (observed in some Windows high-DPI remote-debugging setups).
 			expression = (
-				"(() => {"
-				"const vv = window.visualViewport || null;"
-				"return {"
-				"devicePixelRatio: window.devicePixelRatio ?? null,"
-				"visualViewportScale: vv ? vv.scale : null,"
-				"screenWidth: window.screen?.width ?? null,"
-				"innerWidth: window.innerWidth ?? null,"
-				"};"
-				"})()"
+				'(() => {'
+				'const vv = window.visualViewport || null;'
+				'return {'
+				'devicePixelRatio: window.devicePixelRatio ?? null,'
+				'visualViewportScale: vv ? vv.scale : null,'
+				'screenWidth: window.screen?.width ?? null,'
+				'innerWidth: window.innerWidth ?? null,'
+				'};'
+				'})()'
 			)
 
 			js_metrics = await cdp_session.cdp_client.send.Runtime.evaluate(
