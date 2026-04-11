@@ -40,3 +40,12 @@ def test_resolve_device_pixel_ratio_ignores_invalid_values():
 	)
 	assert ratio == 1.0
 
+
+def test_resolve_device_pixel_ratio_returns_one_when_all_js_fallbacks_missing():
+	ratio = DomService._resolve_device_pixel_ratio(
+		metrics_ratio=1.0,
+		js_device_pixel_ratio=None,
+		js_visual_viewport_scale=None,
+		js_screen_to_inner_width_ratio=None,
+	)
+	assert ratio == 1.0
