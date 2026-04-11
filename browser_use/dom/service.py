@@ -67,6 +67,57 @@ class DomService:
 	async def __aexit__(self, exc_type, exc_value, traceback):
 		pass  # no need to cleanup anything, browser_session auto handles cleaning up session cache
 
+	@staticmethod
+	def _sanitize_ratio(value: Any) -> float | None:
+		# Parse and validate ratio-like values.
+		try:
+			ratio = float(value)
+		except (TypeError, ValueError):
+			return None
+
+		# Filter clearly invalid values:
+		# - <= 0 is nonsensical for a scale ratio
+		# - > 8 is treated as telemetry/noise (modern desktop/browser DPI ratios are far below this)
+		if ratio <= 0 or ratio > 8:
+			return None
+
+		return ratio
+
+	@classmethod
+	def _resolve_device_pixel_ratio(
+		cls,
+		metrics_ratio: Any,
+		js_device_pixel_ratio: Any = None,
+		js_visual_viewport_scale: Any = None,
+		js_screen_to_inner_width_ratio: Any = None,
+	) -> float:
+		# Prefer CDP metrics when they already indicate meaningful scaling.
+		# 1.05 avoids treating tiny floating-point drift around 1.0 as real DPI scaling.
+		min_nontrivial_scale = 1.05
+
+		# In fallback mode we cap to common desktop ranges to ignore outliers/noisy values.
+		max_trusted_fallback_scale = 4.0
+
+		metrics = cls._sanitize_ratio(metrics_ratio) or 1.0
+		js_dpr = cls._sanitize_ratio(js_device_pixel_ratio)
+		js_scale = cls._sanitize_ratio(js_visual_viewport_scale)
+		screen_ratio = cls._sanitize_ratio(js_screen_to_inner_width_ratio)
+
+		if metrics > min_nontrivial_scale:
+			return metrics
+
+		fallback_candidates = [
+			r
+			for r in (js_dpr, js_scale, screen_ratio)
+			if r is not None and min_nontrivial_scale <= r <= max_trusted_fallback_scale
+		]
+		if fallback_candidates:
+			# Use max() intentionally: when signals disagree, underestimating DPR hurts click accuracy
+			# more than slight overestimation, so we choose the strongest credible scale hint.
+			return max(fallback_candidates)
+
+		return max(1.0, min(metrics, max_trusted_fallback_scale))
+
 	def _count_hidden_elements_in_iframes(self, node: EnhancedDOMTreeNode) -> None:
 		"""Collect hidden interactive elements in iframes for LLM hints.
 
@@ -230,7 +281,45 @@ class DomService:
 			# Calculate device pixel ratio
 			device_width = visual_viewport.get('clientWidth', width)
 			css_width = css_visual_viewport.get('clientWidth', width)
-			device_pixel_ratio = device_width / css_width if css_width > 0 else 1.0
+			metrics_ratio = device_width / css_width if css_width > 0 else 1.0
+
+			# Gather JS hints for environments where CDP metrics can flatten to ~1
+			# (observed in some Windows high-DPI remote-debugging setups).
+			expression = (
+				"(() => {"
+				"const vv = window.visualViewport || null;"
+				"return {"
+				"devicePixelRatio: window.devicePixelRatio ?? null,"
+				"visualViewportScale: vv ? vv.scale : null,"
+				"screenWidth: window.screen?.width ?? null,"
+				"innerWidth: window.innerWidth ?? null,"
+				"};"
+				"})()"
+			)
+
+			js_metrics = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': expression, 'returnByValue': True},
+				session_id=cdp_session.session_id,
+			)
+
+			js_value = js_metrics.get('result', {}).get('value', {}) if isinstance(js_metrics, dict) else {}
+			screen_width = js_value.get('screenWidth')
+			inner_width = js_value.get('innerWidth')
+			screen_ratio = None
+			if isinstance(screen_width, (int, float)) and isinstance(inner_width, (int, float)) and inner_width > 0:
+				screen_ratio = screen_width / inner_width
+
+			device_pixel_ratio = self._resolve_device_pixel_ratio(
+				metrics_ratio=metrics_ratio,
+				js_device_pixel_ratio=js_value.get('devicePixelRatio'),
+				js_visual_viewport_scale=js_value.get('visualViewportScale'),
+				js_screen_to_inner_width_ratio=screen_ratio,
+			)
+
+			if abs(device_pixel_ratio - metrics_ratio) > 0.05:
+				self.logger.debug(
+					f'Adjusted device pixel ratio from CDP metrics {metrics_ratio:.3f} to {device_pixel_ratio:.3f} using JS hints'
+				)
 
 			return float(device_pixel_ratio)
 		except Exception as e:
