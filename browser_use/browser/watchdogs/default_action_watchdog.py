@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import mimetypes
 import os
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
@@ -2659,6 +2660,31 @@ class DefaultActionWatchdog(BaseWatchdog):
 					msg = f'Upload failed - file {event.file_path} is empty (0 bytes).'
 					raise BrowserError(message=msg, long_term_memory=msg)
 				self.logger.debug(f'📎 File {event.file_path} validated ({file_size} bytes)')
+
+				# Validate file type against the input's accept attribute
+				accept_attr = (element_node.attributes or {}).get('accept', '').strip()
+				if accept_attr:
+					file_ext = os.path.splitext(event.file_path)[1].lower()
+					file_mime = mimetypes.guess_type(event.file_path)[0] or ''
+					accepted_types = [t.strip().lower() for t in accept_attr.split(',') if t.strip()]
+					accepted = False
+					for accept_type in accepted_types:
+						if accept_type.startswith('.'):
+							if file_ext == accept_type:
+								accepted = True
+								break
+						elif accept_type.endswith('/*'):
+							mime_family = accept_type[:-2]
+							if file_mime.startswith(mime_family + '/'):
+								accepted = True
+								break
+						else:
+							if file_mime == accept_type:
+								accepted = True
+								break
+					if not accepted:
+						msg = f'Upload failed - file type "{file_ext or file_mime or event.file_path}" is not accepted by this input. Accepted types: {accept_attr}'
+						raise BrowserError(message=msg, long_term_memory=msg)
 
 			# Set file(s) to upload
 			backend_node_id = element_node.backend_node_id

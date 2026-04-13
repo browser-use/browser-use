@@ -139,6 +139,110 @@ class TestUploadCommandHandler:
 		finally:
 			await session.kill()
 
+	async def test_upload_rejected_by_accept_attribute(self, httpserver):
+		"""Uploading a file whose type is not in the accept attribute raises an error."""
+		from browser_use.browser.events import NavigateToUrlEvent
+		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
+		from browser_use.skill_cli.commands.browser import handle
+		from browser_use.skill_cli.sessions import SessionInfo
+
+		# File input that only accepts images
+		httpserver.expect_request('/').respond_with_data(
+			'<html><body><input type="file" id="upload" accept="image/*" /></body></html>',
+			content_type='text/html',
+		)
+
+		session = BrowserSession(headless=True)
+		await session.start()
+		try:
+			await session.event_bus.dispatch(NavigateToUrlEvent(url=httpserver.url_for('/')))
+
+			session_info = SessionInfo(
+				name='test',
+				headed=False,
+				profile=None,
+				cdp_url=None,
+				browser_session=session,
+				actions=ActionHandler(session),
+			)
+
+			await session.get_browser_state_summary()
+
+			selector_map = await session.get_selector_map()
+			file_input_index = None
+			for idx, el in selector_map.items():
+				if session.is_file_input(el):
+					file_input_index = idx
+					break
+			assert file_input_index is not None, 'File input not found in selector map'
+
+			# Attempt to upload a PDF (not accepted by image/*)
+			with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
+				f.write(b'%PDF-1.4 fake content')
+				pdf_file = f.name
+
+			try:
+				result = await handle('upload', session_info, {'index': file_input_index, 'path': pdf_file})
+				assert 'error' in result
+				assert 'not accepted' in result['error'].lower()
+			finally:
+				Path(pdf_file).unlink(missing_ok=True)
+		finally:
+			await session.kill()
+
+	async def test_upload_accepted_by_extension(self, httpserver):
+		"""Uploading a file that matches the accept extension succeeds."""
+		from browser_use.browser.events import NavigateToUrlEvent
+		from browser_use.browser.session import BrowserSession
+		from browser_use.skill_cli.actions import ActionHandler
+		from browser_use.skill_cli.commands.browser import handle
+		from browser_use.skill_cli.sessions import SessionInfo
+
+		# File input that accepts only .pdf files
+		httpserver.expect_request('/').respond_with_data(
+			'<html><body><input type="file" id="upload" accept=".pdf" /></body></html>',
+			content_type='text/html',
+		)
+
+		session = BrowserSession(headless=True)
+		await session.start()
+		try:
+			await session.event_bus.dispatch(NavigateToUrlEvent(url=httpserver.url_for('/')))
+
+			session_info = SessionInfo(
+				name='test',
+				headed=False,
+				profile=None,
+				cdp_url=None,
+				browser_session=session,
+				actions=ActionHandler(session),
+			)
+
+			await session.get_browser_state_summary()
+
+			selector_map = await session.get_selector_map()
+			file_input_index = None
+			for idx, el in selector_map.items():
+				if session.is_file_input(el):
+					file_input_index = idx
+					break
+			assert file_input_index is not None, 'File input not found in selector map'
+
+			# Upload a PDF — should be accepted
+			with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
+				f.write(b'%PDF-1.4 fake content')
+				pdf_file = f.name
+
+			try:
+				result = await handle('upload', session_info, {'index': file_input_index, 'path': pdf_file})
+				assert 'uploaded' in result
+			finally:
+				Path(pdf_file).unlink(missing_ok=True)
+		finally:
+			await session.kill()
+
+
 	async def test_upload_happy_path(self, httpserver):
 		"""Upload to a file input element succeeds."""
 		from browser_use.browser.events import NavigateToUrlEvent
