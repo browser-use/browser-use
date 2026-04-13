@@ -1104,10 +1104,12 @@ class DomService:
 		pagination_buttons: list[dict[str, str | int | bool]] = []
 
 		# Common pagination patterns to look for
+		# `«` and `»` are ambiguous across sites, so treat them only as prev/next
+		# fallback symbols and let word-based first/last signals win
 		next_patterns = ['next', '>', '»', '→', 'siguiente', 'suivant', 'weiter', 'volgende']
 		prev_patterns = ['prev', 'previous', '<', '«', '←', 'anterior', 'précédent', 'zurück', 'vorige']
-		first_patterns = ['first', '⇤', '«', 'primera', 'première', 'erste', 'eerste']
-		last_patterns = ['last', '⇥', '»', 'última', 'dernier', 'letzte', 'laatste']
+		first_patterns = ['first', '⇤', 'primera', 'première', 'erste', 'eerste']
+		last_patterns = ['last', '⇥', 'última', 'dernier', 'letzte', 'laatste']
 
 		for index, node in selector_map.items():
 			# Skip non-clickable elements
@@ -1133,18 +1135,18 @@ class DomService:
 
 			button_type: str | None = None
 
-			# Check for next button
-			if any(pattern in all_text for pattern in next_patterns):
-				button_type = 'next'
-			# Check for previous button
-			elif any(pattern in all_text for pattern in prev_patterns):
-				button_type = 'prev'
-			# Check for first button
-			elif any(pattern in all_text for pattern in first_patterns):
+			# Match specific first/last semantics before generic prev/next fallbacks.
+			if any(pattern in all_text for pattern in first_patterns):
 				button_type = 'first'
 			# Check for last button
 			elif any(pattern in all_text for pattern in last_patterns):
 				button_type = 'last'
+			# Check for next button
+			elif any(pattern in all_text for pattern in next_patterns):
+				button_type = 'next'
+			# Check for previous button
+			elif any(pattern in all_text for pattern in prev_patterns):
+				button_type = 'prev'
 			# Check for numeric page buttons (single or double digit)
 			elif text.isdigit() and len(text) <= 2 and role in ['button', 'link', '']:
 				button_type = 'page_number'
