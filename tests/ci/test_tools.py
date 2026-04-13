@@ -666,3 +666,87 @@ class TestStructuredOutputDoneWithFiles:
 		assert 'files_to_display' not in top_level_props
 		# data should still be present
 		assert 'data' in top_level_props
+
+
+class TestDefaultDoneWithDownloads:
+	"""Tests for browser download auto-attachment in the default (non-structured) done action."""
+
+	async def test_default_done_auto_attaches_downloads(self, browser_session, base_url):
+		"""Session downloads are auto-attached in the default done action (no output_model)."""
+		tools = Tools()
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			# Simulate a CDP-tracked browser download
+			fake_download = os.path.join(temp_dir, 'report.pdf')
+			await anyio.Path(fake_download).write_bytes(b'%PDF-1.4 fake pdf content')
+
+			saved_downloads = browser_session._downloaded_files.copy()
+			browser_session._downloaded_files.append(fake_download)
+			try:
+				result = await tools.done(
+					text='Downloaded the report',
+					success=True,
+					browser_session=browser_session,
+					file_system=file_system,
+				)
+
+				assert isinstance(result, ActionResult)
+				assert result.is_done is True
+				assert result.success is True
+				# The download should be auto-attached
+				assert result.attachments is not None
+				assert len(result.attachments) == 1
+				assert result.attachments[0] == fake_download
+			finally:
+				browser_session._downloaded_files = saved_downloads
+
+	async def test_default_done_without_downloads(self, browser_session, base_url):
+		"""Default done action works normally when there are no downloads."""
+		tools = Tools()
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			result = await tools.done(
+				text='Task completed successfully',
+				success=True,
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			assert isinstance(result, ActionResult)
+			assert result.is_done is True
+			assert result.success is True
+			assert result.attachments == []
+
+	async def test_default_done_deduplicates_downloads_and_files_to_display(self, browser_session):
+		"""Downloads already covered by files_to_display are not duplicated in default done."""
+		tools = Tools()
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			await file_system.write_file('data.csv', 'col1,col2\n1,2\n')
+
+			# The same file appears in both files_to_display and session downloads
+			fs_path = str(file_system.get_dir() / 'data.csv')
+
+			saved_downloads = browser_session._downloaded_files.copy()
+			browser_session._downloaded_files.append(fs_path)
+			try:
+				result = await tools.done(
+					text='Exported the data',
+					success=True,
+					files_to_display=['data.csv'],
+					browser_session=browser_session,
+					file_system=file_system,
+				)
+
+				assert isinstance(result, ActionResult)
+				# Should have exactly 1 attachment, not 2
+				assert result.attachments is not None
+				assert len(result.attachments) == 1
+				assert result.attachments[0] == fs_path
+			finally:
+				browser_session._downloaded_files = saved_downloads

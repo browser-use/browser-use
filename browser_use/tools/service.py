@@ -1908,7 +1908,7 @@ Validated Code (after quote fixing):
 				'Complete task. Only report actions you performed and data you extracted in this session.',
 				param_model=DoneAction,
 			)
-			async def done(params: DoneAction, file_system: FileSystem):
+			async def done(params: DoneAction, file_system: FileSystem, browser_session: BrowserSession):
 				user_message = params.text
 
 				len_text = len(params.text)
@@ -1938,6 +1938,15 @@ Validated Code (after quote fixing):
 								attachments.append(file_name)
 
 				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
+
+				# Auto-attach actual session downloads (CDP-tracked browser downloads)
+				# but NOT user-supplied whitelist paths from available_file_paths
+				session_downloads = browser_session.downloaded_files
+				if session_downloads:
+					existing = set(attachments)
+					for file_path in session_downloads:
+						if file_path not in existing:
+							attachments.append(file_path)
 
 				return ActionResult(
 					is_done=True,
