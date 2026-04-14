@@ -7,7 +7,7 @@ Tunnels are managed independently of browser sessions - they are purely
 a network utility for exposing local ports via Cloudflare quick tunnels.
 
 Tunnels survive CLI process exit by:
-1. Spawning cloudflared as a daemon (start_new_session=True)
+1. Spawning cloudflared as a daemon (creationflags on Windows, start_new_session on Unix)
 2. Tracking tunnel info via PID files in ~/.browser-use/tunnels/
 """
 
@@ -18,6 +18,9 @@ import os
 import re
 import shutil
 import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -156,21 +159,58 @@ def _is_process_alive(pid: int) -> bool:
 
 
 def _kill_process(pid: int) -> bool:
-	"""Kill a process by PID. Returns True if killed, False if already dead."""
-	try:
-		os.kill(pid, signal.SIGTERM)
-		# Give it a moment to terminate gracefully
-		for _ in range(10):
-			if not _is_process_alive(pid):
-				return True
-			import time
+	"""Kill a process by PID. Returns True if killed, False otherwise (not alive or insufficient privileges)."""
+	if sys.platform == 'win32':
+		from browser_use.skill_cli.utils import _get_windll
 
-			time.sleep(0.1)
-		# Force kill if still alive
-		os.kill(pid, signal.SIGKILL)
-		return True
-	except (OSError, ProcessLookupError):
+		windll = _get_windll()
+		if windll is None:
+			return False
+		import ctypes
+		from ctypes import wintypes
+
+		PROCESS_TERMINATE = 0x0001
+		TerminateProcess = windll.kernel32.TerminateProcess
+		TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+		TerminateProcess.restype = wintypes.BOOL
+		CloseHandle = windll.kernel32.CloseHandle
+		CloseHandle.argtypes = [wintypes.HANDLE]
+		OpenProcess = windll.kernel32.OpenProcess
+		OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+		OpenProcess.restype = wintypes.HANDLE
+
+		handle = OpenProcess(PROCESS_TERMINATE, False, pid)
+		if handle:
+			success = TerminateProcess(handle, 1)
+			if success:
+				# Wait up to ~1s for the process to actually exit. TerminateProcess
+			# has already been issued so report success regardless — matching the
+				# Unix path which returns True after sending SIGKILL.
+				for _ in range(10):
+					if not _is_process_alive(pid):
+						CloseHandle(handle)
+						return True
+					time.sleep(0.1)
+				# Process still alive after timeout, but TerminateProcess was called.
+				CloseHandle(handle)
+				return True
+			CloseHandle(handle)
+			return False
 		return False
+	else:
+		try:
+			os.kill(pid, signal.SIGTERM)
+			# Give it a moment to terminate gracefully
+			for _ in range(10):
+				if not _is_process_alive(pid):
+					return True
+				time.sleep(0.1)
+			# Force kill if still alive — use numeric 9 to avoid platform
+			# differences (signal.SIGKILL is not defined on Windows)
+			os.kill(pid, 9)
+			return True
+		except (OSError, ProcessLookupError):
+			return False
 
 
 # =============================================================================
@@ -207,8 +247,18 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 	log_file = open(log_file_path, 'w')  # noqa: ASYNC230
 
 	# Spawn cloudflared as a daemon
-	# - start_new_session=True: survives parent exit
+	# - creationflags (Windows): CREATE_NEW_PROCESS_GROUP makes it survive parent exit;
+	#   CREATE_NO_WINDOW hides the console window.  start_new_session=True sets
+	#   CREATE_NEW_PROCESS_GROUP on Windows which would override our flags, so we
+	#   must use creationflags explicitly and NOT pass start_new_session on Windows.
+	# - start_new_session=True (Unix): equivalent daemonization flag.
 	# - stderr to file: avoids SIGPIPE when parent's pipe closes
+	spawn_kwargs: dict[str, Any] = {}
+	if sys.platform == 'win32':
+		spawn_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+	else:
+		spawn_kwargs['start_new_session'] = True
+
 	process = await asyncio.create_subprocess_exec(
 		cloudflared_binary,
 		'tunnel',
@@ -216,13 +266,12 @@ async def start_tunnel(port: int) -> dict[str, Any]:
 		f'http://localhost:{port}',
 		stdout=asyncio.subprocess.DEVNULL,
 		stderr=log_file,
-		start_new_session=True,
+		**spawn_kwargs,
 	)
 
 	# Poll the log file until we find the tunnel URL
 	url: str | None = None
 	try:
-		import time
 
 		deadline = time.time() + 15
 		while time.time() < deadline:
