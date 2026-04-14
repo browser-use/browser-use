@@ -3,10 +3,23 @@
 import asyncio
 import io
 import traceback
+import types
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+
+def _wrap_builtin(fn: Any) -> Any:
+	"""Wrap a builtin function to prevent ``__self__`` leaking the builtins module."""
+
+	def wrapper(*args: Any, **kwargs: Any) -> Any:
+		return fn(*args, **kwargs)
+
+	wrapper.__name__ = getattr(fn, '__name__', str(fn))
+	wrapper.__doc__ = getattr(fn, '__doc__', None)
+	return wrapper
+
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
@@ -78,99 +91,103 @@ class PythonSession:
 				else __import__(name, *args, **kwargs)
 			)
 
+		safe_builtins: dict[str, Any] = {
+			'__build_class__': __build_class__,
+			'__import__': _safe_import,
+			'print': print,
+			'range': range,
+			'len': len,
+			'int': int,
+			'float': float,
+			'str': str,
+			'bool': bool,
+			'list': list,
+			'dict': dict,
+			'tuple': tuple,
+			'set': set,
+			'frozenset': frozenset,
+			'bytes': bytes,
+			'bytearray': bytearray,
+			'type': type,
+			'isinstance': isinstance,
+			'issubclass': issubclass,
+			'hasattr': hasattr,
+			'getattr': getattr,
+			'setattr': setattr,
+			'delattr': delattr,
+			'callable': callable,
+			'iter': iter,
+			'next': next,
+			'enumerate': enumerate,
+			'zip': zip,
+			'map': map,
+			'filter': filter,
+			'sorted': sorted,
+			'reversed': reversed,
+			'min': min,
+			'max': max,
+			'sum': sum,
+			'abs': abs,
+			'round': round,
+			'pow': pow,
+			'divmod': divmod,
+			'hash': hash,
+			'id': id,
+			'repr': repr,
+			'ascii': ascii,
+			'chr': chr,
+			'ord': ord,
+			'hex': hex,
+			'oct': oct,
+			'bin': bin,
+			'format': format,
+			'any': any,
+			'all': all,
+			'dir': dir,
+			'vars': vars,
+			'property': property,
+			'staticmethod': staticmethod,
+			'classmethod': classmethod,
+			'super': super,
+			'object': object,
+			'Exception': Exception,
+			'BaseException': BaseException,
+			'TypeError': TypeError,
+			'ValueError': ValueError,
+			'KeyError': KeyError,
+			'IndexError': IndexError,
+			'AttributeError': AttributeError,
+			'RuntimeError': RuntimeError,
+			'StopIteration': StopIteration,
+			'GeneratorExit': GeneratorExit,
+			'NotImplementedError': NotImplementedError,
+			'ImportError': ImportError,
+			'FileNotFoundError': FileNotFoundError,
+			'OSError': OSError,
+			'IOError': IOError,
+			'ArithmeticError': ArithmeticError,
+			'ZeroDivisionError': ZeroDivisionError,
+			'OverflowError': OverflowError,
+			'LookupError': LookupError,
+			'NameError': NameError,
+			'SyntaxError': SyntaxError,
+			'True': True,
+			'False': False,
+			'None': None,
+		}
+
+		# Wrap builtin functions so __self__ doesn't leak the builtins module
+		for key, val in safe_builtins.items():
+			if isinstance(val, types.BuiltinFunctionType):
+				safe_builtins[key] = _wrap_builtin(val)
+
 		self.namespace.update(
 			{
 				'__name__': '__main__',
 				'__doc__': None,
-				'__builtins__': {
-					# Expose safe builtins only — no open(), exec(), eval(), compile(), __import__()
-					'__build_class__': __build_class__,
-					'__import__': _safe_import,
-					'print': print,
-					'range': range,
-					'len': len,
-					'int': int,
-					'float': float,
-					'str': str,
-					'bool': bool,
-					'list': list,
-					'dict': dict,
-					'tuple': tuple,
-					'set': set,
-					'frozenset': frozenset,
-					'bytes': bytes,
-					'bytearray': bytearray,
-					'type': type,
-					'isinstance': isinstance,
-					'issubclass': issubclass,
-					'hasattr': hasattr,
-					'getattr': getattr,
-					'setattr': setattr,
-					'delattr': delattr,
-					'callable': callable,
-					'iter': iter,
-					'next': next,
-					'enumerate': enumerate,
-					'zip': zip,
-					'map': map,
-					'filter': filter,
-					'sorted': sorted,
-					'reversed': reversed,
-					'min': min,
-					'max': max,
-					'sum': sum,
-					'abs': abs,
-					'round': round,
-					'pow': pow,
-					'divmod': divmod,
-					'hash': hash,
-					'id': id,
-					'repr': repr,
-					'ascii': ascii,
-					'chr': chr,
-					'ord': ord,
-					'hex': hex,
-					'oct': oct,
-					'bin': bin,
-					'format': format,
-					'any': any,
-					'all': all,
-					'dir': dir,
-					'vars': vars,
-					'property': property,
-					'staticmethod': staticmethod,
-					'classmethod': classmethod,
-					'super': super,
-					'object': object,
-					'Exception': Exception,
-					'BaseException': BaseException,
-					'TypeError': TypeError,
-					'ValueError': ValueError,
-					'KeyError': KeyError,
-					'IndexError': IndexError,
-					'AttributeError': AttributeError,
-					'RuntimeError': RuntimeError,
-					'StopIteration': StopIteration,
-					'GeneratorExit': GeneratorExit,
-					'NotImplementedError': NotImplementedError,
-					'ImportError': ImportError,
-					'FileNotFoundError': FileNotFoundError,
-					'OSError': OSError,
-					'IOError': IOError,
-					'ArithmeticError': ArithmeticError,
-					'ZeroDivisionError': ZeroDivisionError,
-					'OverflowError': OverflowError,
-					'LookupError': LookupError,
-					'NameError': NameError,
-					'SyntaxError': SyntaxError,
-					'True': True,
-					'False': False,
-					'None': None,
-				},
+				'__builtins__': safe_builtins,
 				'json': __import__('json'),
 				're': __import__('re'),
-				'Path': Path,
-				'asyncio': asyncio,
 			}
 		)
 
@@ -236,7 +253,7 @@ class PythonSession:
 
 	def get_variables(self) -> dict[str, str]:
 		"""Get user-defined variables and their types."""
-		skip = {'__name__', '__doc__', '__builtins__', 'json', 're', 'Path', 'asyncio', 'browser'}
+		skip = {'__name__', '__doc__', '__builtins__', 'json', 're', 'browser'}
 		return {k: type(v).__name__ for k, v in self.namespace.items() if not k.startswith('_') and k not in skip}
 
 

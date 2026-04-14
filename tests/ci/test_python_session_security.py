@@ -117,10 +117,21 @@ def test_re_available(session, browser_session):
 	assert '123' in result.output
 
 
-def test_path_available(session, browser_session):
+def test_path_importable(session, browser_session):
+	"""Path is not pre-loaded but can be imported from pathlib."""
+	assert 'Path' not in session.namespace
+	session.execute('from pathlib import Path', browser_session)
 	result = session.execute("str(Path('.'))", browser_session)
 	assert result.success
 	assert '.' in result.output
+
+
+def test_asyncio_importable(session, browser_session):
+	"""asyncio is not pre-loaded but can be imported."""
+	assert 'asyncio' not in session.namespace
+	session.execute('import asyncio', browser_session)
+	result = session.execute('asyncio.get_event_loop_policy()', browser_session)
+	assert result.success
 
 
 def test_safe_import_allowed(session, browser_session):
@@ -154,6 +165,28 @@ def test_get_variables_excludes_builtins(session):
 	"""__builtins__ must not appear in user-visible variables."""
 	variables = session.get_variables()
 	assert '__builtins__' not in variables
+
+
+def test_builtin_self_bypass_blocked(session, browser_session):
+	"""print.__self__ must not leak the real builtins module."""
+	result = session.execute('print.__self__', browser_session)
+	assert not result.success or 'builtins' not in result.output
+
+
+def test_builtin_self_import_bypass_blocked(session, browser_session):
+	"""Cannot recover __import__ via print.__self__."""
+	result = session.execute("print.__self__.__import__('os')", browser_session)
+	assert not result.success
+
+
+def test_path_globals_not_in_namespace(session):
+	"""Path must not be pre-loaded (prevents Path.cwd.__globals__['os'] bypass)."""
+	assert 'Path' not in session.namespace
+
+
+def test_asyncio_not_in_namespace(session):
+	"""asyncio must not be pre-loaded (prevents asyncio.sys.modules bypass)."""
+	assert 'asyncio' not in session.namespace
 
 
 def test_reset_restores_sandbox(session, browser_session):
