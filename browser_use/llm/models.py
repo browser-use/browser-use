@@ -19,6 +19,7 @@ from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.mistral.chat import ChatMistral
+from browser_use.llm.astraflow.chat import ChatAstraflow, ChatAstraflowCN
 from browser_use.llm.openai.chat import ChatOpenAI
 
 # Optional OCI import
@@ -161,8 +162,20 @@ def get_llm_by_name(model_name: str):
 	else:
 		model = model_part.replace('_', '-')
 
+	# Astraflow / ModelVerse Models (global)
+	# Primary key: 'astraflow'; aliases: 'astra-flow', 'astra_flow', 'modelverse'
+	if provider in ('astraflow', 'astra-flow', 'astra_flow', 'modelverse'):
+		api_key = os.getenv('ASTRAFLOW_API_KEY')
+		return ChatAstraflow(model=model, api_key=api_key)
+
+	# Astraflow / ModelVerse Models (China)
+	# Primary key: 'astraflow-cn'; aliases: 'astraflow-china', 'astraflow_cn'
+	elif provider in ('astraflow-cn', 'astraflow-china', 'astraflow_cn'):
+		api_key = os.getenv('ASTRAFLOW_CN_API_KEY')
+		return ChatAstraflowCN(model=model, api_key=api_key)
+
 	# OpenAI Models
-	if provider == 'openai':
+	elif provider == 'openai':
 		api_key = os.getenv('OPENAI_API_KEY')
 		return ChatOpenAI(model=model, api_key=api_key)
 
@@ -211,7 +224,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu', 'astraflow', 'astraflow-cn']
 
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
@@ -254,6 +267,8 @@ __all__ = [
 	'ChatMistral',
 	'ChatCerebras',
 	'ChatBrowserUse',
+	'ChatAstraflow',
+	'ChatAstraflowCN',
 ]
 
 if OCI_AVAILABLE:
