@@ -13,7 +13,7 @@
 </div>
 
 <div align="center">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
+<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-downloads"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
 </div>
 
 ---
@@ -33,12 +33,12 @@
 <img width="4 height="1" alt="">
 <a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
 <img width="4" height="1" alt="">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
+<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
 </div>
 
 </br>
 
-🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme)</b> for faster, scalable, stealth-enabled browser automation!
+🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-skip-setup)</b> for faster, scalable, stealth-enabled browser automation!
 
 # 🤖 LLM Quickstart
 
@@ -55,7 +55,7 @@ uv init && uv add browser-use && uv sync
 # uvx browser-use install  # Run if you don't have Chromium installed
 ```
 
-**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme):**
+**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme) for more!
+Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme-cloud-docs) for more!
 
 <br/>
 
@@ -107,7 +107,7 @@ We benchmark Browser Use across 100 real-world browser tasks. Full benchmark is 
 - We recommend pairing with our [cloud browsers](https://docs.browser-use.com/open-source/customize/browser/remote) for leading stealth, proxy rotation, and scaling
 - Or self-host the open-source agent fully on your own machines
 
-**Use the [Fully-Hosted Cloud Agent](https://cloud.browser-use.com?utm_source=github&utm_medium=readme) (recommended)**
+**Use the [Fully-Hosted Cloud Agent](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-hosted-agent) (recommended)**
 - Much more powerful agent for complex tasks (see plot above)
 - Easiest way to start and scale
 - Best stealth with proxy rotation and captcha solving
@@ -271,7 +271,7 @@ These examples show how to maintain sessions and handle authentication seamlessl
 <details>
 <summary><b>How do I solve CAPTCHAs?</b></summary>
 
-For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [Browser Use Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme) which provides stealth browsers designed to avoid detection and CAPTCHA challenges.
+For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [Browser Use Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-captcha) which provides stealth browsers designed to avoid detection and CAPTCHA challenges.
 </details>
 
 <details>
@@ -279,7 +279,7 @@ For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [B
 
 Chrome can consume a lot of memory, and running many agents in parallel can be tricky to manage.
 
-For production use cases, use our [Browser Use Cloud API](https://cloud.browser-use.com?utm_source=github&utm_medium=readme) which handles:
+For production use cases, use our [Browser Use Cloud API](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-production) which handles:
 - Scalable browser infrastructure
 - Memory management
 - Proxy rotation

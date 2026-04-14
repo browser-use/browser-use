@@ -721,6 +721,10 @@ class BrowserSession(BaseModel):
 		# Create fresh event bus
 		self.event_bus = EventBus()
 
+	async def close(self) -> None:
+		"""Alias for stop()."""
+		await self.stop()
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_event_handler')
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
 		"""Handle browser start request.

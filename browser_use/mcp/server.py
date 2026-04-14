@@ -1227,18 +1227,21 @@ class BrowserUseServer:
 			raise RuntimeError('MCP stdio transport requires stdin, but this process was launched without one.')
 
 		async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-			await self.server.run(
-				read_stream,
-				write_stream,
-				InitializationOptions(
-					server_name='browser-use',
-					server_version='0.1.0',
-					capabilities=self.server.get_capabilities(
-						notification_options=NotificationOptions(),
-						experimental_capabilities={},
+			try:
+				await self.server.run(
+					read_stream,
+					write_stream,
+					InitializationOptions(
+						server_name='browser-use',
+						server_version='0.1.0',
+						capabilities=self.server.get_capabilities(
+							notification_options=NotificationOptions(),
+							experimental_capabilities={},
+						),
 					),
-				),
-			)
+				)
+			except BrokenPipeError:
+				logger.warning('MCP client disconnected while writing to stdio; shutting down server cleanly.')
 
 
 async def main(session_timeout_minutes: int = 10):
