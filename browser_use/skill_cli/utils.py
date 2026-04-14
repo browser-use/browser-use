@@ -11,19 +11,36 @@ import zlib
 from pathlib import Path
 
 
+def _get_windll():
+	"""Return ctypes.windll with a guard for non-Windows platforms.
+
+	Accessing ctypes.windll on e.g. Linux raises AttributeError.  Always use
+	this helper instead of bare ``ctypes.windll`` so that platform-spoofed
+	tests (sys.platform = "win32" on a Linux runner) fail safely.
+	"""
+	import ctypes
+
+	try:
+		return ctypes.windll
+	except AttributeError:
+		return None
+
+
 def is_process_alive(pid: int) -> bool:
 	"""Check if a process is still running.
 
 	On Windows, os.kill(pid, 0) calls TerminateProcess — so we use
-	OpenProcess via ctypes instead.
+	OpenProcess via ctypes instead.  Uses _get_windll() to avoid AttributeError
+	on non-Windows when sys.platform is spoofed in tests.
 	"""
 	if sys.platform == 'win32':
-		import ctypes
-
+		windll = _get_windll()
+		if windll is None:
+			return False
 		PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-		handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+		handle = windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
 		if handle:
-			ctypes.windll.kernel32.CloseHandle(handle)
+			windll.kernel32.CloseHandle(handle)
 			return True
 		return False
 	else:
@@ -104,7 +121,10 @@ def is_daemon_alive(session: str = 'default') -> bool:
 			return False
 		s = None
 		try:
-			s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			af_unix = getattr(socket, 'AF_UNIX', None)
+			if af_unix is None:
+				return False
+			s = socket.socket(af_unix, socket.SOCK_STREAM)
 			s.settimeout(0.5)
 			s.connect(sock_path)
 			return True
