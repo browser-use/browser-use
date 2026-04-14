@@ -194,8 +194,11 @@ class DOMWatchdog(BaseWatchdog):
 })()
 """
 
-			result = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': js_code, 'returnByValue': True}, session_id=cdp_session.session_id
+			result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': js_code, 'returnByValue': True}, session_id=cdp_session.session_id
+				),
+				timeout=10.0,
 			)
 
 			if result.get('result', {}).get('type') == 'object':
