@@ -122,7 +122,7 @@ def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
 		engine = params.get('engine', 'google')
 		return f'search|{engine}|{"|".join(tokens)}'
 
-	if action_name in ('click', 'input'):
+	if action_name in ('click', 'input', 'clear_input'):
 		# For element-interaction actions, we only use the index (element identity).
 		# Two clicks on the same element index are the same action.
 		index = params.get('index')
@@ -130,6 +130,8 @@ def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
 			text = str(params.get('text', ''))
 			# Normalize input text: lowercase, strip whitespace
 			return f'input|{index}|{text.strip().lower()}'
+		if action_name == 'clear_input':
+			return f'clear_input|{index}'
 		return f'click|{index}'
 
 	if action_name == 'navigate':

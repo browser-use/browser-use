@@ -27,6 +27,7 @@ from browser_use.browser.events import (
 	SwitchTabEvent,
 	TypeTextEvent,
 	UploadFileEvent,
+	ClearInputEvent,
 )
 from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
@@ -57,6 +58,7 @@ from browser_use.tools.views import (
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
+	ClearInputAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
 
@@ -68,6 +70,7 @@ ClickElementEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
+ClearInputEvent.model_rebuild()
 
 Context = TypeVar('Context')
 
@@ -762,6 +765,40 @@ class Tools(Generic[Context]):
 				# Log the full error for debugging
 				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
 				error_msg = f'Failed to type text into element {params.index}: {e}'
+				return ActionResult(error=error_msg)
+
+		@self.registry.action(
+			'Clear text input element by index.',
+			param_model=ClearInputAction,
+		)
+		async def clear_input(params: ClearInputAction, browser_session: BrowserSession):
+			# Look up the node from the selector map
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(extracted_content=msg)
+
+			# Highlight the element being cleared (truly non-blocking)
+			create_task_with_error_handling(
+				browser_session.highlight_interaction_element(node), name='highlight_clear_element', suppress_exceptions=True
+			)
+
+			# Dispatch clear input event with node
+			try:
+				event = browser_session.event_bus.dispatch(ClearInputEvent(node=node))
+				await event
+				await event.event_result(raise_if_any=True, raise_if_none=False)
+
+				msg = f'Cleared input field at index {params.index}'
+				logger.debug(msg)
+
+				return ActionResult(extracted_content=msg, long_term_memory=msg)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				logger.error(f'Failed to dispatch ClearInputEvent: {type(e).__name__}: {e}')
+				error_msg = f'Failed to clear input field at index {params.index}: {e}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(

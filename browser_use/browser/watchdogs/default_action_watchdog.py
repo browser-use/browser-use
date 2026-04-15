@@ -21,6 +21,7 @@ from browser_use.browser.events import (
 	TypeTextEvent,
 	UploadFileEvent,
 	WaitEvent,
+	ClearInputEvent,
 )
 from browser_use.browser.views import BrowserError, URLNotAllowedError
 from browser_use.browser.watchdog_base import BaseWatchdog
@@ -36,6 +37,7 @@ SelectDropdownOptionEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
+ClearInputEvent.model_rebuild()
 
 
 class DefaultActionWatchdog(BaseWatchdog):
@@ -507,7 +509,49 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Note: We don't clear cached state here - let multi_act handle DOM change detection
 			# by explicitly rebuilding and comparing when needed
-		except Exception as e:
+		except Exception:
+			raise
+
+	async def on_ClearInputEvent(self, event: ClearInputEvent) -> None:
+		"""Handle clear input request with CDP."""
+		try:
+			element_node = event.node
+			index_for_logging = element_node.backend_node_id or 'unknown'
+
+			if not element_node.backend_node_id or element_node.backend_node_id == 0:
+				self.logger.warning('Cannot clear input: no specific element targeted')
+				return None
+
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+
+			# Resolve node to get object_id
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id}, session_id=cdp_session.session_id
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				self.logger.warning(f'Could not resolve element {index_for_logging} for clearing')
+				return None
+
+			object_id = result['object']['objectId']
+
+			# Scroll into view if possible
+			try:
+				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+					params={'backendNodeId': element_node.backend_node_id}, session_id=cdp_session.session_id
+				)
+			except Exception:
+				pass
+
+			# Clear the field
+			success = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
+
+			if success:
+				self.logger.info(f'🧹 Cleared input field with index {index_for_logging}')
+			else:
+				self.logger.warning(f'❌ Failed to clear input field with index {index_for_logging}')
+
+		except Exception:
 			raise
 
 	async def on_ScrollEvent(self, event: ScrollEvent) -> None:

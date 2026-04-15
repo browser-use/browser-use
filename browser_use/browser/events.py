@@ -156,6 +156,14 @@ class TypeTextEvent(ElementSelectedEvent[dict | None]):
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_TypeTextEvent', 60.0))  # seconds
 
 
+class ClearInputEvent(ElementSelectedEvent[None]):
+	"""Request to clear an input element's content."""
+
+	node: 'EnhancedDOMTreeNode'
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClearInputEvent', 10.0))  # seconds
+
+
 class ScrollEvent(ElementSelectedEvent[None]):
 	"""Scroll the page or element."""
 

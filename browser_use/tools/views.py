@@ -86,6 +86,10 @@ class InputTextAction(BaseModel):
 	clear: bool = Field(default=True, description='1=clear, 0=append')
 
 
+class ClearInputAction(BaseModel):
+	index: int = Field(ge=0, description='Element index from browser_state')
+
+
 class DoneAction(BaseModel):
 	text: str = Field(
 		description=(
