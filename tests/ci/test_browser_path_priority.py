@@ -15,9 +15,13 @@ import pytest
 from browser_use.browser.profile import BrowserChannel
 from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 
-CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-PW_CHROMIUM_PATH = '/Users/ci/Library/Caches/ms-playwright/chromium-1148/chrome-mac/Chromium.app/Contents/MacOS/Chromium'
-EDGE_PATH = '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'
+# macOS paths
+MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+MAC_PW_CHROMIUM = '/Users/ci/Library/Caches/ms-playwright/chromium-1148/chrome-mac/Chromium.app/Contents/MacOS/Chromium'
+
+# Linux paths
+LINUX_CHROME = '/usr/bin/google-chrome-stable'
+LINUX_PW_CHROMIUM = '/home/ci/.cache/ms-playwright/chromium-1148/chrome-linux64/chrome'
 
 
 def _path_checker(*valid_paths: str):
@@ -29,78 +33,116 @@ def _path_checker(*valid_paths: str):
 	return check
 
 
-def _glob_mock(*rules: tuple[str, list[str]]):
-	"""Return a glob.glob mock: if substring matches pattern, return results."""
+def _strict_glob_mock(expected_substr: str, result: list[str]):
+	"""Return a glob.glob mock that only matches patterns containing expected_substr."""
 
 	def mock(pattern):
-		for substr, result in rules:
-			if substr in pattern:
-				return result
+		if expected_substr in pattern:
+			return result
 		return []
 
 	return mock
 
 
-@pytest.fixture()
-def _darwin():
-	with patch('platform.system', return_value='Darwin'):
-		yield
+@pytest.fixture(params=['Darwin', 'Linux'], ids=['macOS', 'Linux'])
+def platform_paths(request):
+	"""Provide platform-specific browser paths."""
+	if request.param == 'Darwin':
+		return {
+			'system': request.param,
+			'chrome': MAC_CHROME,
+			'pw_chromium': MAC_PW_CHROMIUM,
+			'pw_glob_substr': 'ms-playwright/chromium-',
+		}
+	return {
+		'system': request.param,
+		'chrome': LINUX_CHROME,
+		'pw_chromium': LINUX_PW_CHROMIUM,
+		'pw_glob_substr': 'ms-playwright/chromium-',
+	}
 
 
-@pytest.mark.usefixtures('_darwin')
 class TestBrowserPathPriority:
 	"""_find_installed_browser_path priority ordering."""
 
-	def test_default_prefers_playwright_chromium(self):
+	def test_default_prefers_playwright_chromium(self, platform_paths):
 		"""Default channel returns Playwright Chromium when both it and Chrome exist."""
-		checker = _path_checker(CHROME_PATH, PW_CHROMIUM_PATH)
+		pp = platform_paths
+		checker = _path_checker(pp['chrome'], pp['pw_chromium'])
+		glob_fn = _strict_glob_mock(pp['pw_glob_substr'], [pp['pw_chromium']])
 		with (
+			patch('platform.system', return_value=pp['system']),
 			patch.object(Path, 'exists', checker),
 			patch.object(Path, 'is_file', checker),
-			patch('glob.glob', _glob_mock(('chromium-', [PW_CHROMIUM_PATH]))),
+			patch('glob.glob', glob_fn),
 		):
 			result = LocalBrowserWatchdog._find_installed_browser_path(channel=None)
-		assert result == PW_CHROMIUM_PATH
+		assert result == pp['pw_chromium']
 
-	def test_chrome_channel_prefers_system_chrome(self):
+	def test_chrome_channel_prefers_system_chrome(self, platform_paths):
 		"""Explicit CHROME channel returns system Chrome first."""
-		checker = _path_checker(CHROME_PATH, PW_CHROMIUM_PATH)
+		pp = platform_paths
+		checker = _path_checker(pp['chrome'], pp['pw_chromium'])
+		glob_fn = _strict_glob_mock(pp['pw_glob_substr'], [pp['pw_chromium']])
 		with (
+			patch('platform.system', return_value=pp['system']),
 			patch.object(Path, 'exists', checker),
 			patch.object(Path, 'is_file', checker),
-			patch('glob.glob', _glob_mock(('chromium-', [PW_CHROMIUM_PATH]))),
+			patch('glob.glob', glob_fn),
 		):
 			result = LocalBrowserWatchdog._find_installed_browser_path(channel=BrowserChannel.CHROME)
-		assert result == CHROME_PATH
+		assert result == pp['chrome']
 
-	def test_explicit_chromium_same_as_default(self):
+	def test_explicit_chromium_same_as_default(self, platform_paths):
 		"""Explicit CHROMIUM channel behaves identically to default."""
-		checker = _path_checker(CHROME_PATH, PW_CHROMIUM_PATH)
+		pp = platform_paths
+		checker = _path_checker(pp['chrome'], pp['pw_chromium'])
+		glob_fn = _strict_glob_mock(pp['pw_glob_substr'], [pp['pw_chromium']])
 		with (
+			patch('platform.system', return_value=pp['system']),
 			patch.object(Path, 'exists', checker),
 			patch.object(Path, 'is_file', checker),
-			patch('glob.glob', _glob_mock(('chromium-', [PW_CHROMIUM_PATH]))),
+			patch('glob.glob', glob_fn),
 		):
 			result = LocalBrowserWatchdog._find_installed_browser_path(channel=BrowserChannel.CHROMIUM)
-		assert result == PW_CHROMIUM_PATH
+		assert result == pp['pw_chromium']
 
-	def test_fallback_to_chrome_when_chromium_missing(self):
+	def test_fallback_when_chromium_missing(self, platform_paths):
 		"""When Playwright Chromium is not installed, falls back to system Chrome."""
-		checker = _path_checker(CHROME_PATH)
+		pp = platform_paths
+		checker = _path_checker(pp['chrome'])
 		with (
+			patch('platform.system', return_value=pp['system']),
 			patch.object(Path, 'exists', checker),
 			patch.object(Path, 'is_file', checker),
 			patch('glob.glob', return_value=[]),
 		):
 			result = LocalBrowserWatchdog._find_installed_browser_path(channel=None)
-		assert result == CHROME_PATH
+		assert result == pp['chrome']
 
-	def test_returns_none_when_nothing_installed(self):
+	def test_returns_none_when_nothing_installed(self, platform_paths):
 		"""Returns None when no browser is found."""
 		with (
+			patch('platform.system', return_value=platform_paths['system']),
 			patch.object(Path, 'exists', lambda self: False),
 			patch.object(Path, 'is_file', lambda self: False),
 			patch('glob.glob', return_value=[]),
 		):
 			result = LocalBrowserWatchdog._find_installed_browser_path(channel=None)
 		assert result is None
+
+	def test_glob_selects_highest_version(self):
+		"""When multiple Playwright versions exist, the highest one is selected by the function."""
+		v1 = '/Users/ci/Library/Caches/ms-playwright/chromium-1100/chrome-mac/Chromium.app/Contents/MacOS/Chromium'
+		v2 = '/Users/ci/Library/Caches/ms-playwright/chromium-1200/chrome-mac/Chromium.app/Contents/MacOS/Chromium'
+		checker = _path_checker(v1, v2)
+		glob_fn = _strict_glob_mock('ms-playwright/chromium-', [v1, v2])
+		with (
+			patch('platform.system', return_value='Darwin'),
+			patch.object(Path, 'exists', checker),
+			patch.object(Path, 'is_file', checker),
+			patch('glob.glob', glob_fn),
+		):
+			result = LocalBrowserWatchdog._find_installed_browser_path(channel=None)
+		# Function sorts glob results and takes the last (highest version)
+		assert result == v2
