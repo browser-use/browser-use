@@ -40,6 +40,8 @@ def browser_session():
 		'multiprocessing',
 		'signal',
 		'tempfile',
+		'pathlib',
+		'asyncio',
 	],
 )
 def test_blocked_module_not_in_namespace(session, module):
@@ -63,6 +65,10 @@ def test_blocked_module_not_in_namespace(session, module):
 		'import builtins',
 		"import builtins; builtins.open('/etc/passwd')",
 		"import builtins; builtins.__import__('os')",
+		'import pathlib',
+		'from pathlib import Path',
+		'import asyncio',
+		'from asyncio import subprocess',
 	],
 )
 def test_blocked_module_import_fails(session, browser_session, code):
@@ -117,23 +123,6 @@ def test_re_available(session, browser_session):
 	assert '123' in result.output
 
 
-def test_path_importable(session, browser_session):
-	"""Path is not pre-loaded but can be imported from pathlib."""
-	assert 'Path' not in session.namespace
-	session.execute('from pathlib import Path', browser_session)
-	result = session.execute("str(Path('.'))", browser_session)
-	assert result.success
-	assert '.' in result.output
-
-
-def test_asyncio_importable(session, browser_session):
-	"""asyncio is not pre-loaded but can be imported."""
-	assert 'asyncio' not in session.namespace
-	session.execute('import asyncio', browser_session)
-	result = session.execute('asyncio.get_event_loop_policy()', browser_session)
-	assert result.success
-
-
 def test_safe_import_allowed(session, browser_session):
 	"""Non-blocked modules like math should be importable."""
 	result = session.execute('import math; math.sqrt(4)', browser_session)
@@ -170,13 +159,43 @@ def test_get_variables_excludes_builtins(session):
 def test_builtin_self_bypass_blocked(session, browser_session):
 	"""print.__self__ must not leak the real builtins module."""
 	result = session.execute('print.__self__', browser_session)
-	assert not result.success or 'builtins' not in result.output
+	assert not result.success
 
 
 def test_builtin_self_import_bypass_blocked(session, browser_session):
 	"""Cannot recover __import__ via print.__self__."""
 	result = session.execute("print.__self__.__import__('os')", browser_session)
 	assert not result.success
+
+
+@pytest.mark.parametrize(
+	'code',
+	[
+		"print.__globals__['io']",
+		"print.__globals__['Path']",
+		"print.__globals__['__builtins__']",
+		'print.__globals__',
+	],
+)
+def test_builtin_globals_bypass_blocked(session, browser_session, code):
+	"""print.__globals__ must not leak this module's imports (io, Path, real __builtins__)."""
+	result = session.execute(code, browser_session)
+	assert not result.success
+
+
+@pytest.mark.parametrize(
+	'code',
+	[
+		"type(print).__call__.__func__.__globals__.get('io')",
+		"type(print).__call__.__func__.__globals__.get('Path')",
+		"type(print).__call__.__func__.__globals__.get('asyncio')",
+	],
+)
+def test_deep_globals_bypass_clean(session, browser_session, code):
+	"""Even via type(print).__call__.__func__.__globals__, no dangerous imports leak."""
+	result = session.execute(code, browser_session)
+	# Either blocked outright, or returns None (not found in isolated namespace)
+	assert not result.success or 'module' not in result.output
 
 
 def test_path_globals_not_in_namespace(session):

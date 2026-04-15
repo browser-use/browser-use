@@ -10,15 +10,48 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 
+def _make_safe_builtin_class() -> Any:
+	"""Build the ``_SafeBuiltin`` callable class in an isolated namespace.
+
+	A normal closure wrapper leaks this module's globals via ``wrapper.__globals__``
+	(e.g. ``print.__globals__['io']`` or ``print.__globals__['Path']``). A callable
+	class instance has no ``__globals__`` attribute at all, and by compiling the
+	class inside an isolated ``exec`` namespace its methods' ``__globals__`` point
+	to that isolated dict rather than this module — closing the escape.
+	"""
+	isolated: dict[str, Any] = {
+		'__name__': '_safe_builtin_ns',
+		'__builtins__': {
+			'__build_class__': __build_class__,
+			'object': object,
+			'AttributeError': AttributeError,
+		},
+	}
+	source = (
+		'class _SafeBuiltin:\n'
+		'    """Callable wrapper that hides __self__, __globals__, and the underlying fn."""\n'
+		'    __slots__ = ("_fn",)\n'
+		'    def __init__(self, fn):\n'
+		'        object.__setattr__(self, "_fn", fn)\n'
+		'    def __call__(self, *args, **kwargs):\n'
+		'        return object.__getattribute__(self, "_fn")(*args, **kwargs)\n'
+		'    def __getattribute__(self, name):\n'
+		'        # Only __call__ is reachable from sandboxed code — no __self__,\n'
+		'        # no __globals__, no _fn, no __class__-chain introspection.\n'
+		'        if name == "__call__":\n'
+		'            return object.__getattribute__(self, "__call__")\n'
+		'        raise AttributeError(name)\n'
+	)
+	exec(source, isolated)
+	return isolated['_SafeBuiltin']
+
+
+_SafeBuiltin = _make_safe_builtin_class()
+
+
 def _wrap_builtin(fn: Any) -> Any:
-	"""Wrap a builtin function to prevent ``__self__`` leaking the builtins module."""
-
-	def wrapper(*args: Any, **kwargs: Any) -> Any:
-		return fn(*args, **kwargs)
-
-	wrapper.__name__ = getattr(fn, '__name__', str(fn))
-	wrapper.__doc__ = getattr(fn, '__doc__', None)
-	return wrapper
+	"""Wrap a builtin function/type so ``__self__`` and ``__globals__`` don't leak."""
+	return _SafeBuiltin(fn)
 
 
 if TYPE_CHECKING:
@@ -68,6 +101,8 @@ class PythonSession:
 			'signal',
 			'tempfile',
 			'builtins',
+			'pathlib',
+			'asyncio',
 		}
 	)
 
