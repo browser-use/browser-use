@@ -183,6 +183,18 @@ def test_builtin_globals_bypass_blocked(session, browser_session, code):
 	assert not result.success
 
 
+def test_safe_import_globals_bypass_blocked(session, browser_session):
+	"""__import__.__globals__ must not leak this module's real __builtins__."""
+	result = session.execute('__import__.__globals__', browser_session)
+	assert not result.success
+
+
+def test_safe_import_deep_bypass_blocked(session, browser_session):
+	"""Cannot recover real __import__ via __import__.__globals__['__builtins__']['__import__']."""
+	result = session.execute("__import__.__globals__['__builtins__']['__import__']('os')", browser_session)
+	assert not result.success
+
+
 @pytest.mark.parametrize(
 	'code',
 	[

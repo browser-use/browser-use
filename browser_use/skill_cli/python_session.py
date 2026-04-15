@@ -115,20 +115,23 @@ class PythonSession:
 		browser wrapper already provides.
 		"""
 
+		# Resolve the real import callable once so the guard doesn't depend on
+		# this function's __globals__ (which would leak via __import__.__globals__).
+		_real_import = __builtins__['__import__'] if isinstance(__builtins__, dict) else __import__
+		_blocked = PythonSession._BLOCKED_MODULES
+
 		def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
 			"""Import guard that blocks dangerous modules."""
 			top_level = name.split('.')[0]
-			if top_level in PythonSession._BLOCKED_MODULES:
+			if top_level in _blocked:
 				raise ImportError(f"import of '{name}' is not allowed in this environment")
-			return (
-				__builtins__['__import__'](name, *args, **kwargs)
-				if isinstance(__builtins__, dict)
-				else __import__(name, *args, **kwargs)
-			)
+			return _real_import(name, *args, **kwargs)
 
 		safe_builtins: dict[str, Any] = {
 			'__build_class__': __build_class__,
-			'__import__': _safe_import,
+			# Wrap _safe_import in _SafeBuiltin so its __globals__ doesn't leak
+			# this module's real __builtins__ (which would defeat the sandbox).
+			'__import__': _SafeBuiltin(_safe_import),
 			'print': print,
 			'range': range,
 			'len': len,
