@@ -872,34 +872,13 @@ class SessionManager:
 			# subsequent Page.captureScreenshot calls return { code: -32603, message:
 			# 'Internal error' } until the dialog is dismissed, and on a Linux/Xvfb
 			# headful setup there is no one to dismiss it. With interception enabled
-			# Chromium emits Page.fileChooserOpened instead and the renderer stays
-			# responsive; the registered default handler below cancels the dialog so
-			# sessions recover even if the agent never calls Page.handleFileChooser.
+			# Chromium never shows the native dialog (per CDP spec: "native file chooser
+			# dialog is not shown") — it emits Page.fileChooserOpened instead, the page
+			# sees no files selected, and the renderer stays responsive. UploadFileEvent
+			# drives uploads via DOM.setFileInputFiles which is independent of this flag.
 			try:
 				await cdp_session.cdp_client.send.Page.setInterceptFileChooserDialog(
 					params={'enabled': True}, session_id=cdp_session.session_id
-				)
-
-				async def _default_file_chooser_handler(event: dict, session_id: str | None = None) -> None:
-					# Only act on the session this handler was registered for.
-					if session_id != cdp_session.session_id:
-						return
-					# UploadFileEvent drives uploads via DOM.setFileInputFiles, so any
-					# fileChooserOpened event that reaches us here is either unhandled
-					# user code or an accidental click. Cancel rather than leave the
-					# dialog modal and wedge future CDP commands.
-					try:
-						await cdp_session.cdp_client.send.Page.handleFileChooser(
-							params={'action': 'cancel'}, session_id=cdp_session.session_id
-						)
-					except Exception as cancel_exc:
-						self.logger.debug(
-							f'[SessionManager] handleFileChooser(cancel) failed on session '
-							f'{cdp_session.session_id}: {cancel_exc}'
-						)
-
-				cdp_session.cdp_client.register.Page.fileChooserOpened(
-					_default_file_chooser_handler
 				)
 			except Exception as intercept_exc:
 				# Older Chromium builds or non-Page targets may not support this.
