@@ -512,7 +512,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception:
 			raise
 
-	async def on_ClearInputEvent(self, event: ClearInputEvent) -> None:
+	async def on_ClearInputEvent(self, event: ClearInputEvent) -> bool:
 		"""Handle clear input request with CDP."""
 		try:
 			element_node = event.node

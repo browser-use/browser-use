@@ -10,6 +10,10 @@ Usage:
     browser-use python "print(browser.url)"
     browser-use close
 """
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+	from browser_use.skill_cli.main import main
 
 __all__ = ['main']
 
