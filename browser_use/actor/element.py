@@ -1015,7 +1015,7 @@ class Element:
 			)
 
 			if bounds_result.get('result', {}).get('value'):
-				bounds = bounds_result['result']['value']  # type: ignore  # type: ignore
+				bounds = bounds_result['result']['value']  # type: ignore
 				center_x = bounds['x'] + bounds['width'] / 2
 				center_y = bounds['y'] + bounds['height'] / 2
 
