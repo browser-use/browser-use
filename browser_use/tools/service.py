@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
+	ClearInputEvent,
 	ClickCoordinateEvent,
 	ClickElementEvent,
 	CloseTabEvent,
@@ -27,7 +28,6 @@ from browser_use.browser.events import (
 	SwitchTabEvent,
 	TypeTextEvent,
 	UploadFileEvent,
-	ClearInputEvent,
 )
 from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
@@ -38,6 +38,7 @@ from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
+	ClearInputAction,
 	ClickElementAction,
 	ClickElementActionIndexOnly,
 	CloseTabAction,
@@ -58,7 +59,6 @@ from browser_use.tools.views import (
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
-	ClearInputAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
 

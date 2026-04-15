@@ -8,6 +8,7 @@ from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
 from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
+	ClearInputEvent,
 	ClickCoordinateEvent,
 	ClickElementEvent,
 	GetDropdownOptionsEvent,
@@ -21,7 +22,6 @@ from browser_use.browser.events import (
 	TypeTextEvent,
 	UploadFileEvent,
 	WaitEvent,
-	ClearInputEvent,
 )
 from browser_use.browser.views import BrowserError, URLNotAllowedError
 from browser_use.browser.watchdog_base import BaseWatchdog
