@@ -733,6 +733,10 @@ Setup:
 	# state
 	subparsers.add_parser('state', help='Get browser state (URL, title, elements)')
 
+	# text
+	p = subparsers.add_parser('text', help='Get visible text content of the page')
+	p.add_argument('--selector', help='CSS selector to scope text extraction')
+
 	# tab (list, switch, close)
 	tab_p = subparsers.add_parser('tab', help='Tab management (list, switch, close)')
 	tab_sub = tab_p.add_subparsers(dest='tab_command')
