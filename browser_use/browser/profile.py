@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import tempfile
 from collections.abc import Iterable
@@ -22,6 +23,22 @@ def _get_enable_default_extensions_default() -> bool:
 		# If DISABLE_EXTENSIONS is truthy, return False (extensions disabled)
 		return env_val.lower() in ('0', 'false', 'no', 'off', '')
 	return True
+
+
+def _is_windows_profile_lock_error(error: BaseException) -> bool:
+	"""Detect profile copy failures caused by Chrome file locks on Windows"""
+	return sys.platform == 'win32' and isinstance(error, (OSError, shutil.Error))
+
+
+def _windows_profile_lock_error_message(profile_directory: str) -> str:
+	"""Return guidance for locked Chrome profile copy failures"""
+	return (
+		f"Failed to copy Chrome profile '{profile_directory}' because Chrome is using locked profile files.\n"
+		'Please close all Chrome windows first, or use --cdp-url / --connect to attach to an existing Chrome instance.\n'
+		'Examples:\n'
+		'  browser-use --cdp-url http://localhost:9222 open https://example.com\n'
+		'  browser-use --connect open https://example.com'
+	)
 
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -825,13 +842,23 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		path_temp_profile = Path(temp_dir) / self.profile_directory
 
 		if path_original_profile.exists():
-			import shutil
-
-			shutil.copytree(path_original_profile, path_temp_profile)
+			try:
+				shutil.copytree(path_original_profile, path_temp_profile)
+			except (OSError, shutil.Error) as e:
+				if _is_windows_profile_lock_error(e):
+					shutil.rmtree(temp_dir, ignore_errors=True)
+					raise RuntimeError(_windows_profile_lock_error_message(self.profile_directory)) from e
+				raise
 			local_state_src = path_original_user_data / 'Local State'
 			local_state_dst = Path(temp_dir) / 'Local State'
 			if local_state_src.exists():
-				shutil.copy(local_state_src, local_state_dst)
+				try:
+					shutil.copy(local_state_src, local_state_dst)
+				except OSError as e:
+					if _is_windows_profile_lock_error(e):
+						shutil.rmtree(temp_dir, ignore_errors=True)
+						raise RuntimeError(_windows_profile_lock_error_message(self.profile_directory)) from e
+					raise
 			logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
 
 		else:
