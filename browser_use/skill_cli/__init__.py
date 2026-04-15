@@ -10,6 +10,7 @@ Usage:
     browser-use python "print(browser.url)"
     browser-use close
 """
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
