@@ -519,8 +519,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			if not element_node.backend_node_id or element_node.backend_node_id == 0:
-				self.logger.warning('Cannot clear input: no specific element targeted')
-				return None
+				msg = 'Cannot clear input: no specific element targeted'
+				self.logger.warning(msg)
+				raise BrowserError(msg)
 
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
 
@@ -530,8 +531,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			if 'object' not in result or 'objectId' not in result['object']:
-				self.logger.warning(f'Could not resolve element {index_for_logging} for clearing')
-				return None
+				msg = f'Could not resolve element {index_for_logging} for clearing'
+				self.logger.warning(msg)
+				raise BrowserError(msg)
 
 			object_id = result['object']['objectId']
 
@@ -548,8 +550,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			if success:
 				self.logger.info(f'🧹 Cleared input field with index {index_for_logging}')
+				return True
 			else:
-				self.logger.warning(f'❌ Failed to clear input field with index {index_for_logging}')
+				msg = f'Failed to clear input field with index {index_for_logging} after trying all strategies'
+				self.logger.warning(f'❌ {msg}')
+				raise BrowserError(msg)
 
 		except Exception:
 			raise
@@ -1446,14 +1451,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 					return True
 				else:
 					self.logger.debug(f'⚠️ JavaScript clear partially failed, field still contains: "{final_text}"')
-					return False
 			else:
 				self.logger.debug(f'❌ JavaScript clear failed: {clear_info.get("error", "Unknown error")}')
-				return False
 
 		except Exception as e:
 			self.logger.debug(f'JavaScript clear failed with exception: {e}')
-			return False
 
 		# Strategy 2: Triple-click + Delete (fallback for stubborn fields)
 		try:
@@ -1550,7 +1552,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				session_id=cdp_session.session_id,
 			)
 
-			# Delete selected text (Backspace)
+			# Backspace
 			await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
 				params={
 					'type': 'keyDown',
@@ -1568,12 +1570,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 				session_id=cdp_session.session_id,
 			)
 
-			self.logger.debug('✅ Text field cleared using keyboard shortcuts')
+			self.logger.debug(f'✅ Text field cleared using {modifier_name}+A + Backspace')
 			return True
 
 		except Exception as e:
-			self.logger.debug(f'All clearing strategies failed: {e}')
-			return False
+			self.logger.debug(f'Keyboard shortcut clear failed: {e}')
+
+		return False
 
 	async def _focus_element_simple(
 		self, backend_node_id: int, object_id: str, cdp_session, input_coordinates: dict | None = None

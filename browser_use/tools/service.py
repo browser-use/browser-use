@@ -788,7 +788,7 @@ class Tools(Generic[Context]):
 			try:
 				event = browser_session.event_bus.dispatch(ClearInputEvent(node=node))
 				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
+				await event.event_result(raise_if_any=True, raise_if_none=True)
 
 				msg = f'Cleared input field at index {params.index}'
 				logger.debug(msg)
