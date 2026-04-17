@@ -75,6 +75,10 @@ class RecordingWatchdog(BaseWatchdog):
 		"""
 		if self._recorder:
 			self.logger.debug(f'Agent focus changed to {event.target_id}, switching screencast...')
+			# Reset timestamp tracking so the first frame from the new tab doesn't
+			# trigger spurious filler frames spanning the tab-switch gap.
+			self._recorder._last_timestamp = None
+			self._recorder._last_frame = None
 			await self._start_screencast()
 
 	async def _start_screencast(self) -> None:
@@ -142,7 +146,15 @@ class RecordingWatchdog(BaseWatchdog):
 
 		if not self._recorder:
 			return
-		self._recorder.add_frame(event['data'])
+
+		# Pass the CDP-provided timestamp so the recorder can insert filler frames during
+		# pauses, keeping the video in sync with real wall-clock time.
+		timestamp: float | None = None
+		metadata = event.get('metadata') if isinstance(event, dict) else getattr(event, 'metadata', None)
+		if metadata is not None:
+			timestamp = metadata.get('timestamp') if isinstance(metadata, dict) else getattr(metadata, 'timestamp', None)
+
+		self._recorder.add_frame(event['data'], timestamp=timestamp)
 		create_task_with_error_handling(
 			self._ack_screencast_frame(event, session_id),
 			name='ack_screencast_frame',
