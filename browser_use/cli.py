@@ -1859,7 +1859,7 @@ async def run_auth_command():
 						break
 
 			# Run authentication and progress updates concurrently
-			auth_start_time = asyncio.get_event_loop().time()
+			auth_start_time = asyncio.get_running_loop().time()
 			from browser_use.utils import create_task_with_error_handling
 
 			auth_task = create_task_with_error_handling(
@@ -1873,7 +1873,7 @@ async def run_auth_command():
 			success = await asyncio.wait_for(auth_task, timeout=120.0)  # 2 minutes for initial testing
 			progress_task.cancel()  # Stop the progress updates
 
-			auth_duration = asyncio.get_event_loop().time() - auth_start_time
+			auth_duration = asyncio.get_running_loop().time() - auth_start_time
 			print(f'🔧 Debug: Authentication returned: {success} (took {auth_duration:.1f}s)')
 
 		except TimeoutError:

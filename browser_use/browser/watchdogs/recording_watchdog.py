@@ -172,5 +172,5 @@ class RecordingWatchdog(BaseWatchdog):
 			self._screencast_params = None
 
 			self.logger.debug('Stopping video recording and saving file...')
-			loop = asyncio.get_event_loop()
+			loop = asyncio.get_running_loop()
 			await loop.run_in_executor(None, recorder.stop_and_save)

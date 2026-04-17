@@ -128,7 +128,7 @@ class SignalHandler:
 			disabled: If True, signal handling is disabled and register() is a no-op.
 					Useful when embedding browser-use in applications that manage their own signals.
 		"""
-		self.loop = loop or asyncio.get_event_loop()
+		self.loop = loop or asyncio.get_running_loop()
 		self.pause_callback = pause_callback
 		self.resume_callback = resume_callback
 		self.custom_exit_callback = custom_exit_callback
