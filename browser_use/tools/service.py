@@ -679,7 +679,7 @@ class Tools(Generic[Context]):
 		self._register_click_action()
 
 		@self.registry.action(
-			'Input text into element by index.',
+			'Input text into element by index. Clears existing text by default; pass text="" to clear only, or clear=False to append.',
 			param_model=InputTextAction,
 		)
 		async def input(

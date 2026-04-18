@@ -126,7 +126,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 					self.logger.debug(f'[LocalBrowserWatchdog] 📦 Using custom local browser executable_path= {browser_path}')
 				else:
 					# self.logger.debug('[LocalBrowserWatchdog] 🔍 Looking for local browser binary path...')
-					# Try fallback paths first (system browsers preferred)
+					# Try fallback paths first (Playwright's Chromium preferred by default)
 					browser_path = self._find_installed_browser_path(channel=profile.channel)
 					if not browser_path:
 						self.logger.error(
@@ -224,9 +224,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		Falls back to all known browser paths if the channel-specific search fails.
 
 		Prioritizes:
-		1. Channel-specific paths (if channel is set)
-		2. System Chrome stable
-		3. Playwright chromium
+		1. Channel-specific paths (if channel is set to a non-default value)
+		2. Playwright bundled Chromium (when no channel or default channel specified)
+		3. System Chrome stable
 		4. Other system native browsers (Chromium -> Chrome Canary/Dev -> Brave -> Edge)
 		5. Playwright headless-shell fallback
 
@@ -313,14 +313,14 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			BrowserChannel.MSEDGE_CANARY: 'msedge',
 		}
 
-		# If a non-default channel is specified, put matching patterns first, then the rest as fallback
+		# Prioritize the target browser group, then fall back to the rest.
 		if channel and channel != BROWSERUSE_DEFAULT_CHANNEL and channel in _channel_to_group:
 			target_group = _channel_to_group[channel]
-			prioritized = [p for g, p in all_patterns if g == target_group]
-			rest = [p for g, p in all_patterns if g != target_group]
-			patterns = prioritized + rest
 		else:
-			patterns = [p for _, p in all_patterns]
+			target_group = _channel_to_group[BROWSERUSE_DEFAULT_CHANNEL]
+		prioritized = [p for g, p in all_patterns if g == target_group]
+		rest = [p for g, p in all_patterns if g != target_group]
+		patterns = prioritized + rest
 
 		for pattern in patterns:
 			# Expand user home directory
@@ -362,7 +362,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		import platform
 
 		# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
-		cmd = ['uvx', 'playwright', 'install', 'chrome']
+		cmd = ['uvx', 'playwright', 'install', 'chromium']
 		if platform.system() == 'Linux':
 			cmd.append('--with-deps')
 
@@ -380,7 +380,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			if browser_path:
 				return browser_path
 			self.logger.error(f'[LocalBrowserWatchdog] ❌ Playwright local browser installation error: \n{stdout}\n{stderr}')
-			raise RuntimeError('No local browser path found after: uvx playwright install chrome')
+			raise RuntimeError('No local browser path found after: uvx playwright install chromium')
 		except TimeoutError:
 			# Kill the subprocess if it times out
 			process.kill()

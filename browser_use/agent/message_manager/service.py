@@ -25,7 +25,12 @@ from browser_use.llm.messages import (
 	UserMessage,
 )
 from browser_use.observability import observe_debug
-from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
+from browser_use.utils import (
+	collect_sensitive_data_values,
+	match_url_with_domain_pattern,
+	redact_sensitive_string,
+	time_execution_sync,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -573,30 +578,14 @@ class MessageManager:
 			if not self.sensitive_data:
 				return value
 
-			# Collect all sensitive values, immediately converting old format to new format
-			sensitive_values: dict[str, str] = {}
-
-			# Process all sensitive data entries
-			for key_or_domain, content in self.sensitive_data.items():
-				if isinstance(content, dict):
-					# Already in new format: {domain: {key: value}}
-					for key, val in content.items():
-						if val:  # Skip empty values
-							sensitive_values[key] = val
-				elif content:  # Old format: {key: value} - convert to new format internally
-					# We treat this as if it was {'http*://*': {key_or_domain: content}}
-					sensitive_values[key_or_domain] = content
+			sensitive_values = collect_sensitive_data_values(self.sensitive_data)
 
 			# If there are no valid sensitive data entries, just return the original value
 			if not sensitive_values:
 				logger.warning('No valid entries found in sensitive_data dictionary')
 				return value
 
-			# Replace all valid sensitive data values with their placeholder tags
-			for key, val in sensitive_values.items():
-				value = value.replace(val, f'<secret>{key}</secret>')
-
-			return value
+			return redact_sensitive_string(value, sensitive_values)
 
 		if isinstance(message.content, str):
 			message.content = replace_sensitive(message.content)

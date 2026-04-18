@@ -129,7 +129,7 @@ if '--template' in sys.argv:
 		click.echo('     uv pip install browser-use')
 		click.echo('  2. Set up your API key in .env file or environment:')
 		click.echo('     BROWSER_USE_API_KEY=your-key')
-		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key)')
+		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=cli)')
 		click.echo('  3. Run your script:')
 		click.echo(f'     python {output_path.name}')
 	except Exception as e:
@@ -178,9 +178,12 @@ except ImportError:
 try:
 	import readline
 
+	_add_history = getattr(readline, 'add_history', None)
+	if _add_history is None:
+		raise ImportError('readline missing add_history')
 	READLINE_AVAILABLE = True
 except ImportError:
-	# readline not available on Windows by default
+	_add_history = None
 	READLINE_AVAILABLE = False
 
 
@@ -341,12 +344,11 @@ def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) ->
 
 def setup_readline_history(history: list[str]) -> None:
 	"""Set up readline with command history."""
-	if not READLINE_AVAILABLE:
+	if not _add_history:
 		return
 
-	# Add history items to readline
 	for item in history:
-		readline.add_history(item)
+		_add_history(item)
 
 
 def get_llm(config: dict[str, Any]):
@@ -718,9 +720,9 @@ class BrowserUseApp(App):
 		# Step 2: Set up input history
 		logger.debug('Setting up readline history...')
 		try:
-			if READLINE_AVAILABLE and self.task_history:
+			if READLINE_AVAILABLE and self.task_history and _add_history:
 				for item in self.task_history:
-					readline.add_history(item)
+					_add_history(item)
 				logger.debug(f'Added {len(self.task_history)} items to readline history')
 			else:
 				logger.debug('No readline history to set up')
@@ -1127,7 +1129,7 @@ class BrowserUseApp(App):
 
 		# Exit the application
 		self.exit()
-		print('\nTry running tasks on our cloud: https://browser-use.com')
+		print('\nTry running tasks on our cloud: https://browser-use.com?utm_source=oss&utm_medium=cli')
 
 	def compose(self) -> ComposeResult:
 		"""Create the UI layout."""
@@ -1142,7 +1144,11 @@ class BrowserUseApp(App):
 			with Container(id='links-panel'):
 				with HorizontalGroup(classes='link-row'):
 					yield Static('Run at scale on cloud:    [blink]☁️[/]  ', markup=True, classes='link-label')
-					yield Link('https://browser-use.com', url='https://browser-use.com', classes='link-white link-url')
+					yield Link(
+						'https://browser-use.com',
+						url='https://browser-use.com?utm_source=oss&utm_medium=cli',
+						classes='link-white link-url',
+					)
 
 				yield Static('')  # Empty line
 
@@ -2222,7 +2228,7 @@ def _run_template_generation(template: str, output: str | None, force: bool):
 		click.echo('     uv pip install browser-use')
 		click.echo('  2. Set up your API key in .env file or environment:')
 		click.echo('     BROWSER_USE_API_KEY=your-key')
-		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key)')
+		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=cli)')
 		click.echo('  3. Run your script:')
 		click.echo(f'     python {output_path.name}')
 	else:
@@ -2351,7 +2357,7 @@ def init(
 		click.echo('     uv pip install browser-use')
 		click.echo('  2. Set up your API key in .env file or environment:')
 		click.echo('     BROWSER_USE_API_KEY=your-key')
-		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key)')
+		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=cli)')
 		click.echo('  3. Run your script:')
 		click.echo(f'     python {output_path.name}')
 	else:

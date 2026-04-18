@@ -90,7 +90,10 @@ def _get_api_key() -> str:
 		print('  Note: BROWSER_USE_API_KEY env var is set but not used by the CLI.', file=sys.stderr)
 		print('  Run: browser-use config set api_key "$BROWSER_USE_API_KEY"', file=sys.stderr)
 	else:
-		print('Already have an account? Get a key at: https://cloud.browser-use.com/settings?tab=api-keys&new=1', file=sys.stderr)
+		print(
+			'Already have an account? Get a key at: https://cloud.browser-use.com/settings?tab=api-keys&new=1&utm_source=oss&utm_medium=cli',
+			file=sys.stderr,
+		)
 		print('  Then run: browser-use cloud login <key>', file=sys.stderr)
 		print('No account? Run: browser-use cloud signup', file=sys.stderr)
 		print('  This creates an agent account you can claim later with: browser-use cloud signup --claim', file=sys.stderr)
