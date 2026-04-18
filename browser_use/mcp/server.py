@@ -597,11 +597,22 @@ class BrowserUseServer:
 		for key, value in kwargs.items():
 			profile_data[key] = value
 
-		# Create browser profile
-		profile = BrowserProfile(**profile_data)
+		# Connect to an existing Chrome via CDP when BROWSER_USE_CDP_URL
+		# is set. We must pass cdp_url as a top-level BrowserSession
+		# kwarg: nesting it inside browser_profile triggers the
+		# is_local=True fallback in BrowserSession.__init__ and the
+		# local launcher runs instead of connecting, which hangs forever
+		# on BrowserStartEvent. The CLI path (skill_cli/sessions.py)
+		# already passes cdp_url as a top-level kwarg.
+		cdp_url_env = os.environ.get('BROWSER_USE_CDP_URL')
+		if cdp_url_env:
+			self.browser_session = BrowserSession(cdp_url=cdp_url_env)
+		else:
+			# Create browser profile
+			profile = BrowserProfile(**profile_data)
 
-		# Create browser session
-		self.browser_session = BrowserSession(browser_profile=profile)
+			# Create browser session
+			self.browser_session = BrowserSession(browser_profile=profile)
 		await self.browser_session.start()
 
 		# Track the session for management
