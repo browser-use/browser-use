@@ -1,6 +1,8 @@
 """Element class for element operations."""
 
 import asyncio
+import math
+import random
 from typing import TYPE_CHECKING, Literal, Union
 
 from cdp_use.client import logger
@@ -350,15 +352,12 @@ class Element:
 			# Extract key element info for error message
 			raise RuntimeError(f'Failed to click element: {e}')
 
-	async def fill(self, value: str, clear: bool = True, keystroke_delay: float = 0.018) -> None:
+	async def fill(self, value: str, clear: bool = True) -> None:
 		"""Fill the input element using proper CDP methods with improved focus handling.
 
 		Args:
 			value: Text to type into the element.
 			clear: Whether to clear the existing value before typing.
-			keystroke_delay: Seconds to wait between each keystroke.  Defaults to 18 ms
-				(the original hard-coded value).  Pass a larger value — e.g. 0.035 — to
-				simulate human-speed typing.
 		"""
 		try:
 			# Use the existing CDP client and session
@@ -508,8 +507,18 @@ class Element:
 						session_id=session_id,
 					)
 
-				# Delay between keystrokes — configurable for human-like typing.
-				await asyncio.sleep(keystroke_delay)
+				# Delay between keystrokes — reads human_typing_wpm from BrowserProfile.
+				wpm = self._browser_session.browser_profile.human_typing_wpm
+				if wpm > 0:
+					mean_iki = 60.0 / (wpm * 5.0)
+					sigma = 0.4
+					mu = math.log(mean_iki) - (sigma ** 2) / 2.0
+					iki = random.lognormvariate(mu, sigma)
+					floor = max(0.005, min(0.030, mean_iki * 0.15))
+					delay = max(floor, iki)
+				else:
+					delay = 0.018  # original default
+				await asyncio.sleep(delay)
 
 		except Exception as e:
 			raise Exception(f'Failed to fill element: {str(e)}')

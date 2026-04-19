@@ -1150,6 +1150,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
 
 			# Type the text character by character to the focused element
+			prev_char = ''
 			for char in text:
 				# Handle newline characters as Enter key
 				if char == '\n':
@@ -1208,23 +1209,54 @@ class DefaultActionWatchdog(BaseWatchdog):
 						session_id=cdp_session.session_id,
 					)
 				# Delay between keystrokes — base 10 ms plus any human-typing config.
-				await asyncio.sleep(self._keystroke_delay(base=0.010))
+				await asyncio.sleep(self._keystroke_delay(base=0.010, prev_char=prev_char))
+				prev_char = char
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
 
-	def _keystroke_delay(self, base: float = 0.001) -> float:
-		"""Return the total per-keystroke sleep duration.
+	def _keystroke_delay(self, base: float = 0.001, prev_char: str = '') -> float:
+		"""Return the per-keystroke sleep duration.
 
-		Combines the hard-coded *base* delay (keeps CDP happy) with the
-		optional human-typing delay and random jitter configured on the
-		BrowserProfile.  The result is always ≥ 0.
+		When ``human_typing_wpm`` is 0 (the default) the original hard-coded
+		*base* delay is returned unchanged — no behaviour change.
+
+		When a WPM target is set, the delay is sampled from a log-normal
+		distribution whose mean matches the target WPM.  Log-normal is the
+		empirically correct model for human inter-keystroke intervals (IKI):
+		the distribution is right-skewed, with most keystrokes clustered near
+		the mean and an occasional long pause.
+
+		A word-boundary bonus is applied when *prev_char* is a space: real
+		typists slow down by ~1.5–2× at the start of a new word.
+
+		References:
+		  - Aalto 136M Keystrokes dataset (CHI 2018)
+		  - CMU Keystroke Benchmark (Kilourhy & Maxion 2009)
+		  - Playwright recommended delay: 100 ms
 		"""
+		import math
+
 		profile = self.browser_session.browser_profile
-		extra = profile.human_typing_delay_ms
-		jitter = profile.human_typing_delay_randomness
-		if jitter > 0:
-			extra += random.uniform(-jitter, jitter)
-		return max(0.0, base + extra)
+		wpm = profile.human_typing_wpm
+		if wpm <= 0:
+			return base
+
+		# Mean IKI in seconds: 1 word = 5 chars, so chars/min = wpm*5
+		mean_iki = 60.0 / (wpm * 5.0)
+
+		# Log-normal parameters: sigma=0.4 gives realistic variance (~SD 70ms at 70WPM)
+		sigma = 0.4
+		mu = math.log(mean_iki) - (sigma ** 2) / 2.0
+		iki = random.lognormvariate(mu, sigma)
+
+		# Word-boundary pause: space key triggers a 1.5–2× slowdown on the next char
+		if prev_char == ' ':
+			iki *= random.uniform(1.5, 2.0)
+
+		# Floor scales with target speed: fast typists have shorter minimums.
+		# At 90 WPM floor is ~30ms; at 500 WPM floor is ~5ms.
+		floor = max(0.005, min(0.030, mean_iki * 0.15))
+		return max(floor, iki)
 
 	def _get_char_modifiers_and_vk(self, char: str) -> tuple[int, int, str]:
 		"""Get modifiers, virtual key code, and base key for a character.
@@ -1979,7 +2011,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 						)
 
 				# Delay between characters — base 1 ms plus any human-typing config.
-				await asyncio.sleep(self._keystroke_delay(base=0.001))
+				prev_char = text[i - 1] if i > 0 else ''
+				await asyncio.sleep(self._keystroke_delay(base=0.001, prev_char=prev_char))
 
 			# Step 4: Trigger framework-aware DOM events after typing completion
 			# Modern JavaScript frameworks (React, Vue, Angular) rely on these events
@@ -2574,6 +2607,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				else:
 					# It's text (single character or string) - send each character as text input
 					# This is crucial for text to appear in focused input fields
+					prev_char = ''
 					for char in normalized_keys:
 						# Special-case newline characters to dispatch as Enter
 						if char in ('\n', '\r'):
@@ -2645,7 +2679,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 						)
 
 						# Delay between characters — base 10 ms plus any human-typing config.
-						await asyncio.sleep(self._keystroke_delay(base=0.010))
+						await asyncio.sleep(self._keystroke_delay(base=0.010, prev_char=prev_char))
+						prev_char = char
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
