@@ -374,6 +374,31 @@ class TestBrowserSessionEventSystem:
 		assert mock_get_session.await_count == 2
 		assert mock_recover.await_args_list == [call('Get browser cookies'), call('Get browser cookies retry')]
 
+	async def test_cdp_get_cookies_allows_live_reads_during_intentional_shutdown(self):
+		"""Intentional shutdown should still allow cookie reads on an already-live CDP socket."""
+
+		session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+		session._cdp_client_root = Mock(ws=Mock(state=State.OPEN))
+		session.browser_profile.cdp_url = 'wss://example.com/devtools/browser/test'
+		session._intentional_stop = True
+
+		mock_cdp_session = Mock()
+		mock_cdp_session.session_id = 'session-123'
+		mock_cdp_session.cdp_client = Mock()
+		mock_cdp_session.cdp_client.send = Mock()
+		mock_cdp_session.cdp_client.send.Storage = Mock()
+		mock_cdp_session.cdp_client.send.Storage.getCookies = AsyncMock(
+			return_value={'cookies': [{'name': 'sid', 'value': 'abc'}]}
+		)
+
+		with patch.object(
+			BrowserSession, 'get_or_create_cdp_session', AsyncMock(return_value=mock_cdp_session)
+		) as mock_get_session:
+			cookies = await session._cdp_get_cookies()
+
+		assert cookies == [{'name': 'sid', 'value': 'abc'}]
+		mock_get_session.assert_awaited_once_with(target_id=None)
+
 	# async def test_many_parallel_browser_sessions(self):
 	# 	"""Test spawning 12 parallel browser_sessions with different settings and ensure they all work"""
 	# 	from browser_use import BrowserSession

@@ -1248,11 +1248,14 @@ class BrowserSession(BaseModel):
 
 	async def _recover_cdp_connection(self, operation_name: str) -> None:
 		"""Ensure the CDP connection is usable before a direct BrowserSession CDP call."""
-		if self._intentional_stop or not self.cdp_url:
+		if not self.cdp_url:
 			raise ConnectionError(f'{operation_name}: CDP connection is not available')
 
 		if self.is_cdp_connected:
 			return
+
+		if self._intentional_stop:
+			raise ConnectionError(f'{operation_name}: CDP connection is down and session is shutting down')
 
 		if self.is_reconnecting:
 			await self._wait_for_reconnect(operation_name)
