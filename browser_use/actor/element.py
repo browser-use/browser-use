@@ -512,7 +512,7 @@ class Element:
 				if wpm > 0:
 					mean_iki = 60.0 / (wpm * 5.0)
 					sigma = 0.4
-					mu = math.log(mean_iki) - (sigma ** 2) / 2.0
+					mu = math.log(mean_iki) - (sigma**2) / 2.0
 					iki = random.lognormvariate(mu, sigma)
 					floor = max(0.005, min(0.030, mean_iki * 0.15))
 					delay = max(floor, iki)

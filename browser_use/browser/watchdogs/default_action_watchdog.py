@@ -1246,7 +1246,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 		# Log-normal parameters: sigma=0.4 gives realistic variance (~SD 70ms at 70WPM)
 		sigma = 0.4
-		mu = math.log(mean_iki) - (sigma ** 2) / 2.0
+		mu = math.log(mean_iki) - (sigma**2) / 2.0
 		iki = random.lognormvariate(mu, sigma)
 
 		# Word-boundary pause: space key triggers a 1.5–2× slowdown on the next char

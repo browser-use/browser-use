@@ -58,10 +58,11 @@ def _sample_delays(wpm: float, n: int = 500) -> list[float]:
 
 	sigma = 0.4
 	mean_iki = 60.0 / (wpm * 5.0)
-	mu = math.log(mean_iki) - (sigma ** 2) / 2.0
+	mu = math.log(mean_iki) - (sigma**2) / 2.0
 	floor = max(0.005, min(0.030, mean_iki * 0.15))
 
 	import random
+
 	return [max(floor, random.lognormvariate(mu, sigma)) for _ in range(n)]
 
 
@@ -124,9 +125,7 @@ async def browser_session_default():
 @pytest.fixture(scope='module')
 async def browser_session_90wpm():
 	"""Browser with human_typing_wpm=90."""
-	session = BrowserSession(
-		browser_profile=BrowserProfile(headless=True, user_data_dir=None, human_typing_wpm=90)
-	)
+	session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, human_typing_wpm=90))
 	await session.start()
 	yield session
 	await session.kill()
@@ -155,9 +154,7 @@ class TestBrowserTypingSpeed:
 		# 11 chars × 10ms base = 110ms max; give generous 1s headroom for CI
 		assert elapsed < 1.0, f'Default typing took {elapsed:.2f}s — unexpectedly slow'
 
-	async def test_90wpm_typing_is_slower_than_default(
-		self, browser_session_default, browser_session_90wpm, base_url
-	):
+	async def test_90wpm_typing_is_slower_than_default(self, browser_session_default, browser_session_90wpm, base_url):
 		"""90 WPM typing should be measurably slower than the default bot speed."""
 		# --- default ---
 		page_d = await browser_session_default.get_current_page()
