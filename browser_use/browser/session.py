@@ -4,9 +4,10 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, TypeVar, Union, cast, overload
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
@@ -62,6 +63,7 @@ DEFAULT_BROWSER_PROFILE = BrowserProfile()
 _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
 red = '\033[91m'
 reset = '\033[0m'
+T = TypeVar('T')
 
 
 class Target(BaseModel):
@@ -1197,6 +1199,87 @@ class BrowserSession(BaseModel):
 			else:
 				self.logger.debug(f'File already tracked: {event.path}')
 
+	def _is_connection_like_error(self, error: Exception) -> bool:
+		"""Check if an error looks like a transient CDP/WebSocket failure."""
+		error_str = str(error).lower()
+		return (
+			isinstance(error, ConnectionError)
+			or 'websocket connection closed' in error_str
+			or 'connection closed' in error_str
+			or 'keepalive ping timeout' in error_str
+			or 'client is stopping' in error_str
+			or 'cdp client not initialized' in error_str
+			or 'sessionmanager not initialized' in error_str
+			or 'browser may not be connected yet' in error_str
+		)
+
+	async def _wait_for_reconnect(self, operation_name: str) -> None:
+		"""Wait for an in-flight reconnect to finish and validate the result."""
+		wait_timeout = self.RECONNECT_WAIT_TIMEOUT
+		self.logger.warning(f'🔄 {operation_name}: waiting up to {wait_timeout}s for CDP reconnect...')
+		try:
+			await asyncio.wait_for(self._reconnect_event.wait(), timeout=wait_timeout)
+		except TimeoutError as e:
+			raise ConnectionError(f'{operation_name}: reconnect wait timed out after {wait_timeout}s') from e
+
+		if not self.is_cdp_connected:
+			raise ConnectionError(f'{operation_name}: reconnect finished but CDP is still unavailable')
+
+	async def _refresh_cloud_cdp_url_for_reconnect(self) -> None:
+		"""Refresh cloud browser metadata before reconnecting, if this is a cloud session."""
+		cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
+		if not cloud_session_id:
+			return
+
+		try:
+			browser_response = await self._cloud_browser_client.get_browser(cloud_session_id)
+		except Exception as e:
+			self.logger.warning(f'🔄 Failed to refresh cloud browser session {cloud_session_id} before reconnect: {e}')
+			return
+
+		if browser_response.status != 'active' or not browser_response.cdpUrl:
+			raise ConnectionError(
+				f'Cloud browser session {cloud_session_id} is {browser_response.status} and cannot accept a CDP reconnect'
+			)
+
+		if browser_response.cdpUrl != self.cdp_url:
+			self.logger.info(f'🔄 Cloud browser CDP URL refreshed for session {cloud_session_id}')
+		self.browser_profile.cdp_url = browser_response.cdpUrl
+
+	async def _recover_cdp_connection(self, operation_name: str) -> None:
+		"""Ensure the CDP connection is usable before a direct BrowserSession CDP call."""
+		if self._intentional_stop or not self.cdp_url:
+			raise ConnectionError(f'{operation_name}: CDP connection is not available')
+
+		if self.is_cdp_connected:
+			return
+
+		if self.is_reconnecting:
+			await self._wait_for_reconnect(operation_name)
+			return
+
+		self.logger.warning(f'🔄 {operation_name}: CDP socket is down, forcing a reconnect...')
+		await self._auto_reconnect(max_attempts=1)
+
+		if not self.is_cdp_connected:
+			raise ConnectionError(f'{operation_name}: forced reconnect did not restore the CDP connection')
+
+	async def _run_cdp_command_with_reconnect(self, operation_name: str, command_factory: Callable[[], Awaitable[T]]) -> T:
+		"""Run a direct CDP operation with one reconnect-aware retry for transient socket failures."""
+		await self._recover_cdp_connection(operation_name)
+
+		for attempt in range(2):
+			try:
+				return await command_factory()
+			except Exception as e:
+				if attempt == 1 or not self._is_connection_like_error(e):
+					raise
+
+				self.logger.warning(f'🔄 {operation_name} failed due to a transient CDP error, retrying once: {e}')
+				await self._recover_cdp_connection(f'{operation_name} retry')
+
+		raise RuntimeError(f'{operation_name}: unreachable retry state')
+
 	def _cloud_session_id_from_cdp_url(self) -> str | None:
 		"""Derive cloud browser session ID from a Browser Use CDP URL."""
 		if not self.cdp_url:
@@ -2043,6 +2126,10 @@ class BrowserSession(BaseModel):
 		assert self.cdp_url, 'Cannot reconnect without a CDP URL'
 
 		old_focus_target_id = self.agent_focus_target_id
+
+		# Refresh the cloud session details first because cloud infrastructure may rotate the
+		# CDP URL after a transport drop even while the browser session itself remains alive.
+		await self._refresh_cloud_cdp_url_for_reconnect()
 
 		# 1. Stop old CDPClient (WS is already dead, this just cleans internal state)
 		if self._cdp_client_root:
@@ -3327,28 +3414,39 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_get_cookies(self) -> list[Cookie]:
 		"""Get cookies using CDP Network.getCookies."""
-		cdp_session = await self.get_or_create_cdp_session(target_id=None)
-		result = await asyncio.wait_for(
-			cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
-		)
-		return result.get('cookies', [])
+
+		async def _get_cookies() -> list[Cookie]:
+			cdp_session = await self.get_or_create_cdp_session(target_id=None)
+			result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
+			)
+			return result.get('cookies', [])
+
+		return await self._run_cdp_command_with_reconnect('Get browser cookies', _get_cookies)
 
 	async def _cdp_set_cookies(self, cookies: list[Cookie]) -> None:
 		"""Set cookies using CDP Storage.setCookies."""
 		if not self.agent_focus_target_id or not cookies:
 			return
 
-		cdp_session = await self.get_or_create_cdp_session(target_id=None)
-		# Storage.setCookies expects params dict with 'cookies' key
-		await cdp_session.cdp_client.send.Storage.setCookies(
-			params={'cookies': cookies},  # type: ignore[arg-type]
-			session_id=cdp_session.session_id,
-		)
+		async def _set_cookies() -> None:
+			cdp_session = await self.get_or_create_cdp_session(target_id=None)
+			# Storage.setCookies expects params dict with 'cookies' key
+			await cdp_session.cdp_client.send.Storage.setCookies(
+				params={'cookies': cookies},  # type: ignore[arg-type]
+				session_id=cdp_session.session_id,
+			)
+
+		await self._run_cdp_command_with_reconnect('Set browser cookies', _set_cookies)
 
 	async def _cdp_clear_cookies(self) -> None:
 		"""Clear all cookies using CDP Network.clearBrowserCookies."""
-		cdp_session = await self.get_or_create_cdp_session()
-		await cdp_session.cdp_client.send.Storage.clearCookies(session_id=cdp_session.session_id)
+
+		async def _clear_cookies() -> None:
+			cdp_session = await self.get_or_create_cdp_session()
+			await cdp_session.cdp_client.send.Storage.clearCookies(session_id=cdp_session.session_id)
+
+		await self._run_cdp_command_with_reconnect('Clear browser cookies', _clear_cookies)
 
 	async def _cdp_grant_permissions(self, permissions: list[str], origin: str | None = None) -> None:
 		"""Grant permissions using CDP Browser.grantPermissions."""
@@ -3419,13 +3517,13 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_get_origins(self) -> list[dict[str, Any]]:
 		"""Get origins with localStorage and sessionStorage using CDP."""
-		origins = []
-		cdp_session = await self.get_or_create_cdp_session(target_id=None)
 
-		try:
+		async def _get_origins() -> list[dict[str, Any]]:
+			origins: list[dict[str, Any]] = []
+			cdp_session = await self.get_or_create_cdp_session(target_id=None)
+
 			# Enable DOMStorage domain to track storage
 			await cdp_session.cdp_client.send.DOMStorage.enable(session_id=cdp_session.session_id)
-
 			try:
 				# Get all frames to find unique origins
 				frames_result = await cdp_session.cdp_client.send.Page.getFrameTree(session_id=cdp_session.session_id)
@@ -3485,12 +3583,18 @@ class BrowserSession(BaseModel):
 
 			finally:
 				# Always disable DOMStorage tracking when done
-				await cdp_session.cdp_client.send.DOMStorage.disable(session_id=cdp_session.session_id)
+				try:
+					await cdp_session.cdp_client.send.DOMStorage.disable(session_id=cdp_session.session_id)
+				except Exception as e:
+					self.logger.debug(f'Failed to disable DOMStorage tracking cleanly: {e}')
 
+			return origins
+
+		try:
+			return await self._run_cdp_command_with_reconnect('Get storage origins', _get_origins)
 		except Exception as e:
 			self.logger.warning(f'Failed to get origins: {e}')
-
-		return origins
+			return []
 
 	async def _cdp_get_storage_state(self) -> dict:
 		"""Get storage state (cookies, localStorage, sessionStorage) using CDP."""

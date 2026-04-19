@@ -11,8 +11,10 @@ Tests cover:
 
 import asyncio
 import logging
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
+from websockets.protocol import State
 
 from browser_use.browser.profile import (
 	BROWSERUSE_DEFAULT_CHANNEL,
@@ -344,6 +346,33 @@ class TestBrowserSessionEventSystem:
 		# Check that no exceptions were raised
 		for result in results:
 			assert not isinstance(result, Exception), f'Event failed with: {result}'
+
+	async def test_cdp_get_cookies_retries_after_connection_drop(self):
+		"""Direct BrowserSession cookie export should retry once across a transient CDP drop."""
+
+		session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+		session._cdp_client_root = Mock(ws=Mock(state=State.OPEN))
+
+		mock_cdp_session = Mock()
+		mock_cdp_session.session_id = 'session-123'
+		mock_cdp_session.cdp_client = Mock()
+		mock_cdp_session.cdp_client.send = Mock()
+		mock_cdp_session.cdp_client.send.Storage = Mock()
+		mock_cdp_session.cdp_client.send.Storage.getCookies = AsyncMock(
+			side_effect=[ConnectionError('WebSocket connection closed'), {'cookies': [{'name': 'sid', 'value': 'abc'}]}]
+		)
+
+		with (
+			patch.object(
+				BrowserSession, 'get_or_create_cdp_session', AsyncMock(return_value=mock_cdp_session)
+			) as mock_get_session,
+			patch.object(BrowserSession, '_recover_cdp_connection', AsyncMock()) as mock_recover,
+		):
+			cookies = await session._cdp_get_cookies()
+
+		assert cookies == [{'name': 'sid', 'value': 'abc'}]
+		assert mock_get_session.await_count == 2
+		assert mock_recover.await_args_list == [call('Get browser cookies'), call('Get browser cookies retry')]
 
 	# async def test_many_parallel_browser_sessions(self):
 	# 	"""Test spawning 12 parallel browser_sessions with different settings and ensure they all work"""
