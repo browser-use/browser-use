@@ -654,8 +654,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description=(
 			'Extra delay in seconds added between each keystroke when typing text. '
 			'0.0 = use the built-in minimal delays (fast, bot-like). '
-			'Typical human typing is 40–60 WPM, which corresponds to roughly 0.025–0.040 s per character. '
-			'Set to e.g. 0.035 for a natural feel, or higher to slow down deliberately.'
+			'Typical human typing is 40–60 WPM (~5 chars/word), which works out to '
+			'roughly 0.20–0.30 s per character. '
+			'Set to e.g. 0.22 for a natural feel, or lower/higher to taste.'
 		),
 	)
 	human_typing_delay_randomness: float = Field(
@@ -666,7 +667,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			'The actual per-character delay is sampled uniformly from '
 			'[human_typing_delay_ms - jitter, human_typing_delay_ms + jitter], '
 			'clamped to ≥ 0. '
-			'Set to e.g. 0.010 to add natural variation to the typing rhythm.'
+			'Set to e.g. 0.05 to add natural variation to the typing rhythm.'
 		),
 	)
 
