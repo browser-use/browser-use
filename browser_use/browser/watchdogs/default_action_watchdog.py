@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import random
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
@@ -1206,10 +1207,24 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=cdp_session.session_id,
 					)
-				# Add 10ms delay between keystrokes
-				await asyncio.sleep(0.010)
+				# Delay between keystrokes — base 10 ms plus any human-typing config.
+				await asyncio.sleep(self._keystroke_delay(base=0.010))
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
+
+	def _keystroke_delay(self, base: float = 0.001) -> float:
+		"""Return the total per-keystroke sleep duration.
+
+		Combines the hard-coded *base* delay (keeps CDP happy) with the
+		optional human-typing delay and random jitter configured on the
+		BrowserProfile.  The result is always ≥ 0.
+		"""
+		profile = self.browser_session.browser_profile
+		extra = profile.human_typing_delay_ms
+		jitter = profile.human_typing_delay_randomness
+		if jitter > 0:
+			extra += random.uniform(-jitter, jitter)
+		return max(0.0, base + extra)
 
 	def _get_char_modifiers_and_vk(self, char: str) -> tuple[int, int, str]:
 		"""Get modifiers, virtual key code, and base key for a character.
@@ -1963,8 +1978,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 							session_id=cdp_session.session_id,
 						)
 
-				# Small delay between characters to look human (realistic typing speed)
-				await asyncio.sleep(0.001)
+				# Delay between characters — base 1 ms plus any human-typing config.
+				await asyncio.sleep(self._keystroke_delay(base=0.001))
 
 			# Step 4: Trigger framework-aware DOM events after typing completion
 			# Modern JavaScript frameworks (React, Vue, Angular) rely on these events
@@ -2629,8 +2644,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 							session_id=cdp_session.session_id,
 						)
 
-						# Small delay between characters (10ms)
-						await asyncio.sleep(0.010)
+						# Delay between characters — base 10 ms plus any human-typing config.
+						await asyncio.sleep(self._keystroke_delay(base=0.010))
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
