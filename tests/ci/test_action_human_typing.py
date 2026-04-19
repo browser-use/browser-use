@@ -146,7 +146,7 @@ class TestBrowserTypingSpeed:
 		watchdog = browser_session_default._default_action_watchdog
 		assert watchdog is not None
 
-		await page.evaluate("document.getElementById('inp').focus()")
+		await page.evaluate("() => document.getElementById('inp').focus()")
 		t0 = time.monotonic()
 		await watchdog._type_to_page(TEXT)
 		elapsed = time.monotonic() - t0
@@ -161,7 +161,7 @@ class TestBrowserTypingSpeed:
 		await page_d.goto(f'{base_url}/type-test')
 		await asyncio.sleep(0.3)
 		wd = browser_session_default._default_action_watchdog
-		await page_d.evaluate("document.getElementById('inp').focus()")
+		await page_d.evaluate("() => document.getElementById('inp').focus()")
 		t0 = time.monotonic()
 		await wd._type_to_page(TEXT)
 		default_elapsed = time.monotonic() - t0
@@ -171,7 +171,7 @@ class TestBrowserTypingSpeed:
 		await page_h.goto(f'{base_url}/type-test')
 		await asyncio.sleep(0.3)
 		wh = browser_session_90wpm._default_action_watchdog
-		await page_h.evaluate("document.getElementById('inp').focus()")
+		await page_h.evaluate("() => document.getElementById('inp').focus()")
 		t0 = time.monotonic()
 		await wh._type_to_page(TEXT)
 		human_elapsed = time.monotonic() - t0
