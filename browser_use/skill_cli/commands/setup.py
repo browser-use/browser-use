@@ -1,330 +1,253 @@
-"""Setup command - configure browser-use for first-time use.
+"""Setup command — post-install setup for browser-use CLI.
 
-Handles dependency installation and configuration with mode-based
-setup (local/remote/full) and optional automatic fixes.
+Covers everything install.sh does after the package is installed:
+home directory, config file, Chromium, profile-use, cloudflared.
+Interactive by default, --yes for CI.
 """
 
-import logging
-from typing import Any, Literal
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 
-logger = logging.getLogger(__name__)
 
-COMMANDS = {'setup'}
-
-
-async def handle(
-	action: str,
-	params: dict[str, Any],
-) -> dict[str, Any]:
-	"""Handle setup command."""
-	assert action == 'setup'
-
-	mode: Literal['local', 'remote', 'full'] = params.get('mode', 'local')
-	yes: bool = params.get('yes', False)
-	api_key: str | None = params.get('api_key')
-	json_output: bool = params.get('json', False)
-
-	# Validate mode
-	if mode not in ('local', 'remote', 'full'):
-		return {'error': f'Invalid mode: {mode}. Must be local, remote, or full'}
-
-	# Run setup flow
+def _prompt(message: str, yes: bool) -> bool:
+	"""Prompt user for confirmation. Returns True if --yes or user says yes."""
+	if yes:
+		return True
 	try:
-		checks = await run_checks(mode)
-
-		if not json_output:
-			_log_checks(checks)
-
-		# Plan actions
-		actions = plan_actions(checks, mode, yes, api_key)
-
-		if not json_output:
-			_log_actions(actions)
-
-		# Execute actions
-		await execute_actions(actions, mode, api_key, json_output)
-
-		# Validate
-		validation = await validate_setup(mode)
-
-		if not json_output:
-			_log_validation(validation)
-
-		return {
-			'status': 'success',
-			'mode': mode,
-			'checks': checks,
-			'validation': validation,
-		}
-
-	except Exception as e:
-		logger.exception(f'Setup failed: {e}')
-		error_msg = str(e)
-		if json_output:
-			return {'error': error_msg}
-		return {'error': error_msg}
+		reply = input(f'  {message} [Y/n] ').strip().lower()
+		return reply in ('', 'y', 'yes')
+	except (EOFError, KeyboardInterrupt):
+		print()
+		return False
 
 
-async def run_checks(mode: Literal['local', 'remote', 'full']) -> dict[str, Any]:
-	"""Run pre-flight checks without making changes.
+def handle(yes: bool = False) -> dict:
+	"""Run interactive setup."""
+	from browser_use.skill_cli.utils import get_home_dir
 
-	Returns:
-		Dict mapping check names to their status
-	"""
-	checks: dict[str, Any] = {}
+	home_dir = get_home_dir()
+	results: dict = {}
+	step = 0
+	total = 6
 
-	# Package check
-	try:
-		import browser_use
+	print('\nBrowser-Use Setup')
+	print('━━━━━━━━━━━━━━━━━\n')
 
-		checks['browser_use_package'] = {
-			'status': 'ok',
-			'message': f'browser-use {browser_use.__version__}'
-			if hasattr(browser_use, '__version__')
-			else 'browser-use installed',
-		}
-	except ImportError:
-		checks['browser_use_package'] = {
-			'status': 'error',
-			'message': 'browser-use not installed',
-		}
+	# Step 1: Home directory
+	step += 1
+	print(f'Step {step}/{total}: Home directory')
+	if home_dir.exists():
+		print(f'  ✓ {home_dir} exists')
+	else:
+		home_dir.mkdir(parents=True, exist_ok=True)
+		print(f'  ✓ {home_dir} created')
+	results['home_dir'] = 'ok'
 
-	# Browser check (local and full modes)
-	if mode in ('local', 'full'):
-		checks['browser'] = await _check_browser()
-
-	# API key check (remote and full modes)
-	if mode in ('remote', 'full'):
-		from browser_use.skill_cli.api_key import check_api_key
-
-		api_status = check_api_key()
-		if api_status['available']:
-			checks['api_key'] = {
-				'status': 'ok',
-				'message': f'Configured via {api_status["source"]} ({api_status["key_prefix"]}...)',
-			}
-		else:
-			checks['api_key'] = {
-				'status': 'missing',
-				'message': 'Not configured',
-			}
-
-	# Cloudflared check (remote and full modes)
-	if mode in ('remote', 'full'):
-		from browser_use.skill_cli.tunnel import get_tunnel_manager
-
-		tunnel_mgr = get_tunnel_manager()
-		status = tunnel_mgr.get_status()
-		checks['cloudflared'] = {
-			'status': 'ok' if status['available'] else 'missing',
-			'message': status['note'],
-		}
-
-	return checks
-
-
-async def _check_browser() -> dict[str, Any]:
-	"""Check if browser is available."""
-	try:
-		from browser_use.browser.profile import BrowserProfile
-
-		profile = BrowserProfile(headless=True)
-		# Just check if we can create a session without actually launching
-		return {
-			'status': 'ok',
-			'message': 'Browser available',
-		}
-	except Exception as e:
-		return {
-			'status': 'error',
-			'message': f'Browser check failed: {e}',
-		}
-
-
-def plan_actions(
-	checks: dict[str, Any],
-	mode: Literal['local', 'remote', 'full'],
-	yes: bool,
-	api_key: str | None,
-) -> list[dict[str, Any]]:
-	"""Plan which actions to take based on checks.
-
-	Returns:
-		List of actions to execute
-	"""
-	actions: list[dict[str, Any]] = []
-
-	# Browser installation (local/full)
-	if mode in ('local', 'full'):
-		browser_check = checks.get('browser', {})
-		if browser_check.get('status') != 'ok':
-			actions.append(
-				{
-					'type': 'install_browser',
-					'description': 'Install browser (Chromium)',
-					'required': True,
-				}
-			)
-
-	# API key configuration (remote/full)
-	if mode in ('remote', 'full'):
-		api_check = checks.get('api_key', {})
-		if api_check.get('status') != 'ok':
-			if api_key:
-				actions.append(
-					{
-						'type': 'configure_api_key',
-						'description': 'Configure API key',
-						'required': True,
-						'api_key': api_key,
-					}
-				)
-			elif not yes:
-				actions.append(
-					{
-						'type': 'prompt_api_key',
-						'description': 'Prompt for API key',
-						'required': False,
-					}
-				)
-
-	# Cloudflared (remote/full)
-	if mode in ('remote', 'full'):
-		cloudflared_check = checks.get('cloudflared', {})
-		if cloudflared_check.get('status') != 'ok':
-			actions.append(
-				{
-					'type': 'install_cloudflared',
-					'description': 'Install cloudflared (for tunneling)',
-					'required': True,
-				}
-			)
-
-	return actions
-
-
-async def execute_actions(
-	actions: list[dict[str, Any]],
-	mode: Literal['local', 'remote', 'full'],
-	api_key: str | None,
-	json_output: bool,
-) -> None:
-	"""Execute planned actions.
-
-	Args:
-		actions: List of actions to execute
-		mode: Setup mode (local/remote/full)
-		api_key: Optional API key to configure
-		json_output: Whether to output JSON
-	"""
-	for action in actions:
-		action_type = action['type']
-
-		if action_type == 'install_browser':
-			if not json_output:
-				print('📦 Installing Chromium browser (~300MB)...')
-			# Browser will be installed on first use by Playwright
-			if not json_output:
-				print('✓ Browser available (will be installed on first use)')
-
-		elif action_type == 'configure_api_key':
-			if not json_output:
-				print('🔑 Configuring API key...')
-			from browser_use.skill_cli.api_key import save_api_key
-
-			if api_key:
-				save_api_key(api_key)
-				if not json_output:
-					print('✓ API key configured')
-
-		elif action_type == 'prompt_api_key':
-			if not json_output:
-				print('🔑 API key not configured')
-				print('   Set via: export BROWSER_USE_API_KEY=your_key')
-				print('   Or: browser-use setup --api-key <key>')
-
-		elif action_type == 'install_cloudflared':
-			if not json_output:
-				print('⚠ cloudflared not installed')
-				print('   Install via:')
-				print('   macOS:   brew install cloudflared')
-				print(
-					'   Linux:   curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o ~/.local/bin/cloudflared && chmod +x ~/.local/bin/cloudflared'
-				)
-				print('   Windows: winget install Cloudflare.cloudflared')
-				print()
-				print('   Or re-run install.sh which installs cloudflared automatically.')
-
-
-async def validate_setup(
-	mode: Literal['local', 'remote', 'full'],
-) -> dict[str, Any]:
-	"""Validate that setup worked.
-
-	Returns:
-		Dict with validation results
-	"""
-	results: dict[str, Any] = {}
-
-	# Check imports
-	try:
-		import browser_use  # noqa: F401
-
-		results['browser_use_import'] = 'ok'
-	except ImportError:
-		results['browser_use_import'] = 'failed'
-
-	# Validate mode requirements
-	if mode in ('local', 'full'):
+	# Step 2: Config file
+	step += 1
+	config_path = home_dir / 'config.json'
+	print(f'\nStep {step}/{total}: Config file')
+	if config_path.exists():
+		print(f'  ✓ {config_path} exists')
+	else:
+		config_path.write_text('{}\n')
 		try:
-			from browser_use.browser.profile import BrowserProfile
+			config_path.chmod(0o600)
+		except OSError:
+			pass
+		print(f'  ✓ {config_path} created')
+	results['config'] = 'ok'
 
-			browser_profile = BrowserProfile(headless=True)
-			results['browser_available'] = 'ok'
-		except Exception as e:
-			results['browser_available'] = f'failed: {e}'
+	# Step 3: Chromium browser
+	step += 1
+	print(f'\nStep {step}/{total}: Chromium browser')
+	chromium_installed = _check_chromium()
+	if chromium_installed:
+		print('  ✓ Chromium already installed')
+		results['chromium'] = 'ok'
+	else:
+		if _prompt('Chromium is not installed (~300MB download). Install now?', yes):
+			print('  ℹ Installing Chromium...')
+			if _install_chromium():
+				print('  ✓ Chromium installed')
+				results['chromium'] = 'ok'
+			else:
+				print('  ✗ Chromium installation failed')
+				results['chromium'] = 'failed'
+		else:
+			print('  ○ Skipped')
+			results['chromium'] = 'skipped'
 
-	if mode in ('remote', 'full'):
-		from browser_use.skill_cli.api_key import check_api_key
-		from browser_use.skill_cli.tunnel import get_tunnel_manager
+	# Step 4: Profile-use binary
+	step += 1
+	print(f'\nStep {step}/{total}: Profile-use binary')
+	from browser_use.skill_cli.profile_use import get_profile_use_binary
 
-		api_check = check_api_key()
-		results['api_key_available'] = api_check['available']
+	if get_profile_use_binary():
+		print('  ✓ profile-use already installed')
+		results['profile_use'] = 'ok'
+	else:
+		if _prompt('profile-use is not installed (needed for browser-use profile). Install now?', yes):
+			print('  ℹ Downloading profile-use...')
+			if _install_profile_use():
+				print('  ✓ profile-use installed')
+				results['profile_use'] = 'ok'
+			else:
+				print('  ✗ profile-use installation failed')
+				results['profile_use'] = 'failed'
+		else:
+			print('  ○ Skipped')
+			results['profile_use'] = 'skipped'
 
-		tunnel_mgr = get_tunnel_manager()
-		results['cloudflared_available'] = tunnel_mgr.is_available()
+	# Step 5: Cloudflared
+	step += 1
+	print(f'\nStep {step}/{total}: Cloudflare tunnel (cloudflared)')
+	if shutil.which('cloudflared'):
+		print('  ✓ cloudflared already installed')
+		results['cloudflared'] = 'ok'
+	else:
+		if _prompt('cloudflared is not installed (needed for browser-use tunnel). Install now?', yes):
+			print('  ℹ Installing cloudflared...')
+			if _install_cloudflared():
+				print('  ✓ cloudflared installed')
+				results['cloudflared'] = 'ok'
+			else:
+				print('  ✗ cloudflared installation failed')
+				results['cloudflared'] = 'failed'
+		else:
+			print('  ○ Skipped')
+			results['cloudflared'] = 'skipped'
 
+	# Step 6: Validation
+	step += 1
+	print(f'\nStep {step}/{total}: Validation')
+	from browser_use.skill_cli.config import CLI_DOCS_URL, get_config_display
+
+	# Quick checks
+	checks = {
+		'package': _check_package(),
+		'browser': 'ok' if _check_chromium() else 'missing',
+		'profile_use': 'ok' if get_profile_use_binary() else 'missing',
+		'cloudflared': 'ok' if shutil.which('cloudflared') else 'missing',
+	}
+	for name, status in checks.items():
+		icon = '✓' if status == 'ok' else '○'
+		print(f'  {icon} {name}: {status}')
+
+	# Config display
+	entries = get_config_display()
+	print(f'\nConfig ({config_path}):')
+	for entry in entries:
+		if entry['is_set']:
+			icon = '✓'
+			val = 'set' if entry['sensitive'] else entry['value']
+		else:
+			icon = '○'
+			val = entry['value'] if entry['value'] else 'not set'
+		print(f'  {icon} {entry["key"]}: {val}')
+	print(f'  Docs: {CLI_DOCS_URL}')
+
+	print('\n━━━━━━━━━━━━━━━━━')
+	print('Setup complete! Next: browser-use open https://example.com\n')
+
+	results['status'] = 'success'
 	return results
 
 
-def _log_checks(checks: dict[str, Any]) -> None:
-	"""Log check results."""
-	print('\n✓ Running checks...\n')
-	for name, check in checks.items():
-		status = check.get('status', 'unknown')
-		message = check.get('message', '')
-		icon = '✓' if status == 'ok' else '⚠' if status == 'missing' else '✗'
-		print(f'  {icon} {name.replace("_", " ")}: {message}')
-	print()
+def _check_package() -> str:
+	"""Check if browser-use package is importable."""
+	try:
+		import browser_use
+
+		version = getattr(browser_use, '__version__', 'unknown')
+		return f'browser-use {version}'
+	except ImportError:
+		return 'not installed'
 
 
-def _log_actions(actions: list[dict[str, Any]]) -> None:
-	"""Log planned actions."""
-	if not actions:
-		print('✓ No additional setup needed!\n')
-		return
+def _check_chromium() -> bool:
+	"""Check if playwright chromium is installed."""
+	try:
+		from browser_use.browser.profile import BrowserProfile
 
-	print('\n📋 Setup actions:\n')
-	for i, action in enumerate(actions, 1):
-		required = '(required)' if action.get('required') else '(optional)'
-		print(f'  {i}. {action["description"]} {required}')
-	print()
+		BrowserProfile(headless=True)
+		return True
+	except Exception:
+		return False
 
 
-def _log_validation(validation: dict[str, Any]) -> None:
-	"""Log validation results."""
-	print('\n✓ Validation:\n')
-	for name, result in validation.items():
-		icon = '✓' if result == 'ok' else '✗'
-		print(f'  {icon} {name.replace("_", " ")}: {result}')
-	print()
+def _install_chromium() -> bool:
+	"""Install Chromium via playwright."""
+	try:
+		cmd = [sys.executable, '-m', 'playwright', 'install', 'chromium']
+		if sys.platform == 'linux':
+			cmd.append('--with-deps')
+		result = subprocess.run(cmd, timeout=300)
+		return result.returncode == 0
+	except Exception:
+		return False
+
+
+def _install_profile_use() -> bool:
+	"""Download profile-use binary."""
+	try:
+		from browser_use.skill_cli.profile_use import download_profile_use
+
+		download_profile_use()
+		return True
+	except Exception:
+		return False
+
+
+def _install_cloudflared() -> bool:
+	"""Install cloudflared."""
+	try:
+		if sys.platform == 'darwin':
+			result = subprocess.run(['brew', 'install', 'cloudflared'], timeout=120)
+			return result.returncode == 0
+		elif sys.platform == 'win32':
+			result = subprocess.run(['winget', 'install', 'Cloudflare.cloudflared'], timeout=120)
+			return result.returncode == 0
+		else:
+			# Linux: download binary + verify SHA256 checksum before installing
+			import hashlib
+			import platform
+			import shutil
+			import tempfile
+			import urllib.request
+
+			arch = 'arm64' if platform.machine() in ('aarch64', 'arm64') else 'amd64'
+			base_url = f'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}'
+
+			# Download to a temp file so we can verify before installing
+			with tempfile.NamedTemporaryFile(delete=False, suffix='.tmp') as tmp:
+				tmp_path = Path(tmp.name)
+			try:
+				urllib.request.urlretrieve(base_url, tmp_path)
+
+				# Fetch checksum file published alongside the binary
+				with urllib.request.urlopen(f'{base_url}.sha256sum') as resp:
+					expected_sha256 = resp.read().decode().split()[0]
+
+				# Verify integrity before touching the install destination
+				actual_sha256 = hashlib.sha256(tmp_path.read_bytes()).hexdigest()
+				if actual_sha256 != expected_sha256:
+					raise RuntimeError(
+						f'cloudflared checksum mismatch — expected {expected_sha256}, got {actual_sha256}. '
+						'The download may be corrupt or tampered with.'
+					)
+
+				dest = Path('/usr/local/bin/cloudflared')
+				if not os.access('/usr/local/bin', os.W_OK):
+					dest = Path.home() / '.local' / 'bin' / 'cloudflared'
+					dest.parent.mkdir(parents=True, exist_ok=True)
+				shutil.move(str(tmp_path), dest)
+				dest.chmod(0o755)
+			finally:
+				tmp_path.unlink(missing_ok=True)
+			return True
+	except Exception:
+		return False

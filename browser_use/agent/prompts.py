@@ -157,6 +157,7 @@ class AgentMessagePrompt:
 			'images': 0,
 			'interactive_elements': 0,
 			'total_elements': 0,
+			'text_chars': 0,
 		}
 
 		if not self.browser_state.dom_state or not self.browser_state.dom_state._root:
@@ -203,6 +204,9 @@ class AgentMessagePrompt:
 					else:
 						stats['shadow_open'] += 1
 
+			elif original.node_type == NodeType.TEXT_NODE:
+				stats['text_chars'] += len(original.node_value.strip())
+
 			elif original.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 				# Shadow DOM fragment - these are the actual shadow roots
 				# But don't double-count since we count them at the host level above
@@ -224,6 +228,9 @@ class AgentMessagePrompt:
 		stats_text = '<page_stats>'
 		if page_stats['total_elements'] < 10:
 			stats_text += 'Page appears empty (SPA not loaded?) - '
+		# Skeleton screen: many elements but almost no text = loading placeholders
+		elif page_stats['total_elements'] > 20 and page_stats['text_chars'] < page_stats['total_elements'] * 5:
+			stats_text += 'Page appears to show skeleton/placeholder content (still loading?) - '
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
 		stats_text += f'{page_stats["iframes"]} iframes'
 		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
@@ -252,14 +259,11 @@ class AgentMessagePrompt:
 			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
 			has_content_above = pages_above > 0
 			has_content_below = pages_below > 0
-			total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
-			current_page_position = pi.scroll_y / max(pi.page_height - pi.viewport_height, 1)
 			page_info_text = '<page_info>'
-			page_info_text += f'{pages_above:.1f} above, '
-			page_info_text += f'{pages_below:.1f} below '
-
+			page_info_text += f'{pages_above:.1f} pages above, {pages_below:.1f} pages below'
+			if pages_below > 0.2:
+				page_info_text += ' — scroll down to reveal more content'
 			page_info_text += '</page_info>\n'
-			# , at {current_page_position:.0%} of page
 		if elements_text != '':
 			if not has_content_above:
 				elements_text = f'[Start of page]\n{elements_text}'
