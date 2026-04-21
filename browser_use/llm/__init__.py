@@ -26,6 +26,8 @@ from browser_use.llm.messages import (
 
 # Type stubs for lazy imports
 if TYPE_CHECKING:
+	from browser_use.llm.astraflow.chat import ChatAstraflow
+if TYPE_CHECKING:
 	from browser_use.llm.anthropic.chat import ChatAnthropic
 	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
 	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
@@ -92,6 +94,7 @@ _LAZY_IMPORTS = {
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
+	'ChatAstraflow': ('browser_use.llm.astraflow.chat', 'ChatAstraflow'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 }
@@ -155,6 +158,7 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',
 	'ChatOllama',
+	'ChatAstraflow',
 	'ChatOpenRouter',
 	'ChatVercel',
 	'ChatCerebras',
