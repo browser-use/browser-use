@@ -195,7 +195,9 @@ class RecordingWatchdog(BaseWatchdog):
 
 		if not self._recorder:
 			return
-		self._recorder.add_frame(event['data'])
+
+		timestamp = event.get('metadata', {}).get('timestamp')
+		self._recorder.add_frame(event['data'], timestamp=timestamp)
 		create_task_with_error_handling(
 			self._ack_screencast_frame(event, session_id),
 			name='ack_screencast_frame',
