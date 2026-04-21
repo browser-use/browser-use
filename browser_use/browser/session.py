@@ -1354,6 +1354,23 @@ class BrowserSession(BaseModel):
 		"""Clear all cookies."""
 		await self.cdp_client.send.Network.clearBrowserCookies()
 
+
+	async def _ensure_cdp_ready_for_command(self, operation_name: str) -> None:
+		"""Wait for in-flight reconnection or fail fast before direct CDP helper commands."""
+		if self.is_cdp_connected:
+			return
+		if self.is_reconnecting:
+			wait_timeout = self.RECONNECT_WAIT_TIMEOUT
+			self.logger.debug(f'⏳ Waiting for CDP reconnection before {operation_name} ({wait_timeout}s)...')
+			try:
+				await asyncio.wait_for(self._reconnect_event.wait(), timeout=wait_timeout)
+			except TimeoutError as exc:
+				raise ConnectionError(f'{operation_name}: reconnection wait timed out after {wait_timeout}s') from exc
+			if self.is_cdp_connected:
+				return
+			raise ConnectionError(f'{operation_name}: reconnection finished but CDP is still not connected')
+		raise ConnectionError(f'{operation_name}: CDP is not connected')
+
 	async def export_storage_state(self, output_path: str | Path | None = None) -> dict[str, Any]:
 		"""Export all browser cookies and storage to storage_state format.
 
@@ -1367,6 +1384,8 @@ class BrowserSession(BaseModel):
 
 		"""
 		from pathlib import Path
+
+		await self._ensure_cdp_ready_for_command('export_storage_state')
 
 		# Get all cookies using Storage.getCookies (returns decrypted cookies from all domains)
 		cookies = await self._cdp_get_cookies()
@@ -3328,6 +3347,7 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_get_cookies(self) -> list[Cookie]:
 		"""Get cookies using CDP Network.getCookies."""
+		await self._ensure_cdp_ready_for_command('_cdp_get_cookies')
 		cdp_session = await self.get_or_create_cdp_session(target_id=None)
 		result = await asyncio.wait_for(
 			cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
@@ -3339,6 +3359,8 @@ class BrowserSession(BaseModel):
 		if not self.agent_focus_target_id or not cookies:
 			return
 
+		await self._ensure_cdp_ready_for_command('_cdp_set_cookies')
+
 		cdp_session = await self.get_or_create_cdp_session(target_id=None)
 		# Storage.setCookies expects params dict with 'cookies' key
 		await cdp_session.cdp_client.send.Storage.setCookies(
@@ -3348,6 +3370,7 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_clear_cookies(self) -> None:
 		"""Clear all cookies using CDP Network.clearBrowserCookies."""
+		await self._ensure_cdp_ready_for_command('_cdp_clear_cookies')
 		cdp_session = await self.get_or_create_cdp_session()
 		await cdp_session.cdp_client.send.Storage.clearCookies(session_id=cdp_session.session_id)
 
