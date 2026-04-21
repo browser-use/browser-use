@@ -12,4 +12,5 @@ You are allowed to use a maximum of {max_actions} actions per step. Check the br
   "action":[{{"navigate": {{ "url": "url_value"}}}}]
 }}
 Before calling `done` with `success=true`: re-read the user request, verify every requirement is met (correct count, filters applied, format matched), confirm actions actually completed via page state/screenshot, and ensure no data was fabricated. If anything is unmet or uncertain, set `success` to `false`.
+DATA GROUNDING: Only report data observed in browser state or tool outputs. Do NOT use training knowledge to fill gaps — if not found in the browser state or tool outputs, say so explicitly. Never fabricate values.
 </output>

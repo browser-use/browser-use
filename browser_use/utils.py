@@ -31,6 +31,30 @@ _openai_bad_request_error: type | None = None
 _groq_bad_request_error: type | None = None
 
 
+def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, str]:
+	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings."""
+	if not sensitive_data:
+		return {}
+
+	sensitive_values: dict[str, str] = {}
+	for key_or_domain, content in sensitive_data.items():
+		if isinstance(content, dict):
+			for key, val in content.items():
+				if val:
+					sensitive_values[key] = val
+		elif content:
+			sensitive_values[key_or_domain] = content
+
+	return sensitive_values
+
+
+def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
+	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
+		value = value.replace(secret, f'<secret>{key}</secret>')
+	return value
+
+
 def _get_openai_bad_request_error() -> type | None:
 	"""Lazy loader for OpenAI BadRequestError."""
 	global _openai_bad_request_error
@@ -77,6 +101,7 @@ class SignalHandler:
 	- Management of event loop state across signals
 	- Standardized handling of first and second Ctrl+C presses
 	- Cross-platform compatibility (with simplified behavior on Windows)
+	- Option to disable signal handling for embedding in applications that manage their own signals
 	"""
 
 	def __init__(
@@ -87,6 +112,7 @@ class SignalHandler:
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
 		interruptible_task_patterns: list[str] | None = None,
+		disabled: bool = False,
 	):
 		"""
 		Initialize the signal handler.
@@ -99,6 +125,8 @@ class SignalHandler:
 			exit_on_second_int: Whether to exit on second SIGINT (Ctrl+C)
 			interruptible_task_patterns: List of patterns to match task names that should be
 										 canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
+			disabled: If True, signal handling is disabled and register() is a no-op.
+					Useful when embedding browser-use in applications that manage their own signals.
 		"""
 		self.loop = loop or asyncio.get_event_loop()
 		self.pause_callback = pause_callback
@@ -107,6 +135,7 @@ class SignalHandler:
 		self.exit_on_second_int = exit_on_second_int
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
 		self.is_windows = platform.system() == 'Windows'
+		self.disabled = disabled
 
 		# Initialize loop state attributes
 		self._initialize_loop_state()
@@ -121,7 +150,13 @@ class SignalHandler:
 		setattr(self.loop, 'waiting_for_input', False)
 
 	def register(self) -> None:
-		"""Register signal handlers for SIGINT and SIGTERM."""
+		"""Register signal handlers for SIGINT and SIGTERM.
+
+		If disabled=True was passed to __init__, this method does nothing.
+		"""
+		if self.disabled:
+			return
+
 		try:
 			if self.is_windows:
 				# On Windows, use simple signal handling with immediate exit on Ctrl+C
@@ -146,7 +181,13 @@ class SignalHandler:
 			pass
 
 	def unregister(self) -> None:
-		"""Unregister signal handlers and restore original handlers if possible."""
+		"""Unregister signal handlers and restore original handlers if possible.
+
+		If disabled=True was passed to __init__, this method does nothing.
+		"""
+		if self.disabled:
+			return
+
 		try:
 			if self.is_windows:
 				# On Windows, just restore the original SIGINT handler

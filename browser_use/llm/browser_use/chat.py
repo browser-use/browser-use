@@ -90,8 +90,8 @@ class ChatBrowserUse(BaseChatModel):
 
 		if not self.api_key:
 			raise ValueError(
-				'You need to set the BROWSER_USE_API_KEY environment variable. '
-				'Get your key at https://cloud.browser-use.com/new-api-key'
+				'BROWSER_USE_API_KEY is not set. To use ChatBrowserUse, get a key at:\n'
+				'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=chat_browser_use'
 			)
 
 	@property
@@ -275,9 +275,17 @@ class ChatBrowserUse(BaseChatModel):
 		status_code = e.response.status_code
 
 		if status_code == 401:
-			raise ModelProviderError(message=f'Invalid API key. {error_detail}', status_code=401, model=self.name)
+			raise ModelProviderError(
+				message=f'BROWSER_USE_API_KEY is invalid. Get a new key at:\nhttps://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=chat_browser_use\n{error_detail}',
+				status_code=401,
+				model=self.name,
+			)
 		elif status_code == 402:
-			raise ModelProviderError(message=f'Insufficient credits. {error_detail}', status_code=402, model=self.name)
+			raise ModelProviderError(
+				message=f'Browser Use credits exhausted. Add more at:\nhttps://cloud.browser-use.com/billing?utm_source=oss&utm_medium=chat_browser_use\n{error_detail}',
+				status_code=402,
+				model=self.name,
+			)
 		elif status_code == 429:
 			raise ModelRateLimitError(message=f'Rate limit exceeded. {error_detail}', status_code=429, model=self.name)
 		elif status_code in {500, 502, 503, 504}:

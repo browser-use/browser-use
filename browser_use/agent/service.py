@@ -187,6 +187,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		file_system_path: str | None = None,
 		task_id: str | None = None,
 		calculate_cost: bool = False,
+		pricing_url: str | None = None,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
@@ -205,6 +206,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
+		enable_signal_handler: bool = True,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -413,12 +415,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		# Token cost service
-		self.token_cost_service = TokenCost(include_cost=calculate_cost)
+		self.token_cost_service = TokenCost(include_cost=calculate_cost, pricing_url=pricing_url)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
 		self.token_cost_service.register_llm(judge_llm)
 		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
 			self.token_cost_service.register_llm(self.settings.message_compaction.compaction_llm)
+
+		# Store signal handler setting (not part of AgentSettings as it's runtime behavior)
+		self.enable_signal_handler = enable_signal_handler
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -1046,6 +1051,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
 
+			# Clear previous step state after context preparation (which needs
+			# them for the "previous action result" prompt) but before the LLM
+			# call, so a timeout during _get_next_action or _execute_actions
+			# won't leave stale data from the previous step.
+			self.state.last_model_output = None
+			self.state.last_result = None
+
 			# Phase 2: Get model output and execute actions
 			await self._get_next_action(browser_state_summary)
 			await self._execute_actions()
@@ -1635,8 +1647,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if judgement.failure_reason:
 					judge_log += f'   Failure Reason: {judgement.failure_reason}\n'
 				if judgement.reached_captcha:
-					judge_log += '   🤖 Captcha Detected: Agent encountered captcha challenges\n'
-					judge_log += '   👉 🥷 Use Browser Use Cloud for the most stealth browser infra: https://docs.browser-use.com/customize/browser/remote\n'
+					self.logger.warning(
+						'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
+						'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
+					)
 				judge_log += f'   {judgement.reasoning}\n'
 				self.logger.info(judge_log)
 
@@ -2044,8 +2058,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not (self.logger.isEnabledFor(logging.DEBUG) and parsed.action):
 			return
 
-		action_count = len(parsed.action)
-
 		# Collect action details
 		action_details = []
 		for i, action in enumerate(parsed.action):
@@ -2150,11 +2162,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			has_captcha_issue = any(keyword in final_result_str for keyword in captcha_keywords)
 
 			if has_captcha_issue:
-				# Suggest use_cloud=True for captcha/cloudflare issues
-				task_preview = self.task[:10] if len(self.task) > 10 else self.task
-				self.logger.info('')
-				self.logger.info('Failed because of CAPTCHA? For better browser stealth, try:')
-				self.logger.info(f'   agent = Agent(task="{task_preview}...", browser=Browser(use_cloud=True))')
+				self.logger.warning(
+					'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
+					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
+				)
 
 			# General failure message
 			self.logger.info('')
@@ -2442,6 +2453,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1
 			self.state.last_result = [ActionResult(error=error_msg)]
+			# Ensure step counter advances on timeout — _finalize() may have
+			# been skipped or returned early due to the cancellation.
+			if self.state.n_steps == step + 1:
+				self.state.n_steps += 1
 
 		if on_step_end is not None:
 			await on_step_end(self)
@@ -2495,6 +2510,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			resume_callback=self.resume,
 			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
 			exit_on_second_int=True,
+			disabled=not self.enable_signal_handler,
 		)
 		signal_handler.register()
 
@@ -2536,11 +2552,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Register skills as actions if SkillService is configured
 			await self._register_skills_as_actions()
 
-			# Normally there was no try catch here but the callback can raise an InterruptedError
+			# Normally there was no try catch here but the callback can raise an InterruptedError.
+			# Wrap with step_timeout so initial actions (usually a single URL navigate) can't
+			# hang indefinitely on a silent CDP WebSocket — without this the agent would take
+			# zero steps and return with an empty history while any outer watchdog waits.
 			try:
-				await self._execute_initial_actions()
+				await asyncio.wait_for(
+					self._execute_initial_actions(),
+					timeout=self.settings.step_timeout,
+				)
 			except InterruptedError:
 				pass
+			except TimeoutError:
+				initial_timeout_msg = (
+					f'Initial actions timed out after {self.settings.step_timeout}s '
+					f'(browser may be unresponsive). Proceeding to main execution loop.'
+				)
+				self.logger.error(f'⏰ {initial_timeout_msg}')
+				self.state.last_result = [ActionResult(error=initial_timeout_msg)]
+				self.state.consecutive_failures += 1
 			except Exception as e:
 				raise e
 
@@ -2687,7 +2717,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		     to pre-action values. Any change aborts the remaining queue.
 		"""
 		results: list[ActionResult] = []
-		time_elapsed = 0
 		total_actions = len(actions)
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
@@ -2697,14 +2726,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				and self.browser_session._cached_browser_state_summary.dom_state is not None
 			):
 				cached_selector_map = dict(self.browser_session._cached_browser_state_summary.dom_state.selector_map)
-				cached_element_hashes = {e.parent_branch_hash() for e in cached_selector_map.values()}
 			else:
 				cached_selector_map = {}
-				cached_element_hashes = set()
 		except Exception as e:
 			self.logger.error(f'Error getting cached selector map: {e}')
 			cached_selector_map = {}
-			cached_element_hashes = set()
 
 		for i, action in enumerate(actions):
 			# Get action name from the action model BEFORE try block to ensure it's always available in except
@@ -2733,8 +2759,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				pre_action_url = await self.browser_session.get_current_page_url()
 				pre_action_focus = self.browser_session.agent_focus_target_id
 
-				time_start = time.time()
-
 				result = await self.tools.act(
 					action=action,
 					browser_session=self.browser_session,
@@ -2744,9 +2768,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
 				)
-
-				time_end = time.time()
-				time_elapsed = time_end - time_start
 
 				if result.error:
 					await self._demo_mode_log(
@@ -3445,7 +3466,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					hist_node = historical_elem.node_name.lower() if historical_elem else ''
 					similar_elements = []
 					if historical_elem and historical_elem.attributes:
-						hist_aria = historical_elem.attributes.get('aria-label', '')
 						for idx, elem in selector_map.items():
 							if elem.node_name.lower() == hist_node and elem.attributes:
 								elem_aria = elem.attributes.get('aria-label', '')

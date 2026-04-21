@@ -1,19 +1,19 @@
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
   <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
 </picture>
 
 <div align="center">
     <picture>
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"">
+    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125">
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
     <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"  width="400">
     </picture>
 </div>
 
 <div align="center">
-<a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
+<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-downloads"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
 </div>
 
 ---
@@ -30,15 +30,15 @@
 <a href="https://github.com/browser-use/browser-use"><img src="https://media.browser-use.tools/badges/github" alt="Github Stars"></a>
 <img width="4" height="1" alt="">
 <a href="https://x.com/intent/user?screen_name=browser_use"><img src="https://media.browser-use.tools/badges/twitter" alt="Twitter"></a>
-<img width="4 height="1" alt="">
+<img width="4" height="1" alt="">
 <a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
 <img width="4" height="1" alt="">
-<a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
+<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
 </div>
 
 </br>
 
-🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com)</b> for faster, scalable, stealth-enabled browser automation!
+🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-skip-setup)</b> for faster, scalable, stealth-enabled browser automation!
 
 # 🤖 LLM Quickstart
 
@@ -55,7 +55,7 @@ uv init && uv add browser-use && uv sync
 # uvx browser-use install  # Run if you don't have Chromium installed
 ```
 
-**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) (new signups get $10 free credits):**
+**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
@@ -88,7 +88,31 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
+Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme-cloud-docs) for more!
+
+<br/>
+
+# Open Source vs Cloud
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="static/accuracy_by_model_light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="static/accuracy_by_model_dark.png">
+  <img alt="BU Bench V1 - LLM Success Rates" src="static/accuracy_by_model_light.png" width="100%">
+</picture>
+
+We benchmark Browser Use across 100 real-world browser tasks. Full benchmark is open source: **[browser-use/benchmark](https://github.com/browser-use/benchmark)**.
+
+**Use the Open-Source Agent**
+- You need [custom tools](https://docs.browser-use.com/customize/tools/basics) or deep code-level integration
+- We recommend pairing with our [cloud browsers](https://docs.browser-use.com/open-source/customize/browser/remote) for leading stealth, proxy rotation, and scaling
+- Or self-host the open-source agent fully on your own machines
+
+**Use the [Fully-Hosted Cloud Agent](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-hosted-agent) (recommended)**
+- Much more powerful agent for complex tasks (see plot above)
+- Easiest way to start and scale
+- Best stealth with proxy rotation and captcha solving
+- 1000+ integrations (Gmail, Slack, Notion, and more)
+- Persistent filesystem and memory
 
 <br/>
 
@@ -187,6 +211,15 @@ We optimized **ChatBrowserUse()** specifically for browser automation tasks. On 
 For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
 </details>
 
+<details>
+<summary><b>Should I use the Browser Use system prompt with the open-source preview model?</b></summary>
+
+Yes. If you use `ChatBrowserUse(model='browser-use/bu-30b-a3b-preview')` with a normal `Agent(...)`, Browser Use still sends its default agent system prompt for you.
+
+You do **not** need to add a separate custom "Browser Use system message" just because you switched to the open-source preview model. Only use `extend_system_message` or `override_system_message` when you intentionally want to customize the default behavior for your task.
+
+If you want the best default speed/accuracy, we still recommend the newer hosted `bu-*` models. If you want the open-source preview model, the setup stays the same apart from the `model=` value.
+</details>
 
 <details>
 <summary><b>Can I use custom tools with the agent?</b></summary>
@@ -238,7 +271,7 @@ These examples show how to maintain sessions and handle authentication seamlessl
 <details>
 <summary><b>How do I solve CAPTCHAs?</b></summary>
 
-For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [Browser Use Cloud](https://cloud.browser-use.com) which provides stealth browsers designed to avoid detection and CAPTCHA challenges.
+For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [Browser Use Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-captcha) which provides stealth browsers designed to avoid detection and CAPTCHA challenges.
 </details>
 
 <details>
@@ -246,7 +279,7 @@ For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [B
 
 Chrome can consume a lot of memory, and running many agents in parallel can be tricky to manage.
 
-For production use cases, use our [Browser Use Cloud API](https://cloud.browser-use.com) which handles:
+For production use cases, use our [Browser Use Cloud API](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-production) which handles:
 - Scalable browser infrastructure
 - Memory management
 - Proxy rotation
