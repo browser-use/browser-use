@@ -5,7 +5,7 @@ This module provides a minimal command-line interface for generating
 browser-use templates without requiring heavy TUI dependencies.
 """
 
-import json
+import hashlib
 import shutil
 import sys
 from pathlib import Path
@@ -21,6 +21,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from browser_use.init_template_manifest import TRUSTED_INIT_TEMPLATE_HASHES, TRUSTED_INIT_TEMPLATES
+
 # Rich console for styled output
 console = Console()
 
@@ -28,38 +30,33 @@ console = Console()
 TEMPLATE_REPO_URL = 'https://raw.githubusercontent.com/browser-use/template-library/main'
 
 # Export for backward compatibility with cli.py
-# Templates are fetched at runtime via _get_template_list()
-INIT_TEMPLATES: dict[str, Any] = {}
-
-
-def _fetch_template_list() -> dict[str, Any] | None:
-	"""
-	Fetch template list from GitHub templates.json.
-
-	Returns template dict if successful, None if failed.
-	"""
-	try:
-		url = f'{TEMPLATE_REPO_URL}/templates.json'
-		with request.urlopen(url, timeout=5) as response:
-			data = response.read().decode('utf-8')
-			return json.loads(data)
-	except (URLError, TimeoutError, json.JSONDecodeError, Exception):
-		return None
+# Template metadata is pinned in-package; file contents are fetched at runtime and verified.
+INIT_TEMPLATES: dict[str, Any] = TRUSTED_INIT_TEMPLATES
 
 
 def _get_template_list() -> dict[str, Any]:
 	"""
-	Get template list from GitHub.
-
-	Raises FileNotFoundError if GitHub fetch fails.
+	Get trusted template list shipped with browser-use.
 	"""
-	templates = _fetch_template_list()
-	if templates is not None:
-		return templates
-	raise FileNotFoundError('Could not fetch templates from GitHub. Check your internet connection.')
+	return INIT_TEMPLATES
 
 
-def _fetch_from_github(file_path: str) -> str | None:
+def _verify_template_bytes(file_path: str, content: bytes) -> bytes:
+	"""Verify downloaded template content against the pinned manifest."""
+	expected_hash = TRUSTED_INIT_TEMPLATE_HASHES.get(file_path)
+	if expected_hash is None:
+		raise RuntimeError(f'No pinned integrity hash for template file: {file_path}')
+
+	actual_hash = f'sha256:{hashlib.sha256(content).hexdigest()}'
+	if actual_hash != expected_hash:
+		raise RuntimeError(
+			f'Template integrity check failed for {file_path}: expected {expected_hash}, got {actual_hash}'
+		)
+
+	return content
+
+
+def _fetch_template_bytes_from_github(file_path: str) -> bytes | None:
 	"""
 	Fetch template file from GitHub.
 
@@ -68,7 +65,7 @@ def _fetch_from_github(file_path: str) -> str | None:
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
 		with request.urlopen(url, timeout=5) as response:
-			return response.read().decode('utf-8')
+			return _verify_template_bytes(file_path, response.read())
 	except (URLError, TimeoutError, Exception):
 		return None
 
@@ -80,9 +77,7 @@ def _fetch_binary_from_github(file_path: str) -> bytes | None:
 	Returns file content if successful, None if failed.
 	"""
 	try:
-		url = f'{TEMPLATE_REPO_URL}/{file_path}'
-		with request.urlopen(url, timeout=5) as response:
-			return response.read()
+		return _fetch_template_bytes_from_github(file_path)
 	except (URLError, TimeoutError, Exception):
 		return None
 
@@ -93,10 +88,10 @@ def _get_template_content(file_path: str) -> str:
 
 	Raises exception if fetch fails.
 	"""
-	content = _fetch_from_github(file_path)
+	content = _fetch_template_bytes_from_github(file_path)
 
 	if content is not None:
-		return content
+		return content.decode('utf-8')
 
 	raise FileNotFoundError(f'Could not fetch template from GitHub: {file_path}')
 
@@ -243,12 +238,8 @@ def main(
 	uvx browser-use init --list
 	"""
 
-	# Fetch template list at runtime
-	try:
-		INIT_TEMPLATES = _get_template_list()
-	except FileNotFoundError as e:
-		console.print(f'[red]✗[/red] {e}')
-		sys.exit(1)
+	# Load trusted template list shipped with the package
+	INIT_TEMPLATES = _get_template_list()
 
 	# Handle --list flag
 	if list_templates:
