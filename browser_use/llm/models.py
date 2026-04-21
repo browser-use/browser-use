@@ -14,6 +14,7 @@ Usage:
 import os
 from typing import TYPE_CHECKING
 
+from browser_use.llm.astraflow.chat import ChatAstraflow
 from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
@@ -84,6 +85,19 @@ cerebras_qwen_3_coder_480b: 'BaseChatModel'
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
 bu_2_0: 'BaseChatModel'
+astraflow_gpt_4o: 'BaseChatModel'
+astraflow_gpt_4o_mini: 'BaseChatModel'
+astraflow_gpt_4_1_mini: 'BaseChatModel'
+astraflow_claude_3_5_sonnet: 'BaseChatModel'
+astraflow_claude_3_7_sonnet: 'BaseChatModel'
+astraflow_deepseek_v3: 'BaseChatModel'
+astraflow_deepseek_r1: 'BaseChatModel'
+astraflow_gemini_2_5_pro: 'BaseChatModel'
+astraflow_gemini_2_5_flash: 'BaseChatModel'
+astraflow_cn_gpt_4o: 'BaseChatModel'
+astraflow_cn_gpt_4o_mini: 'BaseChatModel'
+astraflow_cn_deepseek_v3: 'BaseChatModel'
+astraflow_cn_deepseek_r1: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -203,6 +217,18 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# Astraflow Models (global endpoint)
+	elif provider == 'astraflow':
+		api_key = os.getenv('ASTRAFLOW_API_KEY')
+		base_url = os.getenv('ASTRAFLOW_BASE_URL', 'https://api-us-ca.umodelverse.ai/v1')
+		return ChatAstraflow(model=model, api_key=api_key, base_url=base_url)
+
+	# Astraflow Models (China endpoint)
+	elif provider == 'astraflow_cn':
+		api_key = os.getenv('ASTRAFLOW_CN_API_KEY')
+		base_url = os.getenv('ASTRAFLOW_CN_BASE_URL', 'https://api.modelverse.cn/v1')
+		return ChatAstraflow(model=model, api_key=api_key, base_url=base_url)
+
 	# Browser Use Models
 	elif provider == 'bu':
 		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
@@ -211,7 +237,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu', 'astraflow', 'astraflow_cn']
 
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
@@ -238,6 +264,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatCerebras  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
+	elif name == 'ChatAstraflow':
+		return ChatAstraflow  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -313,6 +341,23 @@ __all__ += [
 	'bu_latest',
 	'bu_1_0',
 	'bu_2_0',
+]
+# Astraflow instances - created on demand
+__all__ += [
+	'ChatAstraflow',
+	'astraflow_gpt_4o',
+	'astraflow_gpt_4o_mini',
+	'astraflow_gpt_4_1_mini',
+	'astraflow_claude_3_5_sonnet',
+	'astraflow_claude_3_7_sonnet',
+	'astraflow_deepseek_v3',
+	'astraflow_deepseek_r1',
+	'astraflow_gemini_2_5_pro',
+	'astraflow_gemini_2_5_flash',
+	'astraflow_cn_gpt_4o',
+	'astraflow_cn_gpt_4o_mini',
+	'astraflow_cn_deepseek_v3',
+	'astraflow_cn_deepseek_r1',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required
