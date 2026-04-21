@@ -53,7 +53,7 @@ class VideoRecorderService:
 		self._writer: Optional['Format.Writer'] = None
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
-		self.last_frame_time: Optional[float] = None
+		self.last_frame_time: float | None = None
 		self._last_img_array: Optional[np.ndarray] = None
 
 	def start(self) -> None:
@@ -86,7 +86,7 @@ class VideoRecorderService:
 			logger.error(f'Failed to initialize video writer: {e}')
 			self._is_active = False
 
-	def add_frame(self, frame_data_b64: str, timestamp: Optional[float] = None) -> None:
+	def add_frame(self, frame_data_b64: str, timestamp: float | None = None) -> None:
 		"""
 		Decodes a base64-encoded PNG frame, resizes it, pads it to be codec-compatible,
 		and appends it to the video.
