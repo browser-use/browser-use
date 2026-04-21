@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Video Recording Service for Browser Use Sessions."""
 
 import base64
@@ -5,9 +7,12 @@ import io
 import logging
 import math
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from browser_use.browser.profile import ViewportSize
+
+if TYPE_CHECKING:
+	from imageio.core.format import Format
 
 try:
 	import imageio.v2 as iio  # type: ignore[import-not-found]
@@ -50,7 +55,7 @@ class VideoRecorderService:
 		self.output_path = output_path
 		self.size = size
 		self.framerate = framerate
-		self._writer: Optional['Format.Writer'] = None
+		self._writer: Format.Writer | None = None
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
 		self.last_frame_time: float | None = None
