@@ -43,9 +43,9 @@ class VideoRecorderService:
 		Initializes the video recorder.
 
 		Args:
-		    output_path: The full path where the video will be saved.
-		    size: A ViewportSize object specifying the width and height of the video.
-		    framerate: The desired framerate for the output video.
+			output_path: The full path where the video will be saved.
+			size: A ViewportSize object specifying the width and height of the video.
+			framerate: The desired framerate for the output video.
 		"""
 		self.output_path = output_path
 		self.size = size
@@ -54,7 +54,7 @@ class VideoRecorderService:
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
 		self.last_frame_time: float | None = None
-		self._last_img_array: Optional[np.ndarray] = None
+		self._last_img_array: np.ndarray | None = None
 
 	def start(self) -> None:
 		"""
@@ -92,8 +92,8 @@ class VideoRecorderService:
 		and appends it to the video.
 
 		Args:
-		    frame_data_b64: A base64-encoded string of the PNG frame data.
-		    timestamp: The timestamp of the frame.
+			frame_data_b64: A base64-encoded string of the PNG frame data.
+			timestamp: The timestamp of the frame.
 		"""
 		if not self._is_active or not self._writer:
 			return
