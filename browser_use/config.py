@@ -153,6 +153,13 @@ class OldConfig:
 	@property
 	def NOVITA_API_KEY(self) -> str:
 		return os.getenv('NOVITA_API_KEY', '')
+	@property
+	def ASTRAFLOW_API_KEY(self) -> str:
+		return os.getenv('ASTRAFLOW_API_KEY', '')
+
+	@property
+	def ASTRAFLOW_CN_API_KEY(self) -> str:
+		return os.getenv('ASTRAFLOW_CN_API_KEY', '')
 
 	@property
 	def AZURE_OPENAI_ENDPOINT(self) -> str:
@@ -217,6 +224,8 @@ class FlatEnvConfig(BaseSettings):
 	GROK_API_KEY: str = Field(default='')
 	NOVITA_API_KEY: str = Field(default='')
 	AZURE_OPENAI_ENDPOINT: str = Field(default='')
+	ASTRAFLOW_API_KEY: str = Field(default='')
+	ASTRAFLOW_CN_API_KEY: str = Field(default='')
 	AZURE_OPENAI_KEY: str = Field(default='')
 	SKIP_LLM_API_KEY_VERIFICATION: bool = Field(default=False)
 	DEFAULT_LLM: str = Field(default='')
