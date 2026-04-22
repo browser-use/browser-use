@@ -615,6 +615,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='List of domains to whitelist in the "I still don\'t care about cookies" extension, preventing automatic cookie banner handling on these sites.',
 	)
 
+	manage_window_size: bool = Field(
+		default=True,
+		description='Whether to manage browser window size and position. Set to False when connecting to an existing browser to preserve its current window layout.',
+	)
 	window_size: ViewportSize | None = Field(
 		default=None,
 		description='Browser window size to use when headless=False.',
@@ -865,12 +869,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
 			*(
 				[f'--window-size={self.window_size["width"]},{self.window_size["height"]}']
-				if self.window_size
-				else (['--start-maximized'] if not self.headless else [])
+				if self.window_size and self.manage_window_size
+				else (['--start-maximized'] if not self.headless and self.manage_window_size else [])
 			),
 			*(
 				[f'--window-position={self.window_position["width"]},{self.window_position["height"]}']
-				if self.window_position
+				if self.window_position and self.manage_window_size
 				else []
 			),
 			*(self._get_extension_args() if self.enable_default_extensions else []),
@@ -1206,7 +1210,8 @@ async function initialize(checkInitialized, magic) {{
 			self.no_viewport = False
 		else:
 			# Headful mode: respect user's viewport preference
-			self.window_size = self.window_size or self.screen
+			if self.manage_window_size:
+				self.window_size = self.window_size or self.screen
 
 			if user_provided_viewport:
 				# User explicitly set viewport - enable viewport mode
