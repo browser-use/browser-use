@@ -303,6 +303,12 @@ class Daemon:
 						'cdp_url': live_cdp_url,
 						'use_cloud': self.use_cloud,
 						'proxy_url': self.proxy_url,
+						'proxy_bypass': self.proxy_bypass,
+						'proxy_username': self.proxy_username,
+						# Do not return proxy_password — still include its presence
+						# so the config-mismatch check can detect changes without
+						# leaking the secret over the socket.
+						'proxy_password_set': bool(self.proxy_password),
 					},
 				}
 

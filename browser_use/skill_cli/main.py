@@ -450,6 +450,9 @@ def ensure_daemon(
 					and data.get('cdp_url') == cdp_url
 					and data.get('use_cloud') == use_cloud
 					and data.get('proxy_url') == proxy_url
+					and data.get('proxy_bypass') == proxy_bypass
+					and data.get('proxy_username') == proxy_username
+					and data.get('proxy_password_set', False) == bool(proxy_password)
 				):
 					return  # Already running with correct config
 
