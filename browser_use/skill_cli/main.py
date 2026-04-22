@@ -426,6 +426,10 @@ def ensure_daemon(
 	cloud_profile_id: str | None = None,
 	cloud_proxy_country_code: str | None = None,
 	cloud_timeout: int | None = None,
+	proxy_url: str | None = None,
+	proxy_bypass: str | None = None,
+	proxy_username: str | None = None,
+	proxy_password: str | None = None,
 ) -> None:
 	"""Start daemon if not running. Uses state file for phase-aware decisions."""
 	probe = _probe_session(session)
@@ -445,6 +449,7 @@ def ensure_daemon(
 					and data.get('profile') == profile
 					and data.get('cdp_url') == cdp_url
 					and data.get('use_cloud') == use_cloud
+					and data.get('proxy_url') == proxy_url
 				):
 					return  # Already running with correct config
 
@@ -518,6 +523,14 @@ def ensure_daemon(
 		cmd.extend(['--cloud-proxy-country', cloud_proxy_country_code])
 	if cloud_timeout is not None:
 		cmd.extend(['--cloud-timeout', str(cloud_timeout)])
+	if proxy_url is not None:
+		cmd.extend(['--proxy-url', proxy_url])
+	if proxy_bypass is not None:
+		cmd.extend(['--proxy-bypass', proxy_bypass])
+	if proxy_username is not None:
+		cmd.extend(['--proxy-username', proxy_username])
+	if proxy_password is not None:
+		cmd.extend(['--proxy-password', proxy_password])
 
 	# Set up environment
 	env = os.environ.copy()
@@ -655,6 +668,18 @@ Setup:
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
 	parser.add_argument('--template', help='Generate template file (use with --output for custom path)')
+	parser.add_argument(
+		'--proxy-url',
+		default=None,
+		help='Proxy server for local Chromium (e.g. http://host:8080 or socks5://host:1080)',
+	)
+	parser.add_argument(
+		'--proxy-bypass',
+		default=None,
+		help='Comma-separated hosts to bypass proxy (e.g. localhost,127.0.0.1,*.internal)',
+	)
+	parser.add_argument('--proxy-username', default=None, help='Proxy auth username')
+	parser.add_argument('--proxy-password', default=None, help='Proxy auth password')
 
 	subparsers = parser.add_subparsers(dest='command', help='Command to execute')
 
@@ -1451,8 +1476,29 @@ def main() -> int:
 	_migrate_legacy_files()
 
 	# Ensure daemon is running
-	explicit_config = any(flag in sys.argv for flag in ('--headed', '--profile', '--cdp-url'))
-	ensure_daemon(args.headed, args.profile, args.cdp_url, session=session, explicit_config=explicit_config)
+	explicit_config = any(
+		flag in sys.argv
+		for flag in (
+			'--headed',
+			'--profile',
+			'--cdp-url',
+			'--proxy-url',
+			'--proxy-bypass',
+			'--proxy-username',
+			'--proxy-password',
+		)
+	)
+	ensure_daemon(
+		args.headed,
+		args.profile,
+		args.cdp_url,
+		session=session,
+		explicit_config=explicit_config,
+		proxy_url=args.proxy_url,
+		proxy_bypass=args.proxy_bypass,
+		proxy_username=args.proxy_username,
+		proxy_password=args.proxy_password,
+	)
 
 	# Build params from args
 	params = {}
