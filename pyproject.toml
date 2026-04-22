@@ -11,7 +11,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiohttp==3.13.3",
+    "aiohttp==3.13.4",
     "anyio==4.12.1",
     "bubus==1.5.6",
     "click==8.3.1",
@@ -37,11 +37,11 @@ dependencies = [
     "google-auth==2.48.0",
     "google-auth-oauthlib==1.2.4",
     "mcp==1.26.0",
-    "pypdf==6.9.1",
+    "pypdf==6.10.2",
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
     "pyotp==2.9.0",
-    "pillow==12.1.1",
+    "pillow==12.2.0",
     "cloudpickle==3.1.2",
     "markdownify==1.2.2",
     "python-docx==1.2.0",

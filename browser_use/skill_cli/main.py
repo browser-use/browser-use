@@ -713,7 +713,7 @@ Setup:
 	p.add_argument('text', help='Text to type')
 
 	# input <index> <text>
-	p = subparsers.add_parser('input', help='Type text into specific element')
+	p = subparsers.add_parser('input', help='Clear-then-type into specific element; pass "" to clear only')
 	p.add_argument('index', type=int, help='Element index')
 	p.add_argument('text', help='Text to type')
 
@@ -781,6 +781,17 @@ Setup:
 	# rightclick <index>
 	p = subparsers.add_parser('rightclick', help='Right-click element')
 	p.add_argument('index', type=int, help='Element index')
+
+	# record (start <path> | stop | status)
+	record_p = subparsers.add_parser('record', help='Record browser session video (start/stop)')
+	record_sub = record_p.add_subparsers(dest='record_command')
+
+	p = record_sub.add_parser('start', help='Start recording to file (.mp4)')
+	p.add_argument('path', help='Output video path (.mp4 recommended)')
+	p.add_argument('--framerate', type=int, default=None, help='Framerate (default: 30)')
+
+	record_sub.add_parser('stop', help='Stop recording and print saved file path')
+	record_sub.add_parser('status', help='Show current recording status')
 
 	# -------------------------------------------------------------------------
 	# Cookies Commands
@@ -1222,8 +1233,7 @@ def main() -> int:
 	if args.command == 'doctor':
 		from browser_use.skill_cli.commands import doctor
 
-		loop = asyncio.get_event_loop()
-		result = loop.run_until_complete(doctor.handle())
+		result = asyncio.run(doctor.handle())
 
 		if args.json:
 			print(json.dumps(result))
@@ -1337,9 +1347,9 @@ def main() -> int:
 			port_arg = getattr(args, 'port_arg', None)
 			if getattr(args, 'all', False):
 				# stop --all
-				result = asyncio.get_event_loop().run_until_complete(tunnel.stop_all_tunnels())
+				result = asyncio.run(tunnel.stop_all_tunnels())
 			elif port_arg is not None:
-				result = asyncio.get_event_loop().run_until_complete(tunnel.stop_tunnel(port_arg))
+				result = asyncio.run(tunnel.stop_tunnel(port_arg))
 			else:
 				print('Usage: browser-use tunnel stop <port> | --all', file=sys.stderr)
 				return 1
@@ -1349,7 +1359,7 @@ def main() -> int:
 			except ValueError:
 				print(f'Unknown tunnel subcommand: {pos}', file=sys.stderr)
 				return 1
-			result = asyncio.get_event_loop().run_until_complete(tunnel.start_tunnel(port))
+			result = asyncio.run(tunnel.start_tunnel(port))
 		else:
 			print('Usage: browser-use tunnel <port> | list | stop <port>', file=sys.stderr)
 			return 0
@@ -1454,6 +1464,8 @@ def main() -> int:
 
 	# Resolve file paths to absolute before sending to daemon (daemon may have different CWD)
 	if args.command == 'upload' and 'path' in params:
+		params['path'] = str(Path(params['path']).expanduser().resolve())
+	if args.command == 'record' and params.get('record_command') == 'start' and 'path' in params:
 		params['path'] = str(Path(params['path']).expanduser().resolve())
 
 	# Add profile to params for commands that need it

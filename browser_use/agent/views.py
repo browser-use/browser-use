@@ -27,6 +27,7 @@ from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
 from browser_use.tokens.views import UsageSummary
 from browser_use.tools.registry.views import ActionModel
+from browser_use.utils import collect_sensitive_data_values, redact_sensitive_string
 
 logger = logging.getLogger(__name__)
 
@@ -512,29 +513,13 @@ class AgentHistory(BaseModel):
 		if not sensitive_data:
 			return value
 
-		# Collect all sensitive values, immediately converting old format to new format
-		sensitive_values: dict[str, str] = {}
-
-		# Process all sensitive data entries
-		for key_or_domain, content in sensitive_data.items():
-			if isinstance(content, dict):
-				# Already in new format: {domain: {key: value}}
-				for key, val in content.items():
-					if val:  # Skip empty values
-						sensitive_values[key] = val
-			elif content:  # Old format: {key: value} - convert to new format internally
-				# We treat this as if it was {'http*://*': {key_or_domain: content}}
-				sensitive_values[key_or_domain] = content
+		sensitive_values = collect_sensitive_data_values(sensitive_data)
 
 		# If there are no valid sensitive data entries, just return the original value
 		if not sensitive_values:
 			return value
 
-		# Replace all valid sensitive data values with their placeholder tags
-		for key, val in sensitive_values.items():
-			value = value.replace(val, f'<secret>{key}</secret>')
-
-		return value
+		return redact_sensitive_string(value, sensitive_values)
 
 	def _filter_sensitive_data_from_dict(
 		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
