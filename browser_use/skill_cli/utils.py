@@ -246,7 +246,7 @@ def discover_chrome_cdp_url() -> str:
 
 	raise RuntimeError(
 		'Could not discover a running Chrome instance with remote debugging enabled.\n'
-		'Enable remote debugging in Chrome (chrome://inspect, or launch with --remote-debugging-port=9222) and try again.'
+		'Enable remote debugging in Chrome (chrome://inspect/#remote-debugging, or launch with --remote-debugging-port=9222) and try again.'
 	)
 
 
@@ -268,7 +268,7 @@ def list_chrome_profiles() -> list[dict[str, str]]:
 		return []
 
 	try:
-		with open(local_state_path) as f:
+		with open(local_state_path, encoding='utf-8') as f:
 			local_state = json.load(f)
 
 		info_cache = local_state.get('profile', {}).get('info_cache', {})

@@ -518,6 +518,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise BrowserError(error_msg)
 
 		try:
+
+			def invalidate_dom_cache() -> None:
+				if self.browser_session._dom_watchdog:
+					self.browser_session._dom_watchdog.clear_cache()
+
 			# Convert direction and amount to pixels
 			# Positive pixels = scroll down, negative = scroll up
 			pixels = event.amount if event.direction == 'down' else -event.amount
@@ -547,6 +552,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						# Wait a bit for the scroll to settle and DOM to update
 						await asyncio.sleep(0.2)
 
+					invalidate_dom_cache()
 					return None
 
 			# Perform target-level scroll
@@ -554,6 +560,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Note: We don't clear cached state here - let multi_act handle DOM change detection
 			# by explicitly rebuilding and comparing when needed
+			invalidate_dom_cache()
 
 			# Log success
 			self.logger.debug(f'📜 Scrolled {event.direction} by {event.amount} pixels')
@@ -1395,10 +1402,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 					return True
 				else:
 					self.logger.debug(f'⚠️ JavaScript clear partially failed, field still contains: "{final_text}"')
-					return False
 			else:
 				self.logger.debug(f'❌ JavaScript clear failed: {clear_info.get("error", "Unknown error")}')
-				return False
 
 		except Exception as e:
 			self.logger.debug(f'JavaScript clear failed with exception: {e}')
