@@ -37,6 +37,7 @@ from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
+from browser_use.dom.auto_heal import AutoHealEngine
 from browser_use.tools.views import (
 	ClickElementAction,
 	ClickElementActionIndexOnly,
@@ -428,6 +429,7 @@ class Tools(Generic[Context]):
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		self._auto_heal = AutoHealEngine()
 
 		"""Register all default browser actions"""
 
@@ -586,6 +588,22 @@ class Tools(Generic[Context]):
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
+		@self.registry.action(
+			'Show self-healing statistics — how many elements were auto-recovered.',
+			param_model=NoParamsAction,
+		)
+		async def heal_stats(_: NoParamsAction, browser_session: BrowserSession):
+			stats = self._auto_heal.get_stats()
+			msg = (
+				f'Self-Healing Stats:\n'
+				f'  Attempts: {stats["attempts"]}\n'
+				f'  Successes: {stats["successes"]}\n'
+				f'  Failures: {stats["failures"]}\n'
+				f'  Success Rate: {stats["success_rate"]:.0%}\n'
+				f'  Fingerprints Stored: {stats["fingerprints_stored"]}'
+			)
+			return ActionResult(extracted_content=msg)
+
 		# Helper function for coordinate conversion
 		def _convert_llm_coordinates_to_viewport(llm_x: int, llm_y: int, browser_session: BrowserSession) -> tuple[int, int]:
 			"""Convert coordinates from LLM screenshot size to original viewport size."""
@@ -687,7 +705,28 @@ class Tools(Generic[Context]):
 
 				# Look up the node from the selector map
 				node = await browser_session.get_element_by_index(params.index)
-				if node is None:
+
+				# ── Self-Healing: fingerprint before click, heal on failure ──
+				if node is not None:
+					# Store fingerprint for potential future recovery
+					self._auto_heal.fingerprint(params.index, node)
+				else:
+					# Element not found — attempt auto-healing
+					logger.info(f'🔄 Element {params.index} not found, attempting auto-heal...')
+					page = browser_session.current_page
+					if page:
+						heal_result = await self._auto_heal.try_heal(params.index, page)
+						if heal_result.healed and heal_result.new_backend_node_id:
+							# Re-fetch element state after healing — the DOM may have changed
+							# so we ask the agent to refresh and retry
+							msg = (
+								f'Element {params.index} was auto-healed via {heal_result.strategy} '
+								f'(confidence: {heal_result.confidence:.0%}). '
+								f'Refreshing browser state — please retry the click.'
+							)
+							logger.info(f'🩹 {msg}')
+							return ActionResult(extracted_content=msg)
+
 					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 					logger.warning(f'⚠️ {msg}')
 					return ActionResult(extracted_content=msg)
@@ -758,7 +797,23 @@ class Tools(Generic[Context]):
 		):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
-			if node is None:
+
+			# ── Self-Healing: fingerprint before input, heal on failure ──
+			if node is not None:
+				self._auto_heal.fingerprint(params.index, node)
+			else:
+				logger.info(f'🔄 Element {params.index} not found for input, attempting auto-heal...')
+				page = browser_session.current_page
+				if page:
+					heal_result = await self._auto_heal.try_heal(params.index, page)
+					if heal_result.healed:
+						msg = (
+							f'Element {params.index} was auto-healed via {heal_result.strategy}. '
+							f'Refreshing browser state — please retry the input.'
+						)
+						logger.info(f'🩹 {msg}')
+						return ActionResult(extracted_content=msg)
+
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
 				return ActionResult(extracted_content=msg)
