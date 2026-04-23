@@ -90,7 +90,15 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		url = params['url']
 		if not url.startswith(('http://', 'https://', 'file://')):
 			url = 'https://' + url
-		await actions.navigate(url)
+		try:
+			await actions.navigate(url)
+		except Exception as e:
+			if bs.browser_profile.use_cloud and 'ERR_TUNNEL_CONNECTION_FAILED' in str(e):
+				raise RuntimeError(
+					'Navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED after retry. '
+					'Try `browser-use cloud connect` to provision a fresh cloud browser session.'
+				) from e
+			raise
 		result: dict[str, Any] = {'url': url}
 		if bs.browser_profile.use_cloud and bs.cdp_url:
 			from urllib.parse import quote
