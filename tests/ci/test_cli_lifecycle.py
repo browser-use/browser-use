@@ -5,6 +5,8 @@ Daemons bind sockets and write state/PID files without launching browsers
 (lazy session creation means the daemon is ready after socket bind).
 """
 
+import argparse
+import asyncio
 import json
 import os
 import signal
@@ -13,6 +15,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -253,6 +257,91 @@ def test_probe_session_corrupt_state_file(home_dir):
 			os.environ.pop('BROWSER_USE_HOME', None)
 		else:
 			os.environ['BROWSER_USE_HOME'] = old_env
+
+
+def test_ensure_daemon_reuses_local_session_after_live_cdp_url_appears(monkeypatch):
+	"""Live browser CDP URLs must not trip config-mismatch for local sessions."""
+	from browser_use.skill_cli.daemon import Daemon
+	from browser_use.skill_cli.main import _SessionProbe, ensure_daemon
+
+	daemon = Daemon(
+		headed=True,
+		profile=None,
+		session='default',
+		proxy_url='http://proxy.local:3128',
+	)
+	daemon._session = cast(
+		Any,
+		SimpleNamespace(browser_session=SimpleNamespace(cdp_url='ws://127.0.0.1/devtools/browser/live')),
+	)
+
+	monkeypatch.setattr(
+		'browser_use.skill_cli.main._probe_session',
+		lambda _session: _SessionProbe(
+			name='default',
+			pid=123,
+			pid_alive=True,
+			socket_reachable=True,
+		),
+	)
+	monkeypatch.setattr(
+		'browser_use.skill_cli.main.send_command',
+		lambda action, params, session='default': asyncio.run(daemon.dispatch({'action': action, 'id': 'test-ping'})),
+	)
+
+	ensure_daemon(
+		True,
+		None,
+		session='default',
+		explicit_config=True,
+		proxy_url='http://proxy.local:3128',
+	)
+
+
+def test_handle_sessions_json_prefers_live_cdp_url(monkeypatch, home_dir, capsys):
+	"""Sessions output should still show the live browser CDP URL when present."""
+	from browser_use.skill_cli.main import _handle_sessions, _SessionProbe
+
+	(home_dir / 'default.pid').write_text('123')
+	monkeypatch.setenv('BROWSER_USE_HOME', str(home_dir))
+	monkeypatch.setattr(
+		'browser_use.skill_cli.main._probe_session',
+		lambda _session: _SessionProbe(
+			name='default',
+			phase='running',
+			pid=123,
+			pid_alive=True,
+			socket_reachable=True,
+		),
+	)
+	monkeypatch.setattr(
+		'browser_use.skill_cli.main.send_command',
+		lambda action, params, session='default': {
+			'success': True,
+			'data': {
+				'headed': True,
+				'profile': None,
+				'cdp_url': None,
+				'live_cdp_url': 'ws://127.0.0.1/devtools/browser/live',
+				'use_cloud': False,
+			},
+		},
+	)
+
+	assert _handle_sessions(argparse.Namespace(json=True)) == 0
+
+	payload = json.loads(capsys.readouterr().out)
+	assert payload == {
+		'sessions': [
+			{
+				'name': 'default',
+				'pid': 123,
+				'phase': 'running',
+				'cdp_url': 'ws://127.0.0.1/devtools/browser/live',
+				'config': 'headed',
+			}
+		]
+	}
 
 
 # ---------------------------------------------------------------------------

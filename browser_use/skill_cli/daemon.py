@@ -288,7 +288,8 @@ class Daemon:
 
 			# Handle ping — returns daemon config for mismatch detection
 			if action == 'ping':
-				# Return live CDP URL (may differ from constructor arg for cloud sessions)
+				# Keep configured CDP URL stable for config-mismatch checks, but
+				# also expose the live browser CDP URL for status/sessions output.
 				live_cdp_url = self.cdp_url
 				if self._session and self._session.browser_session.cdp_url:
 					live_cdp_url = self._session.browser_session.cdp_url
@@ -300,7 +301,8 @@ class Daemon:
 						'pid': os.getpid(),
 						'headed': self.headed,
 						'profile': self.profile,
-						'cdp_url': live_cdp_url,
+						'cdp_url': self.cdp_url,
+						'live_cdp_url': live_cdp_url,
 						'use_cloud': self.use_cloud,
 						'proxy_url': self.proxy_url,
 						'proxy_bypass': self.proxy_bypass,

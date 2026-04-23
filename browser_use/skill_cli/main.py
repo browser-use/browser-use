@@ -1057,12 +1057,14 @@ def _handle_sessions(args: argparse.Namespace) -> int:
 				if resp.get('success'):
 					data = resp.get('data', {})
 					config_parts = []
+					live_cdp_url = data.get('live_cdp_url') or data.get('cdp_url')
 					if data.get('headed'):
 						config_parts.append('headed')
 					if data.get('profile'):
 						config_parts.append(f'profile={data["profile"]}')
+					if live_cdp_url:
+						entry['cdp_url'] = live_cdp_url
 					if data.get('cdp_url'):
-						entry['cdp_url'] = data['cdp_url']
 						if not data.get('use_cloud'):
 							config_parts.append('cdp')
 					if data.get('use_cloud'):
