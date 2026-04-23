@@ -3328,11 +3328,38 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_get_cookies(self) -> list[Cookie]:
 		"""Get cookies using CDP Network.getCookies."""
-		cdp_session = await self.get_or_create_cdp_session(target_id=None)
-		result = await asyncio.wait_for(
-			cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
-		)
-		return result.get('cookies', [])
+		def _is_connection_related_error(error: Exception) -> bool:
+			error_text = f'{type(error).__name__}: {error}'
+			return any(
+				token in error_text
+				for token in (
+					'ConnectionClosed',
+					'ConnectionError',
+					'WebSocket',
+					'Client is stopping',
+					'TimeoutError',
+				)
+			)
+
+		async def _fetch_cookies_once() -> list[Cookie]:
+			cdp_session = await self.get_or_create_cdp_session(target_id=None)
+			result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
+			)
+			return result.get('cookies', [])
+
+		try:
+			return await _fetch_cookies_once()
+		except Exception as e:
+			if not _is_connection_related_error(e):
+				raise
+
+			if self.is_reconnecting:
+				wait_timeout = min(self.RECONNECT_WAIT_TIMEOUT, 20.0)
+				self.logger.debug(f'_cdp_get_cookies() waiting for reconnection ({wait_timeout}s)')
+				await asyncio.wait_for(self._reconnect_event.wait(), timeout=wait_timeout)
+
+			return await _fetch_cookies_once()
 
 	async def _cdp_set_cookies(self, cookies: list[Cookie]) -> None:
 		"""Set cookies using CDP Storage.setCookies."""
