@@ -4,6 +4,8 @@ Validates argument parsing, socket/PID path generation, session name validation,
 and path agreement between main.py (stdlib-only) and utils.py.
 """
 
+import sys
+
 import pytest
 
 from browser_use.skill_cli.main import (
@@ -125,3 +127,19 @@ def test_path_agreement_with_env_override(tmp_path, monkeypatch):
 	assert _get_home_dir() == get_home_dir()
 	assert _get_socket_path('test') == get_socket_path('test')
 	assert _get_pid_path('test') == get_pid_path('test')
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows TCP session paths only')
+def test_windows_socket_path_is_namespaced_by_home(tmp_path, monkeypatch):
+	"""Different BROWSER_USE_HOME values should not reuse the same TCP port."""
+	home_a = str(tmp_path / 'home-a')
+	home_b = str(tmp_path / 'home-b')
+
+	monkeypatch.setenv('BROWSER_USE_HOME', home_a)
+	path_a = _get_socket_path('default')
+
+	monkeypatch.setenv('BROWSER_USE_HOME', home_b)
+	path_b = _get_socket_path('default')
+
+	assert path_a != path_b
+	assert path_b == get_socket_path('default')

@@ -168,7 +168,9 @@ def _get_socket_path(session: str = 'default') -> str:
 	Must match utils.get_socket_path().
 	"""
 	if sys.platform == 'win32':
-		port = 49152 + zlib.adler32(session.encode()) % 16383
+		home_key = str(_get_home_dir().resolve()).casefold()
+		port_key = f'{home_key}:{session}'
+		port = 49152 + zlib.adler32(port_key.encode()) % 16383
 		return f'tcp://127.0.0.1:{port}'
 	return str(_get_home_dir() / f'{session}.sock')
 
@@ -194,6 +196,10 @@ def _read_auth_token(session: str = 'default') -> str:
 		return ''
 
 
+_DAEMON_PROBE_TIMEOUT = 1.0
+_DAEMON_CONTROL_TIMEOUT = 2.0
+
+
 def _connect_to_daemon(timeout: float = 60.0, session: str = 'default') -> socket.socket:
 	"""Connect to daemon socket."""
 	sock_path = _get_socket_path(session)
@@ -204,7 +210,7 @@ def _connect_to_daemon(timeout: float = 60.0, session: str = 'default') -> socke
 		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		addr: str | tuple[str, int] = (host, int(port))
 	else:
-		sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		sock = socket.socket(getattr(socket, 'AF_UNIX'), socket.SOCK_STREAM)
 		addr = sock_path
 
 	try:
@@ -361,12 +367,12 @@ def _probe_session(session: str) -> _SessionProbe:
 
 	# 3. Try socket connect + ping for PID (before reconciliation)
 	try:
-		sock = _connect_to_daemon(timeout=0.5, session=session)
+		sock = _connect_to_daemon(timeout=_DAEMON_PROBE_TIMEOUT, session=session)
 		sock.close()
-		probe.socket_reachable = True
 		try:
-			resp = send_command('ping', {}, session=session)
+			resp = send_command('ping', {}, session=session, timeout=_DAEMON_PROBE_TIMEOUT)
 			if resp.get('success'):
+				probe.socket_reachable = True
 				probe.socket_pid = resp.get('data', {}).get('pid')
 		except Exception:
 			pass
@@ -437,7 +443,7 @@ def ensure_daemon(
 
 		# User explicitly set --headed/--profile/--cdp-url — check config matches
 		try:
-			response = send_command('ping', {}, session=session)
+			response = send_command('ping', {}, session=session, timeout=_DAEMON_PROBE_TIMEOUT)
 			if response.get('success'):
 				data = response.get('data', {})
 				if (
@@ -569,7 +575,14 @@ def ensure_daemon(
 	sys.exit(1)
 
 
-def send_command(action: str, params: dict, *, session: str = 'default', agent_id: str = '__shared__') -> dict:
+def send_command(
+	action: str,
+	params: dict,
+	*,
+	session: str = 'default',
+	agent_id: str = '__shared__',
+	timeout: float = 60.0,
+) -> dict:
 	"""Send command to daemon and get response."""
 	request = {
 		'id': f'r{int(time.time() * 1000000) % 1000000}',
@@ -579,8 +592,10 @@ def send_command(action: str, params: dict, *, session: str = 'default', agent_i
 		'token': _read_auth_token(session),
 	}
 
-	sock = _connect_to_daemon(session=session)
+	sock = _connect_to_daemon(timeout=timeout, session=session)
 	try:
+		sock.settimeout(timeout)
+
 		# Send request
 		sock.sendall((json.dumps(request) + '\n').encode())
 
@@ -1025,7 +1040,7 @@ def _handle_sessions(args: argparse.Namespace) -> int:
 		# Try to ping for config info
 		if probe.socket_reachable:
 			try:
-				resp = send_command('ping', {}, session=name)
+				resp = send_command('ping', {}, session=name, timeout=_DAEMON_PROBE_TIMEOUT)
 				if resp.get('success'):
 					data = resp.get('data', {})
 					config_parts = []
@@ -1076,7 +1091,7 @@ def _close_session(session: str) -> bool:
 	if probe.socket_reachable:
 		print('Closing...', end='', flush=True)
 		try:
-			send_command('shutdown', {}, session=session)
+			send_command('shutdown', {}, session=session, timeout=_DAEMON_CONTROL_TIMEOUT)
 		except Exception:
 			pass  # Shutdown may have been accepted even if response failed
 		# Poll for PID disappearance (up to 15s: 10s browser cleanup + margin)

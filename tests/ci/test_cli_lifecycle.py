@@ -30,7 +30,7 @@ def home_dir():
 
 
 def _start_daemon(home_dir: Path, session: str = 'default', timeout: float = 10.0) -> int:
-	"""Start a daemon subprocess. Returns the PID once the state file shows 'ready'."""
+	"""Start a daemon subprocess. Returns the daemon PID from state once ready."""
 	home_dir.mkdir(parents=True, exist_ok=True)
 	env = os.environ.copy()
 	env['BROWSER_USE_HOME'] = str(home_dir)
@@ -53,7 +53,7 @@ def _start_daemon(home_dir: Path, session: str = 'default', timeout: float = 10.
 				state = json.loads(state_path.read_text())
 				if state.get('phase') in ('ready', 'running'):
 					log_file.close()
-					return proc.pid
+					return int(state.get('pid', proc.pid))
 			except (json.JSONDecodeError, OSError):
 				pass
 		time.sleep(0.1)
@@ -90,7 +90,7 @@ def _kill_daemon(pid: int) -> None:
 			time.sleep(0.1)
 			if not _is_pid_alive(pid):
 				return
-		os.kill(pid, signal.SIGKILL)
+		os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
 	except (OSError, ProcessLookupError):
 		pass
 
@@ -248,6 +248,57 @@ def test_probe_session_corrupt_state_file(home_dir):
 		probe = _probe_session('corrupt')
 		assert probe.phase is None  # corrupt file treated as missing
 		assert not probe.pid_alive
+	finally:
+		if old_env is None:
+			os.environ.pop('BROWSER_USE_HOME', None)
+		else:
+			os.environ['BROWSER_USE_HOME'] = old_env
+
+
+def test_probe_session_requires_successful_ping(home_dir, monkeypatch):
+	"""Probe should not treat a session as reachable when ping fails."""
+	from browser_use.skill_cli import main
+
+	(home_dir / 'default.state.json').write_text(
+		json.dumps(
+			{
+				'phase': 'ready',
+				'pid': 12345,
+				'updated_at': time.time(),
+				'config': {'headed': False, 'profile': None, 'cdp_url': None, 'use_cloud': False},
+			}
+		)
+	)
+	(home_dir / 'default.pid').write_text('12345')
+
+	class _DummySocket:
+		def close(self) -> None:
+			pass
+
+	old_env = os.environ.get('BROWSER_USE_HOME')
+	os.environ['BROWSER_USE_HOME'] = str(home_dir)
+	try:
+		monkeypatch.setattr(main, '_connect_to_daemon', lambda timeout=60.0, session='default': _DummySocket())
+		monkeypatch.setattr(main, '_is_pid_alive', lambda pid: False)
+
+		calls: list[float] = []
+
+		def _fake_send_command(
+			action: str,
+			params: dict,
+			*,
+			session: str = 'default',
+			agent_id: str = '__shared__',
+			timeout: float = 60.0,
+		) -> dict:
+			calls.append(timeout)
+			return {'success': False, 'error': 'No response from daemon'}
+
+		monkeypatch.setattr(main, 'send_command', _fake_send_command)
+
+		probe = main._probe_session('default')
+		assert not probe.socket_reachable
+		assert calls == [main._DAEMON_PROBE_TIMEOUT]
 	finally:
 		if old_env is None:
 			os.environ.pop('BROWSER_USE_HOME', None)
