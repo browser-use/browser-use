@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import subprocess as std_subprocess
 import shutil
+import subprocess as std_subprocess
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
