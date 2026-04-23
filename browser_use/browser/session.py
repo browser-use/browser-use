@@ -3326,21 +3326,23 @@ class BrowserSession(BaseModel):
 		"""Close a page/tab using CDP Target.closeTarget."""
 		await self.cdp_client.send.Target.closeTarget(params={'targetId': target_id})
 
+	@staticmethod
+	def _is_connection_related_error(error: Exception) -> bool:
+		"""Return True for transport / websocket style failures where a reconnect retry can help."""
+		error_text = f'{type(error).__name__}: {error}'
+		return any(
+			token in error_text
+			for token in (
+				'ConnectionClosed',
+				'ConnectionError',
+				'WebSocket',
+				'Client is stopping',
+				'TimeoutError',
+			)
+		)
+
 	async def _cdp_get_cookies(self) -> list[Cookie]:
 		"""Get cookies using CDP Network.getCookies."""
-		def _is_connection_related_error(error: Exception) -> bool:
-			error_text = f'{type(error).__name__}: {error}'
-			return any(
-				token in error_text
-				for token in (
-					'ConnectionClosed',
-					'ConnectionError',
-					'WebSocket',
-					'Client is stopping',
-					'TimeoutError',
-				)
-			)
-
 		async def _fetch_cookies_once() -> list[Cookie]:
 			cdp_session = await self.get_or_create_cdp_session(target_id=None)
 			result = await asyncio.wait_for(
@@ -3351,7 +3353,7 @@ class BrowserSession(BaseModel):
 		try:
 			return await _fetch_cookies_once()
 		except Exception as e:
-			if not _is_connection_related_error(e):
+			if not self._is_connection_related_error(e):
 				raise
 
 			if self.is_reconnecting:
@@ -3366,12 +3368,26 @@ class BrowserSession(BaseModel):
 		if not self.agent_focus_target_id or not cookies:
 			return
 
-		cdp_session = await self.get_or_create_cdp_session(target_id=None)
-		# Storage.setCookies expects params dict with 'cookies' key
-		await cdp_session.cdp_client.send.Storage.setCookies(
-			params={'cookies': cookies},  # type: ignore[arg-type]
-			session_id=cdp_session.session_id,
-		)
+		async def _set_cookies_once() -> None:
+			cdp_session = await self.get_or_create_cdp_session(target_id=None)
+			# Storage.setCookies expects params dict with 'cookies' key
+			await cdp_session.cdp_client.send.Storage.setCookies(
+				params={'cookies': cookies},  # type: ignore[arg-type]
+				session_id=cdp_session.session_id,
+			)
+
+		try:
+			await _set_cookies_once()
+		except Exception as e:
+			if not self._is_connection_related_error(e):
+				raise
+
+			if self.is_reconnecting:
+				wait_timeout = min(self.RECONNECT_WAIT_TIMEOUT, 20.0)
+				self.logger.debug(f'_cdp_set_cookies() waiting for reconnection ({wait_timeout}s)')
+				await asyncio.wait_for(self._reconnect_event.wait(), timeout=wait_timeout)
+
+			await _set_cookies_once()
 
 	async def _cdp_clear_cookies(self) -> None:
 		"""Clear all cookies using CDP Network.clearBrowserCookies."""
