@@ -306,6 +306,54 @@ def test_probe_session_requires_successful_ping(home_dir, monkeypatch):
 			os.environ['BROWSER_USE_HOME'] = old_env
 
 
+def test_probe_session_caches_ping_payload(home_dir, monkeypatch):
+	"""Probe should cache ping payload without a redundant standalone connect."""
+	from browser_use.skill_cli import main
+
+	(home_dir / 'default.state.json').write_text(
+		json.dumps(
+			{
+				'phase': 'ready',
+				'pid': 12345,
+				'updated_at': time.time(),
+				'config': {'headed': False, 'profile': None, 'cdp_url': None, 'use_cloud': False},
+			}
+		)
+	)
+	(home_dir / 'default.pid').write_text('12345')
+
+	old_env = os.environ.get('BROWSER_USE_HOME')
+	os.environ['BROWSER_USE_HOME'] = str(home_dir)
+	try:
+		monkeypatch.setattr(main, '_connect_to_daemon', lambda *args, **kwargs: pytest.fail('unexpected direct connect'))
+		monkeypatch.setattr(main, '_is_pid_alive', lambda pid: pid == 12345)
+
+		def _fake_send_command(
+			action: str,
+			params: dict,
+			*,
+			session: str = 'default',
+			agent_id: str = '__shared__',
+			timeout: float = 60.0,
+		) -> dict:
+			return {
+				'success': True,
+				'data': {'pid': 12345, 'headed': True, 'profile': 'work', 'use_cloud': False},
+			}
+
+		monkeypatch.setattr(main, 'send_command', _fake_send_command)
+
+		probe = main._probe_session('default')
+		assert probe.socket_reachable
+		assert probe.socket_pid == 12345
+		assert probe.ping_data == {'pid': 12345, 'headed': True, 'profile': 'work', 'use_cloud': False}
+	finally:
+		if old_env is None:
+			os.environ.pop('BROWSER_USE_HOME', None)
+		else:
+			os.environ['BROWSER_USE_HOME'] = old_env
+
+
 # ---------------------------------------------------------------------------
 # Close behavior
 # ---------------------------------------------------------------------------

@@ -323,7 +323,7 @@ def _get_state_path(session: str) -> Path:
 class _SessionProbe:
 	"""Snapshot of a session's health. Never deletes anything — callers decide cleanup."""
 
-	__slots__ = ('name', 'phase', 'updated_at', 'pid', 'pid_alive', 'socket_reachable', 'socket_pid')
+	__slots__ = ('name', 'phase', 'updated_at', 'pid', 'pid_alive', 'socket_reachable', 'socket_pid', 'ping_data')
 
 	def __init__(
 		self,
@@ -334,6 +334,7 @@ class _SessionProbe:
 		pid_alive: bool = False,
 		socket_reachable: bool = False,
 		socket_pid: int | None = None,
+		ping_data: dict | None = None,
 	):
 		self.name = name
 		self.phase = phase
@@ -342,6 +343,7 @@ class _SessionProbe:
 		self.pid_alive = pid_alive
 		self.socket_reachable = socket_reachable
 		self.socket_pid = socket_pid
+		self.ping_data = ping_data
 
 
 def _probe_session(session: str) -> _SessionProbe:
@@ -365,18 +367,14 @@ def _probe_session(session: str) -> _SessionProbe:
 		except (OSError, ValueError):
 			pass
 
-	# 3. Try socket connect + ping for PID (before reconciliation)
+	# 3. Try ping for socket reachability + PID (before reconciliation)
 	try:
-		sock = _connect_to_daemon(timeout=_DAEMON_PROBE_TIMEOUT, session=session)
-		sock.close()
-		try:
-			resp = send_command('ping', {}, session=session, timeout=_DAEMON_PROBE_TIMEOUT)
-			if resp.get('success'):
-				probe.socket_reachable = True
-				probe.socket_pid = resp.get('data', {}).get('pid')
-		except Exception:
-			pass
-	except OSError:
+		resp = send_command('ping', {}, session=session, timeout=_DAEMON_PROBE_TIMEOUT)
+		if resp.get('success'):
+			probe.socket_reachable = True
+			probe.ping_data = resp.get('data', {})
+			probe.socket_pid = probe.ping_data.get('pid')
+	except Exception:
 		probe.socket_reachable = False
 
 	# 4. Reconcile PIDs
@@ -1037,26 +1035,21 @@ def _handle_sessions(args: argparse.Namespace) -> int:
 
 		entry: dict = {'name': name, 'pid': probe.pid or 0, 'phase': probe.phase or '?'}
 
-		# Try to ping for config info
+		# Reuse the probe ping payload for config info.
 		if probe.socket_reachable:
-			try:
-				resp = send_command('ping', {}, session=name, timeout=_DAEMON_PROBE_TIMEOUT)
-				if resp.get('success'):
-					data = resp.get('data', {})
-					config_parts = []
-					if data.get('headed'):
-						config_parts.append('headed')
-					if data.get('profile'):
-						config_parts.append(f'profile={data["profile"]}')
-					if data.get('cdp_url'):
-						entry['cdp_url'] = data['cdp_url']
-						if not data.get('use_cloud'):
-							config_parts.append('cdp')
-					if data.get('use_cloud'):
-						config_parts.append('cloud')
-					entry['config'] = ', '.join(config_parts) if config_parts else 'headless'
-			except Exception:
-				entry['config'] = '?'
+			data = probe.ping_data or {}
+			config_parts = []
+			if data.get('headed'):
+				config_parts.append('headed')
+			if data.get('profile'):
+				config_parts.append(f'profile={data["profile"]}')
+			if data.get('cdp_url'):
+				entry['cdp_url'] = data['cdp_url']
+				if not data.get('use_cloud'):
+					config_parts.append('cdp')
+			if data.get('use_cloud'):
+				config_parts.append('cloud')
+			entry['config'] = ', '.join(config_parts) if config_parts else 'headless'
 		else:
 			entry['config'] = '?'
 

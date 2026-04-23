@@ -4,6 +4,7 @@ Validates argument parsing, socket/PID path generation, session name validation,
 and path agreement between main.py (stdlib-only) and utils.py.
 """
 
+import argparse
 import sys
 
 import pytest
@@ -12,6 +13,8 @@ from browser_use.skill_cli.main import (
 	_get_home_dir,
 	_get_pid_path,
 	_get_socket_path,
+	_handle_sessions,
+	_SessionProbe,
 	build_parser,
 )
 from browser_use.skill_cli.utils import (
@@ -143,3 +146,40 @@ def test_windows_socket_path_is_namespaced_by_home(tmp_path, monkeypatch):
 
 	assert path_a != path_b
 	assert path_b == get_socket_path('default')
+
+
+def test_handle_sessions_reuses_probe_ping_data(tmp_path, monkeypatch, capsys):
+	"""Sessions output should reuse cached probe data instead of pinging again."""
+	home_dir = tmp_path / 'browser-use-home'
+	home_dir.mkdir()
+	(home_dir / 'demo.pid').write_text('12345')
+
+	monkeypatch.setenv('BROWSER_USE_HOME', str(home_dir))
+
+	def _fake_probe(session: str) -> _SessionProbe:
+		return _SessionProbe(
+			name=session,
+			phase='ready',
+			pid=12345,
+			pid_alive=True,
+			socket_reachable=True,
+			socket_pid=12345,
+			ping_data={
+				'pid': 12345,
+				'headed': False,
+				'profile': 'demo-profile',
+				'cdp_url': 'http://127.0.0.1:9222',
+				'use_cloud': False,
+			},
+		)
+
+	monkeypatch.setattr('browser_use.skill_cli.main._probe_session', _fake_probe)
+	monkeypatch.setattr('browser_use.skill_cli.main.send_command', lambda *args, **kwargs: pytest.fail('unexpected extra ping'))
+
+	result = _handle_sessions(argparse.Namespace(json=False))
+	output = capsys.readouterr().out
+
+	assert result == 0
+	assert 'demo' in output
+	assert 'profile=demo-profile' in output
+	assert 'cdp' in output
