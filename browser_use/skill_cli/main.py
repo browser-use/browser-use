@@ -1097,7 +1097,7 @@ def _close_session(session: str) -> bool:
 					break
 		if confirmed_dead:
 			_clean_session_files(session)
-		return True
+		return confirmed_dead
 
 	if probe.pid_alive and probe.pid and _is_daemon_process(probe.pid):
 		dead = _terminate_pid(probe.pid)

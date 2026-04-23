@@ -391,6 +391,27 @@ def test_close_orphaned_daemon(home_dir):
 	_kill_daemon(pid)
 
 
+def test_close_session_does_not_report_success_while_pid_alive(monkeypatch):
+	"""Close should return False when shutdown was requested but PID stays alive."""
+	from browser_use.skill_cli import main
+
+	probe = main._SessionProbe(
+		name='default',
+		pid=12345,
+		pid_alive=True,
+		socket_reachable=True,
+		socket_pid=12345,
+	)
+
+	monkeypatch.setattr(main, '_probe_session', lambda session: probe)
+	monkeypatch.setattr(main, 'send_command', lambda *args, **kwargs: {'success': True})
+	monkeypatch.setattr(main, '_is_pid_alive', lambda pid: True)
+	monkeypatch.setattr(main, '_clean_session_files', lambda session: pytest.fail('unexpected cleanup'))
+	monkeypatch.setattr(main.time, 'sleep', lambda _: None)
+
+	assert main._close_session('default') is False
+
+
 def test_close_no_session(home_dir):
 	"""Close with no active session should report nothing."""
 	result = _run_cli('close', home_dir=home_dir)
