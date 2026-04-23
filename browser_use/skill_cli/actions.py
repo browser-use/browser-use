@@ -49,7 +49,20 @@ class ActionHandler:
 	async def navigate(self, url: str) -> None:
 		"""Navigate the focused tab to a URL."""
 		assert self.bs.agent_focus_target_id is not None, 'No focused tab'
-		await self.bs._navigate_and_wait(url, self.bs.agent_focus_target_id)
+		try:
+			await self.bs._navigate_and_wait(url, self.bs.agent_focus_target_id)
+		except Exception as e:
+			is_tunnel_failure = 'ERR_TUNNEL_CONNECTION_FAILED' in str(e)
+			if not (self.bs.browser_profile.use_cloud and is_tunnel_failure):
+				raise
+
+			# Some cloud sessions can enter a bad tunnel state where navigation
+			# fails consistently. Restart the cloud session once and retry.
+			logger.warning('Cloud tunnel failure detected, restarting session and retrying navigation once')
+			await self.bs.stop()
+			await self.bs.start()
+			assert self.bs.agent_focus_target_id is not None, 'No focused tab after cloud browser restart'
+			await self.bs._navigate_and_wait(url, self.bs.agent_focus_target_id)
 
 	async def click_element(self, node: EnhancedDOMTreeNode) -> dict[str, Any] | None:
 		"""Click an element using the watchdog's full implementation (with fallbacks)."""
