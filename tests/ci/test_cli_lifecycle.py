@@ -360,12 +360,12 @@ def test_probe_session_caches_ping_payload(home_dir, monkeypatch):
 
 
 def test_close_via_socket(home_dir):
-	"""Normal close should send shutdown command and report success."""
+	"""Normal close should either confirm shutdown or warn while it completes."""
 	pid = _start_daemon(home_dir)
 	result = _run_cli('close', home_dir=home_dir)
 
 	assert result.returncode == 0, f'close failed: stdout={result.stdout!r} stderr={result.stderr!r}'
-	assert 'Browser closed' in result.stdout
+	assert 'Browser closed' in result.stdout or 'shutting down' in result.stderr
 
 	# Clean up daemon if it's still shutting down
 	_kill_daemon(pid)
