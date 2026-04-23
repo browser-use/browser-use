@@ -19,6 +19,7 @@ import tempfile
 import time
 import zlib
 from pathlib import Path
+from typing import Literal
 
 # =============================================================================
 # Early command interception (before heavy imports)
@@ -1074,10 +1075,16 @@ def _handle_sessions(args: argparse.Namespace) -> int:
 	return 0
 
 
-def _close_session(session: str) -> bool:
-	"""Close a single session. Returns True if something was closed/killed.
+_CloseSessionResult = Literal['closed', 'pending', 'none']
 
-	Only cleans up files after the daemon process is confirmed dead.
+
+def _close_session(session: str) -> _CloseSessionResult:
+	"""Close a single session.
+
+	Returns:
+	- ``'closed'`` when the daemon is confirmed dead and cleanup ran
+	- ``'pending'`` when shutdown was requested but the daemon is still exiting
+	- ``'none'`` when there is no active daemon for the session
 	"""
 	probe = _probe_session(session)
 
@@ -1097,18 +1104,18 @@ def _close_session(session: str) -> bool:
 					break
 		if confirmed_dead:
 			_clean_session_files(session)
-		return confirmed_dead
+		return 'closed' if confirmed_dead else 'pending'
 
 	if probe.pid_alive and probe.pid and _is_daemon_process(probe.pid):
 		dead = _terminate_pid(probe.pid)
 		if dead:
 			_clean_session_files(session)
-		return dead
+		return 'closed' if dead else 'pending'
 
 	# Nothing alive — clean up stale files if any exist
 	if probe.pid or probe.phase:
 		_clean_session_files(session)
-	return False
+	return 'none'
 
 
 def _handle_close_all(args: argparse.Namespace) -> int:
@@ -1126,15 +1133,23 @@ def _handle_close_all(args: argparse.Namespace) -> int:
 			session_names.add(name)
 
 	closed = 0
+	pending = 0
 	for name in sorted(session_names):
-		if _close_session(name):
+		result = _close_session(name)
+		if result == 'closed':
 			closed += 1
+		elif result == 'pending':
+			pending += 1
 
 	if args.json:
-		print(json.dumps({'closed': closed}))
+		print(json.dumps({'closed': closed, 'pending': pending}))
 	else:
-		if closed:
+		if closed and pending:
+			print(f'Closed {closed} session(s); {pending} still shutting down')
+		elif closed:
 			print(f'Closed {closed} session(s)')
+		elif pending:
+			print(f'{pending} session(s) still shutting down')
 		else:
 			print('No active sessions')
 
@@ -1403,14 +1418,24 @@ def main() -> int:
 		if getattr(args, 'all', False):
 			return _handle_close_all(args)
 
-		closed = _close_session(session)
+		close_result = _close_session(session)
 		if args.json:
-			print(json.dumps({'success': True, 'data': {'shutdown': True}}))
+			print(
+				json.dumps(
+					{
+						'success': True,
+						'data': {
+							'shutdown': close_result != 'none',
+							'confirmed': close_result == 'closed',
+						},
+					}
+				)
+			)
 		else:
 			print('\r' + ' ' * 20 + '\r', end='')  # clear "Closing..."
-			if closed:
+			if close_result == 'closed':
 				print('Browser closed')
-			elif closed is False and _probe_session(session).pid_alive:
+			elif close_result == 'pending':
 				print('Warning: daemon may still be shutting down', file=sys.stderr)
 			else:
 				print('No active browser session')

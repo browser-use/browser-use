@@ -5,6 +5,7 @@ Daemons bind sockets and write state/PID files without launching browsers
 (lazy session creation means the daemon is ready after socket bind).
 """
 
+import argparse
 import json
 import os
 import signal
@@ -409,7 +410,7 @@ def test_close_session_does_not_report_success_while_pid_alive(monkeypatch):
 	monkeypatch.setattr(main, '_clean_session_files', lambda session: pytest.fail('unexpected cleanup'))
 	monkeypatch.setattr(main.time, 'sleep', lambda _: None)
 
-	assert main._close_session('default') is False
+	assert main._close_session('default') == 'pending'
 
 
 def test_close_no_session(home_dir):
@@ -436,7 +437,8 @@ def test_close_all_multiple_sessions(home_dir):
 	result = _run_cli('close', '--all', home_dir=home_dir)
 	assert result.returncode == 0
 	# s1 closed via socket, s2 may have been killed or already dead (race)
-	assert 'Closed' in result.stdout and 'session(s)' in result.stdout
+	assert 'session(s)' in result.stdout
+	assert 'Closed' in result.stdout or 'shutting down' in result.stdout
 
 	# Clean up any stragglers
 	_kill_daemon(pid1)
@@ -448,6 +450,29 @@ def test_close_all_no_sessions(home_dir):
 	result = _run_cli('close', '--all', home_dir=home_dir)
 	assert result.returncode == 0
 	assert 'No active sessions' in result.stdout
+
+
+def test_close_all_reports_pending_shutdowns(home_dir, monkeypatch, capsys):
+	"""Close --all should not claim there are no sessions when shutdown is pending."""
+	from browser_use.skill_cli import main
+
+	(home_dir / 's1.pid').write_text('123')
+	(home_dir / 's2.pid').write_text('456')
+
+	old_env = os.environ.get('BROWSER_USE_HOME')
+	os.environ['BROWSER_USE_HOME'] = str(home_dir)
+	try:
+		monkeypatch.setattr(main, '_close_session', lambda name: 'pending')
+		rc = main._handle_close_all(argparse.Namespace(json=False))
+		assert rc == 0
+		out = capsys.readouterr().out
+		assert 'shutting down' in out
+		assert 'No active sessions' not in out
+	finally:
+		if old_env is None:
+			os.environ.pop('BROWSER_USE_HOME', None)
+		else:
+			os.environ['BROWSER_USE_HOME'] = old_env
 
 
 # ---------------------------------------------------------------------------
