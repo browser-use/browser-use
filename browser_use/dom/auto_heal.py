@@ -14,12 +14,13 @@ Usage:
     # Before click: fingerprint the element
     healer.fingerprint(index, node)
     # After failure: attempt recovery
-    recovered = await healer.try_heal(index, page)
+    recovered = await healer.try_heal(index, cdp_session)
 """
 
+import json
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger('browser_use.dom.auto_heal')
 
@@ -285,13 +286,13 @@ class AutoHealEngine:
 	async def try_heal(
 		self,
 		index: int,
-		page: Any,
+		cdp_session: Any,
 	) -> HealResult:
 		"""Attempt to recover a lost element.
 
 		Args:
 			index: The element index that failed lookup.
-			page: The Playwright/CDP page object.
+			cdp_session: The CDP session from browser_session.get_or_create_cdp_session().
 
 		Returns:
 			HealResult with success status and new backend node ID if found.
@@ -305,9 +306,9 @@ class AutoHealEngine:
 
 		# Try each recovery strategy in order
 		strategies = [
-			('text_match', self._heal_by_text, (fp, page)),
-			('a11y_match', self._heal_by_a11y, (fp, page)),
-			('role_match', self._heal_by_role, (fp, page)),
+			('text_match', self._heal_by_text, (fp, cdp_session)),
+			('a11y_match', self._heal_by_a11y, (fp, cdp_session)),
+			('role_match', self._heal_by_role, (fp, cdp_session)),
 		]
 
 		for strategy_name, strategy_fn, args in strategies:
@@ -317,10 +318,7 @@ class AutoHealEngine:
 					fp.healed_count += 1
 					fp.last_healed_via = strategy_name
 					self._heal_stats['successes'] += 1
-					logger.info(
-						f'🩹 Healed element {index} via {strategy_name} '
-						f'(text={fp.text[:30]!r}, heal #{fp.healed_count})'
-					)
+					logger.info(f'🩹 Healed element {index} via {strategy_name} (text={fp.text[:30]!r}, heal #{fp.healed_count})')
 					return HealResult(
 						healed=True,
 						new_backend_node_id=result['backendNodeId'],
@@ -333,42 +331,42 @@ class AutoHealEngine:
 				continue
 
 		self._heal_stats['failures'] += 1
-		logger.info(
-			f'❌ Could not heal element {index} '
-			f'(tag={fp.tag}, text={fp.text[:30]!r}) — all strategies exhausted'
-		)
+		logger.info(f'❌ Could not heal element {index} (tag={fp.tag}, text={fp.text[:30]!r}) — all strategies exhausted')
 		return HealResult(healed=False, details='All recovery strategies failed')
 
-	async def _heal_by_text(self, fp: ElementFingerprint, page: Any) -> dict | None:
+	async def _heal_by_text(self, fp: ElementFingerprint, cdp_session: Any) -> dict | None:
 		"""Recovery strategy 1: Find by visible text content."""
 		if not fp.text:
 			return None
 
 		tag_hint = fp.tag if fp.tag in ('button', 'a', 'input', 'select', 'textarea') else None
-		result = await page.evaluate(self._FIND_BY_TEXT_JS, [fp.text, tag_hint])
-		return result
+		expression = f'({self._FIND_BY_TEXT_JS.strip()})({json.dumps(fp.text)}, {json.dumps(tag_hint)})'
+		resp = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': expression}, session_id=cdp_session.session_id
+		)
+		return resp.get('result', {}).get('value') if resp else None
 
-	async def _heal_by_a11y(self, fp: ElementFingerprint, page: Any) -> dict | None:
+	async def _heal_by_a11y(self, fp: ElementFingerprint, cdp_session: Any) -> dict | None:
 		"""Recovery strategy 2: Find by accessibility attributes."""
 		if not any([fp.aria_label, fp.placeholder, fp.title, fp.alt]):
 			return None
 
-		result = await page.evaluate(
-			self._FIND_BY_A11Y_JS,
-			[fp.aria_label, fp.placeholder, fp.title, fp.alt],
+		expression = f'({self._FIND_BY_A11Y_JS.strip()})({json.dumps(fp.aria_label)}, {json.dumps(fp.placeholder)}, {json.dumps(fp.title)}, {json.dumps(fp.alt)})'
+		resp = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': expression}, session_id=cdp_session.session_id
 		)
-		return result
+		return resp.get('result', {}).get('value') if resp else None
 
-	async def _heal_by_role(self, fp: ElementFingerprint, page: Any) -> dict | None:
+	async def _heal_by_role(self, fp: ElementFingerprint, cdp_session: Any) -> dict | None:
 		"""Recovery strategy 3: Find by role/tag and structural position."""
 		if not fp.role and not fp.tag:
 			return None
 
-		result = await page.evaluate(
-			self._FIND_BY_ROLE_JS,
-			[fp.role, fp.tag, fp.parent_tag, fp.sibling_index],
+		expression = f'({self._FIND_BY_ROLE_JS.strip()})({json.dumps(fp.role)}, {json.dumps(fp.tag)}, {json.dumps(fp.parent_tag)}, {fp.sibling_index})'
+		resp = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': expression}, session_id=cdp_session.session_id
 		)
-		return result
+		return resp.get('result', {}).get('value') if resp else None
 
 	def get_stats(self) -> dict:
 		"""Return healing statistics for observability."""
@@ -376,9 +374,7 @@ class AutoHealEngine:
 			**self._heal_stats,
 			'fingerprints_stored': len(self._fingerprints),
 			'success_rate': (
-				self._heal_stats['successes'] / self._heal_stats['attempts']
-				if self._heal_stats['attempts'] > 0
-				else 0.0
+				self._heal_stats['successes'] / self._heal_stats['attempts'] if self._heal_stats['attempts'] > 0 else 0.0
 			),
 		}
 

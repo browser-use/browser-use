@@ -30,6 +30,7 @@ from browser_use.browser.events import (
 	UploadFileEvent,
 )
 from browser_use.browser.views import BrowserError
+from browser_use.dom.auto_heal import AutoHealEngine
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
@@ -37,7 +38,6 @@ from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
-from browser_use.dom.auto_heal import AutoHealEngine
 from browser_use.tools.views import (
 	ClickElementAction,
 	ClickElementActionIndexOnly,
@@ -713,19 +713,18 @@ class Tools(Generic[Context]):
 				else:
 					# Element not found — attempt auto-healing
 					logger.info(f'🔄 Element {params.index} not found, attempting auto-heal...')
-					page = browser_session.current_page
-					if page:
-						heal_result = await self._auto_heal.try_heal(params.index, page)
-						if heal_result.healed and heal_result.new_backend_node_id:
-							# Re-fetch element state after healing — the DOM may have changed
-							# so we ask the agent to refresh and retry
-							msg = (
-								f'Element {params.index} was auto-healed via {heal_result.strategy} '
-								f'(confidence: {heal_result.confidence:.0%}). '
-								f'Refreshing browser state — please retry the click.'
-							)
-							logger.info(f'🩹 {msg}')
-							return ActionResult(extracted_content=msg)
+					cdp_session = await browser_session.get_or_create_cdp_session()
+					heal_result = await self._auto_heal.try_heal(params.index, cdp_session)
+					if heal_result.healed and heal_result.new_backend_node_id:
+						# Re-fetch element state after healing — the DOM may have changed
+						# so we ask the agent to refresh and retry
+						msg = (
+							f'Element {params.index} was auto-healed via {heal_result.strategy} '
+							f'(confidence: {heal_result.confidence:.0%}). '
+							f'Refreshing browser state — please retry the click.'
+						)
+						logger.info(f'🩹 {msg}')
+						return ActionResult(extracted_content=msg)
 
 					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 					logger.warning(f'⚠️ {msg}')
@@ -803,16 +802,15 @@ class Tools(Generic[Context]):
 				self._auto_heal.fingerprint(params.index, node)
 			else:
 				logger.info(f'🔄 Element {params.index} not found for input, attempting auto-heal...')
-				page = browser_session.current_page
-				if page:
-					heal_result = await self._auto_heal.try_heal(params.index, page)
-					if heal_result.healed:
-						msg = (
-							f'Element {params.index} was auto-healed via {heal_result.strategy}. '
-							f'Refreshing browser state — please retry the input.'
-						)
-						logger.info(f'🩹 {msg}')
-						return ActionResult(extracted_content=msg)
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				heal_result = await self._auto_heal.try_heal(params.index, cdp_session)
+				if heal_result.healed:
+					msg = (
+						f'Element {params.index} was auto-healed via {heal_result.strategy}. '
+						f'Refreshing browser state — please retry the input.'
+					)
+					logger.info(f'🩹 {msg}')
+					return ActionResult(extracted_content=msg)
 
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')

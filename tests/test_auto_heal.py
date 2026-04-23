@@ -1,9 +1,10 @@
 """Tests for the Self-Healing Element Recovery Engine."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from browser_use.dom.auto_heal import AutoHealEngine, ElementFingerprint, HealResult
+import pytest
+
+from browser_use.dom.auto_heal import AutoHealEngine
 
 
 class TestAutoHealEngine:
@@ -69,9 +70,10 @@ class TestAutoHealEngine:
 	async def test_try_heal_no_fingerprint(self):
 		"""Healing fails gracefully when no fingerprint exists."""
 		engine = AutoHealEngine()
-		page = AsyncMock()
+		cdp_session = MagicMock()
+		cdp_session.session_id = 'test-session'
 
-		result = await engine.try_heal(999, page)
+		result = await engine.try_heal(999, cdp_session)
 
 		assert result.healed is False
 		assert 'No fingerprint' in result.details
@@ -91,14 +93,14 @@ class TestAutoHealEngine:
 		node.attributes = {}
 		engine.fingerprint(1, node)
 
-		# Mock page that finds element by text
-		page = AsyncMock()
-		page.evaluate = AsyncMock(return_value={
-			'backendNodeId': 42,
-			'strategy': 'exact_text',
-		})
+		# Mock CDP session that finds element by text
+		cdp_session = MagicMock()
+		cdp_session.session_id = 'test-session'
+		cdp_session.cdp_client.send.Runtime.evaluate = AsyncMock(
+			return_value={'result': {'value': {'backendNodeId': 42, 'strategy': 'exact_text'}}}
+		)
 
-		result = await engine.try_heal(1, page)
+		result = await engine.try_heal(1, cdp_session)
 
 		assert result.healed is True
 		assert result.new_backend_node_id == 42
@@ -118,11 +120,12 @@ class TestAutoHealEngine:
 		node.attributes = {}
 		engine.fingerprint(1, node)
 
-		# Mock page that never finds anything
-		page = AsyncMock()
-		page.evaluate = AsyncMock(return_value=None)
+		# Mock CDP session that never finds anything
+		cdp_session = MagicMock()
+		cdp_session.session_id = 'test-session'
+		cdp_session.cdp_client.send.Runtime.evaluate = AsyncMock(return_value={'result': {'value': None}})
 
-		result = await engine.try_heal(1, page)
+		result = await engine.try_heal(1, cdp_session)
 
 		assert result.healed is False
 		assert 'All recovery' in result.details
@@ -168,17 +171,19 @@ class TestAutoHealEngine:
 		node.attributes = {'aria-label': 'Login page'}
 		engine.fingerprint(1, node)
 
-		# Mock page: text match returns None, a11y match succeeds
-		page = AsyncMock()
+		# Mock CDP session: text match returns None, a11y match succeeds
+		cdp_session = MagicMock()
+		cdp_session.session_id = 'test-session'
 
-		async def mock_evaluate(js, args=None):
-			if 'aria-label' in str(js):
-				return {'backendNodeId': 42, 'strategy': 'a11y_attr'}
-			return None
+		async def mock_runtime_evaluate(params=None, session_id=None):
+			expr = params.get('expression', '') if params else ''
+			if 'aria-label' in expr:
+				return {'result': {'value': {'backendNodeId': 42, 'strategy': 'a11y_attr'}}}
+			return {'result': {'value': None}}
 
-		page.evaluate = mock_evaluate
+		cdp_session.cdp_client.send.Runtime.evaluate = mock_runtime_evaluate
 
-		result = await engine.try_heal(1, page)
+		result = await engine.try_heal(1, cdp_session)
 
 		assert result.healed is True
 		assert result.strategy == 'a11y_match'
