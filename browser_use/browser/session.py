@@ -3343,6 +3343,7 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_get_cookies(self) -> list[Cookie]:
 		"""Get cookies using CDP Network.getCookies."""
+
 		async def _fetch_cookies_once() -> list[Cookie]:
 			cdp_session = await self.get_or_create_cdp_session(target_id=None)
 			result = await asyncio.wait_for(
