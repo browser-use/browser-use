@@ -241,10 +241,9 @@ class AutoHealEngine:
 		parent_tag = ''
 		sibling_index = 0
 
-		if hasattr(node, 'snapshot_node') and node.snapshot_node:
-			snap = node.snapshot_node
-			text = (snap.name or '').strip()[:200]
-			role = snap.role or ''
+		if hasattr(node, 'ax_node') and node.ax_node:
+			text = (node.ax_node.name or '').strip()[:200]
+			role = node.ax_node.role or ''
 
 		if hasattr(node, 'tag_name'):
 			tag = (node.tag_name or '').lower()

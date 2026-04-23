@@ -21,8 +21,8 @@ class TestAutoHealEngine:
 		engine = AutoHealEngine()
 		node = MagicMock()
 		node.snapshot_node = MagicMock()
-		node.snapshot_node.name = 'Sign In'
-		node.snapshot_node.role = 'button'
+		node.ax_node.name = 'Sign In'
+		node.ax_node.role = 'button'
 		node.tag_name = 'button'
 		node.attributes = {'class': 'btn btn-primary', 'data-testid': 'login-btn'}
 
@@ -42,8 +42,8 @@ class TestAutoHealEngine:
 		for i in range(5):
 			node = MagicMock()
 			node.snapshot_node = MagicMock()
-			node.snapshot_node.name = f'Element {i}'
-			node.snapshot_node.role = ''
+			node.ax_node.name = f'Element {i}'
+			node.ax_node.role = ''
 			node.tag_name = 'div'
 			node.attributes = {}
 			engine.fingerprint(i, node)
@@ -55,12 +55,12 @@ class TestAutoHealEngine:
 		assert 2 in engine._fingerprints
 
 	def test_fingerprint_handles_none_snapshot(self):
-		"""Fingerprint handles nodes without snapshot_node gracefully."""
+		"""Fingerprint handles nodes without ax_node gracefully."""
 		engine = AutoHealEngine()
 		node = MagicMock()
-		node.snapshot_node = None
+		node.ax_node = None
 		node.tag_name = 'div'
-		node.attributes = None
+		node.attributes = {}
 
 		# Should not raise
 		engine.fingerprint(1, node)
@@ -87,8 +87,8 @@ class TestAutoHealEngine:
 		# Store a fingerprint
 		node = MagicMock()
 		node.snapshot_node = MagicMock()
-		node.snapshot_node.name = 'Submit'
-		node.snapshot_node.role = 'button'
+		node.ax_node.name = 'Submit'
+		node.ax_node.role = 'button'
 		node.tag_name = 'button'
 		node.attributes = {}
 		engine.fingerprint(1, node)
@@ -114,8 +114,8 @@ class TestAutoHealEngine:
 
 		node = MagicMock()
 		node.snapshot_node = MagicMock()
-		node.snapshot_node.name = 'Submit'
-		node.snapshot_node.role = 'button'
+		node.ax_node.name = 'Submit'
+		node.ax_node.role = 'button'
 		node.tag_name = 'button'
 		node.attributes = {}
 		engine.fingerprint(1, node)
@@ -147,8 +147,8 @@ class TestAutoHealEngine:
 		engine = AutoHealEngine()
 		node = MagicMock()
 		node.snapshot_node = MagicMock()
-		node.snapshot_node.name = 'Test'
-		node.snapshot_node.role = ''
+		node.ax_node.name = 'Test'
+		node.ax_node.role = ''
 		node.tag_name = 'div'
 		node.attributes = {}
 		engine.fingerprint(1, node)
@@ -165,8 +165,8 @@ class TestAutoHealEngine:
 
 		node = MagicMock()
 		node.snapshot_node = MagicMock()
-		node.snapshot_node.name = 'Login'
-		node.snapshot_node.role = ''
+		node.ax_node.name = 'Login'
+		node.ax_node.role = ''
 		node.tag_name = 'a'
 		node.attributes = {'aria-label': 'Login page'}
 		engine.fingerprint(1, node)
