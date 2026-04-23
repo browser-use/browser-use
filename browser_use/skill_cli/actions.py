@@ -60,6 +60,9 @@ class ActionHandler:
 			# fails consistently. Restart the cloud session once and retry.
 			logger.warning('Cloud tunnel failure detected, restarting session and retrying navigation once')
 			await self.bs.stop()
+			# Force reprovisioning on start() instead of reconnecting to the same
+			# potentially unhealthy cloud CDP endpoint.
+			self.bs.browser_profile.cdp_url = None
 			await self.bs.start()
 			assert self.bs.agent_focus_target_id is not None, 'No focused tab after cloud browser restart'
 			await self.bs._navigate_and_wait(url, self.bs.agent_focus_target_id)

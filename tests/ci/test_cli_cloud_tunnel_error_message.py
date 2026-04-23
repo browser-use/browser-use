@@ -8,7 +8,9 @@ from browser_use.skill_cli.commands.browser import handle
 
 
 async def test_open_raises_cloud_tunnel_guidance_after_retry_failure():
-	actions = SimpleNamespace(navigate=AsyncMock(side_effect=RuntimeError('Navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED')))
+	actions = SimpleNamespace(
+		navigate=AsyncMock(side_effect=RuntimeError('Navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED'))
+	)
 	browser_session = SimpleNamespace(browser_profile=SimpleNamespace(use_cloud=True), cdp_url='wss://cloud.example/devtools')
 	session = SimpleNamespace(browser_session=browser_session, actions=actions)
 
@@ -19,7 +21,9 @@ async def test_open_raises_cloud_tunnel_guidance_after_retry_failure():
 
 
 async def test_open_keeps_original_error_for_non_cloud_sessions():
-	actions = SimpleNamespace(navigate=AsyncMock(side_effect=RuntimeError('Navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED')))
+	actions = SimpleNamespace(
+		navigate=AsyncMock(side_effect=RuntimeError('Navigation failed: net::ERR_TUNNEL_CONNECTION_FAILED'))
+	)
 	browser_session = SimpleNamespace(browser_profile=SimpleNamespace(use_cloud=False), cdp_url=None)
 	session = SimpleNamespace(browser_session=browser_session, actions=actions)
 
