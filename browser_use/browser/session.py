@@ -154,6 +154,7 @@ class BrowserSession(BaseModel):
 		wait_between_actions: float | None = None,
 		captcha_solver: bool | None = None,
 		auto_download_pdfs: bool | None = None,
+		download_timeout: float | None = None,
 		cookie_whitelist_domains: list[str] | None = None,
 		cross_origin_iframes: bool | None = None,
 		highlight_elements: bool | None = None,
@@ -187,6 +188,7 @@ class BrowserSession(BaseModel):
 		wait_for_network_idle_page_load_time: float | None = None,
 		wait_between_actions: float | None = None,
 		auto_download_pdfs: bool | None = None,
+		download_timeout: float | None = None,
 		cookie_whitelist_domains: list[str] | None = None,
 		cross_origin_iframes: bool | None = None,
 		highlight_elements: bool | None = None,
@@ -294,6 +296,7 @@ class BrowserSession(BaseModel):
 		wait_between_actions: float | None = None,
 		filter_highlight_ids: bool | None = None,
 		auto_download_pdfs: bool | None = None,
+		download_timeout: float | None = None,
 		profile_directory: str | None = None,
 		cookie_whitelist_domains: list[str] | None = None,
 		# DOM extraction layer configuration
