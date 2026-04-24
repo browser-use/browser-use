@@ -190,6 +190,14 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
   https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md
 ```
 
+For Codex, install the same skill under the Codex skills directory:
+
+```bash
+mkdir -p ~/.codex/skills/browser-use
+curl -o ~/.codex/skills/browser-use/SKILL.md \
+  https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md
+```
+
 <br/>
 
 ## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
