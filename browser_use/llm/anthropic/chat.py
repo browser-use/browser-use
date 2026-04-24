@@ -71,10 +71,9 @@ class ChatAnthropic(BaseChatModel):
 			'http_client': self.http_client,
 		}
 
-		# Create client_params dict with non-None values and non-NotGiven values
 		client_params = {}
 		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
+			if v is not None and not isinstance(v, NotGiven):
 				client_params[k] = v
 
 		return client_params
