@@ -262,7 +262,7 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_type',
-					description='Type text into an input field',
+					description='Type text into an input field. Clears existing text by default; pass text="" to clear only.',
 					inputSchema={
 						'type': 'object',
 						'properties': {
@@ -270,7 +270,10 @@ class BrowserUseServer:
 								'type': 'integer',
 								'description': 'The index of the input element (from browser_get_state)',
 							},
-							'text': {'type': 'string', 'description': 'The text to type'},
+							'text': {
+								'type': 'string',
+								'description': 'The text to type. Pass an empty string ("") to clear the field without typing.',
+							},
 						},
 						'required': ['index', 'text'],
 					},

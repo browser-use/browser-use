@@ -30,6 +30,20 @@ To use the user's existing Chrome (preserves logins/cookies): run `browser-use c
 To use a cloud browser instead: run `browser-use cloud connect` first.
 After either, commands work the same way.
 
+### If `browser-use connect` fails
+
+When `browser-use connect` cannot find a running Chrome with remote debugging, prompt the user with two options:
+
+1. **Use their real Chrome browser** — they need to enable remote debugging first:
+   - Open `chrome://inspect/#remote-debugging` in Chrome, or relaunch Chrome with `--remote-debugging-port=9222`
+   - Then retry `browser-use connect`
+2. **Use managed Chromium with their Chrome profile** — no Chrome setup needed:
+   - Run `browser-use profile list` to show available profiles
+   - Ask which profile they want, then use `browser-use --profile "ProfileName" open <url>`
+   - This launches a separate Chromium instance with their profile data (cookies, logins, extensions)
+
+Let the user choose — don't assume one path over the other.
+
 ## Browser Modes
 
 ```bash
@@ -63,7 +77,8 @@ browser-use screenshot [path.png]         # Screenshot (base64 if no path, --ful
 browser-use click <index>                 # Click element by index
 browser-use click <x> <y>                 # Click at pixel coordinates
 browser-use type "text"                   # Type into focused element
-browser-use input <index> "text"          # Click element, then type
+browser-use input <index> "text"          # Click element, clear existing text, then type
+browser-use input <index> ""              # Clear a field without typing new text
 browser-use keys "Enter"                  # Send keyboard keys (also "Control+a", etc.)
 browser-use select <index> "option"       # Select dropdown option
 browser-use upload <index> <path>         # Upload file to file input

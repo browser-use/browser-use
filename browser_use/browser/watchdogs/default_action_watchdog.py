@@ -1402,10 +1402,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 					return True
 				else:
 					self.logger.debug(f'⚠️ JavaScript clear partially failed, field still contains: "{final_text}"')
-					return False
 			else:
 				self.logger.debug(f'❌ JavaScript clear failed: {clear_info.get("error", "Unknown error")}')
-				return False
 
 		except Exception as e:
 			self.logger.debug(f'JavaScript clear failed with exception: {e}')
