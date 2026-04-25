@@ -48,6 +48,9 @@ class ChatOpenAI(BaseChatModel):
 	remove_defaults_from_schema: bool = (
 		False  # If True, remove default values from JSON schema (for compatibility with some providers)
 	)
+	remove_string_length_constraints_from_schema: bool = (
+		False  # If True, remove minLength/maxLength from JSON schema (for compatibility with some providers)
+	)
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -229,6 +232,7 @@ class ChatOpenAI(BaseChatModel):
 						output_format,
 						remove_min_items=self.remove_min_items_from_schema,
 						remove_defaults=self.remove_defaults_from_schema,
+						remove_string_length_constraints=self.remove_string_length_constraints_from_schema,
 					),
 				}
 
