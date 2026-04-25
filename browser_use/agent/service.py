@@ -3948,7 +3948,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
 				else:
-					# keep_alive=True sessions shouldn't keep the event loop alive after agent.run()
+					# keep_alive=True: browser stays open but agent is done.
+					# Set _intentional_stop so that if the user manually closes the
+					# browser window the CDP-drop callback won't auto-reconnect.
+					self.browser_session._intentional_stop = True
+					# Cancel any pending reconnection task
+					if self.browser_session._reconnect_task and not self.browser_session._reconnect_task.done():
+						self.browser_session._reconnect_task.cancel()
+						self.browser_session._reconnect_task = None
 					await self.browser_session.event_bus.stop(
 						clear=False,
 						timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
