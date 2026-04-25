@@ -144,7 +144,10 @@ class AnthropicMessageSerializer:
 		blocks: list[ToolUseBlockParam] = []
 		for i, tool_call in enumerate(tool_calls):
 			# Parse the arguments JSON string to object
-
+			# Annotated as dict[str, object] (the type ToolUseBlockParam.input
+			# expects) so the json fallback's dict[str, str] is widened
+			# correctly under dict invariance.
+			input_obj: dict[str, object]
 			try:
 				input_obj = json.loads(tool_call.function.arguments)
 			except json.JSONDecodeError:
