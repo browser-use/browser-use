@@ -418,7 +418,7 @@ class Element:
 					logger.warning('Text field clearing failed, typing may append to existing text')
 
 			# Step 3: Type the text character by character using proper human-like key events
-			logger.debug(f'Typing text character by character: "{value}"')
+			logger.debug(f'Typing text character by character: "[REDACTED {len(value)} chars]"')
 
 			for i, char in enumerate(value):
 				# Handle newline characters as Enter key

@@ -85,7 +85,6 @@ class SchemaOptimizer:
 
 					# Keep essential validation fields
 					elif key in [
-						'type',
 						'required',
 						'minimum',
 						'maximum',
