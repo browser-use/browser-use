@@ -18,6 +18,7 @@ from browser_use.llm.messages import (
 	ContentPartTextParam,
 	SupportedImageMediaType,
 	SystemMessage,
+	ToolCall,
 	UserMessage,
 )
 
@@ -39,7 +40,13 @@ class AnthropicMessageSerializer:
 		if not url.startswith('data:'):
 			raise ValueError(f'Invalid base64 URL: {url}')
 
-		header, data = url.split(',', 1)
+		# Guard against malformed data URLs (no comma separator).
+		# Without this guard, the unpacking below raised a confusing
+		# ValueError("not enough values to unpack") that hid the real cause.
+		parts = url.split(',', 1)
+		if len(parts) != 2:
+			raise ValueError(f'Invalid base64 data URL — missing comma separator after header: {url[:80]}...')
+		header, data = parts
 		media_type = header.split(';')[0].replace('data:', '')
 
 		# Ensure it's a supported media type
@@ -132,7 +139,7 @@ class AnthropicMessageSerializer:
 		return serialized_blocks
 
 	@staticmethod
-	def _serialize_tool_calls_to_content(tool_calls, use_cache: bool = False) -> list[ToolUseBlockParam]:
+	def _serialize_tool_calls_to_content(tool_calls: list[ToolCall], use_cache: bool = False) -> list[ToolUseBlockParam]:
 		"""Convert tool calls to Anthropic's ToolUseBlockParam format."""
 		blocks: list[ToolUseBlockParam] = []
 		for i, tool_call in enumerate(tool_calls):
