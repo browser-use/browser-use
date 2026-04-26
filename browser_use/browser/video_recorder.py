@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Video Recording Service for Browser Use Sessions."""
 
 import base64
@@ -5,9 +7,12 @@ import io
 import logging
 import math
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from browser_use.browser.profile import ViewportSize
+
+if TYPE_CHECKING:
+	from imageio.core.format import Format
 
 try:
 	import imageio.v2 as iio  # type: ignore[import-not-found]
@@ -43,16 +48,18 @@ class VideoRecorderService:
 		Initializes the video recorder.
 
 		Args:
-		    output_path: The full path where the video will be saved.
-		    size: A ViewportSize object specifying the width and height of the video.
-		    framerate: The desired framerate for the output video.
+			output_path: The full path where the video will be saved.
+			size: A ViewportSize object specifying the width and height of the video.
+			framerate: The desired framerate for the output video.
 		"""
 		self.output_path = output_path
 		self.size = size
 		self.framerate = framerate
-		self._writer: Optional['Format.Writer'] = None
+		self._writer: Format.Writer | None = None
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
+		self.last_frame_time: float | None = None
+		self._last_img_array: np.ndarray | None = None
 
 	def start(self) -> None:
 		"""
@@ -84,13 +91,14 @@ class VideoRecorderService:
 			logger.error(f'Failed to initialize video writer: {e}')
 			self._is_active = False
 
-	def add_frame(self, frame_data_b64: str) -> None:
+	def add_frame(self, frame_data_b64: str, timestamp: float | None = None) -> None:
 		"""
 		Decodes a base64-encoded PNG frame, resizes it, pads it to be codec-compatible,
 		and appends it to the video.
 
 		Args:
-		    frame_data_b64: A base64-encoded string of the PNG frame data.
+			frame_data_b64: A base64-encoded string of the PNG frame data.
+			timestamp: The timestamp of the frame.
 		"""
 		if not self._is_active or not self._writer:
 			return
@@ -118,7 +126,17 @@ class VideoRecorderService:
 				# 3. Convert to numpy array for imageio
 				img_array = np.array(img)
 
+			if timestamp is not None and self.last_frame_time is not None:
+				dt = timestamp - self.last_frame_time
+				if dt > 1.0 / self.framerate:
+					num_fill_frames = int(dt * self.framerate) - 1
+					if num_fill_frames > 0 and self._last_img_array is not None:
+						for _ in range(num_fill_frames):
+							self._writer.append_data(self._last_img_array)
+
 			self._writer.append_data(img_array)
+			self._last_img_array = img_array
+			self.last_frame_time = timestamp
 		except Exception as e:
 			logger.warning(f'Could not process and add video frame: {e}')
 
