@@ -18,22 +18,43 @@ logger = logging.getLogger(__name__)
 
 @cache
 def is_running_in_docker() -> bool:
-	"""Detect if we are running in a docker container, for the purpose of optimizing chrome launch flags (dev shm usage, gpu settings, etc.)"""
+	"""Detect if we are running in a docker container using multiple heuristics."""
+	# 1. Standard /.dockerenv check
+	if Path('/.dockerenv').exists():
+		return True
+
+	# 2. Cgroup analysis
 	try:
-		if Path('/.dockerenv').exists() or 'docker' in Path('/proc/1/cgroup').read_text().lower():
+		cgroup = Path('/proc/1/cgroup')
+		if cgroup.exists() and 'docker' in cgroup.read_text().lower():
 			return True
 	except Exception:
 		pass
 
+	# 3. Mountinfo analysis (overlay FS or docker paths)
 	try:
-		# if init proc (PID 1) looks like uvicorn/python/uv/etc. then we're in Docker
-		# if init proc (PID 1) looks like bash/systemd/init/etc. then we're probably NOT in Docker
+		mountinfo = Path('/proc/self/mountinfo')
+		if mountinfo.exists():
+			text = mountinfo.read_text().lower()
+			if 'overlay' in text or '/docker/containers/' in text:
+				return True
+	except Exception:
+		pass
+
+	# 4. Environment variables common in containers/K8s
+	if os.environ.get('KUBERNETES_SERVICE_HOST') or os.environ.get('container') == 'docker':
+		return True
+
+	# 5. Runtime heuristics (PID 1 analysis)
+	try:
+		# check for typical container entrypoints
 		init_cmd = ' '.join(psutil.Process(1).cmdline())
-		if ('py' in init_cmd) or ('uv' in init_cmd) or ('app' in init_cmd):
+		if any(m in init_cmd for m in ('py', 'uv', 'app', 'gunicorn', 'node')):
 			return True
 	except Exception:
 		pass
 
+	# 6. Final fallback: process count
 	try:
 		# if less than 10 total running procs, then we're almost certainly in a container
 		if len(psutil.pids()) < 10:
