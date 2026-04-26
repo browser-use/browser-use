@@ -3923,17 +3923,32 @@ class BrowserSession(BaseModel):
 
 		params = CaptureScreenshotParameters(**params)
 
-		result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
+		max_retries = 3
+		last_exception = None
 
-		if not result or 'data' not in result:
-			raise Exception('Screenshot failed - no data returned')
+		for attempt in range(max_retries):
+			try:
+				result = await cdp_session.cdp_client.send.Page.captureScreenshot(
+					params=params, session_id=cdp_session.session_id
+				)
 
-		screenshot_data = base64.b64decode(result['data'])
+				if not result or 'data' not in result:
+					raise Exception('No data returned from captureScreenshot')
 
-		if path:
-			Path(path).write_bytes(screenshot_data)
+				screenshot_data = base64.b64decode(result['data'])
 
-		return screenshot_data
+				if path:
+					Path(path).write_bytes(screenshot_data)
+
+				return screenshot_data
+
+			except Exception as e:
+				last_exception = e
+				self.logger.warning(f'Screenshot attempt {attempt + 1}/{max_retries} failed: {e}')
+				if attempt < max_retries - 1:
+					await asyncio.sleep(1.0 * (attempt + 1))
+
+		raise Exception(f'Screenshot failed after {max_retries} attempts. Last error: {last_exception}')
 
 	async def screenshot_element(
 		self,
