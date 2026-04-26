@@ -275,6 +275,40 @@ For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [B
 </details>
 
 <details>
+<summary><b>How do I keep long-running agents from overloading the LLM context?</b></summary>
+
+Browser Use includes several context controls for long-running or multi-step runs:
+
+- `message_compaction=True` is enabled by default and summarizes older step history into a compact memory block.
+- Use `MessageCompactionSettings(...)` when you want explicit thresholds such as `trigger_token_count`, `compact_every_n_steps`, `keep_last_items`, and `summary_max_chars`.
+- Use `max_history_items` to cap how many raw step history items are kept in the prompt.
+- Tune `max_clickable_elements_length` if large pages are dominating the browser state message.
+- Set `calculate_cost=True` when you want token and cost telemetry for a run.
+
+```python
+from browser_use import Agent, ChatBrowserUse
+from browser_use.agent.views import MessageCompactionSettings
+
+agent = Agent(
+    task="Research several pages and keep a concise running memory.",
+    llm=ChatBrowserUse(),
+    max_history_items=20,
+    max_clickable_elements_length=20_000,
+    message_compaction=MessageCompactionSettings(
+        trigger_token_count=8_000,
+        compact_every_n_steps=4,
+        keep_last_items=8,
+        summary_max_chars=3_000,
+    ),
+    calculate_cost=True,
+)
+```
+
+For file-heavy tasks, prefer Browser Use's filesystem-backed extraction flow instead of pasting full documents into the prompt. Large PDF reads stay within a character budget and mark skipped pages so the agent can ask for more targeted reads when needed.
+
+</details>
+
+<details>
 <summary><b>How do I go into production?</b></summary>
 
 Chrome can consume a lot of memory, and running many agents in parallel can be tricky to manage.
