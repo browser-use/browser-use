@@ -251,7 +251,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				playwright_path = '~/Library/Caches/ms-playwright'
 			all_patterns = [
 				('chrome', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
-				('chromium', f'{playwright_path}/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium'),
+				('chromium', f'{playwright_path}/chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium'),
 				('chromium', '/Applications/Chromium.app/Contents/MacOS/Chromium'),
 				('chrome-canary', '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary'),
 				('brave', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'),
