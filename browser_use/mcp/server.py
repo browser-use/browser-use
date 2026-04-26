@@ -31,8 +31,10 @@ os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
 os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 
 import asyncio
+import base64
 import json
 import logging
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -200,6 +202,8 @@ class BrowserUseServer:
 		self.file_system: FileSystem | None = None
 		self._telemetry = ProductTelemetry()
 		self._start_time = time.time()
+		self._mcp_screenshot_dir = Path(tempfile.gettempdir()) / 'browser-use-mcp-screenshots'
+		self._mcp_screenshot_dir.mkdir(parents=True, exist_ok=True)
 
 		# Session management
 		self.active_sessions: dict[str, dict[str, Any]] = {}  # session_id -> session info
@@ -282,7 +286,7 @@ class BrowserUseServer:
 						'properties': {
 							'include_screenshot': {
 								'type': 'boolean',
-								'description': 'Whether to include a screenshot of the current page',
+								'description': 'Whether to capture a screenshot reference for the current page. The tool returns a local PNG path in the JSON response instead of inlining base64 image data.',
 								'default': False,
 							}
 						},
@@ -319,7 +323,7 @@ class BrowserUseServer:
 				),
 				types.Tool(
 					name='browser_screenshot',
-					description='Take a screenshot of the current page. Returns viewport metadata as text and the screenshot as an image.',
+					description='Take a screenshot of the current page. Returns viewport metadata plus a local PNG file path in the JSON response.',
 					inputSchema={
 						'type': 'object',
 						'properties': {
@@ -525,21 +529,15 @@ class BrowserUseServer:
 				return await self._type_text(arguments['index'], arguments['text'])
 
 			elif tool_name == 'browser_get_state':
-				state_json, screenshot_b64 = await self._get_browser_state(arguments.get('include_screenshot', False))
-				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=state_json)]
-				if screenshot_b64:
-					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
-				return content
+				state_json, _ = await self._get_browser_state(arguments.get('include_screenshot', False))
+				return [types.TextContent(type='text', text=state_json)]
 
 			elif tool_name == 'browser_get_html':
 				return await self._get_html(arguments.get('selector'))
 
 			elif tool_name == 'browser_screenshot':
-				meta_json, screenshot_b64 = await self._screenshot(arguments.get('full_page', False))
-				content: list[types.TextContent | types.ImageContent] = [types.TextContent(type='text', text=meta_json)]
-				if screenshot_b64:
-					content.append(types.ImageContent(type='image', data=screenshot_b64, mimeType='image/png'))
-				return content
+				meta_json, _ = await self._screenshot(arguments.get('full_page', False))
+				return [types.TextContent(type='text', text=meta_json)]
 
 			elif tool_name == 'browser_extract_content':
 				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
@@ -909,10 +907,10 @@ class BrowserUseServer:
 				elem_info['href'] = element.attributes['href']
 			result['interactive_elements'].append(elem_info)
 
-		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
 		screenshot_b64 = None
 		if include_screenshot and state.screenshot:
-			screenshot_b64 = state.screenshot
+			screenshot_b64 = None
+			result['screenshot_path'] = self._store_mcp_screenshot(base64.b64decode(state.screenshot), prefix='state')
 			# Include viewport dimensions in JSON so LLM can map pixels to coordinates
 			if state.page_info:
 				result['screenshot_dimensions'] = {
@@ -954,24 +952,29 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active', None
 
-		import base64
-
 		self._update_session_activity(self.browser_session.id)
 
 		data = await self.browser_session.take_screenshot(full_page=full_page)
-		b64 = base64.b64encode(data).decode()
 
-		# Return screenshot separately as ImageContent instead of embedding base64 in JSON
 		state = await self.browser_session.get_browser_state_summary()
 		result: dict[str, Any] = {
 			'size_bytes': len(data),
+			'screenshot_path': self._store_mcp_screenshot(data, prefix='screenshot'),
 		}
 		if state.page_info:
 			result['viewport'] = {
 				'width': state.page_info.viewport_width,
 				'height': state.page_info.viewport_height,
 			}
-		return json.dumps(result), b64
+		return json.dumps(result), None
+
+	def _store_mcp_screenshot(self, data: bytes, prefix: str) -> str:
+		"""Persist screenshot bytes to a temp PNG file and return its path."""
+		with tempfile.NamedTemporaryFile(
+			mode='wb', suffix='.png', prefix=f'browser-use-{prefix}-', dir=self._mcp_screenshot_dir, delete=False
+		) as tmp_file:
+			tmp_file.write(data)
+			return tmp_file.name
 
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
 		"""Extract content from current page."""
