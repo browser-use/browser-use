@@ -24,7 +24,9 @@ Or as an MCP server in Claude Desktop or other MCP clients:
 """
 
 import os
+import shutil
 import sys
+import uuid
 
 # Set environment variables BEFORE any browser_use imports to prevent early logging
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
@@ -188,6 +190,7 @@ class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
 	def __init__(self, session_timeout_minutes: int = 10):
+		self._auto_profile_dir: str | None = None
 		# Ensure all logging goes to stderr (in case new loggers were created)
 		_ensure_all_loggers_use_stderr()
 
@@ -577,12 +580,17 @@ class BrowserUseServer:
 		# Get profile config
 		profile_config = get_default_profile(self.config)
 
+		# Generate a unique session profile directory to avoid Chrome SingletonLock
+		# contention when multiple MCP server instances run concurrently.
+		_session_id = uuid.uuid4().hex[:8]
+		_default_profile_dir = str(Path.home() / '.config' / 'browseruse' / 'profiles' / f'mcp-{_session_id}')
+
 		# Merge profile config with defaults and overrides
 		profile_data = {
-			'downloads_path': str(Path.home() / 'Downloads' / 'browser-use-mcp'),
+			'downloads_path': str(Path.home() / '.config' / 'browseruse' / 'downloads'),
 			'wait_between_actions': 0.5,
 			'keep_alive': True,
-			'user_data_dir': '~/.config/browseruse/profiles/default',
+			'user_data_dir': _default_profile_dir,
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
@@ -604,8 +612,14 @@ class BrowserUseServer:
 		self.browser_session = BrowserSession(browser_profile=profile)
 		await self.browser_session.start()
 
-		# Track the session for management
-		self._track_session(self.browser_session)
+		# Track the session for management with its profile dir for cleanup
+		_auto_profile = _default_profile_dir if 'user_data_dir' not in profile_config else None
+		self._track_session(self.browser_session, profile_dir=_auto_profile)
+
+		# Remember the auto-generated profile dir so we can clean it up on close.
+		# Only track if the user did NOT explicitly configure user_data_dir.
+		if 'user_data_dir' not in profile_config:
+			self._auto_profile_dir = _default_profile_dir
 
 		# Create tools for direct actions
 		self.tools = Tools()
@@ -1052,6 +1066,12 @@ class BrowserUseServer:
 			await event
 			self.browser_session = None
 			self.tools = None
+			# Clean up auto-generated profile directory
+			if self._auto_profile_dir:
+				profile_path = Path(self._auto_profile_dir).expanduser()
+				if profile_path.exists():
+					shutil.rmtree(profile_path, ignore_errors=True)
+				self._auto_profile_dir = None
 			return 'Browser closed'
 		return 'No browser session to close'
 
@@ -1092,13 +1112,14 @@ class BrowserUseServer:
 		current_url = await self.browser_session.get_current_page_url()
 		return f'Closed tab # {tab_id}, now on {current_url}'
 
-	def _track_session(self, session: BrowserSession) -> None:
+	def _track_session(self, session: BrowserSession, profile_dir: str | None = None) -> None:
 		"""Track a browser session for management."""
 		self.active_sessions[session.id] = {
 			'session': session,
 			'created_at': time.time(),
 			'last_activity': time.time(),
 			'url': getattr(session, 'current_url', None),
+			'profile_dir': profile_dir,
 		}
 
 	def _update_session_activity(self, session_id: str) -> None:
@@ -1140,6 +1161,7 @@ class BrowserUseServer:
 
 		session_data = self.active_sessions[session_id]
 		session = session_data['session']
+		profile_dir = session_data.get('profile_dir')
 
 		try:
 			# Close the session
@@ -1155,6 +1177,12 @@ class BrowserUseServer:
 			if self.browser_session and self.browser_session.id == session_id:
 				self.browser_session = None
 				self.tools = None
+
+			# Clean up auto-generated profile directory
+			if profile_dir:
+				profile_path = Path(profile_dir).expanduser()
+				if profile_path.exists():
+					shutil.rmtree(profile_path, ignore_errors=True)
 
 			return f'Successfully closed session {session_id}'
 		except Exception as e:
