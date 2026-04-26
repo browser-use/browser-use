@@ -27,6 +27,7 @@ from browser_use.llm.messages import (
 # Type stubs for lazy imports
 if TYPE_CHECKING:
 	from browser_use.llm.anthropic.chat import ChatAnthropic
+	from browser_use.llm.astraflow.chat import ChatAstraflow
 	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
 	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
@@ -80,6 +81,7 @@ if TYPE_CHECKING:
 # Lazy imports mapping for heavy chat models
 _LAZY_IMPORTS = {
 	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
+	'ChatAstraflow': ('browser_use.llm.astraflow.chat', 'ChatAstraflow'),
 	'ChatAnthropicBedrock': ('browser_use.llm.aws.chat_anthropic', 'ChatAnthropicBedrock'),
 	'ChatAWSBedrock': ('browser_use.llm.aws.chat_bedrock', 'ChatAWSBedrock'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
@@ -158,4 +160,5 @@ __all__ = [
 	'ChatOpenRouter',
 	'ChatVercel',
 	'ChatCerebras',
+	'ChatAstraflow',
 ]
