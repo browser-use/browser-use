@@ -1,5 +1,6 @@
 # @file purpose: Serializes enhanced DOM trees to string format for LLM consumption
 
+import logging
 from typing import Any
 
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
@@ -14,6 +15,8 @@ from browser_use.dom.views import (
 	SerializedDOMState,
 	SimplifiedNode,
 )
+
+logger = logging.getLogger(__name__)
 
 DISABLED_ELEMENTS = {'style', 'script', 'head', 'meta', 'link', 'title'}
 
@@ -628,26 +631,7 @@ class DOMTreeSerializer:
 
 			# DIAGNOSTIC: Log when interactive elements don't have snapshot_node
 			if is_interactive_assign and not node.original_node.snapshot_node:
-				import logging
-
-				logger = logging.getLogger('browser_use.dom.serializer')
-				attrs = node.original_node.attributes or {}
-				attr_str = f'name={attrs.get("name", "")} id={attrs.get("id", "")} type={attrs.get("type", "")}'
-				in_shadow = self._is_inside_shadow_dom(node)
-				if (
-					in_shadow
-					and node.original_node.tag_name
-					and node.original_node.tag_name.lower() in ['input', 'button', 'select', 'textarea', 'a']
-				):
-					logger.debug(
-						f'🔍 INCLUDING shadow DOM <{node.original_node.tag_name}> (no snapshot_node but in shadow DOM): '
-						f'backendNodeId={node.original_node.backend_node_id} {attr_str}'
-					)
-				else:
-					logger.debug(
-						f'🔍 SKIPPING interactive <{node.original_node.tag_name}> (no snapshot_node, not in shadow DOM): '
-						f'backendNodeId={node.original_node.backend_node_id} {attr_str}'
-					)
+				self._log_interactive_no_snapshot(node)
 
 			# EXCEPTION: File inputs are often hidden with opacity:0 but are still functional
 			# Bootstrap and other frameworks use this pattern with custom-styled file pickers
@@ -722,6 +706,10 @@ class DOMTreeSerializer:
 					if node.original_node.backend_node_id not in previous_backend_node_ids:
 						node.is_new = True
 
+		# Log interactive elements that were excluded by bbox or paint order filtering
+		if node.excluded_by_parent or node.ignored_by_paint_order:
+			self._log_interactive_element_not_added(node)
+
 		# Process children
 		for child in node.children:
 			self._assign_interactive_indices_and_mark_new_nodes(child)
@@ -737,9 +725,7 @@ class DOMTreeSerializer:
 		# Log statistics
 		excluded_count = self._count_excluded_nodes(node)
 		if excluded_count > 0:
-			import logging
-
-			logging.debug(f'BBox filtering excluded {excluded_count} nodes')
+			logger.debug(f'BBox filtering excluded {excluded_count} nodes')
 
 		return node
 
@@ -835,6 +821,7 @@ class DOMTreeSerializer:
 				return False
 
 		# Default: exclude this child
+		self._log_element_excluded_by_bbox(node, active_bounds)
 		return True
 
 	def _is_contained(self, child: DOMRect, parent: DOMRect, threshold: float) -> bool:
@@ -864,6 +851,68 @@ class DOMTreeSerializer:
 		for child in node.children:
 			count = self._count_excluded_nodes(child, count)
 		return count
+
+	def _log_interactive_no_snapshot(self, node: SimplifiedNode) -> None:
+		"""Log when an interactive element has no snapshot_node."""
+		if not logger.isEnabledFor(logging.DEBUG):
+			return
+		attrs = node.original_node.attributes or {}
+		attr_str = f'name={attrs.get("name", "")} id={attrs.get("id", "")} type={attrs.get("type", "")}'
+		tag = node.original_node.tag_name or 'unknown'
+		in_shadow = self._is_inside_shadow_dom(node)
+		if in_shadow and tag.lower() in ['input', 'button', 'select', 'textarea', 'a']:
+			logger.debug(
+				f'Including shadow DOM <{tag}> (no snapshot_node but in shadow DOM): '
+				f'backendNodeId={node.original_node.backend_node_id} {attr_str}'
+			)
+		else:
+			logger.debug(
+				f'Skipping interactive <{tag}> (no snapshot_node, not in shadow DOM): '
+				f'backendNodeId={node.original_node.backend_node_id} {attr_str}'
+			)
+
+	def _log_element_excluded_by_bbox(self, node: SimplifiedNode, active_bounds: 'PropagatingBounds') -> None:
+		"""Log when an element is excluded by bounding box containment filtering."""
+		if not logger.isEnabledFor(logging.DEBUG):
+			return
+		snapshot = node.original_node.snapshot_node
+		if not snapshot or not snapshot.bounds:
+			return
+		attrs = node.original_node.attributes or {}
+		tag = (node.original_node.tag_name or 'unknown').lower()
+		child_bounds = snapshot.bounds
+		logger.debug(
+			f'BBox filter: excluding <{tag}> '
+			f'id="{attrs.get("id", "")}" class="{attrs.get("class", "")}" '
+			f'backendNodeId={node.original_node.backend_node_id} | '
+			f'Contained within parent <{active_bounds.tag}> (nodeId={active_bounds.node_id}) | '
+			f'Child bounds: x={child_bounds.x:.1f} y={child_bounds.y:.1f} '
+			f'w={child_bounds.width:.1f} h={child_bounds.height:.1f} | '
+			f'Parent bounds: x={active_bounds.bounds.x:.1f} y={active_bounds.bounds.y:.1f} '
+			f'w={active_bounds.bounds.width:.1f} h={active_bounds.bounds.height:.1f}'
+		)
+
+	def _log_interactive_element_not_added(self, node: SimplifiedNode) -> None:
+		"""Log when an interactive element is excluded from the selector map."""
+		if not logger.isEnabledFor(logging.DEBUG):
+			return
+		if not self._is_interactive_cached(node.original_node):
+			return
+		attrs = node.original_node.attributes or {}
+		tag = (node.original_node.tag_name or 'unknown').lower()
+		reasons: list[str] = []
+		if node.excluded_by_parent:
+			reasons.append('excluded_by_parent (bbox filtering)')
+		if node.ignored_by_paint_order:
+			reasons.append('ignored_by_paint_order (covered by overlay)')
+		if not reasons:
+			return
+		logger.debug(
+			f'Interactive element not added: <{tag}> '
+			f'id="{attrs.get("id", "")}" class="{attrs.get("class", "")}" '
+			f'backendNodeId={node.original_node.backend_node_id} | '
+			f'Reason: {", ".join(reasons)}'
+		)
 
 	def _is_propagating_element(self, attributes: dict[str, str | None]) -> bool:
 		"""
