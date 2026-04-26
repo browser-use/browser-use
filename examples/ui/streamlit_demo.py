@@ -25,26 +25,52 @@ if os.name == 'nt':
 	asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
+# Providers that do not support vision (screenshots in prompts)
+NO_VISION_PROVIDERS = {'deepseek', 'groq', 'ollama'}
+
+PROVIDER_ENV_KEYS: dict[str, str] = {
+	'openai': 'OPENAI_API_KEY',
+	'anthropic': 'ANTHROPIC_API_KEY',
+	'deepseek': 'DEEPSEEK_API_KEY',
+	'google': 'GOOGLE_API_KEY',
+	'groq': 'GROQ_API_KEY',
+	'ollama': '',
+}
+
+
 # Function to get the LLM based on provider
 def get_llm(provider: str):
-	if provider == 'anthropic':
-		from browser_use.llm import ChatAnthropic
-
-		api_key = os.getenv('ANTHROPIC_API_KEY')
+	env_key = PROVIDER_ENV_KEYS.get(provider, '')
+	if env_key:
+		api_key = os.getenv(env_key)
 		if not api_key:
-			st.error('Error: ANTHROPIC_API_KEY is not set. Please provide a valid API key.')
+			st.error(f'Error: {env_key} is not set. Please provide a valid API key.')
 			st.stop()
 
-		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
-	elif provider == 'openai':
+	if provider == 'openai':
 		from browser_use import ChatOpenAI
 
-		api_key = os.getenv('OPENAI_API_KEY')
-		if not api_key:
-			st.error('Error: OPENAI_API_KEY is not set. Please provide a valid API key.')
-			st.stop()
-
 		return ChatOpenAI(model='gpt-4.1', temperature=0.0)
+	elif provider == 'anthropic':
+		from browser_use.llm import ChatAnthropic
+
+		return ChatAnthropic(model='claude-sonnet-4-6', temperature=0.0)
+	elif provider == 'deepseek':
+		from browser_use.llm import ChatDeepSeek
+
+		return ChatDeepSeek(model='deepseek-chat', api_key=os.getenv('DEEPSEEK_API_KEY'))
+	elif provider == 'google':
+		from browser_use.llm import ChatGoogle
+
+		return ChatGoogle(model='gemini-3-flash-preview', temperature=0.0)
+	elif provider == 'groq':
+		from browser_use.llm import ChatGroq
+
+		return ChatGroq(model='mixtral-8x7b-32768', temperature=0.0)
+	elif provider == 'ollama':
+		from browser_use.llm import ChatOllama
+
+		return ChatOllama(model='llama3')
 	else:
 		st.error(f'Unsupported provider: {provider}')
 		st.stop()
@@ -56,13 +82,14 @@ def initialize_agent(query: str, provider: str):
 	llm = get_llm(provider)
 	tools = Tools()
 	browser_session = BrowserSession()
+	use_vision = provider not in NO_VISION_PROVIDERS
 
 	return Agent(
 		task=query,
 		llm=llm,  # type: ignore
 		tools=tools,
 		browser_session=browser_session,
-		use_vision=True,
+		use_vision=use_vision,
 		max_actions_per_step=1,
 	), browser_session
 
@@ -71,7 +98,7 @@ def initialize_agent(query: str, provider: str):
 st.title('Automated Browser Agent with LLMs 🤖')
 
 query = st.text_input('Enter your query:', 'go to reddit and search for posts about browser-use')
-provider = st.radio('Select LLM Provider:', ['openai', 'anthropic'], index=0)
+provider = st.radio('Select LLM Provider:', list(PROVIDER_ENV_KEYS.keys()), index=0)
 
 if st.button('Run Agent'):
 	st.write('Initializing agent...')
