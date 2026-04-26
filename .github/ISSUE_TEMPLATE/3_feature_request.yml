@@ -46,7 +46,7 @@ body:
     attributes:
       label: What version of browser-use are you currently using?
       description: |
-        Run `pip show browser-use` or `git log -n 1` and share the exact number or git hash. DO NOT JUST ENTER `latest release` OR `main`.  
+        Run `uv pip show browser-use` or `git log -n 1` and share the exact number or git hash. DO NOT JUST ENTER `latest release` OR `main`.
         We need to know what version of the browser-use library you're running in order to contextualize your feature request.  
         Sometimes features are already available and just need to be enabled with config on certain versions.
       placeholder: "e.g. 0.1.48 or 62760baaefd"

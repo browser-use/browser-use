@@ -27,7 +27,7 @@ body:
     attributes:
       label: Documentation Page
       description: Which page or section of the documentation is this about?
-      placeholder: "e.g. https://docs.browser-use.com/customize/browser-settings > Context Configuration > headless"
+      placeholder: "e.g. https://docs.browser-use.com/open-source/customize/browser/all-parameters > Display & Appearance > headless"
     validations:
       required: true
 
