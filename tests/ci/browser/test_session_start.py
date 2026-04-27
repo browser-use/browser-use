@@ -58,6 +58,16 @@ class TestBrowserSessionStart:
 		await browser_session.start()
 		assert browser_session._cdp_client_root is not None
 
+	async def test_close_before_start_is_safe(self, browser_session):
+		"""Test calling .close() on a session that hasn't been started yet."""
+		original_event_bus = browser_session.event_bus
+
+		await browser_session.close()
+
+		assert browser_session._cdp_client_root is None
+		assert browser_session.event_bus is not None
+		assert browser_session.event_bus is not original_event_bus
+
 	# @pytest.mark.skip(reason="Race condition - DOMWatchdog tries to inject scripts into tab that's being closed")
 	# async def test_page_lifecycle_management(self, browser_session: BrowserSession):
 	# 	"""Test session handles page lifecycle correctly."""
