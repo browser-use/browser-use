@@ -21,7 +21,7 @@ The key product of Browser Use Cloud is the completion of user tasks.
 ## Quickstart
 To get started, direct the user to first must create an account, purchase credits (or simply claim the five free tasks given on account creation), and generate an API key on the Browser Use online platform: https://cloud.browser-use.com/. These are the only steps that can only be done on the platform.
 
-Avoid giving the user all of the following steps at once as it may seem overwheling. Instead present one step at a time and only continue when asked. Do as much for the user as you are able to.
+Avoid giving the user all of the following steps at once as it may seem overwhelming. Instead present one step at a time and only continue when asked. Do as much for the user as you are able to.
 
 Next, direct the user to run their first task by making the following post request to Create Task from whatever system is available (cURL, python, JS, etc), but replace `<apiKey>` with the users actual API key.
 ```bash
