@@ -646,6 +646,22 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
 
+	# --- Typing behaviour ---
+
+	human_typing_wpm: float = Field(
+		default=0.0,
+		ge=0.0,
+		description=(
+			'Simulate human-like typing speed, in words per minute (WPM). '
+			'0.0 = use the built-in minimal delays (fast, bot-like). '
+			'Typical ranges: 40 WPM (slow), 60–80 WPM (average), 100+ WPM (fast). '
+			'Inter-keystroke intervals are sampled from a log-normal distribution '
+			'matching real typing dynamics, with an automatic extra pause after spaces '
+			'to mimic the natural slowdown at word boundaries. '
+			'Example: set to 60 for a natural average-human feel.'
+		),
+	)
+
 	# --- UI/viewport/DOM ---
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
 	dom_highlight_elements: bool = Field(
