@@ -5,6 +5,7 @@ import dataclasses
 import enum
 import inspect
 import json
+import math
 import os
 import sys
 import textwrap
@@ -12,7 +13,6 @@ from collections.abc import Callable, Coroutine
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, Union, cast, get_args, get_origin
 
-import cloudpickle
 import httpx
 
 from browser_use.sandbox.views import (
@@ -201,15 +201,60 @@ def _extract_all_params(func: Callable, args: tuple, kwargs: dict) -> dict[str, 
 			else:
 				all_params[name] = value
 
-	# 3. Extract referenced globals (like logger, module-level vars, etc.)
-	#    Let cloudpickle handle serialization instead of special-casing
+	# 3. Extract referenced globals that are runtime data. Imported modules,
+	#    functions, and classes are restored from source imports instead.
 	for name in func.__code__.co_names:
 		if name in all_params:
 			continue
 		if name in func.__globals__:
-			all_params[name] = func.__globals__[name]
+			value = func.__globals__[name]
+			if inspect.ismodule(value) or inspect.isclass(value) or inspect.isfunction(value) or inspect.ismethod(value):
+				continue
+			if inspect.isbuiltin(value) or inspect.ismethoddescriptor(value):
+				continue
+			all_params[name] = value
 
 	return all_params
+
+
+def _to_json_safe_value(value: Any, path: str) -> Any:
+	"""Convert allowed sandbox parameter values to JSON-safe data.
+
+	Only primitive JSON types and containers are accepted. Rejecting objects here
+	prevents arbitrary code execution from pickle/cloudpickle deserialization on
+	the remote sandbox server.
+	"""
+	if value is None or isinstance(value, (str, bool)):
+		return value
+
+	if isinstance(value, int) and not isinstance(value, bool):
+		return value
+
+	if isinstance(value, float):
+		if not math.isfinite(value):
+			raise SandboxError(f'{path} must be a finite JSON number')
+		return value
+
+	if isinstance(value, (list, tuple)):
+		return [_to_json_safe_value(item, f'{path}[{index}]') for index, item in enumerate(value)]
+
+	if isinstance(value, dict):
+		json_dict: dict[str, Any] = {}
+		for key, item in value.items():
+			if not isinstance(key, str):
+				raise SandboxError(f'{path} contains a non-string dictionary key')
+			json_dict[key] = _to_json_safe_value(item, f'{path}.{key}')
+		return json_dict
+
+	raise SandboxError(
+		f'{path} has unsupported type {type(value).__name__}; sandbox parameters must be JSON-serializable primitives, lists, or dictionaries'
+	)
+
+
+def _json_serialize_params(params: dict[str, Any]) -> str:
+	"""Serialize sandbox parameters with JSON only."""
+	json_safe_params = {name: _to_json_safe_value(value, name) for name, value in params.items()}
+	return json.dumps(json_safe_params, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
 
 
 def sandbox(
@@ -234,7 +279,7 @@ def sandbox(
 
 	The decorated function MUST have 'browser: Browser' as its first parameter.
 	The browser parameter will be automatically injected - do NOT pass it when calling the decorated function.
-	All other parameters (explicit or from closure) will be captured and sent via cloudpickle.
+	All other parameters (explicit or from closure) must be JSON-serializable primitives or containers.
 
 	Args:
 	    BROWSER_USE_API_KEY: API key (defaults to BROWSER_USE_API_KEY env var)
@@ -302,8 +347,8 @@ def sandbox(
 			else:
 				needed_imports = 'from browser_use import Browser'
 
-			# 4. Pickle parameters using cloudpickle for robust serialization
-			pickled_params = base64.b64encode(cloudpickle.dumps(all_params)).decode()
+			# 4. Serialize parameters with JSON only. Pickle/cloudpickle must not cross this trust boundary.
+			serialized_params = _json_serialize_params(all_params)
 
 			# 5. Determine which params are in the function signature vs closure/globals
 			func_param_names = {p.name for p in sig.parameters.values() if p.name != 'browser'}
@@ -325,16 +370,14 @@ def sandbox(
 			else:
 				function_call = f'await {func.__name__}(browser=browser)'
 
-			# 6. Create wrapper code that unpickles params and calls function
-			execution_code = f"""import cloudpickle
-import base64
+			# 6. Create wrapper code that decodes JSON params and calls function
+			execution_code = f"""import json
 
 # Imports used in function
 {needed_imports}
 
-# Unpickle all parameters (explicit, closure, and globals)
-_pickled_params = base64.b64decode({repr(pickled_params)})
-_params = cloudpickle.loads(_pickled_params)
+# Decode all parameters (explicit, closure, and globals)
+_params = json.loads({repr(serialized_params)})
 
 # Inject closure variables and globals into module scope
 {var_injection_code}
