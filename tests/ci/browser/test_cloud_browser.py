@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -11,7 +11,7 @@ from browser_use.browser.cloud.cloud import (
 	CloudBrowserClient,
 	CloudBrowserError,
 )
-from browser_use.browser.cloud.views import CreateBrowserRequest
+from browser_use.browser.cloud.views import CloudBrowserResponse, CreateBrowserRequest
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.sync.auth import CloudAuthConfig
@@ -229,6 +229,45 @@ class TestCloudBrowserClient:
 
 			assert 'not found' in str(exc_info.value)
 
+	async def test_get_browser_success(self, mock_auth_config, monkeypatch):
+		"""Test fetching cloud browser details."""
+
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+
+		mock_response_data = {
+			'id': 'test-browser-id',
+			'status': 'active',
+			'liveUrl': 'https://live.browser-use.com?wss=test',
+			'cdpUrl': 'wss://fresh.proxy.browser-use.com/devtools/browser/test',
+			'timeoutAt': '2025-09-17T04:35:36.049892',
+			'startedAt': '2025-09-17T03:35:36.049974',
+			'finishedAt': None,
+		}
+
+		with patch('httpx.AsyncClient') as mock_client_class:
+			mock_response = AsyncMock()
+			mock_response.status_code = 200
+			mock_response.is_success = True
+			mock_response.json = lambda: mock_response_data
+
+			mock_client = AsyncMock()
+			mock_client.get.return_value = mock_response
+			mock_client_class.return_value = mock_client
+
+			client = CloudBrowserClient()
+			client.client = mock_client
+			client.current_session_id = 'test-browser-id'
+
+			result = await client.get_browser()
+
+			assert result.id == 'test-browser-id'
+			assert result.cdpUrl == 'wss://fresh.proxy.browser-use.com/devtools/browser/test'
+
+			mock_client.get.assert_called_once()
+			call_args = mock_client.get.call_args
+			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
+			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'test-token'
+
 
 class TestBrowserSessionCloudIntegration:
 	"""Test BrowserSession integration with cloud browsers."""
@@ -257,3 +296,65 @@ class TestBrowserSessionCloudIntegration:
 		# Provide CDP URL to avoid actual connection attempts
 		session = BrowserSession(browser_profile=profile, cdp_url='ws://mock-url')
 		assert session.cloud_browser is True
+
+	async def test_reconnect_refreshes_cloud_cdp_url(self, mock_auth_config, monkeypatch):
+		"""Reconnect should refresh cloud cdp_url before rebuilding the CDP client."""
+
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+
+		cloud_session_id = '7166c636-8500-4bb7-afd9-31bc025dc630'
+		old_cdp_url = f'wss://{cloud_session_id}.cdp1.browser-use.com/devtools/browser/old'
+		fresh_cdp_url = f'wss://{cloud_session_id}.cdp2.browser-use.com/devtools/browser/fresh'
+
+		session = BrowserSession(browser_profile=BrowserProfile(use_cloud=True), cdp_url=old_cdp_url)
+		session.browser_profile.is_local = False
+		session._cloud_browser_client.current_session_id = cloud_session_id
+		session.agent_focus_target_id = 'target-123'
+		session._cloud_browser_client.get_browser = AsyncMock(
+			return_value=CloudBrowserResponse(
+				id=cloud_session_id,
+				status='active',
+				liveUrl='https://live.browser-use.com?wss=test',
+				cdpUrl=fresh_cdp_url,
+				timeoutAt='2025-09-17T04:35:36.049892',
+				startedAt='2025-09-17T03:35:36.049974',
+				finishedAt=None,
+			)
+		)
+
+		old_root_client = Mock()
+		old_root_client.stop = AsyncMock()
+		session._cdp_client_root = old_root_client
+
+		old_session_manager = Mock()
+		old_session_manager.clear = AsyncMock()
+		session.session_manager = old_session_manager
+
+		new_root_client = Mock()
+		new_root_client.start = AsyncMock()
+		new_root_client.send = Mock()
+		new_root_client.send.Target = Mock()
+		new_root_client.send.Target.setAutoAttach = AsyncMock()
+
+		new_session_manager = Mock()
+		new_session_manager.start_monitoring = AsyncMock()
+		new_session_manager.get_all_page_targets.return_value = [Mock(target_id='target-123')]
+
+		with (
+			patch('browser_use.browser.session.CDPClient', return_value=new_root_client) as mock_cdp_client,
+			patch('browser_use.browser.session_manager.SessionManager', return_value=new_session_manager),
+			patch.object(BrowserSession, 'get_or_create_cdp_session', AsyncMock()) as mock_get_or_create,
+			patch.object(BrowserSession, '_setup_proxy_auth', AsyncMock()),
+			patch.object(BrowserSession, '_attach_ws_drop_callback'),
+		):
+			await session.reconnect()
+
+		session._cloud_browser_client.get_browser.assert_awaited_once_with(cloud_session_id)
+		assert session.cdp_url == fresh_cdp_url
+		assert mock_cdp_client.call_args.args[0] == fresh_cdp_url
+		old_root_client.stop.assert_awaited_once()
+		old_session_manager.clear.assert_awaited_once()
+		new_session_manager.start_monitoring.assert_awaited_once()
+		new_root_client.start.assert_awaited_once()
+		new_root_client.send.Target.setAutoAttach.assert_awaited_once()
+		mock_get_or_create.assert_awaited_once_with('target-123', focus=True)
