@@ -152,7 +152,6 @@ __all__ = [
 	'ChatOllama',
 	'ChatVercel',
 	'Tools',
-	'Controller',
 	# LLM models module
 	'models',
 	# Sandbox execution
