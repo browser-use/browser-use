@@ -535,6 +535,152 @@ class EnhancedDOMTreeNode:
 		except ValueError:
 			return 0
 
+	def _escape_css_identifier(self, value: str) -> str:
+		"""Escape special CSS characters in identifiers.
+
+		Implements CSS.escape() equivalent for Python to handle special characters
+		in IDs and class names that have special meaning in CSS selectors.
+		"""
+		if not value:
+			return value
+
+		result = []
+		for i, char in enumerate(value):
+			code = ord(char)
+
+			# NULL character
+			if code == 0:
+				result.append('\ufffd')
+			# Control characters or first char is digit
+			elif (0x1 <= code <= 0x1F) or code == 0x7F or (i == 0 and 0x30 <= code <= 0x39):
+				result.append(f'\\{code:x} ')
+			# First char is hyphen and (only char OR followed by digit)
+			elif i == 0 and char == '-' and (len(value) == 1 or (len(value) > 1 and 0x30 <= ord(value[1]) <= 0x39)):
+				result.append(f'\\{char}')
+			# Safe characters: letters, digits, hyphen, underscore, non-ASCII
+			elif (
+				code >= 0x80
+				or char == '-'
+				or char == '_'
+				or (0x30 <= code <= 0x39)
+				or (0x41 <= code <= 0x5A)
+				or (0x61 <= code <= 0x7A)
+			):
+				result.append(char)
+			# Special CSS characters that need escaping
+			else:
+				result.append(f'\\{char}')
+
+		return ''.join(result)
+
+	@property
+	def css_selector(self) -> str:
+		"""Generate CSS selector for this element.
+
+		Unlike XPath, CSS selectors can work with shadow DOM when used with
+		JavaScript querySelector in the appropriate context.
+		"""
+		if self.node_type != NodeType.ELEMENT_NODE:
+			return ''
+
+		segments = []
+		current_element = self
+
+		while current_element and current_element.node_type == NodeType.ELEMENT_NODE:
+			# Build selector for current element
+			selector = current_element.tag_name
+
+			# Add ID if present (makes selector more specific)
+			if current_element.attributes and 'id' in current_element.attributes:
+				escaped_id = current_element._escape_css_identifier(current_element.attributes['id'])
+				selector += f'#{escaped_id}'
+			# Add first class if no ID (for specificity)
+			elif current_element.attributes and 'class' in current_element.attributes:
+				classes = current_element.attributes['class'].split()
+				if classes:
+					escaped_class = current_element._escape_css_identifier(classes[0])
+					selector += f'.{escaped_class}'
+
+			# Add nth-child if needed for uniqueness
+			if current_element.parent_node:
+				siblings = [
+					child
+					for child in (current_element.parent_node.children_nodes or [])
+					if child.node_type == NodeType.ELEMENT_NODE and child.tag_name == current_element.tag_name
+				]
+				if len(siblings) > 1:
+					try:
+						index = siblings.index(current_element) + 1  # CSS is 1-indexed
+						selector += f':nth-of-type({index})'
+					except ValueError:
+						pass
+
+			segments.insert(0, selector)
+
+			# Stop at shadow root or iframe boundary
+			if current_element.parent_node and current_element.parent_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+				break  # Stop at shadow root
+			if (
+				current_element.parent_node
+				and current_element.parent_node.tag_name
+				and current_element.parent_node.tag_name.lower() == 'iframe'
+			):
+				break  # Stop at iframe
+
+			current_element = current_element.parent_node
+
+		return ' > '.join(segments)
+
+	@property
+	def shadow_path(self) -> list[str]:
+		"""Return list of shadow host tag names from root to this element.
+
+		Example: ['my-app', 'my-component'] means this element is inside
+		the shadow DOM of <my-component> which is inside shadow DOM of <my-app>.
+		"""
+		shadow_hosts = []
+		current = self.parent_node
+
+		while current:
+			# Check if parent is a shadow root (DOCUMENT_FRAGMENT_NODE with shadow_root_type)
+			if current.node_type == NodeType.DOCUMENT_FRAGMENT_NODE and current.shadow_root_type:
+				# The shadow root's parent is the shadow host
+				if current.parent_node and current.parent_node.node_type == NodeType.ELEMENT_NODE:
+					shadow_hosts.insert(0, current.parent_node.tag_name.lower())
+
+			current = current.parent_node
+
+		return shadow_hosts
+
+	@property
+	def iframe_chain(self) -> list[str]:
+		"""Return list of frame IDs from root document to this element.
+
+		Empty list means element is in the main document.
+		One item means element is in a single iframe.
+		Multiple items represent nested iframes.
+		"""
+		frame_ids = []
+		current = self
+
+		# Start by adding this element's frame_id if it exists
+		if self.frame_id:
+			frame_ids.append(self.frame_id)
+
+		# Walk up the tree looking for iframe boundaries
+		while current:
+			# Check if we're inside an iframe's content_document
+			if current.parent_node:
+				parent = current.parent_node
+				# If parent is an iframe, we're in its content
+				if parent.tag_name and parent.tag_name.lower() == 'iframe':
+					if parent.frame_id and parent.frame_id not in frame_ids:
+						frame_ids.insert(0, parent.frame_id)
+
+			current = current.parent_node
+
+		return frame_ids
+
 	def __json__(self) -> dict:
 		"""Serializes the node and its descendants to a dictionary, omitting parent references."""
 		return {
@@ -1002,6 +1148,22 @@ class DOMInteractedElement:
 	# Accessibility name (visible text) - used for fallback matching when hash/xpath fail
 	ax_name: str | None = None
 
+	# New fields for shadow DOM and iframe support (GitHub #3820)
+	css_selector: str | None = None
+	"""CSS selector - works with shadow DOM unlike XPath"""
+
+	shadow_path: list[str] | None = None
+	"""List of shadow host tag names from root to this element"""
+
+	iframe_chain: list[str] | None = None
+	"""List of frame IDs from root document to this element"""
+
+	is_in_shadow_dom: bool = False
+	"""True if element is inside any shadow DOM"""
+
+	is_in_iframe: bool = False
+	"""True if element is inside any iframe"""
+
 	def to_dict(self) -> dict[str, Any]:
 		return {
 			'node_id': self.node_id,
@@ -1016,6 +1178,12 @@ class DOMInteractedElement:
 			'stable_hash': self.stable_hash,
 			'bounds': self.bounds.to_dict() if self.bounds else None,
 			'ax_name': self.ax_name,
+			# New fields for shadow DOM and iframe support
+			'css_selector': self.css_selector,
+			'shadow_path': self.shadow_path,
+			'iframe_chain': self.iframe_chain,
+			'is_in_shadow_dom': self.is_in_shadow_dom,
+			'is_in_iframe': self.is_in_iframe,
 		}
 
 	@classmethod
@@ -1038,4 +1206,10 @@ class DOMInteractedElement:
 			element_hash=hash(enhanced_dom_tree),
 			stable_hash=enhanced_dom_tree.compute_stable_hash(),  # Compute from source for single source of truth
 			ax_name=ax_name,
+			# New fields for shadow DOM and iframe support
+			css_selector=enhanced_dom_tree.css_selector or None,
+			shadow_path=enhanced_dom_tree.shadow_path if enhanced_dom_tree.shadow_path else None,
+			iframe_chain=enhanced_dom_tree.iframe_chain if enhanced_dom_tree.iframe_chain else None,
+			is_in_shadow_dom=bool(enhanced_dom_tree.shadow_path),
+			is_in_iframe=bool(enhanced_dom_tree.iframe_chain),
 		)
