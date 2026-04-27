@@ -995,7 +995,7 @@ class Element:
 				logger.debug('Text field cleared successfully using JavaScript')
 				return True
 			else:
-				logger.debug(f'JavaScript clear partially failed, field still contains: "{current_value}"')
+				logger.debug(f'JavaScript clear partially failed, field still contains: [{len(current_value)} chars]')
 
 		except Exception as e:
 			logger.debug(f'JavaScript clear failed: {e}')
