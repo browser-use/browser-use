@@ -1168,7 +1168,6 @@ class BrowserUseServer:
 
 		session_data = self.active_sessions[session_id]
 		session = session_data['session']
-		cleanup_error = self._cleanup_mcp_screenshots(session_data)
 
 		try:
 			# Close the session
@@ -1179,6 +1178,8 @@ class BrowserUseServer:
 
 			# Remove from tracking
 			del self.active_sessions[session_id]
+
+			cleanup_error = self._cleanup_mcp_screenshots(session_data)
 
 			# If this was the current session, clear it
 			if self.browser_session and self.browser_session.id == session_id:

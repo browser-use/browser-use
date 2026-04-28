@@ -96,6 +96,28 @@ async def test_close_session_removes_persisted_screenshots(tmp_path: Path):
 	assert 'session-1' not in server.active_sessions
 
 
+@pytest.mark.asyncio
+async def test_failed_close_keeps_screenshot_cleanup_state(tmp_path: Path):
+	server = BrowserUseServer()
+	screenshot_path = tmp_path / 'browser-use-screenshot-test.png'
+	screenshot_path.write_bytes(b'png-bytes')
+	session = SimpleNamespace(close=AsyncMock(side_effect=RuntimeError('boom')))
+	server.active_sessions['session-1'] = {
+		'session': session,
+		'created_at': 0,
+		'last_activity': 0,
+		'url': 'https://example.com',
+		'screenshot_paths': [str(screenshot_path)],
+	}
+	server.browser_session = SimpleNamespace(id='session-1')
+
+	result = await server._close_session('session-1')
+
+	assert result == 'Error closing session session-1: boom'
+	assert screenshot_path.exists()
+	assert server.active_sessions['session-1']['screenshot_paths'] == [str(screenshot_path)]
+
+
 def test_mcp_client_extracts_images_without_inlining_base64():
 	client = MCPClient(server_name='test', command='echo')
 	result = SimpleNamespace(
