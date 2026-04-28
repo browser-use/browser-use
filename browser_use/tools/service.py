@@ -349,11 +349,13 @@ class Tools(Generic[Context]):
 		exclude_actions: list[str] | None = None,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
+		uncapped_wait: bool = False,
 	):
 		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [])
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		self.uncapped_wait: bool = uncapped_wait
 
 		"""Register all default browser actions"""
 
@@ -473,7 +475,10 @@ class Tools(Generic[Context]):
 			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
 			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
 			# so I revert this.
-			actual_seconds = min(max(seconds - 1, 0), 30)
+			if self.uncapped_wait:
+				actual_seconds = max(seconds, 0)
+			else:
+				actual_seconds = min(max(seconds - 1, 0), 30)
 			memory = f'Waited for {seconds} seconds'
 			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
 			await asyncio.sleep(actual_seconds)

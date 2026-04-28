@@ -205,6 +205,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_compaction: MessageCompactionSettings | bool | None = True,
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
+		uncapped_wait: bool = False,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -311,7 +312,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			# Exclude screenshot tool when use_vision is not auto
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
-			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text, uncapped_wait=uncapped_wait)
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
