@@ -974,7 +974,31 @@ class BrowserUseServer:
 			mode='wb', suffix='.png', prefix=f'browser-use-{prefix}-', dir=self._mcp_screenshot_dir, delete=False
 		) as tmp_file:
 			tmp_file.write(data)
-			return tmp_file.name
+			path = tmp_file.name
+
+		browser_session_id = getattr(self.browser_session, 'id', None)
+		if browser_session_id and browser_session_id in self.active_sessions:
+			session_data = self.active_sessions[browser_session_id]
+			session_data.setdefault('screenshot_paths', []).append(path)
+
+		return path
+
+	def _cleanup_mcp_screenshots(self, session_data: dict[str, Any]) -> str | None:
+		"""Delete any persisted screenshots associated with a session."""
+		screenshot_paths = session_data.pop('screenshot_paths', [])
+		if not screenshot_paths:
+			return None
+
+		errors: list[str] = []
+		for screenshot_path in screenshot_paths:
+			try:
+				Path(screenshot_path).unlink(missing_ok=True)
+			except OSError as e:
+				errors.append(f'{screenshot_path}: {e}')
+
+		if errors:
+			return f'Warning: failed to remove {len(errors)} screenshot file(s): {"; ".join(errors)}'
+		return None
 
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
 		"""Extract content from current page."""
@@ -1102,6 +1126,7 @@ class BrowserUseServer:
 			'created_at': time.time(),
 			'last_activity': time.time(),
 			'url': getattr(session, 'current_url', None),
+			'screenshot_paths': [],
 		}
 
 	def _update_session_activity(self, session_id: str) -> None:
@@ -1143,6 +1168,7 @@ class BrowserUseServer:
 
 		session_data = self.active_sessions[session_id]
 		session = session_data['session']
+		cleanup_error = self._cleanup_mcp_screenshots(session_data)
 
 		try:
 			# Close the session
@@ -1159,7 +1185,10 @@ class BrowserUseServer:
 				self.browser_session = None
 				self.tools = None
 
-			return f'Successfully closed session {session_id}'
+			result = f'Successfully closed session {session_id}'
+			if cleanup_error:
+				result += f'. {cleanup_error}'
+			return result
 		except Exception as e:
 			return f'Error closing session {session_id}: {str(e)}'
 

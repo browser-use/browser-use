@@ -48,7 +48,7 @@ async def test_get_browser_state_writes_screenshot_to_file(tmp_path: Path):
 
 	assert screenshot_b64_result is None
 	assert payload['screenshot_path'].endswith('.png')
-	assert 'png-bytes' not in state_json
+	assert screenshot_b64 not in state_json
 	assert Path(payload['screenshot_path']).read_bytes() == b'png-bytes'
 
 
@@ -65,12 +65,35 @@ async def test_screenshot_writes_file_reference_instead_of_inline_base64(tmp_pat
 
 	meta_json, screenshot_b64_result = await server._screenshot(full_page=False)
 	payload = json.loads(meta_json)
+	screenshot_b64 = base64.b64encode(b'fresh-png').decode()
 
 	assert screenshot_b64_result is None
 	assert payload['screenshot_path'].endswith('.png')
 	assert payload['size_bytes'] == len(b'fresh-png')
-	assert 'fresh-png' not in meta_json
+	assert screenshot_b64 not in meta_json
 	assert Path(payload['screenshot_path']).read_bytes() == b'fresh-png'
+
+
+@pytest.mark.asyncio
+async def test_close_session_removes_persisted_screenshots(tmp_path: Path):
+	server = BrowserUseServer()
+	screenshot_path = tmp_path / 'browser-use-screenshot-test.png'
+	screenshot_path.write_bytes(b'png-bytes')
+	session = SimpleNamespace(close=AsyncMock())
+	server.active_sessions['session-1'] = {
+		'session': session,
+		'created_at': 0,
+		'last_activity': 0,
+		'url': 'https://example.com',
+		'screenshot_paths': [str(screenshot_path)],
+	}
+	server.browser_session = SimpleNamespace(id='session-1')
+
+	result = await server._close_session('session-1')
+
+	assert result == 'Successfully closed session session-1'
+	assert not screenshot_path.exists()
+	assert 'session-1' not in server.active_sessions
 
 
 def test_mcp_client_extracts_images_without_inlining_base64():
