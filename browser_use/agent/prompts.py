@@ -397,7 +397,7 @@ Available tabs:
 				return base64.b64encode(buffer.getvalue()).decode('utf-8'), 'image/jpeg'
 		except Exception as e:
 			logging.getLogger(__name__).warning(f'Failed to resize screenshot: {e}, using original')
-			return screenshot_b64, 'image/png
+			return screenshot_b64, 'image/png'
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
