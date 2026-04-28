@@ -357,11 +357,17 @@ Available tabs:
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
 		return agent_state
 
-	def _resize_screenshot(self, screenshot_b64: str) -> str:
-		"""Resize screenshot to llm_screenshot_size if configured."""
-		if not self.llm_screenshot_size:
-			return screenshot_b64
+	def _resize_screenshot(self, screenshot_b64: str) -> tuple[str, str]:
+		"""Resize and compress screenshot to reduce context size.
 
+		Without compression, a 1920x1080 PNG screenshot is ~500KB-2MB.
+		Multiple screenshots per conversation quickly exhaust the context window,
+		causing API errors (400/413). This method always resizes and compresses
+		the image to JPEG (or PNG for transparency) before sending to the LLM.
+
+		Returns:
+			Tuple of (base64_string, media_type)
+		"""
 		try:
 			import base64
 			import logging
@@ -370,20 +376,28 @@ Available tabs:
 			from PIL import Image
 
 			img = Image.open(BytesIO(base64.b64decode(screenshot_b64)))
-			if img.size == self.llm_screenshot_size:
-				return screenshot_b64
 
-			logging.getLogger(__name__).info(
-				f'🔄 Resizing screenshot from {img.size[0]}x{img.size[1]} to {self.llm_screenshot_size[0]}x{self.llm_screenshot_size[1]} for LLM'
-			)
+			# Target width: 1280px default (preserves most visual detail, ~95% size reduction)
+			target_width = 1280
+			if self.llm_screenshot_size:
+				target_width, target_height = self.llm_screenshot_size
+				if img.size != self.llm_screenshot_size:
+					img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+			elif img.size[0] > target_width:
+				new_height = int(img.size[1] * target_width / img.size[0])
+				img = img.resize((target_width, new_height), Image.Resampling.LANCZOS)
 
-			img_resized = img.resize(self.llm_screenshot_size, Image.Resampling.LANCZOS)
 			buffer = BytesIO()
-			img_resized.save(buffer, format='PNG')
-			return base64.b64encode(buffer.getvalue()).decode('utf-8')
+			# Use JPEG for ~85% compression vs PNG; keep PNG only for images with transparency
+			if img.mode in ('RGBA', 'LA', 'P'):
+				img.save(buffer, format='PNG')
+				return base64.b64encode(buffer.getvalue()).decode('utf-8'), 'image/png'
+			else:
+				img.save(buffer, format='JPEG', quality=85)
+				return base64.b64encode(buffer.getvalue()).decode('utf-8'), 'image/jpeg'
 		except Exception as e:
 			logging.getLogger(__name__).warning(f'Failed to resize screenshot: {e}, using original')
-			return screenshot_b64
+			return screenshot_b64, 'image/png
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
@@ -443,15 +457,15 @@ Available tabs:
 				# Add label as text content
 				content_parts.append(ContentPartTextParam(text=label))
 
-				# Resize screenshot if llm_screenshot_size is configured
-				processed_screenshot = self._resize_screenshot(screenshot)
+				# Resize and compress screenshot to reduce context size
+				processed_screenshot, media_type = self._resize_screenshot(screenshot)
 
 				# Add the screenshot
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/png;base64,{processed_screenshot}',
-							media_type='image/png',
+							url=f'data:{media_type};base64,{processed_screenshot}',
+							media_type=media_type,
 							detail=self.vision_detail_level,
 						),
 					)
