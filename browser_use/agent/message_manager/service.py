@@ -135,7 +135,8 @@ class MessageManager:
 		self.llm_screenshot_size = llm_screenshot_size
 		self.max_clickable_elements_length = max_clickable_elements_length
 
-		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
+		if not (max_history_items is None or max_history_items > 5):
+			raise ValueError('max_history_items must be None or greater than 5')
 
 		# Store settings as direct attributes instead of in a settings object
 		self.include_attributes = include_attributes or []
@@ -475,7 +476,8 @@ class MessageManager:
 		effective_use_vision = len(screenshots) > 0
 
 		# Create single state message with all content
-		assert browser_state_summary
+		if not browser_state_summary:
+			raise RuntimeError('browser_state_summary is required')
 		state_message = AgentMessagePrompt(
 			browser_state_summary=browser_state_summary,
 			file_system=self.file_system,

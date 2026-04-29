@@ -591,7 +591,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
 
 		# Initialize download tracking
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 		self.has_downloads_path = self.browser_session.browser_profile.downloads_path is not None
 		if self.has_downloads_path:
 			self._last_known_downloads: list[str] = []
@@ -634,7 +635,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@property
 	def browser_profile(self) -> BrowserProfile:
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 		return self.browser_session.browser_profile
 
 	@property
@@ -652,7 +654,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not self.has_downloads_path:
 			return
 
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 
 		try:
 			current_downloads = self.browser_session.downloaded_files
@@ -847,7 +850,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			def make_skill_handler(skill_id: str):
 				async def skill_handler(params: BaseModel) -> ActionResult:
 					"""Execute a specific skill"""
-					assert self.skill_service is not None, 'SkillService not initialized'
+					if self.skill_service is None:
+						raise RuntimeError('SkillService not initialized')
 
 					# Convert parameters to dict
 					if isinstance(params, BaseModel):
@@ -1076,7 +1080,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Prepare the context for the step: browser state, action models, page actions"""
 		# step_start_time is now set in step() method
 
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
 		# Always take screenshots for all steps
@@ -1206,7 +1211,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _post_process(self) -> None:
 		"""Handle post-action processing like download tracking and result logging"""
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 
 		# Check for new downloads after executing actions
 		await self._check_and_update_downloads('after executing actions')
@@ -2719,7 +2725,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		results: list[ActionResult] = []
 		total_actions = len(actions)
 
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 		try:
 			if (
 				self.browser_session._cached_browser_state_summary is not None
@@ -3321,7 +3328,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Returns:
 			BrowserStateSummary if minimum elements found, None if timeout
 		"""
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 
 		start_time = time.time()
 		last_count = 0
@@ -3384,7 +3392,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			ai_step_llm: Optional LLM to use for AI steps
 			wait_for_elements: If True, wait for minimum elements before element matching
 		"""
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+		if self.browser_session is None:
+			raise RuntimeError('BrowserSession is not set up')
 
 		await asyncio.sleep(delay)
 
