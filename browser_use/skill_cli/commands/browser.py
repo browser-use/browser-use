@@ -104,7 +104,8 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 		response = None
 		if len(args) == 2:
 			x, y = args
-			pre_target_ids = set(bs.session_manager._targets.keys())
+			if bs and hasattr(bs, 'session_manager') and bs.session_manager:
+				pre_target_ids = set(bs.session_manager._targets.keys())
 			await actions.click_coordinate(x, y)
 			response = {'clicked_coordinate': {'x': x, 'y': y}}
 		elif len(args) == 1:
@@ -112,7 +113,8 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 			node = await bs.get_element_by_index(index)
 			if node is None:
 				return {'error': f'Element index {index} not found - page may have changed'}
-			pre_target_ids = set(bs.session_manager._targets.keys())
+			if bs and hasattr(bs, 'session_manager') and bs.session_manager:
+				pre_target_ids = set(bs.session_manager._targets.keys())
 			await actions.click_element(node)
 			response = {'clicked': index}
 		else:
@@ -126,14 +128,11 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 				current_targets = bs.session_manager._targets
 				new_ids = set(current_targets.keys()) - pre_target_ids
 				if new_ids:
-					new_target_id = list(new_ids)[0]
-					all_page_ids = [
-						tid for tid, t in current_targets.items()
-						if getattr(t, 'target_type', '') == 'page'
-					]
-					if new_target_id in all_page_ids:
-						new_tab_index = all_page_ids.index(new_target_id)
-						response['new_tab_index'] = new_tab_index
+					all_page_ids = [tid for tid, t in current_targets.items() if getattr(t, 'target_type', '') == 'page']
+					actual_new_page_id = next((tid for tid in new_ids if tid in all_page_ids), None)
+					if actual_new_page_id:
+						new_tab_index = all_page_ids.index(actual_new_page_id)
+						response['navigation'] = {'new_tab_index': new_tab_index}
 						break
 		return response
 
@@ -280,14 +279,11 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 				current_targets = bs.session_manager._targets
 				new_ids = set(current_targets.keys()) - pre_target_ids
 				if new_ids:
-					new_target_id = list(new_ids)[0]
-					all_page_ids = [
-						tid for tid, t in current_targets.items()
-						if getattr(t, 'target_type', '') == 'page'
-					]
-					if new_target_id in all_page_ids:
-						new_tab_index = all_page_ids.index(new_target_id)
-						response['new_tab_index'] = new_tab_index
+					all_page_ids = [tid for tid, t in current_targets.items() if getattr(t, 'target_type', '') == 'page']
+					actual_new_page_id = next((tid for tid in new_ids if tid in all_page_ids), None)
+					if actual_new_page_id:
+						new_tab_index = all_page_ids.index(actual_new_page_id)
+						response['navigation'] = {'new_tab_index': new_tab_index}
 						break
 		return response
 
