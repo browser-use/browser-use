@@ -179,8 +179,7 @@ class SecurityWatchdog(BaseWatchdog):
 			return False
 
 		has_domain_policy = bool(
-			self.browser_session.browser_profile.allowed_domains
-			or self.browser_session.browser_profile.prohibited_domains
+			self.browser_session.browser_profile.allowed_domains or self.browser_session.browser_profile.prohibited_domains
 		)
 
 		# data: and blob: URLs do not have hostnames to validate against domain policies.
