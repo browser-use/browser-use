@@ -797,6 +797,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
 		self.detect_display_configuration()
+		if sys.platform.startswith('linux') and hasattr(os, 'geteuid') and os.geteuid() == 0 and self.chromium_sandbox:
+			logger.warning('⚠️ Running as root on Linux; disabling Chromium sandbox so local browser startup works.')
+			self.chromium_sandbox = False
 		self._copy_profile()
 
 	def _copy_profile(self) -> None:
