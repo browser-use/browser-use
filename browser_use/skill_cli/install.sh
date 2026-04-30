@@ -188,7 +188,7 @@ find_system_chromium() {
 		/usr/bin/chromium-browser
 		/usr/local/bin/chromium
 		/usr/local/bin/chromium-browser
-		snap/bin/chromium
+		/snap/bin/chromium
 	)
 
 	for candidate in "${candidates[@]}"; do
@@ -419,6 +419,7 @@ install_chromium() {
 					SUDO="sudo"
 				fi
 				$SUDO pacman -S --noconfirm chromium
+				return 0
 			else
 				log_warn "Chromium not installed. You can use --profile or --connect later."
 				return 0
