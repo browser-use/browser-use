@@ -2552,11 +2552,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Register skills as actions if SkillService is configured
 			await self._register_skills_as_actions()
 
-			# Normally there was no try catch here but the callback can raise an InterruptedError
+			# Normally there was no try catch here but the callback can raise an InterruptedError.
+			# Wrap with step_timeout so initial actions (usually a single URL navigate) can't
+			# hang indefinitely on a silent CDP WebSocket — without this the agent would take
+			# zero steps and return with an empty history while any outer watchdog waits.
 			try:
-				await self._execute_initial_actions()
+				await asyncio.wait_for(
+					self._execute_initial_actions(),
+					timeout=self.settings.step_timeout,
+				)
 			except InterruptedError:
 				pass
+			except TimeoutError:
+				initial_timeout_msg = (
+					f'Initial actions timed out after {self.settings.step_timeout}s '
+					f'(browser may be unresponsive). Proceeding to main execution loop.'
+				)
+				self.logger.error(f'⏰ {initial_timeout_msg}')
+				self.state.last_result = [ActionResult(error=initial_timeout_msg)]
+				self.state.consecutive_failures += 1
 			except Exception as e:
 				raise e
 

@@ -36,29 +36,51 @@ class RecordingWatchdog(BaseWatchdog):
 		if not profile.record_video_dir:
 			return
 
-		# Dynamically determine video size
-		size = profile.record_video_size
-		if not size:
-			self.logger.debug('record_video_size not specified, detecting viewport size...')
-			size = await self._get_current_viewport_size()
-
-		if not size:
-			self.logger.warning('Cannot start video recording: viewport size could not be determined.')
-			return
-
 		video_format = getattr(profile, 'record_video_format', 'mp4').strip('.')
 		output_path = Path(profile.record_video_dir) / f'{uuid7str()}.{video_format}'
+		try:
+			await self.start_recording(output_path, size=profile.record_video_size, framerate=profile.record_video_framerate)
+		except RuntimeError as e:
+			# Preserve prior graceful degradation: a session configured with record_video_dir
+			# should not fail startup when video deps are missing or viewport detection fails.
+			self.logger.warning(f'Skipping video recording: {e}')
 
-		self.logger.debug(f'Initializing video recorder for format: {video_format}')
-		self._recorder = VideoRecorderService(output_path=output_path, size=size, framerate=profile.record_video_framerate)
-		self._recorder.start()
+	async def start_recording(
+		self,
+		output_path: Path,
+		size: ViewportSize | None = None,
+		framerate: int | None = None,
+	) -> Path:
+		"""
+		Begin recording the current session to `output_path`. Safe to call at any time
+		after the browser has connected.
 
-		if not self._recorder._is_active:
-			self._recorder = None
-			return
+		Returns the resolved output path. Raises RuntimeError if recording is already active
+		or if the viewport size could not be determined.
+		"""
+		if self._recorder is not None:
+			raise RuntimeError(f'Recording already in progress (output: {self._recorder.output_path})')
 
+		if size is None:
+			self.logger.debug('record size not specified, detecting viewport size...')
+			size = await self._get_current_viewport_size()
+		if not size:
+			raise RuntimeError('Cannot start video recording: viewport size could not be determined.')
+
+		if framerate is None:
+			framerate = self.browser_session.browser_profile.record_video_framerate
+
+		output_path = Path(output_path)
+		self.logger.debug(f'Initializing video recorder → {output_path}')
+		recorder = VideoRecorderService(output_path=output_path, size=size, framerate=framerate)
+		recorder.start()
+		if not recorder._is_active:
+			raise RuntimeError(
+				'Failed to initialize video recorder — ensure optional deps are installed (`pip install "browser-use[video]"`).'
+			)
+
+		self._recorder = recorder
 		self.browser_session.cdp_client.register.Page.screencastFrame(self.on_screencastFrame)
-
 		self._screencast_params = {
 			'format': 'png',
 			'quality': 90,
@@ -66,8 +88,39 @@ class RecordingWatchdog(BaseWatchdog):
 			'maxHeight': size['height'],
 			'everyNthFrame': 1,
 		}
-
 		await self._start_screencast()
+		return output_path
+
+	async def stop_recording(self) -> Path | None:
+		"""
+		Stop any in-progress recording and finalize the output file.
+
+		Returns the path of the saved video, or None if no recording was active.
+		"""
+		if not self._recorder:
+			return None
+
+		recorder = self._recorder
+		session_id = self._current_session_id
+		self._recorder = None
+		self._current_session_id = None
+		self._screencast_params = None
+
+		if session_id:
+			try:
+				await self.browser_session.cdp_client.send.Page.stopScreencast(session_id=session_id)
+			except Exception as e:
+				self.logger.debug(f'Failed to stop CDP screencast on {session_id}: {e}')
+
+		output_path = recorder.output_path
+		loop = asyncio.get_event_loop()
+		await loop.run_in_executor(None, recorder.stop_and_save)
+		return output_path
+
+	@property
+	def is_recording(self) -> bool:
+		"""Whether a recording is currently in progress."""
+		return self._recorder is not None
 
 	async def on_AgentFocusChangedEvent(self, event: AgentFocusChangedEvent) -> None:
 		"""
@@ -166,11 +219,5 @@ class RecordingWatchdog(BaseWatchdog):
 		Stops the video recording and finalizes the video file.
 		"""
 		if self._recorder:
-			recorder = self._recorder
-			self._recorder = None
-			self._current_session_id = None
-			self._screencast_params = None
-
 			self.logger.debug('Stopping video recording and saving file...')
-			loop = asyncio.get_event_loop()
-			await loop.run_in_executor(None, recorder.stop_and_save)
+			await self.stop_recording()

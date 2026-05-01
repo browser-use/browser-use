@@ -448,14 +448,29 @@ class Daemon:
 			self._server.close()
 
 		if self._session:
+			# Finalize any in-progress video recording before tearing down the browser,
+			# otherwise the MP4 is truncated since the ffmpeg writer is never closed.
+			# No timeout: stop_recording() already offloads the blocking encoder close
+			# to an executor; a hard timeout here risks os._exit(0) firing before the
+			# writer has flushed, producing the very truncation this hook prevents.
+			bs = self._session.browser_session
+			watchdog = getattr(bs, '_recording_watchdog', None)
+			if watchdog is not None and getattr(watchdog, 'is_recording', False):
+				try:
+					saved = await watchdog.stop_recording()
+					if saved:
+						logger.info(f'Finalized in-progress recording: {saved}')
+				except Exception as e:
+					logger.warning(f'Error finalizing recording during shutdown: {e}')
+
 			try:
 				# Only kill the browser if the daemon launched it.
 				# For external connections (--connect, --cdp-url, cloud), just disconnect.
 				# Timeout ensures daemon exits even if CDP calls hang on a dead connection
 				if self.cdp_url or self.use_cloud:
-					await asyncio.wait_for(self._session.browser_session.stop(), timeout=10.0)
+					await asyncio.wait_for(bs.stop(), timeout=10.0)
 				else:
-					await asyncio.wait_for(self._session.browser_session.kill(), timeout=10.0)
+					await asyncio.wait_for(bs.kill(), timeout=10.0)
 			except TimeoutError:
 				logger.warning('Browser cleanup timed out after 10s, forcing exit')
 			except Exception as e:

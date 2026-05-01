@@ -31,6 +31,7 @@ COMMANDS = {
 	'dblclick',
 	'rightclick',
 	'get',
+	'record',
 }
 
 
@@ -769,5 +770,59 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 				return {'index': index, 'bbox': {}}
 
 		return {'error': 'Invalid get command. Use: title, html, text, value, attributes, bbox'}
+
+	elif action == 'record':
+		# CLIBrowserSession skips watchdogs by default — attach RecordingWatchdog lazily on first use.
+		watchdog = getattr(bs, '_recording_watchdog', None)
+		if watchdog is None:
+			from browser_use.browser.watchdogs.recording_watchdog import RecordingWatchdog
+
+			RecordingWatchdog.model_rebuild()
+			watchdog = RecordingWatchdog(event_bus=bs.event_bus, browser_session=bs)
+			watchdog.attach_to_session()
+			bs._recording_watchdog = watchdog
+
+		record_command = params.get('record_command')
+
+		if record_command == 'start':
+			path = params.get('path')
+			if not path:
+				return {'error': 'Usage: record start <output-path>'}
+			if watchdog.is_recording:
+				return {'error': 'Recording already in progress. Call `record stop` first.'}
+
+			output_path = Path(path).expanduser()
+			try:
+				output_path.parent.mkdir(parents=True, exist_ok=True)
+			except OSError as e:
+				return {'error': f'Cannot create output directory {output_path.parent}: {e}'}
+
+			framerate = params.get('framerate')
+			try:
+				saved = await watchdog.start_recording(output_path, framerate=framerate)
+			except RuntimeError as e:
+				return {'error': str(e)}
+			return {'recording': True, 'path': str(saved)}
+
+		elif record_command == 'stop':
+			if not watchdog.is_recording:
+				return {'error': 'No recording in progress'}
+			saved = await watchdog.stop_recording()
+			if saved is None:
+				return {'error': 'No recording in progress'}
+			return {'_raw_text': str(saved)}
+
+		elif record_command == 'status':
+			recorder = watchdog._recorder
+			if recorder is None:
+				return {'recording': False}
+			return {
+				'recording': True,
+				'path': str(recorder.output_path),
+				'framerate': recorder.framerate,
+				'size': {'width': recorder.size['width'], 'height': recorder.size['height']},
+			}
+
+		return {'error': 'Invalid record command. Use: start <path>, stop, status'}
 
 	raise ValueError(f'Unknown browser action: {action}')

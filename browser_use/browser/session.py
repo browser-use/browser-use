@@ -20,6 +20,7 @@ from cdp_use.cdp.target.commands import CreateTargetParameters
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
+from browser_use.browser._cdp_timeout import TimeoutWrappedCDPClient
 from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, CloudBrowserError
 
 # CDP logging is now handled by setup_logging() in logging_config.py
@@ -1770,7 +1771,7 @@ class BrowserSession(BaseModel):
 				from browser_use.utils import get_browser_use_version
 
 				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
-			self._cdp_client_root = CDPClient(
+			self._cdp_client_root = TimeoutWrappedCDPClient(
 				self.cdp_url,
 				additional_headers=headers or None,
 				max_ws_frame_size=200 * 1024 * 1024,  # Use 200MB limit to handle pages with very large DOMs
@@ -2068,7 +2069,7 @@ class BrowserSession(BaseModel):
 			from browser_use.utils import get_browser_use_version
 
 			headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
-		self._cdp_client_root = CDPClient(
+		self._cdp_client_root = TimeoutWrappedCDPClient(
 			self.cdp_url,
 			additional_headers=headers or None,
 			max_ws_frame_size=200 * 1024 * 1024,
