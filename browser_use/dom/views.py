@@ -566,7 +566,7 @@ class EnhancedDOMTreeNode:
 				return
 
 			# Skip this branch if we hit a highlighted element (except for the current node)
-			# TODO: think whether if makese sense to add text until the next clickable element or everything from children
+			# TODO: think whether it makes sense to add text until the next clickable element or everything from children
 			# if node.node_type == NodeType.ELEMENT_NODE
 			# if isinstance(node, DOMElementNode) and node != self and node.highlight_index is not None:
 			# 	return
