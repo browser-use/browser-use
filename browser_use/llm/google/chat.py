@@ -112,6 +112,10 @@ class ChatGoogle(BaseChatModel):
 	# Internal client cache to prevent connection issues
 	_client: genai.Client | None = None
 
+	def __post_init__(self) -> None:
+		if self.max_retries < 1:
+			raise ValueError('max_retries must be at least 1')
+
 	# Static
 	@property
 	def provider(self) -> str:
@@ -470,8 +474,6 @@ class ChatGoogle(BaseChatModel):
 				raise
 
 		# Retry logic for certain errors with exponential backoff
-		assert self.max_retries >= 1, 'max_retries must be at least 1'
-
 		for attempt in range(self.max_retries):
 			try:
 				return await _make_api_call()

@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 import psutil
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,8 @@ class OldConfig:
 	@property
 	def BROWSER_USE_CLOUD_API_URL(self) -> str:
 		url = os.getenv('BROWSER_USE_CLOUD_API_URL', 'https://api.browser-use.com')
-		assert '://' in url, 'BROWSER_USE_CLOUD_API_URL must be a valid URL'
+		if '://' not in url:
+			raise ValueError('BROWSER_USE_CLOUD_API_URL must be a valid URL')
 		return url
 
 	@property
@@ -73,7 +74,7 @@ class OldConfig:
 		url = os.getenv('BROWSER_USE_CLOUD_UI_URL', '')
 		# Allow empty string as default, only validate if set
 		if url and '://' not in url:
-			raise AssertionError('BROWSER_USE_CLOUD_UI_URL must be a valid URL if set')
+			raise ValueError('BROWSER_USE_CLOUD_UI_URL must be a valid URL if set')
 		return url
 
 	@property
@@ -203,6 +204,20 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_CLOUD_API_URL: str = Field(default='https://api.browser-use.com')
 	BROWSER_USE_CLOUD_UI_URL: str = Field(default='')
 	BROWSER_USE_MODEL_PRICING_URL: str = Field(default='')
+
+	@field_validator('BROWSER_USE_CLOUD_API_URL')
+	@classmethod
+	def _validate_cloud_api_url(cls, v: str) -> str:
+		if '://' not in v:
+			raise ValueError('BROWSER_USE_CLOUD_API_URL must be a valid URL')
+		return v
+
+	@field_validator('BROWSER_USE_CLOUD_UI_URL')
+	@classmethod
+	def _validate_cloud_ui_url(cls, v: str) -> str:
+		if v and '://' not in v:
+			raise ValueError('BROWSER_USE_CLOUD_UI_URL must be a valid URL if set')
+		return v
 
 	# Path configuration
 	XDG_CACHE_HOME: str = Field(default='~/.cache')
