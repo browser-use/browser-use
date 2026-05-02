@@ -24,24 +24,12 @@ class CloudBrowserClient:
 		self.client = httpx.AsyncClient(timeout=30.0)
 		self.current_session_id: str | None = None
 
-	async def create_browser(
-		self, request: CreateBrowserRequest, extra_headers: dict[str, str] | None = None
-	) -> CloudBrowserResponse:
-		"""Create a new cloud browser instance. For full docs refer to https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/create-browser-session-browsers-post
-
-		Args:
-			request: CreateBrowserRequest object containing browser creation parameters
-
-		Returns:
-			CloudBrowserResponse: Contains CDP URL and other browser info
-		"""
-		url = f'{self.api_base_url}/api/v2/browsers'
-
-		# Try to get API key from environment variable first, then auth config
+	@staticmethod
+	def _get_api_token() -> str:
+		"""Resolve the Browser Use Cloud API token from env or auth config."""
 		api_token = os.getenv('BROWSER_USE_API_KEY')
 
 		if not api_token:
-			# Fallback to auth config file
 			try:
 				auth_config = CloudAuthConfig.load_from_file()
 				api_token = auth_config.api_token
@@ -54,7 +42,29 @@ class CloudBrowserClient:
 				'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=use_cloud'
 			)
 
-		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json', **(extra_headers or {})}
+		return api_token
+
+	def _build_headers(self, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
+		"""Build authenticated headers for cloud browser API requests."""
+		return {
+			'X-Browser-Use-API-Key': self._get_api_token(),
+			'Content-Type': 'application/json',
+			**(extra_headers or {}),
+		}
+
+	async def create_browser(
+		self, request: CreateBrowserRequest, extra_headers: dict[str, str] | None = None
+	) -> CloudBrowserResponse:
+		"""Create a new cloud browser instance. For full docs refer to https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/create-browser-session-browsers-post
+
+		Args:
+			request: CreateBrowserRequest object containing browser creation parameters
+
+		Returns:
+			CloudBrowserResponse: Contains CDP URL and other browser info
+		"""
+		url = f'{self.api_base_url}/api/v2/browsers'
+		headers = self._build_headers(extra_headers)
 
 		# Convert request to dictionary and exclude unset fields
 		request_body = request.model_dump(exclude_unset=True)
@@ -103,6 +113,49 @@ class CloudBrowserClient:
 				raise
 			raise CloudBrowserError(f'Unexpected error creating cloud browser: {e}')
 
+	async def get_browser(
+		self, session_id: str | None = None, extra_headers: dict[str, str] | None = None
+	) -> CloudBrowserResponse:
+		"""Get current details for a cloud browser session."""
+		if session_id is None:
+			session_id = self.current_session_id
+
+		if not session_id:
+			raise CloudBrowserError('No session ID provided and no current session available')
+
+		url = f'{self.api_base_url}/api/v2/browsers/{session_id}'
+		headers = self._build_headers(extra_headers)
+
+		try:
+			response = await self.client.get(url, headers=headers)
+
+			if response.status_code == 401:
+				raise CloudBrowserAuthError(
+					'Authentication failed. Please make sure you have set the BROWSER_USE_API_KEY environment variable to authenticate with the cloud service.'
+				)
+			elif response.status_code == 404:
+				raise CloudBrowserError(f'Cloud browser session {session_id} not found')
+			elif not response.is_success:
+				error_msg = f'Failed to fetch cloud browser: HTTP {response.status_code}'
+				try:
+					error_data = response.json()
+					if 'detail' in error_data:
+						error_msg += f' - {error_data["detail"]}'
+				except Exception:
+					pass
+				raise CloudBrowserError(error_msg)
+
+			return CloudBrowserResponse(**response.json())
+
+		except httpx.TimeoutException:
+			raise CloudBrowserError('Timeout while fetching cloud browser. Please try again.')
+		except httpx.ConnectError:
+			raise CloudBrowserError('Failed to connect to cloud browser service. Please check your internet connection.')
+		except Exception as e:
+			if isinstance(e, (CloudBrowserError, CloudBrowserAuthError)):
+				raise
+			raise CloudBrowserError(f'Unexpected error fetching cloud browser: {e}')
+
 	async def stop_browser(
 		self, session_id: str | None = None, extra_headers: dict[str, str] | None = None
 	) -> CloudBrowserResponse:
@@ -125,25 +178,7 @@ class CloudBrowserClient:
 			raise CloudBrowserError('No session ID provided and no current session available')
 
 		url = f'{self.api_base_url}/api/v2/browsers/{session_id}'
-
-		# Try to get API key from environment variable first, then auth config
-		api_token = os.getenv('BROWSER_USE_API_KEY')
-
-		if not api_token:
-			# Fallback to auth config file
-			try:
-				auth_config = CloudAuthConfig.load_from_file()
-				api_token = auth_config.api_token
-			except Exception:
-				pass
-
-		if not api_token:
-			raise CloudBrowserAuthError(
-				'BROWSER_USE_API_KEY is not set. To use cloud browsers, get a key at:\n'
-				'https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=use_cloud'
-			)
-
-		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json', **(extra_headers or {})}
+		headers = self._build_headers(extra_headers)
 
 		request_body = {'action': 'stop'}
 
