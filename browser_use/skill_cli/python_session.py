@@ -3,10 +3,56 @@
 import asyncio
 import io
 import traceback
+import types
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+
+def _make_safe_builtin_class() -> Any:
+	"""Build the ``_SafeBuiltin`` callable class in an isolated namespace.
+
+	A normal closure wrapper leaks this module's globals via ``wrapper.__globals__``
+	(e.g. ``print.__globals__['io']`` or ``print.__globals__['Path']``). A callable
+	class instance has no ``__globals__`` attribute at all, and by compiling the
+	class inside an isolated ``exec`` namespace its methods' ``__globals__`` point
+	to that isolated dict rather than this module — closing the escape.
+	"""
+	isolated: dict[str, Any] = {
+		'__name__': '_safe_builtin_ns',
+		'__builtins__': {
+			'__build_class__': __build_class__,
+			'object': object,
+			'AttributeError': AttributeError,
+		},
+	}
+	source = (
+		'class _SafeBuiltin:\n'
+		'    """Callable wrapper that hides __self__, __globals__, and the underlying fn."""\n'
+		'    __slots__ = ("_fn",)\n'
+		'    def __init__(self, fn):\n'
+		'        object.__setattr__(self, "_fn", fn)\n'
+		'    def __call__(self, *args, **kwargs):\n'
+		'        return object.__getattribute__(self, "_fn")(*args, **kwargs)\n'
+		'    def __getattribute__(self, name):\n'
+		'        # Only __call__ is reachable from sandboxed code — no __self__,\n'
+		'        # no __globals__, no _fn, no __class__-chain introspection.\n'
+		'        if name == "__call__":\n'
+		'            return object.__getattribute__(self, "__call__")\n'
+		'        raise AttributeError(name)\n'
+	)
+	exec(source, isolated)
+	return isolated['_SafeBuiltin']
+
+
+_SafeBuiltin = _make_safe_builtin_class()
+
+
+def _wrap_builtin(fn: Any) -> Any:
+	"""Wrap a builtin function/type so ``__self__`` and ``__globals__`` don't leak."""
+	return _SafeBuiltin(fn)
+
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
@@ -34,17 +80,152 @@ class PythonSession:
 	execution_count: int = 0
 	history: list[tuple[str, ExecutionResult]] = field(default_factory=list)
 
+	# Modules that must never be available in the execution namespace.
+	_BLOCKED_MODULES = frozenset(
+		{
+			'os',
+			'subprocess',
+			'shutil',
+			'sys',
+			'importlib',
+			'ctypes',
+			'socket',
+			'http',
+			'ftplib',
+			'smtplib',
+			'webbrowser',
+			'code',
+			'codeop',
+			'compileall',
+			'multiprocessing',
+			'signal',
+			'tempfile',
+			'builtins',
+			'pathlib',
+			'asyncio',
+		}
+	)
+
 	def __post_init__(self) -> None:
-		"""Initialize namespace with useful imports."""
+		"""Initialize namespace with useful imports.
+
+		Only safe, non-system-access modules are exposed. The ``os`` module and
+		other modules that provide file-system, process, or network access are
+		deliberately excluded to prevent arbitrary code execution beyond what the
+		browser wrapper already provides.
+		"""
+
+		# Resolve the real import callable once so the guard doesn't depend on
+		# this function's __globals__ (which would leak via __import__.__globals__).
+		_real_import = __builtins__['__import__'] if isinstance(__builtins__, dict) else __import__
+		_blocked = PythonSession._BLOCKED_MODULES
+
+		def _safe_import(name: str, *args: Any, **kwargs: Any) -> Any:
+			"""Import guard that blocks dangerous modules."""
+			top_level = name.split('.')[0]
+			if top_level in _blocked:
+				raise ImportError(f"import of '{name}' is not allowed in this environment")
+			return _real_import(name, *args, **kwargs)
+
+		safe_builtins: dict[str, Any] = {
+			'__build_class__': __build_class__,
+			# Wrap _safe_import in _SafeBuiltin so its __globals__ doesn't leak
+			# this module's real __builtins__ (which would defeat the sandbox).
+			'__import__': _SafeBuiltin(_safe_import),
+			'print': print,
+			'range': range,
+			'len': len,
+			'int': int,
+			'float': float,
+			'str': str,
+			'bool': bool,
+			'list': list,
+			'dict': dict,
+			'tuple': tuple,
+			'set': set,
+			'frozenset': frozenset,
+			'bytes': bytes,
+			'bytearray': bytearray,
+			'type': type,
+			'isinstance': isinstance,
+			'issubclass': issubclass,
+			'hasattr': hasattr,
+			'getattr': getattr,
+			'setattr': setattr,
+			'delattr': delattr,
+			'callable': callable,
+			'iter': iter,
+			'next': next,
+			'enumerate': enumerate,
+			'zip': zip,
+			'map': map,
+			'filter': filter,
+			'sorted': sorted,
+			'reversed': reversed,
+			'min': min,
+			'max': max,
+			'sum': sum,
+			'abs': abs,
+			'round': round,
+			'pow': pow,
+			'divmod': divmod,
+			'hash': hash,
+			'id': id,
+			'repr': repr,
+			'ascii': ascii,
+			'chr': chr,
+			'ord': ord,
+			'hex': hex,
+			'oct': oct,
+			'bin': bin,
+			'format': format,
+			'any': any,
+			'all': all,
+			'dir': dir,
+			'vars': vars,
+			'property': property,
+			'staticmethod': staticmethod,
+			'classmethod': classmethod,
+			'super': super,
+			'object': object,
+			'Exception': Exception,
+			'BaseException': BaseException,
+			'TypeError': TypeError,
+			'ValueError': ValueError,
+			'KeyError': KeyError,
+			'IndexError': IndexError,
+			'AttributeError': AttributeError,
+			'RuntimeError': RuntimeError,
+			'StopIteration': StopIteration,
+			'GeneratorExit': GeneratorExit,
+			'NotImplementedError': NotImplementedError,
+			'ImportError': ImportError,
+			'FileNotFoundError': FileNotFoundError,
+			'OSError': OSError,
+			'IOError': IOError,
+			'ArithmeticError': ArithmeticError,
+			'ZeroDivisionError': ZeroDivisionError,
+			'OverflowError': OverflowError,
+			'LookupError': LookupError,
+			'NameError': NameError,
+			'SyntaxError': SyntaxError,
+			'True': True,
+			'False': False,
+			'None': None,
+		}
+
+		# Wrap builtin functions so __self__ doesn't leak the builtins module
+		for key, val in safe_builtins.items():
+			if isinstance(val, types.BuiltinFunctionType):
+				safe_builtins[key] = _wrap_builtin(val)
+
 		self.namespace.update(
 			{
 				'__name__': '__main__',
 				'__doc__': None,
+				'__builtins__': safe_builtins,
 				'json': __import__('json'),
 				're': __import__('re'),
-				'os': __import__('os'),
-				'Path': Path,
-				'asyncio': asyncio,
 			}
 		)
 
@@ -110,7 +291,7 @@ class PythonSession:
 
 	def get_variables(self) -> dict[str, str]:
 		"""Get user-defined variables and their types."""
-		skip = {'__name__', '__doc__', 'json', 're', 'os', 'Path', 'asyncio', 'browser'}
+		skip = {'__name__', '__doc__', '__builtins__', 'json', 're', 'browser'}
 		return {k: type(v).__name__ for k, v in self.namespace.items() if not k.startswith('_') and k not in skip}
 
 
