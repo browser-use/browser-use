@@ -21,7 +21,6 @@ async def main():
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(
 			headless=False,
-			traces_dir='./tmp/result_processing',
 			window_size=ViewportSize(width=1280, height=1000),
 			user_data_dir='~/.config/browseruse/profiles/default',
 		)

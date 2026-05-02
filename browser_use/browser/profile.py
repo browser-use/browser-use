@@ -443,6 +443,15 @@ class BrowserLaunchArgs(BaseModel):
 			self.downloads_path.mkdir(parents=True, exist_ok=True)
 		return self
 
+	@model_validator(mode='after')
+	def reject_unimplemented_traces_dir(self) -> Self:
+		"""Fail fast for public tracing params that are not implemented yet."""
+		if self.traces_dir is not None:
+			raise ValueError(
+				'traces_dir/trace_path is not implemented yet; remove the parameter instead of relying on a silent no-op'
+			)
+		return self
+
 	@staticmethod
 	def args_as_dict(args: list[str]) -> dict[str, str]:
 		"""Return the extra launch CLI args as a dictionary."""
