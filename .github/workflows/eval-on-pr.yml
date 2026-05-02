@@ -8,6 +8,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Cancel in-progress runs when a new commit is pushed to the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   trigger-evaluation:
     runs-on: ubuntu-latest
