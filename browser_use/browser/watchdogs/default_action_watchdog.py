@@ -368,7 +368,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
 
 			# Execute click with automatic download detection
-			click_metadata = await self._execute_click_with_download_detection(self._click_element_node_impl(element_node))
+			click_metadata = await self._execute_click_with_download_detection(
+				self._click_element_node_impl(element_node),
+				download_complete_timeout=self.browser_session.browser_profile.download_timeout,
+			)
 
 			# Check for validation errors
 			if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
@@ -399,7 +402,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 			if event.force:
 				self.logger.debug(f'Force clicking at coordinates ({event.coordinate_x}, {event.coordinate_y})')
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True)
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True),
+					download_complete_timeout=self.browser_session.browser_profile.download_timeout,
 				)
 
 			# Get element at coordinates for safety checks
@@ -410,7 +414,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
 				)
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False),
+					download_complete_timeout=self.browser_session.browser_profile.download_timeout,
 				)
 
 			# Safety check: file input
@@ -442,7 +447,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# All safety checks passed, click at coordinates (with download detection)
 			return await self._execute_click_with_download_detection(
-				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False),
+				download_complete_timeout=self.browser_session.browser_profile.download_timeout,
 			)
 
 		except Exception:
