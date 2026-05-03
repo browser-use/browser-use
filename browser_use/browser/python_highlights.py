@@ -105,6 +105,90 @@ def should_show_index_overlay(backend_node_id: int | None) -> bool:
 	return backend_node_id is not None
 
 
+def _clamp_overlay_box(box: tuple[int, int, int, int], image_size: tuple[int, int]) -> tuple[int, int, int, int]:
+	"""Clamp an overlay box so it remains fully visible within the screenshot bounds."""
+	img_width, img_height = image_size
+	x1, y1, x2, y2 = box
+	box_width = x2 - x1
+	box_height = y2 - y1
+
+	max_x1 = max(0, img_width - box_width)
+	max_y1 = max(0, img_height - box_height)
+	x1 = max(0, min(x1, max_x1))
+	y1 = max(0, min(y1, max_y1))
+	return (x1, y1, x1 + box_width, y1 + box_height)
+
+
+def _boxes_overlap(box_a: tuple[int, int, int, int], box_b: tuple[int, int, int, int], margin: int = 4) -> bool:
+	"""Return True when two overlay boxes overlap or visually crowd each other."""
+	return not (
+		box_a[2] + margin <= box_b[0]
+		or box_b[2] + margin <= box_a[0]
+		or box_a[3] + margin <= box_b[1]
+		or box_b[3] + margin <= box_a[1]
+	)
+
+
+def get_index_overlay_box(
+	element_bbox: tuple[int, int, int, int],
+	overlay_size: tuple[int, int],
+	image_size: tuple[int, int],
+	occupied_boxes: list[tuple[int, int, int, int]] | None = None,
+) -> tuple[int, int, int, int]:
+	"""Choose a readable overlay position that avoids colliding with earlier badges."""
+	x1, y1, x2, y2 = element_bbox
+	overlay_width, overlay_height = overlay_size
+	element_width = x2 - x1
+	element_height = y2 - y1
+	small_element = element_width < 60 or element_height < 30
+	gap = 5
+
+	def candidate_box(left: int, top: int) -> tuple[int, int, int, int]:
+		return _clamp_overlay_box((left, top, left + overlay_width, top + overlay_height), image_size)
+
+	candidates = []
+	if small_element:
+		candidates.extend(
+			[
+				candidate_box(x1 + (element_width - overlay_width) // 2, y1 - overlay_height - gap),
+				candidate_box(x1 + (element_width - overlay_width) // 2, y2 + gap),
+				candidate_box(x2 + gap, y1 + (element_height - overlay_height) // 2),
+				candidate_box(x1 - overlay_width - gap, y1 + (element_height - overlay_height) // 2),
+				candidate_box(x1 + 2, y1 + 2),
+			]
+		)
+	else:
+		candidates.extend(
+			[
+				candidate_box(x1 + (element_width - overlay_width) // 2, y1 + 2),
+				candidate_box(x1 + (element_width - overlay_width) // 2, y1 - overlay_height - gap),
+				candidate_box(x2 + gap, y1 + 2),
+				candidate_box(x1 - overlay_width - gap, y1 + 2),
+				candidate_box(x1 + (element_width - overlay_width) // 2, y2 - overlay_height - 2),
+			]
+		)
+
+	if occupied_boxes:
+		for box in candidates:
+			if not any(_boxes_overlap(box, occupied) for occupied in occupied_boxes):
+				return box
+		# As a fallback, keep nudging the preferred position until a clear spot is found.
+		preferred_left, preferred_top = candidates[0][0], candidates[0][1]
+		fallback_steps = [
+			(0, overlay_height + gap),
+			(0, -(overlay_height + gap)),
+			(overlay_width + gap, 0),
+			(-(overlay_width + gap), 0),
+		]
+		for dx, dy in fallback_steps:
+			for step in range(1, 5):
+				box = candidate_box(preferred_left + dx * step, preferred_top + dy * step)
+				if not any(_boxes_overlap(box, occupied) for occupied in occupied_boxes):
+					return box
+
+	return candidates[0]
+
+
 def draw_enhanced_bounding_box_with_text(
 	draw,  # ImageDraw.Draw - avoiding type annotation due to PIL typing issues
 	bbox: tuple[int, int, int, int],
@@ -114,6 +198,7 @@ def draw_enhanced_bounding_box_with_text(
 	element_type: str = 'div',
 	image_size: tuple[int, int] = (2000, 1500),
 	device_pixel_ratio: float = 1.0,
+	occupied_label_boxes: list[tuple[int, int, int, int]] | None = None,
 ) -> None:
 	"""Draw an enhanced bounding box with much bigger index containers and dashed borders."""
 	x1, y1, x2, y2 = bbox
@@ -147,85 +232,39 @@ def draw_enhanced_bounding_box_with_text(
 	# Draw much bigger index overlay if we have index text
 	if text:
 		try:
-			# Scale font size for appropriate sizing across different resolutions
-			img_width, img_height = image_size
-
-			css_width = img_width  # / device_pixel_ratio
-			# Much smaller scaling - 1% of CSS viewport width, max 16px to prevent huge highlights
+			css_width = image_size[0]
 			base_font_size = max(10, min(20, int(css_width * 0.01)))
-			# Use shared font loading function with caching
 			big_font = get_cross_platform_font(base_font_size)
 			if big_font is None:
-				big_font = font  # Fallback to original font if no system fonts found
+				big_font = font
 
-			# Get text size with bigger font
 			if big_font:
 				bbox_text = draw.textbbox((0, 0), text, font=big_font)
 				text_width = bbox_text[2] - bbox_text[0]
 				text_height = bbox_text[3] - bbox_text[1]
 			else:
-				# Fallback for default font
 				bbox_text = draw.textbbox((0, 0), text)
 				text_width = bbox_text[2] - bbox_text[0]
 				text_height = bbox_text[3] - bbox_text[1]
 
-			# Scale padding appropriately for different resolutions
-			padding = max(4, min(10, int(css_width * 0.005)))  # 0.3% of CSS width, max 4px
-			element_width = x2 - x1
-			element_height = y2 - y1
-
-			# Container dimensions
+			padding = max(4, min(10, int(css_width * 0.005)))
 			container_width = text_width + padding * 2
 			container_height = text_height + padding * 2
+			bg_x1, bg_y1, bg_x2, bg_y2 = get_index_overlay_box(
+				(x1, y1, x2, y2),
+				(container_width, container_height),
+				image_size,
+				occupied_boxes=occupied_label_boxes,
+			)
 
-			# Position in top center - for small elements, place further up to avoid blocking content
-			# Center horizontally within the element
-			bg_x1 = x1 + (element_width - container_width) // 2
-
-			# Simple rule: if element is small, place index further up to avoid blocking icons
-			if element_width < 60 or element_height < 30:
-				# Small element: place well above to avoid blocking content
-				bg_y1 = max(0, y1 - container_height - 5)
-			else:
-				# Regular element: place inside with small offset
-				bg_y1 = y1 + 2
-
-			bg_x2 = bg_x1 + container_width
-			bg_y2 = bg_y1 + container_height
-
-			# Center the number within the index box with proper baseline handling
 			text_x = bg_x1 + (container_width - text_width) // 2
-			# Add extra vertical space to prevent clipping
-			text_y = bg_y1 + (container_height - text_height) // 2 - bbox_text[1]  # Subtract top offset
+			text_y = bg_y1 + (container_height - text_height) // 2 - bbox_text[1]
 
-			# Ensure container stays within image bounds
-			img_width, img_height = image_size
-			if bg_x1 < 0:
-				offset = -bg_x1
-				bg_x1 += offset
-				bg_x2 += offset
-				text_x += offset
-			if bg_y1 < 0:
-				offset = -bg_y1
-				bg_y1 += offset
-				bg_y2 += offset
-				text_y += offset
-			if bg_x2 > img_width:
-				offset = bg_x2 - img_width
-				bg_x1 -= offset
-				bg_x2 -= offset
-				text_x -= offset
-			if bg_y2 > img_height:
-				offset = bg_y2 - img_height
-				bg_y1 -= offset
-				bg_y2 -= offset
-				text_y -= offset
-
-			# Draw bigger background rectangle with thicker border
 			draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=color, outline='white', width=2)
-
-			# Draw white text centered in the index box
 			draw.text((text_x, text_y), text, fill='white', font=big_font or font)
+
+			if occupied_label_boxes is not None:
+				occupied_label_boxes.append((bg_x1, bg_y1, bg_x2, bg_y2))
 
 		except Exception as e:
 			logger.debug(f'Failed to draw enhanced text overlay: {e}')
@@ -345,6 +384,7 @@ def process_element_highlight(
 	font,
 	filter_highlight_ids: bool,
 	image_size: tuple[int, int],
+	occupied_label_boxes: list[tuple[int, int, int, int]] | None = None,
 ) -> None:
 	"""Process a single element for highlighting."""
 	try:
@@ -397,7 +437,15 @@ def process_element_highlight(
 
 		# Draw enhanced bounding box with bigger index
 		draw_enhanced_bounding_box_with_text(
-			draw, (x1, y1, x2, y2), color, index_text, font, tag_name, image_size, device_pixel_ratio
+			draw,
+			(x1, y1, x2, y2),
+			color,
+			index_text,
+			font,
+			tag_name,
+			image_size,
+			device_pixel_ratio,
+			occupied_label_boxes,
 		)
 
 	except Exception as e:
@@ -440,8 +488,18 @@ async def create_highlighted_screenshot(
 
 		# Process elements sequentially to avoid ImageDraw thread safety issues
 		# PIL ImageDraw is not thread-safe, so we process elements one by one
+		occupied_label_boxes: list[tuple[int, int, int, int]] = []
 		for element_id, element in selector_map.items():
-			process_element_highlight(element_id, element, draw, device_pixel_ratio, font, filter_highlight_ids, image.size)
+			process_element_highlight(
+				element_id,
+				element,
+				draw,
+				device_pixel_ratio,
+				font,
+				filter_highlight_ids,
+				image.size,
+				occupied_label_boxes,
+			)
 
 		# Convert back to base64
 		output_buffer = io.BytesIO()
