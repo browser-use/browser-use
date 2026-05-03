@@ -18,6 +18,7 @@ from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.minimax.chat import ChatMiniMax
 from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
 
@@ -80,6 +81,11 @@ cerebras_qwen_3_32b: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_instruct_2507: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_thinking_2507: 'BaseChatModel'
 cerebras_qwen_3_coder_480b: 'BaseChatModel'
+
+minimax_m2_7: 'BaseChatModel'
+minimax_m2_7_highspeed: 'BaseChatModel'
+minimax_m2_5: 'BaseChatModel'
+minimax_m2_5_highspeed: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
@@ -203,6 +209,20 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# MiniMax Models
+	elif provider == 'minimax':
+		api_key = os.getenv('MINIMAX_API_KEY')
+		base_url = os.getenv('MINIMAX_BASE_URL', 'https://api.minimax.io/v1')
+		minimax_map = {
+			'm2-7': 'MiniMax-M2.7',
+			'm2-7-highspeed': 'MiniMax-M2.7-highspeed',
+			'm2-5': 'MiniMax-M2.5',
+			'm2-5-highspeed': 'MiniMax-M2.5-highspeed',
+		}
+		normalized = model.replace('_', '-')
+		resolved_model = minimax_map.get(normalized, model)
+		return ChatMiniMax(model=resolved_model, api_key=api_key, base_url=base_url)
+
 	# Browser Use Models
 	elif provider == 'bu':
 		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
@@ -211,7 +231,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'minimax', 'oci', 'cerebras', 'bu']
 
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
@@ -236,6 +256,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatOCIRaw  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatMiniMax':
+		return ChatMiniMax  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
 
@@ -253,6 +275,7 @@ __all__ = [
 	'ChatGoogle',
 	'ChatMistral',
 	'ChatCerebras',
+	'ChatMiniMax',
 	'ChatBrowserUse',
 ]
 
@@ -309,6 +332,11 @@ __all__ += [
 	'cerebras_qwen_3_235b_a22b_instruct_2507',
 	'cerebras_qwen_3_235b_a22b_thinking_2507',
 	'cerebras_qwen_3_coder_480b',
+	# MiniMax instances - created on demand
+	'minimax_m2_7',
+	'minimax_m2_7_highspeed',
+	'minimax_m2_5',
+	'minimax_m2_5_highspeed',
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',
