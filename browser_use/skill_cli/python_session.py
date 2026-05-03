@@ -1,5 +1,6 @@
 """Jupyter-like persistent Python execution for browser-use CLI."""
 
+import ast
 import asyncio
 import io
 import traceback
@@ -42,9 +43,7 @@ class PythonSession:
 				'__doc__': None,
 				'json': __import__('json'),
 				're': __import__('re'),
-				'os': __import__('os'),
 				'Path': Path,
-				'asyncio': asyncio,
 			}
 		)
 
@@ -76,15 +75,21 @@ class PythonSession:
 
 		try:
 			with redirect_stdout(stdout), redirect_stderr(stderr):
-				try:
-					# First try to compile as expression (for REPL-like behavior)
-					compiled = compile(code, '<input>', 'eval')
-					result = eval(compiled, self.namespace)
+				tree = ast.parse(code, '<input>', mode='exec')
+				if len(tree.body) == 1 and isinstance(tree.body[0], ast.Expr):
+					# Single expression — capture result for REPL-like behavior
+					tree.body[0] = ast.Assign(
+						targets=[ast.Name(id='__last_expr', ctx=ast.Store())],
+						value=tree.body[0].value,
+					)
+					ast.fix_missing_locations(tree)
+					compiled = compile(tree, '<input>', 'exec')
+					exec(compiled, self.namespace)
+					result = self.namespace.pop('__last_expr', None)
 					if result is not None:
 						print(repr(result))
-				except SyntaxError:
-					# Compile as statements
-					compiled = compile(code, '<input>', 'exec')
+				else:
+					compiled = compile(tree, '<input>', 'exec')
 					exec(compiled, self.namespace)
 
 			output = stdout.getvalue()
@@ -110,7 +115,7 @@ class PythonSession:
 
 	def get_variables(self) -> dict[str, str]:
 		"""Get user-defined variables and their types."""
-		skip = {'__name__', '__doc__', 'json', 're', 'os', 'Path', 'asyncio', 'browser'}
+		skip = {'__name__', '__doc__', 'json', 're', 'Path', 'browser'}
 		return {k: type(v).__name__ for k, v in self.namespace.items() if not k.startswith('_') and k not in skip}
 
 
