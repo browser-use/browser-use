@@ -113,7 +113,7 @@ class RecordingWatchdog(BaseWatchdog):
 				self.logger.debug(f'Failed to stop CDP screencast on {session_id}: {e}')
 
 		output_path = recorder.output_path
-		loop = asyncio.get_event_loop()
+		loop = asyncio.get_running_loop()
 		await loop.run_in_executor(None, recorder.stop_and_save)
 		return output_path
 
