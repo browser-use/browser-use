@@ -32,6 +32,43 @@ TEMPLATE_REPO_URL = 'https://raw.githubusercontent.com/browser-use/template-libr
 INIT_TEMPLATES: dict[str, Any] = {}
 
 
+def _validate_relative_path(name: str, *, field: str) -> str:
+	"""
+	Reject any path string from the remote manifest that is absolute, contains `..`,
+	or otherwise tries to escape the directory it will be joined onto.
+
+	The manifest is fetched at runtime from a third-party-controllable URL, so every
+	string that ends up in a filesystem path or remote URL must be a plain relative
+	name. Without this, `Path('/tmp/x') / Path('/etc/crontab')` silently yields
+	`/etc/crontab`, which is enough to turn a manifest compromise into arbitrary
+	file write on the user's machine the moment they run `browser-use init`.
+	"""
+	if not isinstance(name, str) or not name:
+		raise ValueError(f'Invalid {field} in template manifest: {name!r}')
+	candidate = Path(name)
+	if candidate.is_absolute() or candidate.drive or candidate.root:
+		raise ValueError(f'Refusing absolute {field} from template manifest: {name!r}')
+	if any(part in ('..', '') for part in candidate.parts):
+		raise ValueError(f'Refusing traversal {field} from template manifest: {name!r}')
+	# Also block backslash-as-separator on POSIX, which Path treats as a literal char
+	# but the running shell / IDE may not.
+	if '\x00' in name or '\\' in name:
+		raise ValueError(f'Refusing {field} with unsafe characters: {name!r}')
+	return name
+
+
+def _safe_join(base: Path, name: str, *, field: str) -> Path:
+	"""Join ``name`` onto ``base`` and confirm the result stays inside ``base``."""
+	_validate_relative_path(name, field=field)
+	base_resolved = base.resolve()
+	candidate = (base_resolved / name).resolve()
+	# `is_relative_to` is the right primitive but only exists on 3.9+; the project
+	# already requires >=3.11 per CLAUDE.md so we can rely on it.
+	if not candidate.is_relative_to(base_resolved):
+		raise ValueError(f'Refusing {field} that escapes template directory: {name!r}')
+	return candidate
+
+
 def _fetch_template_list() -> dict[str, Any] | None:
 	"""
 	Fetch template list from GitHub templates.json.
@@ -326,6 +363,15 @@ def main(
 	# Template is guaranteed to be set at this point (either from option or prompt)
 	assert template is not None
 
+	# The template name comes from the (remote, third-party-controllable) manifest
+	# keys when picked interactively, and from the CLI flag otherwise. Either way
+	# it is concatenated onto $CWD below, so it must be a plain relative name.
+	try:
+		_validate_relative_path(template, field='template name')
+	except ValueError as e:
+		console.print(f'[red]✗[/red] {e}')
+		sys.exit(1)
+
 	# Create template directory
 	template_dir = Path.cwd() / template
 	if template_dir.exists() and not force:
@@ -346,6 +392,7 @@ def main(
 	# Read template file from GitHub
 	try:
 		template_file = INIT_TEMPLATES[template]['file']
+		_validate_relative_path(template_file, field='template file')
 		content = _get_template_content(template_file)
 	except Exception as e:
 		console.print(f'[red]✗[/red] Error reading template: {e}')
@@ -362,9 +409,19 @@ def main(
 			for file_spec in INIT_TEMPLATES[template]['files']:
 				source_path = file_spec['source']
 				dest_name = file_spec['dest']
-				dest_path = output_path.parent / dest_name
 				is_binary = file_spec.get('binary', False)
 				is_executable = file_spec.get('executable', False)
+
+				# Validate manifest-controlled paths *before* touching the disk: the
+				# `dest` field is the primary path-traversal sink, but `source` also
+				# flows into a remote URL we then fetch and execute, so it earns the
+				# same treatment.
+				try:
+					_validate_relative_path(source_path, field='file source')
+					dest_path = _safe_join(output_path.parent, dest_name, field='file dest')
+				except ValueError as e:
+					console.print(f'[yellow]⚠[/yellow]  Skipping unsafe template entry: {e}')
+					continue
 
 				# Skip if we already wrote this file (main.py)
 				if dest_path == output_path:
