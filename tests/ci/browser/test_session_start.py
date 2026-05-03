@@ -345,6 +345,13 @@ class TestBrowserSessionEventSystem:
 		for result in results:
 			assert not isinstance(result, Exception), f'Event failed with: {result}'
 
+	def test_browser_start_and_launch_timeout_defaults_allow_slow_local_startup(self):
+		"""Browser start and launch should allow enough headroom for slower Linux setups."""
+		from browser_use.browser.events import BrowserLaunchEvent, BrowserStartEvent
+
+		assert BrowserStartEvent().event_timeout == 60.0
+		assert BrowserLaunchEvent().event_timeout == 60.0
+
 	# async def test_many_parallel_browser_sessions(self):
 	# 	"""Test spawning 12 parallel browser_sessions with different settings and ensure they all work"""
 	# 	from browser_use import BrowserSession
