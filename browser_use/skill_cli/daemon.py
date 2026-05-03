@@ -41,6 +41,10 @@ class Daemon:
 		cloud_proxy_country_code: str | None = None,
 		cloud_timeout: int | None = None,
 		session: str = 'default',
+		proxy_url: str | None = None,
+		proxy_bypass: str | None = None,
+		proxy_username: str | None = None,
+		proxy_password: str | None = None,
 	) -> None:
 		from browser_use.skill_cli.utils import validate_session_name
 
@@ -53,6 +57,10 @@ class Daemon:
 		self.cloud_profile_id = cloud_profile_id
 		self.cloud_proxy_country_code = cloud_proxy_country_code
 		self.cloud_timeout = cloud_timeout
+		self.proxy_url = proxy_url
+		self.proxy_bypass = proxy_bypass
+		self.proxy_username = proxy_username
+		self.proxy_password = proxy_password
 		self.running = True
 		self._server: asyncio.Server | None = None
 		self._shutdown_event = asyncio.Event()
@@ -127,6 +135,10 @@ class Daemon:
 				cloud_profile_id=self.cloud_profile_id,
 				cloud_proxy_country_code=self.cloud_proxy_country_code,
 				cloud_timeout=self.cloud_timeout,
+				proxy_url=self.proxy_url,
+				proxy_bypass=self.proxy_bypass,
+				proxy_username=self.proxy_username,
+				proxy_password=self.proxy_password,
 			)
 
 			try:
@@ -276,7 +288,8 @@ class Daemon:
 
 			# Handle ping — returns daemon config for mismatch detection
 			if action == 'ping':
-				# Return live CDP URL (may differ from constructor arg for cloud sessions)
+				# Keep configured CDP URL stable for config-mismatch checks, but
+				# also expose the live browser CDP URL for status/sessions output.
 				live_cdp_url = self.cdp_url
 				if self._session and self._session.browser_session.cdp_url:
 					live_cdp_url = self._session.browser_session.cdp_url
@@ -288,8 +301,16 @@ class Daemon:
 						'pid': os.getpid(),
 						'headed': self.headed,
 						'profile': self.profile,
-						'cdp_url': live_cdp_url,
+						'cdp_url': self.cdp_url,
+						'live_cdp_url': live_cdp_url,
 						'use_cloud': self.use_cloud,
+						'proxy_url': self.proxy_url,
+						'proxy_bypass': self.proxy_bypass,
+						'proxy_username': self.proxy_username,
+						# Do not return proxy_password — still include its presence
+						# so the config-mismatch check can detect changes without
+						# leaking the secret over the socket.
+						'proxy_password_set': bool(self.proxy_password),
 					},
 				}
 
@@ -510,10 +531,17 @@ def main() -> None:
 	parser.add_argument('--cloud-profile-id', help='Cloud browser profile ID')
 	parser.add_argument('--cloud-proxy-country', help='Cloud browser proxy country code')
 	parser.add_argument('--cloud-timeout', type=int, help='Cloud browser timeout in minutes')
+	parser.add_argument(
+		'--proxy-url',
+		help='Proxy server for local Chromium (e.g. http://host:8080 or socks5://host:1080)',
+	)
+	parser.add_argument('--proxy-bypass', help='Comma-separated hosts to bypass proxy')
+	parser.add_argument('--proxy-username', help='Proxy auth username')
+	parser.add_argument('--proxy-password', help='Proxy auth password')
 	args = parser.parse_args()
 
 	logger.info(
-		f'Starting daemon: session={args.session}, headed={args.headed}, profile={args.profile}, cdp_url={args.cdp_url}, use_cloud={args.use_cloud}'
+		f'Starting daemon: session={args.session}, headed={args.headed}, profile={args.profile}, cdp_url={args.cdp_url}, use_cloud={args.use_cloud}, proxy={bool(args.proxy_url)}'
 	)
 
 	daemon = Daemon(
@@ -525,6 +553,10 @@ def main() -> None:
 		cloud_proxy_country_code=args.cloud_proxy_country,
 		cloud_timeout=args.cloud_timeout,
 		session=args.session,
+		proxy_url=args.proxy_url,
+		proxy_bypass=args.proxy_bypass,
+		proxy_username=args.proxy_username,
+		proxy_password=args.proxy_password,
 	)
 
 	exit_code = 0
