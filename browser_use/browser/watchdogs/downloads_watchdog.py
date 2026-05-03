@@ -67,6 +67,7 @@ class DownloadsWatchdog(BaseWatchdog):
 	_network_monitored_targets: set[str] = PrivateAttr(default_factory=set)  # Track targets with network monitoring enabled
 	_detected_downloads: set[str] = PrivateAttr(default_factory=set)  # Track detected download URLs to avoid duplicates
 	_network_callback_registered: bool = PrivateAttr(default=False)  # Track if global network callback is registered
+	_use_js_fetch_for_local: bool = PrivateAttr(default=False)  # Guard for JS fetch fallback path (local browsers only)
 
 	# Direct callback support for download waiting (bypasses event bus for synchronization)
 	_download_start_callbacks: list[Any] = PrivateAttr(default_factory=list)  # Callbacks for download start
@@ -362,28 +363,51 @@ class DownloadsWatchdog(BaseWatchdog):
 												pass
 											break
 				else:
-					# Remote browser: do not touch local filesystem. Fallback to downloadPath+suggestedFilename
+					# Remote browser: file is on container, not agent disk. Cannot use _track_download
+					# (it requires path.exists()). Fire callbacks manually so click handler unblocks.
+					# Skip if already handled by use_fetch_for_remote path (prevents double-fire).
 					info = self._cdp_downloads_info.get(guid, {})
-					try:
-						suggested_filename = info.get('suggested_filename') or (Path(file_path).name if file_path else 'download')
-						downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
-						effective_path = file_path or str(Path(downloads_path) / suggested_filename)
-						file_name = Path(effective_path).name
-						file_ext = Path(file_name).suffix.lower().lstrip('.')
-						self.event_bus.dispatch(
-							FileDownloadedEvent(
-								guid=guid,
-								url=info.get('url', ''),
-								path=str(effective_path),
-								file_name=file_name,
-								file_size=0,
-								file_type=file_ext if file_ext else None,
+					if info.get('handled'):
+						pass  # Fetch path already fired
+					else:
+						try:
+							suggested_filename = info.get('suggested_filename') or (
+								Path(file_path).name if file_path else 'download'
 							)
-						)
-						self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
-					finally:
-						if guid in self._cdp_downloads_info:
-							del self._cdp_downloads_info[guid]
+							downloads_path = str(self.browser_session.browser_profile.downloads_path or '')
+							effective_path = file_path or str(Path(downloads_path) / suggested_filename)
+							file_name = Path(effective_path).name
+							file_ext = Path(file_name).suffix.lower().lstrip('.')
+							complete_info = {
+								'guid': guid,
+								'url': info.get('url', ''),
+								'path': str(effective_path),
+								'file_name': file_name,
+								'file_size': 0,
+								'file_type': file_ext if file_ext else None,
+								'auto_download': False,
+							}
+							for callback in self._download_complete_callbacks:
+								try:
+									callback(complete_info)
+								except Exception as e:
+									self.logger.debug(f'[DownloadsWatchdog] Error in download complete callback: {e}')
+							self.event_bus.dispatch(
+								FileDownloadedEvent(
+									guid=guid,
+									url=info.get('url', ''),
+									path=str(effective_path),
+									file_name=file_name,
+									file_size=0,
+									file_type=file_ext if file_ext else None,
+								)
+							)
+							self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
+							if guid in self._cdp_downloads_info:
+								self._cdp_downloads_info[guid]['handled'] = True
+						finally:
+							if guid in self._cdp_downloads_info:
+								del self._cdp_downloads_info[guid]
 
 		try:
 			downloads_path_raw = self.browser_session.browser_profile.downloads_path
@@ -869,6 +893,106 @@ class DownloadsWatchdog(BaseWatchdog):
 			# We just need to wait for it to appear in the downloads directory
 			expected_path = downloads_dir / suggested_filename
 
+			# Debug: List current directory contents
+			self.logger.debug(f'[DownloadsWatchdog] Downloads directory: {downloads_dir}')
+			if downloads_dir.exists():
+				files_before = list(downloads_dir.iterdir())
+				self.logger.debug(f'[DownloadsWatchdog] Files before download: {[f.name for f in files_before]}')
+
+			# For remote browsers with download_from_remote_browser: fetch file in-browser and save to agent local fs
+			use_fetch_for_remote = (
+				not self.browser_session.is_local and self.browser_session.browser_profile.download_from_remote_browser
+			)
+			# Try manual JavaScript fetch as a fallback for local browsers (disabled for regular local downloads)
+			if use_fetch_for_remote or (self.browser_session.is_local and self._use_js_fetch_for_local):
+				self.logger.debug(f'[DownloadsWatchdog] Attempting JS fetch fallback for {download_url}')
+
+				unique_filename = None
+				file_size = None
+				download_result = None
+				try:
+					# Escape the URL for JavaScript
+					import json
+
+					escaped_url = json.dumps(download_url)
+
+					# Get the proper session for the frame that initiated the download
+					frame_id = event.get('frameId')
+					cdp_session = None
+					if frame_id:
+						try:
+							cdp_session = await self.browser_session.cdp_client_for_frame(frame_id)
+						except ValueError:
+							pass
+					if cdp_session is None:
+						cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+					assert cdp_session
+
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={
+							'expression': f"""
+						(async () => {{
+							try {{
+								const response = await fetch({escaped_url});
+								if (!response.ok) {{
+									throw new Error(`HTTP error! status: ${{response.status}}`);
+								}}
+								const blob = await response.blob();
+								const arrayBuffer = await blob.arrayBuffer();
+								const uint8Array = new Uint8Array(arrayBuffer);
+								return {{
+									data: Array.from(uint8Array),
+									size: uint8Array.length,
+									contentType: response.headers.get('content-type') || 'application/octet-stream'
+								}};
+							}} catch (error) {{
+								throw new Error(`Fetch failed: ${{error.message}}`);
+							}}
+						}})()
+						""",
+							'awaitPromise': True,
+							'returnByValue': True,
+						},
+						session_id=cdp_session.session_id,
+					)
+					download_result = result.get('result', {}).get('value')
+
+					if download_result and download_result.get('data'):
+						# Save the file
+						file_data = bytes(download_result['data'])
+						file_size = len(file_data)
+
+						# Ensure unique filename
+						unique_filename = await self._get_unique_filename(str(downloads_dir), suggested_filename)
+						final_path = downloads_dir / unique_filename
+
+						# Write the file
+						import anyio
+
+						async with await anyio.open_file(final_path, 'wb') as f:
+							await f.write(file_data)
+
+						self.logger.debug(f'[DownloadsWatchdog] ✅ Downloaded and saved file: {final_path} ({file_size} bytes)')
+						expected_path = final_path
+						# Use _track_download for unified completion flow (callbacks + event dispatch)
+						# Skip if progress handler already fired (prevents double-fire)
+						if not self._cdp_downloads_info.get(guid, {}).get('handled'):
+							self._track_download(str(expected_path), guid=guid)
+						# Mark as handled to prevent duplicate dispatch from progress/polling paths
+						try:
+							if guid in self._cdp_downloads_info:
+								self._cdp_downloads_info[guid]['handled'] = True
+						except (KeyError, AttributeError):
+							pass
+						self.logger.debug(
+							f'[DownloadsWatchdog] ✅ File download completed via CDP: {suggested_filename} ({file_size} bytes) saved to {expected_path}'
+						)
+						return
+					else:
+						self.logger.error('[DownloadsWatchdog] ❌ No data received from fetch')
+
+				except Exception as fetch_error:
+					self.logger.error(f'[DownloadsWatchdog] ❌ Failed to download file via fetch: {fetch_error}')
 			# For remote browsers, don't poll local filesystem; downloadProgress handler will emit the event
 			if not self.browser_session.is_local:
 				return

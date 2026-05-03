@@ -410,6 +410,10 @@ class BrowserLaunchArgs(BaseModel):
 		description='Directory to save downloads to.',
 		validation_alias=AliasChoices('downloads_dir', 'save_downloads_path'),
 	)
+	download_from_remote_browser: bool = Field(
+		default=False,
+		description='When True and using a remote browser (CDP/cloud/Docker), download files to the agent local filesystem via HTTP fetch instead of the browser container. Files become accessible to the agent.',
+	)
 	traces_dir: str | Path | None = Field(
 		default=None,
 		description='Directory for saving playwright trace.zip files (playwright actions, screenshots, DOM snapshots, HAR traces).',
