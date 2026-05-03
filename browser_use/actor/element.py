@@ -248,15 +248,8 @@ class Element:
 				# No visible quad found, use the first quad anyway
 				best_quad = quads[0]
 
-			# Calculate center point of the best quad
-			center_x = sum(best_quad[i] for i in range(0, 8, 2)) / 4
-			center_y = sum(best_quad[i] for i in range(1, 8, 2)) / 4
-
-			# Ensure click point is within viewport bounds
-			center_x = max(0, min(viewport_width - 1, center_x))
-			center_y = max(0, min(viewport_height - 1, center_y))
-
-			# Scroll element into view
+			# Scroll element into view BEFORE calculating coordinates
+			# This ensures we get accurate coordinates after the scroll
 			try:
 				await self._client.send.DOM.scrollIntoViewIfNeeded(
 					params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
@@ -264,6 +257,14 @@ class Element:
 				await asyncio.sleep(0.05)  # Wait for scroll to complete
 			except Exception:
 				pass
+
+			# Calculate center point of the best quad
+			center_x = sum(best_quad[i] for i in range(0, 8, 2)) / 4
+			center_y = sum(best_quad[i] for i in range(1, 8, 2)) / 4
+
+			# Ensure click point is within viewport bounds
+			center_x = max(0, min(viewport_width - 1, center_x))
+			center_y = max(0, min(viewport_height - 1, center_y))
 
 			# Calculate modifier bitmask for CDP
 			modifier_value = 0
@@ -508,6 +509,15 @@ class Element:
 
 	async def hover(self) -> None:
 		"""Hover over the element."""
+		# Scroll element into view before calculating coordinates
+		try:
+			await self._client.send.DOM.scrollIntoViewIfNeeded(
+				params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
+			)
+			await asyncio.sleep(0.05)  # Wait for scroll to complete
+		except Exception:
+			pass
+
 		box = await self.get_bounding_box()
 		if not box:
 			raise RuntimeError('Element is not visible or has no bounding box')
