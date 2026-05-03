@@ -269,8 +269,13 @@ class DomService:
 		except (ValueError, TypeError):
 			pass
 
-		# Start with the element's local bounds (in its own frame's coordinate system)
-		current_bounds = node.snapshot_node.bounds
+		# Copy bounds to avoid mutating the original node data during coordinate transforms
+		current_bounds = DOMRect(
+			x=node.snapshot_node.bounds.x,
+			y=node.snapshot_node.bounds.y,
+			width=node.snapshot_node.bounds.width,
+			height=node.snapshot_node.bounds.height,
+		)
 
 		if not current_bounds:
 			return False  # If there are no bounds, the element is not visible
@@ -1128,7 +1133,7 @@ class DomService:
 
 			# Check if it's disabled
 			is_disabled = (
-				node.attributes.get('disabled') == 'true'
+				'disabled' in node.attributes
 				or node.attributes.get('aria-disabled') == 'true'
 				or 'disabled' in class_name
 			)
