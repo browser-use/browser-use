@@ -93,6 +93,10 @@ CHROME_DOCKER_ARGS = [
 	'--disable-site-isolation-trials',  # lowers RAM use by 10-16% in docker, but could lead to easier bot blocking if pages can detect it?
 ]
 
+CHROME_NO_SANDBOX_ARGS = [
+	'--no-sandbox',
+]
+
 
 CHROME_DISABLE_SECURITY_ARGS = [
 	'--disable-site-isolation-trials',
@@ -797,6 +801,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
 		self.detect_display_configuration()
+		if sys.platform.startswith('linux') and hasattr(os, 'geteuid') and os.geteuid() == 0 and self.chromium_sandbox:
+			logger.warning('⚠️ Running as root on Linux; disabling Chromium sandbox so local browser startup works.')
+			self.chromium_sandbox = False
 		self._copy_profile()
 
 	def _copy_profile(self) -> None:
@@ -859,7 +866,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*self.args,
 			f'--user-data-dir={self.user_data_dir}',
 			f'--profile-directory={self.profile_directory}',
-			*(CHROME_DOCKER_ARGS if (CONFIG.IN_DOCKER or not self.chromium_sandbox) else []),
+			*(CHROME_DOCKER_ARGS if CONFIG.IN_DOCKER else []),
+			*(CHROME_NO_SANDBOX_ARGS if not CONFIG.IN_DOCKER and not self.chromium_sandbox else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
