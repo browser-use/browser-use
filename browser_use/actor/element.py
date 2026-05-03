@@ -99,6 +99,15 @@ class Element:
 		"""Click the element using the advanced watchdog implementation."""
 
 		try:
+			# Scroll element into view before getting coordinates
+			try:
+				await self._client.send.DOM.scrollIntoViewIfNeeded(
+					params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
+				)
+				await asyncio.sleep(0.05)  # Wait for scroll to complete
+			except Exception:
+				pass
+
 			# Get viewport dimensions for visibility checks
 			layout_metrics = await self._client.send.Page.getLayoutMetrics(session_id=self._session_id)
 			viewport_width = layout_metrics['layoutViewport']['clientWidth']
@@ -255,15 +264,6 @@ class Element:
 			# Ensure click point is within viewport bounds
 			center_x = max(0, min(viewport_width - 1, center_x))
 			center_y = max(0, min(viewport_height - 1, center_y))
-
-			# Scroll element into view
-			try:
-				await self._client.send.DOM.scrollIntoViewIfNeeded(
-					params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
-				)
-				await asyncio.sleep(0.05)  # Wait for scroll to complete
-			except Exception:
-				pass
 
 			# Calculate modifier bitmask for CDP
 			modifier_value = 0
@@ -508,6 +508,15 @@ class Element:
 
 	async def hover(self) -> None:
 		"""Hover over the element."""
+		# Scroll element into view before getting coordinates
+		try:
+			await self._client.send.DOM.scrollIntoViewIfNeeded(
+				params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
+			)
+			await asyncio.sleep(0.05)  # Wait for scroll to complete
+		except Exception:
+			pass
+
 		box = await self.get_bounding_box()
 		if not box:
 			raise RuntimeError('Element is not visible or has no bounding box')
