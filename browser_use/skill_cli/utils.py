@@ -65,7 +65,9 @@ def get_socket_path(session: str = 'default') -> str:
 	On Unix, returns a Unix socket path.
 	"""
 	if sys.platform == 'win32':
-		port = 49152 + zlib.adler32(session.encode()) % 16383
+		home_key = str(get_home_dir().resolve()).casefold()
+		port_key = f'{home_key}:{session}'
+		port = 49152 + zlib.adler32(port_key.encode()) % 16383
 		return f'tcp://127.0.0.1:{port}'
 	return str(get_home_dir() / f'{session}.sock')
 
