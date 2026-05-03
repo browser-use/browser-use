@@ -173,6 +173,9 @@ class CLIBrowserSession(BrowserSession):
 				await _asyncio.wait_for(self._cloud_browser_client.stop_browser(), timeout=5.0)
 			except Exception as e:
 				logger.debug(f'Error stopping cloud browser: {e}')
+			# Cloud sessions are ephemeral. Clearing the CDP URL ensures the next
+			# start() provisions a fresh browser instead of reconnecting stale endpoints.
+			self.browser_profile.cdp_url = None
 		if self._cdp_client_root:
 			try:
 				await self._cdp_client_root.stop()
