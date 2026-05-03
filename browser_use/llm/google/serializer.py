@@ -98,19 +98,15 @@ class GoogleMessageSerializer:
 						elif part.type == 'refusal':
 							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
 						elif part.type == 'image_url':
-							# Handle images
 							url = part.image_url.url
-
-							# Format: data:image/jpeg;base64,<data>
-							header, data = url.split(',', 1)
-							# Decode base64 to bytes
-							image_bytes = base64.b64decode(data)
-
-							# Use the media_type from ImageURL, which correctly identifies the image format
 							mime_type = part.image_url.media_type
 
-							# Add image part
-							image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
+							if url.startswith('data:'):
+								_header, data = url.split(',', 1)
+								image_bytes = base64.b64decode(data)
+								image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
+							else:
+								image_part = Part.from_uri(file_uri=url, mime_type=mime_type)
 
 							message_parts.append(image_part)
 
