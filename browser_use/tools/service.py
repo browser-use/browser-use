@@ -575,12 +575,7 @@ class Tools(Generic[Context]):
 
 		@self.registry.action('Wait for x seconds.')
 		async def wait(seconds: int = 3):
-			# Cap wait time at maximum 30 seconds
-			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
-			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
-			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
-			# so I revert this.
-			actual_seconds = min(max(seconds - 1, 0), 30)
+			actual_seconds = min(max(seconds, 0), 30)
 			memory = f'Waited for {seconds} seconds'
 			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
 			await asyncio.sleep(actual_seconds)
@@ -647,7 +642,9 @@ class Tools(Generic[Context]):
 				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
 
 				# Highlight the coordinate being clicked (truly non-blocking)
-				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
+				create_task_with_error_handling(
+					browser_session.highlight_coordinate_click(actual_x, actual_y), name='highlight_coordinate_click', suppress_exceptions=True
+				)
 
 				# Dispatch ClickCoordinateEvent - handler will check for safety and click
 				event = browser_session.event_bus.dispatch(
