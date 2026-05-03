@@ -161,6 +161,45 @@ detect_platform() {
 	log_info "Detected platform: $PLATFORM ($arch)"
 }
 
+# Detect Linux distribution for package manager selection
+detect_linux_distro() {
+	if [ "$PLATFORM" != "linux" ]; then
+		LINUX_DISTRO=""
+		return 0
+	fi
+
+	if command -v pacman &> /dev/null; then
+		LINUX_DISTRO="arch"
+	elif command -v apt-get &> /dev/null; then
+		LINUX_DISTRO="debian"
+	elif command -v dnf &> /dev/null; then
+		LINUX_DISTRO="fedora"
+	elif command -v yum &> /dev/null; then
+		LINUX_DISTRO="rhel"
+	else
+		LINUX_DISTRO="unknown"
+	fi
+}
+
+# Find existing Chromium system binary
+find_system_chromium() {
+	local candidates=(
+		/usr/bin/chromium
+		/usr/bin/chromium-browser
+		/usr/local/bin/chromium
+		/usr/local/bin/chromium-browser
+		/snap/bin/chromium
+	)
+
+	for candidate in "${candidates[@]}"; do
+		if [ -x "$candidate" ]; then
+			echo "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
+
 # =============================================================================
 # Virtual environment helpers
 # =============================================================================
@@ -256,15 +295,27 @@ install_python() {
 			fi
 			;;
 		linux)
-			if command -v apt-get &> /dev/null; then
-				$SUDO apt-get update
-				$SUDO apt-get install -y python3.11 python3.11-venv python3-pip
-			elif command -v yum &> /dev/null; then
-				$SUDO yum install -y python311 python311-pip
-			else
-				log_error "Unsupported package manager. Install Python 3.11+ manually."
-				exit 1
-			fi
+			detect_linux_distro
+			case "$LINUX_DISTRO" in
+				debian)
+					$SUDO apt-get update
+					$SUDO apt-get install -y python3.11 python3.11-venv python3-pip
+					;;
+				fedora|rhel)
+					$SUDO dnf install -y python3.11 python3.11-pip || $SUDO yum install -y python311 python311-pip
+					;;
+				arch)
+					log_info "Arch Linux detected. Checking for Python 3.11+..."
+					if ! python3 --version 2>&1 | grep -qE 'Python 3\.(1[1-9]|[2-9][0-9])'; then
+						$SUDO pacman -Syy
+						$SUDO pacman -S --noconfirm python
+					fi
+					;;
+				*)
+					log_error "Unsupported package manager. Install Python 3.11+ manually."
+					exit 1
+					;;
+			esac
 			;;
 		windows)
 			log_error "Please install Python 3.11+ from: https://www.python.org/downloads/"
@@ -346,7 +397,39 @@ install_chromium() {
 
 	activate_venv
 
-	# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
+	if [ "$PLATFORM" = "linux" ]; then
+		detect_linux_distro
+	fi
+
+	# On Arch Linux, use system Chromium as fallback
+	if [ "$PLATFORM" = "linux" ] && [ "$LINUX_DISTRO" = "arch" ]; then
+		log_info "Arch Linux detected. Looking for system Chromium..."
+		local chromium_path
+		if chromium_path=$(find_system_chromium); then
+			log_success "Found system Chromium at $chromium_path — skipping Playwright install"
+			return 0
+		fi
+
+		if [ -t 0 ]; then
+			read -p "Chromium not found. Install via pacman? [y/N] " -n 1 -r < /dev/tty
+			echo
+			if [[ $REPLY =~ ^[Yy]$ ]]; then
+				SUDO=""
+				if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
+					SUDO="sudo"
+				fi
+				$SUDO pacman -S --noconfirm chromium
+				return 0
+			else
+				log_warn "Chromium not installed. You can use --profile or --connect later."
+				return 0
+			fi
+		else
+			log_warn "Chromium not found and non-interactive mode. Install chromium manually."
+			return 0
+		fi
+	fi
+
 	local cmd="uvx playwright install chromium"
 	if [ "$PLATFORM" = "linux" ]; then
 		cmd="$cmd --with-deps"
