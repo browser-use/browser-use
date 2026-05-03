@@ -31,7 +31,7 @@ class ScreenshotWatchdog(BaseWatchdog):
 			event: ScreenshotEvent with optional full_page and clip parameters
 
 		Returns:
-			Dict with 'screenshot' key containing base64-encoded screenshot or None
+			Base64-encoded screenshot string
 		"""
 		self.logger.debug('[ScreenshotWatchdog] Handler START - on_ScreenshotEvent called')
 		try:

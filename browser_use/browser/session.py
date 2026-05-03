@@ -95,7 +95,6 @@ class CDPSession(BaseModel):
 
 	# Lifecycle monitoring (populated by SessionManager)
 	_lifecycle_events: Any = PrivateAttr(default=None)
-	_lifecycle_lock: Any = PrivateAttr(default=None)
 
 
 class BrowserSession(BaseModel):

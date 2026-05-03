@@ -134,15 +134,6 @@ class CrashWatchdog(BaseWatchdog):
 		)
 		# logger.debug(f'[CrashWatchdog] Tracking request: {request.get("method", "")} {request.get("url", "")[:50]}...')
 
-	def _on_response_cdp(self, event: dict) -> None:
-		"""Remove request from tracking on response."""
-		request_id = event.get('requestId', '')
-		if request_id in self._active_requests:
-			elapsed = time.time() - self._active_requests[request_id].start_time
-			response = event.get('response', {})
-			self.logger.debug(f'[CrashWatchdog] Request completed in {elapsed:.2f}s: {response.get("url", "")[:50]}...')
-			# Don't remove yet - wait for loadingFinished
-
 	def _on_request_failed_cdp(self, event: dict) -> None:
 		"""Remove request from tracking on failure."""
 		request_id = event.get('requestId', '')
