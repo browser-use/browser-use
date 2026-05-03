@@ -119,7 +119,7 @@ class ChatAnthropic(BaseChatModel):
 				response.usage.cache_read_input_tokens or 0
 			),  # Total tokens in Anthropic are a bit fucked, you have to add cached tokens to the prompt tokens
 			completion_tokens=response.usage.output_tokens,
-			total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+			total_tokens=response.usage.input_tokens + (response.usage.cache_read_input_tokens or 0) + response.usage.output_tokens,
 			prompt_cached_tokens=response.usage.cache_read_input_tokens,
 			prompt_cache_creation_tokens=response.usage.cache_creation_input_tokens,
 			prompt_image_tokens=None,
