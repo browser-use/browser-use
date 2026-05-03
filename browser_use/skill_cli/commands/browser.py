@@ -100,19 +100,41 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 
 	elif action == 'click':
 		args = params.get('args', [])
+		pre_target_ids = set()
+		response = None
 		if len(args) == 2:
 			x, y = args
+			if bs and hasattr(bs, 'session_manager') and bs.session_manager:
+				pre_target_ids = set(bs.session_manager._targets.keys())
 			await actions.click_coordinate(x, y)
-			return {'clicked_coordinate': {'x': x, 'y': y}}
+			response = {'clicked_coordinate': {'x': x, 'y': y}}
 		elif len(args) == 1:
 			index = args[0]
 			node = await bs.get_element_by_index(index)
 			if node is None:
 				return {'error': f'Element index {index} not found - page may have changed'}
+			if bs and hasattr(bs, 'session_manager') and bs.session_manager:
+				pre_target_ids = set(bs.session_manager._targets.keys())
 			await actions.click_element(node)
-			return {'clicked': index}
+			response = {'clicked': index}
 		else:
 			return {'error': 'Usage: click <index> or click <x> <y>'}
+
+		if bs.session_manager:
+			new_tab_index = None
+			max_retries = 5
+			for _ in range(max_retries):
+				await asyncio.sleep(0.1)
+				current_targets = bs.session_manager._targets
+				new_ids = set(current_targets.keys()) - pre_target_ids
+				if new_ids:
+					all_page_ids = [tid for tid, t in current_targets.items() if getattr(t, 'target_type', '') == 'page']
+					actual_new_page_id = next((tid for tid in new_ids if tid in all_page_ids), None)
+					if actual_new_page_id:
+						new_tab_index = all_page_ids.index(actual_new_page_id)
+						response['navigation'] = {'new_tab_index': new_tab_index}
+						break
+		return response
 
 	elif action == 'type':
 		text = params['text']
@@ -242,8 +264,28 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 
 	elif action == 'keys':
 		keys = params['keys']
+		is_enter = keys.lower() in ['enter', 'return']
+		pre_target_ids = set()
+		if is_enter and bs.session_manager:
+			pre_target_ids = set(bs.session_manager._targets.keys())
 		await actions.send_keys(keys)
-		return {'sent': keys}
+		response = {'sent': keys}
+
+		if is_enter and bs.session_manager:
+			new_tab_index = None
+			max_retries = 5
+			for _ in range(max_retries):
+				await asyncio.sleep(0.1)
+				current_targets = bs.session_manager._targets
+				new_ids = set(current_targets.keys()) - pre_target_ids
+				if new_ids:
+					all_page_ids = [tid for tid, t in current_targets.items() if getattr(t, 'target_type', '') == 'page']
+					actual_new_page_id = next((tid for tid in new_ids if tid in all_page_ids), None)
+					if actual_new_page_id:
+						new_tab_index = all_page_ids.index(actual_new_page_id)
+						response['navigation'] = {'new_tab_index': new_tab_index}
+						break
+		return response
 
 	elif action == 'select':
 		index = params['index']
