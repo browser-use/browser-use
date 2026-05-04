@@ -388,7 +388,7 @@ class Element:
 					session_id=session_id,
 				)
 				if bounds_result.get('result', {}).get('value'):
-					bounds = bounds_result['result']['value']  # type: ignore
+					bounds = bounds_result['result']['value']
 					center_x = bounds['x'] + bounds['width'] / 2
 					center_y = bounds['y'] + bounds['height'] / 2
 					input_coordinates = {'input_x': center_x, 'input_y': center_y}
@@ -605,8 +605,9 @@ class Element:
 
 		# Get target coordinates
 		if isinstance(target, dict) and 'x' in target and 'y' in target:
-			target_x = target['x']
-			target_y = target['y']
+			target_pos = target  # type: ignore[var-annotated]
+			target_x = target_pos['x']
+			target_y = target_pos['y']
 		else:
 			if target_position:
 				target_box = await target.get_bounding_box()
