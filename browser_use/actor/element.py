@@ -1,7 +1,7 @@
 """Element class for element operations."""
 
 import asyncio
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Literal, Union, cast
 
 from cdp_use.client import logger
 from typing_extensions import TypedDict
@@ -388,7 +388,7 @@ class Element:
 					session_id=session_id,
 				)
 				if bounds_result.get('result', {}).get('value'):
-					bounds = bounds_result['result']['value']  # type: ignore
+					bounds = bounds_result['result']['value']
 					center_x = bounds['x'] + bounds['width'] / 2
 					center_y = bounds['y'] + bounds['height'] / 2
 					input_coordinates = {'input_x': center_x, 'input_y': center_y}
@@ -605,8 +605,10 @@ class Element:
 
 		# Get target coordinates
 		if isinstance(target, dict) and 'x' in target and 'y' in target:
-			target_x = target['x']
-			target_y = target['y']
+			# Cast to Position since we've verified it's a dict with 'x' and 'y' keys
+			position_target = cast(Position, target)
+			target_x = position_target['x']
+			target_y = position_target['y']
 		else:
 			if target_position:
 				target_box = await target.get_bounding_box()
