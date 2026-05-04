@@ -206,6 +206,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		uncapped_wait: bool = False,
+		include_time: bool = False,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -313,6 +314,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Exclude screenshot tool when use_vision is not auto
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text, uncapped_wait=uncapped_wait)
+		self._include_time = include_time
+		self._task_start_time: float | None = None
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
@@ -2476,6 +2479,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		loop = asyncio.get_event_loop()
 		agent_run_error: str | None = None  # Initialize error tracking variable
+		self._task_start_time = time.time()
 		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
 		should_delay_close = False
 
@@ -2571,8 +2575,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					agent_run_error = 'Agent stopped programmatically'
 					break
 
-				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
+				_step_start = time.time()
+				step_info = AgentStepInfo(
+					step_number=current_step,
+					max_steps=max_steps,
+					include_time=self._include_time,
+					task_start_time=self._task_start_time,
+					last_step_duration=getattr(self, '_last_step_duration', None),
+				)
 				is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
+				self._last_step_duration = time.time() - _step_start
 
 				if is_done:
 					# Agent has marked the task as done

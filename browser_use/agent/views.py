@@ -278,6 +278,9 @@ class AgentState(BaseModel):
 class AgentStepInfo:
 	step_number: int
 	max_steps: int
+	include_time: bool = False
+	task_start_time: float | None = None  # time.time() when the task started
+	last_step_duration: float | None = None  # seconds the previous step took
 
 	def is_last_step(self) -> bool:
 		"""Check if this is the last step"""

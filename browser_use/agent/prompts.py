@@ -320,11 +320,16 @@ Available tabs:
 	def _get_agent_state_description(self) -> str:
 		if self.step_info:
 			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
+			if self.step_info.include_time and self.step_info.task_start_time:
+				import time as _time
+				elapsed = _time.time() - self.step_info.task_start_time
+				step_info_description += f'Elapsed since task start:{elapsed:.0f}s\n'
+			if self.step_info.last_step_duration is not None:
+				step_info_description += f'Last step took:{self.step_info.last_step_duration:.1f}s\n'
+			step_info_description += f'Today:{datetime.now().strftime("%Y-%m-%d")}'
 		else:
 			step_info_description = ''
-
-		time_str = datetime.now().strftime('%Y-%m-%d')
-		step_info_description += f'Today:{time_str}'
+			step_info_description += f'Today:{datetime.now().strftime("%Y-%m-%d")}'
 
 		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
 		if not len(_todo_contents):
