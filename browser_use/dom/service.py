@@ -363,12 +363,17 @@ class DomService:
 			)
 			ax_tree_requests.append(ax_tree_request)
 
-		# Wait for all requests to complete
-		ax_trees = await asyncio.gather(*ax_tree_requests)
+		# Wait for all requests to complete — use return_exceptions=True so that
+		# a single detached iframe (common with ads/analytics) doesn't discard
+		# successful results from every other frame.
+		ax_trees = await asyncio.gather(*ax_tree_requests, return_exceptions=True)
 
-		# Merge all AX nodes into a single array
+		# Merge all AX nodes into a single array, skipping failed frames
 		merged_nodes: list[AXNode] = []
-		for ax_tree in ax_trees:
+		for i, ax_tree in enumerate(ax_trees):
+			if isinstance(ax_tree, BaseException):
+				self.logger.debug(f'Failed to get AX tree for frame {all_frame_ids[i]}: {ax_tree}')
+				continue
 			merged_nodes.extend(ax_tree['nodes'])
 
 		return {'nodes': merged_nodes}
