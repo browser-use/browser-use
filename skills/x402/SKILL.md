@@ -143,7 +143,7 @@ curl -s https://mainnet.base.org \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{\"to\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"data\":\"0x70a08231${PADDED}\"},\"latest\"],\"id\":1}"
 ```
 
-Decode the `result` field as a hex int; divide by `1_000_000` (USDC has 6 decimals). Stop polling when balance ≥ $1. Recommend $5+ for room to actually use the API.
+Decode the `result` field as a hex int; divide by `1_000_000` (USDC has 6 decimals). **Recommend funding with at least $20.** That gives room for the $1 verification charge plus headroom for several real tasks. Stop polling once the on-chain balance is ≥ $20.
 
 ## Step 3: Install the SDK with the x402 extra
 
@@ -159,35 +159,68 @@ If the project uses `uv` / `pnpm` / `yarn`, prefer those over `pip` / `npm`.
 
 ## Step 4: Verification run
 
-Write a tiny script and run it. **This will spend $1 USDC** (settled on-chain to Browser Use's prod payee). Subsequent runs draw down credits without re-paying until exhausted.
+**Do not run anything yet.** First, ask the user for permission and explain what's about to happen:
+
+> Ready to verify your x402 setup. Here's what I'll do:
+>
+> - Spend exactly **$1 USDC** from your wallet — the minimum x402 top-up. Settled on-chain to Browser Use's prod payee.
+> - Run a tiny test task to confirm payment + credit grant + execution all work end-to-end.
+> - Show you the Basescan transaction so you can see settlement.
+>
+> Default test task: *"Go to example.com and tell me the heading text."* (cheap, ~5 seconds).
+>
+> Want to use the default task, suggest your own (keep it short), or skip the verification?
+
+Wait for confirmation. If they suggest a custom task, use that.
+
+To force the **$1** option (instead of the $5 default that the SDK would normally pick when the wallet has ≥ $5), use the raw x402 client with a `max_value` constraint of $1.50. This skips the $5 option in the 402 challenge and pays $1:
 
 ```python
-import asyncio
-from browser_use_sdk.v3 import AsyncBrowserUse
+import asyncio, os
+from decimal import Decimal
+from x402 import x402Client
+from x402.http.clients import x402HttpxClient
+from x402.mechanisms.evm import EthAccountSigner
+from x402.mechanisms.evm.exact.register import register_exact_evm_client
+from eth_account import Account
 
 async def main():
-    client = AsyncBrowserUse()  # auto-picks BROWSER_USE_X402_PRIVATE_KEY from env
-    result = await client.run("Go to example.com and tell me the heading text.")
-    print(result.output)
+    client = x402Client()
+    register_exact_evm_client(
+        client,
+        EthAccountSigner(Account.from_key(os.environ["BROWSER_USE_X402_PRIVATE_KEY"])),
+    )
+    # max_value caps what the client is willing to pay per challenge —
+    # forces the $1 fallback instead of the $5 default in our [$5, $1] accepts list.
+    async with x402HttpxClient(client, max_value=Decimal("1.5"), timeout=180.0) as http:
+        resp = await http.post(
+            "https://x402.api.browser-use.com/api/v3/sessions",
+            json={"task": "<the task the user agreed to>"},
+        )
+        print(resp.status_code, resp.json())
 
 asyncio.run(main())
 ```
 
-**For Mode B (top-up)**, also set `BROWSER_USE_API_KEY` so the SDK sends both headers:
+If the installed `x402` version doesn't accept `max_value` on `x402HttpxClient`, fall back to using our SDK (`AsyncBrowserUse()`) — but **tell the user first** that this will cost $5 instead of $1, and re-confirm before running.
+
+**For Mode B (top-up)**, the API key only matters when going through our SDK. For the $1 raw-client verification above, omit it; once verified, switch to the SDK with both `api_key` and `x402_private_key` for real use:
 
 ```python
 client = AsyncBrowserUse(
     api_key="bu_...",                    # the existing API key getting topped up
     x402_private_key="0x...",            # wallet that pays
-    base_url="https://x402.api.browser-use.com/api/v3",  # x402 endpoint
+    base_url="https://x402.api.browser-use.com/api/v3",
 )
 ```
 
-After it returns, show the user proof of settlement:
+After verification returns, show the user proof of settlement:
 
 > Onchain proof: https://basescan.org/address/<wallet-address>#tokentxns
 
 Look for an outbound USDC transfer of exactly `$1.000000`.
+
+Once verification passes, transition the user to the SDK (`AsyncBrowserUse()` / `new BrowserUse()`) for real tasks — that path uses the $5 default top-up.
 
 ## TypeScript equivalents
 
@@ -203,6 +236,8 @@ Both SDKs auto-detect `BROWSER_USE_X402_PRIVATE_KEY` from env.
 
 - **Add `.env` to `.gitignore`** before writing keys. Verify first.
 - **Confirm `.env` location** if ambiguous (project root vs cwd).
+- **Never spend the user's USDC without explicit consent.** Step 4 must always pause for permission before running, explain that it costs $1, and accept a custom task or a "skip verification" response.
+- **If you can't force a $1 charge** (e.g. installed `x402` lib doesn't support `max_value`), tell the user the verification will instead cost $5 and re-confirm before running.
 - **Python <3.10:** the `[x402]` extra won't install. Tell the user to upgrade Python or use the free-tier path (`browser-use cloud signup`).
 - **Wallets hold real money.** Anyone with the private key can drain them. Tell the user to keep keys out of source control, logs, and screenshots, and to only fund with what they're okay losing if something leaked.
 
