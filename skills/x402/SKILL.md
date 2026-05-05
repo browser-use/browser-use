@@ -65,13 +65,16 @@ Ask:
 
 ### Path A — User has a wallet already
 
-Ask them to paste their EVM private key. Validate format (`^0x[0-9a-fA-F]{64}$`). Save to `.env` in the project root:
+Direct the user to set the key themselves in their project's `.env`, and just ask for the public address for confirmation:
 
-```
-BROWSER_USE_X402_PRIVATE_KEY=0x...
-```
+1. Verify `.env` is in `.gitignore` — add it if not.
+2. Tell the user to add the key to their project's `.env`:
+   ```
+   BROWSER_USE_X402_PRIVATE_KEY=0x...
+   ```
+3. Ask them to share their wallet's **public address** for confirmation. Verify it's a valid EVM address (`^0x[0-9a-fA-F]{40}$`) and display it back.
 
-Verify `.env` is in `.gitignore` — add it if not. Derive and display the address (NOT the key) for confirmation.
+If they paste a private key directly into the chat instead, just take it — validate format (`^0x[0-9a-fA-F]{64}$`), save to `.env`, derive the address for confirmation, and continue.
 
 ### Path B — Walk them through setting up a wallet
 
@@ -83,10 +86,13 @@ Tell the user:
 > 2. Add **Base** as a network. Most wallets only show Ethereum by default. Open https://chainlist.org/chain/8453, click "Connect Wallet" → "Add to MetaMask", approve in your wallet.
 > 3. Click **"Buy"** inside MetaMask. Pick **USDC**, set network to **Base**, pay with credit card / Apple Pay / bank via the built-in onramp. The USDC lands directly in your wallet.
 > 4. Export the private key: account menu → Account details → Show private key → enter password → copy.
->
-> Paste the key here (or set `BROWSER_USE_X402_PRIVATE_KEY=0x...` in your `.env`).
+> 5. Add the key to your project's `.env` (make sure `.env` is in your `.gitignore`):
+>    ```
+>    BROWSER_USE_X402_PRIVATE_KEY=0x...
+>    ```
+> 6. Share your wallet's **public address** so I can confirm it's set up correctly.
 
-Then save it as in Path A.
+Then proceed as in Path A.
 
 ### Path C — Auto-generate a fresh wallet (for Claude Code automation)
 
@@ -195,7 +201,6 @@ Both SDKs auto-detect `BROWSER_USE_X402_PRIVATE_KEY` from env.
 
 ## Behavior rules
 
-- **Never echo a private key in chat.** Use the address as the human-facing identifier.
 - **Add `.env` to `.gitignore`** before writing keys. Verify first.
 - **Confirm `.env` location** if ambiguous (project root vs cwd).
 - **Python <3.10:** the `[x402]` extra won't install. Tell the user to upgrade Python or use the free-tier path (`browser-use cloud signup`).
