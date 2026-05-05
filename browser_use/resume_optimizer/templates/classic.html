@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{name}} - 简历</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: Georgia, 'Times New Roman', serif;
+            line-height: 1.6;
+            color: #222;
+            background: white;
+            padding: 2rem;
+        }
+
+        .resume {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid #333;
+            padding-bottom: 1rem;
+        }
+
+        .name {
+            font-size: 2rem;
+            font-weight: normal;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 0.5rem;
+        }
+
+        .contact {
+            font-size: 0.9rem;
+            color: #555;
+        }
+
+        .contact span {
+            margin: 0 0.5rem;
+        }
+
+        .section {
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 0.3rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .summary-text {
+            text-align: justify;
+        }
+
+        .skills-list {
+            text-align: center;
+        }
+
+        .skill-tag {
+            display: inline-block;
+            margin: 0.2rem 0.5rem;
+        }
+
+        .experience-item, .project-item, .education-item {
+            margin-bottom: 1rem;
+        }
+
+        .company, .project-name, .institution {
+            font-weight: bold;
+        }
+
+        .duration {
+            float: right;
+            font-style: italic;
+            color: #666;
+        }
+
+        .description {
+            margin-top: 0.3rem;
+        }
+
+        @media print {
+            body { padding: 0; }
+            .resume { max-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="resume">
+        <header class="header">
+            <h1 class="name">{{name}}</h1>
+            <div class="contact">
+                {{#if email}}{{email}}{{/if}}
+                {{#if phone}}| {{phone}}{{/if}}
+            </div>
+        </header>
+
+        {{#if summary}}
+        <section class="section">
+            <h2 class="section-title">Summary</h2>
+            <p class="summary-text">{{summary}}</p>
+        </section>
+        {{/if}}
+
+        {{#if skills}}
+        <section class="section">
+            <h2 class="section-title">Skills</h2>
+            <div class="skills-list">
+                {{#each skills}}
+                <span class="skill-tag">{{this}}</span>{{#unless @last}}, {{/unless}}
+                {{/each}}
+            </div>
+        </section>
+        {{/if}}
+
+        {{#if experience}}
+        <section class="section">
+            <h2 class="section-title">Experience</h2>
+            {{#each experience}}
+            <div class="experience-item">
+                <span class="duration">{{duration}}</span>
+                <span class="company">{{company}}</span>
+                <div class="description">{{description}}</div>
+            </div>
+            {{/each}}
+        </section>
+        {{/if}}
+
+        {{#if education}}
+        <section class="section">
+            <h2 class="section-title">Education</h2>
+            {{#each education}}
+            <div class="education-item">
+                <span class="institution">{{institution}}</span> — {{degree}}
+            </div>
+            {{/each}}
+        </section>
+        {{/if}}
+    </div>
+</body>
+</html>

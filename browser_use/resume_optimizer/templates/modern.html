@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{name}} - 简历</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 2rem;
+        }
+
+        .resume {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 3rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        .header {
+            border-bottom: 3px solid #2563eb;
+            padding-bottom: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .name {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 0.5rem;
+        }
+
+        .title {
+            font-size: 1.1rem;
+            color: #64748b;
+            margin-bottom: 1rem;
+        }
+
+        .contact {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            font-size: 0.95rem;
+            color: #475569;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .contact-item::before {
+            content: "•";
+            color: #2563eb;
+            margin-right: 0.3rem;
+        }
+
+        .section {
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1e40af;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .summary-text {
+            color: #475569;
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
+        .skills-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+        }
+
+        .skill-tag {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            color: #1e40af;
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .experience-item, .project-item {
+            margin-bottom: 1.5rem;
+        }
+
+        .experience-header, .project-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 0.5rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .company, .project-name {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .position {
+            font-size: 1rem;
+            color: #475569;
+            font-weight: 500;
+        }
+
+        .duration {
+            color: #64748b;
+            font-size: 0.9rem;
+            font-style: italic;
+        }
+
+        .location {
+            color: #94a3b8;
+            font-size: 0.85rem;
+        }
+
+        .description {
+            color: #475569;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .description ul {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .description li {
+            margin-bottom: 0.3rem;
+        }
+
+        .highlight {
+            color: #2563eb;
+            font-weight: 600;
+        }
+
+        .education-item {
+            margin-bottom: 1rem;
+        }
+
+        .institution {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .degree {
+            color: #475569;
+            font-size: 0.95rem;
+        }
+
+        .gpa {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .resume {
+                box-shadow: none;
+                max-width: 100%;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .resume {
+                padding: 1.5rem;
+            }
+            .name {
+                font-size: 1.8rem;
+            }
+            .contact {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="resume">
+        <header class="header">
+            <h1 class="name">{{name}}</h1>
+            <p class="title">{{title}}</p>
+            <div class="contact">
+                {{#if email}}<span class="contact-item">{{email}}</span>{{/if}}
+                {{#if phone}}<span class="contact-item">{{phone}}</span>{{/if}}
+                {{#if location}}<span class="contact-item">{{location}}</span>{{/if}}
+                {{#if linkedin}}<span class="contact-item">{{linkedin}}</span>{{/if}}
+                {{#if github}}<span class="contact-item">{{github}}</span>{{/if}}
+            </div>
+        </header>
+
+        {{#if summary}}
+        <section class="section summary">
+            <h2 class="section-title">个人总结</h2>
+            <p class="summary-text">{{summary}}</p>
+        </section>
+        {{/if}}
+
+        {{#if skills}}
+        <section class="section skills">
+            <h2 class="section-title">技能</h2>
+            <div class="skills-list">
+                {{#each skills}}
+                <span class="skill-tag">{{this}}</span>
+                {{/each}}
+            </div>
+        </section>
+        {{/if}}
+
+        {{#if experience}}
+        <section class="section experience">
+            <h2 class="section-title">工作经历</h2>
+            {{#each experience}}
+            <div class="experience-item">
+                <div class="experience-header">
+                    <div>
+                        <h3 class="company">{{company}}</h3>
+                        <span class="position">{{position}}</span>
+                    </div>
+                    <div>
+                        <span class="duration">{{duration}}</span>
+                        {{#if location}}<span class="location">{{location}}</span>{{/if}}
+                    </div>
+                </div>
+                <div class="description">{{description}}</div>
+            </div>
+            {{/each}}
+        </section>
+        {{/if}}
+
+        {{#if projects}}
+        <section class="section projects">
+            <h2 class="section-title">项目经历</h2>
+            {{#each projects}}
+            <div class="project-item">
+                <div class="project-header">
+                    <h3 class="project-name">{{name}}</h3>
+                    {{#if duration}}<span class="duration">{{duration}}</span>{{/if}}
+                </div>
+                <div class="description">{{description}}</div>
+            </div>
+            {{/each}}
+        </section>
+        {{/if}}
+
+        {{#if education}}
+        <section class="section education">
+            <h2 class="section-title">教育背景</h2>
+            {{#each education}}
+            <div class="education-item">
+                <h3 class="institution">{{institution}}</h3>
+                <p class="degree">{{degree}}{{#if field}} - {{field}}{{/if}}</p>
+                {{#if gpa}}<p class="gpa">GPA: {{gpa}}</p>{{/if}}
+            </div>
+            {{/each}}
+        </section>
+        {{/if}}
+    </div>
+</body>
+</html>
