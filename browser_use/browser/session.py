@@ -6,6 +6,7 @@ import re
 import time
 from functools import cached_property
 from pathlib import Path
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
@@ -725,6 +726,84 @@ class BrowserSession(BaseModel):
 	async def close(self) -> None:
 		"""Alias for stop()."""
 		await self.stop()
+
+	async def __aenter__(self) -> Self:
+		"""Async context manager entry — start the session.
+
+		Calls ``start()`` and returns ``self`` so the session can be used inside
+		an ``async with`` block. If ``start()`` raises, attempts a best-effort
+		cleanup of any partially-initialized state before re-raising (Python
+		does not call ``__aexit__`` when ``__aenter__`` raises, per PEP 343).
+
+		``KeyboardInterrupt`` and ``SystemExit`` are re-raised without any
+		cleanup attempt so the user retains immediate control over the process.
+
+		Caveats:
+
+		- ``keep_alive=True`` is partially honoured: a warning is emitted on
+		  entry, and ``__aexit__`` still calls ``stop()`` which resets the
+		  session. To keep the browser alive across runs, manage ``start()`` /
+		  ``close()`` manually instead.
+		- A single instance is intended for use in **one** ``async with`` block.
+		  Reusing the same instance for a second ``async with`` is not currently
+		  supported because ``stop()`` rebuilds the internal ``EventBus`` while
+		  the handlers registered in ``model_post_init`` remain bound to the
+		  original bus. Create a new ``BrowserSession`` for each block.
+		"""
+		if self.browser_profile.keep_alive:
+			self.logger.warning(
+				'BrowserSession used as async context manager with keep_alive=True. '
+				'The session will be reset on context exit, contradicting keep_alive intent. '
+				'Use manual start()/close() instead if you need the browser to persist.'
+			)
+		try:
+			await self.start()
+		except (KeyboardInterrupt, SystemExit):
+			# Surface the user's signal immediately without taking time to clean
+			# up — they explicitly asked to stop right now.
+			raise
+		except BaseException:
+			# PEP 343: __aexit__ is NOT called when __aenter__ raises.
+			# Best-effort cleanup of any partially-initialized state.
+			# For local sessions use kill() (force); for cloud/attached use
+			# stop() (graceful) so we don't disrupt externally-managed chromium.
+			try:
+				if self.is_local:
+					await self.kill()
+				else:
+					await self.stop()
+			except Exception as cleanup_err:
+				# Log the cleanup failure but don't mask the original exception.
+				# Use warning rather than exception() so tracebacks (which can
+				# carry sensitive data via frame locals) aren't recorded.
+				self.logger.warning('Cleanup failed during __aenter__ rollback: %s', cleanup_err)
+			raise
+		return self
+
+	async def __aexit__(
+		self,
+		exc_type: type[BaseException] | None,
+		exc_val: BaseException | None,
+		exc_tb: TracebackType | None,
+	) -> None:
+		"""Async context manager exit — gracefully stop the session via ``stop()``.
+
+		``stop()`` dispatches ``SaveStorageStateEvent`` to persist cookies and
+		storage to ``storage_state_path`` if configured, then resets the session.
+		If you don't want persistence, ensure ``storage_state_path`` is None.
+
+		If ``stop()`` itself raises during cleanup we log it and swallow when a
+		user exception is already in flight, so the original exception is not
+		masked. When the block exited normally, the cleanup error is propagated.
+		"""
+		try:
+			await self.stop()
+		except Exception as cleanup_err:
+			if exc_val is None:
+				# No user exception in flight — surface the cleanup failure.
+				raise
+			# Don't mask the user's exception; log and continue.
+			self.logger.warning('stop() failed during __aexit__: %s', cleanup_err)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_event_handler')
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
