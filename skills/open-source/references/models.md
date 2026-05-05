@@ -206,6 +206,10 @@ llm = ChatOpenRouter(model="anthropic/claude-sonnet-4-6")
 
 **Env:** `OPENROUTER_API_KEY` | [Available models](https://openrouter.ai/models)
 
+<Note>
+`ChatOpenRouter` is available directly from `browser_use` when installed from source or PyPI ≥ v0.12.0. If you encounter an import error, upgrade with `uv pip install -U browser-use`.
+</Note>
+
 ## Vercel AI Gateway
 
 Proxy to multiple providers with automatic fallback:
