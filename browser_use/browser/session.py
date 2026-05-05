@@ -732,8 +732,10 @@ class BrowserSession(BaseModel):
 
 		Calls ``start()`` and returns ``self`` so the session can be used inside
 		an ``async with`` block. If ``start()`` raises, attempts a best-effort
-		cleanup of any partially-initialized state before re-raising (Python
-		does not call ``__aexit__`` when ``__aenter__`` raises, per PEP 343).
+		cleanup for **locally-launched sessions only** before re-raising. Cloud
+		or externally-attached sessions are owned by the caller — a transient
+		``start()`` failure must not tear them down. Python does not call
+		``__aexit__`` when ``__aenter__`` raises (PEP 343).
 
 		``KeyboardInterrupt`` and ``SystemExit`` are re-raised without any
 		cleanup attempt so the user retains immediate control over the process.
@@ -764,19 +766,21 @@ class BrowserSession(BaseModel):
 			raise
 		except BaseException:
 			# PEP 343: __aexit__ is NOT called when __aenter__ raises.
-			# Best-effort cleanup of any partially-initialized state.
-			# For local sessions use kill() (force); for cloud/attached use
-			# stop() (graceful) so we don't disrupt externally-managed chromium.
-			try:
-				if self.is_local:
+			# Best-effort cleanup of any partially-initialized state — but only
+			# for locally-launched sessions. For cloud or externally-attached
+			# sessions the caller owns the browser lifecycle and a transient
+			# start() failure must not tear down their session, since stop()
+			# would dispatch BrowserStopEvent which derives a cloud session ID
+			# from cdp_url and terminates it (codex review on #4784).
+			if self.is_local:
+				try:
 					await self.kill()
-				else:
-					await self.stop()
-			except Exception as cleanup_err:
-				# Log the cleanup failure but don't mask the original exception.
-				# Use warning rather than exception() so tracebacks (which can
-				# carry sensitive data via frame locals) aren't recorded.
-				self.logger.warning('Cleanup failed during __aenter__ rollback: %s', cleanup_err)
+				except Exception as cleanup_err:
+					# Log the cleanup failure but don't mask the original
+					# exception. Use warning rather than exception() so
+					# tracebacks (which can carry sensitive data via frame
+					# locals) aren't recorded.
+					self.logger.warning('Cleanup failed during __aenter__ rollback: %s', cleanup_err)
 			raise
 		return self
 

@@ -219,6 +219,53 @@ async def test_start_failure_in_aenter_does_not_leak_state():
 
 
 # ---------------------------------------------------------------------------
+# 6b. cloud / externally-attached sessions: __aenter__ rollback must NOT
+#     tear down the caller's externally-managed browser (Codex review on PR
+#     #4784). stop() flows into BrowserStopEvent which derives a cloud
+#     session ID from cdp_url and terminates it; kill() obviously does the
+#     same with force=True. Both must be skipped for non-local sessions.
+# ---------------------------------------------------------------------------
+async def test_aenter_failure_skips_cleanup_for_non_local_sessions():
+	"""On a non-local session, a failing `start()` must not call `kill()` or
+	`stop()` — those would terminate the externally-managed browser.
+
+	Verified by spying on both methods through a subclass that reports
+	``is_local == False``.
+	"""
+	cleanup_calls: list[str] = []
+
+	class _StartBoom(RuntimeError):
+		pass
+
+	class _NonLocalFailingSession(BrowserSession):
+		@property
+		def is_local(self) -> bool:
+			# Pretend this session was attached to an externally-managed browser.
+			return False
+
+		async def start(self) -> None:
+			raise _StartBoom('simulated start() failure on non-local')
+
+		async def kill(self) -> None:
+			cleanup_calls.append('kill')
+
+		async def stop(self) -> None:
+			cleanup_calls.append('stop')
+
+	session = _NonLocalFailingSession(
+		browser_profile=BrowserProfile(headless=True, user_data_dir=None, enable_default_extensions=False)
+	)
+
+	with pytest.raises(_StartBoom, match='simulated start'):
+		async with session:
+			pytest.fail('block body must not run')
+
+	# Critical: cleanup must be skipped for non-local sessions, otherwise we
+	# would tear down a browser the caller asked us only to attach to.
+	assert cleanup_calls == [], f'cleanup must be skipped for non-local sessions, got: {cleanup_calls}'
+
+
+# ---------------------------------------------------------------------------
 # 7. CancelledError contract: task cancel inside the block must still stop()
 # ---------------------------------------------------------------------------
 async def test_cancelled_error_in_block_still_stops_session():
