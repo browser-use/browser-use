@@ -364,7 +364,9 @@ class DomService:
 			ax_tree_requests.append(ax_tree_request)
 
 		# Wait for all requests to complete
-		ax_trees = await asyncio.gather(*ax_tree_requests)
+		ax_trees = await asyncio.gather(*ax_tree_requests, return_exceptions=True)
+        # Filter out failed frame requests (e.g., frame detached during request)
+        ax_trees = [t for t in ax_trees if not isinstance(t, Exception)]
 
 		# Merge all AX nodes into a single array
 		merged_nodes: list[AXNode] = []
