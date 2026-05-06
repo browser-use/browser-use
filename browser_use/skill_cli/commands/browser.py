@@ -274,12 +274,16 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 
 		if file_input_node is None:
 			selector_map = await bs.get_selector_map()
-			file_input_indices = [idx for idx, el in selector_map.items() if bs.is_file_input(el)]
-			if file_input_indices:
+			file_input_matches = [(idx, el) for idx, el in selector_map.items() if bs.is_file_input(el)]
+			if len(file_input_matches) == 1:
+				file_input_node = file_input_matches[0][1]
+			elif file_input_matches:
+				file_input_indices = [idx for idx, _ in file_input_matches]
 				hint = f' File input(s) found at index: {", ".join(map(str, file_input_indices))}'
+				return {'error': f'Element {index} is not a file input.{hint}'}
 			else:
 				hint = ' No file input found on the page.'
-			return {'error': f'Element {index} is not a file input.{hint}'}
+				return {'error': f'Element {index} is not a file input.{hint}'}
 
 		await actions.upload_file(file_input_node, file_path)
 		return {'uploaded': file_path, 'element': index}
