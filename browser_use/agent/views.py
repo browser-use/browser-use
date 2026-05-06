@@ -281,6 +281,7 @@ class AgentStepInfo:
 	include_time: bool = False
 	task_start_time: float | None = None  # time.time() when the task started
 	last_step_duration: float | None = None  # seconds the previous step took
+	site_current_time: str | None = None  # current simulated time from the website
 
 	def is_last_step(self) -> bool:
 		"""Check if this is the last step"""

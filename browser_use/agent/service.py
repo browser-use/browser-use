@@ -207,6 +207,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		_url_shortening_limit: int = 25,
 		uncapped_wait: bool = False,
 		include_time: bool = False,
+		site_time_callback: Callable[[], str | None] | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -315,6 +316,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text, uncapped_wait=uncapped_wait)
 		self._include_time = include_time
+		self._site_time_callback = site_time_callback
 		self._task_start_time: float | None = None
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
@@ -2576,12 +2578,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					break
 
 				_step_start = time.time()
+				_site_time = None
+				if self._site_time_callback:
+					try:
+						_site_time = self._site_time_callback()
+					except Exception:
+						pass
 				step_info = AgentStepInfo(
 					step_number=current_step,
 					max_steps=max_steps,
 					include_time=self._include_time,
 					task_start_time=self._task_start_time,
 					last_step_duration=getattr(self, '_last_step_duration', None),
+					site_current_time=_site_time,
 				)
 				is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
 				self._last_step_duration = time.time() - _step_start

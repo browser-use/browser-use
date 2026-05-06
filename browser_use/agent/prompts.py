@@ -326,6 +326,8 @@ Available tabs:
 				step_info_description += f'Elapsed since task start:{elapsed:.0f}s\n'
 			if self.step_info.last_step_duration is not None:
 				step_info_description += f'Last step took:{self.step_info.last_step_duration:.1f}s\n'
+			if self.step_info.site_current_time:
+				step_info_description += f'Website time:{self.step_info.site_current_time}\n'
 			step_info_description += f'Today:{datetime.now().strftime("%Y-%m-%d")}'
 		else:
 			step_info_description = ''
