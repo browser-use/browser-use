@@ -78,3 +78,28 @@ async def test_cdp_get_cookies_raises_actionable_error_after_retry(monkeypatch):
 	assert 'storage state' in message.lower()
 	assert 'cdp connection' in message.lower()
 	assert storage.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_cdp_get_cookies_does_not_reconnect_during_intentional_stop(monkeypatch):
+	session = BrowserSession(headless=True)
+	session.browser_profile.cdp_url = 'ws://example.test/devtools/browser/1'
+	session._intentional_stop = True
+	storage = FakeStorage(failures_before_success=2)
+	reconnect_calls = 0
+
+	async def fake_get_or_create_cdp_session(self, target_id=None, focus=True):
+		return FakeCdpSession(storage)
+
+	async def fake_reconnect(self):
+		nonlocal reconnect_calls
+		reconnect_calls += 1
+
+	monkeypatch.setattr(BrowserSession, 'get_or_create_cdp_session', fake_get_or_create_cdp_session)
+	monkeypatch.setattr(BrowserSession, 'reconnect', fake_reconnect)
+
+	with pytest.raises(BrowserError):
+		await session._cdp_get_cookies()
+
+	assert storage.calls == 1
+	assert reconnect_calls == 0
