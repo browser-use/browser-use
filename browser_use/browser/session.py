@@ -3339,13 +3339,20 @@ class BrowserSession(BaseModel):
 			except Exception as e:
 				last_error = e
 				is_reconnect_error = self._is_storage_state_cdp_reconnect_error(e)
-				if attempt == 0 and self.cdp_url and is_reconnect_error and not self._intentional_stop:
-					self.logger.warning(
-						'Storage state cookie export lost the CDP connection (%s: %s); reconnecting once and retrying',
-						type(e).__name__,
-						e,
-					)
-					await self.reconnect()
+				if attempt == 0 and self.cdp_url and is_reconnect_error:
+					if self._intentional_stop:
+						self.logger.warning(
+							'Storage state cookie export hit a transient CDP error during shutdown (%s: %s); retrying once without reconnecting',
+							type(e).__name__,
+							e,
+						)
+					else:
+						self.logger.warning(
+							'Storage state cookie export lost the CDP connection (%s: %s); reconnecting once and retrying',
+							type(e).__name__,
+							e,
+						)
+						await self.reconnect()
 					continue
 				if attempt == 0 and not is_reconnect_error:
 					raise
