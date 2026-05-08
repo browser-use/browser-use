@@ -363,12 +363,21 @@ class DomService:
 			)
 			ax_tree_requests.append(ax_tree_request)
 
-		# Wait for all requests to complete
-		ax_trees = await asyncio.gather(*ax_tree_requests)
+		# return_exceptions=True so a child frame detaching mid-request (e.g. ad iframes)
+		# doesn't discard AX data from the rest. The root frame is required — if it
+		# fails, propagate so the caller's retry/empty-DOM path runs instead of
+		# silently returning a tree with no main-document AX properties.
+		ax_trees = await asyncio.gather(*ax_tree_requests, return_exceptions=True)
 
-		# Merge all AX nodes into a single array
-		merged_nodes: list[AXNode] = []
-		for ax_tree in ax_trees:
+		root_result = ax_trees[0]
+		if isinstance(root_result, BaseException):
+			raise root_result
+
+		merged_nodes: list[AXNode] = list(root_result['nodes'])
+		for frame_id, ax_tree in zip(all_frame_ids[1:], ax_trees[1:]):
+			if isinstance(ax_tree, BaseException):
+				self.logger.debug(f'Skipping AX tree for detached/unreachable child frame {frame_id}: {ax_tree}')
+				continue
 			merged_nodes.extend(ax_tree['nodes'])
 
 		return {'nodes': merged_nodes}
