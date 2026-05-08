@@ -1,0 +1,222 @@
+"""CLI wrapper for the daily task evaluation module.
+
+The implementation lives in `browser_use.experiments.daily_task_eval` so it can be reused
+as a pluggable module without editing core agent code.
+
+Experiment presets (A–D) are defined in `browser_use.experiments.daily_task_eval.experiment_presets`.
+"""
+
+import argparse
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+
+from browser_use.experiments.daily_task_eval.experiment_presets import build_configs_from_args, describe_experiments_text
+from browser_use.experiments.daily_task_eval.models import TaskCard, load_json_model_list, write_json
+from browser_use.experiments.daily_task_eval.runner import compare_all, init_experiment, run_agent_task
+
+
+def _apply_log_level(log_level: str | None) -> None:
+	"""Re-run browser-use logging setup with the requested verbosity.
+
+	Setting the env var first matches the canonical `BROWSER_USE_LOGGING_LEVEL` knob, so
+	any later imports (CDP, bubus) that consult it pick up the same value.
+	"""
+	if not log_level:
+		return
+	os.environ['BROWSER_USE_LOGGING_LEVEL'] = log_level
+	from browser_use.logging_config import setup_logging
+
+	setup_logging(log_level=log_level, force_setup=True)
+
+
+async def run_agent_command(args: argparse.Namespace) -> None:
+	_apply_log_level(getattr(args, 'log_level', None))
+	try:
+		executor_cfg, navigator_cfg, experiment_id = build_configs_from_args(args)
+	except ValueError as exc:
+		print(str(exc), file=sys.stderr)
+		raise SystemExit(2) from exc
+
+	tasks = load_json_model_list(Path(args.task_cards), TaskCard)
+	selected_tasks = [task for task in tasks if args.task_id in (None, task.id)]
+	if not selected_tasks:
+		raise ValueError(f'No task card matched task id: {args.task_id}')
+
+	agent_runs_path = Path(args.output_dir) / 'agent_runs.json'
+	existing_runs = []
+	if agent_runs_path.exists():
+		existing_runs = json.loads(agent_runs_path.read_text(encoding='utf-8'))
+
+	for task in selected_tasks:
+		summary = await run_agent_task(
+			task=task,
+			output_dir=Path(args.output_dir),
+			scenario_id=args.scenario_id,
+			max_steps=args.max_steps,
+			headless=args.headless,
+			navigator_config=navigator_cfg,
+			executor_config=executor_cfg,
+			experiment_id=experiment_id,
+			llm_timeout=args.llm_timeout,
+			max_actions_per_step=args.max_actions_per_step,
+			step_timeout=args.step_timeout,
+			heartbeat_seconds=args.heartbeat_seconds,
+			max_failures=args.max_failures,
+		)
+		existing_runs.append(summary.model_dump(mode='json'))
+		write_json(agent_runs_path, existing_runs)
+		exp_note = f' [{experiment_id}]' if experiment_id else ''
+		print(f'Wrote Agent run summary for {task.id}/{args.scenario_id}{exp_note} to {agent_runs_path}')
+
+
+def build_parser() -> argparse.ArgumentParser:
+	parser = argparse.ArgumentParser(
+		description='Run human-vs-Agent daily task comparison experiments.',
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+		epilog=describe_experiments_text(),
+	)
+	subparsers = parser.add_subparsers(dest='command', required=True)
+
+	init_parser = subparsers.add_parser('init', help='Create starter task cards and result files.')
+	init_parser.add_argument('--output-dir', type=Path, default=Path('./tmp/daily_task_eval'))
+	init_parser.add_argument('--overwrite', action='store_true')
+
+	run_parser = subparsers.add_parser(
+		'run-agent',
+		help='Run Browser Use Agent for one or more task cards.',
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+		epilog=describe_experiments_text(),
+	)
+	run_parser.add_argument('--task-cards', type=Path, default=Path('./tmp/daily_task_eval/task_cards.json'))
+	run_parser.add_argument('--output-dir', type=Path, default=Path('./tmp/daily_task_eval'))
+	run_parser.add_argument('--task-id', default=None)
+	run_parser.add_argument('--scenario-id', default='normal')
+	run_parser.add_argument('--max-steps', type=int, default=30)
+	run_parser.add_argument(
+		'--llm-timeout',
+		type=int,
+		default=180,
+		help='Seconds per LLM request (default 180). Raise if DashScope/Qwen often exceeds Agent auto 75s.',
+	)
+	run_parser.add_argument(
+		'--max-actions-per-step',
+		type=int,
+		default=None,
+		help='Override actions per Agent step. Default: 1 for OpenAI-compatible (Qwen) to avoid malformed multi-action JSON; 3 for ChatBrowserUse.',
+	)
+	run_parser.add_argument(
+		'--step-timeout',
+		type=int,
+		default=None,
+		help='Per-step total timeout (seconds, includes LLM + browser + DOM). None keeps Agent default 180s. Lower (e.g. 60) when diagnosing where a step hangs so failures fire faster.',
+	)
+	run_parser.add_argument(
+		'--heartbeat-seconds',
+		type=int,
+		default=30,
+		help='Print [eval-runner] heartbeat every N seconds (current step number, step elapsed, current URL). 0 disables.',
+	)
+	run_parser.add_argument(
+		'--max-failures',
+		type=int,
+		default=3,
+		help='Consecutive LLM parse / tool-call failures tolerated before Agent self-terminates. Default 3. Raise to 6–8 for Qwen tool-calling on large DOMs (the "failed to output in correct format for three consecutive attempts" symptom).',
+	)
+	run_parser.add_argument(
+		'--log-level',
+		choices=['debug', 'info', 'warning', 'result'],
+		default=None,
+		help='Override BROWSER_USE_LOGGING_LEVEL for this run. Use debug to see DOM/CDP/bubus event timings when steps stall.',
+	)
+	run_parser.add_argument('--headless', action='store_true')
+
+	run_parser.add_argument(
+		'--experiment',
+		choices=['A', 'B', 'C', 'D'],
+		default=None,
+		help='Preset A–D (sets executor + navigator). Use custom flags instead when omitted.',
+	)
+	run_parser.add_argument(
+		'--executor-backend',
+		choices=['chat_browser_use', 'openai_compatible'],
+		default='chat_browser_use',
+		help='Ignored when --experiment is set. Default: chat_browser_use.',
+	)
+	run_parser.add_argument('--executor-model', default=None, help='Executor model id (BU cloud id or Qwen model name).')
+	run_parser.add_argument(
+		'--executor-api-key-env',
+		default='DASHSCOPE_API_KEY',
+		help='Env var for OpenAI-compatible executor API key (Qwen/DashScope). Default: DASHSCOPE_API_KEY.',
+	)
+	run_parser.add_argument(
+		'--executor-base-url',
+		default='https://dashscope.aliyuncs.com/compatible-mode/v1',
+		help='OpenAI-compatible executor base URL. China 百炼 default; Singapore: .../dashscope-intl.../compatible-mode/v1',
+	)
+
+	run_parser.add_argument(
+		'--navigator-backend',
+		choices=['none', 'deepseek', 'openai_compatible'],
+		default='none',
+		help='Ignored when --experiment is set. Planner backend before the Agent runs.',
+	)
+	run_parser.add_argument(
+		'--use-navigator',
+		action='store_true',
+		help='Shorthand for --navigator-backend openai_compatible (Qwen). Not allowed with --experiment.',
+	)
+	run_parser.add_argument('--navigator-model', default=None, help='Navigator model (default depends on backend).')
+	run_parser.add_argument(
+		'--navigator-api-key-env',
+		default='DASHSCOPE_API_KEY',
+		help='Env var for OpenAI-compatible navigator (Qwen). Default: DASHSCOPE_API_KEY.',
+	)
+	run_parser.add_argument(
+		'--navigator-base-url',
+		default='https://dashscope.aliyuncs.com/compatible-mode/v1',
+		help='OpenAI-compatible navigator base URL (Qwen). Must match API key region.',
+	)
+	run_parser.add_argument(
+		'--navigator-deepseek-api-key-env',
+		default='DEEPSEEK_API_KEY',
+		help='Env var for DeepSeek navigator key when --navigator-backend deepseek.',
+	)
+	run_parser.add_argument(
+		'--navigator-deepseek-base-url',
+		default='https://api.deepseek.com/v1',
+		help='DeepSeek OpenAI-compatible base URL for navigator.',
+	)
+
+	compare_parser = subparsers.add_parser('compare', help='Compare human baselines with Agent run summaries.')
+	compare_parser.add_argument('--task-cards', type=Path, default=Path('./tmp/daily_task_eval/task_cards.json'))
+	compare_parser.add_argument('--human-runs', type=Path, default=Path('./tmp/daily_task_eval/human_runs.json'))
+	compare_parser.add_argument('--agent-runs', type=Path, default=Path('./tmp/daily_task_eval/agent_runs.json'))
+	compare_parser.add_argument('--output-path', type=Path, default=Path('./tmp/daily_task_eval/comparison_report.json'))
+
+	return parser
+
+
+def main() -> None:
+	parser = build_parser()
+	args = parser.parse_args()
+
+	if args.command == 'init':
+		paths = init_experiment(args.output_dir, overwrite=args.overwrite)
+		for name, path in paths.items():
+			print(f'{name}: {path}')
+	elif args.command == 'run-agent':
+		asyncio.run(run_agent_command(args))
+	elif args.command == 'compare':
+		comparisons = compare_all(args.task_cards, args.human_runs, args.agent_runs, args.output_path)
+		print(f'Wrote {len(comparisons)} comparison record(s) to {args.output_path}')
+	else:
+		raise ValueError(f'Unknown command: {args.command}')
+
+
+if __name__ == '__main__':
+	main()
