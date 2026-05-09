@@ -206,6 +206,8 @@ llm = ChatOpenRouter(model="anthropic/claude-sonnet-4-6")
 
 **Env:** `OPENROUTER_API_KEY` | [Available models](https://openrouter.ai/models)
 
+**Note:** `ChatOpenRouter` is available directly from `browser_use` (via `from browser_use import ChatOpenRouter`) as well as from `browser_use.llm.openrouter.chat`.
+
 ## Vercel AI Gateway
 
 Proxy to multiple providers with automatic fallback:
