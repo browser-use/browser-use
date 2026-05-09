@@ -396,12 +396,26 @@ class Daemon:
 			)
 			logger.info(f'Listening on TCP {host}:{port}')
 		else:
-			# Unix: socket server
+			# Unix: socket server.
+			# Bind under a tight umask so the socket inode is created with
+			# mode 0o600 (no group/world access), and chmod afterwards as
+			# belt-and-braces on platforms where umask is bypassed (e.g.
+			# some macOS sandboxes). Connecting requires write access to
+			# the socket inode, so this restricts dispatch to the owner
+			# even if the auth token file were ever leaked.
 			Path(sock_path).unlink(missing_ok=True)
-			self._server = await asyncio.start_unix_server(
-				self.handle_connection,
-				sock_path,
-			)
+			old_umask = os.umask(0o077)
+			try:
+				self._server = await asyncio.start_unix_server(
+					self.handle_connection,
+					sock_path,
+				)
+			finally:
+				os.umask(old_umask)
+			try:
+				os.chmod(sock_path, 0o600)
+			except OSError as e:
+				logger.warning(f'Failed to chmod socket {sock_path}: {e}')
 			logger.info(f'Listening on Unix socket {sock_path}')
 
 		# Write PID file after server is bound

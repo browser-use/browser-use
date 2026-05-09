@@ -4,6 +4,7 @@ import json as _json
 import os
 import platform
 import re
+import stat
 import subprocess
 import sys
 import urllib.request
@@ -48,6 +49,10 @@ def get_home_dir() -> Path:
 
 	All CLI-managed files live here: config, sockets, PIDs, binaries, tunnels.
 	Override with BROWSER_USE_HOME env var.
+
+	The directory is restricted to the owner (mode 0o700) on POSIX, since it
+	holds the daemon auth token and Unix socket. On Windows this is a no-op
+	(POSIX mode bits are not enforced).
 	"""
 	env = os.environ.get('BROWSER_USE_HOME')
 	if env:
@@ -55,6 +60,15 @@ def get_home_dir() -> Path:
 	else:
 		d = Path.home() / '.browser-use'
 	d.mkdir(parents=True, exist_ok=True)
+	# Tighten permissions defensively even if the directory pre-existed with
+	# a more permissive mode (e.g. created before this hardening landed).
+	if sys.platform != 'win32':
+		try:
+			current = stat.S_IMODE(os.stat(d).st_mode)
+			if current & 0o077:
+				os.chmod(d, 0o700)
+		except OSError:
+			pass
 	return d
 
 
