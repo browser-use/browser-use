@@ -5,6 +5,7 @@
 - **实验入口脚本**：`examples/evaluation/daily_task_comparison.py`
 - **核心实现模块**：`browser_use/experiments/daily_task_eval/`
 - **完整操作手册**：`examples/evaluation/DAILY_TASK_EXPERIMENT_GUIDE.md`（强烈建议先通读）
+- **Task Cards 设计参考**：`docs/daily_task_eval/daily_task_cards_document.md`
 
 > 说明：本仓库基于开源项目 **browser-use** 演进（见文末“上游与致谢”）。README 以“跑实验”为第一优先。
 

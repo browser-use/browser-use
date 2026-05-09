@@ -181,7 +181,7 @@ uv run examples/evaluation/daily_task_comparison.py init --output-dir ./my_eval
 
 - JSON 数组，每项符合 **`TaskCard`** schema（见 **`browser_use/experiments/daily_task_eval/models.py`**）。
 - 字段 **`category`** 只能是：**`read_only_query`**、**`form_workflow`**、**`download_export`**。
-- 你可参考仓库内 **`tmp/daily_task_eval/daily_task_cards_document.md`**（若你已自建）里的任务设计与示例 JSON，复制进 **`task_cards.json`**。
+- 你可参考仓库内 **`docs/daily_task_eval/daily_task_cards_document.md`** 里的任务设计与示例 JSON，复制进 **`task_cards.json`**。（本地运行时若自建副本，也可能出现在 `tmp/daily_task_eval/` 下；以仓库文档为准。）
 
 **建议**：每个任务有明确的成功标准、禁止操作（尤其是涉及下单、付款、提交隐私场景）。
 
