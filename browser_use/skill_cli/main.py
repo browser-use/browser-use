@@ -1289,6 +1289,7 @@ def main() -> int:
 	if args.command == 'config':
 		from browser_use.skill_cli.config import (
 			CLI_DOCS_URL,
+			CONFIG_KEYS,
 			get_config_display,
 			get_config_value,
 			set_config_value,
@@ -1300,7 +1301,8 @@ def main() -> int:
 		if config_cmd == 'set':
 			try:
 				set_config_value(args.key, args.value)
-				print(f'{args.key} = {args.value}')
+				display_value = 'set' if CONFIG_KEYS.get(args.key, {}).get('sensitive') else args.value
+				print(f'{args.key} = {display_value}')
 			except ValueError as e:
 				print(f'Error: {e}', file=sys.stderr)
 				return 1
