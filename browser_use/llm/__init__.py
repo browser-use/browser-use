@@ -159,3 +159,6 @@ __all__ = [
 	'ChatVercel',
 	'ChatCerebras',
 ]
+
+# Re-export ChatOpenRouter for backward compatibility with docs that reference it
+from browser_use.llm.openrouter.chat import ChatOpenRouter as ChatOpenRouter
