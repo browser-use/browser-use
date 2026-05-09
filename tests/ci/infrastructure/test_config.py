@@ -118,3 +118,30 @@ class TestLazyConfig:
 				os.environ['BROWSER_USE_CLOUD_SYNC'] = sync_original
 			else:
 				os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
+
+	def test_proxy_env_vars_populate_browser_profile_proxy(self):
+		"""Test proxy env vars are mapped into browser profile proxy config."""
+		proxy_env_vars = {
+			'BROWSER_USE_PROXY_URL': 'http://proxy.example.com:8080',
+			'BROWSER_USE_NO_PROXY': 'localhost, 127.0.0.1, *.internal',
+			'BROWSER_USE_PROXY_USERNAME': 'username',
+			'BROWSER_USE_PROXY_PASSWORD': 'password',
+		}
+		original_values = {key: os.environ.get(key) for key in proxy_env_vars}
+		try:
+			os.environ.update(proxy_env_vars)
+
+			config = CONFIG.load_config()
+
+			assert config['browser_profile']['proxy'] == {
+				'server': 'http://proxy.example.com:8080',
+				'bypass': 'localhost,127.0.0.1,*.internal',
+				'username': 'username',
+				'password': 'password',
+			}
+		finally:
+			for key, original_value in original_values.items():
+				if original_value is None:
+					os.environ.pop(key, None)
+				else:
+					os.environ[key] = original_value
