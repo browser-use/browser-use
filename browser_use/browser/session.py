@@ -532,7 +532,7 @@ class BrowserSession(BaseModel):
 	_captcha_watchdog: Any | None = PrivateAttr(default=None)
 	_watchdogs_attached: bool = PrivateAttr(default=False)
 
-	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
+	_cloud_browser_client: CloudBrowserClient | None = PrivateAttr(default=None)
 	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
 
 	# WebSocket reconnection state
@@ -544,6 +544,12 @@ class BrowserSession(BaseModel):
 	_reconnect_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
 	_intentional_stop: bool = PrivateAttr(default=False)
+
+	def _get_cloud_browser_client(self) -> CloudBrowserClient:
+		"""Lazily create the cloud browser client only when cloud mode is used."""
+		if self._cloud_browser_client is None:
+			self._cloud_browser_client = CloudBrowserClient()
+		return self._cloud_browser_client
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -749,7 +755,7 @@ class BrowserSession(BaseModel):
 					try:
 						# Use cloud_browser_params if provided, otherwise create empty request
 						cloud_params = self.browser_profile.cloud_browser_params or CreateBrowserRequest()
-						cloud_browser_response = await self._cloud_browser_client.create_browser(cloud_params)
+						cloud_browser_response = await self._get_cloud_browser_client().create_browser(cloud_params)
 						self.browser_profile.cdp_url = cloud_browser_response.cdpUrl
 						self.browser_profile.is_local = False
 						self.logger.info('🌤️ Successfully connected to cloud browser service')
@@ -1218,17 +1224,21 @@ class BrowserSession(BaseModel):
 			# Clean up cloud browser session for both:
 			# 1) native use_cloud sessions (current_session_id set by create_browser)
 			# 2) reconnected cdp_url sessions (derive UUID from host)
-			cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
+			cloud_browser_client = self._cloud_browser_client
+			cloud_session_id = (
+				cloud_browser_client.current_session_id if cloud_browser_client else None
+			) or self._cloud_session_id_from_cdp_url()
 			if cloud_session_id:
+				cloud_browser_client = self._get_cloud_browser_client()
 				try:
-					await self._cloud_browser_client.stop_browser(cloud_session_id)
+					await cloud_browser_client.stop_browser(cloud_session_id)
 					self.logger.info(f'🌤️ Cloud browser session cleaned up: {cloud_session_id}')
 				except Exception as e:
 					self.logger.debug(f'Failed to cleanup cloud browser session {cloud_session_id}: {e}')
 				finally:
 					# Always close the httpx client to free connection pool memory
 					try:
-						await self._cloud_browser_client.close()
+						await cloud_browser_client.close()
 					except Exception:
 						pass
 
