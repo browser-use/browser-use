@@ -20,6 +20,7 @@ from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.opencode.chat import ChatOpenCode, OPENCODE_BASE_URL
 
 # Optional OCI import
 try:
@@ -85,6 +86,22 @@ bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
 bu_2_0: 'BaseChatModel'
 
+
+
+opencode_kimi_k2_6: 'BaseChatModel'
+opencode_kimi_k2_5: 'BaseChatModel'
+opencode_deepseek_v4_pro: 'BaseChatModel'
+opencode_deepseek_v4_flash: 'BaseChatModel'
+opencode_glm_5_1: 'BaseChatModel'
+opencode_glm_5: 'BaseChatModel'
+opencode_qwen3_6_plus: 'BaseChatModel'
+opencode_qwen3_5_plus: 'BaseChatModel'
+opencode_minimax_m2_7: 'BaseChatModel'
+opencode_minimax_m2_5: 'BaseChatModel'
+opencode_mimo_v2_pro: 'BaseChatModel'
+opencode_mimo_v2_omni: 'BaseChatModel'
+opencode_mimo_v2_5_pro: 'BaseChatModel'
+opencode_mimo_v2_5: 'BaseChatModel'
 
 def get_llm_by_name(model_name: str):
 	"""
@@ -210,8 +227,33 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('BROWSER_USE_API_KEY')
 		return ChatBrowserUse(model=model, api_key=api_key)
 
+
+	# OpenCode Models
+	elif provider == 'opencode':
+		api_key = os.getenv('OPENCODE_API_KEY')
+		base_url = os.getenv('OPENCODE_BASE_URL', OPENCODE_BASE_URL)
+		# Map from attribute-style underscored names to real model names (with dots/dashes)
+		_opencode_attr_map = {
+			'kimi_k2_6': 'kimi-k2.6',
+			'kimi_k2_5': 'kimi-k2.5',
+			'deepseek_v4_pro': 'deepseek-v4-pro',
+			'deepseek_v4_flash': 'deepseek-v4-flash',
+			'glm_5_1': 'glm-5.1',
+			'glm_5': 'glm-5',
+			'qwen3_6_plus': 'qwen3.6-plus',
+			'qwen3_5_plus': 'qwen3.5-plus',
+			'minimax_m2_7': 'minimax-m2.7',
+			'minimax_m2_5': 'minimax-m2.5',
+			'mimo_v2_pro': 'mimo-v2-pro',
+			'mimo_v2_omni': 'mimo-v2-omni',
+			'mimo_v2_5_pro': 'mimo-v2.5-pro',
+			'mimo_v2_5': 'mimo-v2.5',
+		}
+		resolved = _opencode_attr_map.get(model_part, model_part)
+		return ChatOpenCode(model=resolved, api_key=api_key, base_url=base_url)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu', 'opencode']
 
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
@@ -238,6 +280,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatCerebras  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
+	elif name == 'ChatOpenCode':
+		return ChatOpenCode  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -254,6 +298,7 @@ __all__ = [
 	'ChatMistral',
 	'ChatCerebras',
 	'ChatBrowserUse',
+	'ChatOpenCode',
 ]
 
 if OCI_AVAILABLE:
@@ -309,6 +354,22 @@ __all__ += [
 	'cerebras_qwen_3_235b_a22b_instruct_2507',
 	'cerebras_qwen_3_235b_a22b_thinking_2507',
 	'cerebras_qwen_3_coder_480b',
+
+	# OpenCode Go instances - created on demand
+	'opencode_kimi_k2_6',
+	'opencode_kimi_k2_5',
+	'opencode_deepseek_v4_pro',
+	'opencode_deepseek_v4_flash',
+	'opencode_glm_5_1',
+	'opencode_glm_5',
+	'opencode_qwen3_6_plus',
+	'opencode_qwen3_5_plus',
+	'opencode_minimax_m2_7',
+	'opencode_minimax_m2_5',
+	'opencode_mimo_v2_pro',
+	'opencode_mimo_v2_omni',
+	'opencode_mimo_v2_5_pro',
+	'opencode_mimo_v2_5',
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
+	from browser_use.llm.opencode.chat import ChatOpenCode
 	from browser_use.llm.vercel.chat import ChatVercel
 
 	# Type stubs for model instances - enables IDE autocomplete
@@ -75,6 +76,21 @@ if TYPE_CHECKING:
 	google_gemini_2_5_flash: ChatGoogle
 	google_gemini_2_5_flash_lite: ChatGoogle
 
+	opencode_kimi_k2_6: ChatOpenCode
+	opencode_kimi_k2_5: ChatOpenCode
+	opencode_deepseek_v4_pro: ChatOpenCode
+	opencode_deepseek_v4_flash: ChatOpenCode
+	opencode_glm_5_1: ChatOpenCode
+	opencode_glm_5: ChatOpenCode
+	opencode_qwen3_6_plus: ChatOpenCode
+	opencode_qwen3_5_plus: ChatOpenCode
+	opencode_minimax_m2_7: ChatOpenCode
+	opencode_minimax_m2_5: ChatOpenCode
+	opencode_mimo_v2_pro: ChatOpenCode
+	opencode_mimo_v2_omni: ChatOpenCode
+	opencode_mimo_v2_5_pro: ChatOpenCode
+	opencode_mimo_v2_5: ChatOpenCode
+
 # Models are imported on-demand via __getattr__
 
 # Lazy imports mapping for heavy chat models
@@ -93,6 +109,7 @@ _LAZY_IMPORTS = {
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
+	'ChatOpenCode': ('browser_use.llm.opencode.chat', 'ChatOpenCode'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 }
 
@@ -156,6 +173,7 @@ __all__ = [
 	'ChatOCIRaw',
 	'ChatOllama',
 	'ChatOpenRouter',
+	'ChatOpenCode',
 	'ChatVercel',
 	'ChatCerebras',
 ]
