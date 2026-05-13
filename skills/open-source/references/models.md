@@ -131,12 +131,13 @@ llm = ChatAzureOpenAI(
 ## AWS Bedrock
 
 ```python
-from browser_use import Agent, ChatAWSBedrock
+from browser_use import Agent
+from browser_use.llm import ChatAWSBedrock
 
 llm = ChatAWSBedrock(model="us.anthropic.claude-sonnet-4-20250514-v1:0", region="us-east-1")
 
 # Or via Anthropic wrapper
-from browser_use import ChatAnthropicBedrock
+from browser_use.llm import ChatAnthropicBedrock
 llm = ChatAnthropicBedrock(model="us.anthropic.claude-sonnet-4-20250514-v1:0", aws_region="us-east-1")
 ```
 
@@ -147,7 +148,8 @@ Supports profiles, IAM roles, SSO via standard AWS credential chain. Install wit
 ## DeepSeek
 
 ```python
-from browser_use import Agent, ChatDeepSeek
+from browser_use import Agent
+from browser_use.llm import ChatDeepSeek
 
 llm = ChatDeepSeek(model="deepseek-chat")
 ```
@@ -177,7 +179,8 @@ llm = ChatGroq(model="meta-llama/llama-4-maverick-17b-128e-instruct")
 ## Cerebras
 
 ```python
-from browser_use import Agent, ChatCerebras
+from browser_use import Agent
+from browser_use.llm import ChatCerebras
 
 llm = ChatCerebras(model="llama3.3-70b")
 ```
@@ -199,7 +202,8 @@ llm = ChatOllama(model="llama3", num_ctx=32000)
 Access 300+ models from any provider through a single API.
 
 ```python
-from browser_use import Agent, ChatOpenRouter
+from browser_use import Agent
+from browser_use.llm import ChatOpenRouter
 
 llm = ChatOpenRouter(model="anthropic/claude-sonnet-4-6")
 ```
