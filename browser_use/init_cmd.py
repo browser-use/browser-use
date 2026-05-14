@@ -5,6 +5,7 @@ This module provides a minimal command-line interface for generating
 browser-use templates without requiring heavy TUI dependencies.
 """
 
+import hashlib
 import json
 import shutil
 import sys
@@ -25,7 +26,28 @@ from rich.text import Text
 console = Console()
 
 # GitHub template repository URL (for runtime fetching)
-TEMPLATE_REPO_URL = 'https://raw.githubusercontent.com/browser-use/template-library/main'
+TEMPLATE_LIBRARY_COMMIT = '36bea3277f4c75b93a7c93b60c3cc4397e5aff77'
+TEMPLATE_REPO_URL = f'https://raw.githubusercontent.com/browser-use/template-library/{TEMPLATE_LIBRARY_COMMIT}'
+
+TEMPLATE_MANIFEST_SHA256 = '1de617b7aa7c9f49b9d33c986b1eb4ee7db960423532b2c3fbbb8cbfc8393e5e'
+TEMPLATE_FILE_SHA256 = {
+	'default_template.py': '2786b926196dcb8cf4e9a37a6fa830a623bcc8c35329bcdac022d36a05897574',
+	'advanced_template.py': '4ad638db292622cc3701bd16cfe9476c6dc68c4e4da28be5d40849859c627d38',
+	'tools_template.py': '5b3850bbd1e10f62d56199ba03070526b658e1eafa67a73e25e52f041ce8a778',
+	'agentmail/email_tools.py': '08b379f4ffe312b556f6d736bd0f4101139dfbcd772154f080c0f117fd9b2120',
+	'agentmail/main.py': 'c5ff42dd869dfac8bdec73137362c9e84148a6f669255ac9b28c1cd1417b5fb2',
+	'all-openai-jobs/main.py': 'd41d84d2e888e0dd96bae467dc32d2f6fd13065ba26358f73e3d4d2d56c17e60',
+	'job-application/main.py': 'b0460ac996e4a376b94b093bc908750d7a2a4b6e71c394d5bead927169d6dfdc',
+	'llm-arena/main.py': '11f6e751ee0409a56702eae46ac47d489343a8861406f9d4ff4ee1d028c86739',
+	'sandbox/main.py': '562c96d64f23a81c8cc33e0299d174c2bd65b023fd11d348a71c8a33a543980b',
+	'scheduler/agents/gmail.py': '10a49bd97eed085bed56c280047c55a7b0502676ffc2a371aa3eefedd375110e',
+	'scheduler/agents/x.py': 'c9fdcb87a50c6a46c77beea77b898b541025bc0f91bad7c0a896aab35ba088eb',
+	'scheduler/main.py': '45a46a63f98acbc9e8fca7bf94a65b735ffcb4d67f435bc1777115eb9f996e10',
+	'shopping/launch_chrome_debug.py': 'a985b6c0c255575455a78999428c60904648151c7093f6287eb03c57fbdf74f9',
+	'shopping/main.py': '1e256552217f770d81d5f0f976111a82d8563bb4fede5f5618e05aa820fec7e0',
+	'slack/app/main.py': 'fcbabbff8899a520aed014fad155bf8b5a91266c39d60ca855c993a64e0b6d10',
+	'slack/app/service.py': 'a6974f20b90390442eec38571d1e22f91c5bb7ecb63ef34d194785b83cd70e60',
+}
 
 # Export for backward compatibility with cli.py
 # Templates are fetched at runtime via _get_template_list()
@@ -41,9 +63,12 @@ def _fetch_template_list() -> dict[str, Any] | None:
 	try:
 		url = f'{TEMPLATE_REPO_URL}/templates.json'
 		with request.urlopen(url, timeout=5) as response:
-			data = response.read().decode('utf-8')
-			return json.loads(data)
-	except (URLError, TimeoutError, json.JSONDecodeError, Exception):
+			data = response.read()
+		if hashlib.sha256(data).hexdigest() != TEMPLATE_MANIFEST_SHA256:
+			raise RuntimeError('Template manifest integrity check failed')
+		data = data.decode('utf-8')
+		return json.loads(data)
+	except (URLError, TimeoutError, json.JSONDecodeError):
 		return None
 
 
@@ -96,6 +121,13 @@ def _get_template_content(file_path: str) -> str:
 	content = _fetch_from_github(file_path)
 
 	if content is not None:
+		expected_hash = TEMPLATE_FILE_SHA256.get(file_path)
+		if file_path.endswith('.py'):
+			if expected_hash is None:
+				raise RuntimeError(f'No integrity metadata for template file: {file_path}')
+			actual_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+			if actual_hash != expected_hash:
+				raise RuntimeError(f'Template integrity check failed for {file_path}')
 		return content
 
 	raise FileNotFoundError(f'Could not fetch template from GitHub: {file_path}')
@@ -246,7 +278,7 @@ def main(
 	# Fetch template list at runtime
 	try:
 		INIT_TEMPLATES = _get_template_list()
-	except FileNotFoundError as e:
+	except Exception as e:
 		console.print(f'[red]✗[/red] {e}')
 		sys.exit(1)
 
