@@ -161,6 +161,27 @@ detect_platform() {
 	log_info "Detected platform: $PLATFORM ($arch)"
 }
 
+is_arch_like_linux() {
+	if [ "$PLATFORM" != "linux" ]; then
+		return 1
+	fi
+
+	if command -v pacman &> /dev/null; then
+		return 0
+	fi
+
+	if [ -f /etc/os-release ]; then
+		. /etc/os-release
+		case "${ID:-} ${ID_LIKE:-}" in
+			*arch*)
+				return 0
+				;;
+		esac
+	fi
+
+	return 1
+}
+
 # =============================================================================
 # Virtual environment helpers
 # =============================================================================
@@ -259,8 +280,16 @@ install_python() {
 			if command -v apt-get &> /dev/null; then
 				$SUDO apt-get update
 				$SUDO apt-get install -y python3.11 python3.11-venv python3-pip
+			elif command -v pacman &> /dev/null; then
+				$SUDO pacman -S --needed --noconfirm python python-pip
+			elif command -v dnf &> /dev/null; then
+				$SUDO dnf install -y python3 python3-pip
 			elif command -v yum &> /dev/null; then
 				$SUDO yum install -y python311 python311-pip
+			elif command -v zypper &> /dev/null; then
+				$SUDO zypper install -y python311 python311-pip
+			elif command -v apk &> /dev/null; then
+				$SUDO apk add python3 py3-pip
 			else
 				log_error "Unsupported package manager. Install Python 3.11+ manually."
 				exit 1
@@ -341,14 +370,35 @@ install_browser_use() {
 	log_success "browser-use installed"
 }
 
+install_linux_browser_deps() {
+	if [ "$PLATFORM" != "linux" ]; then
+		return 0
+	fi
+
+	SUDO=""
+	if [ "$(id -u)" -ne 0 ] && command -v sudo &> /dev/null; then
+		SUDO="sudo"
+	fi
+
+	if command -v pacman &> /dev/null; then
+		log_info "Installing Chromium system dependencies with pacman..."
+		$SUDO pacman -S --needed --noconfirm \
+			git curl ca-certificates \
+			nss nspr atk at-spi2-core cups libdrm dbus expat \
+			libxcb libxkbcommon libxcomposite libxdamage libxext libxfixes \
+			libxrandr mesa pango cairo alsa-lib gtk3
+	fi
+}
+
 install_chromium() {
 	log_info "Installing Chromium browser..."
 
 	activate_venv
 
-	# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
+	# Build command - use --with-deps on Linux distros supported by Playwright's
+	# dependency installer. Arch-like systems use pacman packages above instead.
 	local cmd="uvx playwright install chromium"
-	if [ "$PLATFORM" = "linux" ]; then
+	if [ "$PLATFORM" = "linux" ] && ! is_arch_like_linux; then
 		cmd="$cmd --with-deps"
 	fi
 	cmd="$cmd --no-shell"
@@ -522,26 +572,29 @@ main() {
 	# Step 4: Install browser-use package
 	install_browser_use
 
-	# Step 5: Install Chromium
+	# Step 5: Install Chromium dependencies
+	install_linux_browser_deps
+
+	# Step 6: Install Chromium
 	install_chromium
 
-	# Step 6: Install profile-use
+	# Step 7: Install profile-use
 	install_profile_use
 
-	# Step 6.5: Create config.json if it doesn't exist
+	# Step 7.5: Create config.json if it doesn't exist
 	config_file="$HOME/.browser-use/config.json"
 	if [ ! -f "$config_file" ]; then
 		echo '{}' > "$config_file"
 		chmod 600 "$config_file"
 	fi
 
-	# Step 7: Configure PATH
+	# Step 8: Configure PATH
 	configure_path
 
-	# Step 8: Validate
+	# Step 9: Validate
 	validate
 
-	# Step 9: Print next steps
+	# Step 10: Print next steps
 	print_next_steps
 }
 
