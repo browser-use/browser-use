@@ -354,7 +354,12 @@ Available tabs:
 		agent_state += f'<step_info>{step_info_description}</step_info>\n'
 		if self.available_file_paths:
 			available_file_paths_text = '\n'.join(self.available_file_paths)
-			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
+			agent_state += (
+				f'<available_file_paths>{available_file_paths_text}\n'
+				'These are local file paths, not URLs. Do not navigate to them, even if they end in .html. '
+				'Use upload_file to upload them to file inputs, or read_file to inspect supported file contents.'
+				'</available_file_paths>\n'
+			)
 		return agent_state
 
 	def _resize_screenshot(self, screenshot_b64: str) -> str:
