@@ -1,6 +1,3 @@
-default_language_version:
-  python: python3.11
-
 repos:
   - repo: https://github.com/asottile/yesqa
     rev: v1.5.0

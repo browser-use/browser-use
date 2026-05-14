@@ -5,6 +5,7 @@ Daemons bind sockets and write state/PID files without launching browsers
 (lazy session creation means the daemon is ready after socket bind).
 """
 
+import argparse
 import json
 import os
 import signal
@@ -30,7 +31,7 @@ def home_dir():
 
 
 def _start_daemon(home_dir: Path, session: str = 'default', timeout: float = 10.0) -> int:
-	"""Start a daemon subprocess. Returns the PID once the state file shows 'ready'."""
+	"""Start a daemon subprocess. Returns the daemon PID from state once ready."""
 	home_dir.mkdir(parents=True, exist_ok=True)
 	env = os.environ.copy()
 	env['BROWSER_USE_HOME'] = str(home_dir)
@@ -53,7 +54,7 @@ def _start_daemon(home_dir: Path, session: str = 'default', timeout: float = 10.
 				state = json.loads(state_path.read_text())
 				if state.get('phase') in ('ready', 'running'):
 					log_file.close()
-					return proc.pid
+					return int(state.get('pid', proc.pid))
 			except (json.JSONDecodeError, OSError):
 				pass
 		time.sleep(0.1)
@@ -90,7 +91,7 @@ def _kill_daemon(pid: int) -> None:
 			time.sleep(0.1)
 			if not _is_pid_alive(pid):
 				return
-		os.kill(pid, signal.SIGKILL)
+		os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
 	except (OSError, ProcessLookupError):
 		pass
 
@@ -255,18 +256,117 @@ def test_probe_session_corrupt_state_file(home_dir):
 			os.environ['BROWSER_USE_HOME'] = old_env
 
 
+def test_probe_session_requires_successful_ping(home_dir, monkeypatch):
+	"""Probe should not treat a session as reachable when ping fails."""
+	from browser_use.skill_cli import main
+
+	(home_dir / 'default.state.json').write_text(
+		json.dumps(
+			{
+				'phase': 'ready',
+				'pid': 12345,
+				'updated_at': time.time(),
+				'config': {'headed': False, 'profile': None, 'cdp_url': None, 'use_cloud': False},
+			}
+		)
+	)
+	(home_dir / 'default.pid').write_text('12345')
+
+	class _DummySocket:
+		def close(self) -> None:
+			pass
+
+	old_env = os.environ.get('BROWSER_USE_HOME')
+	os.environ['BROWSER_USE_HOME'] = str(home_dir)
+	try:
+		monkeypatch.setattr(main, '_connect_to_daemon', lambda timeout=60.0, session='default': _DummySocket())
+		monkeypatch.setattr(main, '_is_pid_alive', lambda pid: False)
+
+		calls: list[float] = []
+
+		def _fake_send_command(
+			action: str,
+			params: dict,
+			*,
+			session: str = 'default',
+			agent_id: str = '__shared__',
+			timeout: float = 60.0,
+		) -> dict:
+			calls.append(timeout)
+			return {'success': False, 'error': 'No response from daemon'}
+
+		monkeypatch.setattr(main, 'send_command', _fake_send_command)
+
+		probe = main._probe_session('default')
+		assert not probe.socket_reachable
+		assert calls == [main._DAEMON_PROBE_TIMEOUT]
+	finally:
+		if old_env is None:
+			os.environ.pop('BROWSER_USE_HOME', None)
+		else:
+			os.environ['BROWSER_USE_HOME'] = old_env
+
+
+def test_probe_session_caches_ping_payload(home_dir, monkeypatch):
+	"""Probe should cache ping payload without a redundant standalone connect."""
+	from browser_use.skill_cli import main
+
+	(home_dir / 'default.state.json').write_text(
+		json.dumps(
+			{
+				'phase': 'ready',
+				'pid': 12345,
+				'updated_at': time.time(),
+				'config': {'headed': False, 'profile': None, 'cdp_url': None, 'use_cloud': False},
+			}
+		)
+	)
+	(home_dir / 'default.pid').write_text('12345')
+
+	old_env = os.environ.get('BROWSER_USE_HOME')
+	os.environ['BROWSER_USE_HOME'] = str(home_dir)
+	try:
+		monkeypatch.setattr(main, '_connect_to_daemon', lambda *args, **kwargs: pytest.fail('unexpected direct connect'))
+		monkeypatch.setattr(main, '_is_pid_alive', lambda pid: pid == 12345)
+
+		def _fake_send_command(
+			action: str,
+			params: dict,
+			*,
+			session: str = 'default',
+			agent_id: str = '__shared__',
+			timeout: float = 60.0,
+		) -> dict:
+			return {
+				'success': True,
+				'data': {'pid': 12345, 'headed': True, 'profile': 'work', 'use_cloud': False},
+			}
+
+		monkeypatch.setattr(main, 'send_command', _fake_send_command)
+
+		probe = main._probe_session('default')
+		assert probe.socket_reachable
+		assert probe.socket_pid == 12345
+		assert probe.ping_data == {'pid': 12345, 'headed': True, 'profile': 'work', 'use_cloud': False}
+	finally:
+		if old_env is None:
+			os.environ.pop('BROWSER_USE_HOME', None)
+		else:
+			os.environ['BROWSER_USE_HOME'] = old_env
+
+
 # ---------------------------------------------------------------------------
 # Close behavior
 # ---------------------------------------------------------------------------
 
 
 def test_close_via_socket(home_dir):
-	"""Normal close should send shutdown command and report success."""
+	"""Normal close should either confirm shutdown or warn while it completes."""
 	pid = _start_daemon(home_dir)
 	result = _run_cli('close', home_dir=home_dir)
 
 	assert result.returncode == 0, f'close failed: stdout={result.stdout!r} stderr={result.stderr!r}'
-	assert 'Browser closed' in result.stdout
+	assert 'Browser closed' in result.stdout or 'shutting down' in result.stderr
 
 	# Clean up daemon if it's still shutting down
 	_kill_daemon(pid)
@@ -290,6 +390,27 @@ def test_close_orphaned_daemon(home_dir):
 
 	# Clean up — daemon may still be shutting down asynchronously
 	_kill_daemon(pid)
+
+
+def test_close_session_does_not_report_success_while_pid_alive(monkeypatch):
+	"""Close should return False when shutdown was requested but PID stays alive."""
+	from browser_use.skill_cli import main
+
+	probe = main._SessionProbe(
+		name='default',
+		pid=12345,
+		pid_alive=True,
+		socket_reachable=True,
+		socket_pid=12345,
+	)
+
+	monkeypatch.setattr(main, '_probe_session', lambda session: probe)
+	monkeypatch.setattr(main, 'send_command', lambda *args, **kwargs: {'success': True})
+	monkeypatch.setattr(main, '_is_pid_alive', lambda pid: True)
+	monkeypatch.setattr(main, '_clean_session_files', lambda session: pytest.fail('unexpected cleanup'))
+	monkeypatch.setattr(main.time, 'sleep', lambda _: None)
+
+	assert main._close_session('default') == 'pending'
 
 
 def test_close_no_session(home_dir):
@@ -316,7 +437,8 @@ def test_close_all_multiple_sessions(home_dir):
 	result = _run_cli('close', '--all', home_dir=home_dir)
 	assert result.returncode == 0
 	# s1 closed via socket, s2 may have been killed or already dead (race)
-	assert 'Closed' in result.stdout and 'session(s)' in result.stdout
+	assert 'session(s)' in result.stdout
+	assert 'Closed' in result.stdout or 'shutting down' in result.stdout
 
 	# Clean up any stragglers
 	_kill_daemon(pid1)
@@ -328,6 +450,29 @@ def test_close_all_no_sessions(home_dir):
 	result = _run_cli('close', '--all', home_dir=home_dir)
 	assert result.returncode == 0
 	assert 'No active sessions' in result.stdout
+
+
+def test_close_all_reports_pending_shutdowns(home_dir, monkeypatch, capsys):
+	"""Close --all should not claim there are no sessions when shutdown is pending."""
+	from browser_use.skill_cli import main
+
+	(home_dir / 's1.pid').write_text('123')
+	(home_dir / 's2.pid').write_text('456')
+
+	old_env = os.environ.get('BROWSER_USE_HOME')
+	os.environ['BROWSER_USE_HOME'] = str(home_dir)
+	try:
+		monkeypatch.setattr(main, '_close_session', lambda name: 'pending')
+		rc = main._handle_close_all(argparse.Namespace(json=False))
+		assert rc == 0
+		out = capsys.readouterr().out
+		assert 'shutting down' in out
+		assert 'No active sessions' not in out
+	finally:
+		if old_env is None:
+			os.environ.pop('BROWSER_USE_HOME', None)
+		else:
+			os.environ['BROWSER_USE_HOME'] = old_env
 
 
 # ---------------------------------------------------------------------------
