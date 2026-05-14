@@ -3228,7 +3228,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					)
 					trace_step.attempts.append(attempt)
 					try:
-						result = await self._execute_history_step(history_item, step_delay, ai_step_llm, wait_for_elements)
+						result = await self._execute_history_step(
+							history_item,
+							step_delay,
+							ai_step_llm,
+							wait_for_elements,
+							trace_attempt=attempt,
+						)
 						results.extend(result)
 						step_succeeded = True
 						trace_step.status = 'success'
@@ -3509,6 +3515,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		delay: float,
 		ai_step_llm: BaseChatModel | None = None,
 		wait_for_elements: bool = False,
+		trace_attempt: RerunTraceAttempt | None = None,
 	) -> list[ActionResult]:
 		"""Execute a single step from history with element validation.
 
@@ -3587,11 +3594,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			else:
 				# For non-extract actions, update indices and collect for batch execution
 				historical_elem = history_item.state.interacted_element[i]
-				updated_action = await self._update_action_indices(
+				updated_action, match_detail = await self._update_action_indices(
 					historical_elem,
 					action,
 					state,
 				)
+				if trace_attempt is not None and match_detail is not None:
+					trace_attempt.action_match_details.append(match_detail)
+					if trace_attempt.matched_element is None and match_detail.get('matched_element') is not None:
+						trace_attempt.matched_element = match_detail['matched_element']
+						trace_attempt.match_level = match_detail.get('match_level')
 				if updated_action is None:
 					# Build informative error message with diagnostic info
 					elem_info = self._format_element_for_error(historical_elem)
@@ -3618,6 +3630,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						diagnostic = (
 							f'\n  Found {same_node_count} <{hist_node.upper()}> elements (none with matching identifiers)'
 						)
+					if trace_attempt is not None:
+						trace_attempt.action_match_details.append(
+							{
+								'action_index': i,
+								'action': action_data,
+								'match_level': None,
+								'matched_element': None,
+								'historical_element': historical_elem.to_dict() if historical_elem else None,
+								'selector_count': selector_count,
+								'diagnostic': diagnostic.strip() or None,
+							}
+						)
 
 					raise ValueError(
 						f'Could not find matching element for action {i} in current page.\n'
@@ -3639,7 +3663,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		historical_element: DOMInteractedElement | None,
 		action: ActionModel,  # Type this properly based on your action model
 		browser_state_summary: BrowserStateSummary,
-	) -> ActionModel | None:
+	) -> tuple[ActionModel | None, dict[str, Any] | None]:
 		"""
 		Update action indices based on current page state.
 		Returns updated action or None if element cannot be found.
@@ -3651,8 +3675,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		4. AX_NAME: Accessible name match from accessibility tree (robust for dynamic menus)
 		5. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
 		"""
+		action_dump = action.model_dump(exclude_none=True, mode='json')
 		if not historical_element or not browser_state_summary.dom_state.selector_map:
-			return action
+			return action, {
+				'action': action_dump,
+				'match_level': None,
+				'matched_element': None,
+				'historical_element': historical_element.to_dict() if historical_element else None,
+				'note': 'No historical element or selector map available; action replayed without index remapping.',
+			}
 
 		selector_map = browser_state_summary.dom_state.selector_map
 		highlight_index: int | None = None
@@ -3775,7 +3806,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 
 		if highlight_index is None:
-			return None
+			return None, {
+				'action': action_dump,
+				'match_level': None,
+				'matched_element': None,
+				'historical_element': historical_element.to_dict() if historical_element else None,
+				'selector_count': len(selector_map),
+			}
 
 		old_index = action.get_index()
 		if old_index != highlight_index:
@@ -3783,7 +3820,42 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			level_name = match_level.name if match_level else 'UNKNOWN'
 			self.logger.info(f'Element index updated {old_index} → {highlight_index} (matched at {level_name} level)')
 
-		return action
+		matched_dom_element = selector_map.get(highlight_index)
+		return action, {
+			'action': action_dump,
+			'match_level': match_level.name if match_level else None,
+			'matched_element': self._serialize_matched_dom_element(matched_dom_element, highlight_index),
+			'historical_element': historical_element.to_dict(),
+			'original_index': old_index,
+			'resolved_index': highlight_index,
+		}
+
+	def _serialize_matched_dom_element(self, element: Any, highlight_index: int | None) -> dict[str, Any] | None:
+		"""Build a compact, trace-friendly snapshot of the matched live DOM element."""
+		if element is None:
+			return None
+
+		ax_name = None
+		if getattr(element, 'ax_node', None) and getattr(element.ax_node, 'name', None):
+			ax_name = element.ax_node.name
+
+		bounds = None
+		if getattr(element, 'bounds', None):
+			try:
+				bounds = element.bounds.to_dict()
+			except Exception:
+				bounds = None
+
+		return {
+			'index': highlight_index,
+			'node_name': getattr(element, 'node_name', None),
+			'attributes': getattr(element, 'attributes', None),
+			'x_path': getattr(element, 'xpath', None),
+			'element_hash': getattr(element, 'element_hash', None),
+			'stable_hash': element.compute_stable_hash() if hasattr(element, 'compute_stable_hash') else None,
+			'ax_name': ax_name,
+			'bounds': bounds,
+		}
 
 	def _format_element_for_error(self, elem: DOMInteractedElement | None) -> str:
 		"""Format element info for error messages during history rerun."""

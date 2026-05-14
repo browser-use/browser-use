@@ -8,6 +8,9 @@ from browser_use.agent.views import (
 	ActionResult,
 	AgentHistory,
 	AgentHistoryList,
+	RerunTrace,
+	RerunTraceAttempt,
+	RerunTraceStep,
 	RerunSummaryAction,
 	StepMetadata,
 )
@@ -96,3 +99,52 @@ async def test_rerun_debug_trace_written_for_skipped_step(tmp_path):
 		assert 'Rerun completed with skipped steps' in report_html
 	finally:
 		await agent.close()
+
+
+def test_rerun_trace_html_report_renders_match_metadata():
+	"""HTML report should expose match-level and action match details."""
+
+	trace = RerunTrace(
+		task='Replay login flow',
+		history_file_path='fixtures/login-history.json',
+		final_status='partial',
+		summary='Replay diverged on submit button matching.',
+		steps=[
+			RerunTraceStep(
+				replay_step_index=0,
+				original_step_number=3,
+				status='failed',
+				goal='Click submit',
+				original_actions=[{'click': {'index': 7}}],
+				original_interacted_elements=[{'node_name': 'button', 'attributes': {'aria-label': 'Submit'}}],
+				original_url='https://example.com/form',
+				original_title='Form',
+				replay_url='https://example.com/form',
+				replay_title='Form',
+				retry_count=1,
+				failure_reason='Could not find matching element after retries.',
+				attempts=[
+					RerunTraceAttempt(
+						attempt_number=1,
+						status='failed',
+						match_level='AX_NAME',
+						matched_element={'index': 11, 'node_name': 'button', 'ax_name': 'Submit'},
+						action_match_details=[
+							{
+								'action': {'click': {'index': 7}},
+								'match_level': 'AX_NAME',
+								'resolved_index': 11,
+							}
+						],
+						error='Could not find matching element after navigation changed the page.',
+					)
+				],
+			)
+		],
+	)
+
+	report_html = trace.to_html_report()
+	assert 'Browser Use Rerun Trace Report' in report_html
+	assert 'AX_NAME' in report_html
+	assert 'resolved_index' in report_html
+	assert 'fixtures/login-history.json' in report_html

@@ -371,6 +371,13 @@ class RerunTraceAttempt(BaseModel):
 	matched_element: dict[str, Any] | None = Field(
 		default=None, description='Matched rerun element metadata when available'
 	)
+	match_level: str | None = Field(
+		default=None, description='Element match strategy used for the primary matched element'
+	)
+	action_match_details: list[dict[str, Any]] = Field(
+		default_factory=list,
+		description='Per-action match metadata captured during this attempt',
+	)
 	replay_url: str | None = Field(default=None, description='URL observed during this attempt')
 	replay_title: str | None = Field(default=None, description='Page title observed during this attempt')
 	retry_delay_seconds: float | None = Field(
@@ -474,11 +481,17 @@ class RerunTrace(BaseModel):
 						<strong>Attempt {attempt.attempt_number}</strong>
 						<span class="status-pill {_status_class(attempt.status)}">{_esc(attempt.status)}</span>
 					</div>
+					<div class="kv"><span>Match Level</span><code>{_esc(attempt.match_level or '-')}</code></div>
+					<div class="kv"><span>Matched Element</span><pre>{_esc(attempt.matched_element or '-')}</pre></div>
 					<div class="kv"><span>Replay URL</span><code>{_esc(attempt.replay_url or step.replay_url or '-')}</code></div>
 					<div class="kv"><span>Replay Title</span><code>{_esc(attempt.replay_title or step.replay_title or '-')}</code></div>
 					<div class="kv"><span>Error</span><code>{_esc(attempt.error or '-')}</code></div>
 					<div class="kv"><span>Retry Delay</span><code>{_esc(attempt.retry_delay_seconds if attempt.retry_delay_seconds is not None else '-')}</code></div>
 					<div class="kv"><span>Note</span><code>{_esc(attempt.note or '-')}</code></div>
+					<div class="panel">
+						<h4>Action Match Details</h4>
+						<pre>{_esc(attempt.action_match_details or '-')}</pre>
+					</div>
 				</li>
 				"""
 				for attempt in step.attempts
