@@ -5,6 +5,7 @@ This module provides a minimal command-line interface for generating
 browser-use templates without requiring heavy TUI dependencies.
 """
 
+import hashlib
 import json
 import shutil
 import sys
@@ -21,15 +22,27 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from browser_use.template_library_manifest import TEMPLATE_FILE_HASHES, TEMPLATE_LIBRARY_COMMIT
+
 # Rich console for styled output
 console = Console()
 
-# GitHub template repository URL (for runtime fetching)
-TEMPLATE_REPO_URL = 'https://raw.githubusercontent.com/browser-use/template-library/main'
+# GitHub template repository URL (pinned commit + integrity validation)
+TEMPLATE_REPO_URL = f'https://raw.githubusercontent.com/browser-use/template-library/{TEMPLATE_LIBRARY_COMMIT}'
 
 # Export for backward compatibility with cli.py
 # Templates are fetched at runtime via _get_template_list()
 INIT_TEMPLATES: dict[str, Any] = {}
+
+
+def _is_trusted_template_content(file_path: str, content: bytes) -> bool:
+	"""Check whether fetched template content matches the shipped hash manifest."""
+	expected_hash = TEMPLATE_FILE_HASHES.get(file_path)
+	if expected_hash is None:
+		return False
+
+	actual_hash = hashlib.sha256(content).hexdigest()
+	return actual_hash == expected_hash
 
 
 def _fetch_template_list() -> dict[str, Any] | None:
@@ -39,10 +52,10 @@ def _fetch_template_list() -> dict[str, Any] | None:
 	Returns template dict if successful, None if failed.
 	"""
 	try:
-		url = f'{TEMPLATE_REPO_URL}/templates.json'
-		with request.urlopen(url, timeout=5) as response:
-			data = response.read().decode('utf-8')
-			return json.loads(data)
+		templates_data = _fetch_binary_from_github('templates.json')
+		if templates_data is None:
+			return None
+		return json.loads(templates_data.decode('utf-8'))
 	except (URLError, TimeoutError, json.JSONDecodeError, Exception):
 		return None
 
@@ -66,10 +79,11 @@ def _fetch_from_github(file_path: str) -> str | None:
 	Returns file content if successful, None if failed.
 	"""
 	try:
-		url = f'{TEMPLATE_REPO_URL}/{file_path}'
-		with request.urlopen(url, timeout=5) as response:
-			return response.read().decode('utf-8')
-	except (URLError, TimeoutError, Exception):
+		content = _fetch_binary_from_github(file_path)
+		if content is None:
+			return None
+		return content.decode('utf-8')
+	except (URLError, TimeoutError, UnicodeDecodeError, Exception):
 		return None
 
 
@@ -82,7 +96,10 @@ def _fetch_binary_from_github(file_path: str) -> bytes | None:
 	try:
 		url = f'{TEMPLATE_REPO_URL}/{file_path}'
 		with request.urlopen(url, timeout=5) as response:
-			return response.read()
+			content = response.read()
+		if not _is_trusted_template_content(file_path, content):
+			return None
+		return content
 	except (URLError, TimeoutError, Exception):
 		return None
 
