@@ -1354,8 +1354,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				if last_history_item.metadata:
 					previous_end_time = last_history_item.metadata.step_end_time
-					previous_start_time = last_history_item.metadata.step_start_time
-					step_interval = max(0, previous_end_time - previous_start_time)
+					step_interval = max(0, self.step_start_time - previous_end_time)
 			metadata = StepMetadata(
 				step_number=self.state.n_steps,
 				step_start_time=self.step_start_time,
