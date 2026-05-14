@@ -14,6 +14,7 @@ Usage:
 import os
 from typing import TYPE_CHECKING
 
+from browser_use.llm.avian.chat import ChatAvian
 from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
@@ -70,6 +71,11 @@ mistral_medium: 'BaseChatModel'
 mistral_small: 'BaseChatModel'
 codestral: 'BaseChatModel'
 pixtral_large: 'BaseChatModel'
+
+avian_deepseek_v3_2: 'BaseChatModel'
+avian_kimi_k2_5: 'BaseChatModel'
+avian_glm_5: 'BaseChatModel'
+avian_minimax_m2_5: 'BaseChatModel'
 
 cerebras_llama3_1_8b: 'BaseChatModel'
 cerebras_llama3_3_70b: 'BaseChatModel'
@@ -161,6 +167,19 @@ def get_llm_by_name(model_name: str):
 	else:
 		model = model_part.replace('_', '-')
 
+	# Avian Models
+	if provider == 'avian':
+		api_key = os.getenv('AVIAN_API_KEY')
+		avian_model_map = {
+			'deepseek-v3-2': 'deepseek/deepseek-v3.2',
+			'kimi-k2-5': 'moonshotai/kimi-k2.5',
+			'glm-5': 'z-ai/glm-5',
+			'minimax-m2-5': 'minimax/minimax-m2.5',
+		}
+		normalized = model.replace('_', '-')
+		resolved_model = avian_model_map.get(normalized, model)
+		return ChatAvian(model=resolved_model, api_key=api_key)
+
 	# OpenAI Models
 	if provider == 'openai':
 		api_key = os.getenv('OPENAI_API_KEY')
@@ -211,7 +230,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
+		available_providers = ['avian', 'openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
 
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
@@ -220,7 +239,9 @@ def get_llm_by_name(model_name: str):
 def __getattr__(name: str) -> 'BaseChatModel':
 	"""Create model instances on demand with API keys from environment."""
 	# Handle chat classes first
-	if name == 'ChatOpenAI':
+	if name == 'ChatAvian':
+		return ChatAvian  # type: ignore
+	elif name == 'ChatOpenAI':
 		return ChatOpenAI  # type: ignore
 	elif name == 'ChatAzureOpenAI':
 		return ChatAzureOpenAI  # type: ignore
@@ -248,6 +269,7 @@ def __getattr__(name: str) -> 'BaseChatModel':
 
 # Export all classes and preconfigured instances, conditionally including ChatOCIRaw
 __all__ = [
+	'ChatAvian',
 	'ChatOpenAI',
 	'ChatAzureOpenAI',
 	'ChatGoogle',
@@ -261,6 +283,11 @@ if OCI_AVAILABLE:
 
 __all__ += [
 	'get_llm_by_name',
+	# Avian instances - created on demand
+	'avian_deepseek_v3_2',
+	'avian_kimi_k2_5',
+	'avian_glm_5',
+	'avian_minimax_m2_5',
 	# OpenAI instances - created on demand
 	'openai_gpt_4o',
 	'openai_gpt_4o_mini',
