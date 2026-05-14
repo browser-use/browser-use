@@ -623,42 +623,43 @@ class RerunTrace(BaseModel):
 	<title>Browser Use Rerun Trace Report</title>
 	<style>
 		:root {{
-			--bg: #0f1115;
-			--panel: #171a21;
-			--panel-2: #1f2430;
-			--text: #edf2f7;
-			--muted: #98a2b3;
-			--border: #2d3748;
-			--success: #1f9d55;
-			--warning: #d69e2e;
-			--failed: #e53e3e;
-			--neutral: #718096;
-			--accent: #5ea0ff;
+			--bg: #f6f7f9;
+			--panel: #ffffff;
+			--panel-2: #fafbfc;
+			--text: #1f2328;
+			--muted: #57606a;
+			--border: #d0d7de;
+			--success: #1a7f37;
+			--warning: #9a6700;
+			--failed: #cf222e;
+			--neutral: #57606a;
+			--accent: #0969da;
 		}}
 		* {{ box-sizing: border-box; }}
 		body {{
 			margin: 0;
-			font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-			background: linear-gradient(180deg, #0b0d12 0%, #121722 100%);
+			font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			background: var(--bg);
 			color: var(--text);
-			padding: 32px;
+			padding: 24px;
+			line-height: 1.45;
 		}}
-		main {{ max-width: 1280px; margin: 0 auto; }}
+		main {{ max-width: 1360px; margin: 0 auto; }}
 		h1, h2, h3, p {{ margin-top: 0; }}
 		.hero, .step-card, .panel {{
-			background: rgba(23, 26, 33, 0.94);
+			background: var(--panel);
 			border: 1px solid var(--border);
-			border-radius: 16px;
-			box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+			border-radius: 6px;
+			box-shadow: none;
 		}}
-		.hero {{ padding: 24px; margin-bottom: 24px; }}
+		.hero {{ padding: 20px; margin-bottom: 16px; }}
 		.hero-grid, .grid {{
 			display: grid;
-			grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-			gap: 16px;
+			grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+			gap: 12px;
 		}}
-		.step-card {{ padding: 20px; margin-bottom: 20px; }}
-		.panel {{ padding: 16px; background: rgba(31, 36, 48, 0.7); }}
+		.step-card {{ padding: 16px; margin-bottom: 16px; }}
+		.panel {{ padding: 14px; background: var(--panel-2); }}
 		.step-header, .attempt-header {{
 			display: flex;
 			align-items: start;
@@ -669,41 +670,40 @@ class RerunTrace(BaseModel):
 			display: inline-flex;
 			align-items: center;
 			border-radius: 999px;
-			padding: 6px 10px;
+			padding: 3px 8px;
 			font-size: 12px;
-			font-weight: 700;
-			text-transform: uppercase;
-			letter-spacing: 0.06em;
+			font-weight: 600;
 			border: 1px solid currentColor;
+			background: var(--panel);
 		}}
-		.status-pill.success {{ color: #7ee7a8; }}
-		.status-pill.warning {{ color: #f6d06f; }}
-		.status-pill.failed {{ color: #ff8b8b; }}
-		.status-pill.neutral {{ color: #c4ccd9; }}
+		.status-pill.success {{ color: var(--success); }}
+		.status-pill.warning {{ color: var(--warning); }}
+		.status-pill.failed {{ color: var(--failed); }}
+		.status-pill.neutral {{ color: var(--neutral); }}
 		.kv {{
 			display: grid;
 			grid-template-columns: 120px 1fr;
 			gap: 10px;
-			padding: 8px 0;
-			border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+			padding: 6px 0;
+			border-bottom: 1px solid var(--border);
 		}}
-		.kv span {{ color: var(--muted); font-size: 13px; }}
+		.kv span {{ color: var(--muted); font-size: 13px; font-weight: 500; }}
 		.summary-list {{
 			list-style: none;
 			padding: 0;
 			margin: 0;
 			display: grid;
-			gap: 10px;
+			gap: 8px;
 		}}
 		.summary-list-item {{
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) auto;
 			gap: 12px;
 			align-items: start;
-			padding: 12px;
-			border-radius: 12px;
-			background: rgba(15, 17, 21, 0.72);
-			border: 1px solid rgba(255, 255, 255, 0.06);
+			padding: 10px 12px;
+			border-radius: 4px;
+			background: var(--panel);
+			border: 1px solid var(--border);
 		}}
 		.summary-list-item p {{
 			margin: 4px 0 0;
@@ -711,32 +711,53 @@ class RerunTrace(BaseModel):
 			font-size: 13px;
 		}}
 		code, pre {{
-			font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, monospace;
+			font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 			font-size: 12px;
 			white-space: pre-wrap;
 			word-break: break-word;
 		}}
+		code {{
+			background: #f3f4f6;
+			padding: 1px 4px;
+			border-radius: 4px;
+		}}
 		pre {{
 			margin: 0;
-			padding: 12px;
-			border-radius: 12px;
-			background: rgba(15, 17, 21, 0.85);
-			border: 1px solid rgba(255, 255, 255, 0.06);
+			padding: 10px 12px;
+			border-radius: 4px;
+			background: #f6f8fa;
+			border: 1px solid var(--border);
 			max-height: 340px;
 			overflow: auto;
 		}}
+		h1 {{ font-size: 28px; margin-bottom: 6px; }}
+		h2 {{ font-size: 20px; margin-bottom: 6px; }}
+		h3 {{ font-size: 15px; margin-bottom: 10px; }}
+		h4 {{ font-size: 13px; margin: 0 0 8px; color: var(--muted); }}
 		.attempt-list {{
 			list-style: none;
 			padding: 0;
 			margin: 0;
 			display: grid;
-			gap: 12px;
+			gap: 10px;
 		}}
 		.attempt-card {{
 			padding: 12px;
-			border-radius: 12px;
-			border: 1px solid rgba(255, 255, 255, 0.08);
-			background: rgba(15, 17, 21, 0.72);
+			border-radius: 4px;
+			border: 1px solid var(--border);
+			background: var(--panel);
+		}}
+		.attempt-card.success,
+		.step-card.success {{
+			border-left: 4px solid var(--success);
+		}}
+		.attempt-card.warning,
+		.step-card.warning {{
+			border-left: 4px solid var(--warning);
+		}}
+		.attempt-card.failed,
+		.step-card.failed {{
+			border-left: 4px solid var(--failed);
 		}}
 		.image-block {{
 			display: grid;
@@ -746,14 +767,19 @@ class RerunTrace(BaseModel):
 			width: 100%;
 			max-height: 260px;
 			object-fit: contain;
-			border-radius: 12px;
-			border: 1px solid rgba(255, 255, 255, 0.08);
-			background: rgba(11, 13, 18, 0.9);
+			border-radius: 4px;
+			border: 1px solid var(--border);
+			background: #ffffff;
 		}}
-		.step-card.success {{ border-color: rgba(126, 231, 168, 0.35); }}
-		.step-card.warning {{ border-color: rgba(246, 208, 111, 0.35); }}
-		.step-card.failed {{ border-color: rgba(255, 139, 139, 0.35); }}
 		a {{ color: var(--accent); }}
+		@media (max-width: 720px) {{
+			body {{ padding: 12px; }}
+			.kv {{ grid-template-columns: 1fr; }}
+			.step-header, .attempt-header {{
+				flex-direction: column;
+				align-items: flex-start;
+			}}
+		}}
 	</style>
 </head>
 <body>
@@ -762,7 +788,7 @@ class RerunTrace(BaseModel):
 			<div class="step-header">
 				<div>
 					<h1>Browser Use Rerun Trace Report</h1>
-					<p>Static debug report generated from a saved rerun trace artifact.</p>
+					<p>Static diagnostic report generated from a saved rerun trace artifact.</p>
 				</div>
 				<span class="status-pill {_status_class(self.final_status)}">{_esc(self.final_status)}</span>
 			</div>
