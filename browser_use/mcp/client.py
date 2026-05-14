@@ -47,6 +47,16 @@ MCP_AVAILABLE = True
 class MCPClient:
 	"""Client for connecting to MCP servers and exposing their tools as browser-use actions."""
 
+	@staticmethod
+	def _image_extension_for_mime_type(mime_type: str) -> str:
+		"""Map an image MIME type to a file extension."""
+		return {
+			'image/png': 'png',
+			'image/jpeg': 'jpg',
+			'image/gif': 'gif',
+			'image/webp': 'webp',
+		}.get(mime_type, 'png')
+
 	def __init__(
 		self,
 		server_name: str,
@@ -324,10 +334,11 @@ class MCPClient:
 					result = await self.session.call_tool(tool.name, tool_params)
 
 					# Convert MCP result to ActionResult
-					extracted_content = self._format_mcp_result(result)
+					extracted_content, images = self._extract_mcp_result_payload(result)
 
 					return ActionResult(
 						extracted_content=extracted_content,
+						images=images or None,
 						long_term_memory=f"Used MCP tool '{tool.name}' from {self.server_name}",
 						include_extracted_content_only_once=True,
 					)
@@ -368,10 +379,11 @@ class MCPClient:
 					result = await self.session.call_tool(tool.name, {})
 
 					# Convert MCP result to ActionResult
-					extracted_content = self._format_mcp_result(result)
+					extracted_content, images = self._extract_mcp_result_payload(result)
 
 					return ActionResult(
 						extracted_content=extracted_content,
+						images=images or None,
 						long_term_memory=f"Used MCP tool '{tool.name}' from {self.server_name}",
 						include_extracted_content_only_once=True,
 					)
@@ -408,43 +420,53 @@ class MCPClient:
 
 		logger.debug(f"✅ Registered MCP tool '{tool.name}' as action '{action_name}'")
 
-	def _format_mcp_result(self, result: Any) -> str:
-		"""Format MCP tool result into a string for ActionResult.
+	def _extract_mcp_result_payload(self, result: Any) -> tuple[str | None, list[dict[str, str]]]:
+		"""Extract text and image payloads from an MCP tool result.
 
 		Args:
 			result: Raw result from MCP tool call
 
 		Returns:
-			Formatted string representation of the result
+			Tuple of (text_content, image_payloads)
 		"""
+		image_payloads: list[dict[str, str]] = []
+
 		# Handle different MCP result formats
 		if hasattr(result, 'content'):
 			# Structured content response
 			if isinstance(result.content, list):
 				# Multiple content items
 				parts = []
-				for item in result.content:
+				for idx, item in enumerate(result.content, start=1):
 					if hasattr(item, 'text'):
 						parts.append(item.text)
+					elif hasattr(item, 'type') and item.type == 'image' and hasattr(item, 'data'):
+						mime_type = getattr(item, 'mimeType', 'image/png') or 'image/png'
+						extension = self._image_extension_for_mime_type(mime_type)
+						image_payloads.append({'name': f'mcp-image-{idx}.{extension}', 'data': item.data})
 					elif hasattr(item, 'type') and item.type == 'text':
 						parts.append(str(item))
 					else:
 						parts.append(str(item))
-				return '\n'.join(parts)
+				return ('\n'.join(parts) or None), image_payloads
 			else:
-				return str(result.content)
+				return str(result.content), image_payloads
 		elif isinstance(result, list):
 			# List of content items
 			parts = []
-			for item in result:
+			for idx, item in enumerate(result, start=1):
 				if hasattr(item, 'text'):
 					parts.append(item.text)
+				elif hasattr(item, 'type') and item.type == 'image' and hasattr(item, 'data'):
+					mime_type = getattr(item, 'mimeType', 'image/png') or 'image/png'
+					extension = self._image_extension_for_mime_type(mime_type)
+					image_payloads.append({'name': f'mcp-image-{idx}.{extension}', 'data': item.data})
 				else:
 					parts.append(str(item))
-			return '\n'.join(parts)
+			return ('\n'.join(parts) or None), image_payloads
 		else:
 			# Direct result or unknown format
-			return str(result)
+			return str(result), image_payloads
 
 	def _json_schema_to_python_type(self, schema: dict, model_name: str = 'NestedModel') -> Any:
 		"""Convert JSON Schema type to Python type.
