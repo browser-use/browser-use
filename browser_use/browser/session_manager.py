@@ -151,11 +151,15 @@ class SessionManager:
 		"""Get all page/tab targets using owned data.
 
 		Returns:
-			List of Target objects for all page/tab targets
+			List of Target objects for all page/tab targets, excluding extension pages.
 		"""
 		page_targets = []
 		for target in self._targets.values():
 			if target.target_type in ('page', 'tab'):
+				# Filter out extension side panels (chrome-extension://) which are
+				# reported as 'page' targets but are not navigable browser pages
+				if target.url and target.url.startswith('chrome-extension://'):
+					continue
 				page_targets.append(target)
 		return page_targets
 
