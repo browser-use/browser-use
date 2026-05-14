@@ -359,6 +359,100 @@ class RerunSummaryAction(BaseModel):
 	)
 
 
+class RerunTraceAttempt(BaseModel):
+	"""Single replay attempt for a rerun step."""
+
+	attempt_number: int = Field(description='1-based replay attempt number for this step')
+	status: Literal['started', 'succeeded', 'failed', 'retried'] = Field(
+		description='Outcome of this attempt or transition into a retry'
+	)
+	error: str | None = Field(default=None, description='Error text captured for a failed attempt')
+	matched_element: dict[str, Any] | None = Field(
+		default=None, description='Matched rerun element metadata when available'
+	)
+	replay_url: str | None = Field(default=None, description='URL observed during this attempt')
+	replay_title: str | None = Field(default=None, description='Page title observed during this attempt')
+	retry_delay_seconds: float | None = Field(
+		default=None, description='Delay scheduled before the next retry, when applicable'
+	)
+	note: str | None = Field(default=None, description='Optional human-readable note about the attempt')
+
+
+class RerunTraceStep(BaseModel):
+	"""Normalized debug record for a single replayed history step."""
+
+	replay_step_index: int = Field(description='0-based index of the history item inside the rerun session')
+	original_step_number: int = Field(description='Original step number from the saved agent history')
+	status: Literal['pending', 'running', 'success', 'skipped', 'failed'] = Field(
+		default='pending',
+		description='Current or final status of this replayed step',
+	)
+	goal: str | None = Field(default=None, description='Original next_goal text for the step, if present')
+	original_actions: list[dict[str, Any]] = Field(
+		default_factory=list,
+		description='Serialized original actions for this step',
+	)
+	original_interacted_elements: list[dict[str, Any] | None] = Field(
+		default_factory=list,
+		description='Serialized original interacted elements aligned with original_actions',
+	)
+	original_url: str | None = Field(default=None, description='Original URL captured in history')
+	original_title: str | None = Field(default=None, description='Original page title captured in history')
+	original_screenshot_path: str | None = Field(
+		default=None, description='Original screenshot path captured in the saved history'
+	)
+	replay_url: str | None = Field(default=None, description='Latest URL observed during replay of this step')
+	replay_title: str | None = Field(default=None, description='Latest page title observed during replay of this step')
+	replay_screenshot_path: str | None = Field(
+		default=None, description='Replay screenshot path captured for this step, when available'
+	)
+	retry_count: int = Field(default=0, description='How many retry attempts were needed for this step')
+	skip_reason: str | None = Field(default=None, description='Structured explanation when the step is skipped')
+	failure_reason: str | None = Field(default=None, description='Structured explanation when the step fails')
+	attempts: list[RerunTraceAttempt] = Field(
+		default_factory=list,
+		description='Attempt-by-attempt replay details for this step',
+	)
+
+
+class RerunTrace(BaseModel):
+	"""Top-level debug artifact for a rerun session."""
+
+	version: Literal['1'] = Field(default='1', description='Schema version for rerun trace artifacts')
+	task: str | None = Field(default=None, description='Task text associated with the rerun session')
+	history_file_path: str | None = Field(
+		default=None, description='Optional source history file path used to start the rerun'
+	)
+	started_at: float | None = Field(default=None, description='Unix timestamp when rerun tracing began')
+	completed_at: float | None = Field(default=None, description='Unix timestamp when rerun tracing completed')
+	final_status: Literal['running', 'success', 'partial', 'failed'] = Field(
+		default='running',
+		description='Overall rerun outcome across all replayed steps',
+	)
+	summary: str | None = Field(
+		default=None,
+		description='Optional high-level explanation or post-run summary for the rerun session',
+	)
+	steps: list[RerunTraceStep] = Field(
+		default_factory=list,
+		description='Replay step records in execution order',
+	)
+
+	def save_to_file(self, filepath: str | Path) -> None:
+		"""Persist a rerun trace artifact to disk as JSON."""
+		path = Path(filepath)
+		path.parent.mkdir(parents=True, exist_ok=True)
+		with open(path, 'w', encoding='utf-8') as f:
+			json.dump(self.model_dump(mode='json'), f, indent=2, ensure_ascii=False)
+
+	@classmethod
+	def load_from_file(cls, filepath: str | Path) -> 'RerunTrace':
+		"""Load a rerun trace artifact from disk."""
+		with open(filepath, encoding='utf-8') as f:
+			data = json.load(f)
+		return cls.model_validate(data)
+
+
 class StepMetadata(BaseModel):
 	"""Metadata for a single step including timing and token information"""
 
