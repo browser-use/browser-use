@@ -425,6 +425,14 @@ class RerunTraceStep(BaseModel):
 		default=None,
 		description='Human-readable explanation of the screenshot comparison result',
 	)
+	divergence_category: str | None = Field(
+		default=None,
+		description='High-level diagnosis for why this replay step diverged or required fallback behavior',
+	)
+	divergence_note: str | None = Field(
+		default=None,
+		description='Human-readable explanation of the divergence category',
+	)
 	retry_count: int = Field(default=0, description='How many retry attempts were needed for this step')
 	skip_reason: str | None = Field(default=None, description='Structured explanation when the step is skipped')
 	failure_reason: str | None = Field(default=None, description='Structured explanation when the step fails')
@@ -493,6 +501,34 @@ class RerunTrace(BaseModel):
 				f'</div>'
 			)
 
+		divergence_counts: dict[str, int] = {}
+		for step in self.steps:
+			key = step.divergence_category or 'uncategorized'
+			divergence_counts[key] = divergence_counts.get(key, 0) + 1
+
+		divergence_summary_html = ''.join(
+			f'<li class="summary-list-item"><code>{_esc(category)}</code><strong>{count}</strong></li>'
+			for category, count in sorted(divergence_counts.items(), key=lambda item: (-item[1], item[0]))
+		)
+
+		important_steps = [
+			step
+			for step in self.steps
+			if step.status in {'failed', 'skipped'} or (step.divergence_category not in {None, 'none'})
+		]
+		important_steps_html = ''.join(
+			f"""
+			<li class="summary-list-item">
+				<div>
+					<strong>Step {step.original_step_number}</strong>
+					<p>{_esc(step.divergence_category or step.status)}</p>
+				</div>
+				<code>{_esc(step.divergence_note or step.failure_reason or step.skip_reason or step.goal or '-')}</code>
+			</li>
+			"""
+			for step in important_steps[:6]
+		)
+
 		step_cards: list[str] = []
 		for step in self.steps:
 			attempts_html = ''.join(
@@ -547,6 +583,8 @@ class RerunTrace(BaseModel):
 							<div class="kv"><span>Screenshot</span>{_image_html(step.replay_screenshot_path, f'Replay step {step.original_step_number} screenshot')}</div>
 							<div class="kv"><span>Visual Change</span><code>{_esc(step.screenshot_comparison_status or '-')}</code></div>
 							<div class="kv"><span>Comparison Note</span><code>{_esc(step.screenshot_comparison_note or '-')}</code></div>
+							<div class="kv"><span>Divergence</span><code>{_esc(step.divergence_category or '-')}</code></div>
+							<div class="kv"><span>Divergence Note</span><code>{_esc(step.divergence_note or '-')}</code></div>
 							<div class="kv"><span>Retries</span><code>{step.retry_count}</code></div>
 						</div>
 					</div>
@@ -650,6 +688,28 @@ class RerunTrace(BaseModel):
 			border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 		}}
 		.kv span {{ color: var(--muted); font-size: 13px; }}
+		.summary-list {{
+			list-style: none;
+			padding: 0;
+			margin: 0;
+			display: grid;
+			gap: 10px;
+		}}
+		.summary-list-item {{
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 12px;
+			align-items: start;
+			padding: 12px;
+			border-radius: 12px;
+			background: rgba(15, 17, 21, 0.72);
+			border: 1px solid rgba(255, 255, 255, 0.06);
+		}}
+		.summary-list-item p {{
+			margin: 4px 0 0;
+			color: var(--muted);
+			font-size: 13px;
+		}}
 		code, pre {{
 			font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, monospace;
 			font-size: 12px;
@@ -722,6 +782,18 @@ class RerunTrace(BaseModel):
 				<div class="panel">
 					<h3>Summary</h3>
 					<pre>{_esc(self.summary or 'No summary recorded')}</pre>
+				</div>
+				<div class="panel">
+					<h3>Divergence Categories</h3>
+					<ul class="summary-list">
+						{divergence_summary_html or '<li class="summary-list-item"><code>No divergence data</code><strong>0</strong></li>'}
+					</ul>
+				</div>
+				<div class="panel">
+					<h3>Priority Steps</h3>
+					<ul class="summary-list">
+						{important_steps_html or '<li class="summary-list-item"><code>No priority steps</code><strong>OK</strong></li>'}
+					</ul>
 				</div>
 			</div>
 		</section>

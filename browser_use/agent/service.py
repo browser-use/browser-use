@@ -3315,6 +3315,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					trace_step.status = 'success' if step_succeeded else 'failed'
 				if trace_step.status != 'success' and trace_step.failure_reason is None and trace_step.skip_reason is None:
 					trace_step.failure_reason = f'{step_name} did not complete successfully during rerun'
+				self._classify_rerun_trace_step(trace_step)
 
 				# Update tracking for redundant retry detection
 				previous_item = history_item
@@ -3477,6 +3478,63 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if any(status == 'skipped' for status in statuses):
 			return 'partial'
 		return 'failed'
+
+	def _classify_rerun_trace_step(self, trace_step: RerunTraceStep) -> None:
+		"""Assign a high-level divergence category to a replay step."""
+		attempt_match_levels = [
+			detail.get('match_level')
+			for attempt in trace_step.attempts
+			for detail in attempt.action_match_details
+			if isinstance(detail, dict) and detail.get('match_level')
+		]
+		used_fallback_match = any(level in {'STABLE', 'XPATH', 'AX_NAME', 'ATTRIBUTE'} for level in attempt_match_levels)
+		page_changed = bool(
+			trace_step.original_url and trace_step.replay_url and trace_step.original_url != trace_step.replay_url
+		)
+		failure_text = (trace_step.failure_reason or '').lower()
+		skip_text = (trace_step.skip_reason or '').lower()
+
+		if 'redundant retry' in skip_text:
+			trace_step.divergence_category = 'skipped_redundant_retry'
+			trace_step.divergence_note = 'The replay skipped this step because a prior equivalent step already succeeded.'
+			return
+		if 'original step had error' in skip_text:
+			trace_step.divergence_category = 'skipped_original_error'
+			trace_step.divergence_note = 'The replay skipped this step because the original trace had an error and skip_failures was enabled.'
+			return
+		if 'could not find matching element' in failure_text:
+			if page_changed:
+				trace_step.divergence_category = 'page_changed_before_match'
+				trace_step.divergence_note = 'The replay page URL changed before the historical element could be matched.'
+				return
+			trace_step.divergence_category = 'missing_element'
+			trace_step.divergence_note = 'The replay could not find a matching element for the historical action.'
+			return
+		if used_fallback_match:
+			trace_step.divergence_category = 'matched_via_fallback'
+			trace_step.divergence_note = (
+				f'The replay matched at least one element via a fallback strategy: {", ".join(sorted(set(attempt_match_levels)))}.'
+			)
+			return
+		if trace_step.retry_count > 0:
+			trace_step.divergence_category = 'retried_before_success'
+			trace_step.divergence_note = 'The replay required one or more retries before completing this step.'
+			return
+		if trace_step.screenshot_comparison_status == 'changed':
+			trace_step.divergence_category = 'visual_change_detected'
+			trace_step.divergence_note = 'The replay screenshot differs visually from the original screenshot.'
+			return
+		if trace_step.status == 'success':
+			trace_step.divergence_category = 'none'
+			trace_step.divergence_note = 'The replay step completed without an obvious divergence signal.'
+			return
+		if trace_step.status == 'failed':
+			trace_step.divergence_category = 'failed_without_specific_classifier'
+			trace_step.divergence_note = 'The replay step failed, but no more specific divergence classifier matched.'
+			return
+		if trace_step.status == 'skipped':
+			trace_step.divergence_category = 'skipped_without_specific_classifier'
+			trace_step.divergence_note = 'The replay step was skipped, but no more specific divergence classifier matched.'
 
 	async def _execute_initial_actions(self) -> None:
 		# Execute initial actions if provided

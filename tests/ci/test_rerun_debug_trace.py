@@ -125,6 +125,8 @@ def test_rerun_trace_html_report_renders_match_metadata():
 				replay_screenshot_path='screenshots/replay-step-3.png',
 				screenshot_comparison_status='changed',
 				screenshot_comparison_note='Original and replay screenshots differ by file hash.',
+				divergence_category='matched_via_fallback',
+				divergence_note='The replay matched at least one element via a fallback strategy: AX_NAME.',
 				retry_count=1,
 				failure_reason='Could not find matching element after retries.',
 				attempts=[
@@ -156,3 +158,8 @@ def test_rerun_trace_html_report_renders_match_metadata():
 	assert 'screenshots/replay-step-3-attempt-1.png' in report_html
 	assert 'changed' in report_html
 	assert 'Original and replay screenshots differ by file hash.' in report_html
+	assert 'matched_via_fallback' in report_html
+	assert 'fallback strategy: AX_NAME' in report_html
+	assert 'Divergence Categories' in report_html
+	assert 'Priority Steps' in report_html
+	assert 'Step 3' in report_html
