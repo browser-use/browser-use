@@ -3511,9 +3511,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			trace_step.divergence_note = 'The replay could not find a matching element for the historical action.'
 			return
 		if used_fallback_match:
+			fallback_match_levels = sorted({level for level in attempt_match_levels if level is not None})
 			trace_step.divergence_category = 'matched_via_fallback'
 			trace_step.divergence_note = (
-				f'The replay matched at least one element via a fallback strategy: {", ".join(sorted(set(attempt_match_levels)))}.'
+				f'The replay matched at least one element via a fallback strategy: {", ".join(fallback_match_levels)}.'
 			)
 			return
 		if trace_step.retry_count > 0:
