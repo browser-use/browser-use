@@ -783,6 +783,18 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			else:
 				return [h.state.screenshot_path for h in self.history[-n_last:] if h.state.screenshot_path is not None]
 
+	def recording_paths(self, n_last: int | None = None, return_none_if_not_recording: bool = True) -> list[str | None]:
+		"""Get all recording paths from history"""
+		if n_last == 0:
+			return []
+
+		history_items = self.history if n_last is None else self.history[-n_last:]
+
+		if return_none_if_not_recording:
+			return [h.state.recording_path for h in history_items]
+		else:
+			return [h.state.recording_path for h in history_items if h.state.recording_path is not None]
+
 	def screenshots(self, n_last: int | None = None, return_none_if_not_screenshot: bool = True) -> list[str | None]:
 		"""Get all screenshots from history as base64 strings"""
 		if n_last == 0:
