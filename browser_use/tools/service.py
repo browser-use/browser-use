@@ -3,7 +3,7 @@ import json
 import logging
 import math
 import os
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import anyio
 
@@ -1182,11 +1182,18 @@ You will be given a query, a JSON Schema, and the markdown of a webpage that has
 						include_extracted_content_only_once = True
 
 					logger.info(f'📄 {memory}')
+					llm_usage_payload = response.usage.model_dump(mode='json') if response.usage else None
+					structured_meta: dict[str, Any] = {
+						'structured_extraction': True,
+						'extraction_result': extraction_meta.model_dump(mode='json'),
+					}
+					if llm_usage_payload is not None:
+						structured_meta['llm_usage'] = llm_usage_payload
 					return ActionResult(
 						extracted_content=extracted_content,
 						include_extracted_content_only_once=include_extracted_content_only_once,
 						long_term_memory=memory,
-						metadata={'structured_extraction': True, 'extraction_result': extraction_meta.model_dump(mode='json')},
+						metadata=structured_meta,
 					)
 				except Exception as e:
 					logger.debug(f'Error in structured extraction: {e}')
@@ -1246,10 +1253,12 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
+				llm_usage_payload = response.usage.model_dump(mode='json') if response.usage else None
 				return ActionResult(
 					extracted_content=extracted_content,
 					include_extracted_content_only_once=include_extracted_content_only_once,
 					long_term_memory=memory,
+					metadata={'llm_usage': llm_usage_payload} if llm_usage_payload is not None else None,
 				)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
