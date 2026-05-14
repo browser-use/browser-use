@@ -3094,6 +3094,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		ai_step_llm: BaseChatModel | None = None,
 		wait_for_elements: bool = False,
 		debug_trace_path: str | Path | None = None,
+		debug_report_path: str | Path | None = None,
 		source_history_path: str | Path | None = None,
 	) -> list[ActionResult]:
 		"""
@@ -3113,6 +3114,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		                               matching. Useful for SPA pages where shadow DOM content loads dynamically.
 		                               Default is False.
 		                debug_trace_path: Optional path to save a structured rerun debug trace as JSON
+		                debug_report_path: Optional path to save a rendered HTML rerun debug report
 		                source_history_path: Optional path to the source history file used to start the rerun
 
 		Returns:
@@ -3321,6 +3323,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					debug_trace.save_to_file(debug_trace_path)
 				except Exception as e:
 					self.logger.warning(f'Failed to save rerun debug trace to {debug_trace_path}: {e}')
+			if debug_report_path:
+				try:
+					debug_trace.save_html_report(debug_report_path)
+				except Exception as e:
+					self.logger.warning(f'Failed to save rerun debug report to {debug_report_path}: {e}')
 			# Always close resources, even on failure
 			await self.close()
 

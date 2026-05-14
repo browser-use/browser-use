@@ -38,6 +38,7 @@ async def test_rerun_debug_trace_written_for_skipped_step(tmp_path):
 	llm = create_mock_llm(actions=None)
 	agent = Agent(task='Test task', llm=llm)
 	trace_path = tmp_path / 'rerun-trace.json'
+	report_path = tmp_path / 'rerun-trace.html'
 
 	mock_state = BrowserStateHistory(
 		url='https://example.com',
@@ -72,13 +73,16 @@ async def test_rerun_debug_trace_written_for_skipped_step(tmp_path):
 			skip_failures=True,
 			summary_llm=mock_summary_llm,
 			debug_trace_path=trace_path,
+			debug_report_path=report_path,
 			source_history_path='fixtures/test-history.json',
 		)
 
 		assert len(results) == 2
 		assert trace_path.exists()
+		assert report_path.exists()
 
 		trace = json.loads(trace_path.read_text(encoding='utf-8'))
+		report_html = report_path.read_text(encoding='utf-8')
 		assert trace['history_file_path'] == 'fixtures/test-history.json'
 		assert trace['final_status'] == 'partial'
 		assert trace['summary'] == 'Rerun completed with skipped steps'
@@ -87,5 +91,8 @@ async def test_rerun_debug_trace_written_for_skipped_step(tmp_path):
 		assert 'skip_failures=True' in trace['steps'][0]['skip_reason']
 		assert trace['steps'][0]['original_url'] == 'https://example.com'
 		assert trace['steps'][0]['goal'] == 'Open the destination page'
+		assert 'Browser Use Rerun Trace Report' in report_html
+		assert 'fixtures/test-history.json' in report_html
+		assert 'Rerun completed with skipped steps' in report_html
 	finally:
 		await agent.close()

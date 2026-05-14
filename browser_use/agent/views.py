@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import re
@@ -444,6 +445,248 @@ class RerunTrace(BaseModel):
 		path.parent.mkdir(parents=True, exist_ok=True)
 		with open(path, 'w', encoding='utf-8') as f:
 			json.dump(self.model_dump(mode='json'), f, indent=2, ensure_ascii=False)
+
+	def to_html_report(self) -> str:
+		"""Render a static HTML debug report for this rerun trace."""
+
+		def _esc(value: Any) -> str:
+			if value is None:
+				return ''
+			if isinstance(value, (dict, list)):
+				value = json.dumps(value, indent=2, ensure_ascii=False)
+			return html.escape(str(value))
+
+		def _status_class(status: str | None) -> str:
+			if status in ('success', 'succeeded'):
+				return 'success'
+			if status in ('failed',):
+				return 'failed'
+			if status in ('skipped', 'retried', 'partial'):
+				return 'warning'
+			return 'neutral'
+
+		step_cards: list[str] = []
+		for step in self.steps:
+			attempts_html = ''.join(
+				f"""
+				<li class="attempt-card {_status_class(attempt.status)}">
+					<div class="attempt-header">
+						<strong>Attempt {attempt.attempt_number}</strong>
+						<span class="status-pill {_status_class(attempt.status)}">{_esc(attempt.status)}</span>
+					</div>
+					<div class="kv"><span>Replay URL</span><code>{_esc(attempt.replay_url or step.replay_url or '-')}</code></div>
+					<div class="kv"><span>Replay Title</span><code>{_esc(attempt.replay_title or step.replay_title or '-')}</code></div>
+					<div class="kv"><span>Error</span><code>{_esc(attempt.error or '-')}</code></div>
+					<div class="kv"><span>Retry Delay</span><code>{_esc(attempt.retry_delay_seconds if attempt.retry_delay_seconds is not None else '-')}</code></div>
+					<div class="kv"><span>Note</span><code>{_esc(attempt.note or '-')}</code></div>
+				</li>
+				"""
+				for attempt in step.attempts
+			)
+
+			actions_block = _esc(step.original_actions)
+			elements_block = _esc(step.original_interacted_elements)
+
+			step_cards.append(
+				f"""
+				<section class="step-card {_status_class(step.status)}">
+					<div class="step-header">
+						<div>
+							<h2>Step {step.original_step_number}</h2>
+							<p>Replay Index: {step.replay_step_index}</p>
+						</div>
+						<span class="status-pill {_status_class(step.status)}">{_esc(step.status)}</span>
+					</div>
+					<div class="grid">
+						<div class="panel">
+							<h3>Original</h3>
+							<div class="kv"><span>Goal</span><code>{_esc(step.goal or '-')}</code></div>
+							<div class="kv"><span>URL</span><code>{_esc(step.original_url or '-')}</code></div>
+							<div class="kv"><span>Title</span><code>{_esc(step.original_title or '-')}</code></div>
+							<div class="kv"><span>Screenshot</span><code>{_esc(step.original_screenshot_path or '-')}</code></div>
+						</div>
+						<div class="panel">
+							<h3>Replay</h3>
+							<div class="kv"><span>URL</span><code>{_esc(step.replay_url or '-')}</code></div>
+							<div class="kv"><span>Title</span><code>{_esc(step.replay_title or '-')}</code></div>
+							<div class="kv"><span>Screenshot</span><code>{_esc(step.replay_screenshot_path or '-')}</code></div>
+							<div class="kv"><span>Retries</span><code>{step.retry_count}</code></div>
+						</div>
+					</div>
+					<div class="grid">
+						<div class="panel">
+							<h3>Original Actions</h3>
+							<pre>{actions_block}</pre>
+						</div>
+						<div class="panel">
+							<h3>Original Interacted Elements</h3>
+							<pre>{elements_block}</pre>
+						</div>
+					</div>
+					<div class="grid">
+						<div class="panel">
+							<h3>Outcome</h3>
+							<div class="kv"><span>Skip Reason</span><code>{_esc(step.skip_reason or '-')}</code></div>
+							<div class="kv"><span>Failure Reason</span><code>{_esc(step.failure_reason or '-')}</code></div>
+						</div>
+						<div class="panel">
+							<h3>Attempts</h3>
+							<ul class="attempt-list">
+								{attempts_html or '<li class="attempt-card neutral"><code>No attempts recorded</code></li>'}
+							</ul>
+						</div>
+					</div>
+				</section>
+				"""
+			)
+
+		return f"""<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Browser Use Rerun Trace Report</title>
+	<style>
+		:root {{
+			--bg: #0f1115;
+			--panel: #171a21;
+			--panel-2: #1f2430;
+			--text: #edf2f7;
+			--muted: #98a2b3;
+			--border: #2d3748;
+			--success: #1f9d55;
+			--warning: #d69e2e;
+			--failed: #e53e3e;
+			--neutral: #718096;
+			--accent: #5ea0ff;
+		}}
+		* {{ box-sizing: border-box; }}
+		body {{
+			margin: 0;
+			font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			background: linear-gradient(180deg, #0b0d12 0%, #121722 100%);
+			color: var(--text);
+			padding: 32px;
+		}}
+		main {{ max-width: 1280px; margin: 0 auto; }}
+		h1, h2, h3, p {{ margin-top: 0; }}
+		.hero, .step-card, .panel {{
+			background: rgba(23, 26, 33, 0.94);
+			border: 1px solid var(--border);
+			border-radius: 16px;
+			box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+		}}
+		.hero {{ padding: 24px; margin-bottom: 24px; }}
+		.hero-grid, .grid {{
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+			gap: 16px;
+		}}
+		.step-card {{ padding: 20px; margin-bottom: 20px; }}
+		.panel {{ padding: 16px; background: rgba(31, 36, 48, 0.7); }}
+		.step-header, .attempt-header {{
+			display: flex;
+			align-items: start;
+			justify-content: space-between;
+			gap: 12px;
+		}}
+		.status-pill {{
+			display: inline-flex;
+			align-items: center;
+			border-radius: 999px;
+			padding: 6px 10px;
+			font-size: 12px;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			border: 1px solid currentColor;
+		}}
+		.status-pill.success {{ color: #7ee7a8; }}
+		.status-pill.warning {{ color: #f6d06f; }}
+		.status-pill.failed {{ color: #ff8b8b; }}
+		.status-pill.neutral {{ color: #c4ccd9; }}
+		.kv {{
+			display: grid;
+			grid-template-columns: 120px 1fr;
+			gap: 10px;
+			padding: 8px 0;
+			border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+		}}
+		.kv span {{ color: var(--muted); font-size: 13px; }}
+		code, pre {{
+			font-family: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, monospace;
+			font-size: 12px;
+			white-space: pre-wrap;
+			word-break: break-word;
+		}}
+		pre {{
+			margin: 0;
+			padding: 12px;
+			border-radius: 12px;
+			background: rgba(15, 17, 21, 0.85);
+			border: 1px solid rgba(255, 255, 255, 0.06);
+			max-height: 340px;
+			overflow: auto;
+		}}
+		.attempt-list {{
+			list-style: none;
+			padding: 0;
+			margin: 0;
+			display: grid;
+			gap: 12px;
+		}}
+		.attempt-card {{
+			padding: 12px;
+			border-radius: 12px;
+			border: 1px solid rgba(255, 255, 255, 0.08);
+			background: rgba(15, 17, 21, 0.72);
+		}}
+		.step-card.success {{ border-color: rgba(126, 231, 168, 0.35); }}
+		.step-card.warning {{ border-color: rgba(246, 208, 111, 0.35); }}
+		.step-card.failed {{ border-color: rgba(255, 139, 139, 0.35); }}
+		a {{ color: var(--accent); }}
+	</style>
+</head>
+<body>
+	<main>
+		<section class="hero">
+			<div class="step-header">
+				<div>
+					<h1>Browser Use Rerun Trace Report</h1>
+					<p>Static debug report generated from a saved rerun trace artifact.</p>
+				</div>
+				<span class="status-pill {_status_class(self.final_status)}">{_esc(self.final_status)}</span>
+			</div>
+			<div class="hero-grid">
+				<div class="panel">
+					<h3>Session</h3>
+					<div class="kv"><span>Task</span><code>{_esc(self.task or '-')}</code></div>
+					<div class="kv"><span>Trace Version</span><code>{_esc(self.version)}</code></div>
+					<div class="kv"><span>History File</span><code>{_esc(self.history_file_path or '-')}</code></div>
+				</div>
+				<div class="panel">
+					<h3>Timing</h3>
+					<div class="kv"><span>Started</span><code>{_esc(self.started_at or '-')}</code></div>
+					<div class="kv"><span>Completed</span><code>{_esc(self.completed_at or '-')}</code></div>
+					<div class="kv"><span>Steps</span><code>{len(self.steps)}</code></div>
+				</div>
+				<div class="panel">
+					<h3>Summary</h3>
+					<pre>{_esc(self.summary or 'No summary recorded')}</pre>
+				</div>
+			</div>
+		</section>
+		{''.join(step_cards) if step_cards else '<section class="step-card neutral"><p>No step data recorded.</p></section>'}
+	</main>
+</body>
+</html>
+"""
+
+	def save_html_report(self, filepath: str | Path) -> None:
+		"""Persist a rendered HTML rerun trace report to disk."""
+		path = Path(filepath)
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_text(self.to_html_report(), encoding='utf-8')
 
 	@classmethod
 	def load_from_file(cls, filepath: str | Path) -> 'RerunTrace':
