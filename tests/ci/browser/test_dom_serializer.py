@@ -524,6 +524,47 @@ class TestDOMSerializer:
 		print('   ✓ Cross-origin iframe extraction works (CDP target switching enabled)')
 		print('   ✓ Truly nested structure works: Open Shadow → Closed Shadow → Iframe')
 
+	async def test_single_char_text_nodes_included(self, browser_session, http_server):
+		"""Verify single-character text nodes are included in the serialized DOM.
+
+		Regression test for the len() > 1 guard that was incorrectly filtering out
+		meaningful single-character content like digits, currency symbols, and punctuation.
+		"""
+		import asyncio
+
+		from browser_use.tools.service import Tools
+
+		# Serve a page with visible single-character text nodes
+		html = """<!DOCTYPE html>
+<html><body>
+  <p id="price"><span id="currency">$</span>9.99</p>
+  <p id="step">Step <span id="num">1</span> of 3</p>
+  <nav id="breadcrumb">Home <span id="sep">&gt;</span> Products</nav>
+  <button id="label-btn">A</button>
+</body></html>"""
+
+		http_server.expect_ordered_request('/single-char-test').respond_with_data(html, content_type='text/html')
+		base_url = f'http://{http_server.host}:{http_server.port}'
+
+		tools = Tools()
+		await tools.navigate(url=f'{base_url}/single-char-test', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		browser_state = await browser_session.get_browser_state_summary(
+			include_screenshot=False,
+			include_recent_events=False,
+		)
+
+		serialized = browser_state.dom_state.llm_representation()
+		print(f'\nSerialized DOM:\n{serialized}')
+
+		# All of these single-char strings must appear in the output
+		for char in ['$', '1', '>', 'A']:
+			assert char in serialized, f"Single-character '{char}' should be visible in serialized DOM but was missing"
+			print(f"   ✓ '{char}' found in serialized output")
+
+		print('\n✅ Single-character text node test passed!')
+
 
 if __name__ == '__main__':
 	"""Run test in debug mode with manual fixture setup."""
