@@ -76,11 +76,13 @@ class StorageStateWatchdog(BaseWatchdog):
 	async def on_LoadStorageStateEvent(self, event: LoadStorageStateEvent) -> None:
 		"""Handle storage state load request."""
 		# Use provided path or fall back to profile default
-		path = event.path
+		path: str | dict | None = event.path
 		if path is None:
 			# Use profile default path if available
-			if self.browser_session.browser_profile.storage_state:
-				path = str(self.browser_session.browser_profile.storage_state)
+			storage_state = self.browser_session.browser_profile.storage_state
+			if storage_state:
+				# Pass dicts through directly, only str() file paths
+				path = storage_state if isinstance(storage_state, dict) else str(storage_state)
 			else:
 				path = None  # Skip loading if no path available
 		await self._load_storage_state(path)
@@ -230,22 +232,28 @@ class StorageStateWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.error(f'[StorageStateWatchdog] Failed to save storage state: {e}')
 
-	async def _load_storage_state(self, path: str | None = None) -> None:
-		"""Load browser storage state from file."""
+	async def _load_storage_state(self, path: str | dict[str, Any] | None = None) -> None:
+		"""Load browser storage state from file or dict."""
 		if not self.browser_session.cdp_client:
 			self.logger.warning('[StorageStateWatchdog] No CDP client available for loading')
 			return
 
 		load_path = path or self.browser_session.browser_profile.storage_state
-		if not load_path or not os.path.exists(str(load_path)):
+		if not load_path:
 			return
 
 		try:
-			# Read the storage state file asynchronously
-			import anyio
+			# Handle dict-based storage_state directly
+			if isinstance(load_path, dict):
+				storage = load_path
+			else:
+				if not os.path.exists(str(load_path)):
+					return
+				# Read the storage state file asynchronously
+				import anyio
 
-			content = await anyio.Path(str(load_path)).read_text()
-			storage = json.loads(content)
+				content = await anyio.Path(str(load_path)).read_text()
+				storage = json.loads(content)
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
