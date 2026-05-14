@@ -380,6 +380,9 @@ class RerunTraceAttempt(BaseModel):
 	)
 	replay_url: str | None = Field(default=None, description='URL observed during this attempt')
 	replay_title: str | None = Field(default=None, description='Page title observed during this attempt')
+	replay_screenshot_path: str | None = Field(
+		default=None, description='Replay screenshot path captured for this attempt, when available'
+	)
 	retry_delay_seconds: float | None = Field(
 		default=None, description='Delay scheduled before the next retry, when applicable'
 	)
@@ -472,6 +475,16 @@ class RerunTrace(BaseModel):
 				return 'warning'
 			return 'neutral'
 
+		def _image_html(path: str | None, alt: str) -> str:
+			if not path:
+				return '<code>-</code>'
+			return (
+				f'<div class="image-block">'
+				f'<code>{_esc(path)}</code>'
+				f'<img src="{_esc(path)}" alt="{_esc(alt)}" loading="lazy">'
+				f'</div>'
+			)
+
 		step_cards: list[str] = []
 		for step in self.steps:
 			attempts_html = ''.join(
@@ -485,6 +498,7 @@ class RerunTrace(BaseModel):
 					<div class="kv"><span>Matched Element</span><pre>{_esc(attempt.matched_element or '-')}</pre></div>
 					<div class="kv"><span>Replay URL</span><code>{_esc(attempt.replay_url or step.replay_url or '-')}</code></div>
 					<div class="kv"><span>Replay Title</span><code>{_esc(attempt.replay_title or step.replay_title or '-')}</code></div>
+					<div class="kv"><span>Replay Screenshot</span>{_image_html(attempt.replay_screenshot_path, f'Attempt {attempt.attempt_number} screenshot')}</div>
 					<div class="kv"><span>Error</span><code>{_esc(attempt.error or '-')}</code></div>
 					<div class="kv"><span>Retry Delay</span><code>{_esc(attempt.retry_delay_seconds if attempt.retry_delay_seconds is not None else '-')}</code></div>
 					<div class="kv"><span>Note</span><code>{_esc(attempt.note or '-')}</code></div>
@@ -516,13 +530,13 @@ class RerunTrace(BaseModel):
 							<div class="kv"><span>Goal</span><code>{_esc(step.goal or '-')}</code></div>
 							<div class="kv"><span>URL</span><code>{_esc(step.original_url or '-')}</code></div>
 							<div class="kv"><span>Title</span><code>{_esc(step.original_title or '-')}</code></div>
-							<div class="kv"><span>Screenshot</span><code>{_esc(step.original_screenshot_path or '-')}</code></div>
+							<div class="kv"><span>Screenshot</span>{_image_html(step.original_screenshot_path, f'Original step {step.original_step_number} screenshot')}</div>
 						</div>
 						<div class="panel">
 							<h3>Replay</h3>
 							<div class="kv"><span>URL</span><code>{_esc(step.replay_url or '-')}</code></div>
 							<div class="kv"><span>Title</span><code>{_esc(step.replay_title or '-')}</code></div>
-							<div class="kv"><span>Screenshot</span><code>{_esc(step.replay_screenshot_path or '-')}</code></div>
+							<div class="kv"><span>Screenshot</span>{_image_html(step.replay_screenshot_path, f'Replay step {step.original_step_number} screenshot')}</div>
 							<div class="kv"><span>Retries</span><code>{step.retry_count}</code></div>
 						</div>
 					</div>
@@ -653,6 +667,18 @@ class RerunTrace(BaseModel):
 			border-radius: 12px;
 			border: 1px solid rgba(255, 255, 255, 0.08);
 			background: rgba(15, 17, 21, 0.72);
+		}}
+		.image-block {{
+			display: grid;
+			gap: 8px;
+		}}
+		.image-block img {{
+			width: 100%;
+			max-height: 260px;
+			object-fit: contain;
+			border-radius: 12px;
+			border: 1px solid rgba(255, 255, 255, 0.08);
+			background: rgba(11, 13, 18, 0.9);
 		}}
 		.step-card.success {{ border-color: rgba(126, 231, 168, 0.35); }}
 		.step-card.warning {{ border-color: rgba(246, 208, 111, 0.35); }}

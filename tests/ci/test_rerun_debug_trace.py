@@ -119,8 +119,10 @@ def test_rerun_trace_html_report_renders_match_metadata():
 				original_interacted_elements=[{'node_name': 'button', 'attributes': {'aria-label': 'Submit'}}],
 				original_url='https://example.com/form',
 				original_title='Form',
+				original_screenshot_path='screenshots/original-step-3.png',
 				replay_url='https://example.com/form',
 				replay_title='Form',
+				replay_screenshot_path='screenshots/replay-step-3.png',
 				retry_count=1,
 				failure_reason='Could not find matching element after retries.',
 				attempts=[
@@ -129,6 +131,7 @@ def test_rerun_trace_html_report_renders_match_metadata():
 						status='failed',
 						match_level='AX_NAME',
 						matched_element={'index': 11, 'node_name': 'button', 'ax_name': 'Submit'},
+						replay_screenshot_path='screenshots/replay-step-3-attempt-1.png',
 						action_match_details=[
 							{
 								'action': {'click': {'index': 7}},
@@ -148,3 +151,4 @@ def test_rerun_trace_html_report_renders_match_metadata():
 	assert 'AX_NAME' in report_html
 	assert 'resolved_index' in report_html
 	assert 'fixtures/login-history.json' in report_html
+	assert 'screenshots/replay-step-3-attempt-1.png' in report_html

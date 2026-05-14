@@ -3132,6 +3132,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			history_file_path=str(source_history_path) if source_history_path else None,
 			started_at=time.time(),
 		)
+		capture_debug_screenshots = bool(debug_trace_path or debug_report_path)
 
 		# Track previous step for redundant retry detection
 		previous_item: AgentHistory | None = None
@@ -3240,13 +3241,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						trace_step.status = 'success'
 						trace_step.retry_count = retry_count
 						attempt.status = 'succeeded'
-						await self._update_rerun_trace_step_browser_state(trace_step, attempt=attempt)
+						await self._update_rerun_trace_step_browser_state(
+							trace_step,
+							attempt=attempt,
+							capture_screenshot=capture_debug_screenshots,
+						)
 						break
 
 					except Exception as e:
 						error_str = str(e)
 						attempt.error = error_str
-						await self._update_rerun_trace_step_browser_state(trace_step, attempt=attempt)
+						await self._update_rerun_trace_step_browser_state(
+							trace_step,
+							attempt=attempt,
+							capture_screenshot=capture_debug_screenshots,
+						)
 						retry_count += 1
 						trace_step.retry_count = retry_count
 
@@ -3362,10 +3371,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self,
 		trace_step: RerunTraceStep,
 		attempt: RerunTraceAttempt | None = None,
+		capture_screenshot: bool = False,
 	) -> None:
 		"""Best-effort capture of the current browser state for rerun trace diagnostics."""
 		try:
-			state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=capture_screenshot)
 		except Exception:
 			return
 
@@ -3378,6 +3388,35 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if attempt is not None:
 			attempt.replay_url = state.url
 			attempt.replay_title = state.title
+			if capture_screenshot and state.screenshot:
+				screenshot_path = await self._store_rerun_trace_screenshot(
+					state.screenshot,
+					trace_step.original_step_number,
+					attempt.attempt_number,
+				)
+				attempt.replay_screenshot_path = screenshot_path
+				trace_step.replay_screenshot_path = screenshot_path
+
+	def _get_rerun_trace_screenshot_filename(self, original_step_number: int, attempt_number: int) -> str:
+		"""Build a stable screenshot filename for rerun trace artifacts."""
+		return f'rerun_trace_step_{original_step_number}_attempt_{attempt_number}.png'
+
+	async def _store_rerun_trace_screenshot(
+		self,
+		screenshot_b64: str,
+		original_step_number: int,
+		attempt_number: int,
+	) -> str | None:
+		"""Persist a rerun-trace screenshot using the existing screenshot service."""
+		if not screenshot_b64:
+			return None
+
+		filename = self._get_rerun_trace_screenshot_filename(original_step_number, attempt_number)
+		try:
+			return await self.screenshot_service.store_named_screenshot(screenshot_b64, filename)
+		except Exception as e:
+			self.logger.warning(f'Failed to store rerun trace screenshot {filename}: {e}')
+			return None
 
 	def _compute_rerun_trace_final_status(self, trace: RerunTrace) -> Literal['running', 'success', 'partial', 'failed']:
 		"""Summarize overall rerun outcome from recorded step statuses."""
