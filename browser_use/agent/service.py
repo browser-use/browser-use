@@ -1,5 +1,6 @@
 import asyncio
 import gc
+import hashlib
 import inspect
 import json
 import logging
@@ -3396,10 +3397,53 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 				attempt.replay_screenshot_path = screenshot_path
 				trace_step.replay_screenshot_path = screenshot_path
+				self._update_rerun_trace_screenshot_comparison(trace_step)
 
 	def _get_rerun_trace_screenshot_filename(self, original_step_number: int, attempt_number: int) -> str:
 		"""Build a stable screenshot filename for rerun trace artifacts."""
 		return f'rerun_trace_step_{original_step_number}_attempt_{attempt_number}.png'
+
+	def _update_rerun_trace_screenshot_comparison(self, trace_step: RerunTraceStep) -> None:
+		"""Compare original and replay screenshots using file hashes and annotate the step."""
+		original_path = trace_step.original_screenshot_path
+		replay_path = trace_step.replay_screenshot_path
+
+		if not original_path and not replay_path:
+			trace_step.screenshot_comparison_status = 'unavailable'
+			trace_step.screenshot_comparison_note = 'Neither original nor replay screenshot is available.'
+			return
+		if not original_path:
+			trace_step.screenshot_comparison_status = 'missing_original'
+			trace_step.screenshot_comparison_note = 'Replay screenshot exists, but no original screenshot was recorded.'
+			return
+		if not replay_path:
+			trace_step.screenshot_comparison_status = 'missing_replay'
+			trace_step.screenshot_comparison_note = 'Original screenshot exists, but no replay screenshot was captured.'
+			return
+
+		try:
+			original_file = Path(original_path)
+			replay_file = Path(replay_path)
+			if not original_file.exists():
+				trace_step.screenshot_comparison_status = 'missing_original'
+				trace_step.screenshot_comparison_note = f'Original screenshot file is missing: {original_path}'
+				return
+			if not replay_file.exists():
+				trace_step.screenshot_comparison_status = 'missing_replay'
+				trace_step.screenshot_comparison_note = f'Replay screenshot file is missing: {replay_path}'
+				return
+
+			original_hash = hashlib.sha256(original_file.read_bytes()).hexdigest()
+			replay_hash = hashlib.sha256(replay_file.read_bytes()).hexdigest()
+			if original_hash == replay_hash:
+				trace_step.screenshot_comparison_status = 'identical'
+				trace_step.screenshot_comparison_note = 'Original and replay screenshots have identical file hashes.'
+			else:
+				trace_step.screenshot_comparison_status = 'changed'
+				trace_step.screenshot_comparison_note = 'Original and replay screenshots differ by file hash.'
+		except Exception as e:
+			trace_step.screenshot_comparison_status = 'unavailable'
+			trace_step.screenshot_comparison_note = f'Could not compare screenshots: {e}'
 
 	async def _store_rerun_trace_screenshot(
 		self,

@@ -123,6 +123,8 @@ def test_rerun_trace_html_report_renders_match_metadata():
 				replay_url='https://example.com/form',
 				replay_title='Form',
 				replay_screenshot_path='screenshots/replay-step-3.png',
+				screenshot_comparison_status='changed',
+				screenshot_comparison_note='Original and replay screenshots differ by file hash.',
 				retry_count=1,
 				failure_reason='Could not find matching element after retries.',
 				attempts=[
@@ -152,3 +154,5 @@ def test_rerun_trace_html_report_renders_match_metadata():
 	assert 'resolved_index' in report_html
 	assert 'fixtures/login-history.json' in report_html
 	assert 'screenshots/replay-step-3-attempt-1.png' in report_html
+	assert 'changed' in report_html
+	assert 'Original and replay screenshots differ by file hash.' in report_html

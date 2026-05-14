@@ -417,6 +417,14 @@ class RerunTraceStep(BaseModel):
 	replay_screenshot_path: str | None = Field(
 		default=None, description='Replay screenshot path captured for this step, when available'
 	)
+	screenshot_comparison_status: str | None = Field(
+		default=None,
+		description='Visual comparison label between original and replay screenshots',
+	)
+	screenshot_comparison_note: str | None = Field(
+		default=None,
+		description='Human-readable explanation of the screenshot comparison result',
+	)
 	retry_count: int = Field(default=0, description='How many retry attempts were needed for this step')
 	skip_reason: str | None = Field(default=None, description='Structured explanation when the step is skipped')
 	failure_reason: str | None = Field(default=None, description='Structured explanation when the step fails')
@@ -537,6 +545,8 @@ class RerunTrace(BaseModel):
 							<div class="kv"><span>URL</span><code>{_esc(step.replay_url or '-')}</code></div>
 							<div class="kv"><span>Title</span><code>{_esc(step.replay_title or '-')}</code></div>
 							<div class="kv"><span>Screenshot</span>{_image_html(step.replay_screenshot_path, f'Replay step {step.original_step_number} screenshot')}</div>
+							<div class="kv"><span>Visual Change</span><code>{_esc(step.screenshot_comparison_status or '-')}</code></div>
+							<div class="kv"><span>Comparison Note</span><code>{_esc(step.screenshot_comparison_note or '-')}</code></div>
 							<div class="kv"><span>Retries</span><code>{step.retry_count}</code></div>
 						</div>
 					</div>
