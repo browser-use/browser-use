@@ -337,9 +337,9 @@ class SessionManager:
 		# Wait for recovery complete event (event-driven, not polling!)
 		if self._recovery_complete_event:
 			try:
-				start_time = asyncio.get_event_loop().time()
+				start_time = asyncio.get_running_loop().time()
 				await asyncio.wait_for(self._recovery_complete_event.wait(), timeout=timeout)
-				elapsed = asyncio.get_event_loop().time() - start_time
+				elapsed = asyncio.get_running_loop().time() - start_time
 
 				# Verify recovery succeeded - simple existence check
 				focus_id = self.browser_session.agent_focus_target_id
@@ -886,7 +886,7 @@ class SessionManager:
 					event_data = {
 						'name': event_name,
 						'loaderId': event_loader_id,
-						'timestamp': asyncio.get_event_loop().time(),
+						'timestamp': asyncio.get_running_loop().time(),
 					}
 					# Append is atomic in CPython
 					try:
