@@ -1441,10 +1441,12 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
 			# Dispatch send keys event
 			try:
+				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
 				event = browser_session.event_bus.dispatch(SendKeysEvent(keys=params.keys))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = f'Sent keys: {params.keys}'
+				memory += await _detect_new_tab_opened(browser_session, tabs_before)
 				msg = f'⌨️  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
