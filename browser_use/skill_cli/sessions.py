@@ -30,6 +30,25 @@ class SessionInfo:
 	use_cloud: bool = False
 
 
+def _build_local_proxy(
+	proxy_url: str | None,
+	proxy_bypass: str | None,
+	proxy_username: str | None,
+	proxy_password: str | None,
+) -> dict | None:
+	"""Build a ProxySettings-compatible dict for BrowserProfile, or None if no proxy."""
+	if not proxy_url:
+		return None
+	proxy: dict = {'server': proxy_url}
+	if proxy_bypass:
+		proxy['bypass'] = proxy_bypass
+	if proxy_username:
+		proxy['username'] = proxy_username
+	if proxy_password:
+		proxy['password'] = proxy_password
+	return proxy
+
+
 async def create_browser_session(
 	headed: bool,
 	profile: str | None,
@@ -38,6 +57,10 @@ async def create_browser_session(
 	cloud_profile_id: str | None = None,
 	cloud_proxy_country_code: str | None = None,
 	cloud_timeout: int | None = None,
+	proxy_url: str | None = None,
+	proxy_bypass: str | None = None,
+	proxy_username: str | None = None,
+	proxy_password: str | None = None,
 ) -> CLIBrowserSession:
 	"""Create BrowserSession based on connection mode.
 
@@ -45,6 +68,10 @@ async def create_browser_session(
 	- Cloud: Provision a cloud browser via BrowserSession(use_cloud=True)
 	- With profile: User's real Chrome with the specified profile
 	- No profile: Playwright-managed Chromium (default)
+
+	When proxy_url is set and the session is local (no cdp_url, not cloud),
+	the proxy is forwarded to Chromium via BrowserProfile.proxy, which
+	translates to --proxy-server=<url> on launch.
 	"""
 	if cdp_url is not None:
 		return CLIBrowserSession(cdp_url=cdp_url)  # type: ignore[call-arg]
@@ -59,8 +86,13 @@ async def create_browser_session(
 			kwargs['cloud_timeout'] = cloud_timeout
 		return CLIBrowserSession(**kwargs)  # type: ignore[call-arg]
 
+	local_proxy = _build_local_proxy(proxy_url, proxy_bypass, proxy_username, proxy_password)
+
 	if profile is None:
-		return CLIBrowserSession(headless=not headed)  # type: ignore[call-arg]
+		local_kwargs: dict = {'headless': not headed}
+		if local_proxy is not None:
+			local_kwargs['proxy'] = local_proxy
+		return CLIBrowserSession(**local_kwargs)  # type: ignore[call-arg]
 
 	from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
 
@@ -100,9 +132,12 @@ async def create_browser_session(
 				lines.append(f'  "{p["name"]}" ({p["directory"]})')
 			raise RuntimeError('\n'.join(lines))
 
-	return CLIBrowserSession(
-		executable_path=chrome_path,  # type: ignore[call-arg]
-		user_data_dir=user_data_dir,  # type: ignore[call-arg]
-		profile_directory=profile_directory,  # type: ignore[call-arg]
-		headless=not headed,  # type: ignore[call-arg]
-	)
+	real_chrome_kwargs: dict = {
+		'executable_path': chrome_path,
+		'user_data_dir': user_data_dir,
+		'profile_directory': profile_directory,
+		'headless': not headed,
+	}
+	if local_proxy is not None:
+		real_chrome_kwargs['proxy'] = local_proxy
+	return CLIBrowserSession(**real_chrome_kwargs)  # type: ignore[call-arg]
