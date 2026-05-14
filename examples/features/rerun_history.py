@@ -5,7 +5,8 @@ This example shows how to:
 1. Run an agent and save its history (including initial URL navigation)
 2. Detect variables in the saved history (emails, names, dates, etc.)
 3. Rerun the history with substituted values (different data)
-4. Get AI-generated summary of rerun completion (with screenshot analysis)
+4. Save a structured debug trace and HTML replay report
+5. Get AI-generated summary of rerun completion (with screenshot analysis)
 
 Useful for:
 - Debugging agent behavior
@@ -13,6 +14,7 @@ Useful for:
 - Replaying successful workflows with different data
 - Understanding what values can be substituted in reruns
 - Getting automated verification of rerun success
+- Inspecting why a replay diverged, retried, or matched via fallback
 
 Note: Initial actions (like opening URLs from tasks) are now automatically
 saved to history and will be replayed during rerun, so you don't need to
@@ -46,6 +48,10 @@ The AI summary will be the last item in results and will have:
 	- extracted_content: The summary text
 	- success: Whether rerun was successful
 	- is_done: Always True for summary
+
+Debug Artifacts:
+	- `debug_trace_path`: Saves a JSON trace with per-step/per-attempt diagnostics
+	- `debug_report_path`: Saves a static HTML report for quick inspection
 """
 
 import asyncio
@@ -58,6 +64,8 @@ from browser_use.llm import ChatBrowserUse
 async def main():
 	# Example task to demonstrate history saving and rerunning
 	history_file = Path('agent_history.json')
+	debug_trace_file = Path('rerun_trace.json')
+	debug_report_file = Path('rerun_trace.html')
 	task = 'Go to https://browser-use.github.io/stress-tests/challenges/reference-number-form.html and fill the form with example data and submit and extract the refernence number.'
 	llm = ChatBrowserUse(model='bu-2-0')
 
@@ -122,6 +130,8 @@ async def main():
 			variables=new_values,
 			ai_step_llm=ai_step_llm,  # For extract action re-evaluation
 			summary_llm=summary_llm,  # For final summary
+			debug_trace_path=debug_trace_file,  # Structured JSON artifact
+			debug_report_path=debug_report_file,  # Static HTML report
 			max_step_interval=20,
 			delay_between_actions=1,
 		)
@@ -132,6 +142,8 @@ async def main():
 			print('\n📊 AI Summary:')
 			print(f'  Summary: {summary.extracted_content}')
 			print(f'  Success: {summary.success}')
+		print(f'  Debug trace: {debug_trace_file}')
+		print(f'  Debug report: {debug_report_file}')
 		print('✓ History rerun with substituted values complete')
 	else:
 		print('\n⚠️  No variables detected, skipping substitution rerun')

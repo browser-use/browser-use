@@ -4209,6 +4209,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				- max_step_interval: Cap on saved step_interval (default: 45.0s)
 				- summary_llm: Custom LLM for final summary
 				- ai_step_llm: Custom LLM for extract re-evaluation
+				- debug_trace_path: Optional JSON artifact path for rerun diagnostics
+				- debug_report_path: Optional HTML report path for rerun diagnostics
 		"""
 		if not history_file:
 			history_file = 'AgentHistory.json'
