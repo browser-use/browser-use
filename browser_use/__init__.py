@@ -55,8 +55,8 @@ if TYPE_CHECKING:
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
-	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
+	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
 	from browser_use.llm.browser_use.chat import ChatBrowserUse
 	from browser_use.llm.cerebras.chat import ChatCerebras
