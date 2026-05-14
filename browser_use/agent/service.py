@@ -1,5 +1,6 @@
 import asyncio
 import gc
+import hashlib
 import inspect
 import json
 import logging
@@ -59,6 +60,9 @@ from browser_use.agent.views import (
 	JudgementResult,
 	MessageCompactionSettings,
 	PlanItem,
+	RerunTrace,
+	RerunTraceAttempt,
+	RerunTraceStep,
 	StepMetadata,
 )
 from browser_use.browser.events import _get_timeout
@@ -3090,6 +3094,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		summary_llm: BaseChatModel | None = None,
 		ai_step_llm: BaseChatModel | None = None,
 		wait_for_elements: bool = False,
+		debug_trace_path: str | Path | None = None,
+		debug_report_path: str | Path | None = None,
+		source_history_path: str | Path | None = None,
 	) -> list[ActionResult]:
 		"""
 		Rerun a saved history of actions with error handling and retry logic.
@@ -3107,6 +3114,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		                wait_for_elements: If True, wait for minimum number of elements before attempting element
 		                               matching. Useful for SPA pages where shadow DOM content loads dynamically.
 		                               Default is False.
+		                debug_trace_path: Optional path to save a structured rerun debug trace as JSON
+		                debug_report_path: Optional path to save a rendered HTML rerun debug report
+		                source_history_path: Optional path to the source history file used to start the rerun
 
 		Returns:
 		                List of action results (including AI summary as the final result)
@@ -3118,6 +3128,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self.browser_session.start()
 
 		results = []
+		debug_trace = RerunTrace(
+			task=self.task,
+			history_file_path=str(source_history_path) if source_history_path else None,
+			started_at=time.time(),
+		)
+		capture_debug_screenshots = bool(debug_trace_path or debug_report_path)
 
 		# Track previous step for redundant retry detection
 		previous_item: AgentHistory | None = None
@@ -3128,6 +3144,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				goal = history_item.model_output.current_state.next_goal if history_item.model_output else ''
 				step_num = history_item.metadata.step_number if history_item.metadata else i
 				step_name = 'Initial actions' if step_num == 0 else f'Step {step_num}'
+				trace_step = self._build_rerun_trace_step(history_item, replay_step_index=i)
+				trace_step.status = 'running'
+				debug_trace.steps.append(trace_step)
 
 				# Determine step delay
 				if history_item.metadata and history_item.metadata.step_interval is not None:
@@ -3158,6 +3177,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					or history_item.model_output.action == [None]
 				):
 					self.logger.warning(f'{step_name}: No action to replay, skipping')
+					trace_step.status = 'skipped'
+					trace_step.skip_reason = 'No action to replay'
 					results.append(ActionResult(error='No action to replay'))
 					continue
 
@@ -3167,6 +3188,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					error_msgs = [r.error for r in history_item.result if r.error]
 					self.logger.warning(
 						f'{step_name}: Original step had error(s), skipping (skip_failures=True): {error_msgs[0][:100] if error_msgs else "unknown"}'
+					)
+					trace_step.status = 'skipped'
+					trace_step.skip_reason = (
+						f'Original step had error and skip_failures=True: {error_msgs[0][:200] if error_msgs else "unknown"}'
 					)
 					results.append(
 						ActionResult(
@@ -3180,6 +3205,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# due to slow page response, but during replay the first click already worked
 				if self._is_redundant_retry_step(history_item, previous_item, previous_step_succeeded):
 					self.logger.info(f'{step_name}: Skipping redundant retry (previous step already succeeded with same element)')
+					trace_step.status = 'skipped'
+					trace_step.skip_reason = 'Skipped redundant retry because the previous step already succeeded'
 					results.append(
 						ActionResult(
 							extracted_content='Skipped - redundant retry of previous step',
@@ -3196,15 +3223,42 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				base_retry_delay = 5.0
 				max_retry_delay = 30.0
 				while retry_count < max_retries:
+					attempt = RerunTraceAttempt(
+						attempt_number=retry_count + 1,
+						status='started',
+						note=f'{step_name} replay attempt {retry_count + 1}',
+					)
+					trace_step.attempts.append(attempt)
 					try:
-						result = await self._execute_history_step(history_item, step_delay, ai_step_llm, wait_for_elements)
+						result = await self._execute_history_step(
+							history_item,
+							step_delay,
+							ai_step_llm,
+							wait_for_elements,
+							trace_attempt=attempt,
+						)
 						results.extend(result)
 						step_succeeded = True
+						trace_step.status = 'success'
+						trace_step.retry_count = retry_count
+						attempt.status = 'succeeded'
+						await self._update_rerun_trace_step_browser_state(
+							trace_step,
+							attempt=attempt,
+							capture_screenshot=capture_debug_screenshots,
+						)
 						break
 
 					except Exception as e:
 						error_str = str(e)
+						attempt.error = error_str
+						await self._update_rerun_trace_step_browser_state(
+							trace_step,
+							attempt=attempt,
+							capture_screenshot=capture_debug_screenshots,
+						)
 						retry_count += 1
+						trace_step.retry_count = retry_count
 
 						# Check if this is a "Could not find matching element" error for a menu item
 						# If so, try to re-open the dropdown from the previous step before retrying
@@ -3227,6 +3281,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 									# Don't increment retry_count for the menu reopen attempt
 									# Retry immediately with minimal delay
 									retry_count -= 1
+									trace_step.retry_count = retry_count
+									attempt.status = 'retried'
+									attempt.note = 'Re-opened dropdown/menu and retried immediately'
 									step_delay = 0.5  # Use short delay after reopening
 									self.logger.info('🔄 Dropdown re-opened, retrying element match...')
 									continue
@@ -3234,6 +3291,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						if retry_count == max_retries:
 							error_msg = f'{step_name} failed after {max_retries} attempts: {error_str}'
 							self.logger.error(error_msg)
+							trace_step.status = 'failed'
+							trace_step.failure_reason = error_msg
+							attempt.status = 'failed'
+							attempt.note = 'Retry budget exhausted'
 							# Always record the error in results so AI summary counts it correctly
 							results.append(ActionResult(error=error_msg))
 							if not skip_failures:
@@ -3242,10 +3303,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						else:
 							# Exponential backoff: 5s, 10s, 20s, ... capped at 30s
 							retry_delay = min(base_retry_delay * (2 ** (retry_count - 1)), max_retry_delay)
+							attempt.status = 'retried'
+							attempt.retry_delay_seconds = retry_delay
+							attempt.note = f'Retrying after failure with exponential backoff ({retry_delay}s)'
 							self.logger.warning(
 								f'{step_name} failed (attempt {retry_count}/{max_retries}), retrying in {retry_delay}s...'
 							)
 							await asyncio.sleep(retry_delay)
+
+				if trace_step.status == 'running':
+					trace_step.status = 'success' if step_succeeded else 'failed'
+				if trace_step.status != 'success' and trace_step.failure_reason is None and trace_step.skip_reason is None:
+					trace_step.failure_reason = f'{step_name} did not complete successfully during rerun'
+				self._classify_rerun_trace_step(trace_step)
 
 				# Update tracking for redundant retry detection
 				previous_item = history_item
@@ -3255,11 +3325,217 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.info('🤖 Generating AI summary of rerun completion...')
 			summary_result = await self._generate_rerun_summary(self.task, results, summary_llm)
 			results.append(summary_result)
+			debug_trace.summary = summary_result.extracted_content
 
 			return results
+		except Exception as e:
+			if debug_trace.summary is None:
+				debug_trace.summary = f'Rerun aborted: {e}'
+			raise
 		finally:
+			debug_trace.completed_at = time.time()
+			debug_trace.final_status = self._compute_rerun_trace_final_status(debug_trace)
+			if debug_trace_path:
+				try:
+					debug_trace.save_to_file(debug_trace_path)
+				except Exception as e:
+					self.logger.warning(f'Failed to save rerun debug trace to {debug_trace_path}: {e}')
+			if debug_report_path:
+				try:
+					debug_trace.save_html_report(debug_report_path)
+				except Exception as e:
+					self.logger.warning(f'Failed to save rerun debug report to {debug_report_path}: {e}')
 			# Always close resources, even on failure
 			await self.close()
+
+	def _build_rerun_trace_step(self, history_item: AgentHistory, replay_step_index: int) -> RerunTraceStep:
+		"""Create a normalized debug step record from a saved history item."""
+		original_actions: list[dict[str, Any]] = []
+		if history_item.model_output:
+			original_actions = [action.model_dump(exclude_none=True, mode='json') for action in history_item.model_output.action]
+
+		original_elements: list[dict[str, Any] | None] = []
+		for element in history_item.state.interacted_element or []:
+			original_elements.append(element.to_dict() if element else None)
+
+		return RerunTraceStep(
+			replay_step_index=replay_step_index,
+			original_step_number=history_item.metadata.step_number if history_item.metadata else replay_step_index,
+			goal=history_item.model_output.current_state.next_goal if history_item.model_output else None,
+			original_actions=original_actions,
+			original_interacted_elements=original_elements,
+			original_url=history_item.state.url,
+			original_title=history_item.state.title,
+			original_screenshot_path=history_item.state.screenshot_path,
+		)
+
+	async def _update_rerun_trace_step_browser_state(
+		self,
+		trace_step: RerunTraceStep,
+		attempt: RerunTraceAttempt | None = None,
+		capture_screenshot: bool = False,
+	) -> None:
+		"""Best-effort capture of the current browser state for rerun trace diagnostics."""
+		try:
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=capture_screenshot)
+		except Exception:
+			return
+
+		if not state:
+			return
+
+		trace_step.replay_url = state.url
+		trace_step.replay_title = state.title
+
+		if attempt is not None:
+			attempt.replay_url = state.url
+			attempt.replay_title = state.title
+			if capture_screenshot and state.screenshot:
+				screenshot_path = await self._store_rerun_trace_screenshot(
+					state.screenshot,
+					trace_step.original_step_number,
+					attempt.attempt_number,
+				)
+				attempt.replay_screenshot_path = screenshot_path
+				trace_step.replay_screenshot_path = screenshot_path
+				self._update_rerun_trace_screenshot_comparison(trace_step)
+
+	def _get_rerun_trace_screenshot_filename(self, original_step_number: int, attempt_number: int) -> str:
+		"""Build a stable screenshot filename for rerun trace artifacts."""
+		return f'rerun_trace_step_{original_step_number}_attempt_{attempt_number}.png'
+
+	def _update_rerun_trace_screenshot_comparison(self, trace_step: RerunTraceStep) -> None:
+		"""Compare original and replay screenshots using file hashes and annotate the step."""
+		original_path = trace_step.original_screenshot_path
+		replay_path = trace_step.replay_screenshot_path
+
+		if not original_path and not replay_path:
+			trace_step.screenshot_comparison_status = 'unavailable'
+			trace_step.screenshot_comparison_note = 'Neither original nor replay screenshot is available.'
+			return
+		if not original_path:
+			trace_step.screenshot_comparison_status = 'missing_original'
+			trace_step.screenshot_comparison_note = 'Replay screenshot exists, but no original screenshot was recorded.'
+			return
+		if not replay_path:
+			trace_step.screenshot_comparison_status = 'missing_replay'
+			trace_step.screenshot_comparison_note = 'Original screenshot exists, but no replay screenshot was captured.'
+			return
+
+		try:
+			original_file = Path(original_path)
+			replay_file = Path(replay_path)
+			if not original_file.exists():
+				trace_step.screenshot_comparison_status = 'missing_original'
+				trace_step.screenshot_comparison_note = f'Original screenshot file is missing: {original_path}'
+				return
+			if not replay_file.exists():
+				trace_step.screenshot_comparison_status = 'missing_replay'
+				trace_step.screenshot_comparison_note = f'Replay screenshot file is missing: {replay_path}'
+				return
+
+			original_hash = hashlib.sha256(original_file.read_bytes()).hexdigest()
+			replay_hash = hashlib.sha256(replay_file.read_bytes()).hexdigest()
+			if original_hash == replay_hash:
+				trace_step.screenshot_comparison_status = 'identical'
+				trace_step.screenshot_comparison_note = 'Original and replay screenshots have identical file hashes.'
+			else:
+				trace_step.screenshot_comparison_status = 'changed'
+				trace_step.screenshot_comparison_note = 'Original and replay screenshots differ by file hash.'
+		except Exception as e:
+			trace_step.screenshot_comparison_status = 'unavailable'
+			trace_step.screenshot_comparison_note = f'Could not compare screenshots: {e}'
+
+	async def _store_rerun_trace_screenshot(
+		self,
+		screenshot_b64: str,
+		original_step_number: int,
+		attempt_number: int,
+	) -> str | None:
+		"""Persist a rerun-trace screenshot using the existing screenshot service."""
+		if not screenshot_b64:
+			return None
+
+		filename = self._get_rerun_trace_screenshot_filename(original_step_number, attempt_number)
+		try:
+			return await self.screenshot_service.store_named_screenshot(screenshot_b64, filename)
+		except Exception as e:
+			self.logger.warning(f'Failed to store rerun trace screenshot {filename}: {e}')
+			return None
+
+	def _compute_rerun_trace_final_status(self, trace: RerunTrace) -> Literal['running', 'success', 'partial', 'failed']:
+		"""Summarize overall rerun outcome from recorded step statuses."""
+		if not trace.steps:
+			return 'failed'
+
+		statuses = [step.status for step in trace.steps]
+		if all(status == 'success' for status in statuses):
+			return 'success'
+		if all(status == 'failed' for status in statuses):
+			return 'failed'
+		if any(status == 'success' for status in statuses):
+			return 'partial'
+		if any(status == 'skipped' for status in statuses):
+			return 'partial'
+		return 'failed'
+
+	def _classify_rerun_trace_step(self, trace_step: RerunTraceStep) -> None:
+		"""Assign a high-level divergence category to a replay step."""
+		attempt_match_levels = [
+			detail.get('match_level')
+			for attempt in trace_step.attempts
+			for detail in attempt.action_match_details
+			if isinstance(detail, dict) and detail.get('match_level')
+		]
+		used_fallback_match = any(level in {'STABLE', 'XPATH', 'AX_NAME', 'ATTRIBUTE'} for level in attempt_match_levels)
+		page_changed = bool(
+			trace_step.original_url and trace_step.replay_url and trace_step.original_url != trace_step.replay_url
+		)
+		failure_text = (trace_step.failure_reason or '').lower()
+		skip_text = (trace_step.skip_reason or '').lower()
+
+		if 'redundant retry' in skip_text:
+			trace_step.divergence_category = 'skipped_redundant_retry'
+			trace_step.divergence_note = 'The replay skipped this step because a prior equivalent step already succeeded.'
+			return
+		if 'original step had error' in skip_text:
+			trace_step.divergence_category = 'skipped_original_error'
+			trace_step.divergence_note = 'The replay skipped this step because the original trace had an error and skip_failures was enabled.'
+			return
+		if 'could not find matching element' in failure_text:
+			if page_changed:
+				trace_step.divergence_category = 'page_changed_before_match'
+				trace_step.divergence_note = 'The replay page URL changed before the historical element could be matched.'
+				return
+			trace_step.divergence_category = 'missing_element'
+			trace_step.divergence_note = 'The replay could not find a matching element for the historical action.'
+			return
+		if used_fallback_match:
+			fallback_match_levels = sorted({level for level in attempt_match_levels if level is not None})
+			trace_step.divergence_category = 'matched_via_fallback'
+			trace_step.divergence_note = (
+				f'The replay matched at least one element via a fallback strategy: {", ".join(fallback_match_levels)}.'
+			)
+			return
+		if trace_step.retry_count > 0:
+			trace_step.divergence_category = 'retried_before_success'
+			trace_step.divergence_note = 'The replay required one or more retries before completing this step.'
+			return
+		if trace_step.screenshot_comparison_status == 'changed':
+			trace_step.divergence_category = 'visual_change_detected'
+			trace_step.divergence_note = 'The replay screenshot differs visually from the original screenshot.'
+			return
+		if trace_step.status == 'success':
+			trace_step.divergence_category = 'none'
+			trace_step.divergence_note = 'The replay step completed without an obvious divergence signal.'
+			return
+		if trace_step.status == 'failed':
+			trace_step.divergence_category = 'failed_without_specific_classifier'
+			trace_step.divergence_note = 'The replay step failed, but no more specific divergence classifier matched.'
+			return
+		if trace_step.status == 'skipped':
+			trace_step.divergence_category = 'skipped_without_specific_classifier'
+			trace_step.divergence_note = 'The replay step was skipped, but no more specific divergence classifier matched.'
 
 	async def _execute_initial_actions(self) -> None:
 		# Execute initial actions if provided
@@ -3381,6 +3657,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		delay: float,
 		ai_step_llm: BaseChatModel | None = None,
 		wait_for_elements: bool = False,
+		trace_attempt: RerunTraceAttempt | None = None,
 	) -> list[ActionResult]:
 		"""Execute a single step from history with element validation.
 
@@ -3459,11 +3736,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			else:
 				# For non-extract actions, update indices and collect for batch execution
 				historical_elem = history_item.state.interacted_element[i]
-				updated_action = await self._update_action_indices(
+				updated_action, match_detail = await self._update_action_indices(
 					historical_elem,
 					action,
 					state,
 				)
+				if trace_attempt is not None and match_detail is not None:
+					trace_attempt.action_match_details.append(match_detail)
+					if trace_attempt.matched_element is None and match_detail.get('matched_element') is not None:
+						trace_attempt.matched_element = match_detail['matched_element']
+						trace_attempt.match_level = match_detail.get('match_level')
 				if updated_action is None:
 					# Build informative error message with diagnostic info
 					elem_info = self._format_element_for_error(historical_elem)
@@ -3490,6 +3772,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						diagnostic = (
 							f'\n  Found {same_node_count} <{hist_node.upper()}> elements (none with matching identifiers)'
 						)
+					if trace_attempt is not None:
+						trace_attempt.action_match_details.append(
+							{
+								'action_index': i,
+								'action': action_data,
+								'match_level': None,
+								'matched_element': None,
+								'historical_element': historical_elem.to_dict() if historical_elem else None,
+								'selector_count': selector_count,
+								'diagnostic': diagnostic.strip() or None,
+							}
+						)
 
 					raise ValueError(
 						f'Could not find matching element for action {i} in current page.\n'
@@ -3511,7 +3805,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		historical_element: DOMInteractedElement | None,
 		action: ActionModel,  # Type this properly based on your action model
 		browser_state_summary: BrowserStateSummary,
-	) -> ActionModel | None:
+	) -> tuple[ActionModel | None, dict[str, Any] | None]:
 		"""
 		Update action indices based on current page state.
 		Returns updated action or None if element cannot be found.
@@ -3523,8 +3817,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		4. AX_NAME: Accessible name match from accessibility tree (robust for dynamic menus)
 		5. ATTRIBUTE: Unique attribute match (name, id, aria-label) for old history files
 		"""
+		action_dump = action.model_dump(exclude_none=True, mode='json')
 		if not historical_element or not browser_state_summary.dom_state.selector_map:
-			return action
+			return action, {
+				'action': action_dump,
+				'match_level': None,
+				'matched_element': None,
+				'historical_element': historical_element.to_dict() if historical_element else None,
+				'note': 'No historical element or selector map available; action replayed without index remapping.',
+			}
 
 		selector_map = browser_state_summary.dom_state.selector_map
 		highlight_index: int | None = None
@@ -3647,7 +3948,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 
 		if highlight_index is None:
-			return None
+			return None, {
+				'action': action_dump,
+				'match_level': None,
+				'matched_element': None,
+				'historical_element': historical_element.to_dict() if historical_element else None,
+				'selector_count': len(selector_map),
+			}
 
 		old_index = action.get_index()
 		if old_index != highlight_index:
@@ -3655,7 +3962,42 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			level_name = match_level.name if match_level else 'UNKNOWN'
 			self.logger.info(f'Element index updated {old_index} → {highlight_index} (matched at {level_name} level)')
 
-		return action
+		matched_dom_element = selector_map.get(highlight_index)
+		return action, {
+			'action': action_dump,
+			'match_level': match_level.name if match_level else None,
+			'matched_element': self._serialize_matched_dom_element(matched_dom_element, highlight_index),
+			'historical_element': historical_element.to_dict(),
+			'original_index': old_index,
+			'resolved_index': highlight_index,
+		}
+
+	def _serialize_matched_dom_element(self, element: Any, highlight_index: int | None) -> dict[str, Any] | None:
+		"""Build a compact, trace-friendly snapshot of the matched live DOM element."""
+		if element is None:
+			return None
+
+		ax_name = None
+		if getattr(element, 'ax_node', None) and getattr(element.ax_node, 'name', None):
+			ax_name = element.ax_node.name
+
+		bounds = None
+		if getattr(element, 'bounds', None):
+			try:
+				bounds = element.bounds.to_dict()
+			except Exception:
+				bounds = None
+
+		return {
+			'index': highlight_index,
+			'node_name': getattr(element, 'node_name', None),
+			'attributes': getattr(element, 'attributes', None),
+			'x_path': getattr(element, 'xpath', None),
+			'element_hash': getattr(element, 'element_hash', None),
+			'stable_hash': element.compute_stable_hash() if hasattr(element, 'compute_stable_hash') else None,
+			'ax_name': ax_name,
+			'bounds': bounds,
+		}
 
 	def _format_element_for_error(self, elem: DOMInteractedElement | None) -> str:
 		"""Format element info for error messages during history rerun."""
@@ -3868,6 +4210,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				- max_step_interval: Cap on saved step_interval (default: 45.0s)
 				- summary_llm: Custom LLM for final summary
 				- ai_step_llm: Custom LLM for extract re-evaluation
+				- debug_trace_path: Optional JSON artifact path for rerun diagnostics
+				- debug_report_path: Optional HTML report path for rerun diagnostics
 		"""
 		if not history_file:
 			history_file = 'AgentHistory.json'
@@ -3877,7 +4221,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if variables:
 			history = self._substitute_variables_in_history(history, variables)
 
-		return await self.rerun_history(history, **kwargs)
+		return await self.rerun_history(history, source_history_path=history_file, **kwargs)
 
 	def save_history(self, file_path: str | Path | None = None) -> None:
 		"""Save the history to a file with sensitive data filtering"""

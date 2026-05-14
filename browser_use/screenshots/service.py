@@ -25,7 +25,12 @@ class ScreenshotService:
 	async def store_screenshot(self, screenshot_b64: str, step_number: int) -> str:
 		"""Store screenshot to disk and return the full path as string"""
 		screenshot_filename = f'step_{step_number}.png'
-		screenshot_path = self.screenshots_dir / screenshot_filename
+		return await self.store_named_screenshot(screenshot_b64, screenshot_filename)
+
+	@observe_debug(ignore_input=True, ignore_output=True, name='store_named_screenshot')
+	async def store_named_screenshot(self, screenshot_b64: str, filename: str) -> str:
+		"""Store screenshot to disk using an explicit filename and return the full path."""
+		screenshot_path = self.screenshots_dir / filename
 
 		# Decode base64 and save to disk
 		screenshot_data = base64.b64decode(screenshot_b64)
