@@ -10,6 +10,8 @@ def list_items(items: list[str]) -> list[str]:
 
 
 def build_agent_task_prompt(task: TaskCard, scenario_id: str = 'normal', navigator_plan: str | None = None) -> str:
+	from browser_use.agent.message_manager.utils import extract_navigator_step_focus
+
 	scenario = next((failure for failure in task.failure_modes if failure.id == scenario_id), None)
 	lines = [
 		f'Task: {task.name}',
@@ -38,11 +40,12 @@ def build_agent_task_prompt(task: TaskCard, scenario_id: str = 'normal', navigat
 			]
 		)
 	if navigator_plan:
+		_focus, plan_body = extract_navigator_step_focus(navigator_plan)
 		lines.extend(
 			[
 				'',
 				'Navigator plan:',
-				navigator_plan,
+				plan_body,
 				'',
 				'Use the navigator plan as guidance, but trust the live page state over stale assumptions.',
 			]
@@ -78,7 +81,14 @@ def build_navigator_prompt(task: TaskCard, scenario_id: str = 'normal') -> str:
 	lines = [
 		'Create an execution plan for a browser automation agent.',
 		'You are the navigator, not the executor. Do not claim that you opened the browser.',
-		'Return concise markdown with these sections: Assumptions, Step-by-step plan, Recovery plan, Stop conditions.',
+		'',
+		'MANDATORY: Start your reply with this exact XML block (first characters of your answer), before any markdown headings.',
+		'Put 1–3 short lines inside: only the NEXT concrete sub-goal the executor should achieve (no action JSON, no tool syntax).',
+		'<current_step_focus>',
+		'Your sub-goal lines here (replace this whole inner block).',
+		'</current_step_focus>',
+		'',
+		'After that block, return concise markdown with these sections: Assumptions, Step-by-step plan, Recovery plan, Stop conditions.',
 		'',
 		f'Task id: {task.id}',
 		f'Task name: {task.name}',

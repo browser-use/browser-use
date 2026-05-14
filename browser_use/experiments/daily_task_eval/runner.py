@@ -70,6 +70,12 @@ async def _emit_heartbeat(
 		)
 
 
+from .executor import (
+	ExecutorConfig,
+	build_executor_llm,
+	default_max_actions_per_step_for_executor,
+	default_use_vision_for_executor,
+)
 from .models import (
 	AgentRunSummary,
 	ComparisonRecord,
@@ -79,13 +85,13 @@ from .models import (
 	utc_now,
 	write_json,
 )
-from .executor import (
-	ExecutorConfig,
-	build_executor_llm,
-	default_max_actions_per_step_for_executor,
-	default_use_vision_for_executor,
+from .navigator import (
+	LLMNavigator,
+	NavigatorConfig,
+	NavigatorPlanProvider,
+	build_navigator,
+	build_navigator_chat_model,
 )
-from .navigator import NavigatorConfig, NavigatorPlanProvider, build_navigator
 from .prompts import build_agent_task_prompt
 
 
@@ -220,27 +226,86 @@ def default_task_cards() -> list[TaskCard]:
 
 def init_experiment(output_dir: Path, overwrite: bool = False) -> dict[str, Path]:
 	output_dir.mkdir(parents=True, exist_ok=True)
-	task_cards = default_task_cards()
-	human_runs = [
-		HumanRunRecord(
-			task_id=task.id,
-			scenario_id='normal',
-			steps=['Replace this with the exact manual steps you took.'],
-			notes='Fill this after the human baseline run.',
-		).model_dump(mode='json')
-		for task in task_cards
-	]
 	paths = {
 		'task_cards': output_dir / 'task_cards.json',
 		'human_runs': output_dir / 'human_runs.json',
 		'agent_runs': output_dir / 'agent_runs.json',
 		'comparisons': output_dir / 'comparison_report.json',
 	}
-	write_json(paths['task_cards'], [task.model_dump(mode='json') for task in task_cards], overwrite=overwrite)
-	write_json(paths['human_runs'], human_runs, overwrite=overwrite)
+	tc_path = paths['task_cards']
+
+	if overwrite:
+		task_cards = default_task_cards()
+		write_json(tc_path, [task.model_dump(mode='json') for task in task_cards], overwrite=True)
+	elif tc_path.exists():
+		task_cards = load_json_model_list(tc_path, TaskCard)
+	else:
+		task_cards = default_task_cards()
+		write_json(tc_path, [task.model_dump(mode='json') for task in task_cards], overwrite=True)
+
+	human_path = paths['human_runs']
+	if overwrite or not human_path.exists():
+		human_runs = [
+			HumanRunRecord(
+				task_id=task.id,
+				scenario_id='normal',
+				steps=['Replace this with the exact manual steps you took.'],
+				notes='Fill this after the human baseline run.',
+			).model_dump(mode='json')
+			for task in task_cards
+		]
+		write_json(human_path, human_runs, overwrite=overwrite)
+
 	write_json(paths['agent_runs'], [], overwrite=overwrite)
 	write_json(paths['comparisons'], [], overwrite=overwrite)
 	return paths
+
+
+def _llm_usage_for_agent_run_summary(
+	agent: Any | None,
+	history: Any,
+	navigator: NavigatorPlanProvider | None,
+	continuous_navigation: bool,
+) -> dict[str, Any | None]:
+	"""Maps `cost`/`TokenCost` rollup + initial navigator plan tokens into summary JSON fields."""
+
+	out: dict[str, Any | None] = {
+		'usage_summary': None,
+		'usage_executor_llm': None,
+		'usage_navigator_cycle_llm': None,
+		'usage_auxiliary_llm_models': None,
+		'navigator_initial_plan_usage': None,
+	}
+	if isinstance(navigator, LLMNavigator) and navigator.last_plan_invocation_usage is not None:
+		out['navigator_initial_plan_usage'] = navigator.last_plan_invocation_usage.model_dump(mode='json')
+
+	hu = getattr(history, 'usage', None)
+	if hu is None:
+		return out
+
+	out['usage_summary'] = hu.model_dump(mode='json')
+	by = hu.by_model
+	if agent is None:
+		return out
+
+	ex_id = agent.llm.model
+	ex_stats = by.get(ex_id)
+	out['usage_executor_llm'] = ex_stats.model_dump(mode='json') if ex_stats else None
+
+	nav_llm = getattr(agent, 'navigator_llm', None)
+	if continuous_navigation and nav_llm is not None:
+		nid = nav_llm.model
+		st = by.get(nid)
+		if st is not None and nid != ex_id:
+			out['usage_navigator_cycle_llm'] = st.model_dump(mode='json')
+
+	exclude: set[str] = {ex_id}
+	if out['usage_navigator_cycle_llm'] is not None and nav_llm is not None:
+		exclude.add(nav_llm.model)
+
+	aux = {k: v.model_dump(mode='json') for k, v in by.items() if k not in exclude}
+	out['usage_auxiliary_llm_models'] = aux if aux else None
+	return out
 
 
 def summarize_history(
@@ -259,10 +324,14 @@ def summarize_history(
 	executor_backend: str | None = None,
 	executor_model: str | None = None,
 	navigator_backend: str | None = None,
+	agent: Any | None = None,
+	navigator: NavigatorPlanProvider | None = None,
+	continuous_navigation: bool = False,
 ) -> AgentRunSummary:
 	errors = [error for error in history.errors() if error]
 	urls = [url for url in history.urls() if url]
 	screenshot_paths = [path for path in history.screenshot_paths(return_none_if_not_screenshot=False) if path]
+	usage_kw = _llm_usage_for_agent_run_summary(agent, history, navigator, continuous_navigation)
 	return AgentRunSummary(
 		task_id=task_id,
 		scenario_id=scenario_id,
@@ -286,6 +355,7 @@ def summarize_history(
 		final_result=history.final_result(),
 		history_path=str(history_path),
 		conversation_path=str(conversation_path),
+		**usage_kw,
 	)
 
 
@@ -304,6 +374,7 @@ async def run_agent_task(
 	step_timeout: int | None = None,
 	heartbeat_seconds: int = 30,
 	max_failures: int = 3,
+	continuous_navigation: bool = False,
 ) -> AgentRunSummary:
 	"""Run the Browser Use Agent for one task.
 
@@ -328,6 +399,10 @@ async def run_agent_task(
 	`max_failures`: how many consecutive parse / tool-call failures the Agent tolerates before
 	it self-terminates with `done(success=False)`. Default 3 matches Agent upstream. For Qwen-style
 	OpenAI-compatible models with weaker tool-calling reliability on large prompts, raise to 6–8.
+
+	`continuous_navigation`: when True, periodic navigator guidance uses `navigator_llm` built from
+	the same `NavigatorConfig` as `LLMNavigator.create_plan` (navigator and executor stay distinct).
+	Requires `navigator_config.enabled` and a non-noop navigator.
 	"""
 
 	from dotenv import load_dotenv
@@ -352,11 +427,21 @@ async def run_agent_task(
 	if navigator is None:
 		navigator = build_navigator(nav_cfg)
 
+	if continuous_navigation and (not nav_cfg.enabled or navigator is None):
+		raise ValueError(
+			'continuous_navigation requires navigator_config.enabled=True and a navigator plan provider; '
+			'navigator_llm is built from the same NavigatorConfig as the initial plan (distinct from executor).'
+		)
+
 	navigator_plan = None
+	initial_subgoal: str | None = None
 	if navigator is not None:
 		navigator_plan = await navigator.create_plan(task=task, scenario_id=scenario_id)
 		if navigator_plan:
 			navigator_plan_path.write_text(navigator_plan, encoding='utf-8')
+			from browser_use.agent.message_manager.utils import extract_navigator_step_focus
+
+			initial_subgoal, _ = extract_navigator_step_focus(navigator_plan)
 
 	browser = Browser(
 		headless=headless,
@@ -381,6 +466,12 @@ async def run_agent_task(
 	)
 	if step_timeout is not None:
 		agent_kwargs['step_timeout'] = step_timeout
+	if continuous_navigation:
+		agent_kwargs['continuous_navigation'] = True
+		agent_kwargs['navigator_llm'] = build_navigator_chat_model(nav_cfg)
+	if initial_subgoal:
+		agent_kwargs['navigator_executor_subgoal'] = initial_subgoal
+
 	try:
 		agent = Agent(**agent_kwargs)
 		heartbeat_task: asyncio.Task[None] | None = None
@@ -413,6 +504,9 @@ async def run_agent_task(
 			executor_backend=ex_cfg.backend,
 			executor_model=ex_cfg.model,
 			navigator_backend=nav_backend,
+			agent=agent,
+			navigator=navigator,
+			continuous_navigation=continuous_navigation,
 		)
 	finally:
 		await browser.kill()

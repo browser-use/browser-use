@@ -26,6 +26,8 @@ dist/
 *.pdf
 *.csv
 *.json
+!examples/evaluation/fixtures/
+!examples/evaluation/fixtures/*.json
 *.jsonl
 *.log
 *.bak

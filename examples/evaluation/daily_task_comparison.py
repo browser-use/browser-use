@@ -11,12 +11,14 @@ import asyncio
 import json
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from browser_use.experiments.daily_task_eval.experiment_presets import build_configs_from_args, describe_experiments_text
-from browser_use.experiments.daily_task_eval.models import TaskCard, load_json_model_list, write_json
+from browser_use.experiments.daily_task_eval.models import AgentRunSummary, TaskCard, load_json_model_list, write_json
 from browser_use.experiments.daily_task_eval.runner import compare_all, init_experiment, run_agent_task
 
 
@@ -34,6 +36,17 @@ def _apply_log_level(log_level: str | None) -> None:
 	setup_logging(log_level=log_level, force_setup=True)
 
 
+def _parse_use_vision_cli(value: str) -> Literal['auto', True, False]:
+	"""Maps ``--use-vision`` string to ``ExecutorConfig.use_vision``."""
+	if value == 'auto':
+		return 'auto'
+	if value == 'true':
+		return True
+	if value == 'false':
+		return False
+	raise ValueError(f'Invalid --use-vision: {value!r}')
+
+
 async def run_agent_command(args: argparse.Namespace) -> None:
 	_apply_log_level(getattr(args, 'log_level', None))
 	try:
@@ -41,6 +54,11 @@ async def run_agent_command(args: argparse.Namespace) -> None:
 	except ValueError as exc:
 		print(str(exc), file=sys.stderr)
 		raise SystemExit(2) from exc
+	if getattr(args, 'executor_use_vision', None) is not None:
+		executor_cfg = replace(
+			executor_cfg,
+			use_vision=_parse_use_vision_cli(args.executor_use_vision),
+		)
 
 	tasks = load_json_model_list(Path(args.task_cards), TaskCard)
 	selected_tasks = [task for task in tasks if args.task_id in (None, task.id)]
@@ -51,6 +69,9 @@ async def run_agent_command(args: argparse.Namespace) -> None:
 	existing_runs = []
 	if agent_runs_path.exists():
 		existing_runs = json.loads(agent_runs_path.read_text(encoding='utf-8'))
+
+	record_doc_path = Path(__file__).resolve().parent / 'EXPERIMENT_RECORD.md'
+	results_this_batch: list[AgentRunSummary] = []
 
 	for task in selected_tasks:
 		summary = await run_agent_task(
@@ -67,11 +88,19 @@ async def run_agent_command(args: argparse.Namespace) -> None:
 			step_timeout=args.step_timeout,
 			heartbeat_seconds=args.heartbeat_seconds,
 			max_failures=args.max_failures,
+			continuous_navigation=getattr(args, 'continuous_navigation', False),
 		)
+		results_this_batch.append(summary)
 		existing_runs.append(summary.model_dump(mode='json'))
 		write_json(agent_runs_path, existing_runs)
 		exp_note = f' [{experiment_id}]' if experiment_id else ''
-		print(f'Wrote Agent run summary for {task.id}/{args.scenario_id}{exp_note} to {agent_runs_path}')
+		print(f'已为 {task.id}/{args.scenario_id}{exp_note} 追加摘要 → {agent_runs_path}')
+
+	has_success = any(r.success is True for r in results_this_batch)
+	if has_success:
+		print(f'成功跑次的结构化结果已保存至上述文件（{agent_runs_path.resolve()}）。')
+		print(f'其中含 LLM 用量字段：usage_summary / usage_executor_llm / usage_navigator_cycle_llm / navigator_initial_plan_usage 等（见 DAILY_TASK_EXPERIMENT_GUIDE §1.1）。')
+		print(f'人读实验记录模板（按 A/B/C/D 分类表）请参考：{record_doc_path.resolve()}（请与本趟成功的跑次对齐后手工更新）。')
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -128,12 +157,35 @@ def build_parser() -> argparse.ArgumentParser:
 		help='Consecutive LLM parse / tool-call failures tolerated before Agent self-terminates. Default 3. Raise to 6–8 for Qwen tool-calling on large DOMs (the "failed to output in correct format for three consecutive attempts" symptom).',
 	)
 	run_parser.add_argument(
+		'--use-vision',
+		dest='executor_use_vision',
+		choices=['auto', 'true', 'false'],
+		default=None,
+		help=(
+			'Override executor screenshot/vision preset for this run (after --experiment resolution). '
+			'false: text-only Agent (recommended for heavy map SPAs). '
+			'auto: no per-step CDP state screenshots unless the screenshot tool was used (ChatBrowserUse); '
+			'OpenAI-compatible executors map auto→false anyway. '
+			'true: always capture state screenshots each step.'
+		),
+	)
+	run_parser.add_argument(
 		'--log-level',
 		choices=['debug', 'info', 'warning', 'result'],
 		default=None,
 		help='Override BROWSER_USE_LOGGING_LEVEL for this run. Use debug to see DOM/CDP/bubus event timings when steps stall.',
 	)
 	run_parser.add_argument('--headless', action='store_true')
+
+	run_parser.add_argument(
+		'--continuous-navigation',
+		action='store_true',
+		help=(
+			'Enable Agent periodic navigator guidance. Uses the same NavigatorConfig as the '
+			'initial LLM navigator plan (distinct executor LLM). Requires a preset/navigator '
+			'that enables the navigator.'
+		),
+	)
 
 	run_parser.add_argument(
 		'--experiment',

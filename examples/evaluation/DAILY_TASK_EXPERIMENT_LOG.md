@@ -20,6 +20,8 @@
 |------|-----------------|----------|------|--------------|---------------------|
 | 2026-05-08 | `shopping_price_compare`（京东） | C 等 | 未登录无法用搜索完整完成三项比价；Agent 在同一页面反复滚动、extract、`evaluate`，未尽快 `done(success=False)` | JD 对部分路径强依赖登录；任务未明确「登录墙即停」；模型倾向继续尝试 | 已加强 `task_cards.json`（搜索≤2次、首页只读备选、硬性停止）；`prompts.build_agent_task_prompt` 增加全局 **Hard stop**；新增 `failure_modes.jd_login_wall` |
 | 2026-05-08 | 同上（早期 Amazon） | D 等 | `ScreenshotWatchdog` 15s 超时、`CDP WebSocket` 断开、`Step timed out after 180s` | 重站点 + 大图 DOM + 截图链路过载；步级超时默认 180s | 可考虑换轻站或加大 `--llm-timeout` / 未来可加 `--step-timeout`；比价任务锚定京东见 `task_cards.json` |
+| 2026-05-14 | `nearby_hospital_phone_lookup`（百度地图 / 龙岗坂田） | **C** | **5** 步成功：`navigate`×2 → `input` → `click` → `done`；列表页即满足成功标准 | **无**领航短子目标（C）；**Early-finish** + 未切高德深挖 + Qwen **每步单动作** | 与 **D（17 步）** 对比时注明 URL 路径差异；见 **`EXPERIMENT_RECORD.md`** 时间线、`navigator-current-step-executor-subgoal.md` |
+| 2026-05-14 | 同上 | **D**（历史成功） | **17** 步：百度搜索畸形词、高德多点 POI | 多站深挖、验证路径长 | 若重跑 D，可叠加 **`--continuous-navigation`** + 短子目标以压缩迷路；artifact `20260509T064248Z` |
 
 ### `form_workflow`
 
@@ -42,12 +44,15 @@
 | 2026-05-08 | **A / B**（执行器 ChatBrowserUse） | `Free tier accounts are not allowed to use the LLM Gateway` | 免费 BU 账号禁止使用托管 LLM 网关 | 升级 [Cloud 订阅](https://cloud.browser-use.com/settings) 或改用 **C/D**（Qwen）等自备模型 |
 | 2026-05-08 | **C / D**（Qwen OpenAI 兼容） | `401 invalid_api_key` | 兼容模式 `base_url` 与国内/国际控制台 Key 地域不一致 | 国内百炼 Key 使用 **`https://dashscope.aliyuncs.com/compatible-mode/v1`**（代码与 CLI 默认已对齐） |
 | 2026-05-08 | **C / D** | `LLM call timed out after 75 seconds` | Agent 默认对非 DeepSeek/Gemini 类模型 LLM 超时偏短 | CLI 增加 **`--llm-timeout`**（默认 180），并传入 `Agent` |
+| 2026-05-08 | **C / D** | `ScreenshotWatchdog` / `captureScreenshot` 在百度地图等重 SPA 上频繁超时，前几步空转 | 重型页面 + 每步 CDP 状态截图链路慢 | **`run-agent --use-vision false`**（或按需 **`auto` / `true`**）；手册 **`DAILY_TASK_EXPERIMENT_GUIDE.md`** 步骤 4；详解 **`docs/issue-notes/heavy-spa-screenshot-timeouts.md`** |
+| 2026-05-14 | **B / D**（领航 + 可选 `--continuous-navigation`） | 执行者在长 `user_request` 里迷失、畸形 `navigate` URL、步数膨胀 | 仅开场静态 plan；战术目标未顶在「每步最前」 | 已加 **`<current_step_focus>`** 与执行者 **`<navigator_current_step>`**（见 **`docs/issue-notes/navigator-current-step-executor-subgoal.md`**、**`DAILY_TASK_EXPERIMENT_GUIDE.md` §1.2**）；周期领航仍用 **`--continuous-navigation`** |
+| 2026-05-14 | **C**（`nearby_hospital_phone_lookup` / normal） | 同任务较早期 **D（17 步）** 明显更少步即 `done` | **非**短子目标（C 无领航）；主因 **Early-finish** + 路径留在 **百度地图列表** + Qwen **单步单动作** | 写对比报告时勿把步数差单独归因于子目标；见 **`EXPERIMENT_RECORD.md`** 时间线第 2 行与 issue-note 文中「与效率的关系」 |
 
 ---
 
 ## 三、待定 / idea backlog（可选）
 
-- [ ] CLI 暴露 **`step_timeout`**，缓解「截图 + DOM」慢导致的整步 180s 爆掉。
+- [x] CLI 暴露 **`step_timeout`** → 已支持 **`--step-timeout`**。
 - [ ] `run-agent` 支持 `--starting-url` 注入所有任务前缀（便于统一锚定站点）。
 - [ ] 对 `shopping_*` 类任务自动生成「登录墙即失败」的子场景 `scenario_id`，便于报表对比。
 

@@ -1,15 +1,28 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from browser_use.experiments.daily_task_eval import models as daily_task_models
 from browser_use.experiments.daily_task_eval.executor import (
 	ExecutorConfig,
 	default_max_actions_per_step_for_executor,
 )
-from browser_use.experiments.daily_task_eval.experiment_presets import DailyExperimentId, build_configs_from_args, experiment_preset
+from browser_use.experiments.daily_task_eval.experiment_presets import (
+	DailyExperimentId,
+	build_configs_from_args,
+	experiment_preset,
+)
+from browser_use.experiments.daily_task_eval.models import TaskCard, write_json
 from browser_use.experiments.daily_task_eval.prompts import build_agent_task_prompt, build_navigator_prompt
-from browser_use.experiments.daily_task_eval.runner import compare_all, compare_runs, default_task_cards, init_experiment, summarize_history
-
+from browser_use.experiments.daily_task_eval.runner import (
+	compare_all,
+	compare_runs,
+	default_task_cards,
+	init_experiment,
+	run_agent_task,
+	summarize_history,
+)
 
 class FakeHistory:
 	def errors(self) -> list[str | None]:
@@ -59,6 +72,18 @@ def test_init_experiment_writes_task_and_human_baseline_templates(tmp_path):
 	assert len(task_cards) == 3
 	assert [run.task_id for run in human_runs] == [card.id for card in task_cards]
 	assert paths['agent_runs'].read_text(encoding='utf-8').strip() == '[]'
+
+
+def test_init_loads_existing_task_cards_when_present_without_overwrite(tmp_path):
+	"""If teammates copy a repo-tracked task_cards.json first, init must align human_runs."""
+	card = default_task_cards()[0].model_copy(update={'id': 'team_custom_task_only'})
+	write_json(tmp_path / 'task_cards.json', [card.model_dump(mode='json')], overwrite=True)
+	paths = init_experiment(tmp_path, overwrite=False)
+	task_cards = daily_task_models.load_json_model_list(paths['task_cards'], daily_task_models.TaskCard)
+	human_runs = daily_task_models.load_json_model_list(paths['human_runs'], daily_task_models.HumanRunRecord)
+	assert len(task_cards) == 1
+	assert task_cards[0].id == 'team_custom_task_only'
+	assert [run.task_id for run in human_runs] == ['team_custom_task_only']
 
 
 def test_build_agent_task_prompt_includes_failure_recovery_rules():
@@ -116,6 +141,36 @@ def test_build_agent_task_prompt_can_include_navigator_plan():
 	assert 'trust the live page state over stale assumptions' in prompt
 
 
+def test_build_agent_task_prompt_strips_current_step_focus_from_navigator_plan_body():
+	"""Executor-facing task text should not duplicate the XML focus block inside Navigator plan."""
+	task = default_task_cards()[0]
+	plan = (
+		'<current_step_focus>\n'
+		'Navigate to map.baidu.com in a new tab.\n'
+		'</current_step_focus>\n\n'
+		'## Assumptions\n'
+		'Network is CN.'
+	)
+	prompt = build_agent_task_prompt(task, navigator_plan=plan)
+
+	assert 'Navigator plan:' in prompt
+	assert '## Assumptions' in prompt
+	assert 'Network is CN.' in prompt
+	assert '<current_step_focus>' not in prompt
+	assert 'Navigate to map.baidu.com in a new tab.' not in prompt
+
+
+def test_extract_navigator_step_focus_parses_inner_text():
+	from browser_use.agent.message_manager.utils import extract_navigator_step_focus
+
+	raw = 'intro\n<current_step_focus>\nOne\nTwo\n</current_step_focus>\ntail'
+	focus, cleaned = extract_navigator_step_focus(raw)
+	assert focus == 'One\nTwo'
+	assert 'intro' in cleaned
+	assert 'tail' in cleaned
+	assert '<current_step_focus>' not in cleaned
+
+
 def test_build_navigator_prompt_is_planning_only():
 	task = default_task_cards()[0]
 
@@ -124,6 +179,7 @@ def test_build_navigator_prompt_is_planning_only():
 	assert 'You are the navigator, not the executor.' in prompt
 	assert 'Failure scenario under test: Page loading spinner does not disappear' in prompt
 	assert 'Stop conditions' in prompt
+	assert '<current_step_focus>' in prompt
 
 
 def test_summarize_history_extracts_comparable_agent_fields(tmp_path):
@@ -323,3 +379,47 @@ def test_compare_all_writes_report_for_multiple_agent_variants(tmp_path):
 	assert len(comparisons) == 2
 	assert {comparison.navigator_enabled for comparison in comparisons} == {False, True}
 	assert report_path.exists()
+
+
+def test_build_navigator_chat_model_requires_enabled():
+	with pytest.raises(ValueError, match='enabled=True'):
+		build_navigator_chat_model(NavigatorConfig(enabled=False))
+
+
+def test_build_navigator_chat_model_openai_compatible(monkeypatch):
+	monkeypatch.setenv('DASHSCOPE_API_KEY', 'dummy')
+	cfg = NavigatorConfig(enabled=True, model='qwen-test-nav', backend='openai_compatible')
+	llm = build_navigator_chat_model(cfg)
+	assert llm.model == 'qwen-test-nav'
+
+
+def test_build_navigator_chat_model_deepseek(monkeypatch):
+	monkeypatch.setenv('DEEPSEEK_API_KEY', 'dummy')
+	cfg = NavigatorConfig(
+		enabled=True,
+		model='deepseek-reasoner',
+		backend='deepseek',
+		api_key_env='DEEPSEEK_API_KEY',
+		base_url='https://api.deepseek.com/v1',
+	)
+	llm = build_navigator_chat_model(cfg)
+	assert llm.model == 'deepseek-reasoner'
+
+
+async def test_continuous_navigation_requires_navigator(tmp_path):
+	task = TaskCard(
+		id='t1',
+		name='test',
+		category='read_only_query',
+		task_prompt='open example',
+	)
+	with pytest.raises(ValueError, match='continuous_navigation requires'):
+		await run_agent_task(
+			task=task,
+			output_dir=tmp_path,
+			scenario_id='normal',
+			max_steps=1,
+			headless=True,
+			navigator_config=NavigatorConfig(enabled=False),
+			continuous_navigation=True,
+		)

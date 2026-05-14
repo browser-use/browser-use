@@ -13,20 +13,67 @@
 3. 用 **`run-agent`** 让 Browser Use **`Agent`** 自动执行任务；每种「实验配方」（A/B/C/D）对应不同的 **执行 LLM** 与是否启用 **领航员（navigator）**。
 4. 每次运行会向 **`agent_runs.json`** 追加一条结构化摘要，并在磁盘写入 **`history.json`**、**`conversation.json`** 等详细轨迹。
 5. 用 **`compare`** 读取任务卡、人工记录与 Agent 摘要，生成 **`comparison_report.json`**（差异与风险提示）。
+6. （可选）按预设 **A/B/C/D** 维护人读归档表 **`EXPERIMENT_RECORD.md`**（与结构化 **`agent_runs.json`** 区分）；其中 **成功跑次时间线** 汇总 `agent_runs.json` 内全部 **`success: true`**。当 **`run-agent`** 本趟存在 **`success: true`** 时，控制台会额外提示：**成功跑次的结构化结果路径**及 **该归档文档路径**，便于你对齐表格内容后手工更新。
+
+### 1.1 控制台 `cost` 日志、`🧠` / `🤖` 与本仓库 JSON 用量字段
+
+这些是 **`browser_use.tokens.TokenCost`** 打出来的（logger 名通常为 **`cost`**），用来区分 **单次调用**与**按模型 id 聚合**：
+
+| 形态 | 含义 |
+|------|------|
+| 带 `🧠` 的行（`model · 📥 · 📤`） | 单次 LLM **`ainvoke`** 的用量；`📥`≈prompt 侧、`📤`≈completion。可能是执行者、周期领航或其它已注册模型的某一次调用。 |
+| 带 `🤖` 的行（总 tokens、`📞` 调用次数、`📈`/call） | 对该 **模型字符串**（如 `qwen3-max`、`deepseek-chat`）的 **任务内累计**。若领航与执行者 **模型 id 相同**，日志里只会合并到同一 id，**不能单靠一行日志区分角色**；请用下面 **`agent_runs.json`** 拆分字段或在实验中用不同模型名。 |
+
+**`agent_runs.json`（本次 `run-agent`）在同一条记录中会多带：**
+
+| 字段 | 内容 |
+|------|------|
+| **`usage_summary`** | `history.usage` 全量：总 tokens / `by_model` 明细（`tokens.views.UsageSummary` 序列化）。 |
+| **`usage_executor_llm`** | `Agent.llm`（主执行回路；若 judge/extract 与执行者 **同模型 id** 会与执行者合计）。 |
+| **`usage_navigator_cycle_llm`** | 仅在 **`--continuous-navigation`** 且领航 **模型 id ≠** 执行者时：周期领航在 Agent 内产生的累计。 |
+| **`navigator_initial_plan_usage`** | 开场 **`navigator_plan`** 那一次 LLM 调用（不走 Agent TokenCost），原始 `usage`字典。 |
+| **`usage_auxiliary_llm_models`** | 其余已注册模型的 `by_model` 条目（例如单独配置了其它 `*_llm` 且模型 id 不同）。 |
+
+这些数据可直接用于事后 **按 preset / task 对齐比较 token 与调用次数**（费用需另配 `BROWSER_USE_CALCULATE_COST` 等与定价表）。
+
+### 1.2 领航短子目标：`<current_step_focus>` 与执行者 `<navigator_current_step>`
+
+为减轻「领航计划一大段埋在 `user_request` 里、执行者仍迷路」的问题，日常评测管线要求 **有领航** 时（`LLMNavigator.create_plan` 与 **`--continuous-navigation`** 周期回复）在全文 **最前**输出 **`<current_step_focus>...</current_step_focus>`**（1～3 行战术子目标，无 tool JSON）。运行时会：
+
+- 把解析出的文本写入 **`AgentState.navigator_executor_subgoal`**，并在 **每一步** 的 **`agent_state`** 顶部以 **`<navigator_current_step priority="highest">`** 展示，迫使模型优先对齐「下一步只做一件事」；
+- 从拼进任务的 **`Navigator plan:`** 段落中 **剔除** 该 XML 块，减少重复 token。
+
+**注意**：该机制主要服务 **B/D**；**C** 无领航时该顶栏为空。步数骤降常与 **Early-finish**、**站点路径**、**是否开 vision** 等共同作用，详见 **`docs/issue-notes/navigator-current-step-executor-subgoal.md`**。
 
 ---
 
 ## 二、环境与密钥（运行前必须）
 
+### 2.0 克隆后与可复现自检
+
+从远程克隆本仓库后，**不会**自带 `tmp/daily_task_eval/`（该目录通常在 `.gitignore` 中）。组员复现时请按顺序确认：
+
+1. `cd <你的克隆路径>/browser-use`（与 **`pyproject.toml`** 同级，下文称**仓库根目录**）。
+2. **`uv sync`**（Python **≥ 3.11**）；按需 **`uvx browser-use install`**。
+3. 在根目录创建 **`.env`**（勿提交），至少覆盖你将要跑的预设所需变量（见 **§2.3**）。
+4. **`uv run examples/evaluation/daily_task_comparison.py init`** 生成 `tmp/daily_task_eval/*.json` 模板。
+5. （可选）**`uv run pytest -q tests/ci/test_daily_task_comparison.py tests/ci/test_continuous_navigation.py`** 验证本机依赖与实验模块可导入。
+
+更短的「从克隆到 `compare`」清单见仓库根目录 **`README.md`** 的「从克隆到第一次出报告」一节。
+
 ### 2.1 工作目录
 
-始终在 **`browser-use-main` 仓库根目录** 下执行命令（与 **`pyproject.toml`** 同级），这样：
+始终在**仓库根目录**下执行命令（与 **`pyproject.toml`** 同级），这样：
 
 - 默认路径 **`./tmp/daily_task_eval`** 会落到仓库内的 `tmp/daily_task_eval/`；
 - 若你在项目根放了 **`.env`**，`run-agent` 内部会 **`load_dotenv()`** 加载密钥。
 
 ```powershell
-Set-Location d:\Agent\browser-use-main
+Set-Location <你的克隆路径>\browser-use
+```
+
+```bash
+cd /path/to/browser-use
 ```
 
 ### 2.2 Python 依赖
@@ -148,6 +195,8 @@ asyncio.run(main())
 
 ### 步骤 1：初始化实验目录与模板文件
 
+**组内共享任务卡（推荐）**：仓库跟踪 **`examples/evaluation/fixtures/task_cards.json`**。克隆后请先 **`mkdir tmp/daily_task_eval`**（若不存在），把该文件**复制**为 **`tmp/daily_task_eval/task_cards.json`**，再执行下面的 **`init`**（**勿**默认使用 **`--overwrite`**）。`init` 会读取已存在的 `task_cards.json`，并为缺失的 **`human_runs.json`** 生成与当前任务 id 对齐的占位；若你曾用旧任务卡跑过 `init`，替换任务卡后请**删除** `human_runs.json` 再 `init` 一次，以免 `task_id` 不一致。
+
 在仓库根目录执行：
 
 ```powershell
@@ -224,12 +273,27 @@ uv run examples/evaluation/daily_task_comparison.py run-agent --experiment D
 | **`--heartbeat-seconds N`** | runner 心跳频率（秒），默认 **30**。每隔 N 秒打印一行 `[eval-runner] ... heartbeat: total=…s step=… step_elapsed=…s url=…`；**0 关闭** |
 | **`--log-level {debug,info,warning,result}`** | 覆写 `BROWSER_USE_LOGGING_LEVEL`。**诊断 step 卡死时设为 `debug`**，可看到 DOM/CDP/bubus 事件耗时与 watchdog 警告 |
 | **`--max-failures N`** | LLM 解析 / tool-call 连续失败容忍次数，默认 **3**。**Qwen 在大 DOM 上 tool-calling 偶发坏 JSON**，可调到 **6–8** 给它更多重试机会 |
+| **`--use-vision {auto,true,false}`** | **覆盖本次 run 的执行器截图/视觉策略**（在 **`--experiment` 解析之后**再套上，不必改预设代码）。**`false`**：Agent **`use_vision=False`**，且不做每步 **CDP 状态截图**，适合 **`map.baidu.com` / `amap.com`** 等重型页面，减轻 **`ScreenshotWatchdog`** / **`captureScreenshot`** 拖死整条 **`BrowserStateRequest`**。**`auto`**：与 **`ExecutorConfig.use_vision='auto'`** 一致：ChatBrowserUse 为「仅在上一步用过 **`screenshot` 工具」时再进行状态截图」；OpenAI 兼容（Qwen）实验 harness 仍会像原来一样把 **`auto`** 映射成传给 Agent 的 **`False`**。**`true`**：每步都对浏览器状态做一次截图（多模态、负载最大）。原理与排查记录：**`docs/issue-notes/heavy-spa-screenshot-timeouts.md`** |
+| **`--continuous-navigation`** | **持续领航（周期）**：在 Agent 多步循环中按策略调用与开场 **`NavigatorConfig` / `LLMNavigator`** 同源的领航 LLM，并把短子目标顶在执行者 **`agent_state`** 前（与仅写入一次 **`navigator_plan.md`** 不同）。**仅适用于已启用领航员的预设**（如 **B、D**）；与 **A、C** 组合会因无领航员而报错退出。与 **`EXPERIMENT_RECORD.md`** 中「持续领航 = 是/否」对齐时务必注明本开关是否开启。 |
 | **`--headless`** | 无头浏览器 |
 
 示例（只跑指定任务、实验 D、无头）：
 
 ```powershell
 uv run examples/evaluation/daily_task_comparison.py run-agent --experiment D --task-id shopping_price_compare --headless
+```
+
+**持续领航**（**B / D** 示例；需已配置 DeepSeek 等领航密钥）：
+
+```powershell
+uv run examples/evaluation/daily_task_comparison.py run-agent --experiment D --continuous-navigation
+```
+
+在线地图或同类重 SPA（易触发截图看门狗超时）时可显式关视觉截图，例如：
+
+```powershell
+uv run examples/evaluation/daily_task_comparison.py run-agent `
+  --experiment C --task-id nearby_hospital_phone_lookup --use-vision false
 ```
 
 **注意**：**`agent_runs.json` 会累积追加**。同一任务同一 **`scenario_id`** 跑多次（例如 A 再跑 B），会产生多条记录；**`compare`** 会为匹配的每条 Agent 记录各生成一条对比（见下文）。
@@ -346,6 +410,8 @@ uv run examples/evaluation/daily_task_comparison.py compare `
 
 预设定义代码：**`browser_use/experiments/daily_task_eval/experiment_presets.py`** 中的 **`experiment_preset()`**。
 
+**与 `--continuous-navigation` 的关系**：上表只描述「谁当执行器 / 谁当领航员」。**B / D** 在默认 CLI 下仍会**先**写 **`navigator_plan.md`** 并注入上下文；是否在多步中**再**周期调用同一套领航配置，由 **`--continuous-navigation`** 单独决定。对比不同论文或内部结论时，请在 **`EXPERIMENT_RECORD.md`** 与原始命令行中显式标注是否开启持续领航（见该文档文首）。
+
 ---
 
 ## 七、常见问题
@@ -383,6 +449,10 @@ uv run examples/evaluation/daily_task_comparison.py compare `
    1. 加大重试上限：**`--max-failures 8`**，给 Qwen 更多机会随机成功
    2. 打开 debug 看 Qwen 真实输出：**`--log-level debug`**，搜索 `Could not parse model output` 或 `tool_calls` 行
    3. 切换更稳的 tool-calling 模型：换 **`--executor-model qwen-plus`** 或 **`--executor-model qwen3-coder-plus`**；或干脆换实验 **B（DeepSeek 领航 + ChatBrowserUse）**
+   4. 若任务会长时间停在百度地图等重页：加 **`--use-vision false`**，避免每步 CDP 状态截图与地图 WebGL/瓦片叠加导致超时（见常用参数表 **`--use-vision`**）
+
+10. **`continuous_navigation requires navigator_config.enabled=True`（或类似报错）**  
+   说明你对 **A** 或 **C** 加了 **`--continuous-navigation`**。该开关仅适用于 **B / D** 等「预设里已启用领航员」的组合；去掉开关或改用 **B / D**。
 
 ### 7.1 诊断卡死的 step（`Step N timed out` 排错三步法）
 
@@ -427,7 +497,7 @@ uv run examples/evaluation/daily_task_comparison.py run-agent `
 | `LLM call timed out after Ns` | **LLM 调用超时** | 同上 |
 | `EventBus_... handler ... has been running for >15s` | **浏览器/CDP 事件慢或死锁** | 看具体 handler 名（`on_NavigateToUrlEvent` / `on_ScreenshotEvent` / `on_BrowserStateRequestEvent`） |
 | `Navigation failed: net::ERR_NETWORK_CHANGED` 或 `ERR_TIMED_OUT` | **网络问题** | 重新连接 / 换网络；URL 是否被 **`%7D%7D`** 污染（见问题 7） |
-| `ScreenshotWatchdog` 相关警告 | **页面渲染太重 / 截图卡** | 加大 step timeout；或对该任务 **`--headless`** + 降低分辨率；或换更轻的目标站点 |
+| `ScreenshotWatchdog` 相关警告 | **页面渲染太重 / 截图卡** | 优先试 **`--use-vision false`**（见步骤 4 常用参数）；仍不够再加大 **`--step-timeout`**；或 **`--headless`** + 降低分辨率；或换更轻的目标站点 |
 | `dom` / `BrowserStateSummaryEvent` 长时间无回应 | **DOM 序列化慢**（页面 DOM 极大） | 在 task card 限制只在首页操作，避免进入产品列表瀑布流 |
 | `Cannot navigate - browser not connected` / `Agent focus target ... detached` | **浏览器进程崩溃 / 标签被关** | 可能是杀进程或 OOM；改 **`--headless`** + 减少并发任务 |
 
@@ -456,8 +526,13 @@ $env:OPENAI_LOG = "debug"   # ChatOpenAI / DashScope 兼容客户端
 | 用途 | 路径 |
 |------|------|
 | CLI 入口 | `examples/evaluation/daily_task_comparison.py` |
+| **论文框架（章节占位，与实现对齐）** | `examples/evaluation/PAPER_FRAMEWORK.md` |
 | 本手册 | `examples/evaluation/DAILY_TASK_EXPERIMENT_GUIDE.md` |
+| **`agent_runs.json` LLM 用量字段** | 见上文 **§1.1**（`usage_summary`、`usage_executor_llm`、`usage_navigator_cycle_llm` 等） |
+| **成功跑次人读归档（按 A/B/C/D 分表）** | `examples/evaluation/EXPERIMENT_RECORD.md` |
 | **实验问题与对策日志（按类别）** | `examples/evaluation/DAILY_TASK_EXPERIMENT_LOG.md` |
+| **组员最短复现路径（克隆 → init → run → compare）** | 仓库根目录 **`README.md`** |
+| 重型 SPA / 地图页与截图超时（问题记录） | `docs/issue-notes/heavy-spa-screenshot-timeouts.md` |
 | 实验包 | `browser_use/experiments/daily_task_eval/` |
 | 任务卡示例生成 | `runner.default_task_cards()` / `init` 写入的 JSON |
 

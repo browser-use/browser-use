@@ -88,6 +88,30 @@ class AgentRunSummary(BaseModel):
 	history_path: str
 	conversation_path: str
 
+	usage_summary: dict[str, Any] | None = Field(
+		default=None,
+		description='Agent `history.usage`: totals + `by_model` (see `tokens.views.UsageSummary`).',
+	)
+	usage_executor_llm: dict[str, Any] | None = Field(
+		default=None,
+		description='Subset of `by_model` for `Agent.llm` (executor loop; merges judge/extract if same model id).',
+	)
+	usage_navigator_cycle_llm: dict[str, Any] | None = Field(
+		default=None,
+		description=(
+			'Subset of `by_model` for in-Agent periodic `navigator_llm` when `--continuous-navigation`. '
+			'If navigator and executor share the same model string, omitted (ambiguous).'
+		),
+	)
+	usage_auxiliary_llm_models: dict[str, dict[str, Any]] | None = Field(
+		default=None,
+		description='Remaining `by_model` keys (e.g. extraction/judge/other registered LLMs).',
+	)
+	navigator_initial_plan_usage: dict[str, Any] | None = Field(
+		default=None,
+		description='Navigator `create_plan()` first LLM call (not in Agent TokenCost): raw `ChatInvokeUsage` dump.',
+	)
+
 
 class ComparisonRecord(BaseModel):
 	"""Human-vs-agent comparison for one task/scenario."""
