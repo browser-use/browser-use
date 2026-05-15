@@ -281,7 +281,19 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				# Strip thinking tags and markdown code fences before parsing JSON
+				# This handles models (e.g., MiniMax, DeepSeek) that output thinking tags like
+				# <think>...</think> before the JSON content, which would cause JSON parsing to fail
+				content = choice.message.content
+				content = re.sub(r'```json\s*', '', content)
+				content = re.sub(r'```\s*', '', content)
+				THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
+				content = re.sub(THINK_TAGS, '', content)
+				STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
+				content = re.sub(STRAY_CLOSE_TAG, '', content)
+				content = content.strip()
+
+				parsed = output_format.model_validate_json(content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
