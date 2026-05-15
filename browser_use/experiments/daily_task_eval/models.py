@@ -67,6 +67,10 @@ class AgentRunSummary(BaseModel):
 
 	task_id: str
 	scenario_id: str = 'normal'
+	task_category: TaskCategory | None = Field(
+		default=None,
+		description='`TaskCard.category` at run time; use for grouping and cross-class comparison.',
+	)
 	experiment_id: str | None = None
 	executor_backend: str | None = None
 	executor_model: str | None = None
@@ -113,6 +117,132 @@ class AgentRunSummary(BaseModel):
 	)
 
 
+class RunMetricStats(BaseModel):
+	"""Descriptive stats for one numeric series (e.g. wall time or token totals)."""
+
+	model_config = ConfigDict(extra='forbid')
+
+	n: int = Field(ge=0, description='Sample count (values present for this metric).')
+	mean: float | None = None
+	std: float | None = Field(default=None, description='Sample standard deviation; omitted when n < 2.')
+	min: float | None = None
+	max: float | None = None
+	median: float | None = None
+
+
+class ExperimentBucketRunStatistics(BaseModel):
+	"""Aggregates for one experiment id (or pooled bucket) inside a (task_id, scenario_id) group."""
+
+	model_config = ConfigDict(extra='forbid')
+
+	experiment_id: str | None = None
+	is_pooled: bool = Field(
+		default=False,
+		description='True when this row aggregates all runs in the task/scenario regardless of experiment_id.',
+	)
+	run_count: int = Field(ge=0)
+	success_true: int = Field(default=0, ge=0)
+	success_false: int = Field(default=0, ge=0)
+	success_unknown: int = Field(default=0, ge=0)
+	is_done_true: int = Field(default=0, ge=0)
+	is_done_false: int = Field(default=0, ge=0)
+	duration_wall_clock_fallback_runs: int = Field(
+		default=0,
+		ge=0,
+		description='Runs where `AgentRunSummary.duration_seconds` was <= 0 and wall-clock span was used instead.',
+	)
+	duration_seconds: RunMetricStats
+	number_of_steps: RunMetricStats
+	total_tokens: RunMetricStats | None = None
+	total_prompt_tokens: RunMetricStats | None = None
+	total_completion_tokens: RunMetricStats | None = None
+	llm_invocation_count: RunMetricStats | None = None
+	total_cost: RunMetricStats | None = None
+
+
+class AgentRunResourceSnapshot(BaseModel):
+	"""Per-run metrics for cross-experiment resource comparison (no human baseline required)."""
+
+	model_config = ConfigDict(extra='forbid')
+
+	experiment_id: str | None = None
+	started_at: str
+	finished_at: str
+	success: bool | None = None
+	is_done: bool = False
+	duration_seconds: float = 0.0
+	duration_used_wall_clock_fallback: bool = Field(
+		default=False,
+		description='True when `duration_seconds` was taken from finished_at−started_at because history duration was <= 0.',
+	)
+	number_of_steps: int = 0
+	executor_backend: str | None = None
+	executor_model: str | None = None
+	navigator_enabled: bool = False
+	navigator_model: str | None = None
+	history_path: str = ''
+	conversation_path: str = ''
+	total_tokens: int | None = Field(default=None, description='From `usage_summary.total_tokens` when present.')
+	total_cost: float | None = Field(default=None, description='From `usage_summary.total_cost` when present.')
+	total_prompt_tokens: int | None = None
+	total_completion_tokens: int | None = None
+	llm_invocation_count: int | None = Field(default=None, description='From `usage_summary.entry_count` when present.')
+
+
+class TaskScenarioResourceGroup(BaseModel):
+	"""All Agent runs for one (task_id, scenario_id), sorted by `started_at`, plus heuristic hints."""
+
+	model_config = ConfigDict(extra='forbid')
+
+	task_id: str
+	scenario_id: str
+	task_category: TaskCategory | None = None
+	snapshots: list[AgentRunResourceSnapshot] = Field(default_factory=list)
+	statistics_by_experiment: list[ExperimentBucketRunStatistics] = Field(
+		default_factory=list,
+		description='Per-experiment_id descriptive stats (duration, steps, tokens, costs) within this task/scenario.',
+	)
+	pooled_statistics: ExperimentBucketRunStatistics | None = Field(
+		default=None,
+		description='Same metrics as `statistics_by_experiment` but pooled over all runs in this task/scenario.',
+	)
+	analysis_hints: list[str] = Field(
+		default_factory=list,
+		description='English one-liners comparing runs in this group (cost, time, steps, tokens).',
+	)
+
+
+class ResourceGroupIndexEntry(BaseModel):
+	"""One row in `ExperimentResourceReport.groups_index`: which task/scenario each `groups[]` item is."""
+
+	model_config = ConfigDict(extra='forbid')
+
+	task_id: str
+	scenario_id: str
+	task_category: TaskCategory | None = None
+	snapshot_count: int = Field(ge=0, description='Number of Agent runs in the matching `groups[]` entry.')
+	experiment_ids: list[str | None] = Field(
+		default_factory=list,
+		description='Distinct `experiment_id` values in that group (sorted; null = unlabeled).',
+	)
+
+
+class ExperimentResourceReport(BaseModel):
+	"""Cross-experiment resource view derived from `agent_runs.json` (independent of human baselines)."""
+
+	model_config = ConfigDict(extra='forbid')
+
+	generated_at: str
+	groups_index: list[ResourceGroupIndexEntry] = Field(
+		default_factory=list,
+		description=(
+			'Table of contents with the same order as `groups`: scan this first to jump by task_id. '
+			'Order follows `task_cards` when that list is passed to the report builder; orphan runs use sorted keys.'
+		),
+	)
+	groups: list[TaskScenarioResourceGroup] = Field(default_factory=list)
+
+
 class ComparisonRecord(BaseModel):
 	"""Human-vs-agent comparison for one task/scenario."""
 
@@ -120,6 +250,10 @@ class ComparisonRecord(BaseModel):
 
 	task_id: str
 	scenario_id: str
+	task_category: TaskCategory | None = Field(
+		default=None,
+		description='From `TaskCard.category` for filtering comparison reports by task class.',
+	)
 	experiment_id: str | None = None
 	navigator_enabled: bool | None = None
 	navigator_model: str | None = None

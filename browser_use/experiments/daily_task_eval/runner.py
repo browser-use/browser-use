@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import csv
+import json
 import logging
+import statistics
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,16 +51,19 @@ async def _emit_heartbeat(
 		try:
 			session = getattr(agent, 'browser_session', None)
 			if session is not None:
-				focus = getattr(session, 'agent_focus', None)
-				if focus is not None:
-					cur_url = getattr(focus, 'url', '') or ''
-				if not cur_url:
-					tabs = getattr(session, 'tabs', None) or []
-					for tab in tabs:
-						url = getattr(tab, 'url', '') or ''
-						if url and not url.startswith(('edge://', 'about:', 'chrome://', 'data:')):
-							cur_url = url
-							break
+				sm = getattr(session, 'session_manager', None)
+				if sm is not None:
+					focused = sm.get_focused_target()
+					if focused is not None:
+						u = (focused.url or '').strip()
+						if u and not u.startswith(('edge://', 'about:', 'chrome://', 'data:')):
+							cur_url = u
+					if not cur_url:
+						for tab in sm.get_all_page_targets():
+							u = (getattr(tab, 'url', '') or '').strip()
+							if u and not u.startswith(('edge://', 'about:', 'chrome://', 'data:')):
+								cur_url = u
+								break
 		except Exception:
 			cur_url = ''
 		logger.info(
@@ -77,10 +83,17 @@ from .executor import (
 	default_use_vision_for_executor,
 )
 from .models import (
+	AgentRunResourceSnapshot,
 	AgentRunSummary,
 	ComparisonRecord,
+	ExperimentBucketRunStatistics,
+	ExperimentResourceReport,
 	HumanRunRecord,
+	ResourceGroupIndexEntry,
+	RunMetricStats,
 	TaskCard,
+	TaskCategory,
+	TaskScenarioResourceGroup,
 	load_json_model_list,
 	utc_now,
 	write_json,
@@ -261,6 +274,143 @@ def init_experiment(output_dir: Path, overwrite: bool = False) -> dict[str, Path
 	return paths
 
 
+def _parse_iso_datetime(value: str) -> datetime:
+	normalized = value.strip().replace('Z', '+00:00')
+	return datetime.fromisoformat(normalized)
+
+
+def _wall_clock_seconds(started_at: str, finished_at: str) -> float:
+	t0 = _parse_iso_datetime(started_at)
+	t1 = _parse_iso_datetime(finished_at)
+	return max(0.0, (t1 - t0).total_seconds())
+
+
+def _effective_duration_from_summary(run: AgentRunSummary) -> tuple[float, bool]:
+	"""Return (duration_seconds, used_wall_clock_fallback).
+
+	When Agent history reports non-positive duration (common on aborted runs), use wall clock
+	from ISO timestamps so resource reports and pooled statistics stay meaningful.
+	"""
+	if run.duration_seconds is not None and run.duration_seconds > 0:
+		return float(run.duration_seconds), False
+	return _wall_clock_seconds(run.started_at, run.finished_at), True
+
+
+def _run_metric_stats(values: list[float]) -> RunMetricStats:
+	n = len(values)
+	if n == 0:
+		return RunMetricStats(n=0)
+	mean_v = statistics.fmean(values)
+	std_v = float(statistics.stdev(values)) if n >= 2 else None
+	return RunMetricStats(
+		n=n,
+		mean=mean_v,
+		std=std_v,
+		min=float(min(values)),
+		max=float(max(values)),
+		median=float(statistics.median(values)),
+	)
+
+
+def _optional_run_metric_stats(samples: list[int | float | None]) -> RunMetricStats | None:
+	xs: list[float] = []
+	for raw in samples:
+		if raw is None:
+			continue
+		xs.append(float(raw))
+	if not xs:
+		return None
+	return _run_metric_stats(xs)
+
+
+def _build_experiment_bucket_statistics(
+	snapshots: list[AgentRunResourceSnapshot],
+	*,
+	experiment_id: str | None,
+	is_pooled: bool,
+) -> ExperimentBucketRunStatistics:
+	assert snapshots
+	s_true = s_false = s_unk = 0
+	for s in snapshots:
+		if s.success is True:
+			s_true += 1
+		elif s.success is False:
+			s_false += 1
+		else:
+			s_unk += 1
+	d_true = sum(1 for s in snapshots if s.is_done)
+	d_false = len(snapshots) - d_true
+	fallback_runs = sum(1 for s in snapshots if s.duration_used_wall_clock_fallback)
+	dur_vals = [float(s.duration_seconds) for s in snapshots]
+	step_vals = [float(s.number_of_steps) for s in snapshots]
+	return ExperimentBucketRunStatistics(
+		experiment_id=experiment_id,
+		is_pooled=is_pooled,
+		run_count=len(snapshots),
+		success_true=s_true,
+		success_false=s_false,
+		success_unknown=s_unk,
+		is_done_true=d_true,
+		is_done_false=d_false,
+		duration_wall_clock_fallback_runs=fallback_runs,
+		duration_seconds=_run_metric_stats(dur_vals),
+		number_of_steps=_run_metric_stats(step_vals),
+		total_tokens=_optional_run_metric_stats([s.total_tokens for s in snapshots]),
+		total_prompt_tokens=_optional_run_metric_stats([s.total_prompt_tokens for s in snapshots]),
+		total_completion_tokens=_optional_run_metric_stats([s.total_completion_tokens for s in snapshots]),
+		llm_invocation_count=_optional_run_metric_stats([s.llm_invocation_count for s in snapshots]),
+		total_cost=_optional_run_metric_stats([s.total_cost for s in snapshots]),
+	)
+
+
+def _task_scenario_statistics(
+	snapshots: list[AgentRunResourceSnapshot],
+) -> tuple[list[ExperimentBucketRunStatistics], ExperimentBucketRunStatistics | None]:
+	from collections import defaultdict
+
+	if not snapshots:
+		return [], None
+	by_key: dict[str, list[AgentRunResourceSnapshot]] = defaultdict(list)
+	for s in snapshots:
+		k = s.experiment_id if s.experiment_id is not None else ''
+		by_key[k].append(s)
+
+	def sort_key(item: tuple[str, list[AgentRunResourceSnapshot]]) -> tuple[int, str]:
+		key, _ = item
+		return (0 if key else 1, key)
+
+	rows: list[ExperimentBucketRunStatistics] = []
+	for key, subs in sorted(by_key.items(), key=sort_key):
+		eid = key if key else None
+		rows.append(_build_experiment_bucket_statistics(subs, experiment_id=eid, is_pooled=False))
+	pooled = _build_experiment_bucket_statistics(snapshots, experiment_id=None, is_pooled=True)
+	return rows, pooled
+
+
+def _distinct_experiment_ids(snapshots: list[AgentRunResourceSnapshot]) -> list[str | None]:
+	return sorted({s.experiment_id for s in snapshots}, key=lambda e: (e is None, e or ''))
+
+
+def _ordered_task_scenario_keys(
+	tasks: list[TaskCard],
+	grouped: dict[tuple[str, str], list[AgentRunSummary]],
+) -> list[tuple[str, str]]:
+	"""Order (task_id, scenario_id) like compare_all: follow task_cards, then append orphan keys sorted."""
+
+	seen: set[tuple[str, str]] = set()
+	out: list[tuple[str, str]] = []
+	for task in tasks:
+		scenario_ids = {'normal', *(mode.id for mode in task.failure_modes)}
+		for scenario_id in sorted(scenario_ids):
+			key = (task.id, scenario_id)
+			if key in grouped:
+				out.append(key)
+				seen.add(key)
+	for key in sorted(k for k in grouped.keys() if k not in seen):
+		out.append(key)
+	return out
+
+
 def _llm_usage_for_agent_run_summary(
 	agent: Any | None,
 	history: Any,
@@ -320,6 +470,7 @@ def summarize_history(
 	history_path: Path,
 	conversation_path: Path,
 	*,
+	task_category: TaskCategory | None = None,
 	experiment_id: str | None = None,
 	executor_backend: str | None = None,
 	executor_model: str | None = None,
@@ -335,6 +486,7 @@ def summarize_history(
 	return AgentRunSummary(
 		task_id=task_id,
 		scenario_id=scenario_id,
+		task_category=task_category,
 		experiment_id=experiment_id,
 		executor_backend=executor_backend,
 		executor_model=executor_model,
@@ -493,6 +645,7 @@ async def run_agent_task(
 			history=history,
 			task_id=task.id,
 			scenario_id=scenario_id,
+			task_category=task.category,
 			navigator_enabled=navigator is not None,
 			navigator_model=(nav_cfg.model if nav_cfg.enabled else None),
 			navigator_plan_path=navigator_plan_path if navigator_plan else None,
@@ -567,6 +720,7 @@ def compare_runs(task: TaskCard, human: HumanRunRecord | None, agent: AgentRunSu
 	return ComparisonRecord(
 		task_id=task.id,
 		scenario_id=(human.scenario_id if human else agent.scenario_id if agent else 'normal'),
+		task_category=task.category,
 		experiment_id=agent.experiment_id if agent else None,
 		navigator_enabled=agent.navigator_enabled if agent else None,
 		navigator_model=agent.navigator_model if agent else None,
@@ -610,7 +764,169 @@ def index_by_task_and_scenario(records: list[Any]) -> dict[tuple[str, str], Any]
 	return index
 
 
-def compare_all(task_cards_path: Path, human_runs_path: Path, agent_runs_path: Path, output_path: Path) -> list[ComparisonRecord]:
+def _usage_dict_int(usage: dict[str, Any] | None, key: str) -> int | None:
+	if not isinstance(usage, dict):
+		return None
+	val = usage.get(key)
+	if val is None:
+		return None
+	try:
+		return int(val)
+	except (TypeError, ValueError):
+		return None
+
+
+def _usage_dict_float(usage: dict[str, Any] | None, key: str) -> float | None:
+	if not isinstance(usage, dict):
+		return None
+	val = usage.get(key)
+	if val is None:
+		return None
+	try:
+		return float(val)
+	except (TypeError, ValueError):
+		return None
+
+
+def resource_snapshot_from_agent(agent: AgentRunSummary) -> AgentRunResourceSnapshot:
+	usage = agent.usage_summary if isinstance(agent.usage_summary, dict) else None
+	duration_seconds, wall_fb = _effective_duration_from_summary(agent)
+	return AgentRunResourceSnapshot(
+		experiment_id=agent.experiment_id,
+		started_at=agent.started_at,
+		finished_at=agent.finished_at,
+		success=agent.success,
+		is_done=agent.is_done,
+		duration_seconds=duration_seconds,
+		duration_used_wall_clock_fallback=wall_fb,
+		number_of_steps=agent.number_of_steps,
+		executor_backend=agent.executor_backend,
+		executor_model=agent.executor_model,
+		navigator_enabled=agent.navigator_enabled,
+		navigator_model=agent.navigator_model,
+		history_path=agent.history_path,
+		conversation_path=agent.conversation_path,
+		total_tokens=_usage_dict_int(usage, 'total_tokens'),
+		total_cost=_usage_dict_float(usage, 'total_cost'),
+		total_prompt_tokens=_usage_dict_int(usage, 'total_prompt_tokens'),
+		total_completion_tokens=_usage_dict_int(usage, 'total_completion_tokens'),
+		llm_invocation_count=_usage_dict_int(usage, 'entry_count'),
+	)
+
+
+def _resource_analysis_hints(snapshots: list[AgentRunResourceSnapshot]) -> list[str]:
+	"""Heuristic one-liners for comparing runs in the same (task_id, scenario_id) bucket."""
+
+	hints: list[str] = []
+	if len(snapshots) < 2:
+		hints.append(
+			'Fewer than two Agent runs in this bucket: re-run with different --experiment (A/B/C/D) '
+			'to compare cost, tokens, wall time, and step counts side-by-side.'
+		)
+		return hints
+
+	with_cost = [s for s in snapshots if s.total_cost is not None]
+	if len(with_cost) >= 2:
+		lo = min(with_cost, key=lambda s: s.total_cost or 0.0)
+		hi = max(with_cost, key=lambda s: s.total_cost or 0.0)
+		if lo.total_cost == hi.total_cost:
+			hints.append(
+				f'All runs with cost data share total_cost={lo.total_cost}; trajectories or pricing may be identical.'
+			)
+		else:
+			hints.append(
+				f'Lowest total_cost: experiment_id={lo.experiment_id!r} total_cost={lo.total_cost} '
+				f'steps={lo.number_of_steps} started_at={lo.started_at}; '
+				f'highest: experiment_id={hi.experiment_id!r} total_cost={hi.total_cost} steps={hi.number_of_steps}'
+			)
+	else:
+		hints.append(
+			'Missing usage_summary.total_cost on most runs: compare duration_seconds and number_of_steps only, '
+			'or ensure runs record usage (see DAILY_TASK_EXPERIMENT_GUIDE §1.1).'
+		)
+
+	lo_d = min(snapshots, key=lambda s: s.duration_seconds)
+	hi_d = max(snapshots, key=lambda s: s.duration_seconds)
+	if lo_d.duration_seconds != hi_d.duration_seconds:
+		hints.append(
+			f'Wall-clock: fastest experiment_id={lo_d.experiment_id!r} duration_seconds={lo_d.duration_seconds}; '
+			f'slowest experiment_id={hi_d.experiment_id!r} duration_seconds={hi_d.duration_seconds}'
+		)
+
+	lo_st = min(snapshots, key=lambda s: s.number_of_steps)
+	hi_st = max(snapshots, key=lambda s: s.number_of_steps)
+	if lo_st.number_of_steps != hi_st.number_of_steps:
+		hints.append(
+			f'Steps: fewest experiment_id={lo_st.experiment_id!r} number_of_steps={lo_st.number_of_steps}; '
+			f'most experiment_id={hi_st.experiment_id!r} number_of_steps={hi_st.number_of_steps}'
+		)
+
+	with_tok = [s for s in snapshots if s.total_tokens is not None]
+	if len(with_tok) >= 2:
+		lo_t = min(with_tok, key=lambda s: s.total_tokens or 0)
+		hi_t = max(with_tok, key=lambda s: s.total_tokens or 0)
+		if lo_t.total_tokens != hi_t.total_tokens:
+			hints.append(
+				f'Total LLM tokens: min experiment_id={lo_t.experiment_id!r} total_tokens={lo_t.total_tokens}; '
+				f'max experiment_id={hi_t.experiment_id!r} total_tokens={hi_t.total_tokens}'
+			)
+
+	return hints
+
+
+def build_experiment_resource_report(
+	agent_runs: list[AgentRunSummary],
+	tasks: list[TaskCard],
+) -> ExperimentResourceReport:
+	"""Group `agent_runs` by (task_id, scenario_id) for A/B/C/D-style resource comparison without human data."""
+
+	from collections import defaultdict
+
+	task_cat: dict[str, TaskCategory] = {t.id: t.category for t in tasks}
+	grouped: dict[tuple[str, str], list[AgentRunSummary]] = defaultdict(list)
+	for run in agent_runs:
+		grouped[(run.task_id, run.scenario_id)].append(run)
+
+	groups: list[TaskScenarioResourceGroup] = []
+	groups_index: list[ResourceGroupIndexEntry] = []
+	for task_id, scenario_id in _ordered_task_scenario_keys(tasks, grouped):
+		runs = sorted(grouped[(task_id, scenario_id)], key=lambda r: r.started_at)
+		category = task_cat.get(task_id)
+		if category is None and runs:
+			category = runs[0].task_category
+		snapshots = [resource_snapshot_from_agent(r) for r in runs]
+		stats_rows, pooled = _task_scenario_statistics(snapshots)
+		group = TaskScenarioResourceGroup(
+			task_id=task_id,
+			scenario_id=scenario_id,
+			task_category=category,
+			snapshots=snapshots,
+			statistics_by_experiment=stats_rows,
+			pooled_statistics=pooled,
+			analysis_hints=_resource_analysis_hints(snapshots),
+		)
+		groups.append(group)
+		groups_index.append(
+			ResourceGroupIndexEntry(
+				task_id=task_id,
+				scenario_id=scenario_id,
+				task_category=category,
+				snapshot_count=len(snapshots),
+				experiment_ids=_distinct_experiment_ids(snapshots),
+			)
+		)
+	return ExperimentResourceReport(generated_at=utc_now(), groups_index=groups_index, groups=groups)
+
+
+def compare_all(
+	task_cards_path: Path,
+	human_runs_path: Path,
+	agent_runs_path: Path,
+	output_path: Path,
+	*,
+	resource_report_path: Path | None = None,
+	skip_resource_report: bool = False,
+) -> list[ComparisonRecord]:
 	tasks = load_json_model_list(task_cards_path, TaskCard)
 	human_runs = index_by_task_and_scenario(load_json_model_list(human_runs_path, HumanRunRecord))
 	agent_runs = load_json_model_list(agent_runs_path, AgentRunSummary)
@@ -628,5 +944,281 @@ def compare_all(task_cards_path: Path, human_runs_path: Path, agent_runs_path: P
 				comparisons.append(compare_runs(task, human, None))
 
 	write_json(output_path, [comparison.model_dump(mode='json') for comparison in comparisons])
+	if not skip_resource_report:
+		res_path = resource_report_path or output_path.with_name('experiment_resource_report.json')
+		res_report = build_experiment_resource_report(agent_runs, tasks)
+		write_json(res_path, res_report.model_dump(mode='json'))
 	return comparisons
+
+
+def _csv_cell(v: object) -> str:
+	if v is None:
+		return ''
+	if isinstance(v, bool):
+		return 'true' if v else 'false'
+	return str(v)
+
+
+def _stats_bucket_experiment_label_csv(bucket: ExperimentBucketRunStatistics) -> str:
+	"""Label for `stats_experiment_id` in CSV (non-empty so Excel does not shift `read_only_query` into wrong columns)."""
+
+	if bucket.is_pooled:
+		return '(pooled)'
+	if bucket.experiment_id is None:
+		return '(unlabeled)'
+	return str(bucket.experiment_id)
+
+
+def _run_metric_stat_cells(stats: RunMetricStats | None) -> list[str]:
+	if stats is None:
+		return [''] * 6
+
+	def cell_num(v: float | None) -> str:
+		if v is None:
+			return ''
+		return str(v)
+
+	return [
+		str(stats.n),
+		cell_num(stats.mean),
+		cell_num(stats.std),
+		cell_num(stats.min),
+		cell_num(stats.max),
+		cell_num(stats.median),
+	]
+
+
+def _metric_csv_headers(prefix: str) -> list[str]:
+	return [
+		f'{prefix}_n',
+		f'{prefix}_mean',
+		f'{prefix}_std',
+		f'{prefix}_min',
+		f'{prefix}_max',
+		f'{prefix}_median',
+	]
+
+
+def export_experiment_resource_report_to_csv(
+	report_path: Path,
+	runs_csv: Path,
+	stats_csv: Path,
+) -> tuple[Path, Path]:
+	"""Write flattened per-run rows and per-bucket statistics from ``experiment_resource_report.json``."""
+
+	report = ExperimentResourceReport.model_validate(json.loads(report_path.read_text(encoding='utf-8')))
+	runs_csv.parent.mkdir(parents=True, exist_ok=True)
+	stats_csv.parent.mkdir(parents=True, exist_ok=True)
+
+	run_headers = [
+		'task_id',
+		'scenario_id',
+		'task_category',
+		'experiment_id',
+		'started_at',
+		'finished_at',
+		'success',
+		'is_done',
+		'duration_seconds',
+		'duration_used_wall_clock_fallback',
+		'number_of_steps',
+		'executor_backend',
+		'executor_model',
+		'navigator_enabled',
+		'navigator_model',
+		'total_tokens',
+		'total_cost',
+		'total_prompt_tokens',
+		'total_completion_tokens',
+		'llm_invocation_count',
+		'history_path',
+		'conversation_path',
+	]
+
+	stat_headers = [
+		'task_id',
+		'scenario_id',
+		'task_category',
+		'stats_experiment_id',
+		'stats_is_pooled',
+		'run_count',
+		'success_true',
+		'success_false',
+		'success_unknown',
+		'is_done_true',
+		'is_done_false',
+		'duration_wall_clock_fallback_runs',
+		*_metric_csv_headers('duration_seconds'),
+		*_metric_csv_headers('number_of_steps'),
+		*_metric_csv_headers('total_tokens'),
+		*_metric_csv_headers('total_prompt_tokens'),
+		*_metric_csv_headers('total_completion_tokens'),
+		*_metric_csv_headers('llm_invocation_count'),
+		*_metric_csv_headers('total_cost'),
+	]
+
+	with runs_csv.open('w', encoding='utf-8', newline='') as run_f:
+		run_writer = csv.writer(run_f)
+		run_writer.writerow(run_headers)
+		for group in report.groups:
+			for snap in group.snapshots:
+				run_writer.writerow(
+					[
+						group.task_id,
+						group.scenario_id,
+						_csv_cell(group.task_category),
+						_csv_cell(snap.experiment_id),
+						snap.started_at,
+						snap.finished_at,
+						_csv_cell(snap.success),
+						_csv_cell(snap.is_done),
+						_csv_cell(snap.duration_seconds),
+						_csv_cell(snap.duration_used_wall_clock_fallback),
+						snap.number_of_steps,
+						_csv_cell(snap.executor_backend),
+						_csv_cell(snap.executor_model),
+						_csv_cell(snap.navigator_enabled),
+						_csv_cell(snap.navigator_model),
+						_csv_cell(snap.total_tokens),
+						_csv_cell(snap.total_cost),
+						_csv_cell(snap.total_prompt_tokens),
+						_csv_cell(snap.total_completion_tokens),
+						_csv_cell(snap.llm_invocation_count),
+						snap.history_path,
+						snap.conversation_path,
+					]
+				)
+
+	with stats_csv.open('w', encoding='utf-8', newline='') as stat_f:
+		stat_writer = csv.writer(stat_f)
+		stat_writer.writerow(stat_headers)
+		for group in report.groups:
+			for bucket in group.statistics_by_experiment:
+				stat_writer.writerow(
+					[
+						group.task_id,
+						group.scenario_id,
+						_csv_cell(group.task_category),
+						_stats_bucket_experiment_label_csv(bucket),
+						_csv_cell(bucket.is_pooled),
+						bucket.run_count,
+						bucket.success_true,
+						bucket.success_false,
+						bucket.success_unknown,
+						bucket.is_done_true,
+						bucket.is_done_false,
+						bucket.duration_wall_clock_fallback_runs,
+						*_run_metric_stat_cells(bucket.duration_seconds),
+						*_run_metric_stat_cells(bucket.number_of_steps),
+						*_run_metric_stat_cells(bucket.total_tokens),
+						*_run_metric_stat_cells(bucket.total_prompt_tokens),
+						*_run_metric_stat_cells(bucket.total_completion_tokens),
+						*_run_metric_stat_cells(bucket.llm_invocation_count),
+						*_run_metric_stat_cells(bucket.total_cost),
+					]
+				)
+			if group.pooled_statistics is not None:
+				p = group.pooled_statistics
+				stat_writer.writerow(
+					[
+						group.task_id,
+						group.scenario_id,
+						_csv_cell(group.task_category),
+						_stats_bucket_experiment_label_csv(p),
+						_csv_cell(p.is_pooled),
+						p.run_count,
+						p.success_true,
+						p.success_false,
+						p.success_unknown,
+						p.is_done_true,
+						p.is_done_false,
+						p.duration_wall_clock_fallback_runs,
+						*_run_metric_stat_cells(p.duration_seconds),
+						*_run_metric_stat_cells(p.number_of_steps),
+						*_run_metric_stat_cells(p.total_tokens),
+						*_run_metric_stat_cells(p.total_prompt_tokens),
+						*_run_metric_stat_cells(p.total_completion_tokens),
+						*_run_metric_stat_cells(p.llm_invocation_count),
+						*_run_metric_stat_cells(p.total_cost),
+					]
+				)
+
+	return runs_csv, stats_csv
+
+
+def export_agent_runs_to_csv(agent_runs_path: Path, output_csv: Path) -> Path:
+	"""One row per ``AgentRunSummary`` in ``agent_runs.json`` (wide scalar columns; lists joined with ``|``)."""
+
+	agents = load_json_model_list(agent_runs_path, AgentRunSummary)
+	output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+	headers = [
+		'task_id',
+		'scenario_id',
+		'task_category',
+		'experiment_id',
+		'executor_backend',
+		'executor_model',
+		'navigator_backend',
+		'navigator_enabled',
+		'navigator_model',
+		'navigator_plan_path',
+		'started_at',
+		'finished_at',
+		'success',
+		'is_done',
+		'duration_seconds',
+		'number_of_steps',
+		'action_names',
+		'errors',
+		'urls',
+		'screenshot_paths',
+		'final_result',
+		'history_path',
+		'conversation_path',
+		'usage_total_tokens',
+		'usage_total_cost',
+		'usage_entry_count',
+	]
+
+	with output_csv.open('w', encoding='utf-8', newline='') as f:
+		w = csv.writer(f)
+		w.writerow(headers)
+		for a in agents:
+			usage = a.usage_summary if isinstance(a.usage_summary, dict) else None
+			ut = usage.get('total_tokens') if usage else None
+			uc = usage.get('total_cost') if usage else None
+			ue = usage.get('entry_count') if usage else None
+			w.writerow(
+				[
+					a.task_id,
+					a.scenario_id,
+					_csv_cell(a.task_category),
+					_csv_cell(a.experiment_id),
+					_csv_cell(a.executor_backend),
+					_csv_cell(a.executor_model),
+					_csv_cell(a.navigator_backend),
+					_csv_cell(a.navigator_enabled),
+					_csv_cell(a.navigator_model),
+					_csv_cell(a.navigator_plan_path),
+					a.started_at,
+					a.finished_at,
+					_csv_cell(a.success),
+					_csv_cell(a.is_done),
+					_csv_cell(a.duration_seconds),
+					a.number_of_steps,
+					'|'.join(a.action_names),
+					'|'.join(a.errors),
+					'|'.join(a.urls),
+					'|'.join(a.screenshot_paths),
+					_csv_cell(a.final_result),
+					a.history_path,
+					a.conversation_path,
+					_csv_cell(ut),
+					_csv_cell(uc),
+					_csv_cell(ue),
+				]
+			)
+
+	return output_csv
 

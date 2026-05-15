@@ -15,10 +15,11 @@ Presets (matches tmp doc intent):
 
 from __future__ import annotations
 
+from dataclasses import replace
 from enum import Enum
 from typing import Any
 
-from .executor import ExecutorConfig
+from .executor import DEFAULT_GEMINI_MODEL, ExecutorConfig, resolve_openai_compatible_credentials
 from .navigator import NavigatorConfig
 
 DEFAULT_QWEN_MODEL = 'qwen3-max'
@@ -101,35 +102,76 @@ def experiment_preset(experiment: DailyExperimentId) -> tuple[ExecutorConfig, Na
 	raise ValueError(f'Unknown experiment: {experiment}')
 
 
+def _executor_config_from_cli(
+	executor_backend: str,
+	executor_model: str | None,
+	raw_executor_api_key_env: str | None,
+	raw_executor_base_url: str | None,
+) -> ExecutorConfig:
+	if executor_backend == 'chat_browser_use':
+		return ExecutorConfig(
+			backend='chat_browser_use',
+			model=executor_model or 'bu-latest',
+			use_vision='auto',
+		)
+	if executor_backend == 'google':
+		api_key_env = raw_executor_api_key_env if raw_executor_api_key_env is not None else 'GOOGLE_API_KEY'
+		return ExecutorConfig(
+			backend='google',
+			model=executor_model or DEFAULT_GEMINI_MODEL,
+			api_key_env=api_key_env,
+			use_vision='auto',
+		)
+	m = executor_model or DEFAULT_QWEN_MODEL
+	api_key_env, base_url = resolve_openai_compatible_credentials(m, raw_executor_api_key_env, raw_executor_base_url)
+	return ExecutorConfig(
+		backend='openai_compatible',
+		model=m,
+		api_key_env=api_key_env,
+		base_url=base_url,
+		use_vision='auto',
+	)
+
+
 def build_configs_from_args(args: Any) -> tuple[ExecutorConfig, NavigatorConfig, str | None]:
 	"""Build executor/navigator from CLI. Returns (executor, navigator, experiment_id_or_none)."""
+
+	executor_backend_cli = getattr(args, 'executor_backend', None)
+	executor_model = getattr(args, 'executor_model', None)
+	raw_executor_api_key_env = getattr(args, 'executor_api_key_env', None)
+	raw_executor_base_url = getattr(args, 'executor_base_url', None)
 
 	if getattr(args, 'experiment', None):
 		if getattr(args, 'use_navigator', False):
 			raise ValueError('--use-navigator cannot be combined with --experiment (preset defines navigator).')
 		exp = DailyExperimentId(args.experiment)
 		ex, nav = experiment_preset(exp)
+		if executor_backend_cli is not None:
+			ex = _executor_config_from_cli(
+				executor_backend_cli,
+				executor_model,
+				raw_executor_api_key_env,
+				raw_executor_base_url,
+			)
+		elif executor_model is not None:
+			if ex.backend == 'openai_compatible':
+				api_key_env, base_url = resolve_openai_compatible_credentials(
+					executor_model,
+					raw_executor_api_key_env,
+					raw_executor_base_url,
+				)
+				ex = replace(ex, model=executor_model, api_key_env=api_key_env, base_url=base_url)
+			else:
+				ex = replace(ex, model=executor_model)
 		return ex, nav, exp.value
 
-	executor_backend = getattr(args, 'executor_backend', None) or 'chat_browser_use'
-	executor_model = getattr(args, 'executor_model', None)
-	executor_api_key_env = getattr(args, 'executor_api_key_env', None) or 'DASHSCOPE_API_KEY'
-	executor_base_url = getattr(args, 'executor_base_url', None) or DASHSCOPE_CN_BASE_URL
-
-	if executor_backend == 'chat_browser_use':
-		ex = ExecutorConfig(
-			backend='chat_browser_use',
-			model=executor_model or 'bu-latest',
-			use_vision='auto',
-		)
-	else:
-		ex = ExecutorConfig(
-			backend='openai_compatible',
-			model=executor_model or DEFAULT_QWEN_MODEL,
-			api_key_env=executor_api_key_env,
-			base_url=executor_base_url,
-			use_vision='auto',
-		)
+	executor_backend = executor_backend_cli or 'chat_browser_use'
+	ex = _executor_config_from_cli(
+		executor_backend,
+		executor_model,
+		raw_executor_api_key_env,
+		raw_executor_base_url,
+	)
 
 	nav_backend = getattr(args, 'navigator_backend', None) or 'none'
 	if getattr(args, 'use_navigator', False) and nav_backend == 'none':

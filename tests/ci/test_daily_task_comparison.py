@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -6,7 +7,11 @@ import pytest
 from browser_use.experiments.daily_task_eval import models as daily_task_models
 from browser_use.experiments.daily_task_eval.executor import (
 	ExecutorConfig,
+	VOLCES_ARK_API_KEY_ENV,
+	VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL,
+	build_executor_llm,
 	default_max_actions_per_step_for_executor,
+	resolve_openai_compatible_credentials,
 )
 from browser_use.experiments.daily_task_eval.experiment_presets import (
 	DailyExperimentId,
@@ -14,15 +19,21 @@ from browser_use.experiments.daily_task_eval.experiment_presets import (
 	experiment_preset,
 )
 from browser_use.experiments.daily_task_eval.models import TaskCard, write_json
+from browser_use.experiments.daily_task_eval.navigator import NavigatorConfig, build_navigator_chat_model
 from browser_use.experiments.daily_task_eval.prompts import build_agent_task_prompt, build_navigator_prompt
 from browser_use.experiments.daily_task_eval.runner import (
+	build_experiment_resource_report,
 	compare_all,
 	compare_runs,
 	default_task_cards,
+	export_agent_runs_to_csv,
+	export_experiment_resource_report_to_csv,
 	init_experiment,
+	resource_snapshot_from_agent,
 	run_agent_task,
 	summarize_history,
 )
+
 
 class FakeHistory:
 	def errors(self) -> list[str | None]:
@@ -194,15 +205,52 @@ def test_summarize_history_extracts_comparable_agent_fields(tmp_path):
 		finished_at='2026-01-01T00:00:12+00:00',
 		history_path=tmp_path / 'history.json',
 		conversation_path=tmp_path / 'conversation.json',
+		task_category='read_only_query',
 	)
 
 	assert summary.success is True
+	assert summary.task_category == 'read_only_query'
 	assert summary.errors == ['temporary click failure']
 	assert summary.urls == ['https://example.test/start', 'https://example.test/done']
 	assert summary.screenshot_paths == ['screen-1.png']
 	assert summary.number_of_steps == 3
 	assert summary.navigator_enabled is True
 	assert summary.navigator_model == 'qwen3-max'
+
+
+def test_resource_snapshot_uses_wall_clock_when_history_duration_non_positive():
+	agent = daily_task_models.AgentRunSummary(
+		task_id='t1',
+		experiment_id='C',
+		started_at='2026-01-01T00:00:00+00:00',
+		finished_at='2026-01-01T00:03:00+00:00',
+		success=None,
+		is_done=False,
+		duration_seconds=0.0,
+		number_of_steps=7,
+		history_path='h.json',
+		conversation_path='c.json',
+	)
+	snap = resource_snapshot_from_agent(agent)
+	assert snap.duration_seconds == pytest.approx(180.0)
+	assert snap.duration_used_wall_clock_fallback is True
+
+
+def test_resource_snapshot_keeps_positive_history_duration():
+	agent = daily_task_models.AgentRunSummary(
+		task_id='t1',
+		started_at='2026-01-01T00:00:00+00:00',
+		finished_at='2026-01-01T00:10:00+00:00',
+		success=True,
+		is_done=True,
+		duration_seconds=42.5,
+		number_of_steps=3,
+		history_path='h.json',
+		conversation_path='c.json',
+	)
+	snap = resource_snapshot_from_agent(agent)
+	assert snap.duration_seconds == pytest.approx(42.5)
+	assert snap.duration_used_wall_clock_fallback is False
 
 
 def test_compare_runs_recommends_iteration_for_agent_failures():
@@ -230,6 +278,7 @@ def test_compare_runs_recommends_iteration_for_agent_failures():
 
 	comparison = compare_runs(task, human, agent)
 
+	assert comparison.task_category == task.category
 	assert 'agent_errors' in comparison.risk_flags
 	assert 'possible_repeated_action_loop' in comparison.risk_flags
 	assert any('Human succeeded but Agent did not' in difference for difference in comparison.differences)
@@ -332,6 +381,64 @@ def test_build_configs_use_navigator_selects_openai_compatible_backend():
 	assert nav.model == 'qwen-test'
 
 
+def test_resolve_openai_compatible_credentials_doubao_uses_volcengine_ark_defaults():
+	key, url = resolve_openai_compatible_credentials('doubao-seed-2-0-pro-260215', None, None)
+	assert key == VOLCES_ARK_API_KEY_ENV
+	assert url == VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL
+
+	key2, url2 = resolve_openai_compatible_credentials('ep-20250101-fake', None, None)
+	assert key2 == VOLCES_ARK_API_KEY_ENV
+	assert url2 == VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL
+
+
+def test_resolve_openai_compatible_credentials_qwen_defaults_to_dashscope():
+	key, url = resolve_openai_compatible_credentials('qwen3-max', None, None)
+	assert key == 'DASHSCOPE_API_KEY'
+	assert 'dashscope.aliyuncs.com' in url
+
+
+def test_experiment_d_with_doubao_model_only_sets_ark_without_extra_cli_flags():
+	import argparse
+
+	args = argparse.Namespace(
+		experiment='D',
+		use_navigator=False,
+		executor_backend=None,
+		executor_model='doubao-seed-2-0-pro-260215',
+		executor_api_key_env=None,
+		executor_base_url=None,
+		navigator_backend='none',
+		navigator_model=None,
+		navigator_api_key_env='DASHSCOPE_API_KEY',
+		navigator_base_url='https://dashscope.aliyuncs.com/compatible-mode/v1',
+		navigator_deepseek_api_key_env='DEEPSEEK_API_KEY',
+		navigator_deepseek_base_url='https://api.deepseek.com/v1',
+	)
+
+	ex, nav, exp_id = build_configs_from_args(args)
+
+	assert exp_id == 'D'
+	assert ex.model == 'doubao-seed-2-0-pro-260215'
+	assert ex.backend == 'openai_compatible'
+	assert ex.api_key_env == VOLCES_ARK_API_KEY_ENV
+	assert ex.base_url == VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL
+	assert nav.enabled and nav.backend == 'deepseek'
+
+
+def test_build_executor_llm_volcengine_ark_disables_response_format_json_schema(monkeypatch):
+	monkeypatch.setenv('ARK_API_KEY', 'test-ark-key-placeholder')
+	llm = build_executor_llm(
+		ExecutorConfig(
+			backend='openai_compatible',
+			model='doubao-seed-2-0-pro-260215',
+			api_key_env=VOLCES_ARK_API_KEY_ENV,
+			base_url=VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL,
+		)
+	)
+	assert llm.dont_force_structured_output is True
+	assert llm.add_schema_to_system_prompt is True
+
+
 def test_compare_all_writes_report_for_multiple_agent_variants(tmp_path):
 	task = default_task_cards()[0]
 	task_cards_path = tmp_path / 'task_cards.json'
@@ -379,6 +486,218 @@ def test_compare_all_writes_report_for_multiple_agent_variants(tmp_path):
 	assert len(comparisons) == 2
 	assert {comparison.navigator_enabled for comparison in comparisons} == {False, True}
 	assert report_path.exists()
+	resource_path = report_path.with_name('experiment_resource_report.json')
+	assert resource_path.exists()
+	res_doc = json.loads(resource_path.read_text(encoding='utf-8'))
+	assert res_doc['groups']
+	assert {g['task_id'] for g in res_doc['groups']} == {task.id}
+	assert len(res_doc['groups_index']) == 1
+	assert res_doc['groups_index'][0]['task_id'] == task.id
+	assert res_doc['groups_index'][0]['snapshot_count'] == 2
+	g0 = res_doc['groups'][0]
+	assert g0['statistics_by_experiment']
+	assert g0['pooled_statistics']['is_pooled'] is True
+
+
+def test_compare_all_skip_resource_report(tmp_path):
+	task = default_task_cards()[0]
+	task_cards_path = tmp_path / 'task_cards.json'
+	human_runs_path = tmp_path / 'human_runs.json'
+	agent_runs_path = tmp_path / 'agent_runs.json'
+	report_path = tmp_path / 'report.json'
+	daily_task_models.write_json(task_cards_path, [task.model_dump(mode='json')])
+	daily_task_models.write_json(human_runs_path, [])
+	daily_task_models.write_json(
+		agent_runs_path,
+		[
+			daily_task_models.AgentRunSummary(
+				task_id=task.id,
+				started_at='2026-01-01T00:00:00+00:00',
+				finished_at='2026-01-01T00:00:10+00:00',
+				success=True,
+				is_done=True,
+				duration_seconds=10,
+				number_of_steps=3,
+				history_path='history.json',
+				conversation_path='conversation.json',
+			).model_dump(mode='json')
+		],
+	)
+	compare_all(task_cards_path, human_runs_path, agent_runs_path, report_path, skip_resource_report=True)
+	assert not (report_path.with_name('experiment_resource_report.json')).exists()
+
+
+def test_build_experiment_resource_report_hints_cost_spread():
+	task = default_task_cards()[0]
+	agents = [
+		daily_task_models.AgentRunSummary(
+			task_id=task.id,
+			scenario_id='normal',
+			experiment_id='A',
+			started_at='2026-01-01T00:00:00+00:00',
+			finished_at='2026-01-01T00:01:00+00:00',
+			success=True,
+			is_done=True,
+			duration_seconds=100.0,
+			number_of_steps=10,
+			history_path='h1.json',
+			conversation_path='c1.json',
+			task_category=task.category,
+			usage_summary={
+				'total_tokens': 1000,
+				'total_cost': 0.01,
+				'total_prompt_tokens': 800,
+				'total_completion_tokens': 200,
+				'entry_count': 5,
+			},
+		),
+		daily_task_models.AgentRunSummary(
+			task_id=task.id,
+			scenario_id='normal',
+			experiment_id='B',
+			started_at='2026-01-02T00:00:00+00:00',
+			finished_at='2026-01-02T00:02:00+00:00',
+			success=True,
+			is_done=True,
+			duration_seconds=200.0,
+			number_of_steps=5,
+			history_path='h2.json',
+			conversation_path='c2.json',
+			task_category=task.category,
+			usage_summary={
+				'total_tokens': 2000,
+				'total_cost': 0.05,
+				'total_prompt_tokens': 1500,
+				'total_completion_tokens': 500,
+				'entry_count': 4,
+			},
+		),
+	]
+	report = build_experiment_resource_report(agents, [task])
+	assert len(report.groups) == 1
+	assert len(report.groups[0].snapshots) == 2
+	hints = ' '.join(report.groups[0].analysis_hints)
+	assert 'Lowest total_cost' in hints
+	assert 'experiment_id=' in hints
+
+	by_exp = report.groups[0].statistics_by_experiment
+	assert len(by_exp) == 2
+	row_a = next(r for r in by_exp if r.experiment_id == 'A')
+	row_b = next(r for r in by_exp if r.experiment_id == 'B')
+	assert row_a.is_pooled is False and row_b.is_pooled is False
+	assert row_a.run_count == 1 and row_b.run_count == 1
+	assert row_a.duration_seconds.mean == pytest.approx(100.0)
+	assert row_b.total_tokens is not None and row_b.total_tokens.mean == pytest.approx(2000.0)
+	assert row_b.total_tokens.std is None
+
+	pooled = report.groups[0].pooled_statistics
+	assert pooled is not None
+	assert pooled.is_pooled is True
+	assert pooled.run_count == 2
+	assert pooled.duration_seconds.n == 2
+	assert pooled.duration_seconds.mean == pytest.approx(150.0)
+	assert pooled.duration_seconds.std is not None
+	assert pooled.total_tokens is not None and pooled.total_tokens.mean == pytest.approx(1500.0)
+
+
+def test_build_experiment_resource_report_groups_index_follows_task_cards_order():
+	"""groups / groups_index order follows task_cards list, not alphabetical task_id."""
+	task_b = TaskCard(id='bbb_lookup', name='b', category='read_only_query', task_prompt='do b')
+	task_a = TaskCard(id='aaa_lookup', name='a', category='read_only_query', task_prompt='do a')
+	agents = [
+		daily_task_models.AgentRunSummary(
+			task_id='aaa_lookup',
+			scenario_id='normal',
+			experiment_id='C',
+			started_at='2026-01-02T00:00:00+00:00',
+			finished_at='2026-01-02T00:00:01+00:00',
+			success=True,
+			is_done=True,
+			duration_seconds=1.0,
+			number_of_steps=1,
+			history_path='h1.json',
+			conversation_path='c1.json',
+		),
+		daily_task_models.AgentRunSummary(
+			task_id='bbb_lookup',
+			scenario_id='normal',
+			experiment_id='D',
+			started_at='2026-01-01T00:00:00+00:00',
+			finished_at='2026-01-01T00:00:01+00:00',
+			success=True,
+			is_done=True,
+			duration_seconds=1.0,
+			number_of_steps=1,
+			history_path='h2.json',
+			conversation_path='c2.json',
+		),
+	]
+	report = build_experiment_resource_report(agents, [task_b, task_a])
+	assert [g.task_id for g in report.groups] == ['bbb_lookup', 'aaa_lookup']
+	assert [row.task_id for row in report.groups_index] == ['bbb_lookup', 'aaa_lookup']
+	assert report.groups_index[0].experiment_ids == ['D']
+	assert report.groups_index[1].experiment_ids == ['C']
+
+
+def test_export_experiment_resource_report_to_csv(tmp_path):
+	task = default_task_cards()[0]
+	agents = [
+		daily_task_models.AgentRunSummary(
+			task_id=task.id,
+			scenario_id='normal',
+			experiment_id='A',
+			started_at='2026-01-01T00:00:00+00:00',
+			finished_at='2026-01-01T00:01:00+00:00',
+			success=True,
+			is_done=True,
+			duration_seconds=10.0,
+			number_of_steps=2,
+			history_path='h.json',
+			conversation_path='c.json',
+			task_category=task.category,
+			usage_summary={'total_tokens': 100, 'total_cost': 0.0, 'entry_count': 2},
+		),
+	]
+	report = build_experiment_resource_report(agents, [task])
+	report_path = tmp_path / 'experiment_resource_report.json'
+	daily_task_models.write_json(report_path, report.model_dump(mode='json'))
+	runs_csv = tmp_path / 'out_runs.csv'
+	stats_csv = tmp_path / 'out_stats.csv'
+	export_experiment_resource_report_to_csv(report_path, runs_csv, stats_csv)
+	lines = runs_csv.read_text(encoding='utf-8').strip().splitlines()
+	assert len(lines) == 2
+	assert lines[0].startswith('task_id,')
+	assert task.id in lines[1]
+	stat_lines = stats_csv.read_text(encoding='utf-8').strip().splitlines()
+	assert len(stat_lines) >= 3
+	assert 'stats_is_pooled' in stat_lines[0]
+	assert any('(pooled)' in line for line in stat_lines[1:])
+
+
+def test_export_agent_runs_to_csv(tmp_path):
+	task = default_task_cards()[0]
+	agent = daily_task_models.AgentRunSummary(
+		task_id=task.id,
+		scenario_id='normal',
+		started_at='2026-01-01T00:00:00+00:00',
+		finished_at='2026-01-01T00:00:05+00:00',
+		success=False,
+		is_done=True,
+		duration_seconds=5.0,
+		number_of_steps=1,
+		action_names=['done'],
+		errors=['x'],
+		history_path='h.json',
+		conversation_path='c.json',
+	)
+	path = tmp_path / 'agent_runs.json'
+	daily_task_models.write_json(path, [agent.model_dump(mode='json')])
+	out = tmp_path / 'flat.csv'
+	export_agent_runs_to_csv(path, out)
+	rows = out.read_text(encoding='utf-8').strip().splitlines()
+	assert len(rows) == 2
+	assert 'usage_total_tokens' in rows[0]
+	assert 'done' in rows[1] and 'x' in rows[1]
 
 
 def test_build_navigator_chat_model_requires_enabled():

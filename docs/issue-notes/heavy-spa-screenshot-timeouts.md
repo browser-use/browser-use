@@ -28,6 +28,7 @@
 - 日常任务实验说明中已有「地图类站点截图昂贵、易触发截图看门狗超时」的提示，可与本记录对照。
 - 关闭截图不等于关闭 Agent：**领航（规划与工具调用）仍依赖 DOM/文本状态与其它工具**；在 Canvas 主导的页面上，单靠 DOM 可能信息不足，需与「换入口」策略一并考虑。
 - **领航短子目标**（`<current_step_focus>` / `<navigator_current_step>`）与「步数/迷路」另一类问题，见 **`docs/issue-notes/navigator-current-step-executor-subgoal.md`**。
+- **Qwen 结构化输出 / C vs D prompt 负载 / 论文表述注意**：见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
 
 ## 记录日期
 

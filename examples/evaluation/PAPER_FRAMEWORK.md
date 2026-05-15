@@ -1,7 +1,7 @@
 # 论文框架（Daily Task 对比实验 · 与代码对齐）
 
 > 用途：在正式跑完四项配方（A/B/C/D）并做统计分析之前，先把**叙事骨架、贡献点占位、与实现对应关系**固定下来；跑完后把 `[待填]` 换成数字/图表/引用即可。  
-> 关联仓库文档：`DAILY_TASK_EXPERIMENT_GUIDE.md`、`EXPERIMENT_RECORD.md`、`DAILY_TASK_EXPERIMENT_LOG.md`、`docs/issue-notes/*.md`。
+> 关联仓库文档：`DAILY_TASK_EXPERIMENT_GUIDE.md`、`EXPERIMENT_RECORD.md`、`DAILY_TASK_EXPERIMENT_LOG.md`、`docs/issue-notes/*.md`（含 **`openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**）。
 
 ---
 
@@ -195,7 +195,8 @@
 - 样本量与任务多样性 [待填]  
 - 用量字段在「同模型 id」时的不可分性 [待填，见指南 §1.1]  
 - 依赖特定商业 API / 地域 [待填]  
-- 人基线人数与一致性 [待填]
+- 人基线人数与一致性 [待填]  
+- **执行器结构化输出稳定性**：OpenAI 兼容（如 Qwen）与 **ChatBrowserUse** 在 **`AgentOutput` JSON 校验通过率** 上可能系统差异；**C vs D** 除模型外还混有 **领航全文进入 `user_request` 的 prompt 负载**，写「专用模型更优」类结论前须控制或披露（见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**）。
 
 ---
 
@@ -232,7 +233,8 @@
 - [ ] 凡写「子目标/持续领航 提升效率」，是否控制了 **URL 路径与 Early-finish**（见 LOG 与 issue-note）。  
 - [ ] 是否明确 **B 默认仅开场领航**，与 **B + continuous-navigation** 不是同一实验。  
 - [ ] `usage_*` 是否配套 **一张定义表 + 至少一张结果图**。  
-- [ ] 人基线与 Agent 是否 **同一 task 文案版本**。
+- [ ] 人基线与 Agent 是否 **同一 task 文案版本**。  
+- [ ] 凡写 **「ChatBrowserUse / BU 模型优于 Qwen」**，是否避免过强「微调/训练」断言，并披露 **prompt 长度（C vs D）、`max_actions_per_step`、`max_failures`、vision** 等混淆项（见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**）。
 
 ---
 

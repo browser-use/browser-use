@@ -32,6 +32,7 @@
 - 问题与对策流水：**`examples/evaluation/DAILY_TASK_EXPERIMENT_LOG.md`**（工程侧表格）。
 - 成功跑次人读表：**`examples/evaluation/EXPERIMENT_RECORD.md`**（含时间线）。
 - 地图 SPA 截图超时（另一类「慢」）：**`docs/issue-notes/heavy-spa-screenshot-timeouts.md`**。
+- **Qwen 整包 `AgentOutput` JSON 校验失败、C vs D prompt 负载、论文表述**：**`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
 
 ## 记录日期
 

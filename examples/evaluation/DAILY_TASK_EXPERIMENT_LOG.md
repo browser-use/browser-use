@@ -6,6 +6,7 @@
 
 - **不要**在本文件中粘贴 API Key、Cookie、手机号等机密。
 - 与单次运行轨迹相关的细节仍可查：`tmp/daily_task_eval/agent_runs.json`、各任务目录下 `conversation.json`、`history.json`。
+- **Qwen / OpenAI 兼容执行器的结构化输出（JSON）与 C vs D 写作注意**：**`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
 - 操作步骤见：**`DAILY_TASK_EXPERIMENT_GUIDE.md`**。
 
 ---
@@ -22,6 +23,7 @@
 | 2026-05-08 | 同上（早期 Amazon） | D 等 | `ScreenshotWatchdog` 15s 超时、`CDP WebSocket` 断开、`Step timed out after 180s` | 重站点 + 大图 DOM + 截图链路过载；步级超时默认 180s | 可考虑换轻站或加大 `--llm-timeout` / 未来可加 `--step-timeout`；比价任务锚定京东见 `task_cards.json` |
 | 2026-05-14 | `nearby_hospital_phone_lookup`（百度地图 / 龙岗坂田） | **C** | **5** 步成功：`navigate`×2 → `input` → `click` → `done`；列表页即满足成功标准 | **无**领航短子目标（C）；**Early-finish** + 未切高德深挖 + Qwen **每步单动作** | 与 **D（17 步）** 对比时注明 URL 路径差异；见 **`EXPERIMENT_RECORD.md`** 时间线、`navigator-current-step-executor-subgoal.md` |
 | 2026-05-14 | 同上 | **D**（历史成功） | **17** 步：百度搜索畸形词、高德多点 POI | 多站深挖、验证路径长 | 若重跑 D，可叠加 **`--continuous-navigation`** + 短子目标以压缩迷路；artifact `20260509T064248Z` |
+| 2026-05-14 | 同上 | **D**（失败/早停样例） | `history` 中连续 **`Agent failed to output in the right format.`**，随后仅 **`navigate`→`done(false)`** 或未到搜索即停；关 **`--use-vision false`** 后仍可出现 | **非**截图主因：执行器需输出整包 **`AgentOutput` JSON**；**D** 相对 **C** 多塞 **整份 `navigator_plan` + 子目标**，Qwen 上下文更长 → **结构化输出校验失败率**上升；失败记忆叠加后更易连环错 | 操作：**`--max-failures 6~8`**、换 **`--executor-model`**、或实验 **B**（BU 执行）；写作：勿把「C 稳 D 脆」单独归因于领航员本身，见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`** |
 
 ### `form_workflow`
 
@@ -47,6 +49,7 @@
 | 2026-05-08 | **C / D** | `ScreenshotWatchdog` / `captureScreenshot` 在百度地图等重 SPA 上频繁超时，前几步空转 | 重型页面 + 每步 CDP 状态截图链路慢 | **`run-agent --use-vision false`**（或按需 **`auto` / `true`**）；手册 **`DAILY_TASK_EXPERIMENT_GUIDE.md`** 步骤 4；详解 **`docs/issue-notes/heavy-spa-screenshot-timeouts.md`** |
 | 2026-05-14 | **B / D**（领航 + 可选 `--continuous-navigation`） | 执行者在长 `user_request` 里迷失、畸形 `navigate` URL、步数膨胀 | 仅开场静态 plan；战术目标未顶在「每步最前」 | 已加 **`<current_step_focus>`** 与执行者 **`<navigator_current_step>`**（见 **`docs/issue-notes/navigator-current-step-executor-subgoal.md`**、**`DAILY_TASK_EXPERIMENT_GUIDE.md` §1.2**）；周期领航仍用 **`--continuous-navigation`** |
 | 2026-05-14 | **C**（`nearby_hospital_phone_lookup` / normal） | 同任务较早期 **D（17 步）** 明显更少步即 `done` | **非**短子目标（C 无领航）；主因 **Early-finish** + 路径留在 **百度地图列表** + Qwen **单步单动作** | 写对比报告时勿把步数差单独归因于子目标；见 **`EXPERIMENT_RECORD.md`** 时间线第 2 行与 issue-note 文中「与效率的关系」 |
+| 2026-05-14 | **C vs D**（同 `qwen3-max` 执行） | **C** 侧「工具 JSON / 畸形 URL」主观上更少 | **D** 把 **DeepSeek 领航全文 + 子目标** 拼进执行器 **`user_request`**，prompt 更长、更像自然语言长说明 → 与 **OpenAI 兼容 `response_format` + `AgentOutput.model_validate_json`** 叠加后更易漂 | 对照实验须 **控制**「进执行器的计划长度」或单列 **「仅注入短子目标 vs 全文 plan」** 消融；全文见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`** |
 
 ---
 

@@ -19,7 +19,13 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from browser_use.experiments.daily_task_eval.experiment_presets import build_configs_from_args, describe_experiments_text
 from browser_use.experiments.daily_task_eval.models import AgentRunSummary, TaskCard, load_json_model_list, write_json
-from browser_use.experiments.daily_task_eval.runner import compare_all, init_experiment, run_agent_task
+from browser_use.experiments.daily_task_eval.runner import (
+	compare_all,
+	export_agent_runs_to_csv,
+	export_experiment_resource_report_to_csv,
+	init_experiment,
+	run_agent_task,
+)
 
 
 def _apply_log_level(log_level: str | None) -> None:
@@ -99,7 +105,7 @@ async def run_agent_command(args: argparse.Namespace) -> None:
 	has_success = any(r.success is True for r in results_this_batch)
 	if has_success:
 		print(f'成功跑次的结构化结果已保存至上述文件（{agent_runs_path.resolve()}）。')
-		print(f'其中含 LLM 用量字段：usage_summary / usage_executor_llm / usage_navigator_cycle_llm / navigator_initial_plan_usage 等（见 DAILY_TASK_EXPERIMENT_GUIDE §1.1）。')
+		print('其中含 LLM 用量字段：usage_summary / usage_executor_llm / usage_navigator_cycle_llm / navigator_initial_plan_usage 等（见 DAILY_TASK_EXPERIMENT_GUIDE §1.1）。')
 		print(f'人读实验记录模板（按 A/B/C/D 分类表）请参考：{record_doc_path.resolve()}（请与本趟成功的跑次对齐后手工更新）。')
 
 
@@ -195,20 +201,34 @@ def build_parser() -> argparse.ArgumentParser:
 	)
 	run_parser.add_argument(
 		'--executor-backend',
-		choices=['chat_browser_use', 'openai_compatible'],
-		default='chat_browser_use',
-		help='Ignored when --experiment is set. Default: chat_browser_use.',
+		choices=['chat_browser_use', 'openai_compatible', 'google'],
+		default=None,
+		help=(
+			'Executor LLM backend. Without --experiment: default chat_browser_use. '
+			'With --experiment: only overrides preset when this flag is passed (e.g. --experiment D --executor-backend google).'
+		),
 	)
-	run_parser.add_argument('--executor-model', default=None, help='Executor model id (BU cloud id or Qwen model name).')
+	run_parser.add_argument(
+		'--executor-model',
+		default=None,
+		help='Executor model id (bu-latest, qwen3-max, gemini-2.5-flash, etc.).',
+	)
 	run_parser.add_argument(
 		'--executor-api-key-env',
-		default='DASHSCOPE_API_KEY',
-		help='Env var for OpenAI-compatible executor API key (Qwen/DashScope). Default: DASHSCOPE_API_KEY.',
+		default=None,
+		help=(
+			'Env var for executor API key. If omitted: inferred from --executor-model '
+			'(豆包 doubao-* / ep-* → ARK_API_KEY; else DASHSCOPE for Qwen; google → GOOGLE_API_KEY).'
+		),
 	)
 	run_parser.add_argument(
 		'--executor-base-url',
-		default='https://dashscope.aliyuncs.com/compatible-mode/v1',
-		help='OpenAI-compatible executor base URL. China 百炼 default; Singapore: .../dashscope-intl.../compatible-mode/v1',
+		default=None,
+		help=(
+			'OpenAI-compatible executor base URL. If omitted: inferred from --executor-model '
+			'(豆包 doubao-* / ep-* → Volcengine Ark Beijing; else DashScope CN). '
+			'Override for Singapore DashScope or custom gateways.'
+		),
 	)
 
 	run_parser.add_argument(
@@ -249,6 +269,67 @@ def build_parser() -> argparse.ArgumentParser:
 	compare_parser.add_argument('--human-runs', type=Path, default=Path('./tmp/daily_task_eval/human_runs.json'))
 	compare_parser.add_argument('--agent-runs', type=Path, default=Path('./tmp/daily_task_eval/agent_runs.json'))
 	compare_parser.add_argument('--output-path', type=Path, default=Path('./tmp/daily_task_eval/comparison_report.json'))
+	compare_parser.add_argument(
+		'--resource-report',
+		type=Path,
+		default=None,
+		metavar='PATH',
+		help=(
+			'Where to write cross-experiment resource JSON (grouped by task/scenario, no human baseline needed). '
+			'Default: sibling of --output-path named experiment_resource_report.json'
+		),
+	)
+	compare_parser.add_argument(
+		'--no-resource-report',
+		action='store_true',
+		help='Skip writing experiment_resource_report.json.',
+	)
+
+	export_csv_parser = subparsers.add_parser(
+		'export-csv',
+		help='Export experiment_resource_report.json or agent_runs.json to CSV for spreadsheets.',
+		epilog=(
+			'Windows: put all flags on one line, or in PowerShell use a backtick (`) at line end for continuation '
+			'(not ^, which is for cmd.exe). Example: export-csv --input tmp/daily_task_eval/experiment_resource_report.json'
+		),
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+	)
+	export_csv_parser.add_argument(
+		'--mode',
+		choices=['resource-report', 'agent-runs'],
+		default='resource-report',
+		help='resource-report: two CSVs (runs + stats). agent-runs: one flattened summary CSV.',
+	)
+	export_csv_parser.add_argument(
+		'--input',
+		type=Path,
+		required=True,
+		help='Path to experiment_resource_report.json or agent_runs.json (see --mode).',
+	)
+	export_csv_parser.add_argument(
+		'--output-dir',
+		type=Path,
+		default=None,
+		help='Directory for output files (default: same directory as --input).',
+	)
+	export_csv_parser.add_argument(
+		'--runs-csv',
+		type=Path,
+		default=None,
+		help='resource-report mode only: path for per-run rows (default: <input-stem>_runs.csv in output-dir).',
+	)
+	export_csv_parser.add_argument(
+		'--stats-csv',
+		type=Path,
+		default=None,
+		help='resource-report mode only: path for statistics rows (default: <input-stem>_stats.csv in output-dir).',
+	)
+	export_csv_parser.add_argument(
+		'--agent-runs-csv',
+		type=Path,
+		default=None,
+		help='agent-runs mode only: output CSV path (default: <input-stem>_export.csv in output-dir).',
+	)
 
 	return parser
 
@@ -264,8 +345,33 @@ def main() -> None:
 	elif args.command == 'run-agent':
 		asyncio.run(run_agent_command(args))
 	elif args.command == 'compare':
-		comparisons = compare_all(args.task_cards, args.human_runs, args.agent_runs, args.output_path)
+		comparisons = compare_all(
+			args.task_cards,
+			args.human_runs,
+			args.agent_runs,
+			args.output_path,
+			resource_report_path=args.resource_report,
+			skip_resource_report=args.no_resource_report,
+		)
 		print(f'Wrote {len(comparisons)} comparison record(s) to {args.output_path}')
+		if not args.no_resource_report:
+			res_path = args.resource_report or args.output_path.with_name('experiment_resource_report.json')
+			print(f'Wrote cross-experiment resource report to {res_path}')
+	elif args.command == 'export-csv':
+		out_dir = args.output_dir or args.input.parent
+		out_dir.mkdir(parents=True, exist_ok=True)
+		if args.mode == 'resource-report':
+			stem = args.input.stem
+			runs_path = args.runs_csv or (out_dir / f'{stem}_runs.csv')
+			stats_path = args.stats_csv or (out_dir / f'{stem}_stats.csv')
+			export_experiment_resource_report_to_csv(args.input, runs_path, stats_path)
+			print(f'Wrote runs CSV to {runs_path.resolve()}')
+			print(f'Wrote stats CSV to {stats_path.resolve()}')
+		else:
+			stem = args.input.stem
+			agent_csv = args.agent_runs_csv or (out_dir / f'{stem}_export.csv')
+			export_agent_runs_to_csv(args.input, agent_csv)
+			print(f'Wrote agent runs CSV to {agent_csv.resolve()}')
 	else:
 		raise ValueError(f'Unknown command: {args.command}')
 

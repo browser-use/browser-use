@@ -4,6 +4,8 @@
 
 实验逻辑实现在 Python 包 **`browser_use.experiments.daily_task_eval`** 中；命令行入口在 **`examples/evaluation/daily_task_comparison.py`**。
 
+**问题留痕（Qwen 工具 JSON / C vs D / 论文表述）**：见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**（与下文 §7 常见问题 7、9 交叉引用）。
+
 ---
 
 ## 一、实验在做什么
@@ -12,7 +14,7 @@
 2. （可选）在 **`human_runs.json`** 中记录人工完成同一任务的步骤与结论，作为 baseline。
 3. 用 **`run-agent`** 让 Browser Use **`Agent`** 自动执行任务；每种「实验配方」（A/B/C/D）对应不同的 **执行 LLM** 与是否启用 **领航员（navigator）**。
 4. 每次运行会向 **`agent_runs.json`** 追加一条结构化摘要，并在磁盘写入 **`history.json`**、**`conversation.json`** 等详细轨迹。
-5. 用 **`compare`** 读取任务卡、人工记录与 Agent 摘要，生成 **`comparison_report.json`**（差异与风险提示）。
+5. 用 **`compare`** 读取任务卡、人工记录与 Agent 摘要，生成 **`comparison_report.json`**（差异与风险提示），并默认写出 **`experiment_resource_report.json`**（按任务/场景汇总的跨实验资源对比，可不依赖人工 baseline）。
 6. （可选）按预设 **A/B/C/D** 维护人读归档表 **`EXPERIMENT_RECORD.md`**（与结构化 **`agent_runs.json`** 区分）；其中 **成功跑次时间线** 汇总 `agent_runs.json` 内全部 **`success: true`**。当 **`run-agent`** 本趟存在 **`success: true`** 时，控制台会额外提示：**成功跑次的结构化结果路径**及 **该归档文档路径**，便于你对齐表格内容后手工更新。
 
 ### 1.1 控制台 `cost` 日志、`🧠` / `🤖` 与本仓库 JSON 用量字段
@@ -332,6 +334,7 @@ uv run examples/evaluation/daily_task_comparison.py compare
 写出：
 
 - **`tmp/daily_task_eval/comparison_report.json`**
+- **`tmp/daily_task_eval/experiment_resource_report.json`**（跨实验资源分组；可用 **`compare --no-resource-report`** 关闭）
 
 若你的目录不同：
 
@@ -362,14 +365,38 @@ uv run examples/evaluation/daily_task_comparison.py compare `
 
 便于横向对比四次实验时，可按 **`task_id`** + **`scenario_id`** + **`experiment_id`** 过滤。
 
-### 5.2 对比级：`comparison_report.json`
+**按任务类别（`TaskCard.category`）分组**：每条摘要含 **`task_category`**（与任务卡上的 **`read_only_query` / `form_workflow` / `download_export`** 一致；旧数据缺该字段时为 **`null`**）。便于只对比「表单类」或「只读查询类」的成功率与耗时。
+
+若已安装 [jq](https://jqlang.github.io/jq/)，可例如只取表单类跑次：
+
+```bash
+jq '[.[] | select(.task_category == "form_workflow")]' tmp/daily_task_eval/agent_runs.json
+```
+
+对比报告 **`comparison_report.json`** 中每条 **`ComparisonRecord`** 同样带 **`task_category`**，可用相同方式过滤后再做表格式汇总。
+
+### 5.2 跨实验资源：`experiment_resource_report.json`（不依赖人工 baseline）
+
+每次 **`compare`** 默认还会写出与 **`comparison_report.json` 同目录** 的 **`experiment_resource_report.json`**（可用 **`--resource-report PATH`** 指定路径，或用 **`--no-resource-report`** 关闭）。
+
+该文件把 **`agent_runs.json`** 按 **`(task_id, scenario_id)`** 分组；文件开头有 **`groups_index`**（与 **`groups`** 顺序一致：每项含 **`task_id` / `scenario_id` / `snapshot_count` / `experiment_ids`**），便于先扫任务再展开大块 **`snapshots`**。**`groups`** 内顺序默认与 **`compare`** 读入的 **`task_cards.json`** 中任务顺序一致（同一任务下场景按 **`normal`** 再按 **`failure_modes.id`** 排序）；若 **`agent_runs`** 里有任务卡未声明的 task，则排在最后并按 **`(task_id, scenario_id)`** 字典序追加。每组内 **`snapshots`** 按 **`started_at`** 排序；**`duration_seconds`** 若历史为 0 会用墙钟 **`started_at`/`finished_at`** 回填并标 **`duration_used_wall_clock_fallback`**。**`statistics_by_experiment`** / **`pooled_statistics`** 为描述统计（**`n`、均值、样本标准差、min/max/median**）。**`analysis_hints`** 为英文对照提示。
+
+**建议的分析方法**
+
+1. **固定场景再比配方**：同一 **`task_id`** 下先按 **`scenario_id`** 拆开（**`normal`** 与各 **`failure_modes.id`**），只在同一场景里对比 A/B/C/D，避免把「失败注入场景」与主路径混算。
+2. **多维表**：对每个 **`experiment_id`** 做一行，列 **`success`**、**`total_cost`**、**`total_tokens`**、**`duration_seconds`**、**`number_of_steps`**；成本与 token 缺失时先看时间与步数。
+3. **Pareto 取舍**：优先「**`success: true`** 且 **`total_cost` 低**」；若更便宜但更慢，再结合 **`duration_seconds`** 与业务 SLA。
+4. **领航员成本**：看组内 **`navigator_enabled`** 与原始 **`agent_runs` 条目里的 `navigator_initial_plan_usage`**（计划首调用通常不计入 **`usage_summary.total_cost`**，需单独扫一眼）。
+5. **下游工具**：用 **`jq`** / 小脚本 **`pandas`** 读 **`experiment_resource_report.json`**，按 **`task_category`** 或 **`experiment_id`** 透视即可做横向图。也可在同一目录用 **`daily_task_comparison.py export-csv --input …/experiment_resource_report.json`** 生成 **`_runs.csv`** 与 **`_stats.csv`**（或用 **`--mode agent-runs --input …/agent_runs.json`** 导出单表 **`_export.csv`**）。
+
+### 5.3 对比级：`comparison_report.json`
 
 路径：**`<output-dir>/comparison_report.json`**
 
 每条为 **`ComparisonRecord`**：人工状态、Agent 是否成功、耗时差、**`risk_flags`**、**`differences`**、**`recommended_next_changes`** 等。  
-其中也会带上 Agent 侧的 **`experiment_id`**（若摘要中存在）。
+其中也会带上 Agent 侧的 **`experiment_id`**（若摘要中存在）。尚未填人工 baseline 时，常见 **`risk_flags`** 含 **`missing_human_baseline`**，可暂时忽略，改以 **`experiment_resource_report.json`** 做资源向对比。
 
-### 5.3 单次运行目录（最细粒度）
+### 5.4 单次运行目录（最细粒度）
 
 每次 **`run-agent`** 会在 **`output_dir`** 下写入类似结构：
 
@@ -393,7 +420,7 @@ uv run examples/evaluation/daily_task_comparison.py compare `
 
 从 **`agent_runs.json`** 里对应条目的 **`history_path`** 等字段可直接打开这些文件。
 
-### 5.4 人工 baseline：`human_runs.json`
+### 5.5 人工 baseline：`human_runs.json`
 
 用于 **`compare`** 与 **`ComparisonRecord`**；字段含义见 **`HumanRunRecord`**（**`models.py`**）。
 
@@ -444,6 +471,7 @@ uv run examples/evaluation/daily_task_comparison.py compare `
    这是 **Qwen tool-calling 在大 DOM 上不稳定**：page DOM 一变大（例如百度地图首页），Qwen 偶发输出无法被解析的 JSON，连续 3 次后触发 browser-use 内置 `max_failures=3` 强制终止。判定方法：
    - `history.json` 只有少量记录（步号不连续，例如只有 step 1 和 step 5）
    - conversation 末尾出现 `You failed 3 times. Therefore we terminate the agent.`
+   - `<agent_history>` 里连续 **`Agent failed to output in the right format.`** 表示「上一轮没有成功解析出结构化 **`AgentOutput`**」，不是磁盘 `json` 文件损坏；机制说明见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
    
    **缓解**：
    1. 加大重试上限：**`--max-failures 8`**，给 Qwen 更多机会随机成功

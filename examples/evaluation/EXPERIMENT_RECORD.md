@@ -22,7 +22,7 @@
 | 1 | 2026-05-09 | **D** | `nearby_hospital_phone_lookup` | normal | 是 | `qwen3-max` / `deepseek-chat` | 17 | ~420s | 龙岗坂田 3 家医院；高德 POI 链接；曾走百度搜索畸形词与 amap 畸形 URL |
 | 2 | 2026-05-14 | **C** | `nearby_hospital_phone_lookup` | normal | 否 | `qwen3-max` / — | 5 | ~83s | 同一任务在百度地图列表页凑齐 3 条即 `done`（Early-finish）；首跳 URL 曾带 `}}` 碎片后纠正 |
 
-**Artifacts**：① `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260509T064248Z/` ② `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260514T080341Z/`（均含 `history.json`、`conversation.json`；D 另含 `navigator_plan.md`）。
+**Artifacts**：① `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260509T064248Z/` ② `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260514T080341Z/`（均含 `history.json`、`conversation.json`；D 另含 `navigator_plan.md`）。**失败 / JSON 形态早停样例**（如 `exp-D/20260514T110508Z`）与 **C vs D 写作注意** 见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
 
 ---
 
