@@ -106,6 +106,7 @@ We benchmark Browser Use across 100 real-world browser tasks. Full benchmark is 
 - You need [custom tools](https://docs.browser-use.com/customize/tools/basics) or deep code-level integration
 - We recommend pairing with our [cloud browsers](https://docs.browser-use.com/open-source/customize/browser/remote) for leading stealth, proxy rotation, and scaling
 - Or self-host the open-source agent fully on your own machines
+- Want a 24/7 Linux box agent with Telegram control and a persistent cloud browser? See [Browser Use Box](https://github.com/browser-use/bux) and [watch the demo](https://www.tiktok.com/@browser_use/video/7639824093721758989)
 
 **Use the [Fully-Hosted Cloud Agent](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-hosted-agent) (recommended)**
 - Much more powerful agent for complex tasks (see plot above)
