@@ -1,7 +1,11 @@
 import logging
+from typing import TYPE_CHECKING, cast
 
 from browser_use.browser.session import Target
 from browser_use.browser.session_manager import SessionManager
+
+if TYPE_CHECKING:
+	from browser_use.browser.session import BrowserSession
 
 
 class FakeBrowserSession:
@@ -9,7 +13,7 @@ class FakeBrowserSession:
 
 
 def test_get_all_page_targets_excludes_chrome_extension_pages():
-	session_manager = SessionManager(FakeBrowserSession())
+	session_manager = SessionManager(cast('BrowserSession', FakeBrowserSession()))
 	regular_page = Target(
 		target_id='page-target',
 		target_type='page',
