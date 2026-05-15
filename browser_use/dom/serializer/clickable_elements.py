@@ -235,7 +235,7 @@ class ClickableElementDetector:
 			# Check if this small element has interactive properties
 			if node.attributes:
 				# Small elements with these attributes are likely interactive icons
-				icon_attributes = {'class', 'role', 'onclick', 'data-action', 'aria-label'}
+				icon_attributes = {'class', 'role', 'onclick', 'data-action', 'aria-label', 'title'}
 				if any(attr in node.attributes for attr in icon_attributes):
 					return True
 
