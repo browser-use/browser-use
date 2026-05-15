@@ -23,10 +23,10 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
-from browser_use.agent.message_manager.utils import save_conversation
+from browser_use.agent.message_manager.utils import extract_navigator_step_focus, save_conversation, save_step_trace
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
+from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, SystemMessage, UserMessage
 from browser_use.tokens.service import TokenCost
 
 load_dotenv()
@@ -207,6 +207,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		continuous_navigation: bool = False,
+		navigator_replan_interval: int = 5,
+		navigator_replan_on_stall: bool = True,
+		navigator_context_max_chars: int = 6000,
+		navigator_llm: BaseChatModel | None = None,
+		navigator_executor_subgoal: str | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -275,6 +281,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
 		self.session_id: str = uuid7str()
+
+		# Per-step debug files (``step_trace_*.txt``) when ``save_conversation_path`` is set
+		self._trace_step_index: int | None = None
+		self._trace_llm_snapshots: list[BaseMessage] | None = None
+		self._trace_step_status_note: str | None = None
 
 		base_profile = browser_profile or DEFAULT_BROWSER_PROFILE
 		if base_profile is DEFAULT_BROWSER_PROFILE:
@@ -412,13 +423,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			loop_detection_enabled=loop_detection_enabled,
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
+			continuous_navigation=continuous_navigation,
+			navigator_replan_interval=navigator_replan_interval,
+			navigator_replan_on_stall=navigator_replan_on_stall,
+			navigator_context_max_chars=navigator_context_max_chars,
 		)
+
+		# Navigator LLM (optional second head): only wired when continuous_navigation is enabled
+		if self.settings.continuous_navigation:
+			self.navigator_llm = navigator_llm or page_extraction_llm or llm
+		else:
+			self.navigator_llm = None
 
 		# Token cost service
 		self.token_cost_service = TokenCost(include_cost=calculate_cost, pricing_url=pricing_url)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
 		self.token_cost_service.register_llm(judge_llm)
+		if self.navigator_llm is not None:
+			self.token_cost_service.register_llm(self.navigator_llm)
 		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
 			self.token_cost_service.register_llm(self.settings.message_compaction.compaction_llm)
 
@@ -427,6 +450,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
+		if navigator_executor_subgoal:
+			self.state.navigator_executor_subgoal = navigator_executor_subgoal.strip()[:2000]
 
 		# Configure loop detector window size from settings
 		self.state.loop_detector.window_size = self.settings.loop_detection_window
@@ -1025,6 +1050,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initialize timing first, before any exceptions can occur
 
 		self.step_start_time = time.time()
+		self._trace_step_index = self.state.n_steps
+		self._trace_llm_snapshots = None
+		self._trace_step_status_note = None
 
 		browser_state_summary = None
 
@@ -1065,12 +1093,38 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Phase 3: Post-processing
 			await self._post_process()
 
+		except asyncio.CancelledError:
+			self._trace_step_status_note = (
+				'asyncio.CancelledError: cancelled mid-step (typical: outer step_timeout cancelling LLM or browser work)'
+			)
+			raise
 		except Exception as e:
+			self._trace_step_status_note = f'{type(e).__name__}: {e!s}'[:4000]
 			# Handle ALL exceptions in one place
 			await self._handle_step_error(e)
 
 		finally:
-			await self._finalize(browser_state_summary)
+			try:
+				await self._finalize(browser_state_summary)
+			finally:
+				await self._persist_step_trace_safe(browser_state_summary)
+
+	def _browser_state_include_screenshot(self) -> bool:
+		"""Whether CDP should capture a clean screenshot for this step's browser state.
+
+		Heavy SPAs (maps, dashboards) often stall Page.captureScreenshot; align pipeline capture
+		with ``use_vision`` and the ``screenshot`` tool's ``include_screenshot`` hint (auto mode).
+		"""
+		vision = self.settings.use_vision
+		if vision is True:
+			return True
+		if vision is False:
+			return False
+		assert vision == 'auto'
+		for action_result in self.state.last_result or []:
+			if action_result.metadata and action_result.metadata.get('include_screenshot'):
+				return True
+		return False
 
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
@@ -1079,10 +1133,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
+		include_screenshot = self._browser_state_include_screenshot()
+		self.logger.debug(f'📸 Requesting browser state with include_screenshot={include_screenshot}')
 		browser_state_summary = await self.browser_session.get_browser_state_summary(
-			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
+			include_screenshot=include_screenshot,
 			include_recent_events=self.include_recent_events,
 		)
 		if browser_state_summary.screenshot:
@@ -1135,6 +1189,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 			unavailable_skills_info=unavailable_skills_info,
 			plan_description=plan_description,
+			navigator_executor_subgoal=self.state.navigator_executor_subgoal,
 			skip_state_update=True,
 		)
 
@@ -1143,6 +1198,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._inject_exploration_nudge()
 		self._update_loop_detector_page_state(browser_state_summary)
 		self._inject_loop_detection_nudge()
+		await self._maybe_inject_continuous_navigation(browser_state_summary)
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
@@ -1164,6 +1220,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
+		self._trace_llm_snapshots = list(input_messages)
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
@@ -1527,6 +1584,147 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				dom_text = ''
 		self.state.loop_detector.record_page_state(url, dom_text, element_count)
 
+	def _continuous_navigation_should_run(self) -> tuple[bool, str]:
+		"""Return whether periodic navigator LLM should run this step, with a short reason for logs."""
+		if not self.settings.continuous_navigation or self.navigator_llm is None:
+			return False, 'disabled'
+
+		last = self.state.last_navigator_replan_at_step
+		n = self.state.n_steps
+		interval = self.settings.navigator_replan_interval
+
+		stall = bool(
+			self.settings.navigator_replan_on_stall
+			and self.settings.planning_replan_on_stall > 0
+			and self.state.consecutive_failures >= self.settings.planning_replan_on_stall
+		)
+
+		periodic = False
+		if last == 0:
+			periodic = True
+		elif interval > 0 and (n - last) >= interval:
+			periodic = True
+
+		if stall or periodic:
+			parts: list[str] = []
+			if periodic:
+				parts.append('periodic')
+			if stall:
+				parts.append('stall')
+			return True, '+'.join(parts)
+
+		return False, 'no_trigger'
+
+	def _build_navigator_recent_history_text(self, budget_chars: int) -> str:
+		"""Compact summary of last steps for navigator prompt (token-conscious)."""
+		lines: list[str] = []
+		used = 0
+		for item in self.history.history[-10:]:
+			if used >= budget_chars:
+				break
+			action_names: list[str] = []
+			if item.model_output and item.model_output.action:
+				for act in item.model_output.action:
+					ad = act.model_dump(exclude_unset=True)
+					action_names.append(next(iter(ad.keys()), '?'))
+			snip = ''
+			if item.result:
+				r = item.result[-1]
+				if r.extracted_content:
+					snip = (r.extracted_content or '')[:180]
+				elif r.error:
+					snip = f'error: {(r.error or "")[:180]}'
+			line = f'- step actions={action_names} outcome_snippet={snip}'
+			if used + len(line) > budget_chars:
+				line = line[: max(0, budget_chars - used)]
+			if line:
+				lines.append(line)
+				used += len(line) + 1
+		return '\n'.join(lines)
+
+	def _build_navigator_observation_text(self, browser_state_summary: BrowserStateSummary, budget_chars: int) -> str:
+		"""Single bounded document passed to the navigator model."""
+		dom_budget = min(budget_chars // 2, 4000)
+		hist_budget = budget_chars - dom_budget - len(self.task) - 400
+		if hist_budget < 500:
+			hist_budget = 500
+
+		dom_snippet = ''
+		if browser_state_summary.dom_state:
+			try:
+				raw = browser_state_summary.dom_state.llm_representation()
+				dom_snippet = raw[:dom_budget] + ('…' if len(raw) > dom_budget else '')
+			except Exception:
+				dom_snippet = ''
+
+		history_block = self._build_navigator_recent_history_text(hist_budget)
+
+		url = browser_state_summary.url or ''
+
+		parts = [
+			f'Original task:\n{self.task}',
+			f'Current URL: {url}',
+			f'Recent steps / outcomes (truncated):\n{history_block or "(none yet)"}',
+			f'Short DOM / accessibility summary (truncated):\n{dom_snippet or "(empty)"}',
+		]
+		doc = '\n\n'.join(parts)
+		if len(doc) > budget_chars:
+			return doc[: budget_chars - 1] + '…'
+		return doc
+
+	async def _maybe_inject_continuous_navigation(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Periodic navigator LLM: inject tactical guidance into executor context (optional feature)."""
+		should, reason = self._continuous_navigation_should_run()
+		if not should:
+			return
+
+		assert self.navigator_llm is not None
+
+		budget = max(1500, self.settings.navigator_context_max_chars)
+		observation = self._build_navigator_observation_text(browser_state_summary, budget)
+
+		system_text = (
+			'You are a navigator for a browser automation agent (not the executor).\n'
+			'You never claim you clicked or typed; you only suggest strategy.\n'
+			'Begin your reply with this exact XML wrapper (1–3 short lines inside, plain text only):\n'
+			'<current_step_focus>\n'
+			'... lines here: the single next sub-goal for the executor ...\n'
+			'</current_step_focus>\n'
+			'After that block, add concise tactical notes (bullets ok, max ~120 words total including the focus).\n'
+			'Base your answer only on the task and the observation text provided.'
+		)
+		messages: list[BaseMessage] = [
+			SystemMessage(content=system_text),
+			UserMessage(content=observation),
+		]
+
+		try:
+			timeout = self.settings.llm_timeout if self.settings.llm_timeout else 75
+			resp = await asyncio.wait_for(self.navigator_llm.ainvoke(messages), timeout=float(timeout))
+			advice = (resp.completion or '').strip()
+			if not advice:
+				self.logger.debug('Continuous navigation: navigator returned empty completion')
+				return
+			focus, _advice_rest = extract_navigator_step_focus(advice)
+			if focus:
+				self.state.navigator_executor_subgoal = focus.strip()[:2000]
+		except TimeoutError:
+			self.logger.warning('Continuous navigation: navigator LLM timed out; skipping injection')
+			return
+		except Exception as e:
+			self.logger.warning(f'Continuous navigation: navigator LLM failed ({type(e).__name__}: {e}); skipping injection')
+			return
+
+		msg = (
+			'CONTINUOUS NAVIGATION UPDATE (navigator guidance):\n'
+			f'{advice}\n\n'
+			'Prefer this guidance tactically, but trust the live browser state and tools over stale assumptions.\n'
+			'The same run also surfaces <navigator_current_step> at the top of each state message when present.'
+		)
+		self.logger.info(f'🧭 Navigator update injected ({reason}, model={self.navigator_llm.model})')
+		self._message_manager._add_context_message(UserMessage(content=msg))
+		self.state.last_navigator_replan_at_step = self.state.n_steps
+
 	async def _inject_budget_warning(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Inject a prominent budget warning when the agent has used >= 75% of its step budget.
 
@@ -1689,6 +1887,41 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				model_output.action = [action_instance]
 
 		return model_output
+
+	async def _persist_step_trace_safe(self, browser_state_summary: BrowserStateSummary | None) -> None:
+		"""Write ``step_trace_<agent_id>_<step_index>.txt`` when ``save_conversation_path`` is set."""
+		if not self.settings.save_conversation_path:
+			return
+		try:
+			await self._persist_step_trace(browser_state_summary)
+		except Exception as e:
+			self.logger.debug(f'Step trace save failed (non-fatal): {e}')
+
+	async def _persist_step_trace(self, browser_state_summary: BrowserStateSummary | None) -> None:
+		assert self.settings.save_conversation_path
+		base = Path(self.settings.save_conversation_path).expanduser().resolve()
+		step_idx = self._trace_step_index if self._trace_step_index is not None else self.state.n_steps
+		target = base / f'step_trace_{self.id}_{step_idx:04d}.txt'
+		url = browser_state_summary.url if browser_state_summary else None
+		title = browser_state_summary.title if browser_state_summary else None
+		note = self._trace_step_status_note
+		if not note and self._trace_llm_snapshots and self.state.last_model_output is None:
+			note = 'No model output when trace was written (often LLM/cancel/step_timeout before ainvoke returned).'
+		llm_model = getattr(self.llm, 'model', None) if self.llm else None
+		enc = self.settings.save_conversation_path_encoding or 'utf-8'
+		await save_step_trace(
+			target,
+			step_index=step_idx,
+			agent_id=self.id,
+			llm_model=str(llm_model) if llm_model is not None else None,
+			page_url=url,
+			page_title=title,
+			input_messages=self._trace_llm_snapshots,
+			model_output=self.state.last_model_output,
+			action_results=self.state.last_result,
+			status_note=note,
+			encoding=enc,
+		)
 
 	async def _handle_post_llm_processing(
 		self,

@@ -258,9 +258,12 @@ Any provider with an OpenAI-compatible endpoint works via `ChatOpenAI`:
 
 ### Qwen (Alibaba)
 ```python
-llm = ChatOpenAI(model="qwen-vl-max", base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+# China (Beijing) Model Studio — use key from domestic console
+llm = ChatOpenAI(model="qwen-vl-max", base_url="https://dashscope.aliyuncs.com/compatible-mode/v1")
+# Singapore / international console
+# llm = ChatOpenAI(model="qwen-vl-max", base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
 ```
-**Env:** `ALIBABA_CLOUD`
+**Env:** `DASHSCOPE_API_KEY` (or legacy `ALIBABA_CLOUD`) — **base_url must match key region**
 
 ### ModelScope
 ```python

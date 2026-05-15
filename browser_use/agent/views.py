@@ -79,6 +79,12 @@ class AgentSettings(BaseModel):
 	planning_replan_on_stall: int = 3  # consecutive failures before replan nudge; 0 = disabled
 	planning_exploration_limit: int = 5  # steps without a plan before nudge; 0 = disabled
 
+	# Periodic navigator (second LLM / same LLM) — injects guidance without changing executor tools
+	continuous_navigation: bool = False
+	navigator_replan_interval: int = 5  # call navigator every N steps after the first; 0 = no periodic (still first + stall)
+	navigator_replan_on_stall: bool = True  # also call navigator when consecutive failures reach planning_replan_on_stall
+	navigator_context_max_chars: int = 6000  # caps task + history + DOM snippet passed to navigator
+
 	page_extraction_llm: BaseChatModel | None = None
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
@@ -273,6 +279,12 @@ class AgentState(BaseModel):
 
 	# Loop detection state
 	loop_detector: ActionLoopDetector = Field(default_factory=ActionLoopDetector)
+
+	# Continuous navigation (last step index where navigator advice was injected; 0 = never yet)
+	last_navigator_replan_at_step: int = 0
+
+	# Optional 1–3 line “do this next” focus from an external navigator (eval B/D); refreshed on periodic navigator runs
+	navigator_executor_subgoal: str | None = None
 
 
 @dataclass

@@ -1,304 +1,148 @@
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24">
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
-  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
-</picture>
+## 项目简介
 
-<div align="center">
-    <picture>
-    <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125">
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
-    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"  width="400">
-    </picture>
-</div>
+本仓库用于**日常任务（Daily Task）对比实验**：用 Browser Use 的 `Agent` 自动执行一组可重复的浏览器任务（Task Cards），并与人工 baseline 做结构化对比，输出可审阅的报告与轨迹文件。
 
-<div align="center">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-downloads"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
-</div>
+- **实验入口脚本**：`examples/evaluation/daily_task_comparison.py`
+- **核心实现模块**：`browser_use/experiments/daily_task_eval/`
+- **完整操作手册**：`examples/evaluation/DAILY_TASK_EXPERIMENT_GUIDE.md`（排错、用量字段、地域与 401 等以手册为准）
+- **Task Cards 设计参考**：`docs/daily_task_eval/daily_task_cards_document.md`
+- **论文框架（章节占位 + 与代码对齐）**：`examples/evaluation/PAPER_FRAMEWORK.md`（跑完实验后把 `[待填]` / 表格换成结果即可）
+- **成功跑次人读归档（按 A/B/C/D）**：`examples/evaluation/EXPERIMENT_RECORD.md`
+- **实验问题与对策日志**：`examples/evaluation/DAILY_TASK_EXPERIMENT_LOG.md`
+
+相对上游 **browser-use**，本仓库还包含：**Agent 侧「持续领航」**（`continuous_navigation` + 周期注入领航子目标）、**实验 CLI 全套超时/视觉/心跳/重试开关**、**`agent_runs.json` 中的 LLM 用量拆分字段**，以及 **`browser_use/cli_navigator.py`**（主 CLI TUI 在开启持续领航时解析领航用 LLM）。重型地图 SPA 与截图超时背景见 **`docs/issue-notes/heavy-spa-screenshot-timeouts.md`**。
+
+> 说明：本仓库基于开源项目 **browser-use** 演进（见文末「上游与致谢」）。README 以「组员能复现跑实验」为第一优先。
 
 ---
 
-<div align="center">
-<a href="#demos"><img src="https://media.browser-use.tools/badges/demos" alt="Demos"></a>
-<img width="16" height="1" alt="">
-<a href="https://docs.browser-use.com"><img src="https://media.browser-use.tools/badges/docs" alt="Docs"></a>
-<img width="16" height="1" alt="">
-<a href="https://browser-use.com/posts"><img src="https://media.browser-use.tools/badges/blog" alt="Blog"></a>
-<img width="16" height="1" alt="">
-<a href="https://browsermerch.com"><img src="https://media.browser-use.tools/badges/merch" alt="Merch"></a>
-<img width="100" height="1" alt="">
-<a href="https://github.com/browser-use/browser-use"><img src="https://media.browser-use.tools/badges/github" alt="Github Stars"></a>
-<img width="4" height="1" alt="">
-<a href="https://x.com/intent/user?screen_name=browser_use"><img src="https://media.browser-use.tools/badges/twitter" alt="Twitter"></a>
-<img width="4" height="1" alt="">
-<a href="https://link.browser-use.com/discord"><img src="https://media.browser-use.tools/badges/discord" alt="Discord"></a>
-<img width="4" height="1" alt="">
-<a href="https://cloud.browser-use.com?utm_source=github&utm_medium=readme-badge-cloud"><img src="https://media.browser-use.tools/badges/cloud" height="48" alt="Browser-Use Cloud"></a>
-</div>
+## 从克隆到第一次出报告（复现清单，推荐组员按序执行）
 
-</br>
+以下均在**仓库根目录**（与 `pyproject.toml` 同级）执行。`tmp/` 在 `.gitignore` 中，克隆后本地**不会**自带 `tmp/daily_task_eval/`，必须先 `init`。
 
-🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-skip-setup)</b> for faster, scalable, stealth-enabled browser automation!
+1. **克隆并进入目录**
 
-# 🤖 LLM Quickstart
+   ```bash
+   git clone <你们的仓库 URL> browser-use
+   cd browser-use
+   ```
 
-1. Direct your favorite coding agent (Cursor, Claude Code, etc) to [Agents.md](https://docs.browser-use.com/llms-full.txt)
-2. Prompt away!
+2. **Python 与依赖**（需 Python **≥ 3.11**，与 `pyproject.toml` 一致）
 
-<br/>
+   ```bash
+   uv sync
+   ```
 
-# 👋 Human Quickstart
+   若尚未安装本机 Chromium（按需）：
 
-**1. Create environment and install Browser-Use with [uv](https://docs.astral.sh/uv/) (Python>=3.11):**
-```bash
-uv init && uv add browser-use && uv sync
-# uvx browser-use install  # Run if you don't have Chromium installed
+   ```bash
+   uvx browser-use install
+   ```
+
+3. **环境变量**  
+   在根目录创建 **`.env`**（勿提交）。最小可跑 **实验 A** 仅需 `BROWSER_USE_API_KEY`。A/B/C/D 各预设所需变量见下文「密钥与实验配方」；地域与 DashScope `base_url` 见手册 **§2.4**。
+
+4. **初始化实验目录**（生成 `task_cards.json`、`human_runs.json` 等）
+
+   - **与组内仓库对齐的任务卡**：先把 **`examples/evaluation/fixtures/task_cards.json`** 复制到 **`tmp/daily_task_eval/task_cards.json`**（没有目录就先建 `tmp/daily_task_eval`），再执行下面的 **`init`**。**不要**加 **`--overwrite`**（否则会清空并写回内置三张示例任务卡）。此时若还没有 **`human_runs.json`**，会根据**当前** `task_cards.json` 自动生成占位条目。  
+   - 若你**先** `init` 过、**后**才替换任务卡，请**删掉** `tmp/daily_task_eval/human_runs.json` 再跑一次 **`init`**（仍不要 `--overwrite`），否则会沿用旧 `human_runs` 里的 `task_id`，与新区不匹配。  
+   - **从零只要模板**：不复制 fixtures，直接 **`init`** 即可。
+
+   ```bash
+   uv run examples/evaluation/daily_task_comparison.py init
+   ```
+
+5. **跑一轮 Agent**（示例：预设 A；可加 `--task-id <id>` 只跑一张任务卡）
+
+   ```bash
+   uv run examples/evaluation/daily_task_comparison.py run-agent --experiment A
+   ```
+
+   需要**周期领航**（与仅生成开场 `navigator_plan.md` 不同）时，在 **B / D** 上附加 **`--continuous-navigation`**（要求预设已启用领航员）。详见 `EXPERIMENT_RECORD.md` 文首说明与手册 **§四** 参数表。
+
+6. **生成对比报告**（需按需填写 `human_runs.json`；未填则报告中会有缺失 baseline 类提示）
+
+   ```bash
+   uv run examples/evaluation/daily_task_comparison.py compare
+   ```
+
+7. **（可选）自检本模块 CI 测试**
+
+   ```bash
+   uv run pytest -q tests/ci/test_daily_task_comparison.py tests/ci/test_continuous_navigation.py
+   ```
+
+**Windows PowerShell**：多行命令可用反引号 `` ` `` 续行；或写成一行。**Git Bash** 可用 `\` 续行。
+
+---
+
+## 快速参考：密钥与实验配方（A/B/C/D）
+
+在根目录 `.env` 中按需配置：
+
+```env
+BROWSER_USE_API_KEY=你的_browser_use_密钥
+DEEPSEEK_API_KEY=你的_deepseek_密钥
+DASHSCOPE_API_KEY=你的_dashscope_qwen_密钥
 ```
 
-**2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
-```
-# .env
-BROWSER_USE_API_KEY=your-key
-# GOOGLE_API_KEY=your-key
-# ANTHROPIC_API_KEY=your-key
-```
+| 预设 | 至少需要的环境变量 |
+|------|---------------------|
+| **A** | `BROWSER_USE_API_KEY`（`ChatBrowserUse`） |
+| **B** | `BROWSER_USE_API_KEY` + `DEEPSEEK_API_KEY`（DeepSeek 领航） |
+| **C** | `DASHSCOPE_API_KEY`（Qwen OpenAI 兼容执行器） |
+| **D** | `DASHSCOPE_API_KEY` + `DEEPSEEK_API_KEY` |
 
-**3. Run your first agent:**
-```python
-from browser_use import Agent, Browser, ChatBrowserUse
-# from browser_use import ChatGoogle  # ChatGoogle(model='gemini-3-flash-preview')
-# from browser_use import ChatAnthropic  # ChatAnthropic(model='claude-sonnet-4-6')
-import asyncio
-
-async def main():
-    browser = Browser(
-        # use_cloud=True,  # Use a stealth browser on Browser Use Cloud
-    )
-
-    agent = Agent(
-        task="Find the number of stars of the browser-use repo",
-        llm=ChatBrowserUse(),
-        # llm=ChatGoogle(model='gemini-3-flash-preview'),
-        # llm=ChatAnthropic(model='claude-sonnet-4-6'),
-        browser=browser,
-    )
-    await agent.run()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme-cloud-docs) for more!
-
-<br/>
-
-# Open Source vs Cloud
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="static/accuracy_by_model_light.png">
-  <source media="(prefers-color-scheme: dark)" srcset="static/accuracy_by_model_dark.png">
-  <img alt="BU Bench V1 - LLM Success Rates" src="static/accuracy_by_model_light.png" width="100%">
-</picture>
-
-We benchmark Browser Use across 100 real-world browser tasks. Full benchmark is open source: **[browser-use/benchmark](https://github.com/browser-use/benchmark)**.
-
-**Use the Open-Source Agent**
-- You need [custom tools](https://docs.browser-use.com/customize/tools/basics) or deep code-level integration
-- We recommend pairing with our [cloud browsers](https://docs.browser-use.com/open-source/customize/browser/remote) for leading stealth, proxy rotation, and scaling
-- Or self-host the open-source agent fully on your own machines
-
-**Use the [Fully-Hosted Cloud Agent](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-hosted-agent) (recommended)**
-- Much more powerful agent for complex tasks (see plot above)
-- Easiest way to start and scale
-- Best stealth with proxy rotation and captcha solving
-- 1000+ integrations (Gmail, Slack, Notion, and more)
-- Persistent filesystem and memory
-
-<br/>
-
-# Demos
-
-
-### 📋 Form-Filling
-#### Task = "Fill in this job application with my resume and information."
-![Job Application Demo](https://github.com/user-attachments/assets/57865ee6-6004-49d5-b2c2-6dff39ec2ba9)
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/apply_to_job.py)
-
-
-### 🍎 Grocery-Shopping
-#### Task = "Put this list of items into my instacart."
-
-https://github.com/user-attachments/assets/a6813fa7-4a7c-40a6-b4aa-382bf88b1850
-
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/buy_groceries.py)
-
-
-### 💻 Personal-Assistant.
-#### Task = "Help me find parts for a custom PC."
-
-https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
-
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/pcpartpicker.py)
-
-
-### 💡See [more examples here ↗](https://docs.browser-use.com/examples) and give us a star!
-
-<br/>
-
-# 🚀 Template Quickstart
-
-**Want to get started even faster?** Generate a ready-to-run template:
+运行示例：
 
 ```bash
-uvx browser-use init --template default
+uv run examples/evaluation/daily_task_comparison.py run-agent --experiment A
+uv run examples/evaluation/daily_task_comparison.py run-agent --experiment B
+uv run examples/evaluation/daily_task_comparison.py run-agent --experiment C
+uv run examples/evaluation/daily_task_comparison.py run-agent --experiment D
 ```
 
-This creates a `browser_use_default.py` file with a working example. Available templates:
-- `default` - Minimal setup to get started quickly
-- `advanced` - All configuration options with detailed comments
-- `tools` - Examples of custom tools and extending the agent
+常用调参（完整列表见 **`run-agent --help`** 与手册 **§四**）：`--continuous-navigation`、`--llm-timeout`、`--step-timeout`、`--heartbeat-seconds`、`--max-failures`、`--use-vision {auto,true,false}`、`--log-level`、`--max-actions-per-step`、`--headless` 等。
 
-You can also specify a custom output path:
-```bash
-uvx browser-use init --template default --output my_agent.py
-```
+---
 
-<br/>
+## 目录与代码地图（改逻辑时看这里）
 
-# 💻 CLI
+### 命令行入口
 
-Fast, persistent browser automation from the command line:
+- `examples/evaluation/daily_task_comparison.py`：子命令 `init` / `run-agent` / `compare`
 
-```bash
-browser-use open https://example.com    # Navigate to URL
-browser-use state                       # See clickable elements
-browser-use click 5                     # Click element by index
-browser-use type "Hello"                # Type text
-browser-use screenshot page.png         # Take screenshot
-browser-use close                       # Close browser
-```
+### 日常实验核心包
 
-The CLI keeps the browser running between commands for fast iteration. See [CLI docs](browser_use/skill_cli/README.md) for all commands.
+目录：`browser_use/experiments/daily_task_eval/`
 
-### Claude Code Skill
+- `experiment_presets.py`：实验配方 A/B/C/D；从 CLI 参数构建配置
+- `executor.py`：执行器 LLM 配置与构建
+- `navigator.py`：领航员（navigator）与规划逻辑
+- `runner.py`：初始化、单任务运行、对比汇总；心跳与 `continuous_navigation` 传入 Agent
+- `models.py`：`TaskCard` / `AgentRunSummary` / `HumanRunRecord` / `ComparisonRecord`（含用量相关字段说明）
+- `prompts.py`：实验相关提示词拼装
 
-For [Claude Code](https://claude.ai/code), install the skill to enable AI-assisted browser automation:
+### Agent / CLI 中与「持续领航」相关的上游改动位置
 
-```bash
-mkdir -p ~/.claude/skills/browser-use
-curl -o ~/.claude/skills/browser-use/SKILL.md \
-  https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md
-```
+- `browser_use/agent/service.py`：周期领航注入与 `navigator_llm`
+- `browser_use/agent/views.py`：`AgentSettings` 等
+- `browser_use/cli_navigator.py`：主 **`browser-use` TUI CLI** 解析领航用 LLM（避免 TUI 侧重复实现）
 
-<br/>
+---
 
-## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
+## 产出文件（日志 / 轨迹 / 报告）
 
-<br/>
+默认输出目录：`tmp/daily_task_eval/`（本地生成，不进版本库）
 
-# FAQ
+- **结构化摘要**：`agent_runs.json`（每次 `run-agent` 追加；含 `usage_summary`、`usage_executor_llm`、`usage_navigator_cycle_llm`、`navigator_initial_plan_usage` 等，见手册 **§1.1**）
+- **单次运行目录**：`agent_runs/<task_id>/<scenario_id>/exp-<A|B|C|D>/<UTC>/` 下的 `history.json`、`conversation.json`、`navigator_plan.md` 等
+- **对比报告**：`comparison_report.json`（`compare` 生成）
 
-<details>
-<summary><b>What's the best model to use?</b></summary>
+---
 
-We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
+## 上游与致谢
 
-**Pricing (per 1M tokens):**
-- Input tokens: $0.20
-- Cached input tokens: $0.02
-- Output tokens: $2.00
+本仓库基于开源项目 **browser-use**，并在其基础上增加了面向「日常任务评估」的实验模块、多模型与领航员配置、持续领航与用量拆分等能力。
 
-For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
-</details>
-
-<details>
-<summary><b>Should I use the Browser Use system prompt with the open-source preview model?</b></summary>
-
-Yes. If you use `ChatBrowserUse(model='browser-use/bu-30b-a3b-preview')` with a normal `Agent(...)`, Browser Use still sends its default agent system prompt for you.
-
-You do **not** need to add a separate custom "Browser Use system message" just because you switched to the open-source preview model. Only use `extend_system_message` or `override_system_message` when you intentionally want to customize the default behavior for your task.
-
-If you want the best default speed/accuracy, we still recommend the newer hosted `bu-*` models. If you want the open-source preview model, the setup stays the same apart from the `model=` value.
-</details>
-
-<details>
-<summary><b>Can I use custom tools with the agent?</b></summary>
-
-Yes! You can add custom tools to extend the agent's capabilities:
-
-```python
-from browser_use import Tools
-
-tools = Tools()
-
-@tools.action(description='Description of what this tool does.')
-def custom_tool(param: str) -> str:
-    return f"Result: {param}"
-
-agent = Agent(
-    task="Your task",
-    llm=llm,
-    browser=browser,
-    tools=tools,
-)
-```
-
-</details>
-
-<details>
-<summary><b>Can I use this for free?</b></summary>
-
-Yes! Browser-Use is open source and free to use. You only need to choose an LLM provider (like OpenAI, Google, ChatBrowserUse, or run local models with Ollama).
-</details>
-
-<details>
-<summary><b>Terms of Service</b></summary>
-
-This open-source library is licensed under the MIT License. For Browser Use services & data policy, see our [Terms of Service](https://browser-use.com/legal/terms-of-service) and [Privacy Policy](https://browser-use.com/privacy/).
-</details>
-
-<details>
-<summary><b>How do I handle authentication?</b></summary>
-
-Check out our authentication examples:
-- [Using real browser profiles](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py) - Reuse your existing Chrome profile with saved logins
-- If you want to use temporary accounts with inbox, choose AgentMail
-- To sync your auth profile with the remote browser, run `curl -fsSL https://browser-use.com/profile.sh | BROWSER_USE_API_KEY=XXXX sh` (replace XXXX with your API key)
-
-These examples show how to maintain sessions and handle authentication seamlessly.
-</details>
-
-<details>
-<summary><b>How do I solve CAPTCHAs?</b></summary>
-
-For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [Browser Use Cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-captcha) which provides stealth browsers designed to avoid detection and CAPTCHA challenges.
-</details>
-
-<details>
-<summary><b>How do I go into production?</b></summary>
-
-Chrome can consume a lot of memory, and running many agents in parallel can be tricky to manage.
-
-For production use cases, use our [Browser Use Cloud API](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-faq-production) which handles:
-- Scalable browser infrastructure
-- Memory management
-- Proxy rotation
-- Stealth browser fingerprinting
-- High-performance parallel execution
-</details>
-
-<br/>
-
-<div align="center">
-
-**Tell your computer what to do, and it gets it done.**
-
-<img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/>
-
-[![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/intent/user?screen_name=mamagnus00)
-&emsp;&emsp;&emsp;
-[![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/intent/user?screen_name=gregpr07)
-
-</div>
-
-<div align="center"> Made with ❤️ in Zurich and San Francisco </div>
+- **上游文档**：https://docs.browser-use.com

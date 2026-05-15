@@ -1,6 +1,7 @@
+import re
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 
 
@@ -57,9 +58,32 @@ class SearchAction(BaseModel):
 SearchAction = SearchAction
 
 
+# OpenAI-compatible / local models sometimes leak JSON closing tokens into navigate.url.
+_NAV_URL_JSON_LEAK_TAIL = re.compile(
+	r'(?:\}\}\]|\}\}|%7[dD]%7[dD](?:\]|%7[dD])*)+\s*$',
+)
+
+
+def _strip_navigate_url_json_leak(raw: str) -> str:
+	u = raw.strip()
+	for _ in range(8):
+		n = _NAV_URL_JSON_LEAK_TAIL.sub('', u)
+		if n == u:
+			return u
+		u = n
+	return u
+
+
 class NavigateAction(BaseModel):
 	url: str
 	new_tab: bool = Field(default=False)
+
+	@field_validator('url', mode='before')
+	@classmethod
+	def _strip_json_leak_from_url(cls, v: object) -> object:
+		if isinstance(v, str):
+			return _strip_navigate_url_json_leak(v)
+		return v
 
 
 # Backward compatibility alias
