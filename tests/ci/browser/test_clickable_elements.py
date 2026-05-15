@@ -1,5 +1,6 @@
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
-from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, EnhancedSnapshotNode, NodeType
+from browser_use.dom.serializer.serializer import DOMTreeSerializer
+from browser_use.dom.views import DOMRect, EnhancedAXNode, EnhancedDOMTreeNode, EnhancedSnapshotNode, NodeType
 
 
 def _element_with_bounds(attributes: dict[str, str], width: float, height: float) -> EnhancedDOMTreeNode:
@@ -45,3 +46,26 @@ def test_title_alone_does_not_make_large_container_interactive():
 	element = _element_with_bounds({'title': 'Create Test'}, width=240, height=80)
 
 	assert not ClickableElementDetector.is_interactive(element)
+
+
+def test_accessibility_name_is_serialized_for_icon_only_control():
+	element = _element_with_bounds({}, width=24, height=24)
+	element.node_name = 'BUTTON'
+	element.ax_node = EnhancedAXNode(
+		ax_node_id='1',
+		ignored=False,
+		role='button',
+		name='Create Test',
+		description='Opens the create test dialog',
+		properties=None,
+		child_ids=None,
+	)
+
+	attrs = DOMTreeSerializer._build_attributes_string(
+		element,
+		include_attributes=['ax_name', 'ax_description'],
+		text='',
+	)
+
+	assert 'ax_name=Create Test' in attrs
+	assert 'ax_description=Opens the create test dialog' in attrs

@@ -79,6 +79,7 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'live',
 	# Accessibility name (contains text content for StaticText elements)
 	'ax_name',
+	'ax_description',
 ]
 
 STATIC_ATTRIBUTES = {
