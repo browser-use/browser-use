@@ -48,7 +48,26 @@ def _log_get_message_emoji(message: BaseMessage) -> str:
 		'SystemMessage': '🧠',
 		'AssistantMessage': '🔨',
 	}
-	return emoji_map.get(message.__class__.__name__, '🎮')
+	if message.__class__.__name__ in emoji_map:
+		return emoji_map[message.__class__.__name__]
+
+	role_map = {
+		'user': '💬',
+		'system': '🧠',
+		'assistant': '🔨',
+	}
+	role = getattr(message, 'role', None)
+	if isinstance(role, str):
+		return role_map.get(role, '🎮')
+	return '🎮'
+
+
+def _log_get_token_display(message: BaseMessage) -> str:
+	"""Get right-aligned token count for logging display."""
+	tokens = getattr(getattr(message, 'metadata', None), 'tokens', None)
+	if isinstance(tokens, int):
+		return str(tokens).rjust(4)
+	return '   ?'
 
 
 def _log_format_message_line(message: BaseMessage, content: str, is_last_message: bool, terminal_width: int) -> list[str]:
@@ -58,9 +77,7 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 
 		# Get emoji and token info
 		emoji = _log_get_message_emoji(message)
-		# token_str = str(message.metadata.tokens).rjust(4)
-		# TODO: fix the token count
-		token_str = '??? (TODO)'
+		token_str = _log_get_token_display(message)
 		prefix = f'{emoji}[{token_str}]: '
 
 		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)
