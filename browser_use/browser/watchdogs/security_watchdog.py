@@ -178,9 +178,26 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
-		if parsed.scheme in ['data', 'blob']:
-			return True
+		scheme = parsed.scheme.lower()
+		allowed_domains = self.browser_session.browser_profile.allowed_domains
+		prohibited_domains = self.browser_session.browser_profile.prohibited_domains
+		has_domain_restrictions = bool(allowed_domains or prohibited_domains)
+
+		# data: and blob: URLs do not expose a normal hostname. Keep them available
+		# for unrestricted sessions, but do not let them bypass configured URL policy.
+		if scheme in ['data', 'blob']:
+			if not has_domain_restrictions:
+				return True
+			if scheme == 'data':
+				return False
+
+			blob_origin_url = url.split(':', 1)[1]
+			if not blob_origin_url or blob_origin_url.lower().startswith(('blob:', 'data:')):
+				return False
+			blob_origin = urlparse(blob_origin_url)
+			if not blob_origin.scheme or not blob_origin.hostname:
+				return False
+			return self._is_url_allowed(blob_origin_url)
 
 		# Get the actual host (domain)
 		host = parsed.hostname
@@ -192,17 +209,12 @@ class SecurityWatchdog(BaseWatchdog):
 			if self._is_ip_address(host):
 				return False
 
-		# If no allowed_domains specified, allow all URLs
-		if (
-			not self.browser_session.browser_profile.allowed_domains
-			and not self.browser_session.browser_profile.prohibited_domains
-		):
+		# If no URL policy is specified, allow all URLs
+		if not has_domain_restrictions:
 			return True
 
 		# Check allowed domains (fast path for sets, slow path for lists with patterns)
-		if self.browser_session.browser_profile.allowed_domains:
-			allowed_domains = self.browser_session.browser_profile.allowed_domains
-
+		if allowed_domains:
 			if isinstance(allowed_domains, set):
 				# Fast path: O(1) exact hostname match - check both www and non-www variants
 				host_variant, host_alt = self._get_domain_variants(host)
@@ -210,14 +222,12 @@ class SecurityWatchdog(BaseWatchdog):
 			else:
 				# Slow path: O(n) pattern matching for lists
 				for pattern in allowed_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
+					if self._is_url_match(url, host, scheme, pattern):
 						return True
 				return False
 
 		# Check prohibited domains (fast path for sets, slow path for lists with patterns)
-		if self.browser_session.browser_profile.prohibited_domains:
-			prohibited_domains = self.browser_session.browser_profile.prohibited_domains
-
+		if prohibited_domains:
 			if isinstance(prohibited_domains, set):
 				# Fast path: O(1) exact hostname match - check both www and non-www variants
 				host_variant, host_alt = self._get_domain_variants(host)
@@ -225,7 +235,7 @@ class SecurityWatchdog(BaseWatchdog):
 			else:
 				# Slow path: O(n) pattern matching for lists
 				for pattern in prohibited_domains:
-					if self._is_url_match(url, host, parsed.scheme, pattern):
+					if self._is_url_match(url, host, scheme, pattern):
 						return False
 				return True
 

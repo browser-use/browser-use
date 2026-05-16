@@ -26,6 +26,40 @@ class TestUrlAllowlistSecurity:
 		# Make sure legitimate auth credentials still work
 		assert watchdog._is_url_allowed('https://user:password@example.com') is True
 
+	def test_special_scheme_urls_do_not_bypass_allowlist(self):
+		"""Test that data/blob URLs cannot bypass configured allowed_domains."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('data:text/html,<script>location="https://evil.com"</script>') is False
+		assert watchdog._is_url_allowed('data:image/png;base64,AAAA') is False
+
+		assert watchdog._is_url_allowed('blob:https://example.com/1234-5678') is True
+		assert watchdog._is_url_allowed('blob:https://www.example.com/1234-5678') is True
+		assert watchdog._is_url_allowed('blob:https://evil.com/1234-5678') is False
+		assert watchdog._is_url_allowed('blob:about:blank') is False
+		assert watchdog._is_url_allowed('blob:null/1234-5678') is False
+
+	def test_special_scheme_urls_allowed_without_domain_restrictions(self):
+		"""Test that data/blob URLs remain allowed when no URL policy is configured."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('data:text/html,<h1>local</h1>') is True
+		assert watchdog._is_url_allowed('blob:https://example.com/1234-5678') is True
+
 	def test_glob_pattern_matching(self):
 		"""Test that glob patterns in allowed_domains work correctly."""
 		from bubus import EventBus
@@ -315,6 +349,23 @@ class TestUrlProhibitlistSecurity:
 
 		# Allow unrelated domains
 		assert watchdog._is_url_allowed('https://notexample.com') is True
+
+	def test_special_scheme_urls_respect_prohibited_domains(self):
+		"""Test that data/blob URLs cannot bypass configured prohibited_domains."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('data:text/html,<h1>local</h1>') is False
+		assert watchdog._is_url_allowed('blob:https://example.com/1234-5678') is False
+		assert watchdog._is_url_allowed('blob:https://other.com/1234-5678') is True
+		assert watchdog._is_url_allowed('blob:about:blank') is False
+		assert watchdog._is_url_allowed('blob:null/1234-5678') is False
 
 	def test_glob_pattern_prohibited(self):
 		"""Wildcard patterns block subdomains and main domain for http/https only."""
