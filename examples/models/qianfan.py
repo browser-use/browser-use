@@ -20,6 +20,7 @@ if not api_key:
 # Browser Use agents rely on structured outputs through OpenAI-compatible response_format.
 # Qianfan structured-output smoke tests on 2026-05-16 succeeded with ernie-5.0.
 
+
 async def run_search():
 	agent = Agent(
 		task=('go to google, search for browser-use github'),
