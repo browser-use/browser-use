@@ -68,7 +68,7 @@ class StorageStateWatchdog(BaseWatchdog):
 		if path is None:
 			# Use profile default path if available
 			if self.browser_session.browser_profile.storage_state:
-				path = str(self.browser_session.browser_profile.storage_state)
+				path = self.browser_session.browser_profile.storage_state
 			else:
 				path = None  # Skip saving if no path available
 		await self._save_storage_state(path)
@@ -80,7 +80,7 @@ class StorageStateWatchdog(BaseWatchdog):
 		if path is None:
 			# Use profile default path if available
 			if self.browser_session.browser_profile.storage_state:
-				path = str(self.browser_session.browser_profile.storage_state)
+				path = self.browser_session.browser_profile.storage_state
 			else:
 				path = None  # Skip loading if no path available
 		await self._load_storage_state(path)
@@ -164,7 +164,7 @@ class StorageStateWatchdog(BaseWatchdog):
 			self.logger.debug(f'[StorageStateWatchdog] Error comparing cookies: {e}')
 			return False
 
-	async def _save_storage_state(self, path: str | None = None) -> None:
+	async def _save_storage_state(self, path: str | Path | dict[str, Any] | None = None) -> None:
 		"""Save browser storage state to file."""
 		async with self._save_lock:
 			# Check if CDP client is available
@@ -230,22 +230,28 @@ class StorageStateWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.error(f'[StorageStateWatchdog] Failed to save storage state: {e}')
 
-	async def _load_storage_state(self, path: str | None = None) -> None:
+	async def _load_storage_state(self, path: str | Path | dict[str, Any] | None = None) -> None:
 		"""Load browser storage state from file."""
 		if not self.browser_session.cdp_client:
 			self.logger.warning('[StorageStateWatchdog] No CDP client available for loading')
 			return
 
 		load_path = path or self.browser_session.browser_profile.storage_state
-		if not load_path or not os.path.exists(str(load_path)):
+		if not load_path:
 			return
 
 		try:
-			# Read the storage state file asynchronously
-			import anyio
+			if isinstance(load_path, dict):
+				storage = load_path
+			else:
+				if not os.path.exists(str(load_path)):
+					return
 
-			content = await anyio.Path(str(load_path)).read_text()
-			storage = json.loads(content)
+				# Read the storage state file asynchronously
+				import anyio
+
+				content = await anyio.Path(str(load_path)).read_text()
+				storage = json.loads(content)
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
@@ -309,7 +315,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 			self.event_bus.dispatch(
 				StorageStateLoadedEvent(
-					path=str(load_path),
+					path='<memory>' if isinstance(load_path, dict) else str(load_path),
 					cookies_count=len(storage.get('cookies', [])),
 					origins_count=len(storage.get('origins', [])),
 				)
