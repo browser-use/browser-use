@@ -4,8 +4,10 @@ import base64
 import io
 import logging
 import math
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from browser_use.browser.profile import ViewportSize
 
@@ -38,7 +40,7 @@ class VideoRecorderService:
 	It automatically resizes frames to match the target video dimensions.
 	"""
 
-	def __init__(self, output_path: Path, size: ViewportSize, framerate: int):
+	def __init__(self, output_path: Path, size: ViewportSize, framerate: int, time_func: Callable[[], float] | None = None):
 		"""
 		Initializes the video recorder.
 
@@ -50,9 +52,13 @@ class VideoRecorderService:
 		self.output_path = output_path
 		self.size = size
 		self.framerate = framerate
+		self._time_func = time_func or time.monotonic
 		self._writer: Optional['Format.Writer'] = None
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
+		self._last_frame_monotonic: float | None = None
+		self._frame_time_accumulator = 0.0
+		self._last_frame_array: Any | None = None
 
 	def start(self) -> None:
 		"""
@@ -118,9 +124,47 @@ class VideoRecorderService:
 				# 3. Convert to numpy array for imageio
 				img_array = np.array(img)
 
-			self._writer.append_data(img_array)
+			self._append_timed_frame(img_array)
 		except Exception as e:
 			logger.warning(f'Could not process and add video frame: {e}')
+
+	def _get_frame_write_plan(self, now: float) -> tuple[int, int]:
+		"""Return (previous frame repeats, current frame repeats) for fixed-FPS output."""
+		if self.framerate <= 0:
+			self._last_frame_monotonic = now
+			self._frame_time_accumulator = 0.0
+			return (0, 1)
+
+		if self._last_frame_monotonic is None:
+			self._last_frame_monotonic = now
+			return (0, 1)
+
+		elapsed = max(0.0, now - self._last_frame_monotonic)
+		self._last_frame_monotonic = now
+		self._frame_time_accumulator += elapsed
+
+		frame_interval = 1.0 / self.framerate
+		intervals_elapsed = int(self._frame_time_accumulator / frame_interval)
+		if intervals_elapsed <= 0:
+			return (0, 0)
+
+		self._frame_time_accumulator -= intervals_elapsed * frame_interval
+		return (max(0, intervals_elapsed - 1), 1)
+
+	def _append_timed_frame(self, frame_array: Any) -> None:
+		"""Append frames according to elapsed wall-clock time between screencast frames."""
+		if not self._writer:
+			return
+
+		previous_repeats, current_repeats = self._get_frame_write_plan(self._time_func())
+		if previous_repeats and self._last_frame_array is not None:
+			for _ in range(previous_repeats):
+				self._writer.append_data(self._last_frame_array)
+
+		for _ in range(current_repeats):
+			self._writer.append_data(frame_array)
+
+		self._last_frame_array = frame_array
 
 	def stop_and_save(self) -> None:
 		"""
