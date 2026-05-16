@@ -2,6 +2,7 @@ from pathlib import Path
 
 from browser_use.browser.profile import ViewportSize
 from browser_use.browser.video_recorder import VideoRecorderService
+from browser_use.browser.watchdogs.recording_watchdog import _get_screencast_frame_timestamp
 
 
 class FakeWriter:
@@ -38,6 +39,13 @@ def test_frame_write_plan_accumulates_fast_screencast_frames():
 	assert recorder._get_frame_write_plan(0.1) == (0, 1)
 
 
+def test_frame_write_plan_resets_when_timestamp_source_changes():
+	recorder = create_recorder(framerate=10)
+
+	assert recorder._get_frame_write_plan(100.0, 'cdp') == (0, 1)
+	assert recorder._get_frame_write_plan(0.0, 'local') == (0, 1)
+
+
 def test_append_timed_frame_writes_duplicate_frames_to_preserve_elapsed_time():
 	recorder = create_recorder(framerate=10)
 	writer = FakeWriter()
@@ -48,6 +56,18 @@ def test_append_timed_frame_writes_duplicate_frames_to_preserve_elapsed_time():
 
 	recorder._append_timed_frame('first')
 	recorder._append_timed_frame('second')
+
+	assert writer.frames == ['first', 'first', 'first', 'first', 'first', 'second']
+
+
+def test_append_timed_frame_uses_cdp_timestamps_when_provided():
+	recorder = create_recorder(framerate=10)
+	writer = FakeWriter()
+	recorder._writer = writer  # type: ignore[assignment]
+	recorder._time_func = lambda: (_ for _ in ()).throw(AssertionError('local clock should not be used'))
+
+	recorder._append_timed_frame('first', timestamp=100.0)
+	recorder._append_timed_frame('second', timestamp=100.5)
 
 	assert writer.frames == ['first', 'first', 'first', 'first', 'first', 'second']
 
@@ -65,3 +85,24 @@ def test_append_timed_frame_skips_sub_frame_interval_updates():
 	recorder._append_timed_frame('next-frame')
 
 	assert writer.frames == ['first', 'next-frame']
+
+
+def test_screencast_frame_timestamp_is_read_from_metadata():
+	assert (
+		_get_screencast_frame_timestamp(
+			{
+				'data': 'frame',
+				'metadata': {
+					'offsetTop': 0.0,
+					'pageScaleFactor': 1.0,
+					'deviceWidth': 16.0,
+					'deviceHeight': 16.0,
+					'scrollOffsetX': 0.0,
+					'scrollOffsetY': 0.0,
+					'timestamp': 123.25,
+				},
+				'sessionId': 1,
+			}
+		)
+		== 123.25
+	)
