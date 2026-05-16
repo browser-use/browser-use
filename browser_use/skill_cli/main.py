@@ -25,6 +25,29 @@ from pathlib import Path
 # These commands don't need the daemon infrastructure
 # =============================================================================
 
+
+def _get_early_option_value(argv: list[str], option: str) -> str | None:
+	"""Read an option value before the full argparse parser is initialized."""
+	for index, arg in enumerate(argv):
+		if arg == option and index + 1 < len(argv):
+			value = argv[index + 1]
+			if not value.startswith('-'):
+				return value
+		if arg.startswith(f'{option}='):
+			return arg.split('=', 1)[1]
+	return None
+
+
+def _get_early_mcp_browser_profile_overrides(argv: list[str]) -> dict[str, str] | None:
+	"""Extract browser profile overrides used by the early --mcp entrypoint."""
+	overrides: dict[str, str] = {}
+	cdp_url = _get_early_option_value(argv, '--cdp-url')
+	if cdp_url:
+		overrides['cdp_url'] = cdp_url
+
+	return overrides or None
+
+
 # Handle --mcp flag early to prevent logging initialization
 if '--mcp' in sys.argv:
 	import logging
@@ -37,7 +60,7 @@ if '--mcp' in sys.argv:
 
 	from browser_use.mcp.server import main as mcp_main
 
-	asyncio.run(mcp_main())
+	asyncio.run(mcp_main(browser_profile_overrides=_get_early_mcp_browser_profile_overrides(sys.argv[1:])))
 	sys.exit(0)
 
 
