@@ -46,3 +46,11 @@ def test_cloud_connect_help_shows_in_epilog():
 	"""Main --help epilog should mention cloud connect."""
 	result = run_cli('--help')
 	assert 'cloud connect' in result.stdout.lower()
+
+
+def test_profile_requires_yes_noninteractive():
+	"""Real Chrome profile access should require explicit opt-in in subprocess mode."""
+	result = run_cli('--profile', 'Default', 'open', 'https://example.com')
+	assert result.returncode == 1
+	assert 'without --yes' in result.stderr
+	assert 'saved logins' in result.stderr

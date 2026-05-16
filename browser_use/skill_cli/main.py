@@ -181,6 +181,34 @@ def _get_pid_path(session: str = 'default') -> Path:
 	return _get_home_dir() / f'{session}.pid'
 
 
+def _env_truthy(name: str) -> bool:
+	"""Return True when an environment variable is set to a truthy value."""
+	return os.environ.get(name, '').strip().lower()[:1] in 'ty1'
+
+
+def _confirm_real_browser_access(action: str, data_scope: str) -> bool:
+	"""Require explicit confirmation before touching a real browser session/profile."""
+	if _env_truthy('BROWSER_USE_YES'):
+		return True
+
+	if not sys.stdin.isatty():
+		print(
+			f'Error: refusing to {action} non-interactively without --yes. '
+			f'This would expose {data_scope}.',
+			file=sys.stderr,
+		)
+		return False
+
+	print(f'Warning: this will {action}.', file=sys.stderr)
+	print(f'It can expose {data_scope}.', file=sys.stderr)
+	try:
+		reply = input('Continue? [y/N] ').strip().lower()
+	except (EOFError, KeyboardInterrupt):
+		print('', file=sys.stderr)
+		return False
+	return reply in {'y', 'yes'}
+
+
 def _read_auth_token(session: str = 'default') -> str:
 	"""Read per-session auth token written by the daemon.
 
@@ -652,6 +680,11 @@ Setup:
 		help='(Deprecated) Use "browser-use connect" instead',
 	)
 	parser.add_argument('--session', default=None, help='Session name (default: "default")')
+	parser.add_argument(
+		'--yes',
+		action='store_true',
+		help='Skip confirmation prompts for real browser/profile access',
+	)
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
 	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
 	parser.add_argument('--template', help='Generate template file (use with --output for custom path)')
@@ -1418,6 +1451,12 @@ def main() -> int:
 
 	# Handle connect command (discover local Chrome, start daemon)
 	if args.command == 'connect':
+		if not args.yes and not _confirm_real_browser_access(
+			'attach to a running Chrome instance',
+			'your open tabs, cookies, and logged-in sessions',
+		):
+			return 1
+
 		from browser_use.skill_cli.utils import discover_chrome_cdp_url
 
 		try:
@@ -1447,6 +1486,13 @@ def main() -> int:
 		print('Error: --cdp-url and --profile are mutually exclusive', file=sys.stderr)
 		return 1
 
+	if args.profile and not args.yes:
+		if not _confirm_real_browser_access(
+			f'launch Chrome with profile "{args.profile}"',
+			"that profile's cookies, saved logins, and browsing data",
+		):
+			return 1
+
 	# One-time legacy migration
 	_migrate_legacy_files()
 
@@ -1456,7 +1502,7 @@ def main() -> int:
 
 	# Build params from args
 	params = {}
-	skip_keys = {'command', 'headed', 'json', 'cdp_url', 'session', 'connect'}
+	skip_keys = {'command', 'headed', 'json', 'cdp_url', 'session', 'connect', 'yes'}
 
 	for key, value in vars(args).items():
 		if key not in skip_keys and value is not None:
