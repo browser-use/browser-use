@@ -181,3 +181,11 @@ def test_connect_shows_in_help():
 	"""--help output should contain --connect."""
 	result = run_cli('--help')
 	assert '--connect' in result.stdout
+
+
+def test_connect_requires_yes_noninteractive():
+	"""connect should refuse non-interactive real-browser attachment without --yes."""
+	result = run_cli('connect')
+	assert result.returncode == 1
+	assert 'without --yes' in result.stderr
+	assert 'logged-in sessions' in result.stderr
