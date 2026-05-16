@@ -183,7 +183,8 @@ def _get_pid_path(session: str = 'default') -> Path:
 
 def _env_truthy(name: str) -> bool:
 	"""Return True when an environment variable is set to a truthy value."""
-	return os.environ.get(name, '').strip().lower()[:1] in 'ty1'
+	val = os.environ.get(name, '').strip().lower()[:1]
+	return bool(val) and val in 'ty1'
 
 
 def _confirm_real_browser_access(action: str, data_scope: str) -> bool:
