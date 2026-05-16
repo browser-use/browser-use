@@ -871,7 +871,7 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active', None
 
-		state = await self.browser_session.get_browser_state_summary()
+		state = await self.browser_session.get_browser_state_summary(include_screenshot=include_screenshot)
 
 		result: dict[str, Any] = {
 			'url': state.url,
