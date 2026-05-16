@@ -28,14 +28,15 @@ from pathlib import Path
 
 def _get_early_option_value(argv: list[str], option: str) -> str | None:
 	"""Read an option value before the full argparse parser is initialized."""
+	value: str | None = None
 	for index, arg in enumerate(argv):
 		if arg == option and index + 1 < len(argv):
-			value = argv[index + 1]
-			if not value.startswith('-'):
-				return value
+			candidate = argv[index + 1]
+			if not candidate.startswith('-'):
+				value = candidate
 		if arg.startswith(f'{option}='):
-			return arg.split('=', 1)[1]
-	return None
+			value = arg.split('=', 1)[1]
+	return value
 
 
 def _get_early_mcp_browser_profile_overrides(argv: list[str]) -> dict[str, str] | None:
