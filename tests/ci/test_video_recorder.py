@@ -31,6 +31,13 @@ def test_frame_write_plan_repeats_previous_frame_for_slow_screencast_frames():
 	assert recorder._get_frame_write_plan(0.5) == (4, 1)
 
 
+def test_frame_write_plan_caps_long_idle_gaps():
+	recorder = create_recorder(framerate=10)
+
+	assert recorder._get_frame_write_plan(0.0) == (0, 1)
+	assert recorder._get_frame_write_plan(60.0) == (99, 1)
+
+
 def test_frame_write_plan_accumulates_fast_screencast_frames():
 	recorder = create_recorder(framerate=10)
 
@@ -60,11 +67,28 @@ def test_append_timed_frame_writes_duplicate_frames_to_preserve_elapsed_time():
 	assert writer.frames == ['first', 'first', 'first', 'first', 'first', 'second']
 
 
+def test_stop_and_save_flushes_final_idle_gap(monkeypatch):
+	recorder = create_recorder(framerate=10)
+	writer = FakeWriter()
+	writer.close = lambda: None  # type: ignore[attr-defined]
+	recorder._writer = writer  # type: ignore[assignment]
+	recorder._is_active = True
+
+	times = iter([0.0, 0.5])
+	recorder._time_func = lambda: next(times)
+
+	recorder._append_timed_frame('last')
+	recorder.stop_and_save()
+
+	assert writer.frames == ['last', 'last', 'last', 'last', 'last']
+
+
 def test_append_timed_frame_uses_cdp_timestamps_when_provided():
 	recorder = create_recorder(framerate=10)
 	writer = FakeWriter()
 	recorder._writer = writer  # type: ignore[assignment]
-	recorder._time_func = lambda: (_ for _ in ()).throw(AssertionError('local clock should not be used'))
+	times = iter([0.0, 0.0])
+	recorder._time_func = lambda: next(times)
 
 	recorder._append_timed_frame('first', timestamp=100.0)
 	recorder._append_timed_frame('second', timestamp=100.5)
