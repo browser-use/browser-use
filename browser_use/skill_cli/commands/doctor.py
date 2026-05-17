@@ -86,11 +86,27 @@ def _check_extensions() -> dict[str, Any]:
 
 	extensions_enabled = _get_enable_default_extensions_default()
 	env_value = os.getenv('BROWSER_USE_DISABLE_EXTENSIONS')
-	extensions_dir = CONFIG.BROWSER_USE_EXTENSIONS_DIR
-	extensions_dir.mkdir(parents=True, exist_ok=True)
-
-	manifest_dirs = sorted(path for path in extensions_dir.iterdir() if path.is_dir() and (path / 'manifest.json').exists())
-	crx_files = sorted(extensions_dir.glob('*.crx'))
+	extensions_dir_str: str | None = None
+	try:
+		extensions_dir = CONFIG.BROWSER_USE_EXTENSIONS_DIR
+		extensions_dir_str = str(extensions_dir)
+		extensions_dir.mkdir(parents=True, exist_ok=True)
+		manifest_dirs = sorted(path for path in extensions_dir.iterdir() if path.is_dir() and (path / 'manifest.json').exists())
+		crx_files = sorted(extensions_dir.glob('*.crx'))
+	except Exception as e:
+		note = f'BROWSER_USE_DISABLE_EXTENSIONS={env_value or "unset"}'
+		return {
+			'status': 'error',
+			'message': 'Unable to access extension cache directory',
+			'note': note,
+			'details': {
+				'enabled': extensions_enabled,
+				'env': env_value,
+				'cache_dir': extensions_dir_str,
+				'error': str(e),
+			},
+			'fix': 'Ensure BROWSER_USE_CONFIG_DIR is writable and not a file, then rerun doctor.',
+		}
 
 	details = {
 		'enabled': extensions_enabled,
