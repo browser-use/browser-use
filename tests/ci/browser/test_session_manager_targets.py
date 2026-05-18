@@ -56,3 +56,22 @@ def test_regular_pages_and_tabs_still_returned():
 
 	# worker is excluded by target_type as before; the three page/tab targets remain
 	assert {t.target_id for t in result} == {'t1', 't2', 't3'}
+
+
+def test_include_chrome_extensions_opt_in():
+	"""Extension-cleanup code can opt in to see chrome-extension:// targets.
+
+	_close_extension_options_pages() relies on this to find and close extension
+	options/onboarding pages, so the opt-in must surface them.
+	"""
+	page = Target(target_id='t-page', target_type='page', url='https://example.com/')
+	options_page = Target(
+		target_id='t-opt',
+		target_type='page',
+		url='chrome-extension://abcdefghijklmnop/options.html',
+	)
+	mgr = _make_manager(page, options_page)
+
+	assert options_page not in mgr.get_all_page_targets()
+	assert options_page in mgr.get_all_page_targets(include_chrome_extensions=True)
+	assert page in mgr.get_all_page_targets(include_chrome_extensions=True)
