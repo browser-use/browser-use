@@ -178,9 +178,13 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
+		has_domain_policy = bool(
+			self.browser_session.browser_profile.allowed_domains or self.browser_session.browser_profile.prohibited_domains
+		)
+
+		# data: and blob: URLs do not have hostnames to validate against domain policies.
 		if parsed.scheme in ['data', 'blob']:
-			return True
+			return not has_domain_policy
 
 		# Get the actual host (domain)
 		host = parsed.hostname
@@ -193,10 +197,7 @@ class SecurityWatchdog(BaseWatchdog):
 				return False
 
 		# If no allowed_domains specified, allow all URLs
-		if (
-			not self.browser_session.browser_profile.allowed_domains
-			and not self.browser_session.browser_profile.prohibited_domains
-		):
+		if not has_domain_policy:
 			return True
 
 		# Check allowed domains (fast path for sets, slow path for lists with patterns)

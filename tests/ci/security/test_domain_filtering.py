@@ -26,6 +26,33 @@ class TestUrlAllowlistSecurity:
 		# Make sure legitimate auth credentials still work
 		assert watchdog._is_url_allowed('https://user:password@example.com') is True
 
+	def test_data_and_blob_urls_do_not_bypass_domain_policy(self):
+		"""data: and blob: URLs have no host to validate against allowed/prohibited domains."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		restricted_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		restricted_session = BrowserSession(browser_profile=restricted_profile)
+		restricted_watchdog = SecurityWatchdog(browser_session=restricted_session, event_bus=EventBus())
+
+		assert restricted_watchdog._is_url_allowed('data:text/html,<h1>blocked</h1>') is False
+		assert restricted_watchdog._is_url_allowed('blob:https://example.com/1234') is False
+
+		prohibited_profile = BrowserProfile(prohibited_domains=['evil.com'], headless=True, user_data_dir=None)
+		prohibited_session = BrowserSession(browser_profile=prohibited_profile)
+		prohibited_watchdog = SecurityWatchdog(browser_session=prohibited_session, event_bus=EventBus())
+
+		assert prohibited_watchdog._is_url_allowed('data:text/html,<h1>blocked</h1>') is False
+		assert prohibited_watchdog._is_url_allowed('blob:https://example.com/1234') is False
+
+		open_profile = BrowserProfile(headless=True, user_data_dir=None)
+		open_session = BrowserSession(browser_profile=open_profile)
+		open_watchdog = SecurityWatchdog(browser_session=open_session, event_bus=EventBus())
+
+		assert open_watchdog._is_url_allowed('data:text/html,<h1>allowed</h1>') is True
+		assert open_watchdog._is_url_allowed('blob:https://example.com/1234') is True
+
 	def test_glob_pattern_matching(self):
 		"""Test that glob patterns in allowed_domains work correctly."""
 		from bubus import EventBus
