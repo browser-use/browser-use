@@ -43,7 +43,7 @@ def _parse_env_task_timeout(env_name: str, fallback_s: float) -> float:
 	"""Parse a per-task timeout env var defensively.
 
 	Mirrors the guard in browser/_cdp_timeout.py: only finite positive
-	values take effect; nan / inf / non-positive / unparseable values fall
+	values take effect; nan / inf / non-positive / unparsable values fall
 	back to ``fallback_s`` with a warning. A bad env value here would
 	otherwise time out every browser-state request immediately (nan / 0)
 	or never (inf / negative).
