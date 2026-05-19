@@ -11,6 +11,7 @@ Tests cover:
 
 import asyncio
 import logging
+from unittest.mock import AsyncMock, PropertyMock, patch
 
 import pytest
 
@@ -434,3 +435,69 @@ class TestBrowserSessionEventSystem:
 	# 	for i, result in enumerate(results):
 	# 		if isinstance(result, Exception):
 	# 			print(f'Warning: Browser session kill raised exception: {type(result).__name__}: {result}')
+
+
+async def test_cdp_command_waits_for_reconnect_success():
+	"""Direct CDP helpers should wait for an in-flight reconnect before continuing."""
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+	browser_session.RECONNECT_WAIT_TIMEOUT = 0.2
+	browser_session._reconnecting = True
+	browser_session._reconnect_event.clear()
+
+	async def release_reconnect():
+		await asyncio.sleep(0.01)
+		browser_session._reconnect_event.set()
+
+	release_task = asyncio.create_task(release_reconnect())
+	try:
+		with patch.object(BrowserSession, 'is_cdp_connected', new_callable=PropertyMock) as connected:
+			connected.side_effect = [False, True]
+			await browser_session._ensure_cdp_ready_for_command('_cdp_get_cookies')
+	finally:
+		await release_task
+
+
+async def test_cdp_command_timeout_when_reconnect_stalls():
+	"""Direct CDP helpers should fail with a clear timeout when reconnect never finishes."""
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+	browser_session.RECONNECT_WAIT_TIMEOUT = 0.01
+	browser_session._reconnecting = True
+	browser_session._reconnect_event.clear()
+	with patch.object(BrowserSession, 'is_cdp_connected', new_callable=PropertyMock) as connected:
+		connected.return_value = False
+		with pytest.raises(ConnectionError, match='reconnection wait timed out'):
+			await browser_session._ensure_cdp_ready_for_command('_cdp_get_cookies')
+
+
+async def test_cdp_command_fails_fast_when_disconnected_and_not_reconnecting():
+	"""Direct CDP helpers should fail fast when CDP is simply disconnected."""
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+	browser_session._reconnecting = False
+	with patch.object(BrowserSession, 'is_cdp_connected', new_callable=PropertyMock) as connected:
+		connected.return_value = False
+		with pytest.raises(ConnectionError, match='CDP is not connected'):
+			await browser_session._ensure_cdp_ready_for_command('export_storage_state')
+
+
+async def test_export_storage_state_waits_for_reconnect_before_fetching_cookies():
+	"""Export should reuse the reconnect guard before hitting direct CDP cookie helpers."""
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+	browser_session.RECONNECT_WAIT_TIMEOUT = 0.2
+	browser_session._reconnecting = True
+	browser_session._reconnect_event.clear()
+	browser_session._cdp_get_cookies = AsyncMock(return_value=[{'name': 'sid', 'value': '1', 'domain': 'example.com', 'path': '/'}])
+
+	async def release_reconnect():
+		await asyncio.sleep(0.01)
+		browser_session._reconnect_event.set()
+
+	release_task = asyncio.create_task(release_reconnect())
+	try:
+		with patch.object(BrowserSession, 'is_cdp_connected', new_callable=PropertyMock) as connected:
+			connected.side_effect = [False, True]
+			state = await browser_session.export_storage_state()
+	finally:
+		await release_task
+
+	assert state['cookies'][0]['name'] == 'sid'
+	browser_session._cdp_get_cookies.assert_awaited_once()
