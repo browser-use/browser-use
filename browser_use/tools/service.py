@@ -845,23 +845,37 @@ class Tools(Generic[Context]):
 				# Also check if it's a recently downloaded file that might not be in available_file_paths yet
 				downloaded_files = browser_session.downloaded_files
 				if params.path not in downloaded_files:
-					# Finally, check if it's a file in the FileSystem service
-					if file_system and file_system.get_dir():
+					# Finally, check if it's a file in the FileSystem service.
+					# Only rewrite to the local FileSystem path on local sessions —
+					# on remote sessions, params.path is meant to address a file on
+					# the remote machine, and a coincidental basename collision with
+					# a local managed file (e.g. `/tmp/note.md` colliding with a
+					# local `note.md`) must not silently upload the local file.
+					if browser_session.is_local and file_system and file_system.get_dir():
 						# Check if the file is actually managed by the FileSystem service
 						# The path should be just the filename for FileSystem files
 						file_obj = file_system.get_file(params.path)
 						if file_obj:
-							# File is managed by FileSystem, construct the full path
-							file_system_path = str(file_system.get_dir() / params.path)
-							params = UploadFileAction(index=params.index, path=file_system_path)
-						else:
-							# If browser is remote, allow passing a remote-accessible absolute path
-							if not browser_session.is_local:
-								pass
-							else:
-								msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
+							# Construct the upload path from the FileSystem-owned basename
+							# (file_obj.full_name), NOT from params.path. The agent-controlled
+							# params.path may contain '..' traversal sequences that escape
+							# data_dir when naively joined — get_file() matches by basename
+							# so a path like '../../../note.md' would otherwise resolve to a
+							# sibling file outside the FileSystem directory.
+							# GHSA-j9hj-92j8-jv9h.
+							file_system_path = str(file_system.get_dir() / file_obj.full_name)
+							# Defense in depth: refuse any path that resolves outside data_dir.
+							real_path = os.path.realpath(file_system_path)
+							real_dir = os.path.realpath(str(file_system.get_dir()))
+							if not (real_path == real_dir or real_path.startswith(real_dir + os.sep)):
+								msg = f'Upload of {params.path!r} escapes FileSystem directory; refusing.'
 								logger.error(f'❌ {msg}')
 								return ActionResult(error=msg)
+							params = UploadFileAction(index=params.index, path=file_system_path)
+						else:
+							msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
+							logger.error(f'❌ {msg}')
+							return ActionResult(error=msg)
 					else:
 						# If browser is remote, allow passing a remote-accessible absolute path
 						if not browser_session.is_local:
