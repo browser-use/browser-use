@@ -2,11 +2,18 @@
 
 import tempfile
 
+import pytest
+
 from browser_use.browser.profile import BrowserProfile
 
 
 class TestBrowserProfileDisableSecurity:
 	"""Test disable_security flag behavior."""
+
+	def test_traces_dir_is_rejected_until_implemented(self):
+		"""Test that public trace output params fail fast instead of silently doing nothing."""
+		with pytest.raises(ValueError, match='traces_dir/trace_path is not implemented yet'):
+			BrowserProfile(traces_dir=tempfile.mkdtemp(prefix='test-traces-'))
 
 	def test_disable_security_preserves_extension_features(self):
 		"""Test that disable_security=True doesn't break extension features by properly merging --disable-features flags."""
