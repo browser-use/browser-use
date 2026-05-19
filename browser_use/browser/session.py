@@ -53,7 +53,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
-from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.browser.views import BrowserError, BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
@@ -3346,11 +3346,61 @@ class BrowserSession(BaseModel):
 
 	async def _cdp_get_cookies(self) -> list[Cookie]:
 		"""Get cookies using CDP Network.getCookies."""
-		cdp_session = await self.get_or_create_cdp_session(target_id=None)
-		result = await asyncio.wait_for(
-			cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
+		last_error: Exception | None = None
+		for attempt in range(2):
+			try:
+				cdp_session = await self.get_or_create_cdp_session(target_id=None)
+				result = await asyncio.wait_for(
+					cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
+				)
+				return result.get('cookies', [])
+			except Exception as e:
+				last_error = e
+				is_reconnect_error = self._is_storage_state_cdp_reconnect_error(e)
+				if attempt == 0 and self.cdp_url and is_reconnect_error:
+					if self._intentional_stop:
+						self.logger.warning(
+							'Storage state cookie export hit a transient CDP error during shutdown (%s: %s); retrying once without reconnecting',
+							type(e).__name__,
+							e,
+						)
+					else:
+						self.logger.warning(
+							'Storage state cookie export lost the CDP connection (%s: %s); reconnecting once and retrying',
+							type(e).__name__,
+							e,
+						)
+						await self.reconnect()
+					continue
+				if attempt == 0 and not is_reconnect_error:
+					raise
+				break
+
+		assert last_error is not None
+		raise BrowserError(
+			'Failed to export storage state cookies after CDP connection loss/timeout. '
+			'The browser CDP WebSocket may have dropped and the one-shot reconnect retry did not recover.',
+			short_term_memory='Storage state export failed because the CDP connection was lost or timed out.',
+			details={'error_type': type(last_error).__name__, 'error': str(last_error)},
+		) from last_error
+
+	@staticmethod
+	def _is_storage_state_cdp_reconnect_error(error: Exception) -> bool:
+		"""Return whether a cookie export error is likely a transient CDP/WebSocket drop."""
+		if isinstance(error, TimeoutError):
+			return True
+		error_text = f'{type(error).__name__}: {error}'.lower()
+		return any(
+			phrase in error_text
+			for phrase in (
+				'websocket',
+				'connection closed',
+				'connectionclose',
+				'closed connection',
+				'not connected',
+				'silent websocket',
+			)
 		)
-		return result.get('cookies', [])
 
 	async def _cdp_set_cookies(self, cookies: list[Cookie]) -> None:
 		"""Set cookies using CDP Storage.setCookies."""
