@@ -368,7 +368,7 @@ class ChatGoogle(BaseChatModel):
 										stop_reason=self._get_stop_reason(response),
 									)
 								except (json.JSONDecodeError, ValueError) as e:
-									self.logger.error(f'❌ Failed to parse JSON response: {str(e)}')
+									self.logger.warning(f'⚠️ Failed to parse JSON response: {str(e)}')
 									self.logger.debug(f'Raw response text: {response.text[:200]}...')
 									raise ModelProviderError(
 										message=f'Failed to parse or validate response {response}: {str(e)}',
@@ -449,7 +449,7 @@ class ChatGoogle(BaseChatModel):
 									stop_reason=self._get_stop_reason(response),
 								)
 							except (json.JSONDecodeError, ValueError) as e:
-								self.logger.error(f'❌ Failed to parse fallback JSON: {str(e)}')
+								self.logger.warning(f'⚠️ Failed to parse fallback JSON: {str(e)}')
 								self.logger.debug(f'Raw response text: {response.text[:200]}...')
 								raise ModelProviderError(
 									message=f'Model does not support JSON mode and failed to parse JSON from text response: {str(e)}',
