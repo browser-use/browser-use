@@ -233,6 +233,17 @@ class TestCloudBrowserClient:
 class TestBrowserSessionCloudIntegration:
 	"""Test BrowserSession integration with cloud browsers."""
 
+	def test_local_browser_session_does_not_create_cloud_client_under_socks_proxy(self, monkeypatch):
+		"""Local sessions should not instantiate httpx cloud clients during construction."""
+		for env_name in ('ALL_PROXY', 'all_proxy', 'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'):
+			monkeypatch.delenv(env_name, raising=False)
+		monkeypatch.setenv('ALL_PROXY', 'socks5://127.0.0.1:9')
+
+		session = BrowserSession()
+
+		assert session.cloud_browser is False
+		assert session._cloud_browser_client is None
+
 	async def test_cloud_browser_profile_property(self):
 		"""Test that cloud_browser property works correctly."""
 
