@@ -398,10 +398,21 @@ class Daemon:
 		else:
 			# Unix: socket server
 			Path(sock_path).unlink(missing_ok=True)
-			self._server = await asyncio.start_unix_server(
-				self.handle_connection,
-				sock_path,
-			)
+			# Restrict the socket file to owner-only access. The HMAC auth token
+			# gates dispatch, but a permissive socket lets co-tenants probe.
+			old_umask = os.umask(0o077)
+			try:
+				self._server = await asyncio.start_unix_server(
+					self.handle_connection,
+					sock_path,
+				)
+			finally:
+				os.umask(old_umask)
+			# umask only floors permissions at creation; enforce 0o600 explicitly.
+			try:
+				os.chmod(sock_path, 0o600)
+			except OSError as e:
+				logger.warning(f'Could not chmod socket {sock_path} to 0o600: {e}')
 			logger.info(f'Listening on Unix socket {sock_path}')
 
 		# Write PID file after server is bound

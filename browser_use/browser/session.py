@@ -26,6 +26,11 @@ from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserC
 # CDP logging is now handled by setup_logging() in logging_config.py
 # It automatically sets CDP logs to the same level as browser_use logs
 from browser_use.browser.cloud.views import CloudBrowserParams, CreateBrowserRequest, ProxyCountryCode
+
+# Sentinel to distinguish "not passed" from "explicitly None" for proxy params.
+# When a user passes proxy_country_code=None, they mean "disable the proxy".
+# When they don't pass it at all, the server applies its default (US proxy).
+_UNSET: Any = object()
 from browser_use.browser.events import (
 	AgentFocusChangedEvent,
 	BrowserConnectedEvent,
@@ -235,11 +240,11 @@ class BrowserSession(BaseModel):
 		browser_profile: BrowserProfile | None = None,
 		# Cloud browser params (don't mix with local browser params)
 		cloud_profile_id: UUID | str | None = None,
-		cloud_proxy_country_code: ProxyCountryCode | None = None,
+		cloud_proxy_country_code: ProxyCountryCode | None = _UNSET,  # type: ignore[assignment]
 		cloud_timeout: int | None = None,
 		# Backward compatibility aliases for cloud params
 		profile_id: UUID | str | None = None,
-		proxy_country_code: ProxyCountryCode | None = None,
+		proxy_country_code: ProxyCountryCode | None = _UNSET,  # type: ignore[assignment]
 		timeout: int | None = None,
 		# BrowserProfile fields that can be passed directly
 		# From BrowserConnectArgs
@@ -307,6 +312,7 @@ class BrowserSession(BaseModel):
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
+		# Also filter _UNSET sentinel values (used for proxy params)
 		profile_kwargs = {
 			k: v
 			for k, v in locals().items()
@@ -323,20 +329,32 @@ class BrowserSession(BaseModel):
 				'timeout',
 			]
 			and v is not None
+			and v is not _UNSET
 		}
 
-		# Handle backward compatibility: prefer cloud_* params over old names
+		# Handle backward compatibility: prefer cloud_* params over old names.
+		# _UNSET means "not passed" while None means "explicitly disable proxy".
 		final_profile_id = cloud_profile_id if cloud_profile_id is not None else profile_id
-		final_proxy_country_code = cloud_proxy_country_code if cloud_proxy_country_code is not None else proxy_country_code
+		final_proxy_country_code = (
+			cloud_proxy_country_code
+			if cloud_proxy_country_code is not _UNSET
+			else proxy_country_code
+			if proxy_country_code is not _UNSET
+			else _UNSET
+		)
 		final_timeout = cloud_timeout if cloud_timeout is not None else timeout
 
-		# If any cloud params are provided, create cloud_browser_params
-		if final_profile_id is not None or final_proxy_country_code is not None or final_timeout is not None:
-			cloud_params = CreateBrowserRequest(
-				cloud_profile_id=final_profile_id,
-				cloud_proxy_country_code=final_proxy_country_code,
-				cloud_timeout=final_timeout,
-			)
+		# If any cloud params are provided, create cloud_browser_params.
+		# Use "is not _UNSET" for proxy so that explicit None (disable proxy) is respected.
+		if final_profile_id is not None or final_proxy_country_code is not _UNSET or final_timeout is not None:
+			cloud_kwargs: dict[str, Any] = {}
+			if final_profile_id is not None:
+				cloud_kwargs['cloud_profile_id'] = final_profile_id
+			if final_proxy_country_code is not _UNSET:
+				cloud_kwargs['cloud_proxy_country_code'] = final_proxy_country_code
+			if final_timeout is not None:
+				cloud_kwargs['cloud_timeout'] = final_timeout
+			cloud_params = CreateBrowserRequest(**cloud_kwargs)
 			profile_kwargs['cloud_browser_params'] = cloud_params
 			profile_kwargs['use_cloud'] = True
 
