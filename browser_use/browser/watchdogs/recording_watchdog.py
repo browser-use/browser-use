@@ -16,6 +16,14 @@ from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.utils import create_task_with_error_handling
 
 
+def _get_screencast_frame_timestamp(event: ScreencastFrameEvent) -> float | None:
+	"""Return the CDP frame timestamp when Chrome provides one."""
+	timestamp = event.get('metadata', {}).get('timestamp')
+	if timestamp is None:
+		return None
+	return float(timestamp)
+
+
 class RecordingWatchdog(BaseWatchdog):
 	"""
 	Manages video recording of a browser session using CDP screencasting.
@@ -128,6 +136,7 @@ class RecordingWatchdog(BaseWatchdog):
 		"""
 		if self._recorder:
 			self.logger.debug(f'Agent focus changed to {event.target_id}, switching screencast...')
+			self._recorder.reset_timing()
 			await self._start_screencast()
 
 	async def _start_screencast(self) -> None:
@@ -195,7 +204,7 @@ class RecordingWatchdog(BaseWatchdog):
 
 		if not self._recorder:
 			return
-		self._recorder.add_frame(event['data'])
+		self._recorder.add_frame(event['data'], timestamp=_get_screencast_frame_timestamp(event))
 		create_task_with_error_handling(
 			self._ack_screencast_frame(event, session_id),
 			name='ack_screencast_frame',
