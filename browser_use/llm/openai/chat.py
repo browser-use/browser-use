@@ -272,10 +272,23 @@ class ChatOpenAI(BaseChatModel):
 						model=self.name,
 					)
 
-				if choice.message.content is None:
+				if choice.message.content is None or not choice.message.content.strip():
+					details = []
+					response_id = getattr(response, 'id', None)
+					if response_id:
+						details.append(f'response_id={response_id}')
+					if choice.finish_reason:
+						details.append(f'finish_reason={choice.finish_reason}')
+					if self.base_url is not None:
+						details.append(f'base_url={self.base_url}')
+
+					details_text = f' ({", ".join(details)})' if details else ''
 					raise ModelProviderError(
-						message='Failed to parse structured output from model response',
-						status_code=500,
+						message=(
+							'OpenAI returned an empty structured output, so browser-use could not parse the'
+							f' requested JSON schema.{details_text}'
+						),
+						status_code=502,
 						model=self.name,
 					)
 
