@@ -403,8 +403,12 @@ class BrowserUseServer:
 							'allowed_domains': {
 								'type': 'array',
 								'items': {'type': 'string'},
-								'description': 'List of domains the agent is allowed to visit (security feature)',
-								'default': [],
+								'description': (
+									'List of domains the agent is allowed to visit (security feature). '
+									'Omit to use the server-configured profile defaults. '
+									'An empty list is treated the same as omitting the argument and '
+									'will NOT disable server-configured restrictions.'
+								),
 							},
 							'use_vision': {
 								'type': 'boolean',
@@ -490,7 +494,7 @@ class BrowserUseServer:
 				task=arguments['task'],
 				max_steps=arguments.get('max_steps', 100),
 				model=arguments.get('model'),
-				allowed_domains=arguments.get('allowed_domains', []),
+				allowed_domains=arguments.get('allowed_domains'),
 				use_vision=arguments.get('use_vision', True),
 			)
 
@@ -681,8 +685,11 @@ class BrowserUseServer:
 		# Get profile config and merge with tool parameters
 		profile_config = get_default_profile(self.config)
 
-		# Override allowed_domains if provided in tool call
-		if allowed_domains is not None:
+		# Override allowed_domains only when the client supplied a non-empty list.
+		# Treating an empty list as an override would silently disable any
+		# admin-configured allowlist on the default profile, since
+		# SecurityWatchdog interprets allowed_domains=[] as "no restrictions".
+		if allowed_domains:
 			profile_config['allowed_domains'] = allowed_domains
 
 		# Create browser profile using config
