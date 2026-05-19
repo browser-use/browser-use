@@ -19,13 +19,19 @@ Usage:
 
 import asyncio
 import time
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
+from cdp_use import CDPClient
+from cdp_use.cdp.target import AttachedToTargetEvent, TargetInfo
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserSession
+from browser_use.browser.events import TabCreatedEvent
 from browser_use.browser.profile import BrowserProfile
+from browser_use.browser.session_manager import SessionManager
 from tests.ci.conftest import create_mock_llm
 
 
@@ -103,6 +109,107 @@ async def browser_session():
 	await session.start()
 	yield session
 	await session.kill()
+
+
+class _RecordingEventBus:
+	def __init__(self):
+		self.events = []
+
+	def dispatch(self, event):
+		self.events.append(event)
+
+
+class _TargetCommands:
+	def __init__(self):
+		self.auto_attach_calls = []
+
+	async def setAutoAttach(self, params, session_id):
+		self.auto_attach_calls.append((params, session_id))
+
+
+def _build_session_manager_for_attach_test():
+	cdp_client_root = CDPClient('ws://unused')
+	cast(Any, cdp_client_root).send = SimpleNamespace(Target=_TargetCommands())
+	event_bus = _RecordingEventBus()
+	browser_session = SimpleNamespace(
+		_cdp_client_root=cdp_client_root,
+		browser_profile=SimpleNamespace(proxy=None),
+		event_bus=event_bus,
+		logger=SimpleNamespace(debug=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None),
+	)
+	manager = SessionManager(cast(BrowserSession, browser_session))
+	monitored_sessions = []
+
+	async def record_page_monitoring(cdp_session):
+		monitored_sessions.append(cdp_session)
+
+	manager._enable_page_monitoring = record_page_monitoring
+	return manager, event_bus, monitored_sessions
+
+
+def _target_attached_event(*, session_id: str, target_id: str, target_type: str, url: str, title: str) -> AttachedToTargetEvent:
+	target_info = cast(
+		TargetInfo,
+		{
+			'targetId': target_id,
+			'type': target_type,
+			'url': url,
+			'title': title,
+			'attached': True,
+			'canAccessOpener': False,
+		},
+	)
+	return cast(
+		AttachedToTargetEvent,
+		{
+			'sessionId': session_id,
+			'targetInfo': target_info,
+			'waitingForDebugger': False,
+		},
+	)
+
+
+async def test_window_open_target_attach_dispatches_tab_created_event_for_about_blank():
+	"""CDP page targets created by window.open() must initialize tab watchdogs."""
+	manager, event_bus, monitored_sessions = _build_session_manager_for_attach_test()
+
+	await manager._handle_target_attached(
+		_target_attached_event(
+			session_id='session-window-open',
+			target_id='target-window-open',
+			target_type='page',
+			url='',
+			title='',
+		)
+	)
+
+	assert len(monitored_sessions) == 1
+	assert len(event_bus.events) == 1
+	tab_created_event = event_bus.events[0]
+	assert isinstance(tab_created_event, TabCreatedEvent)
+	assert tab_created_event.target_id == 'target-window-open'
+	assert tab_created_event.url == 'about:blank'
+	target = manager.get_target('target-window-open')
+	assert target is not None
+	assert target.url == 'about:blank'
+
+
+async def test_non_page_target_attach_does_not_dispatch_tab_created_event():
+	"""Worker/iframe attaches should not be treated as browser tabs."""
+	manager, event_bus, monitored_sessions = _build_session_manager_for_attach_test()
+
+	await manager._handle_target_attached(
+		_target_attached_event(
+			session_id='session-worker',
+			target_id='target-worker',
+			target_type='worker',
+			url='https://example.com/worker.js',
+			title='',
+		)
+	)
+
+	assert monitored_sessions == []
+	assert event_bus.events == []
 
 
 class TestMultiTabOperations:
