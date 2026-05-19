@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import platform
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
@@ -193,6 +194,7 @@ def create_history_gif(
 
 	if images:
 		# Save the GIF
+		Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 		images[0].save(
 			output_path,
 			save_all=True,
