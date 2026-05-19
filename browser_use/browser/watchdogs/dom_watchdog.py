@@ -1,6 +1,9 @@
 """DOM watchdog for browser DOM tree management using CDP."""
 
 import asyncio
+import logging
+import math
+import os
 import time
 from typing import TYPE_CHECKING
 
@@ -21,6 +24,56 @@ from browser_use.utils import create_task_with_error_handling, time_execution_as
 
 if TYPE_CHECKING:
 	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo, PaginationButton
+
+
+# Per-task timeouts for the parallel DOM build + screenshot block inside
+# on_BrowserStateRequestEvent. The individual CDP calls inside these tasks
+# are already capped by TimeoutWrappedCDPClient (BROWSER_USE_CDP_TIMEOUT_S,
+# default 60s), but a remote browser that goes silent mid-build can still
+# blow the event budget because a DOM build is many sequential CDP calls.
+# An outer per-task cap turns "hung handler holds the event-bus slot for
+# the full 30s event budget" into "task aborts fast, handler returns a
+# minimal state for that component". See issue #4579.
+_DOM_BUILD_TIMEOUT_FALLBACK_S = 15.0
+_SCREENSHOT_TIMEOUT_FALLBACK_S = 8.0
+_DOM_TIMEOUT_LOGGER = logging.getLogger(__name__)
+
+
+def _parse_env_task_timeout(env_name: str, fallback_s: float) -> float:
+	"""Parse a per-task timeout env var defensively.
+
+	Mirrors the guard in browser/_cdp_timeout.py: only finite positive
+	values take effect; nan / inf / non-positive / unparsable values fall
+	back to ``fallback_s`` with a warning. A bad env value here would
+	otherwise time out every browser-state request immediately (nan / 0)
+	or never (inf / negative).
+	"""
+	raw = os.getenv(env_name)
+	if raw is None or raw == '':
+		return fallback_s
+	try:
+		parsed = float(raw)
+	except ValueError:
+		_DOM_TIMEOUT_LOGGER.warning(
+			'Invalid %s=%r; falling back to %.1fs',
+			env_name,
+			raw,
+			fallback_s,
+		)
+		return fallback_s
+	if not math.isfinite(parsed) or parsed <= 0:
+		_DOM_TIMEOUT_LOGGER.warning(
+			'%s=%r is not a finite positive number; falling back to %.1fs',
+			env_name,
+			raw,
+			fallback_s,
+		)
+		return fallback_s
+	return parsed
+
+
+DOM_BUILD_TIMEOUT_S: float = _parse_env_task_timeout('BROWSER_USE_DOM_BUILD_TIMEOUT_S', _DOM_BUILD_TIMEOUT_FALLBACK_S)
+SCREENSHOT_TIMEOUT_S: float = _parse_env_task_timeout('BROWSER_USE_SCREENSHOT_TIMEOUT_S', _SCREENSHOT_TIMEOUT_FALLBACK_S)
 
 
 class DOMWatchdog(BaseWatchdog):
@@ -390,8 +443,15 @@ class DOMWatchdog(BaseWatchdog):
 
 			if dom_task:
 				try:
-					content = await dom_task
+					content = await asyncio.wait_for(dom_task, timeout=DOM_BUILD_TIMEOUT_S)
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ DOM tree build completed')
+				except TimeoutError:
+					self.logger.warning(
+						f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: DOM build did not finish within '
+						f'{DOM_BUILD_TIMEOUT_S:.1f}s, returning minimal state. '
+						f'Set BROWSER_USE_DOM_BUILD_TIMEOUT_S to override.'
+					)
+					content = SerializedDOMState(_root=None, selector_map={})
 				except Exception as e:
 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: DOM build failed: {e}, using minimal state')
 					content = SerializedDOMState(_root=None, selector_map={})
@@ -400,8 +460,15 @@ class DOMWatchdog(BaseWatchdog):
 
 			if screenshot_task:
 				try:
-					screenshot_b64 = await screenshot_task
+					screenshot_b64 = await asyncio.wait_for(screenshot_task, timeout=SCREENSHOT_TIMEOUT_S)
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Clean screenshot captured')
+				except TimeoutError:
+					self.logger.warning(
+						f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Clean screenshot did not finish within '
+						f'{SCREENSHOT_TIMEOUT_S:.1f}s, returning state without screenshot. '
+						f'Set BROWSER_USE_SCREENSHOT_TIMEOUT_S to override.'
+					)
+					screenshot_b64 = None
 				except Exception as e:
 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Clean screenshot failed: {e}')
 					screenshot_b64 = None
