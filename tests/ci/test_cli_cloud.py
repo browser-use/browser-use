@@ -17,7 +17,7 @@ def run_cli(*args: str, env_override: dict | None = None, api_key: str | None = 
 	"""Run the CLI as a subprocess, returning the result.
 
 	If api_key is provided, writes it to a temp config.json via BROWSER_USE_HOME
-	(the CLI reads API keys from config.json only, not env vars).
+	so tests do not rely on the developer's environment.
 	"""
 	import os
 	import tempfile
@@ -170,6 +170,26 @@ def test_cloud_rest_sends_auth_header(httpserver: HTTPServer):
 			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
 		},
 		api_key='sk-secret-key',
+	)
+	assert result.returncode == 0
+
+
+def test_cloud_rest_uses_browser_use_api_key_env(httpserver: HTTPServer, tmp_path: Path):
+	def handler(request: Request) -> Response:
+		assert request.headers.get('X-Browser-Use-API-Key') == 'sk-env-key'
+		return Response(json.dumps({'ok': True}), content_type='application/json')
+
+	httpserver.expect_request('/api/v2/test', method='GET').respond_with_handler(handler)
+
+	result = run_cli(
+		'v2',
+		'GET',
+		'/test',
+		env_override={
+			'BROWSER_USE_HOME': str(tmp_path),
+			'BROWSER_USE_API_KEY': 'sk-env-key',
+			'BROWSER_USE_CLOUD_BASE_URL_V2': httpserver.url_for('/api/v2'),
+		},
 	)
 	assert result.returncode == 0
 

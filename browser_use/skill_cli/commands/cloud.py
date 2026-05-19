@@ -72,11 +72,14 @@ def _write_config(data: dict) -> None:
 
 
 def _get_api_key_or_none() -> str | None:
-	"""Return API key from CLI config file, or None if not found."""
+	"""Return API key from CLI config file or BROWSER_USE_API_KEY."""
 	from browser_use.skill_cli.config import get_config_value
 
 	val = get_config_value('api_key')
-	return str(val) if val is not None else None
+	if val is not None:
+		return str(val)
+
+	return os.environ.get('BROWSER_USE_API_KEY') or None
 
 
 def _get_api_key() -> str:
@@ -86,17 +89,14 @@ def _get_api_key() -> str:
 		return key
 
 	print('Error: No API key found.', file=sys.stderr)
-	if os.environ.get('BROWSER_USE_API_KEY'):
-		print('  Note: BROWSER_USE_API_KEY env var is set but not used by the CLI.', file=sys.stderr)
-		print('  Run: browser-use config set api_key "$BROWSER_USE_API_KEY"', file=sys.stderr)
-	else:
-		print(
-			'Already have an account? Get a key at: https://cloud.browser-use.com/settings?tab=api-keys&new=1&utm_source=oss&utm_medium=cli',
-			file=sys.stderr,
-		)
-		print('  Then run: browser-use cloud login <key>', file=sys.stderr)
-		print('No account? Run: browser-use cloud signup', file=sys.stderr)
-		print('  This creates an agent account you can claim later with: browser-use cloud signup --claim', file=sys.stderr)
+	print(
+		'Already have an account? Get a key at: https://cloud.browser-use.com/settings?tab=api-keys&new=1&utm_source=oss&utm_medium=cli',
+		file=sys.stderr,
+	)
+	print('  Then run: browser-use cloud login <key>', file=sys.stderr)
+	print('  Or set BROWSER_USE_API_KEY in your environment.', file=sys.stderr)
+	print('No account? Run: browser-use cloud signup', file=sys.stderr)
+	print('  This creates an agent account you can claim later with: browser-use cloud signup --claim', file=sys.stderr)
 	sys.exit(1)
 
 
