@@ -189,6 +189,14 @@ browser-use --cdp-url ws://localhost:9222/devtools/browser/... state
 | `eval "js code"` | Execute JavaScript |
 | `extract "query"` | Extract data with LLM (not yet implemented) |
 
+### Recording
+| Command | Description |
+|---------|-------------|
+| `record start <path>` | Start recording browser session video to file (.mp4 recommended) |
+| `record start <path> --framerate 60` | Set recording framerate (default: 30) |
+| `record stop` | Stop recording and print saved file path |
+| `record status` | Show current recording status |
+
 ### Python (Persistent Session)
 ```bash
 browser-use python "x = 42"           # Set variable
