@@ -28,6 +28,6 @@ CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
 		'max_output_tokens': None,  # Not specified
 	},
 }
-CUSTOM_MODEL_PRICING['bu-latest'] = CUSTOM_MODEL_PRICING['bu-1-0']
+CUSTOM_MODEL_PRICING['bu-latest'] = CUSTOM_MODEL_PRICING['bu-2-0']
 
-CUSTOM_MODEL_PRICING['smart'] = CUSTOM_MODEL_PRICING['bu-1-0']
+CUSTOM_MODEL_PRICING['smart'] = CUSTOM_MODEL_PRICING['bu-2-0']

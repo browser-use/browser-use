@@ -38,13 +38,13 @@ class ChatBrowserUse(BaseChatModel):
 	Usage:
 		agent = Agent(
 			task="Find the number of stars of the browser-use repo",
-			llm=ChatBrowserUse(model='bu-latest'),
+			llm=ChatBrowserUse(model='bu-2-0'),
 		)
 	"""
 
 	def __init__(
 		self,
-		model: str = 'bu-latest',
+		model: str = 'bu-2-0',
 		api_key: str | None = None,
 		base_url: str | None = None,
 		timeout: float = 120.0,
@@ -58,8 +58,8 @@ class ChatBrowserUse(BaseChatModel):
 
 		Args:
 			model: Model name to use. Options:
-				- 'bu-latest' or 'bu-1-0': Default model
-				- 'bu-2-0': Latest premium model
+				- 'bu-2-0' or 'bu-latest': Default model (latest premium)
+				- 'bu-1-0': Previous generation model
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
@@ -74,9 +74,9 @@ class ChatBrowserUse(BaseChatModel):
 		if not is_valid:
 			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models} or start with 'browser-use/'")
 
-		# Normalize bu-latest to bu-1-0 for default models
+		# Normalize bu-latest to the current latest model
 		if model == 'bu-latest':
-			self.model = 'bu-1-0'
+			self.model = 'bu-2-0'
 		else:
 			self.model = model
 
