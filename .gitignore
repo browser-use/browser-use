@@ -1,0 +1,86 @@
+# Cache files
+.DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.ipynb_checkpoints
+~/
+
+# Virtual Environments
+.venv*
+venv/
+
+# IDEs
+.vscode/
+.idea/
+
+# Build files
+dist/
+
+# Data files
+*.gif
+*.txt
+*.pdf
+*.csv
+*.json
+*.jsonl
+*.log
+*.bak
+
+# Secrets and sensitive files
+secrets.env
+.env
+browser_cookies.json
+cookies.json
+gcp-login.json
+saved_trajectories/
+old_tests/
+AgentHistory.json
+AgentHistoryList.json
+private_example.py
+private_example
+CLAUDE.local.md
+
+uv.lock
+temp
+tmp
+
+# Google API credentials
+credentials.json
+token.json
+
+!docs/docs.json
+
+
+temp-profile-*
+
+screenshot.png
+
+# *.md
+
+all_github_issues_progress.md
+all_github_issues.md
+
+todo-input-token.md
+
+TOOL_CHANGES_SUMMARY.md
+
+
+claude-code-todo
+result_judge.md
+result.md
+result2.md
+result3.md
+Brainstorm.md
+example.ipynb
+*SUMMARY.md
+todo.md
+product_extraction.ipynb
+product_extraction.py
+*report.md
+plot.py
+
+.claude/

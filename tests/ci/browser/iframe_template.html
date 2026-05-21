@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Same-Origin Iframe</title>
+</head>
+<body style="padding: 10px; background: #fff;">
+	<h3>Same-Origin Iframe Content</h3>
+	<button id="iframe-btn">Iframe Button</button>
+	<input type="text" id="iframe-input" placeholder="Iframe input" />
+
+	<script>
+		// When button is clicked, increment counter in parent page using addEventListener
+		document.getElementById('iframe-btn').addEventListener('click', function() {
+			if (window.parent && window.parent !== window) {
+				// Call parent's incrementCounter function
+				window.parent.incrementCounter('Same-Origin Iframe');
+			}
+		});
+	</script>
+</body>
+</html>
