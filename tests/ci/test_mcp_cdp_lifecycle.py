@@ -2,7 +2,7 @@
 
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -116,7 +116,7 @@ async def test_direct_browser_tools_reinitialize_stale_session() -> None:
 	result = await server._execute_tool('browser_list_tabs', {})
 
 	assert calls == ['init-ready']
-	assert json.loads(result) == [
+	assert json.loads(cast(str, result)) == [
 		{'tab_id': '1234', 'url': 'https://example.com', 'title': 'Example Domain'},
 	]
 
