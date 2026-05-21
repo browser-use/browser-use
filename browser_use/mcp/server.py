@@ -95,6 +95,7 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.mcp.config import merge_nested_config
 from browser_use.tools.service import Tools
 
 logger = logging.getLogger(__name__)
@@ -187,12 +188,12 @@ def get_parent_process_cmdline() -> str | None:
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
-	def __init__(self, session_timeout_minutes: int = 10):
+	def __init__(self, session_timeout_minutes: int = 10, config_overrides: dict[str, Any] | None = None):
 		# Ensure all logging goes to stderr (in case new loggers were created)
 		_ensure_all_loggers_use_stderr()
 
 		self.server = Server('browser-use')
-		self.config = load_browser_use_config()
+		self.config = merge_nested_config(load_browser_use_config(), config_overrides)
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
 		self.tools: Tools | None = None
@@ -510,9 +511,10 @@ class BrowserUseServer:
 
 		# Direct browser control tools (require active session)
 		elif tool_name.startswith('browser_'):
-			# Ensure browser session exists
-			if not self.browser_session:
-				await self._init_browser_session()
+			# Ensure browser session exists and is connected. A failed start can
+			# otherwise leave a BrowserSession object around with no root CDP client,
+			# causing follow-up tools to fail with "Root CDP client not initialized".
+			await self._ensure_browser_session()
 
 			if tool_name == 'browser_navigate':
 				return await self._navigate(arguments['url'], arguments.get('new_tab', False))
@@ -568,10 +570,39 @@ class BrowserUseServer:
 
 		return f'Unknown tool: {tool_name}'
 
+	def _is_browser_session_ready(self) -> bool:
+		"""Return True when the current browser session is usable for MCP tools."""
+		if not self.browser_session:
+			return False
+		try:
+			return bool(
+				self.browser_session.is_cdp_connected
+				and self.browser_session.session_manager is not None
+				and self.browser_session.agent_focus_target_id is not None
+			)
+		except Exception:
+			return False
+
+	async def _ensure_browser_session(self) -> None:
+		"""Ensure direct browser-control tools have a live CDP-backed session."""
+		if self._is_browser_session_ready():
+			return
+
+		await self._init_browser_session()
+
 	async def _init_browser_session(self, allowed_domains: list[str] | None = None, **kwargs):
 		"""Initialize browser session using config"""
-		if self.browser_session:
+		if self._is_browser_session_ready():
 			return
+
+		if self.browser_session:
+			stale_session = self.browser_session
+			self.active_sessions.pop(stale_session.id, None)
+			self.browser_session = None
+			try:
+				await stale_session.reset()
+			except Exception as e:
+				logger.debug(f'Error resetting stale browser session: {e}')
 
 		# Ensure all logging goes to stderr before browser initialization
 		_ensure_all_loggers_use_stderr()
@@ -604,9 +635,20 @@ class BrowserUseServer:
 		# Create browser profile
 		profile = BrowserProfile(**profile_data)
 
-		# Create browser session
-		self.browser_session = BrowserSession(browser_profile=profile)
-		await self.browser_session.start()
+		# Create browser session. Keep it local until start succeeds so a failed
+		# BrowserStartEvent cannot poison later MCP tool calls with a half-started
+		# session lacking a root CDP client.
+		browser_session = BrowserSession(browser_profile=profile)
+		try:
+			await browser_session.start()
+		except Exception:
+			try:
+				await browser_session.reset()
+			except Exception as reset_error:
+				logger.debug(f'Error resetting failed browser session: {reset_error}')
+			raise
+
+		self.browser_session = browser_session
 
 		# Track the session for management
 		self._track_session(self.browser_session)
@@ -1254,12 +1296,12 @@ class BrowserUseServer:
 				logger.warning('MCP client disconnected while writing to stdio; shutting down server cleanly.')
 
 
-async def main(session_timeout_minutes: int = 10):
+async def main(session_timeout_minutes: int = 10, config_overrides: dict[str, Any] | None = None):
 	if not MCP_AVAILABLE:
 		print('MCP SDK is required. Install with: pip install mcp', file=sys.stderr)
 		sys.exit(1)
 
-	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes)
+	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes, config_overrides=config_overrides)
 	server._telemetry.capture(
 		MCPServerTelemetryEvent(
 			version=get_browser_use_version(),
