@@ -381,7 +381,7 @@ components:
         - value: o3
         - value: gemini-2.5-flash
         - value: gemini-2.5-pro
-        - value: gemini-flash-latest
+        - value: gemini-3-flash-preview
         - value: gemini-flash-lite-latest
         - value: claude-sonnet-4-20250514
         - value: gpt-4o

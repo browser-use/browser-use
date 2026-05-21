@@ -302,7 +302,7 @@ Response includes: `{ items: [...], totalItems, pageNumber, pageSize }`
 | SessionStatus | `active`, `stopped` |
 | BrowserSessionStatus | `active`, `stopped` |
 | ProxyCountryCode | `us`, `uk`, `fr`, `it`, `jp`, `au`, `de`, `fi`, `ca`, `in` (+185 more) |
-| SupportedLLMs | `browser-use-llm`, `gpt-4.1`, `gpt-4.1-mini`, `o4-mini`, `o3`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-flash-latest`, `gemini-flash-lite-latest`, `claude-sonnet-4-20250514`, `gpt-4o`, `gpt-4o-mini`, `llama-4-maverick-17b-128e-instruct`, `claude-3-7-sonnet-20250219` |
+| SupportedLLMs | `browser-use-llm`, `gpt-4.1`, `gpt-4.1-mini`, `o4-mini`, `o3`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3-flash-preview`, `gemini-flash-lite-latest`, `claude-sonnet-4-20250514`, `gpt-4o`, `gpt-4o-mini`, `llama-4-maverick-17b-128e-instruct`, `claude-3-7-sonnet-20250219` |
 | UploadContentType | `image/jpg`, `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/svg+xml`, `application/pdf`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/vnd.ms-excel`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `text/plain`, `text/csv`, `text/markdown` |
 
 ## Response Schemas

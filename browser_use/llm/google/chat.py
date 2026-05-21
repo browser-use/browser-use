@@ -29,7 +29,6 @@ VerifiedGeminiModels = Literal[
 	'Gemini-2.0-exp',
 	'gemini-2.5-flash',
 	'gemini-2.5-flash-lite',
-	'gemini-flash-latest',
 	'gemini-flash-lite-latest',
 	'gemini-2.5-pro',
 	'gemini-3-pro-preview',

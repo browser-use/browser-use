@@ -57,7 +57,7 @@ body:
     attributes:
       label: LLM Model
       description: Which LLM model are you using? (Optional)
-      placeholder: "e.g. ChatBrowserUse, gpt-4.1-mini, gemini-flash-latest, etc."
+      placeholder: "e.g. ChatBrowserUse, gpt-4.1-mini, gemini-3-flash-preview, etc."
 
   - type: input
     id: os
