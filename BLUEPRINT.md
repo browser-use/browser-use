@@ -328,7 +328,10 @@ browser-use --mcp    # Exposes browser tools to Claude Desktop / other MCP clien
 - [x] Set `BROWSER_USE_API_KEY` — saved in `.env` + `~/.browser-use/config.json` via `browser-use cloud login`
 - [x] Git repo initialised — `git init` + identity set (`desire.yavro@gmail.com`)
 - [x] `ONBOARDING.md` quick intro guide written (see §8)
-- [ ] Push to GitHub — `gh` CLI installing via winget; auth + remote + push pending
+- [x] Pushed to GitHub — `dnzengou/browser-use` · branch `workspace` · commit `cf90cf6`
+  - Repo: https://github.com/dnzengou/browser-use/tree/workspace
+  - Auth: `gh` CLI v2.92.0 (portable), device-flow login as `dnzengou`
+  - Note: pushed to `workspace` branch (not `main`) to preserve fork history
 - [ ] Run `browser-use profile update` to enable Chrome profile sync
 - [ ] Install `cloudflared` for tunnel support (`winget install cloudflare.cloudflared`)
 - [ ] Restart shell to get `browser-use` in PATH (currently needs full path or `PYTHONIOENCODING=utf-8 browser-use ...`)
