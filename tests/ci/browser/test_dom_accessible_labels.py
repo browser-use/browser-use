@@ -16,6 +16,7 @@ def make_element(
 	attributes: dict[str, str] | None = None,
 	ax_name: str | None = None,
 	ax_description: str | None = None,
+	ax_role: str = 'button',
 	width: float = 24,
 	height: float = 24,
 ) -> EnhancedDOMTreeNode:
@@ -40,7 +41,7 @@ def make_element(
 		ax_node=EnhancedAXNode(
 			ax_node_id='ax-1',
 			ignored=False,
-			role='button',
+			role=ax_role,
 			name=ax_name,
 			description=ax_description,
 			properties=None,
@@ -75,6 +76,12 @@ def test_meaningful_text_falls_back_to_accessibility_name() -> None:
 
 
 def test_small_title_only_icon_is_interactive() -> None:
-	node = make_element(tag_name='span', attributes={'title': 'Create Test'}, ax_name=None, ax_description=None)
+	node = make_element(
+		tag_name='span',
+		attributes={'title': 'Create Test'},
+		ax_name=None,
+		ax_description=None,
+		ax_role='generic',
+	)
 
 	assert ClickableElementDetector.is_interactive(node)
