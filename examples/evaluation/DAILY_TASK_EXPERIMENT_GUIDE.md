@@ -47,6 +47,25 @@
 
 **注意**：该机制主要服务 **B/D**；**C** 无领航时该顶栏为空。步数骤降常与 **Early-finish**、**站点路径**、**是否开 vision** 等共同作用，详见 **`docs/issue-notes/navigator-current-step-executor-subgoal.md`**。
 
+### 1.3 学术效率度量（Academic Agent Efficiency Metrics）
+
+在 Token 与墙钟时长之外，`compare` 会为每次 Agent 跑次与按实验分桶的聚合统计计算三项**可写入论文**的效率指标（实现见 **`browser_use/experiments/daily_task_eval/models.py`** 中的 `compute_*` / `academic_efficiency_from_agent_run`）：
+
+| 字段 | 中文名 | 公式 | 边界 |
+|------|--------|------|------|
+| **`navigator_overhead_ratio`** | 领航开销比 | `(usage_navigator_cycle_llm.total_tokens + navigator_initial_plan_usage.total_tokens) / usage_executor_llm.total_tokens` | 无领航或执行器 tokens ≤ 0 → **0.0** |
+| **`execution_velocity`** | 任务执行速率 | `usage_summary.total_tokens / duration_seconds`（有效时长含墙钟回填，见 §5.2） | `duration_seconds` ≤ 0 → **0.0** |
+| **`token_efficiency_score`** | Token 效率得分 | `(success ? 1 : 0) / (total_tokens / 1000)` | API 端 `total_cost` 常为 0 时的**千 Token 性价比**替代；tokens ≤ 0 → **0.0** |
+
+**落盘位置**
+
+- **`agent_runs.json`**：每条 **`AgentRunSummary`** 含上述三字段（`run-agent` 结束时写入）。
+- **`experiment_resource_report.json`**：每组 **`snapshots[]`** 含三字段；**`statistics_by_experiment`** / **`pooled_statistics`** 对三字段做 **`n`、mean、std、min/max/median**（与 `duration_seconds`、`total_tokens` 等同结构）。
+- **`compare` 终端**：默认打印 **【学术效率前沿分析 / Academic Efficiency Frontier Analysis】**，在同一 **`(task_id, scenario_id)`** 下对比 **实验 C（无领航）** 与 **实验 D（有领航）** 的 **`navigator_overhead_ratio`**、**`token_efficiency_score`**（及 **`execution_velocity`**）均值，作为高难度任务上「领航是否值得」的数据锚点。
+- **`export-csv`**：`**_runs.csv`** / **`*_stats.csv`** 与 **`agent-runs` 模式** 均含对应列。
+
+**解读提示**：`navigator_overhead_ratio` 依赖 **`usage_executor_llm`** / **`usage_navigator_cycle_llm`** 拆分；若历史 **`agent_runs.json`** 仅有 **`usage_summary`** 而无按角色拆分，该比率为 0，需用新版 **`run-agent`** 重跑后 **`compare`** 再分析。论文叙事与 RQ 占位见 **`PAPER_FRAMEWORK.md` §5.1**。
+
 ---
 
 ## 二、环境与密钥（运行前必须）
@@ -96,13 +115,13 @@ uvx browser-use install
 |------|---------------------|
 | **A** | `BROWSER_USE_API_KEY`（Browser Use Cloud，供 **`ChatBrowserUse`**） |
 | **B** | `BROWSER_USE_API_KEY` + **`DEEPSEEK_API_KEY`**（DeepSeek 领航员） |
-| **C** | **`DASHSCOPE_API_KEY`**（或你在 CLI 里改的 `--executor-api-key-env` 指向的变量），用于 Qwen 兼容接口执行器 |
-| **D** | `DASHSCOPE_API_KEY` + **`DEEPSEEK_API_KEY`** |
+| **C** | **`ARK_API_KEY`**（豆包 / Volcengine Ark OpenAI 兼容执行器，默认模型 `doubao-seed-2-0-pro-260215`） |
+| **D** | **`ARK_API_KEY`** + **`DEEPSEEK_API_KEY`**（豆包执行器 + DeepSeek 领航员） |
 
 说明：
 
 - **执行器**为 **`ChatBrowserUse`** 时，读 **`BROWSER_USE_API_KEY`**（可在 [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) 创建）。
-- **执行器**为 **OpenAI 兼容（Qwen）** 时，默认从环境变量 **`DASHSCOPE_API_KEY`** 读取 API Key；若你使用其它变量名，请用 CLI **`--executor-api-key-env`** 指定。
+- **执行器**为 **OpenAI 兼容** 时：预设 **C/D** 默认 **豆包（Ark）** → **`ARK_API_KEY`**；若用 **`--executor-model qwen3-max`** 等 Qwen 模型，则走 **`DASHSCOPE_API_KEY`**（`resolve_openai_compatible_credentials` 按模型 id 自动推断）。其它变量名可用 **`--executor-api-key-env`** 覆盖。
 - **领航员**使用 DeepSeek 时，默认从 **`DEEPSEEK_API_KEY`** 读取（或用 **`--navigator-deepseek-api-key-env`** 改名）。
 
 示例 `.env`（按需增减行，勿提交到 Git）：
@@ -110,8 +129,11 @@ uvx browser-use install
 ```env
 BROWSER_USE_API_KEY=你的_browser_use_密钥
 DEEPSEEK_API_KEY=你的_deepseek_密钥
+ARK_API_KEY=你的_火山方舟_豆包_密钥
 DASHSCOPE_API_KEY=你的_DashScope_Qwen_密钥
 ```
+
+（**C/D 跑豆包默认只需 `ARK_API_KEY`**；仅当 CLI 显式指定 Qwen 执行模型时才需要 `DASHSCOPE_API_KEY`。）
 
 ### 2.4 国内百炼 vs 新加坡等国际地域（避免 401）
 
@@ -122,7 +144,7 @@ DASHSCOPE_API_KEY=你的_DashScope_Qwen_密钥
 | **中国内地（北京，国内百炼控制台申请的 Key）** | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | **新加坡等国际** | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
 
-本仓库日常实验里，**实验 C / D** 以及 **`ExecutorConfig` / `NavigatorConfig`（Qwen）** 的默认地址已设为 **国内 `dashscope.aliyuncs.com`**。若你的 Key 是在 **国际控制台** 创建的，请在命令行显式指定：
+本仓库日常实验里，预设 **C/D 的执行器默认豆包（Volcengine Ark）**，不依赖 DashScope；若你改用 **Qwen**（**`--executor-model qwen3-max`** 等），**`ExecutorConfig` / 自定义领航（Qwen）** 的默认地址为 **国内 `dashscope.aliyuncs.com`**。若 Qwen Key 在 **国际控制台** 创建，请在命令行显式指定：
 
 ```powershell
 uv run examples/evaluation/daily_task_comparison.py run-agent --experiment C `
@@ -255,10 +277,10 @@ uv run examples/evaluation/daily_task_comparison.py run-agent --experiment A
 # B：DeepSeek 领航员 + ChatBrowserUse
 uv run examples/evaluation/daily_task_comparison.py run-agent --experiment B
 
-# C：无领航员 + Qwen（OpenAI 兼容执行器）
+# C：无领航员 + 豆包（Volcengine Ark 执行器）
 uv run examples/evaluation/daily_task_comparison.py run-agent --experiment C
 
-# D：DeepSeek 领航员 + Qwen
+# D：DeepSeek 领航员 + 豆包
 uv run examples/evaluation/daily_task_comparison.py run-agent --experiment D
 ```
 
@@ -336,6 +358,8 @@ uv run examples/evaluation/daily_task_comparison.py compare
 - **`tmp/daily_task_eval/comparison_report.json`**
 - **`tmp/daily_task_eval/experiment_resource_report.json`**（跨实验资源分组；可用 **`compare --no-resource-report`** 关闭）
 
+终端另输出 **【学术效率前沿分析】**（实验 **C** vs **D** 的 `navigator_overhead_ratio` / `token_efficiency_score` 等），详见 **§1.3**。
+
 若你的目录不同：
 
 ```powershell
@@ -360,6 +384,7 @@ uv run examples/evaluation/daily_task_comparison.py compare `
 - **`executor_backend`**、**`executor_model`**
 - **`navigator_enabled`**、**`navigator_model`**、**`navigator_backend`**
 - **`success`**、**`is_done`**、**`duration_seconds`**、**`number_of_steps`**
+- **`navigator_overhead_ratio`**、**`execution_velocity`**、**`token_efficiency_score`**（学术效率度量，见 **§1.3**）
 - **`errors`**、**`urls`**、**`final_result`**
 - **`history_path`**、**`conversation_path`**、**`navigator_plan_path`**：指向同一次运行的详细文件
 
@@ -379,7 +404,7 @@ jq '[.[] | select(.task_category == "form_workflow")]' tmp/daily_task_eval/agent
 
 每次 **`compare`** 默认还会写出与 **`comparison_report.json` 同目录** 的 **`experiment_resource_report.json`**（可用 **`--resource-report PATH`** 指定路径，或用 **`--no-resource-report`** 关闭）。
 
-该文件把 **`agent_runs.json`** 按 **`(task_id, scenario_id)`** 分组；文件开头有 **`groups_index`**（与 **`groups`** 顺序一致：每项含 **`task_id` / `scenario_id` / `snapshot_count` / `experiment_ids`**），便于先扫任务再展开大块 **`snapshots`**。**`groups`** 内顺序默认与 **`compare`** 读入的 **`task_cards.json`** 中任务顺序一致（同一任务下场景按 **`normal`** 再按 **`failure_modes.id`** 排序）；若 **`agent_runs`** 里有任务卡未声明的 task，则排在最后并按 **`(task_id, scenario_id)`** 字典序追加。每组内 **`snapshots`** 按 **`started_at`** 排序；**`duration_seconds`** 若历史为 0 会用墙钟 **`started_at`/`finished_at`** 回填并标 **`duration_used_wall_clock_fallback`**。**`statistics_by_experiment`** / **`pooled_statistics`** 为描述统计（**`n`、均值、样本标准差、min/max/median**）。**`analysis_hints`** 为英文对照提示。
+该文件把 **`agent_runs.json`** 按 **`(task_id, scenario_id)`** 分组；文件开头有 **`groups_index`**（与 **`groups`** 顺序一致：每项含 **`task_id` / `scenario_id` / `snapshot_count` / `experiment_ids`**），便于先扫任务再展开大块 **`snapshots`**。**`groups`** 内顺序默认与 **`compare`** 读入的 **`task_cards.json`** 中任务顺序一致（同一任务下场景按 **`normal`** 再按 **`failure_modes.id`** 排序）；若 **`agent_runs`** 里有任务卡未声明的 task，则排在最后并按 **`(task_id, scenario_id)`** 字典序追加。每组内 **`snapshots`** 按 **`started_at`** 排序；**`duration_seconds`** 若历史为 0 会用墙钟 **`started_at`/`finished_at`** 回填并标 **`duration_used_wall_clock_fallback`**。**`statistics_by_experiment`** / **`pooled_statistics`** 为描述统计（**`n`、均值、样本标准差、min/max/median**），除时长/步数/Token/费用外，亦包含 **§1.3** 三项学术效率指标的 per-run 聚合。**`compare` 完成后终端会打印 C vs D 的「学术效率前沿分析」摘要**（与 JSON 内数值一致）。**`analysis_hints`** 为英文对照提示。
 
 **建议的分析方法**
 
@@ -432,10 +457,12 @@ jq '[.[] | select(.task_category == "form_workflow")]' tmp/daily_task_eval/agent
 |------|--------|----------|----------------|
 | **A** | 无 | **ChatBrowserUse**（`bu-latest`） | `BROWSER_USE_API_KEY` |
 | **B** | **DeepSeek**（计划） | **ChatBrowserUse** | `BROWSER_USE_API_KEY` + `DEEPSEEK_API_KEY` |
-| **C** | 无 | **Qwen**（OpenAI 兼容客户端） | `DASHSCOPE_API_KEY`（或可改 env 名） |
-| **D** | **DeepSeek** | **Qwen** | `DASHSCOPE_API_KEY` + `DEEPSEEK_API_KEY` |
+| **C** | 无 | **豆包**（Volcengine Ark，`doubao-seed-2-0-pro-260215`） | **`ARK_API_KEY`** |
+| **D** | **DeepSeek** | **豆包**（同上） | **`ARK_API_KEY`** + **`DEEPSEEK_API_KEY`** |
 
-预设定义代码：**`browser_use/experiments/daily_task_eval/experiment_presets.py`** 中的 **`experiment_preset()`**。
+预设定义代码：**`browser_use/experiments/daily_task_eval/experiment_presets.py`** 中的 **`experiment_preset()`**（**`DEFAULT_DOUBAO_EXECUTOR_MODEL`**）。
+
+**豆包 / Volcengine Ark 执行器**：预设 **C/D** 已默认使用豆包。**`build_executor_llm()`** 对 `doubao-*` / `ep-*`（或 Ark base URL）会设置 **`dont_force_structured_output=True`**、**`add_schema_to_system_prompt=True`**、**`temperature=0.0`**（Ark 不接受 OpenAI `response_format.type=json_schema`）。若改回 Qwen：**`--executor-model qwen3-max`**（自动切 **`DASHSCOPE_API_KEY`**）。
 
 **与 `--continuous-navigation` 的关系**：上表只描述「谁当执行器 / 谁当领航员」。**B / D** 在默认 CLI 下仍会**先**写 **`navigator_plan.md`** 并注入上下文；是否在多步中**再**周期调用同一套领航配置，由 **`--continuous-navigation`** 单独决定。对比不同论文或内部结论时，请在 **`EXPERIMENT_RECORD.md`** 与原始命令行中显式标注是否开启持续领航（见该文档文首）。
 
@@ -446,8 +473,8 @@ jq '[.[] | select(.task_category == "form_workflow")]' tmp/daily_task_eval/agent
 1. **`DEEPSEEK_API_KEY is not set`**  
    跑 **B** 或 **D** 前确认 `.env` 已加载且变量名正确，或在 Shell 中 **`$env:DEEPSEEK_API_KEY = "..."`**（PowerShell）。
 
-2. **`DASHSCOPE_API_KEY is not set`**（或执行器所用变量未设置）  
-   跑 **C** 或 **D** 时出现；在系统/用户环境变量中配置 **`DASHSCOPE_API_KEY`**，或改用 **`--executor-api-key-env`** 指向你实际使用的变量名。
+2. **`ARK_API_KEY is not set`**（或执行器所用变量未设置）  
+   跑 **C** 或 **D**（默认豆包执行器）时出现；在 `.env` 中配置 **`ARK_API_KEY`**。若你显式改用 Qwen（**`--executor-model qwen3-max`**），则需 **`DASHSCOPE_API_KEY`**，或用 **`--executor-api-key-env`** 指向实际变量名。
 
 3. **`--use-navigator cannot be combined with --experiment`**  
    预设已固定领航员策略；不要用 **`--use-navigator`** 搭配 **`--experiment`**。
@@ -557,6 +584,7 @@ $env:OPENAI_LOG = "debug"   # ChatOpenAI / DashScope 兼容客户端
 | **论文框架（章节占位，与实现对齐）** | `examples/evaluation/PAPER_FRAMEWORK.md` |
 | 本手册 | `examples/evaluation/DAILY_TASK_EXPERIMENT_GUIDE.md` |
 | **`agent_runs.json` LLM 用量字段** | 见上文 **§1.1**（`usage_summary`、`usage_executor_llm`、`usage_navigator_cycle_llm` 等） |
+| **学术效率度量（三指标 + C/D 前沿分析）** | 见上文 **§1.3**；实现 **`models.py`** / **`runner.py`** |
 | **成功跑次人读归档（按 A/B/C/D 分表）** | `examples/evaluation/EXPERIMENT_RECORD.md` |
 | **实验问题与对策日志（按类别）** | `examples/evaluation/DAILY_TASK_EXPERIMENT_LOG.md` |
 | **组员最短复现路径（克隆 → init → run → compare）** | 仓库根目录 **`README.md`** |

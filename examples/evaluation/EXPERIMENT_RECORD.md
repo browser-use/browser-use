@@ -2,7 +2,9 @@
 
 操作与产出说明见 **[`DAILY_TASK_EXPERIMENT_GUIDE.md`](./DAILY_TASK_EXPERIMENT_GUIDE.md)**。本文件记入 **`agent_runs.json` 中全部 `success: true` 跑次**（见 **成功跑次时间线**），并在 **A/B/C/D 分表**中保留各预设**当前代表**的一条便于对照。持续领航 = `--continuous-navigation`（周期领航与初始 `NavigatorConfig` 同源）。**仅开场领航、不再随步更新** 的局限与对策见下节 **「关于领航员只在开头领航」**。
 
-预设含义：A 无领航+BU；B DeepSeek 领航+BU；C 无领航+Qwen；D DeepSeek 领航+Qwen。**注意**：预设 **B** 若跑 **`run-agent` 时未加 `--continuous-navigation`**，则仍只有开场 **`navigator_plan`** 注入执行者上下文，属于本节所述「只领航一次」配置，与 **D + 持续领航** 不宜直接当作同一机制对比。
+**资源与统计（不写进本表细节时）**：跑 **`compare`** 会生成 **`experiment_resource_report.json`**（按任务/场景分组，含 **`groups_index`**、每实验 **`statistics_by_experiment`**、全组合 **`pooled_statistics`**、时长墙钟回填，以及 **§1.3 学术效率三指标** 的聚合统计；终端打印 **C vs D 学术效率前沿分析**，见 **GUIDE §5.2 / §1.3**）。表格化可用 **`daily_task_comparison.py export-csv --input …/experiment_resource_report.json`**。执行器在 CLI 上除 Qwen 外可切 **豆包 / Volcengine Ark**（`doubao-*`、`ep-*` 等，环境变量 **`ARK_API_KEY`**），见 **GUIDE §6** 与 **`daily_task_comparison.py --help`**。
+
+预设含义：A 无领航+BU；B DeepSeek 领航+BU；C 无领航+豆包（Ark）；D DeepSeek 领航+豆包。**注意**：预设 **B** 若跑 **`run-agent` 时未加 `--continuous-navigation`**，则仍只有开场 **`navigator_plan`** 注入执行者上下文，属于本节所述「只领航一次」配置，与 **D + 持续领航** 不宜直接当作同一机制对比。
 
 ### 关于「领航员只在开头领航」与效果
 

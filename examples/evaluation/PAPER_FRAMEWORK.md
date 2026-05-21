@@ -138,7 +138,8 @@
 |----|------|----------------|
 | **RQ1** | [待填：A/B/C/D 成功率与步数差异？] | success、number_of_steps、duration |
 | **RQ2** | [待填：持续领航 + 子目标是否降低某类失败？] | errors、action_names、urls、必要时人工判畸形 URL |
-| **RQ3** | [待填：用量拆分下 executor vs navigator 的成本占比？] | usage_* 字段、总 tokens |
+| **RQ3** | [待填：用量拆分下 executor vs navigator 的成本占比？] | usage_* 字段、总 tokens、`navigator_overhead_ratio`（见 GUIDE §1.3） |
+| **RQ3b** | [待填：C vs D 领航是否提升千 Token 成功率？] | `token_efficiency_score`、`execution_velocity`；`compare` 终端 **学术效率前沿分析** |
 | **RQ4** | [待填：人与 Agent 差异？] | human_runs vs `ComparisonRecord` |
 
 ### 5.2 实验设置

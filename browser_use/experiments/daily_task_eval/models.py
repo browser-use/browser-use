@@ -7,7 +7,14 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 SuccessStatus = Literal['success', 'partial', 'failed', 'blocked']
-TaskCategory = Literal['read_only_query', 'form_workflow', 'download_export']
+TaskCategory = Literal[
+	'read_only_query',
+	'form_workflow',
+	'download_export',
+	'multi_step_transaction_query',
+	'complex_hierarchical_search',
+	'multi_constraint_optimization',
+]
 ModelT = TypeVar('ModelT', bound=BaseModel)
 
 
@@ -115,6 +122,93 @@ class AgentRunSummary(BaseModel):
 		default=None,
 		description='Navigator `create_plan()` first LLM call (not in Agent TokenCost): raw `ChatInvokeUsage` dump.',
 	)
+	navigator_overhead_ratio: float = Field(
+		default=0.0,
+		description=(
+			'Academic metric: (navigator cycle tokens + initial plan tokens) / executor tokens. '
+			'0.0 when executor tokens are 0 or navigator is disabled.'
+		),
+	)
+	execution_velocity: float = Field(
+		default=0.0,
+		description='Academic metric: total_tokens / duration_seconds (cognitive density during browser interaction).',
+	)
+	token_efficiency_score: float = Field(
+		default=0.0,
+		description=(
+			'Academic metric: success indicator (1 if success else 0) / (total_tokens / 1000). '
+			'Thousand-token efficiency substitute when API cost is unavailable.'
+		),
+	)
+
+
+def _usage_dict_int(usage: dict[str, Any] | None, key: str) -> int | None:
+	if not isinstance(usage, dict):
+		return None
+	val = usage.get(key)
+	if val is None:
+		return None
+	try:
+		return int(val)
+	except (TypeError, ValueError):
+		return None
+
+
+def compute_navigator_overhead_ratio(
+	*,
+	navigator_enabled: bool,
+	executor_tokens: int | None,
+	navigator_cycle_tokens: int | None,
+	navigator_initial_tokens: int | None,
+) -> float:
+	"""(Navigator cycle + initial plan tokens) / executor tokens; 0.0 if no navigator or executor tokens <= 0."""
+
+	if not navigator_enabled:
+		return 0.0
+	executor = executor_tokens or 0
+	if executor <= 0:
+		return 0.0
+	navigator_total = (navigator_cycle_tokens or 0) + (navigator_initial_tokens or 0)
+	return float(navigator_total) / float(executor)
+
+
+def compute_execution_velocity(*, total_tokens: int | None, duration_seconds: float) -> float:
+	"""Total tokens per second of wall time; 0.0 when duration <= 0."""
+
+	if duration_seconds is None or duration_seconds <= 0:
+		return 0.0
+	tokens = total_tokens or 0
+	return float(tokens) / float(duration_seconds)
+
+
+def compute_token_efficiency_score(*, success: bool | None, total_tokens: int | None) -> float:
+	"""Success weight (1 or 0) divided by (total_tokens / 1000); 0.0 when token denominator <= 0."""
+
+	success_weight = 1.0 if success is True else 0.0
+	tokens = total_tokens or 0
+	denom_k = float(tokens) / 1000.0
+	if denom_k <= 0.0:
+		return 0.0
+	return success_weight / denom_k
+
+
+def academic_efficiency_from_agent_run(agent: AgentRunSummary, *, duration_seconds: float) -> tuple[float, float, float]:
+	"""Derive the three academic efficiency metrics from usage fields on an `AgentRunSummary`."""
+
+	usage = agent.usage_summary if isinstance(agent.usage_summary, dict) else None
+	total_tokens = _usage_dict_int(usage, 'total_tokens')
+	executor_tokens = _usage_dict_int(agent.usage_executor_llm, 'total_tokens')
+	nav_cycle_tokens = _usage_dict_int(agent.usage_navigator_cycle_llm, 'total_tokens')
+	nav_initial_tokens = _usage_dict_int(agent.navigator_initial_plan_usage, 'total_tokens')
+	overhead = compute_navigator_overhead_ratio(
+		navigator_enabled=agent.navigator_enabled,
+		executor_tokens=executor_tokens,
+		navigator_cycle_tokens=nav_cycle_tokens,
+		navigator_initial_tokens=nav_initial_tokens,
+	)
+	velocity = compute_execution_velocity(total_tokens=total_tokens, duration_seconds=duration_seconds)
+	efficiency = compute_token_efficiency_score(success=agent.success, total_tokens=total_tokens)
+	return overhead, velocity, efficiency
 
 
 class RunMetricStats(BaseModel):
@@ -158,6 +252,18 @@ class ExperimentBucketRunStatistics(BaseModel):
 	total_completion_tokens: RunMetricStats | None = None
 	llm_invocation_count: RunMetricStats | None = None
 	total_cost: RunMetricStats | None = None
+	navigator_overhead_ratio: RunMetricStats | None = Field(
+		default=None,
+		description='Descriptive stats for per-run navigator overhead ratio.',
+	)
+	execution_velocity: RunMetricStats | None = Field(
+		default=None,
+		description='Descriptive stats for per-run tokens-per-second.',
+	)
+	token_efficiency_score: RunMetricStats | None = Field(
+		default=None,
+		description='Descriptive stats for per-run thousand-token efficiency score.',
+	)
 
 
 class AgentRunResourceSnapshot(BaseModel):
@@ -187,6 +293,18 @@ class AgentRunResourceSnapshot(BaseModel):
 	total_prompt_tokens: int | None = None
 	total_completion_tokens: int | None = None
 	llm_invocation_count: int | None = Field(default=None, description='From `usage_summary.entry_count` when present.')
+	navigator_overhead_ratio: float = Field(
+		default=0.0,
+		description='(Navigator cycle + initial plan tokens) / executor tokens; 0.0 without navigator or executor usage.',
+	)
+	execution_velocity: float = Field(
+		default=0.0,
+		description='total_tokens / duration_seconds.',
+	)
+	token_efficiency_score: float = Field(
+		default=0.0,
+		description='Success indicator / (total_tokens / 1000).',
+	)
 
 
 class TaskScenarioResourceGroup(BaseModel):

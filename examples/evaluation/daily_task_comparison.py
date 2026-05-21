@@ -357,6 +357,10 @@ def main() -> None:
 		if not args.no_resource_report:
 			res_path = args.resource_report or args.output_path.with_name('experiment_resource_report.json')
 			print(f'Wrote cross-experiment resource report to {res_path}')
+			print(
+				'(Includes per-run academic metrics in snapshots and statistics_by_experiment / '
+				'pooled_statistics: navigator_overhead_ratio, execution_velocity, token_efficiency_score.)'
+			)
 	elif args.command == 'export-csv':
 		out_dir = args.output_dir or args.input.parent
 		out_dir.mkdir(parents=True, exist_ok=True)

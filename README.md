@@ -83,6 +83,7 @@
 ```env
 BROWSER_USE_API_KEY=你的_browser_use_密钥
 DEEPSEEK_API_KEY=你的_deepseek_密钥
+ARK_API_KEY=你的_火山方舟_豆包_密钥
 DASHSCOPE_API_KEY=你的_dashscope_qwen_密钥
 ```
 
@@ -90,8 +91,8 @@ DASHSCOPE_API_KEY=你的_dashscope_qwen_密钥
 |------|---------------------|
 | **A** | `BROWSER_USE_API_KEY`（`ChatBrowserUse`） |
 | **B** | `BROWSER_USE_API_KEY` + `DEEPSEEK_API_KEY`（DeepSeek 领航） |
-| **C** | `DASHSCOPE_API_KEY`（Qwen OpenAI 兼容执行器） |
-| **D** | `DASHSCOPE_API_KEY` + `DEEPSEEK_API_KEY` |
+| **C** | `ARK_API_KEY`（豆包 / Volcengine Ark 执行器，默认 `doubao-seed-2-0-pro-260215`） |
+| **D** | `ARK_API_KEY` + `DEEPSEEK_API_KEY` |
 
 运行示例：
 

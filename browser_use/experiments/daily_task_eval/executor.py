@@ -99,7 +99,7 @@ def build_executor_llm(config: ExecutorConfig) -> BaseChatModel:
 			model=config.model,
 			api_key=api_key,
 			base_url=config.base_url,
-			temperature=config.temperature,
+			temperature=0.0,
 			dont_force_structured_output=True,
 			add_schema_to_system_prompt=True,
 		)

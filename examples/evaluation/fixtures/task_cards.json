@@ -292,5 +292,160 @@
       "Do not call, book, order, or submit forms.",
       "Exclude clearly closed listings from recommendations."
     ]
+  },
+  {
+    "id": "complex_travel_package_booking",
+    "name": "Complex travel package search (Mind2Web-style)",
+    "category": "multi_step_transaction_query",
+    "task_prompt": "Go to Booking.com (or another well-known single-page travel site you can reach from this network). Search for a 5-day package for next month from New York to San Francisco for two adults and one child aged 6 (flight + hotel bundle or equivalent package flow). Apply filters so the hotel includes free breakfast and free cancellation. Among results that satisfy all constraints, identify the cheapest total price, open that offer, and stop on the final booking / guest-information page (traveler details form) without submitting payment.",
+    "starting_conditions": [
+      "Use only the current browser tab; do not open unrelated sites.",
+      "The browser may start logged out; do not create accounts or enter real personal data.",
+      "If Booking.com is unreachable, use one comparable mainstream travel site and state which site you used.",
+      "Travel dates are next calendar month; origin New York, destination San Francisco; 5 nights; 2 adults + 1 child (age 6)."
+    ],
+    "success_criteria": [
+      "Search reflects NYC → San Francisco, ~5-day stay next month, 2 adults + 1 child (6).",
+      "Hotel filters include free breakfast and free cancellation (or equivalent labels visible on the page) — applied on the package results list before picking the cheapest offer, not only on a single hotel's room list after opening one card.",
+      "The chosen offer is the cheapest among filtered results shown (state total price and currency).",
+      "The browser is on the booking / traveler-information step for that offer (guest or traveler details form visible; URL or page title indicates guest/checkout, not package search, hotel room picker, or flight selection).",
+      "No payment, card entry, or order confirmation is completed."
+    ],
+    "forbidden_actions": [
+      "Do not pay, confirm booking, or enter real payment or identity credentials.",
+      "Do not create accounts with real email/phone unless the task explicitly provides test credentials.",
+      "Do not abandon required child-passenger fields without attempting visible guest-count controls first."
+    ],
+    "failure_modes": [
+      {
+        "id": "login_or_captcha_wall",
+        "name": "Login, CAPTCHA, or bot check blocks search",
+        "setup_notes": [
+          "Site shows sign-in modal or anti-bot challenge before results."
+        ],
+        "expected_recovery": [
+          "Try one dismiss or guest flow if clearly safe; otherwise done(success=False) naming the blocker."
+        ]
+      },
+      {
+        "id": "filter_reset_on_navigation",
+        "name": "Filters drop when opening a package detail",
+        "setup_notes": [
+          "Breakfast / free-cancel filters clear after clicking a result card."
+        ],
+        "expected_recovery": [
+          "Re-apply filters once, re-verify constraints, then pick the cheapest valid offer again."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Work in one tab; re-check filters after every major navigation.",
+      "Prefer package or flight+hotel flows that expose a single total price.",
+      "If prices change on the detail page, use the detail-page total for the cheapest comparison.",
+      "Booking.com locale: if the UI is Chinese (e.g. 机+酒, 筛选, 含早餐), do not rely on English-only search_page for filters. Use visible filter controls and Chinese equivalents: free cancellation → 免费取消, 可免费取消, 全额退款, 灵活取消, 可退款; free breakfast → 含早餐, 免费早餐. Also try English labels if the control is bilingual.",
+      "Apply both hotel filters on the package results page first, then sort by lowest total price and open the cheapest listing that still shows both constraints.",
+      "Booking.com package checkout is multi-step: (1) filtered results → (2) hotel/room choice → (3) flight selection (/m/fly/search or similar) → (4) guest/traveler information form. After choosing a room, continue through flight selection until the guest/traveler details form is visible; only then call done. Do not call done on flight search, room picker, or a loading spinner.",
+      "Stop on the guest/booking form; never submit payment."
+    ]
+  },
+  {
+    "id": "github_clean_issue_audit",
+    "name": "GitHub open bug issue audit (WebArena-style)",
+    "category": "complex_hierarchical_search",
+    "task_prompt": "In the current tab, open the GitHub repository browser-use/browser-use. Go to Issues. Use the issue search/filter bar to list issues labeled bug that are open. Change sort to Oldest. Paginate if needed, open the oldest matching bug issue (earliest created among open bug-labeled issues), and stop with the issue detail page scrolled to the first comment thread (top of comments).",
+    "starting_conditions": [
+      "Use github.com in the current tab only.",
+      "No GitHub login is required for public issues; do not enter tokens or credentials.",
+      "Label name is bug; state must be open."
+    ],
+    "success_criteria": [
+      "Issue list is filtered to open issues with label bug (or equivalent filter syntax visible in the search box).",
+      "Sort order is Oldest (not Newest or Recently updated).",
+      "The opened issue is the earliest-created among matching open bug issues found (state issue number and title in done text).",
+      "The page shows the issue body and the start of the comments section."
+    ],
+    "forbidden_actions": [
+      "Do not close, edit, comment on, assign, or merge issues.",
+      "Do not fork the repo or change repository settings.",
+      "Do not navigate away from github.com/browser-use/browser-use issue context except via pagination on the same issue list."
+    ],
+    "failure_modes": [
+      {
+        "id": "label_filter_no_results",
+        "name": "No open bug issues match the filter",
+        "setup_notes": [
+          "Filter returns zero rows or only closed issues."
+        ],
+        "expected_recovery": [
+          "Verify filter syntax (label:bug is:open), adjust once, then report if still empty."
+        ]
+      },
+      {
+        "id": "sort_not_applied",
+        "name": "List still sorted by updated date",
+        "setup_notes": [
+          "Oldest sort not applied after filter."
+        ],
+        "expected_recovery": [
+          "Explicitly set sort to Oldest/Created ascending before choosing an issue."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Use GitHub issue search qualifiers when the UI filter is unclear.",
+      "After changing sort, wait for the list to refresh before opening an issue.",
+      "When paginating, track the oldest candidate seen across pages.",
+      "Read-only: extract issue #, title, and first comment author snippet in the final answer."
+    ]
+  },
+  {
+    "id": "huggingface_model_constrained_selection",
+    "name": "Hugging Face constrained model selection (SPA filters)",
+    "category": "multi_constraint_optimization",
+    "task_prompt": "In the current tab, open huggingface.co/models. In the left filter panel, set Task to Text Generation, Library to PyTorch, and Language to Chinese. Wait for the SPA results to refresh, set sort to Most Downloads, open the top result's model page, locate the Base model field on the Model Card, and stop with that Base model name visible (scroll the card if needed).",
+    "starting_conditions": [
+      "Use huggingface.co in the current tab only.",
+      "No Hugging Face login required for public model cards.",
+      "Filters: Text Generation + PyTorch + Chinese; sort: Most Downloads."
+    ],
+    "success_criteria": [
+      "Left-panel filters show Text Generation, PyTorch, and Chinese as active selections.",
+      "Results are sorted by Most Downloads (highest first).",
+      "The opened model is the first result in that sorted list (report model id from URL or title).",
+      "The Model Card shows the Base model name and it is visible in the final viewport or quoted in done text."
+    ],
+    "forbidden_actions": [
+      "Do not download model weights, run inference, or use paid HF features.",
+      "Do not change account settings or accept unrelated cookies beyond dismissing blockers.",
+      "Do not pick a model that does not satisfy all three filters simultaneously."
+    ],
+    "failure_modes": [
+      {
+        "id": "spa_filter_stale",
+        "name": "Result list does not refresh after toggling filters",
+        "setup_notes": [
+          "Heavy SPA keeps old results until scroll or second click."
+        ],
+        "expected_recovery": [
+          "Wait once, toggle the last filter again, confirm chip/badge state, then proceed."
+        ]
+      },
+      {
+        "id": "base_model_missing",
+        "name": "Model Card has no Base model field",
+        "setup_notes": [
+          "Top model card omits base model metadata."
+        ],
+        "expected_recovery": [
+          "Check README/Model Card sections; if absent, report not visible instead of guessing."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Apply filters one at a time and confirm each active before sorting.",
+      "After sort change, re-verify the first card still matches all filters.",
+      "Quote the Base model string exactly as shown on the Model Card.",
+      "Stay on the model detail page; do not open the Files or Community tabs unless needed for the card."
+    ]
   }
 ]

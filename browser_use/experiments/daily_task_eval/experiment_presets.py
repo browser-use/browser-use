@@ -9,8 +9,8 @@ Layout (all under `browser_use.experiments.daily_task_eval`):
 Presets (matches tmp doc intent):
 - A: no navigator + ChatBrowserUse executor
 - B: DeepSeek navigator + ChatBrowserUse executor
-- C: no navigator + Qwen (OpenAI-compatible) executor
-- D: DeepSeek navigator + Qwen executor
+- C: no navigator + Doubao (Volcengine Ark OpenAI-compatible) executor
+- D: DeepSeek navigator + Doubao executor
 """
 
 from __future__ import annotations
@@ -19,10 +19,17 @@ from dataclasses import replace
 from enum import Enum
 from typing import Any
 
-from .executor import DEFAULT_GEMINI_MODEL, ExecutorConfig, resolve_openai_compatible_credentials
+from .executor import (
+	DEFAULT_GEMINI_MODEL,
+	ExecutorConfig,
+	VOLCES_ARK_API_KEY_ENV,
+	VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL,
+	resolve_openai_compatible_credentials,
+)
 from .navigator import NavigatorConfig
 
 DEFAULT_QWEN_MODEL = 'qwen3-max'
+DEFAULT_DOUBAO_EXECUTOR_MODEL = 'doubao-seed-2-0-pro-260215'
 DEFAULT_DEEPSEEK_NAV_MODEL = 'deepseek-chat'
 
 # OpenAI-compatible DashScope base URLs (must match where the API key was issued).
@@ -40,8 +47,8 @@ class DailyExperimentId(str, Enum):
 EXPERIMENT_DESCRIPTIONS: dict[DailyExperimentId, str] = {
 	DailyExperimentId.A: 'No navigator + ChatBrowserUse executor',
 	DailyExperimentId.B: 'DeepSeek navigator + ChatBrowserUse executor',
-	DailyExperimentId.C: 'No navigator + Qwen (OpenAI-compatible) executor',
-	DailyExperimentId.D: 'DeepSeek navigator + Qwen (OpenAI-compatible) executor',
+	DailyExperimentId.C: 'No navigator + Doubao (Volcengine Ark) executor',
+	DailyExperimentId.D: 'DeepSeek navigator + Doubao (Volcengine Ark) executor',
 }
 
 
@@ -75,9 +82,9 @@ def experiment_preset(experiment: DailyExperimentId) -> tuple[ExecutorConfig, Na
 		return (
 			ExecutorConfig(
 				backend='openai_compatible',
-				model=DEFAULT_QWEN_MODEL,
-				api_key_env='DASHSCOPE_API_KEY',
-				base_url=DASHSCOPE_CN_BASE_URL,
+				model=DEFAULT_DOUBAO_EXECUTOR_MODEL,
+				api_key_env=VOLCES_ARK_API_KEY_ENV,
+				base_url=VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL,
 				use_vision='auto',
 			),
 			NavigatorConfig(enabled=False),
@@ -86,9 +93,9 @@ def experiment_preset(experiment: DailyExperimentId) -> tuple[ExecutorConfig, Na
 		return (
 			ExecutorConfig(
 				backend='openai_compatible',
-				model=DEFAULT_QWEN_MODEL,
-				api_key_env='DASHSCOPE_API_KEY',
-				base_url=DASHSCOPE_CN_BASE_URL,
+				model=DEFAULT_DOUBAO_EXECUTOR_MODEL,
+				api_key_env=VOLCES_ARK_API_KEY_ENV,
+				base_url=VOLCES_ARK_CN_OPENAI_COMPAT_BASE_URL,
 				use_vision='auto',
 			),
 			NavigatorConfig(

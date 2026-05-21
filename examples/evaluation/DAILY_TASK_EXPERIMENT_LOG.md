@@ -6,6 +6,7 @@
 
 - **不要**在本文件中粘贴 API Key、Cookie、手机号等机密。
 - 与单次运行轨迹相关的细节仍可查：`tmp/daily_task_eval/agent_runs.json`、各任务目录下 `conversation.json`、`history.json`。
+- **`compare`** 产出的 **`experiment_resource_report.json`**（描述统计、pooled、墙钟时长等）与 **`export-csv`** 导出说明见 **`DAILY_TASK_EXPERIMENT_GUIDE.md` §5.2**。
 - **Qwen / OpenAI 兼容执行器的结构化输出（JSON）与 C vs D 写作注意**：**`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
 - 操作步骤见：**`DAILY_TASK_EXPERIMENT_GUIDE.md`**。
 

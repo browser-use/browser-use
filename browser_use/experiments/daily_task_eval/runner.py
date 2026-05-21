@@ -83,6 +83,7 @@ from .executor import (
 	default_use_vision_for_executor,
 )
 from .models import (
+	academic_efficiency_from_agent_run,
 	AgentRunResourceSnapshot,
 	AgentRunSummary,
 	ComparisonRecord,
@@ -360,6 +361,9 @@ def _build_experiment_bucket_statistics(
 		total_completion_tokens=_optional_run_metric_stats([s.total_completion_tokens for s in snapshots]),
 		llm_invocation_count=_optional_run_metric_stats([s.llm_invocation_count for s in snapshots]),
 		total_cost=_optional_run_metric_stats([s.total_cost for s in snapshots]),
+		navigator_overhead_ratio=_run_metric_stats([s.navigator_overhead_ratio for s in snapshots]),
+		execution_velocity=_run_metric_stats([s.execution_velocity for s in snapshots]),
+		token_efficiency_score=_run_metric_stats([s.token_efficiency_score for s in snapshots]),
 	)
 
 
@@ -483,7 +487,8 @@ def summarize_history(
 	urls = [url for url in history.urls() if url]
 	screenshot_paths = [path for path in history.screenshot_paths(return_none_if_not_screenshot=False) if path]
 	usage_kw = _llm_usage_for_agent_run_summary(agent, history, navigator, continuous_navigation)
-	return AgentRunSummary(
+	duration_seconds = history.total_duration_seconds()
+	summary = AgentRunSummary(
 		task_id=task_id,
 		scenario_id=scenario_id,
 		task_category=task_category,
@@ -498,7 +503,7 @@ def summarize_history(
 		finished_at=finished_at,
 		success=history.is_successful(),
 		is_done=history.is_done(),
-		duration_seconds=history.total_duration_seconds(),
+		duration_seconds=duration_seconds,
 		number_of_steps=history.number_of_steps(),
 		action_names=history.action_names(),
 		errors=errors,
@@ -508,6 +513,15 @@ def summarize_history(
 		history_path=str(history_path),
 		conversation_path=str(conversation_path),
 		**usage_kw,
+	)
+	effective_duration, _ = _effective_duration_from_summary(summary)
+	overhead, velocity, efficiency = academic_efficiency_from_agent_run(summary, duration_seconds=effective_duration)
+	return summary.model_copy(
+		update={
+			'navigator_overhead_ratio': overhead,
+			'execution_velocity': velocity,
+			'token_efficiency_score': efficiency,
+		}
 	)
 
 
@@ -791,6 +805,7 @@ def _usage_dict_float(usage: dict[str, Any] | None, key: str) -> float | None:
 def resource_snapshot_from_agent(agent: AgentRunSummary) -> AgentRunResourceSnapshot:
 	usage = agent.usage_summary if isinstance(agent.usage_summary, dict) else None
 	duration_seconds, wall_fb = _effective_duration_from_summary(agent)
+	overhead, velocity, efficiency = academic_efficiency_from_agent_run(agent, duration_seconds=duration_seconds)
 	return AgentRunResourceSnapshot(
 		experiment_id=agent.experiment_id,
 		started_at=agent.started_at,
@@ -811,6 +826,9 @@ def resource_snapshot_from_agent(agent: AgentRunSummary) -> AgentRunResourceSnap
 		total_prompt_tokens=_usage_dict_int(usage, 'total_prompt_tokens'),
 		total_completion_tokens=_usage_dict_int(usage, 'total_completion_tokens'),
 		llm_invocation_count=_usage_dict_int(usage, 'entry_count'),
+		navigator_overhead_ratio=overhead,
+		execution_velocity=velocity,
+		token_efficiency_score=efficiency,
 	)
 
 
@@ -872,6 +890,90 @@ def _resource_analysis_hints(snapshots: list[AgentRunResourceSnapshot]) -> list[
 			)
 
 	return hints
+
+
+def _stat_mean(stats: RunMetricStats | None) -> float | None:
+	return stats.mean if stats is not None and stats.n > 0 else None
+
+
+def format_academic_efficiency_frontier_analysis(report: ExperimentResourceReport) -> str:
+	"""Human-readable C vs D comparison for navigator overhead and token efficiency."""
+
+	lines: list[str] = [
+		'',
+		'═' * 72,
+		'【学术效率前沿分析 / Academic Efficiency Frontier Analysis】',
+		'═' * 72,
+		'Anchor: Experiment C (no navigator) vs Experiment D (navigator + executor).',
+		'Metrics: navigator_overhead_ratio (↑ = more navigator tax on executor tokens),',
+		'         token_efficiency_score (↑ = more successes per 1k tokens).',
+		'',
+	]
+	any_pair = False
+	for group in report.groups:
+		row_c = next(
+			(b for b in group.statistics_by_experiment if b.experiment_id == 'C' and not b.is_pooled),
+			None,
+		)
+		row_d = next(
+			(b for b in group.statistics_by_experiment if b.experiment_id == 'D' and not b.is_pooled),
+			None,
+		)
+		if row_c is None or row_d is None:
+			continue
+		any_pair = True
+		oh_c = _stat_mean(row_c.navigator_overhead_ratio)
+		oh_d = _stat_mean(row_d.navigator_overhead_ratio)
+		te_c = _stat_mean(row_c.token_efficiency_score)
+		te_d = _stat_mean(row_d.token_efficiency_score)
+		ev_c = _stat_mean(row_c.execution_velocity)
+		ev_d = _stat_mean(row_d.execution_velocity)
+		lines.append(f'── {group.task_id} / {group.scenario_id} ({group.task_category or "?"}) ──')
+		lines.append(
+			f'  runs: C={row_c.run_count} success={row_c.success_true} | '
+			f'D={row_d.run_count} success={row_d.success_true}'
+		)
+
+		def fmt(v: float | None) -> str:
+			return f'{v:.4f}' if v is not None else 'n/a'
+
+		lines.append(f'  navigator_overhead_ratio (mean): C={fmt(oh_c)}  D={fmt(oh_d)}')
+		if oh_c is not None and oh_d is not None:
+			if oh_d > oh_c:
+				lines.append('    → D pays higher navigator overhead (expected when navigator is enabled).')
+			elif oh_d == 0.0 and oh_c == 0.0:
+				lines.append('    → Both zero (no token usage recorded or no navigator cycle split).')
+		lines.append(f'  token_efficiency_score (mean):   C={fmt(te_c)}  D={fmt(te_d)}')
+		if te_c is not None and te_d is not None:
+			if te_d > te_c:
+				lines.append('    → D achieves better thousand-token success efficiency on this task.')
+			elif te_c > te_d:
+				lines.append('    → C is more token-efficient here; navigator cost may exceed benefit.')
+			else:
+				lines.append('    → Tie on mean thousand-token efficiency.')
+		lines.append(f'  execution_velocity (mean tok/s):   C={fmt(ev_c)}  D={fmt(ev_d)}')
+		lines.append('')
+
+	if not any_pair:
+		lines.append(
+			'No (task, scenario) group contains both experiment C and D runs. '
+			'Re-run compare after collecting paired C/D agent_runs.json entries.'
+		)
+		lines.append('')
+	else:
+		lines.append(
+			'Interpretation: On hard tasks, a positive D advantage on token_efficiency_score '
+			'with bounded navigator_overhead_ratio supports the navigator as cost-effective guidance.'
+		)
+		lines.append('')
+	lines.append('═' * 72)
+	return '\n'.join(lines)
+
+
+def print_academic_efficiency_frontier_analysis(report: ExperimentResourceReport) -> None:
+	"""Emit the frontier block to stdout (used by `compare` CLI)."""
+
+	print(format_academic_efficiency_frontier_analysis(report))
 
 
 def build_experiment_resource_report(
@@ -948,6 +1050,7 @@ def compare_all(
 		res_path = resource_report_path or output_path.with_name('experiment_resource_report.json')
 		res_report = build_experiment_resource_report(agent_runs, tasks)
 		write_json(res_path, res_report.model_dump(mode='json'))
+		print_academic_efficiency_frontier_analysis(res_report)
 	return comparisons
 
 
@@ -1031,6 +1134,9 @@ def export_experiment_resource_report_to_csv(
 		'total_prompt_tokens',
 		'total_completion_tokens',
 		'llm_invocation_count',
+		'navigator_overhead_ratio',
+		'execution_velocity',
+		'token_efficiency_score',
 		'history_path',
 		'conversation_path',
 	]
@@ -1055,6 +1161,9 @@ def export_experiment_resource_report_to_csv(
 		*_metric_csv_headers('total_completion_tokens'),
 		*_metric_csv_headers('llm_invocation_count'),
 		*_metric_csv_headers('total_cost'),
+		*_metric_csv_headers('navigator_overhead_ratio'),
+		*_metric_csv_headers('execution_velocity'),
+		*_metric_csv_headers('token_efficiency_score'),
 	]
 
 	with runs_csv.open('w', encoding='utf-8', newline='') as run_f:
@@ -1084,6 +1193,9 @@ def export_experiment_resource_report_to_csv(
 						_csv_cell(snap.total_prompt_tokens),
 						_csv_cell(snap.total_completion_tokens),
 						_csv_cell(snap.llm_invocation_count),
+						_csv_cell(snap.navigator_overhead_ratio),
+						_csv_cell(snap.execution_velocity),
+						_csv_cell(snap.token_efficiency_score),
 						snap.history_path,
 						snap.conversation_path,
 					]
@@ -1115,6 +1227,9 @@ def export_experiment_resource_report_to_csv(
 						*_run_metric_stat_cells(bucket.total_completion_tokens),
 						*_run_metric_stat_cells(bucket.llm_invocation_count),
 						*_run_metric_stat_cells(bucket.total_cost),
+						*_run_metric_stat_cells(bucket.navigator_overhead_ratio),
+						*_run_metric_stat_cells(bucket.execution_velocity),
+						*_run_metric_stat_cells(bucket.token_efficiency_score),
 					]
 				)
 			if group.pooled_statistics is not None:
@@ -1140,6 +1255,9 @@ def export_experiment_resource_report_to_csv(
 						*_run_metric_stat_cells(p.total_completion_tokens),
 						*_run_metric_stat_cells(p.llm_invocation_count),
 						*_run_metric_stat_cells(p.total_cost),
+						*_run_metric_stat_cells(p.navigator_overhead_ratio),
+						*_run_metric_stat_cells(p.execution_velocity),
+						*_run_metric_stat_cells(p.token_efficiency_score),
 					]
 				)
 
@@ -1179,6 +1297,9 @@ def export_agent_runs_to_csv(agent_runs_path: Path, output_csv: Path) -> Path:
 		'usage_total_tokens',
 		'usage_total_cost',
 		'usage_entry_count',
+		'navigator_overhead_ratio',
+		'execution_velocity',
+		'token_efficiency_score',
 	]
 
 	with output_csv.open('w', encoding='utf-8', newline='') as f:
@@ -1189,6 +1310,8 @@ def export_agent_runs_to_csv(agent_runs_path: Path, output_csv: Path) -> Path:
 			ut = usage.get('total_tokens') if usage else None
 			uc = usage.get('total_cost') if usage else None
 			ue = usage.get('entry_count') if usage else None
+			effective_dur, _ = _effective_duration_from_summary(a)
+			oh, vel, eff = academic_efficiency_from_agent_run(a, duration_seconds=effective_dur)
 			w.writerow(
 				[
 					a.task_id,
@@ -1217,6 +1340,9 @@ def export_agent_runs_to_csv(agent_runs_path: Path, output_csv: Path) -> Path:
 					_csv_cell(ut),
 					_csv_cell(uc),
 					_csv_cell(ue),
+					_csv_cell(oh),
+					_csv_cell(vel),
+					_csv_cell(eff),
 				]
 			)
 
