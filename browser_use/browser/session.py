@@ -473,10 +473,13 @@ class BrowserSession(BaseModel):
 	def is_cdp_connected(self) -> bool:
 		"""Check if the CDP WebSocket connection is alive and usable.
 
-		Returns True only if the root CDP client exists and its WebSocket is in OPEN state.
+		Returns True only if the root CDP client exists, is marked healthy,
+		and its WebSocket is in OPEN state.
 		A dead/closing/closed WebSocket returns False, preventing handlers from dispatching
 		CDP commands that would hang until timeout on a broken connection.
 		"""
+		if not getattr(self, '_is_healthy', True):
+			return False
 		if self._cdp_client_root is None or self._cdp_client_root.ws is None:
 			return False
 		try:
@@ -484,6 +487,25 @@ class BrowserSession(BaseModel):
 
 			return self._cdp_client_root.ws.state is State.OPEN
 		except Exception:
+			return False
+
+	async def verify_connection_health(self) -> bool:
+		"""Verify CDP connection is responsive via a lightweight Browser.getVersion ping.
+
+		Returns True if the connection responds within 1.5s, False otherwise.
+		"""
+		if self._cdp_client_root is None or self._cdp_client_root.ws is None:
+			return False
+		if not getattr(self, '_is_healthy', True):
+			return False
+		try:
+			await asyncio.wait_for(
+				self._cdp_client_root.send.Browser.getVersion(),
+				timeout=1.5,
+			)
+			return True
+		except Exception as e:
+			self.logger.warning(f'⚠️ CDP health verification failed: {type(e).__name__}: {e}')
 			return False
 
 	async def wait_if_captcha_solving(self, timeout: float | None = None) -> 'CaptchaWaitResult | None':
@@ -562,6 +584,7 @@ class BrowserSession(BaseModel):
 	_reconnect_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
 	_intentional_stop: bool = PrivateAttr(default=False)
+	_is_healthy: bool = PrivateAttr(default=True)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -629,6 +652,7 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'Error closing CDP client during reset: {e}')
 
 		self._cdp_client_root = None  # type: ignore
+		self._is_healthy = True
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
