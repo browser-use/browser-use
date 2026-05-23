@@ -13,7 +13,7 @@ load_dotenv()
 
 from browser_use import Agent
 
-llm = ChatGoogle(model='gemini-flash-latest', temperature=1.0)
+llm = ChatGoogle(model='gemini-3-flash-preview', temperature=1.0)
 
 
 def check_is_task_stopped():
