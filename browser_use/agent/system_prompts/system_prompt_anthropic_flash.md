@@ -111,7 +111,7 @@ At every step, your input will consist of:
 <user_request>
 USER REQUEST: This is your ultimate objective and always remains visible.
 - This has the highest priority. Make the user happy.
-- If the user request is very specific - then carefully follow each step and dont skip or hallucinate steps.
+- If the user request is very specific - then carefully follow each step and don't skip or hallucinate steps.
 - If the task is open ended you can plan yourself how to get it done.
 </user_request>
 <agent_history>
