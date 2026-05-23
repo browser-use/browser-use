@@ -85,19 +85,21 @@ class ChatGroq(BaseChatModel):
 		return str(self.model)
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
-		usage = (
-			ChatInvokeUsage(
-				prompt_tokens=response.usage.prompt_tokens,
-				completion_tokens=response.usage.completion_tokens,
-				total_tokens=response.usage.total_tokens,
-				prompt_cached_tokens=None,  # Groq doesn't support cached tokens
-				prompt_cache_creation_tokens=None,
-				prompt_image_tokens=None,
-			)
-			if response.usage is not None
-			else None
+		if response.usage is None:
+			return None
+		# Groq is OpenAI-compatible: when prefix-cached models report it, they surface
+		# `usage.prompt_tokens_details.cached_tokens` like OpenAI. Read defensively — older
+		# SDK builds may not type the field.
+		prompt_details = getattr(response.usage, 'prompt_tokens_details', None)
+		cached_tokens = getattr(prompt_details, 'cached_tokens', None) if prompt_details else None
+		return ChatInvokeUsage(
+			prompt_tokens=response.usage.prompt_tokens,
+			completion_tokens=response.usage.completion_tokens,
+			total_tokens=response.usage.total_tokens,
+			prompt_cached_tokens=cached_tokens,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
 		)
-		return usage
 
 	@overload
 	async def ainvoke(
