@@ -322,14 +322,6 @@ Available tabs:
 		return browser_state
 
 	def _get_agent_state_description(self) -> str:
-		if self.step_info:
-			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
-		else:
-			step_info_description = ''
-
-		time_str = datetime.now().strftime('%Y-%m-%d')
-		step_info_description += f'Today:{time_str}'
-
 		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
 		if not len(_todo_contents):
 			_todo_contents = '[empty todo.md, fill it when applicable]'
@@ -351,11 +343,21 @@ Available tabs:
 		if self.sensitive_data:
 			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
 
-		agent_state += f'<step_info>{step_info_description}</step_info>\n'
 		if self.available_file_paths:
 			available_file_paths_text = '\n'.join(self.available_file_paths)
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
 		return agent_state
+
+	def _get_step_meta_description(self) -> str:
+		# Per-step varying metadata (step counter, wall-clock date). Kept out of <agent_state> so it
+		# lives at the tail of the user message — anything before this block can in principle be
+		# treated as the cacheable prefix.
+		if self.step_info:
+			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
+		else:
+			step_info_description = ''
+		step_info_description += f'Today:{datetime.now().strftime("%Y-%m-%d")}'
+		return f'<step_info>{step_info_description}</step_info>\n'
 
 	def _resize_screenshot(self, screenshot_b64: str) -> str:
 		"""Resize screenshot to llm_screenshot_size if configured."""
@@ -418,6 +420,10 @@ Available tabs:
 		# Add unavailable skills information if any
 		if self.unavailable_skills_info:
 			state_description += '\n' + self.unavailable_skills_info + '\n'
+
+		# Per-step varying metadata (step counter, date) lives at the tail of the message so that
+		# everything above can in principle be treated as a cacheable prefix.
+		state_description += self._get_step_meta_description()
 
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)

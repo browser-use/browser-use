@@ -53,6 +53,40 @@ def test_x_goog_api_client_header_with_pydantic_http_options():
 	assert http_opts.get('headers', {}).get('x-goog-api-client', '').startswith('browser-use/')
 
 
+async def test_cached_content_threaded_into_config(monkeypatch):
+	"""Setting cached_content (instance default or per-call kwarg) should reach the generate_content call."""
+	from types import SimpleNamespace
+
+	from browser_use.llm.messages import UserMessage
+
+	captured: dict = {}
+
+	async def fake_generate_content(*, model, contents, config):
+		captured['config'] = dict(config) if config else {}
+		return SimpleNamespace(text='ok', parsed=None, usage_metadata=None, candidates=[])
+
+	def fake_get_client(self):
+		return SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=fake_generate_content)))
+
+	monkeypatch.setattr(ChatGoogle, 'get_client', fake_get_client)
+
+	# Instance default
+	chat = ChatGoogle(model='gemini-flash-latest', api_key='fake', cached_content='cachedContents/abc123')
+	await chat.ainvoke([UserMessage(content='hi')])
+	assert captured['config'].get('cached_content') == 'cachedContents/abc123'
+
+	# Per-call kwarg overrides instance default
+	captured.clear()
+	await chat.ainvoke([UserMessage(content='hi')], cached_content='cachedContents/override')
+	assert captured['config'].get('cached_content') == 'cachedContents/override'
+
+	# When unset, key is absent from config
+	captured.clear()
+	chat_no_cache = ChatGoogle(model='gemini-flash-latest', api_key='fake')
+	await chat_no_cache.ainvoke([UserMessage(content='hi')])
+	assert 'cached_content' not in captured['config']
+
+
 def test_x_goog_api_client_header_with_dict_http_options():
 	"""Test setting header when http_options is a dictionary (types.HttpOptionsDict)."""
 	from google.genai import types

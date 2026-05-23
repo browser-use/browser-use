@@ -13,7 +13,12 @@ if TYPE_CHECKING:
 
 
 class HistoryItem(BaseModel):
-	"""Represents a single agent history item with its data and string representation"""
+	"""Represents a single agent history item with its data and string representation.
+
+	Frozen so that once appended to MessageManagerState.agent_history_items, the rendered
+	transcript prefix stays byte-identical across steps. This is what lets Gemini's implicit
+	cache (and similar caches) match the agent-history portion of the prompt step over step.
+	"""
 
 	step_number: int | None = None
 	evaluation_previous_goal: str | None = None
@@ -23,7 +28,7 @@ class HistoryItem(BaseModel):
 	error: str | None = None
 	system_message: str | None = None
 
-	model_config = ConfigDict(arbitrary_types_allowed=True)
+	model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
 	def model_post_init(self, __context) -> None:
 		"""Validate that error and system_message are not both provided"""
