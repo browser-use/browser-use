@@ -157,12 +157,14 @@ load_dotenv()
 from browser_use import Agent, Controller
 from browser_use.agent.views import AgentSettings
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.cli_navigator import resolve_navigator_llm_for_agent
 from browser_use.logging_config import addLoggingLevel
 from browser_use.telemetry import CLITelemetryEvent, ProductTelemetry
 from browser_use.utils import get_browser_use_version
 
 try:
 	import click
+	from click.core import ParameterSource
 	from textual import events
 	from textual.app import App, ComposeResult
 	from textual.binding import Binding
@@ -338,6 +340,24 @@ def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) ->
 		proxy['password'] = ctx.params['proxy_password']
 	if proxy:
 		config['browser']['proxy'] = proxy
+
+	def _cli_set(param: str) -> bool:
+		try:
+			return ctx.get_parameter_source(param) != ParameterSource.DEFAULT
+		except ValueError:
+			return False
+
+	# Only override agent.* when the user passed these flags — otherwise we'd persist Click's defaults
+	# (e.g. continuous_navigation=False) every run and wipe a saved `--continuous-navigation` choice.
+	if _cli_set('continuous_navigation'):
+		config.setdefault('agent', {})
+		config['agent']['continuous_navigation'] = ctx.params['continuous_navigation']
+	if _cli_set('navigator_replan_interval') and ctx.params.get('navigator_replan_interval') is not None:
+		config.setdefault('agent', {})
+		config['agent']['navigator_replan_interval'] = ctx.params['navigator_replan_interval']
+	if _cli_set('navigator_model') and ctx.params.get('navigator_model'):
+		config.setdefault('agent', {})
+		config['agent']['navigator_model'] = ctx.params['navigator_model']
 
 	return config
 
@@ -1002,12 +1022,14 @@ class BrowserUseApp(App):
 		if self.agent is None:
 			if not self.llm:
 				raise RuntimeError('LLM not initialized')
+			nav_llm = resolve_navigator_llm_for_agent(self.config, self.llm, get_llm) if agent_settings.continuous_navigation else None
 			self.agent = Agent(
 				task=task,
 				llm=self.llm,
 				controller=self.controller if self.controller else Controller(),
 				browser_session=self.browser_session,
 				source='cli',
+				navigator_llm=nav_llm,
 				**agent_settings.model_dump(),
 			)
 			# Update our browser_session reference to point to the agent's
@@ -1537,11 +1559,13 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 		)
 
 		# Create and run agent
+		nav_llm = resolve_navigator_llm_for_agent(config, llm, get_llm) if agent_settings.continuous_navigation else None
 		agent = Agent(
 			task=prompt,
 			llm=llm,
 			browser_session=browser_session,
 			source='cli',
+			navigator_llm=nav_llm,
 			**agent_settings.model_dump(),
 		)
 
@@ -2011,6 +2035,18 @@ async def run_auth_command():
 @click.option('--proxy-username', type=str, help='Proxy auth username')
 @click.option('--proxy-password', type=str, help='Proxy auth password')
 @click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
+@click.option(
+	'--continuous-navigation/--no-continuous-navigation',
+	default=False,
+	help='Periodic navigator LLM injects tactical guidance (default: off, original agent behavior).',
+)
+@click.option(
+	'--navigator-replan-interval',
+	type=int,
+	default=None,
+	help='Navigator runs every N agent steps after the first (overrides config when set).',
+)
+@click.option('--navigator-model', type=str, default=None, help='Navigator model name (defaults to executor model).')
 @click.option('--mcp', is_flag=True, help='Run as MCP server (exposes JSON RPC via stdin/stdout)')
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):

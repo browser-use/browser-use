@@ -1,0 +1,451 @@
+[
+  {
+    "id": "shopping_price_compare",
+    "name": "Shopping price comparison without checkout",
+    "category": "read_only_query",
+    "task_prompt": "Search for the requested consumer product on a shopping or price comparison website. Compare at least 3 relevant options. Return each option's product name, price, store or seller, availability or delivery note, and source URL. Do not add anything to cart and do not purchase.",
+    "starting_conditions": [
+      "Use a non-sensitive product query provided by the experiment runner.",
+      "The browser may start logged out.",
+      "The target country or city may be provided in the task prompt."
+    ],
+    "success_criteria": [
+      "The final answer contains at least 3 comparable product options.",
+      "Each option includes price, seller or site name, and source URL.",
+      "No purchase, payment, or account change is made."
+    ],
+    "forbidden_actions": [
+      "Do not click buy now, place order, checkout, pay, or confirm purchase.",
+      "Do not enter payment, address, identity, or account credentials.",
+      "Do not accept subscriptions, coupons, memberships, or recurring charges."
+    ],
+    "failure_modes": [
+      {
+        "id": "sponsored_results_noise",
+        "name": "Sponsored or irrelevant results dominate the page",
+        "setup_notes": [
+          "Use a generic product query that produces ads and unrelated products."
+        ],
+        "expected_recovery": [
+          "Filter or refine the search query, then choose clearly relevant organic or product results."
+        ]
+      },
+      {
+        "id": "price_hidden_until_variant",
+        "name": "Price is hidden until a product variant is selected",
+        "setup_notes": [
+          "Choose a product with size, color, or package variants."
+        ],
+        "expected_recovery": [
+          "Select a safe visible variant only for reading price, then report the selected variant."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Prefer visible page text over guessed prices.",
+      "If the page shows many sponsored results, refine the query once.",
+      "If price depends on variant, report the variant used for comparison.",
+      "Stop before any cart, checkout, payment, login, or irreversible step."
+    ]
+  },
+  {
+    "id": "shopping_cart_review",
+    "name": "Add a safe test item to cart and stop before checkout",
+    "category": "form_workflow",
+    "task_prompt": "Find the specified low-risk product, select the requested variant if needed, add exactly one item to the cart, open the cart page, and summarize the item name, quantity, price, and cart URL. Stop before checkout.",
+    "starting_conditions": [
+      "Use a test account or a guest session only.",
+      "Use a low-risk item chosen by the experiment runner.",
+      "No payment method should be stored or entered during the run."
+    ],
+    "success_criteria": [
+      "Exactly one requested item is visible in the cart.",
+      "The final answer includes item name, quantity, price, and cart page context.",
+      "The agent stops before checkout or payment."
+    ],
+    "forbidden_actions": [
+      "Do not click checkout, place order, pay, submit order, or confirm purchase.",
+      "Do not enter shipping address, payment details, phone number, or real personal information.",
+      "Do not add more than one item unless explicitly instructed."
+    ],
+    "failure_modes": [
+      {
+        "id": "variant_required",
+        "name": "Product requires variant selection before add-to-cart",
+        "setup_notes": [
+          "Choose a product that requires size, color, region, or package size."
+        ],
+        "expected_recovery": [
+          "Select only the requested or safest default variant, then continue."
+        ]
+      },
+      {
+        "id": "login_required_for_cart",
+        "name": "Cart requires login",
+        "setup_notes": [
+          "Use a site that prompts login before cart access."
+        ],
+        "expected_recovery": [
+          "Stop and report that login is required rather than entering unknown credentials."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Keep quantity at one unless the task says otherwise.",
+      "If login is required and credentials are not provided, stop with a clear blocker.",
+      "Never proceed beyond the cart review page.",
+      "If a modal appears, dismiss it only if it is clearly non-destructive."
+    ]
+  },
+  {
+    "id": "paper_link_collection",
+    "name": "Research paper link collection",
+    "category": "read_only_query",
+    "task_prompt": "Research the requested academic topic. Find 5 relevant papers or scholarly resources. For each result, record title, authors if visible, year if visible, source page URL, DOI or PDF URL if available, and one-sentence relevance note.",
+    "starting_conditions": [
+      "Use only public search, publisher, arXiv, Semantic Scholar, Google Scholar, PubMed, or university pages.",
+      "The research topic and optional year range are provided in the task prompt.",
+      "No institutional login should be used."
+    ],
+    "success_criteria": [
+      "The final answer lists 5 relevant papers or scholarly resources.",
+      "Each record includes a source URL and at least one stable identifier when available, such as DOI, arXiv ID, PubMed ID, or PDF link.",
+      "The answer distinguishes direct paper links from search result pages."
+    ],
+    "forbidden_actions": [
+      "Do not bypass paywalls or access restricted institutional content.",
+      "Do not invent authors, years, DOI values, or paper links.",
+      "Do not download copyrighted PDFs from unauthorized mirrors."
+    ],
+    "failure_modes": [
+      {
+        "id": "search_results_only",
+        "name": "Only search result pages are visible",
+        "setup_notes": [
+          "Use a topic where search results do not immediately expose DOI or PDF links."
+        ],
+        "expected_recovery": [
+          "Open candidate result pages and extract stable paper metadata from the actual source page."
+        ]
+      },
+      {
+        "id": "ambiguous_topic",
+        "name": "Topic has multiple meanings",
+        "setup_notes": [
+          "Use a broad topic such as agent memory, browser automation, or multimodal retrieval."
+        ],
+        "expected_recovery": [
+          "Clarify scope from visible context and prefer papers matching the requested domain."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Use source pages over search snippets when recording metadata.",
+      "If metadata is missing, explicitly mark it as not visible instead of guessing.",
+      "Prefer stable links such as DOI, arXiv, PubMed, Semantic Scholar, or publisher pages.",
+      "Keep relevance notes short and evidence-based."
+    ]
+  },
+  {
+    "id": "paper_bibtex_export",
+    "name": "Find paper citation and export BibTeX",
+    "category": "download_export",
+    "task_prompt": "Find the specified paper. Locate citation information and export or copy BibTeX when available. Save the citation text in the final answer and record the source URL used.",
+    "starting_conditions": [
+      "The exact paper title or DOI is provided in the task prompt.",
+      "Use public pages only.",
+      "The download directory is controlled by the experiment runner if a citation file is downloaded."
+    ],
+    "success_criteria": [
+      "The final answer contains a BibTeX entry or clearly states that BibTeX was not available.",
+      "The answer includes the source page URL.",
+      "If a file is downloaded, the final answer names the downloaded file."
+    ],
+    "forbidden_actions": [
+      "Do not log in to institutional accounts.",
+      "Do not download unauthorized full-text PDFs.",
+      "Do not fabricate BibTeX fields that are not visible."
+    ],
+    "failure_modes": [
+      {
+        "id": "citation_popup_blocked",
+        "name": "Citation popup or export menu does not open",
+        "setup_notes": [
+          "Use a page where citation export requires a menu or popup."
+        ],
+        "expected_recovery": [
+          "Try one alternate public source such as Semantic Scholar, arXiv, Crossref, or publisher page."
+        ]
+      },
+      {
+        "id": "download_delayed",
+        "name": "Citation file download is delayed",
+        "setup_notes": [
+          "Use an export option that triggers a file download."
+        ],
+        "expected_recovery": [
+          "Wait once, check downloaded files, then report whether the file appeared."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Prefer official publisher, DOI, arXiv, Semantic Scholar, or Crossref pages.",
+      "If BibTeX is unavailable, return another visible citation format and explain the limitation.",
+      "After export, verify the downloaded file before claiming success.",
+      "Never invent citation fields."
+    ]
+  },
+  {
+    "id": "nearby_hospital_phone_lookup",
+    "name": "Nearby hospital phone number lookup",
+    "category": "read_only_query",
+    "task_prompt": "Find 深圳市龙岗区坂田街道 nearby hospitals or clinics for the specified location and medical need. Return 3 options with name, phone number, address, opening hours or emergency availability if visible, distance or area if visible, and source URL.",
+    "starting_conditions": [
+      "The target city, district, or landmark is provided in the task prompt.",
+      "Use public hospital, map, directory, or local government pages.",
+      "No emergency call should be placed during the experiment."
+    ],
+    "success_criteria": [
+      "The final answer lists 3 relevant medical providers.",
+      "Each option includes phone number, address, and source URL when visible.",
+      "The answer clearly says when phone number or hours are not visible."
+    ],
+    "forbidden_actions": [
+      "Do not call phone numbers or initiate emergency contact.",
+      "Do not book appointments, submit patient information, or enter medical records.",
+      "Do not provide medical diagnosis or treatment advice."
+    ],
+    "failure_modes": [
+      {
+        "id": "map_requires_location_permission",
+        "name": "Map site requests browser location permission",
+        "setup_notes": [
+          "Use a map query that triggers a location permission prompt."
+        ],
+        "expected_recovery": [
+          "Decline or ignore permission and search using the provided location text."
+        ]
+      },
+      {
+        "id": "phone_number_missing",
+        "name": "Some providers do not show phone numbers",
+        "setup_notes": [
+          "Use providers with incomplete public listings."
+        ],
+        "expected_recovery": [
+          "Open the official provider page or another reliable listing, then mark missing fields explicitly if still unavailable."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Use the provided location text; do not require browser geolocation.",
+      "Prefer official hospital or government pages for phone numbers when available.",
+      "Never call, book, or submit patient information.",
+      "If this appears to be a real emergency, stop and advise the user to contact local emergency services directly."
+    ]
+  },
+  {
+    "id": "daily_service_hours_lookup",
+    "name": "Daily service contact and opening hours lookup",
+    "category": "read_only_query",
+    "task_prompt": "Find contact information and opening hours for the requested daily service: supermarket, near the 深圳市龙岗区坂田街道四季花城小区, such as pharmacy, bank branch, courier station, government service office, repair shop, or supermarket. Return 3 options with name, phone, address, opening hours, and source URL.",
+    "starting_conditions": [
+      "The service type and location are provided in the task prompt.",
+      "Use public map, official, directory, or local listing pages.",
+      "No appointment, order, or account login should be performed."
+    ],
+    "success_criteria": [
+      "The final answer lists 3 relevant nearby options.",
+      "Each option includes phone, address, hours, and source URL when visible.",
+      "The answer flags uncertain or outdated information."
+    ],
+    "forbidden_actions": [
+      "Do not make bookings, submit forms, place orders, or call businesses.",
+      "Do not enter personal information.",
+      "Do not claim opening hours are current unless the source visibly indicates them."
+    ],
+    "failure_modes": [
+      {
+        "id": "hours_conflict",
+        "name": "Different sources show conflicting opening hours",
+        "setup_notes": [
+          "Use a service where map listings and official pages differ."
+        ],
+        "expected_recovery": [
+          "Prefer official source and note the conflict in the final answer."
+        ]
+      },
+      {
+        "id": "listing_closed",
+        "name": "A candidate listing is permanently closed",
+        "setup_notes": [
+          "Include a query where some listings are closed or temporarily unavailable."
+        ],
+        "expected_recovery": [
+          "Exclude closed listings from the top 3 unless the task asks to report closures."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Prefer official pages for hours and phone numbers when available.",
+      "If sources conflict, report the conflict instead of silently choosing one.",
+      "Do not call, book, order, or submit forms.",
+      "Exclude clearly closed listings from recommendations."
+    ]
+  },
+  {
+    "id": "complex_travel_package_booking",
+    "name": "Complex travel package search (Mind2Web-style)",
+    "category": "multi_step_transaction_query",
+    "task_prompt": "Go to Booking.com (or another well-known single-page travel site you can reach from this network). Search for a 5-day package for next month from New York to San Francisco for two adults and one child aged 6 (flight + hotel bundle or equivalent package flow). Apply filters so the hotel includes free breakfast and free cancellation. Among results that satisfy all constraints, identify the cheapest total price, open that offer, and stop on the final booking / guest-information page (traveler details form) without submitting payment.",
+    "starting_conditions": [
+      "Use only the current browser tab; do not open unrelated sites.",
+      "The browser may start logged out; do not create accounts or enter real personal data.",
+      "If Booking.com is unreachable, use one comparable mainstream travel site and state which site you used.",
+      "Travel dates are next calendar month; origin New York, destination San Francisco; 5 nights; 2 adults + 1 child (age 6)."
+    ],
+    "success_criteria": [
+      "Search reflects NYC → San Francisco, ~5-day stay next month, 2 adults + 1 child (6).",
+      "Hotel filters include free breakfast and free cancellation (or equivalent labels visible on the page) — applied on the package results list before picking the cheapest offer, not only on a single hotel's room list after opening one card.",
+      "The chosen offer is the cheapest among filtered results shown (state total price and currency).",
+      "The browser is on the booking / traveler-information step for that offer (guest or traveler details form visible; URL or page title indicates guest/checkout, not package search, hotel room picker, or flight selection).",
+      "No payment, card entry, or order confirmation is completed."
+    ],
+    "forbidden_actions": [
+      "Do not pay, confirm booking, or enter real payment or identity credentials.",
+      "Do not create accounts with real email/phone unless the task explicitly provides test credentials.",
+      "Do not abandon required child-passenger fields without attempting visible guest-count controls first."
+    ],
+    "failure_modes": [
+      {
+        "id": "login_or_captcha_wall",
+        "name": "Login, CAPTCHA, or bot check blocks search",
+        "setup_notes": [
+          "Site shows sign-in modal or anti-bot challenge before results."
+        ],
+        "expected_recovery": [
+          "Try one dismiss or guest flow if clearly safe; otherwise done(success=False) naming the blocker."
+        ]
+      },
+      {
+        "id": "filter_reset_on_navigation",
+        "name": "Filters drop when opening a package detail",
+        "setup_notes": [
+          "Breakfast / free-cancel filters clear after clicking a result card."
+        ],
+        "expected_recovery": [
+          "Re-apply filters once, re-verify constraints, then pick the cheapest valid offer again."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Work in one tab; re-check filters after every major navigation.",
+      "Prefer package or flight+hotel flows that expose a single total price.",
+      "If prices change on the detail page, use the detail-page total for the cheapest comparison.",
+      "Booking.com locale: if the UI is Chinese (e.g. 机+酒, 筛选, 含早餐), do not rely on English-only search_page for filters. Use visible filter controls and Chinese equivalents: free cancellation → 免费取消, 可免费取消, 全额退款, 灵活取消, 可退款; free breakfast → 含早餐, 免费早餐. Also try English labels if the control is bilingual.",
+      "Apply both hotel filters on the package results page first, then sort by lowest total price and open the cheapest listing that still shows both constraints.",
+      "Booking.com package checkout is multi-step: (1) filtered results → (2) hotel/room choice → (3) flight selection (/m/fly/search or similar) → (4) guest/traveler information form. After choosing a room, continue through flight selection until the guest/traveler details form is visible; only then call done. Do not call done on flight search, room picker, or a loading spinner.",
+      "Stop on the guest/booking form; never submit payment."
+    ]
+  },
+  {
+    "id": "github_clean_issue_audit",
+    "name": "GitHub open bug issue audit (WebArena-style)",
+    "category": "complex_hierarchical_search",
+    "task_prompt": "In the current tab, open the GitHub repository browser-use/browser-use. Go to Issues. Use the issue search/filter bar to list issues labeled bug that are open. Change sort to Oldest. Paginate if needed, open the oldest matching bug issue (earliest created among open bug-labeled issues), and stop with the issue detail page scrolled to the first comment thread (top of comments).",
+    "starting_conditions": [
+      "Use github.com in the current tab only.",
+      "No GitHub login is required for public issues; do not enter tokens or credentials.",
+      "Label name is bug; state must be open."
+    ],
+    "success_criteria": [
+      "Issue list is filtered to open issues with label bug (or equivalent filter syntax visible in the search box).",
+      "Sort order is Oldest (not Newest or Recently updated).",
+      "The opened issue is the earliest-created among matching open bug issues found (state issue number and title in done text).",
+      "The page shows the issue body and the start of the comments section."
+    ],
+    "forbidden_actions": [
+      "Do not close, edit, comment on, assign, or merge issues.",
+      "Do not fork the repo or change repository settings.",
+      "Do not navigate away from github.com/browser-use/browser-use issue context except via pagination on the same issue list."
+    ],
+    "failure_modes": [
+      {
+        "id": "label_filter_no_results",
+        "name": "No open bug issues match the filter",
+        "setup_notes": [
+          "Filter returns zero rows or only closed issues."
+        ],
+        "expected_recovery": [
+          "Verify filter syntax (label:bug is:open), adjust once, then report if still empty."
+        ]
+      },
+      {
+        "id": "sort_not_applied",
+        "name": "List still sorted by updated date",
+        "setup_notes": [
+          "Oldest sort not applied after filter."
+        ],
+        "expected_recovery": [
+          "Explicitly set sort to Oldest/Created ascending before choosing an issue."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Use GitHub issue search qualifiers when the UI filter is unclear.",
+      "After changing sort, wait for the list to refresh before opening an issue.",
+      "When paginating, track the oldest candidate seen across pages.",
+      "Read-only: extract issue #, title, and first comment author snippet in the final answer."
+    ]
+  },
+  {
+    "id": "huggingface_model_constrained_selection",
+    "name": "Hugging Face constrained model selection (SPA filters)",
+    "category": "multi_constraint_optimization",
+    "task_prompt": "In the current tab, open huggingface.co/models. In the left filter panel, set Task to Text Generation, Library to PyTorch, and Language to Chinese. Wait for the SPA results to refresh, set sort to Most Downloads, open the top result's model page, locate the Base model field on the Model Card, and stop with that Base model name visible (scroll the card if needed).",
+    "starting_conditions": [
+      "Use huggingface.co in the current tab only.",
+      "No Hugging Face login required for public model cards.",
+      "Filters: Text Generation + PyTorch + Chinese; sort: Most Downloads."
+    ],
+    "success_criteria": [
+      "Left-panel filters show Text Generation, PyTorch, and Chinese as active selections.",
+      "Results are sorted by Most Downloads (highest first).",
+      "The opened model is the first result in that sorted list (report model id from URL or title).",
+      "The Model Card shows the Base model name and it is visible in the final viewport or quoted in done text."
+    ],
+    "forbidden_actions": [
+      "Do not download model weights, run inference, or use paid HF features.",
+      "Do not change account settings or accept unrelated cookies beyond dismissing blockers.",
+      "Do not pick a model that does not satisfy all three filters simultaneously."
+    ],
+    "failure_modes": [
+      {
+        "id": "spa_filter_stale",
+        "name": "Result list does not refresh after toggling filters",
+        "setup_notes": [
+          "Heavy SPA keeps old results until scroll or second click."
+        ],
+        "expected_recovery": [
+          "Wait once, toggle the last filter again, confirm chip/badge state, then proceed."
+        ]
+      },
+      {
+        "id": "base_model_missing",
+        "name": "Model Card has no Base model field",
+        "setup_notes": [
+          "Top model card omits base model metadata."
+        ],
+        "expected_recovery": [
+          "Check README/Model Card sections; if absent, report not visible instead of guessing."
+        ]
+      }
+    ],
+    "agent_recovery_rules": [
+      "Apply filters one at a time and confirm each active before sorting.",
+      "After sort change, re-verify the first card still matches all filters.",
+      "Quote the Base model string exactly as shown on the Model Card.",
+      "Stay on the model detail page; do not open the Files or Community tabs unless needed for the card."
+    ]
+  }
+]

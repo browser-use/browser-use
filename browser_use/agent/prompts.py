@@ -124,6 +124,7 @@ class AgentMessagePrompt:
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
 		plan_description: str | None = None,
+		navigator_executor_subgoal: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -143,6 +144,7 @@ class AgentMessagePrompt:
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
 		self.plan_description: str | None = plan_description
+		self.navigator_executor_subgoal: str | None = navigator_executor_subgoal
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
@@ -326,8 +328,17 @@ Available tabs:
 		if not len(_todo_contents):
 			_todo_contents = '[empty todo.md, fill it when applicable]'
 
-		agent_state = f"""
-<user_request>
+		nav_focus = ''
+		if self.navigator_executor_subgoal:
+			nav_focus = (
+				'<navigator_current_step priority="highest">\n'
+				'Execute this immediate sub-goal first. Stay consistent with the full <user_request> below; '
+				'use only valid tool JSON and indexes from <browser_state>.\n'
+				f'{self.navigator_executor_subgoal}\n'
+				'</navigator_current_step>\n\n'
+			)
+
+		agent_state = f"""{nav_focus}<user_request>
 {self.task}
 </user_request>
 <file_system>

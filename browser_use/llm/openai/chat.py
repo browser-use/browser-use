@@ -21,6 +21,32 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 T = TypeVar('T', bound=BaseModel)
 
 
+def _normalize_openai_assistant_json_content(content: str) -> str:
+	"""Strip markdown fences and leading prose so ``model_validate_json`` succeeds.
+
+	Volcengine Ark / 豆包 (prompt-only schema) often wraps JSON in ``` fences or adds a short preamble.
+	"""
+
+	text = (content or '').strip()
+	if not text:
+		return text
+	if text.lower().startswith('```json'):
+		rest = text[7:].lstrip()
+		end = rest.rfind('```')
+		text = rest[:end].strip() if end != -1 else rest.strip()
+	elif text.startswith('```'):
+		rest = text[3:].lstrip()
+		if rest.lower().startswith('json'):
+			rest = rest[4:].lstrip()
+		end = rest.rfind('```')
+		text = rest[:end].strip() if end != -1 else rest.strip()
+	if text and not text.startswith('{'):
+		br = text.find('{')
+		if br != -1:
+			text = text[br:]
+	return text
+
+
 @dataclass
 class ChatOpenAI(BaseChatModel):
 	"""
@@ -281,7 +307,9 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				raw = choice.message.content
+				text = _normalize_openai_assistant_json_content(raw)
+				parsed = output_format.model_validate_json(text)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
