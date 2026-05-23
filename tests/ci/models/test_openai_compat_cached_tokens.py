@@ -27,6 +27,18 @@ def _fake_openai_usage(prompt: int, completion: int, cached: int | None) -> Simp
 	)
 
 
+def _fake_openai_usage_dict_details(prompt: int, completion: int, cached: int | None) -> SimpleNamespace:
+	"""Same shape but `prompt_tokens_details` arrives as a plain dict — the older-SDK /
+	proxied-response compatibility case that motivated the defensive read."""
+	details = {'cached_tokens': cached} if cached is not None else None
+	return SimpleNamespace(
+		prompt_tokens=prompt,
+		completion_tokens=completion,
+		total_tokens=prompt + completion,
+		prompt_tokens_details=details,
+	)
+
+
 def test_groq_surfaces_cached_tokens():
 	chat = ChatGroq(model='llama-3.3-70b-versatile', api_key='fake')
 	response = SimpleNamespace(usage=_fake_openai_usage(1200, 50, cached=900))
@@ -44,6 +56,16 @@ def test_groq_handles_missing_details():
 	assert usage.prompt_cached_tokens is None
 
 
+def test_groq_surfaces_cached_tokens_when_details_is_dict():
+	"""Older SDK builds / proxied responses deliver prompt_tokens_details as a plain dict
+	rather than a typed object — the compatibility path must still pick up the cache hit."""
+	chat = ChatGroq(model='llama-3.3-70b-versatile', api_key='fake')
+	response = SimpleNamespace(usage=_fake_openai_usage_dict_details(1200, 50, cached=900))
+	usage = chat._get_usage(response)  # type: ignore[arg-type]
+	assert usage is not None
+	assert usage.prompt_cached_tokens == 900
+
+
 def test_cerebras_surfaces_cached_tokens():
 	chat = ChatCerebras(model='llama3.1-70b', api_key='fake')
 	response = SimpleNamespace(usage=_fake_openai_usage(2048, 100, cached=1500))
@@ -58,6 +80,14 @@ def test_cerebras_handles_missing_details():
 	usage = chat._get_usage(response)  # type: ignore[arg-type]
 	assert usage is not None
 	assert usage.prompt_cached_tokens is None
+
+
+def test_cerebras_surfaces_cached_tokens_when_details_is_dict():
+	chat = ChatCerebras(model='llama3.1-70b', api_key='fake')
+	response = SimpleNamespace(usage=_fake_openai_usage_dict_details(2048, 100, cached=1500))
+	usage = chat._get_usage(response)  # type: ignore[arg-type]
+	assert usage is not None
+	assert usage.prompt_cached_tokens == 1500
 
 
 def test_mistral_surfaces_cached_tokens():

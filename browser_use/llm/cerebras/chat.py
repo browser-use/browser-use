@@ -62,9 +62,14 @@ class ChatCerebras(BaseChatModel):
 		if response.usage is None:
 			return None
 		# Cerebras uses the OpenAI-compatible SDK shape and surfaces
-		# `usage.prompt_tokens_details.cached_tokens` when its prefix cache hits.
+		# `usage.prompt_tokens_details.cached_tokens` when its prefix cache hits. The nested
+		# payload may arrive as a typed object or as a plain dict depending on SDK version /
+		# proxy — handle both shapes.
 		prompt_details = getattr(response.usage, 'prompt_tokens_details', None)
-		cached_tokens = getattr(prompt_details, 'cached_tokens', None) if prompt_details else None
+		if isinstance(prompt_details, dict):
+			cached_tokens = prompt_details.get('cached_tokens')
+		else:
+			cached_tokens = getattr(prompt_details, 'cached_tokens', None) if prompt_details else None
 		return ChatInvokeUsage(
 			prompt_tokens=response.usage.prompt_tokens,
 			prompt_cached_tokens=cached_tokens,

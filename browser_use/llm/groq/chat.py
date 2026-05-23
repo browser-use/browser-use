@@ -88,10 +88,15 @@ class ChatGroq(BaseChatModel):
 		if response.usage is None:
 			return None
 		# Groq is OpenAI-compatible: when prefix-cached models report it, they surface
-		# `usage.prompt_tokens_details.cached_tokens` like OpenAI. Read defensively — older
-		# SDK builds may not type the field.
+		# `usage.prompt_tokens_details.cached_tokens` like OpenAI. The nested payload may
+		# arrive as a typed object (newer SDK builds) or as a plain dict (older builds /
+		# proxied responses) — handle both shapes so cache hits aren't silently dropped in
+		# the compatibility path.
 		prompt_details = getattr(response.usage, 'prompt_tokens_details', None)
-		cached_tokens = getattr(prompt_details, 'cached_tokens', None) if prompt_details else None
+		if isinstance(prompt_details, dict):
+			cached_tokens = prompt_details.get('cached_tokens')
+		else:
+			cached_tokens = getattr(prompt_details, 'cached_tokens', None) if prompt_details else None
 		return ChatInvokeUsage(
 			prompt_tokens=response.usage.prompt_tokens,
 			completion_tokens=response.usage.completion_tokens,
