@@ -21,7 +21,7 @@ sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 from browser_use import ActionResult, Agent, ChatBrowserUse, Tools
 
-BILIG_WORKPAPER_PACKAGE = '@bilig/workpaper@0.86.1'
+BILIG_WORKPAPER_PACKAGE = '@bilig/workpaper@0.90.0'
 
 
 class FormulaReadbackRequest(BaseModel):
