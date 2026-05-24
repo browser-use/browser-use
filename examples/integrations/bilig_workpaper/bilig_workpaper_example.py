@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -31,10 +32,6 @@ class FormulaReadbackRequest(BaseModel):
 		ge=0,
 		le=1,
 		description='Conversion rate to write into the WorkPaper input cell.',
-	)
-	package_spec: str = Field(
-		default=BILIG_WORKPAPER_PACKAGE,
-		description='npm package spec used to start the Bilig formula-readback server.',
 	)
 	timeout_seconds: int = Field(
 		default=45,
@@ -117,7 +114,7 @@ def run_bilig_formula_readback(request: FormulaReadbackRequest) -> FormulaReadba
 		'exec',
 		'--yes',
 		'--package',
-		request.package_spec,
+		BILIG_WORKPAPER_PACKAGE,
 		'--',
 		'bilig-n8n-formula-server',
 		'--host',
@@ -125,33 +122,35 @@ def run_bilig_formula_readback(request: FormulaReadbackRequest) -> FormulaReadba
 		'--port',
 		str(port),
 	]
-	process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-	deadline = time.monotonic() + request.timeout_seconds
+	with tempfile.TemporaryFile(mode='w+', encoding='utf-8') as process_log:
+		process = subprocess.Popen(command, stdout=process_log, stderr=subprocess.STDOUT, text=True)
+		deadline = time.monotonic() + request.timeout_seconds
 
-	try:
-		last_error: Exception | None = None
-		while time.monotonic() < deadline:
-			if process.poll() is not None:
-				stdout, stderr = process.communicate()
-				raise RuntimeError(f'Bilig server exited early with code {process.returncode}: {stderr or stdout}')
-			try:
-				return _post_formula_readback(port, request)
-			except (ConnectionError, urllib.error.URLError) as exc:
-				last_error = exc
-				time.sleep(0.2)
-			except TimeoutError as exc:
-				last_error = exc
-				time.sleep(0.2)
+		try:
+			last_error: Exception | None = None
+			while time.monotonic() < deadline:
+				if process.poll() is not None:
+					process_log.seek(0)
+					output = process_log.read().strip()
+					raise RuntimeError(f'Bilig server exited early with code {process.returncode}: {output}')
+				try:
+					return _post_formula_readback(port, request)
+				except (ConnectionError, urllib.error.URLError) as exc:
+					last_error = exc
+					time.sleep(0.2)
+				except TimeoutError as exc:
+					last_error = exc
+					time.sleep(0.2)
 
-		raise TimeoutError(f'Bilig formula server did not become ready within {request.timeout_seconds}s: {last_error}')
-	finally:
-		if process.poll() is None:
-			process.terminate()
-			try:
-				process.wait(timeout=5)
-			except subprocess.TimeoutExpired:
-				process.kill()
-				process.wait(timeout=5)
+			raise TimeoutError(f'Bilig formula server did not become ready within {request.timeout_seconds}s: {last_error}')
+		finally:
+			if process.poll() is None:
+				process.terminate()
+				try:
+					process.wait(timeout=5)
+				except subprocess.TimeoutExpired:
+					process.kill()
+					process.wait(timeout=5)
 
 
 def create_bilig_workpaper_tools() -> Tools:
@@ -227,15 +226,12 @@ def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description='Run the Browser Use + Bilig WorkPaper integration example.')
 	parser.add_argument('--smoke', action='store_true', help='Run the Bilig tool path without an LLM or browser session.')
 	parser.add_argument('--conversion-rate', type=float, default=0.4, help='Conversion rate to write into Inputs!B3.')
-	parser.add_argument(
-		'--package-spec', default=BILIG_WORKPAPER_PACKAGE, help='npm package spec for the Bilig WorkPaper package.'
-	)
 	return parser.parse_args()
 
 
 def main() -> None:
 	args = parse_args()
-	request = FormulaReadbackRequest(conversion_rate=args.conversion_rate, package_spec=args.package_spec)
+	request = FormulaReadbackRequest(conversion_rate=args.conversion_rate)
 
 	if args.smoke:
 		proof = run_bilig_formula_readback(request)
