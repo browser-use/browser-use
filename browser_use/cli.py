@@ -278,7 +278,7 @@ def load_user_config() -> dict[str, Any]:
 	history_file = CONFIG.BROWSER_USE_CONFIG_DIR / 'command_history.json'
 	if history_file.exists():
 		try:
-			with open(history_file) as f:
+			with open(history_file, encoding='utf-8') as f:
 				config['command_history'] = json.load(f)
 		except (FileNotFoundError, json.JSONDecodeError):
 			config['command_history'] = []
