@@ -7,6 +7,7 @@ so that CDP click dispatch works for radio buttons whose labels visually overlap
 import pytest
 from pytest_httpserver import HTTPServer
 
+from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
@@ -208,6 +209,7 @@ class TestRadioButtons:
 		assert idx is not None, 'Could not find radio-blue in selector map'
 
 		result = await tools.click(index=idx, browser_session=browser_session)
+		assert isinstance(result, ActionResult)
 		assert result.error is None, f'Click failed: {result.error}'
 
 		is_checked, result_text = await _get_checked_and_result(browser_session, 'radio-blue')
@@ -223,6 +225,7 @@ class TestRadioButtons:
 		assert idx is not None, 'Could not find radio-banana in selector map'
 
 		result = await tools.click(index=idx, browser_session=browser_session)
+		assert isinstance(result, ActionResult)
 		assert result.error is None, f'Click failed: {result.error}'
 
 		is_checked, result_text = await _get_checked_and_result(browser_session, 'radio-banana')
@@ -238,6 +241,7 @@ class TestRadioButtons:
 		assert idx is not None, 'Could not find radio-large in selector map'
 
 		result = await tools.click(index=idx, browser_session=browser_session)
+		assert isinstance(result, ActionResult)
 		assert result.error is None, f'Click failed: {result.error}'
 
 		is_checked, result_text = await _get_checked_and_result(browser_session, 'radio-large')
@@ -253,6 +257,7 @@ class TestRadioButtons:
 		red_idx = await browser_session.get_index_by_id('radio-red')
 		assert red_idx is not None
 		result = await tools.click(index=red_idx, browser_session=browser_session)
+		assert isinstance(result, ActionResult)
 		assert result.error is None, f'Click red failed: {result.error}'
 
 		is_red_checked, _ = await _get_checked_and_result(browser_session, 'radio-red')
@@ -263,6 +268,7 @@ class TestRadioButtons:
 		green_idx = await browser_session.get_index_by_id('radio-green')
 		assert green_idx is not None
 		result = await tools.click(index=green_idx, browser_session=browser_session)
+		assert isinstance(result, ActionResult)
 		assert result.error is None, f'Click green failed: {result.error}'
 
 		is_green_checked, result_text = await _get_checked_and_result(browser_session, 'radio-green')

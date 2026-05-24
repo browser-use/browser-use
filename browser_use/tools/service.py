@@ -13,7 +13,7 @@ except ImportError:
 	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionModel, ActionResult, PauseResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
 	ClickCoordinateEvent,
@@ -2124,7 +2124,7 @@ Validated Code (after quote fixing):
 		file_system: FileSystem | None = None,
 		extraction_schema: dict | None = None,
 		action_timeout: float | None = None,
-	) -> ActionResult:
+	) -> ActionResult | PauseResult:
 		"""Execute an action.
 
 		action_timeout: per-action wall-clock cap (seconds). Prevents actions from hanging
@@ -2197,6 +2197,11 @@ Validated Code (after quote fixing):
 				if isinstance(result, str):
 					return ActionResult(extracted_content=result)
 				elif isinstance(result, ActionResult):
+					return result
+				elif isinstance(result, PauseResult):
+					# Tool-level HITL pauses must be handled by Agent.multi_act(), not
+					# normalized here. Keeping the object intact lets the Agent resolve
+					# it inside the current multi_act action as an ActionResult.
 					return result
 				elif result is None:
 					return ActionResult()

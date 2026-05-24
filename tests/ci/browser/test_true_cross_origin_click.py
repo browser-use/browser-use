@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from browser_use.agent.views import ActionResult
 from browser_use.browser.profile import BrowserProfile, ViewportSize
 from browser_use.browser.session import BrowserSession
 from browser_use.tools.service import Tools
@@ -117,6 +118,7 @@ class TestTrueCrossOriginIframeClick:
 
 		try:
 			result = await tools.click(index=link_idx, browser_session=browser_session)
+			assert isinstance(result, ActionResult)
 
 			# Check for errors
 			if result.error:

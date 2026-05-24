@@ -15,6 +15,7 @@ import pytest
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.service import Agent
+from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile, ViewportSize
 from tests.ci.conftest import create_mock_llm
@@ -208,6 +209,7 @@ class TestDOMSerializer:
 		# Helper to call tools.click(index) and verify it worked
 		async def click(index: int, element_description: str, browser_session: BrowserSession):
 			result = await tools.click(index=index, browser_session=browser_session)
+			assert isinstance(result, ActionResult)
 			# Check both error field and extracted_content for failure messages
 			if result.error:
 				raise AssertionError(f'Click on {element_description} [{index}] failed: {result.error}')
@@ -410,6 +412,7 @@ class TestDOMSerializer:
 
 		async def click(index: int, element_description: str, browser_session: BrowserSession):
 			result = await tools.click(index=index, browser_session=browser_session)
+			assert isinstance(result, ActionResult)
 			if result.error:
 				raise AssertionError(f'Click on {element_description} [{index}] failed: {result.error}')
 			if result.extracted_content and (
