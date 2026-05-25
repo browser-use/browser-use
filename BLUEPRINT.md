@@ -339,62 +339,7 @@ browser-use --mcp    # Exposes browser tools to Claude Desktop / other MCP clien
 
 ---
 
-## 7. Job Search — Remote Europe (2026-05-21)
-
-**Profile:** Space & deep tech business innovation manager · blockchain business developer · startup experience · engineering background · innovation toolbox
-
-**Sources searched:** LinkedIn (4 targeted queries), web3.career, cryptojobslist.com, startup niche boards
-**Method:** Cloud browser (stealth), iterative query refinement from broad → sector-specific keywords
-
----
-
-### 🛰️ Track A — Space & Deep Tech: Business Innovation / Development
-
-| # | Role | Company | Location | Fit signal | Link |
-|---|------|---------|---------|-----------|------|
-| A1 | **Co-founder & BD Lead – NewSpace** | Tandem – Les Deeptech | France | Purpose-built for startup + engineering + NewSpace BD profile. Co-founder framing. | [LinkedIn](https://fr.linkedin.com/jobs/view/co-founder-business-development-lead-%E2%80%93-newspace-at-tandem-les-deeptech-4410508779) |
-| A2 | **VP, Business Development – EMEA** | Loft Orbital | Toulouse, France | In-orbit satellite services scale-up. VP-level commercial scope across EMEA. | [LinkedIn](https://fr.linkedin.com/jobs/view/vp-business-development-emea-at-loft-orbital-4354292799) |
-| A3 | **Director, Strategic Initiatives – EMEA** | Loft Orbital | France | Strategy + partnerships at same NewSpace scale-up. Complements A2. | [LinkedIn](https://fr.linkedin.com/jobs/view/director-strategic-initiatives-emea-at-loft-orbital-4354292797) |
-| A4 | **BDM – Quantum for Defence & Space** | Infleqtion UK | Kidlington, UK | Quantum-enabled deep tech for space/defence. Engineering background + BD explicitly required. | [LinkedIn](https://uk.linkedin.com/jobs/view/business-development-manager-quantum-for-defence-space-at-infleqtion-uk-4382359918) |
-| A5 | **Business Developers in Deep Tech (R2B)** | Aalto University | Espoo, Finland | Research-to-Business track — exactly the innovation toolbox + startup ecosystem profile. | [LinkedIn](https://fi.linkedin.com/jobs/view/business-developers-in-deep-tech-r2b-at-aalto-university-4414764353) |
-| A6 | **Sr. BDM – Connected Computing** | imec | Leuven, Belgium | World-class deep tech R&D hub. BDM bridging research → industry. | [LinkedIn](https://be.linkedin.com/jobs/view/senior-business-development-manager-for-connected-computing-sector-at-imec-in-vlaanderen-4412120066) |
-| A7 | **Head of Market Entry & Strategic Growth – IoT** | Fraunhofer IIS | Nuremberg, Germany | Fraunhofer deep tech transfer office. Market entry + engineering context. | [LinkedIn](https://de.linkedin.com/jobs/view/head-of-market-entry-strategic-growth-%E2%80%93-iot-all-genders-at-fraunhofer-iis-4373561585) |
-| A8 | **Business Development Manager** | TaiSan | Cambridge, UK | Cambridge deep tech startup — quantum sensing / space applications. | [LinkedIn](https://uk.linkedin.com/jobs/view/business-development-manager-at-taisan-4375293689) |
-
----
-
-### ⛓️ Track B — Blockchain / Web3: Business Developer
-
-| # | Role | Company | Location | Fit signal | Link |
-|---|------|---------|---------|-----------|------|
-| B1 | **Business Development Manager** | Wert.io | **Remote** ✓ | Crypto-native BD, fully remote, blockchain payment infrastructure startup. Pure match. | [cryptojobslist](https://cryptojobslist.com/jobs/business-development-manager-at-wert-io) |
-| B2 | **BDM – Blockchain & DeFi Ecosystem** | Fireblocks | Remote / Europe | Leading institutional blockchain infra. DeFi ecosystem BD — engineering credibility valued. | [web3.career](https://web3.career/business-development-manager-blockchain-and-defi-ecosystem-fireblocks/149281) |
-| B3 | **Account Executive, EMEA** | Chainlink Labs | Dublin / Remote | Oracle network — enterprise blockchain BD across EMEA. | [LinkedIn](https://ie.linkedin.com/jobs/view/account-executive-emea-at-chainlink-labs-4405638875) |
-| B4 | **Strategy BD Associate** | Aave Labs | Remote | DeFi protocol, strategy-level BD. Engineering background valued. | [web3.career](https://web3.career/strategy-business-development-associate-aavelabs/149620) |
-| B5 | **Director of Sales, EU** | Securitize | Spain | Tokenized securities / RWA — bridges traditional finance + blockchain. EU-focused. | [LinkedIn](https://es.linkedin.com/jobs/view/director-of-sales-eu-at-securitize-4342979508) |
-| B6 | **Business Development Lead** | Pod Network | UK / Remote | Web3 infrastructure startup, BD lead level. | [LinkedIn](https://uk.linkedin.com/jobs/view/business-development-lead-at-pod-network-4318516275) |
-
----
-
-### Priority ranking
-
-**Top matches (all profile dimensions aligned):**
-- A1 — Tandem NewSpace: startup + engineering + innovation toolbox + NewSpace BD, co-founder level
-- A2 — Loft Orbital VP BD: senior, commercial, NewSpace scale-up
-- A4 — Infleqtion Quantum/Space: engineering + deep tech + BD explicitly stated
-- A5 — Aalto R2B: innovation toolbox + startup ecosystem exact fit
-- B1 — Wert.io: remote, blockchain startup, BD lead
-
-**Cross-track wildcard:** imec (A6) does blockchain/distributed systems research alongside hardware deep tech; Securitize (B5) is heavily engineering-weighted.
-
-**Next actions:**
-- [ ] Review full JDs for A1, A2, A4, B1, B3
-- [ ] Tailor CV to highlight: startup experience · engineering background · innovation frameworks · sector (space OR blockchain)
-- [ ] Check for newer listings — space sector roles turn over fast
-
----
-
-## 8. Onboarding UX Design
+## . Onboarding UX Design
 
 ### Reference: WorldMonitor (worldmonitor-core.vercel.app)
 
