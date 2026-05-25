@@ -161,7 +161,7 @@ class CLIBrowserSession(BrowserSession):
 	async def stop(self) -> None:
 		"""Disconnect from the browser.
 
-		For --connect/--cdp-url: just close the websocket (we don't own the browser).
+		For --connect/--cdp-url: just close the WebSocket (we don't own the browser).
 		For cloud: stop the remote browser via API before disconnecting.
 		"""
 		self._intentional_stop = True
