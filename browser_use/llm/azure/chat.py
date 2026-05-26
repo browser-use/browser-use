@@ -11,23 +11,18 @@ from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+# Canonical RESPONSES_API_ONLY_MODELS lives in browser_use.llm.openai.chat — re-exported
+# here so existing `from browser_use.llm.azure.chat import RESPONSES_API_ONLY_MODELS`
+# keeps working. Both providers share one list.
+from browser_use.llm.openai.chat import RESPONSES_API_ONLY_MODELS
 from browser_use.llm.openai.like import ChatOpenAILike
 from browser_use.llm.openai.responses_serializer import ResponsesAPIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
+__all__ = ['ChatAzureOpenAI', 'RESPONSES_API_ONLY_MODELS']
+
 T = TypeVar('T', bound=BaseModel)
-
-
-# List of models that only support the Responses API
-RESPONSES_API_ONLY_MODELS: list[str] = [
-	'gpt-5.1-codex',
-	'gpt-5.1-codex-mini',
-	'gpt-5.1-codex-max',
-	'gpt-5-codex',
-	'codex-mini-latest',
-	'computer-use-preview',
-]
 
 
 @dataclass

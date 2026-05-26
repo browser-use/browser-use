@@ -25,7 +25,12 @@ T = TypeVar('T', bound=BaseModel)
 
 # Models that only support the Responses API. ChatOpenAI's `use_responses_api='auto'`
 # routes these through `/v1/responses`; everything else stays on Chat Completions.
+# This is the canonical list; ChatAzureOpenAI re-exports it so both providers stay
+# in sync. Add new Codex / computer-use models here.
 RESPONSES_API_ONLY_MODELS: list[str] = [
+	'gpt-5.3-codex',
+	'gpt-5.3-codex-spark',
+	'gpt-5.2-codex',
 	'gpt-5.1-codex',
 	'gpt-5.1-codex-mini',
 	'gpt-5.1-codex-max',
