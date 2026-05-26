@@ -151,8 +151,9 @@ class PendingToolPause:
 	reason: str | None
 	created_at: float
 	timeout: float | None
-	timeout_behavior: Literal['continue', 'stop']
+	pause_timeout_action: Literal['stop', 'continue', 'error']
 	metadata: dict[str, Any] | None
+	context: dict[str, Any] | None
 	loop: asyncio.AbstractEventLoop
 	future: asyncio.Future[ActionResult]
 	completed: bool = False
@@ -4028,8 +4029,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			reason=pause.reason,
 			created_at=pause.created_at,
 			timeout=pause.timeout,
-			timeout_behavior=pause.timeout_behavior,
+			pause_timeout_action=pause.pause_timeout_action,
 			metadata=pause.metadata,
+			context=pause.context,
 		)
 
 	def get_pending_tool_pause(self) -> ToolPauseState | None:
@@ -4072,21 +4074,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			reason=pause_result.reason,
 			created_at=time.time(),
 			timeout=pause_result.timeout,
-			timeout_behavior=pause_result.timeout_behavior,
+			pause_timeout_action=pause_result.pause_timeout_action,
 			metadata=pause_result.metadata,
+			context=pause_result.context,
 			loop=loop,
 			future=loop.create_future(),
 		)
 		self._pending_tool_pause = pause
 		self.logger.info(
-			'pause_requested pause_id=%s step=%s action_index=%s tool_name=%s reason=%s timeout=%s timeout_behavior=%s',
+			'pause_requested pause_id=%s step=%s action_index=%s tool_name=%s reason=%s timeout=%s pause_timeout_action=%s',
 			pause.pause_id,
 			pause.step,
 			pause.action_index,
 			pause.tool_name,
 			pause.reason,
 			pause.timeout,
-			pause.timeout_behavior,
+			pause.pause_timeout_action,
 		)
 		return None
 
@@ -4117,6 +4120,51 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return 'provided' if source else None
 
+	def _format_tool_pause_context(self, context: dict[str, Any] | None) -> str | None:
+		"""Format non-sensitive pause context for LLM-visible action memory."""
+
+		if not context:
+			return None
+		try:
+			context_text = json.dumps(context, ensure_ascii=False, sort_keys=True, default=str)
+		except Exception:
+			context_text = str(context)
+		return context_text[:1000]
+
+	def _tool_pause_metadata(
+		self,
+		pause: PendingToolPause,
+		*,
+		resolved: bool = False,
+		timeout: bool = False,
+	) -> dict[str, Any]:
+		"""Build privacy-safe pause correlation metadata for resolved action results."""
+
+		metadata: dict[str, Any] = {
+			'tool_pause_id': pause.pause_id,
+			'tool_name': pause.tool_name,
+			'reason': pause.reason,
+			'pause_context': pause.context,
+		}
+		if resolved:
+			metadata['tool_pause_resolved'] = True
+		if timeout:
+			metadata.update(
+				{
+					'tool_pause_timeout': True,
+					'pause_timeout_action': pause.pause_timeout_action,
+				}
+			)
+		return metadata
+
+	def _tool_pause_memory(self, pause: PendingToolPause, prefix: str) -> str:
+		"""Append formatted pause context to a LLM-visible memory string."""
+
+		context_summary = self._format_tool_pause_context(pause.context)
+		if context_summary:
+			return f'{prefix} Pause context: {context_summary}'
+		return prefix
+
 	async def _resolve_pause_result_for_action(
 		self,
 		pause_result: PauseResult,
@@ -4142,13 +4190,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				result = pause.future.result()
 			else:
 				timeout_text = f'{pause.timeout:g}' if pause.timeout is not None else 'unknown'
-				result = ActionResult(error=f'Tool pause timed out after {timeout_text} seconds')
+				metadata = self._tool_pause_metadata(pause, timeout=True)
+				if pause.pause_timeout_action == 'continue':
+					memory = self._tool_pause_memory(
+						pause, f'No external input received for tool {pause.tool_name} before timeout.'
+					)
+					result = ActionResult(extracted_content=memory, long_term_memory=memory, metadata=metadata)
+				else:
+					result = ActionResult(error=f'Tool pause timed out after {timeout_text} seconds', metadata=metadata)
 				pause.cancelled = True
 				pause.completed = True
 				self._resolve_tool_pause_future_threadsafe(pause, result)
 				elapsed_wait_time = time.time() - pause.created_at
 				self.logger.info(
-					'pause_timeout pause_id=%s step=%s action_index=%s tool_name=%s reason=%s elapsed_wait_time=%.3f timeout=%s status=%s',
+					'pause_timeout pause_id=%s step=%s action_index=%s tool_name=%s reason=%s elapsed_wait_time=%.3f timeout=%s pause_timeout_action=%s',
 					pause.pause_id,
 					pause.step,
 					pause.action_index,
@@ -4156,9 +4211,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					pause.reason,
 					elapsed_wait_time,
 					pause.timeout,
-					pause.timeout_behavior,
+					pause.pause_timeout_action,
 				)
-				if pause.timeout_behavior == 'stop':
+				if pause.pause_timeout_action == 'stop':
 					self.state.stopped = True
 		finally:
 			if self._pending_tool_pause is pause:
@@ -4182,25 +4237,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			action_result = ActionResult(
 				extracted_content=result,
 				include_extracted_content_only_once=True,
-				long_term_memory=f'External input received for tool {pause.tool_name}.',
-				metadata={
-					'tool_pause_resolved': True,
-					'tool_pause_id': pause.pause_id,
-					'tool_name': pause.tool_name,
-					'reason': pause.reason,
-				},
+				long_term_memory=self._tool_pause_memory(pause, f'External input received for tool {pause.tool_name}.'),
+				metadata=self._tool_pause_metadata(pause, resolved=True),
 			)
 		elif result.is_done:
 			return False
 		else:
-			merged_metadata = {
-				**(result.metadata or {}),
-				'tool_pause_resolved': True,
-				'tool_pause_id': pause.pause_id,
-				'tool_name': pause.tool_name,
-				'reason': pause.reason,
-			}
-			action_result = result.model_copy(update={'metadata': merged_metadata})
+			pause_metadata = self._tool_pause_metadata(pause, resolved=True)
+			merged_metadata = {**(result.metadata or {}), **pause_metadata}
+			memory_prefix = result.long_term_memory or f'External input received for tool {pause.tool_name}.'
+			action_result = result.model_copy(
+				update={
+					'metadata': merged_metadata,
+					'long_term_memory': self._tool_pause_memory(pause, memory_prefix),
+				}
+			)
 
 		pause.completed = True
 		self._resolve_tool_pause_future_threadsafe(pause, action_result)
@@ -4222,7 +4273,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Resolve the current pending tool pause with a cancellation error."""
 
 		pause = self._pending_tool_pause
-		if pause is None or pause.completed or pause.cancelled:
+		if pause is None:
+			return
+		if pause.completed or pause.cancelled:
+			if self._pending_tool_pause is pause:
+				self._pending_tool_pause = None
 			return
 
 		pause.cancelled = True
@@ -4239,6 +4294,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			elapsed_wait_time,
 			reason,
 		)
+		if self._pending_tool_pause is pause:
+			self._pending_tool_pause = None
 
 	async def cancel_tool_pause(self, token: str, reason: str | None = None) -> bool:
 		"""Cancel a pending tool-level HITL pause with its secret token."""
@@ -4262,6 +4319,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			elapsed_wait_time,
 			cancel_reason,
 		)
+		if self._pending_tool_pause is pause:
+			self._pending_tool_pause = None
 		return True
 
 	def resume(self) -> None:

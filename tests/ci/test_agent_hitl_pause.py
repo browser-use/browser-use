@@ -50,8 +50,9 @@ def _install_pending_pause(agent: Agent, *, token: str = 'secret-token') -> Pend
 		reason='approval',
 		created_at=time.time(),
 		timeout=10.0,
-		timeout_behavior='continue',
+		pause_timeout_action='error',
 		metadata={'request_id': 'abc123'},
+		context={'operation': 'approval', 'risk_level': 'medium'},
 		loop=loop,
 		future=loop.create_future(),
 	)
@@ -107,7 +108,12 @@ def test_pause_result_is_importable_from_top_level_package():
 	from browser_use import PauseResult, ToolPauseState
 
 	pause = PauseResult(
-		prompt='Approve payment?', reason='approval', timeout=300, timeout_behavior='stop', metadata={'request_id': 'abc123'}
+		prompt='Approve payment?',
+		reason='approval',
+		timeout=300,
+		pause_timeout_action='stop',
+		metadata={'request_id': 'abc123'},
+		context={'operation': 'payment', 'amount': 5000},
 	)
 	state = ToolPauseState(
 		token='secret-token',
@@ -119,18 +125,21 @@ def test_pause_result_is_importable_from_top_level_package():
 		reason=pause.reason,
 		created_at=123.0,
 		timeout=pause.timeout,
-		timeout_behavior=pause.timeout_behavior,
+		pause_timeout_action=pause.pause_timeout_action,
 		metadata=pause.metadata,
+		context=pause.context,
 	)
 
 	assert pause.prompt == 'Approve payment?'
 	assert pause.reason == 'approval'
 	assert pause.timeout == 300
-	assert pause.timeout_behavior == 'stop'
+	assert pause.pause_timeout_action == 'stop'
+	assert pause.context == {'operation': 'payment', 'amount': 5000}
 	assert state.token == 'secret-token'
 	assert state.pause_id == 'public-pause-id'
 	assert state.action_index == 0
-	assert state.timeout_behavior == 'stop'
+	assert state.pause_timeout_action == 'stop'
+	assert state.context == {'operation': 'payment', 'amount': 5000}
 
 
 def test_pause_result_rejects_non_positive_timeout():
@@ -165,8 +174,9 @@ async def test_tool_pause_query_resume_and_late_resume():
 		assert state.prompt == 'Approve?'
 		assert state.reason == 'approval'
 		assert state.timeout == 10.0
-		assert state.timeout_behavior == 'continue'
+		assert state.pause_timeout_action == 'error'
 		assert state.metadata == {'request_id': 'abc123'}
+		assert state.context == {'operation': 'approval', 'risk_level': 'medium'}
 
 		assert await agent.resume_tool_pause('wrong-token', 'ignored') is False
 		assert await agent.resume_tool_pause('secret-token', 'approved', source='unit-test') is True
@@ -177,13 +187,16 @@ async def test_tool_pause_query_resume_and_late_resume():
 		assert isinstance(resolved, ActionResult)
 		assert resolved.extracted_content == 'approved'
 		assert resolved.include_extracted_content_only_once is True
-		assert resolved.long_term_memory == 'External input received for tool ask_approval.'
+		assert resolved.long_term_memory == (
+			'External input received for tool ask_approval. Pause context: {"operation": "approval", "risk_level": "medium"}'
+		)
 		assert 'approved' not in resolved.long_term_memory
 		assert resolved.metadata == {
 			'tool_pause_resolved': True,
 			'tool_pause_id': 'public-pause-id',
 			'tool_name': 'ask_approval',
 			'reason': 'approval',
+			'pause_context': {'operation': 'approval', 'risk_level': 'medium'},
 		}
 	finally:
 		await agent.close()
@@ -199,6 +212,7 @@ async def test_tool_pause_cancel_and_stop_reject_late_resume():
 		assert await agent.cancel_tool_pause('wrong-token', 'ignored') is False
 		assert await agent.cancel_tool_pause('secret-token', 'test cancel') is True
 		assert agent.get_pending_tool_pause() is None
+		assert agent._pending_tool_pause is None
 		assert await agent.resume_tool_pause('secret-token', 'late answer') is False
 
 		cancelled = await pause.future
@@ -208,6 +222,7 @@ async def test_tool_pause_cancel_and_stop_reject_late_resume():
 		stop_pause = _install_pending_pause(agent, token='stop-token')
 		agent.stop()
 		assert agent.get_pending_tool_pause() is None
+		assert agent._pending_tool_pause is None
 		assert await agent.resume_tool_pause('stop-token', 'late answer') is False
 
 		stopped = await stop_pause.future
@@ -360,13 +375,16 @@ async def test_resume_tool_pause_merges_custom_action_result_metadata():
 
 		assert resolved.extracted_content == 'custom approved'
 		assert resolved.include_extracted_content_only_once is True
-		assert resolved.long_term_memory == 'Custom resume summary without raw secret data.'
+		assert resolved.long_term_memory == (
+			'Custom resume summary without raw secret data. Pause context: {"operation": "approval", "risk_level": "medium"}'
+		)
 		assert resolved.metadata == {
 			'request_id': 'abc123',
 			'tool_pause_id': 'public-pause-id',
 			'tool_pause_resolved': True,
 			'tool_name': 'ask_approval',
 			'reason': 'approval',
+			'pause_context': {'operation': 'approval', 'risk_level': 'medium'},
 		}
 		assert resolved is not custom_result
 		assert custom_result.metadata == {'request_id': 'abc123', 'tool_pause_id': 'caller-cannot-spoof-pause-id'}
@@ -386,8 +404,9 @@ async def test_pause_lifecycle_logs_do_not_expose_token_or_raw_human_input(monke
 
 		monkeypatch.setattr(agent.logger, 'info', _capture_info)
 
+		pause_context = {'operation': 'approval', 'risk_level': 'high'}
 		registration_result = agent._request_tool_pause(
-			PauseResult(prompt='Approve?', reason='approval', timeout=1.0),
+			PauseResult(prompt='Approve?', reason='approval', timeout=1.0, context=pause_context),
 			'ask_approval',
 		)
 		state = agent.get_pending_tool_pause()
@@ -405,6 +424,7 @@ async def test_pause_lifecycle_logs_do_not_expose_token_or_raw_human_input(monke
 		assert state.token not in log_text
 		assert raw_human_input not in log_text
 		assert raw_source_input not in log_text
+		assert str(pause_context) not in log_text
 		assert 'source=provided' in log_text
 	finally:
 		await agent.close()
@@ -419,6 +439,7 @@ async def test_close_cancels_pending_tool_pause():
 	await agent.close()
 
 	assert agent.get_pending_tool_pause() is None
+	assert agent._pending_tool_pause is None
 	assert pause.future.done() is True
 	closed = pause.future.result()
 	assert closed.error == 'Tool pause cancelled because agent closed'
@@ -809,8 +830,8 @@ async def test_multi_act_stops_after_pause_resumes_with_action_result_error(monk
 
 
 @pytest.mark.asyncio
-async def test_multi_act_pause_timeout_behavior_stop_stops_agent(monkeypatch: pytest.MonkeyPatch):
-	"""timeout_behavior='stop' should stop the agent and prevent follow-up actions from running."""
+async def test_pause_timeout_action_error_returns_error_result(monkeypatch: pytest.MonkeyPatch):
+	"""pause_timeout_action='error' should return an error result without stopping the agent."""
 	agent = _make_test_agent()
 	try:
 		assert agent.browser_session is not None
@@ -827,7 +848,7 @@ async def test_multi_act_pause_timeout_behavior_stop_stops_agent(monkeypatch: py
 			calls += 1
 			action_data = action.model_dump(exclude_unset=True)
 			assert action_data.get('pause_action') is not None
-			return PauseResult(prompt='Approve?', timeout=0.01, timeout_behavior='stop')
+			return PauseResult(prompt='Approve?', reason='approval', timeout=0.01, pause_timeout_action='error')
 
 		agent.tools.act = _act  # type: ignore[method-assign]
 
@@ -841,6 +862,128 @@ async def test_multi_act_pause_timeout_behavior_stop_stops_agent(monkeypatch: py
 		assert calls == 1
 		assert len(results) == 1
 		assert results[0].error == 'Tool pause timed out after 0.01 seconds'
+		metadata = results[0].metadata
+		assert metadata is not None
+		assert metadata == {
+			'tool_pause_timeout': True,
+			'tool_pause_id': metadata['tool_pause_id'],
+			'tool_name': 'pause_action',
+			'reason': 'approval',
+			'pause_timeout_action': 'error',
+			'pause_context': None,
+		}
+		assert agent.state.stopped is False
+		assert agent.get_pending_tool_pause() is None
+		assert agent._pending_tool_pause is None
+	finally:
+		await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_pause_timeout_action_continue_returns_non_error_result_and_continues_actions(monkeypatch: pytest.MonkeyPatch):
+	"""pause_timeout_action='continue' should not trigger multi_act's error break."""
+	agent = _make_test_agent()
+	try:
+		assert agent.browser_session is not None
+
+		async def _current_url(_browser_session):
+			return 'about:blank'
+
+		monkeypatch.setattr(type(agent.browser_session), 'get_current_page_url', _current_url)
+
+		calls = 0
+
+		async def _act(action: ActionModel, **_kwargs):
+			nonlocal calls
+			calls += 1
+			action_data = action.model_dump(exclude_unset=True)
+			if calls == 1:
+				assert action_data.get('pause_action') is not None
+				return PauseResult(
+					prompt='Optional human hint?',
+					reason='optional_hint',
+					timeout=0.01,
+					pause_timeout_action='continue',
+					context={'operation': 'background_fetch'},
+				)
+			assert action_data.get('followup_action') is not None
+			return ActionResult(extracted_content='followup executed')
+
+		agent.tools.act = _act  # type: ignore[method-assign]
+
+		results = await agent.multi_act(
+			[
+				_PauseActionModel(pause_action={'x': 1}),
+				_PauseActionModel(followup_action={'x': 2}),
+			],
+		)
+
+		assert calls == 2
+		assert len(results) == 2
+		assert results[0].error is None
+		assert results[0].extracted_content == (
+			'No external input received for tool pause_action before timeout. Pause context: {"operation": "background_fetch"}'
+		)
+		assert results[0].long_term_memory == results[0].extracted_content
+		metadata = results[0].metadata
+		assert metadata is not None
+		assert metadata == {
+			'tool_pause_timeout': True,
+			'tool_pause_id': metadata['tool_pause_id'],
+			'tool_name': 'pause_action',
+			'reason': 'optional_hint',
+			'pause_timeout_action': 'continue',
+			'pause_context': {'operation': 'background_fetch'},
+		}
+		assert results[1].extracted_content == 'followup executed'
+		assert agent.state.stopped is False
+	finally:
+		await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_pause_timeout_action_stop_stops_agent(monkeypatch: pytest.MonkeyPatch):
+	"""pause_timeout_action='stop' should stop the agent and prevent follow-up actions from running."""
+	agent = _make_test_agent()
+	try:
+		assert agent.browser_session is not None
+
+		async def _current_url(_browser_session):
+			return 'about:blank'
+
+		monkeypatch.setattr(type(agent.browser_session), 'get_current_page_url', _current_url)
+
+		calls = 0
+
+		async def _act(action: ActionModel, **_kwargs):
+			nonlocal calls
+			calls += 1
+			action_data = action.model_dump(exclude_unset=True)
+			assert action_data.get('pause_action') is not None
+			return PauseResult(prompt='Approve?', timeout=0.01, pause_timeout_action='stop')
+
+		agent.tools.act = _act  # type: ignore[method-assign]
+
+		results = await agent.multi_act(
+			[
+				_PauseActionModel(pause_action={'x': 1}),
+				_PauseActionModel(followup_action={'x': 2}),
+			],
+		)
+
+		assert calls == 1
+		assert len(results) == 1
+		assert results[0].error == 'Tool pause timed out after 0.01 seconds'
+		metadata = results[0].metadata
+		assert metadata is not None
+		assert metadata == {
+			'tool_pause_timeout': True,
+			'tool_pause_id': metadata['tool_pause_id'],
+			'tool_name': 'pause_action',
+			'reason': None,
+			'pause_timeout_action': 'stop',
+			'pause_context': None,
+		}
 		assert agent.state.stopped is True
 		assert agent.get_pending_tool_pause() is None
 		assert agent._pending_tool_pause is None
@@ -850,13 +993,13 @@ async def test_multi_act_pause_timeout_behavior_stop_stops_agent(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_run_stops_after_pause_timeout_behavior_stop_without_next_llm_turn(monkeypatch: pytest.MonkeyPatch):
-	"""timeout_behavior='stop' should stop the run loop, not merely return an action error."""
+async def test_run_stops_after_pause_timeout_action_stop_without_next_llm_turn(monkeypatch: pytest.MonkeyPatch):
+	"""pause_timeout_action='stop' should stop the run loop, not merely return an action error."""
 	tools = Tools()
 
 	@tools.action('Ask a human to approve before continuing')
 	async def ask_approval() -> PauseResult:
-		return PauseResult(prompt='Approve?', reason='approval', timeout=0.01, timeout_behavior='stop')
+		return PauseResult(prompt='Approve?', reason='approval', timeout=0.01, pause_timeout_action='stop')
 
 	seen_messages: list[list[Any]] = []
 	llm = _make_recording_llm(
@@ -906,7 +1049,7 @@ async def test_run_stops_after_pause_timeout_behavior_stop_without_next_llm_turn
 		async def _pause_act(action: ActionModel, **_kwargs):
 			action_data = action.model_dump(exclude_unset=True)
 			if action_data.get('ask_approval') is not None:
-				return PauseResult(prompt='Approve?', reason='approval', timeout=0.01, timeout_behavior='stop')
+				return PauseResult(prompt='Approve?', reason='approval', timeout=0.01, pause_timeout_action='stop')
 			return ActionResult(is_done=True, success=True, extracted_content='Should not happen')
 
 		agent.tools.act = _pause_act  # type: ignore[method-assign]
@@ -981,13 +1124,18 @@ async def test_cancelled_suspendable_step_cleans_pending_pause(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_run_resumes_tool_pause_and_next_llm_turn_sees_human_response(monkeypatch: pytest.MonkeyPatch):
-	"""A tool PauseResult is resumed and injected into the next LLM turn."""
+async def test_pause_context_is_visible_to_next_llm_turn(monkeypatch: pytest.MonkeyPatch):
+	"""A resolved tool pause should expose non-sensitive context to the next LLM turn."""
 	tools = Tools()
+	pause_context = {
+		'operation': 'payment',
+		'amount': 5000,
+		'approval_reason': 'high_risk_payment',
+	}
 
 	@tools.action('Ask a human to approve the operation')
 	async def ask_approval() -> PauseResult:
-		return PauseResult(prompt='Approve?', reason='approval', timeout=2.0)
+		return PauseResult(prompt='Approve?', reason='approval', timeout=2.0, context=pause_context)
 
 	seen_messages: list[list[Any]] = []
 	llm = _make_recording_llm(
@@ -1037,7 +1185,7 @@ async def test_run_resumes_tool_pause_and_next_llm_turn_sees_human_response(monk
 		async def _pause_act(action: ActionModel, **_kwargs):
 			action_data = action.model_dump(exclude_unset=True)
 			if action_data.get('ask_approval') is not None:
-				return PauseResult(prompt='Approve?', reason='approval', timeout=2.0)
+				return PauseResult(prompt='Approve?', reason='approval', timeout=2.0, context=pause_context)
 			return ActionResult(is_done=True, success=True, extracted_content='Saw approval')
 
 		agent.tools.act = _pause_act  # type: ignore[method-assign]
@@ -1060,6 +1208,9 @@ async def test_run_resumes_tool_pause_and_next_llm_turn_sees_human_response(monk
 		assert len(seen_messages) >= 2
 		second_turn_text = '\n'.join(str(message) for message in seen_messages[1])
 		assert 'approved by human' in second_turn_text
+		assert 'payment' in second_turn_text
+		assert '5000' in second_turn_text
+		assert 'high_risk_payment' in second_turn_text
 		assert 'Step 1 timed out after 1 seconds' not in '\n'.join(str(error) for error in history.errors() if error)
 	finally:
 		await agent.close()

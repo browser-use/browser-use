@@ -300,13 +300,21 @@ class PauseResult(BaseModel):
 	# None means "wait until resume/cancel/stop". Production integrations should
 	# usually provide a finite timeout or guarantee an external cancel/stop path.
 	timeout: float | None = Field(default=None, description='Optional per-pause timeout in seconds')
-	timeout_behavior: Literal['continue', 'stop'] = Field(
-		default='continue',
+	pause_timeout_action: Literal['stop', 'continue', 'error'] = Field(
+		default='error',
 		description='What to do when the external wait times out',
 	)
 	# Integration metadata must be non-sensitive. The runtime may expose this via
 	# get_pending_tool_pause(), so callers should not put secrets or raw human input here.
 	metadata: dict[str, Any] | None = Field(default=None, description='Non-sensitive integration metadata')
+	context: dict[str, Any] | None = Field(
+		default=None,
+		description=(
+			'Non-sensitive context explaining why the pause was requested. '
+			'This may be surfaced to the next LLM turn, so it must not contain '
+			'secrets, credentials, tokens, or raw human input.'
+		),
+	)
 
 	@field_validator('timeout')
 	@classmethod
@@ -338,8 +346,9 @@ class ToolPauseState(BaseModel):
 	reason: str | None = None
 	created_at: float
 	timeout: float | None = None
-	timeout_behavior: Literal['continue', 'stop'] = 'continue'
+	pause_timeout_action: Literal['stop', 'continue', 'error'] = 'error'
 	metadata: dict[str, Any] | None = None
+	context: dict[str, Any] | None = None
 
 
 class JudgementResult(BaseModel):
