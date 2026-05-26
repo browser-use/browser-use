@@ -1,6 +1,6 @@
 # Browser-Use × Claude Code — Interactive Agent Blueprint
 
-> Living design document. Last updated: 2026-05-28. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS.
+> Living design document. Last updated: 2026-05-29. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS · **research module** (citation tracking · parallel tab orchestration · streaming reasoning traces · async synthesis · make_llm_synthesize_fn).
 
 ---
 
@@ -325,6 +325,115 @@ browser-use --mcp    # Exposes browser tools to Claude Desktop / other MCP clien
 
 ## 6. Roadmap / Open Items
 
+- [x] Set `BROWSER_USE_API_KEY`
+- [x] Git repo initialised
+- [x] `ONBOARDING.md` written
+- [x] Pushed to GitHub — `dnzengou/browser-use` · branch `workspace`
+- [x] **Research module implemented** — `browser_use.research` (CitationTracker · ParallelResearchOrchestrator · StreamingReasoningTracer) — 19 CI tests all green · 2026-05-26
+- [x] Pushed to `dnzengou/browser-use-reverse-engineered` — branch `workspace` · 2026-05-26
+- [ ] Run `browser-use profile update` to enable Chrome profile sync
+- [ ] Install `cloudflared` for tunnel support (`winget install cloudflare.cloudflared`)
+- [ ] LLM-powered synthesis injection for `ParallelResearchOrchestrator`
+- [ ] FastAPI SSE demo endpoint for `StreamingReasoningTracer`
+
+---
+
+## 11. Research Module — Competitive-Parity Browser-Agent Innovations (2026-05-26)
+
+Three capabilities reverse-engineered from Kimi / Perplexity / Grok patterns, implemented as `browser_use.research`:
+
+### 11.1 CitationTracker (Perplexity-style)
+
+Every data point extracted from the web carries provenance metadata:
+- Source URL, page title, extraction timestamp
+- SHA-256[:12] content fingerprint for cheap deduplication
+- Heuristic confidence ∈ [0.1, 1.0] (length + element specificity)
+
+```python
+from browser_use.research import CitationTracker
+
+tracker = CitationTracker()
+cited = tracker.cite(
+    content="OpenAI was founded in 2015.",
+    url="https://en.wikipedia.org/wiki/OpenAI",
+    page_title="OpenAI",
+    element_ref="#firstHeading",
+)
+print(cited.as_markdown())
+# [1] <https://en.wikipedia.org/wiki/OpenAI> — *OpenAI* (2026-05-26 19:00 UTC, conf=0.73)
+```
+
+### 11.2 ParallelResearchOrchestrator (Kimi-style)
+
+Spawns N async agent tasks concurrently (one per URL or query variant), collects `CitedResult`s from each, synthesizes into a `ResearchReport`:
+
+```python
+from browser_use.research import ParallelResearchOrchestrator
+
+async def my_research_fn(query: str, url: str) -> str:
+    agent = Agent(task=f"{query} at {url}", llm=llm, browser=Browser())
+    result = await agent.run()
+    return result.final_result() or ''
+
+orch = ParallelResearchOrchestrator(research_fn=my_research_fn, max_concurrency=4)
+report = await orch.run(
+    research_question="Latest AI agent benchmarks?",
+    urls=["https://arxiv.org", "https://paperswithcode.com"],
+)
+print(report.as_markdown())
+```
+
+The synthesizer is injectable — pass `synthesize_fn=your_llm_fn` for LLM-powered synthesis.
+
+### 11.3 StreamingReasoningTracer (Grok-style)
+
+Emits structured `ReasoningTrace` events during the agent loop. Three consumer patterns:
+- **Async generator** → FastAPI `StreamingResponse` / SSE endpoints
+- **Callback sinks** → CLI logging, Slack alerts, observability pipelines
+- **In-memory accumulation** → test assertions, post-run replay
+
+```python
+from browser_use.research import StreamingReasoningTracer
+
+tracer = StreamingReasoningTracer()
+tracer.add_sink(lambda t: print(t.to_json_line()))  # live console output
+
+# Wire callbacks into agent (hook points: on_step_start, on_step_end, etc.)
+tracer.on_step_start(step=1)
+tracer.on_action(step=1, action_name='navigate', params={'url': '...'})
+
+# FastAPI SSE endpoint:
+async def event_stream():
+    async for trace in tracer.stream():
+        yield trace.to_sse()
+```
+
+### 11.4 File Manifest
+
+| File | Role |
+|------|------|
+| `browser_use/research/__init__.py` | Public API exports |
+| `browser_use/research/views.py` | Pydantic models: Citation, CitedResult, TabResult, ResearchReport, ReasoningTrace |
+| `browser_use/research/citation.py` | CitationTracker implementation |
+| `browser_use/research/orchestrator.py` | ParallelResearchOrchestrator |
+| `browser_use/research/streaming.py` | StreamingReasoningTracer |
+| `tests/ci/test_research_module.py` | 19 CI tests (all pass, real objects, pytest-httpserver) |
+| `conftest.py` | Root conftest: ensures local source wins in shared-venv setups |
+
+### 11.5 Innovation Recipe
+
+| Pattern source | What was taken | Implementation |
+|----------------|---------------|----------------|
+| Perplexity Code | Citation provenance per claim | `CitationTracker` + `Citation` model |
+| Kimi Code | Multi-tab concurrent research | `ParallelResearchOrchestrator` + asyncio.Semaphore |
+| Grok Build | Live chain-of-thought stream | `StreamingReasoningTracer` + SSE/NDJSON emitters |
+
+**Scaling axis:** `max_concurrency` parameter governs parallelism; `synthesize_fn` injection makes the orchestrator LLM-agnostic for arbitrary scale-out.
+
+---
+
+
+
 - [x] Set `BROWSER_USE_API_KEY` — saved in `.env` + `~/.browser-use/config.json` via `browser-use cloud login`
 - [x] Git repo initialised — `git init` + identity set (`desire.yavro@gmail.com`)
 - [x] `ONBOARDING.md` quick intro guide written (see §8)
@@ -582,7 +691,7 @@ Changes to `src/App.tsx` (commit `c0d67b3`):
 
 ---
 
-### Next Actions (§10 — updated 2026-05-28)
+### Next Actions (§10 — updated 2026-05-29)
 
 - [x] EWOR form 95% complete — only missing: video URL + pitch deck upload → provide video link to complete
 - [x] Gartner Job 108490 closed → replaced by Job 110514 (Sr Director Analyst - Innovation & Emerging Tech, Remote EU) — Workday page open
@@ -649,4 +758,5 @@ https://sifted.eu/feed/
 https://feeds.reuters.com/reuters/worldNews
 https://rss.nytimes.com/services/xml/rss/nyt/World.xml
 ```
+
 - [ ] Set a Bing Jobs alert for: "innovation manager deep tech space AI senior remote"
