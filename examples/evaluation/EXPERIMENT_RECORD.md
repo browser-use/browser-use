@@ -26,30 +26,40 @@
 | 3 | 2026-05-26 09:46 | **C**（Doubao 期） | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` / — | 8 | ~237s（10 invocations，118,755 tokens） | 同任务在豆包默认预设下首次成功；多出 3 步主要来自 `write_file todo.md` + `replace_file`（自我规划，**第 4 条复跑证明是偶发非规律**）；`extract_structured_data` 一次拿全 3 条电话+地址；**source URL 实际全为 not visible，Agent 在 done 中以搜索页 URL 兜底**（per-row source 严格不满足 success_criteria）。 |
 | 4 | 2026-05-26 14:08 | **C**（Doubao 期，复跑） | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` / — | 6 | ~161s（8 invocations，90,917 tokens） | 同命令复跑 Doubao；**没有写 todo**，路径压缩到 `navigate→input→click→wait→extract→done`；本次 `extract` 出来的 **phone 全 not visible**（与第 3 条差异：原因可能是搜索关键词改成"附近医院/诊所"导致排序中夹入门诊部，更深站点信息缺失）；进一步证明 Doubao 自我规划是偶发；source URL 同样为搜索页兜底，仍属 **PARTIAL**。 |
 | 5 | 2026-05-26 14:12 | **D**（Doubao 期，DeepSeek 领航 + 持续领航） | `nearby_hospital_phone_lookup` | normal | **是** | `doubao-seed-2-0-pro-260215` / `deepseek-chat` | **5** | ~119s（6 invocations，75,651 tokens） | Doubao 期 D 首次成功；路径 `navigate→input→click→wait→done`，**完全跳过 `extract` 工具**（Doubao 直接从 DOM 看见列表后在 `done` 里写出 3 家完整 phone+address）；3 家电话均为真实号码（与 2026-05-09 D 数据一致）。**但 `usage_navigator_cycle_llm: null`、`by_model` 中无 deepseek**：要么 DeepSeek 持续领航在本跑次未真正触发周期调用，要么调用未走 TokenCost 通道 → **当前无法证明"D 优于 C 是因为 navigator"**。 |
+| 6 | 2026-05-26 16:08 | **D**（Doubao 期，**修复后**首条带真实 navigator 归因） | `nearby_hospital_phone_lookup` | normal | **是** | `doubao-seed-2-0-pro-260215` / `deepseek-chat` | **5** | ~140s（7 invocations，76,878 tokens；含 deepseek 1,650） | 在 commit `40674ae5` 修复 `ChatDeepSeek.usage` 之后的首跑：`navigator_initial_plan_usage` = 1,143 tokens（开场计划）、`usage_navigator_cycle_llm` = 1,650 tokens（周期触发 1 次）、`navigator_overhead_ratio = 0.0371` 首次出现真实非零值；executor token 几乎不变（76,878 vs 修复前 75,651），证明修复仅改"统计层"不改"执行层"。 |
+| 7 | 2026-05-26 17:30 | **D**（Doubao 期，复现） | `nearby_hospital_phone_lookup` | normal | **是** | `doubao-seed-2-0-pro-260215` / `deepseek-chat` | **5** | ~131s（7 invocations，77,196 tokens；含 deepseek 1,595） | 与 #6 几乎一致：`navigator_overhead_ratio = 0.0368`（vs 0.0371）、navigator total = 2,785 tokens。两次跑次步数都正好 5 步、overhead 都 ≈3.7%——说明 Doubao+DeepSeek 在该任务上的协作模式**高度可复现**，方差极小。 |
+| 8 | 2026-05-26 17:33 | **C**（Doubao 期，对照基准） | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` / — | **5** | ~146s（7 invocations，71,541 tokens） | 提供给 #6 #7 D 跑次的同时段 C 对照；步数也是 5 步——这次 C 没写 todo、没夹入门诊部，phone 字段抽到了真号码（**与 2026-05-26 09:46 那条一致**），是 Doubao C 路径的一个"好状态"样本。 |
 
 **Artifacts**：
 - ① `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260509T064248Z/`（D · Qwen 期）
 - ② `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260514T080341Z/`（C · Qwen 期）
 - ③ `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T094651Z/`（C · Doubao 期 · 8 步）
 - ④ `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T140809Z/`（C · Doubao 期 · 6 步复跑）
-- ⑤ `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T141221Z/`（D · Doubao 期 · 5 步）
+- ⑤ `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T141221Z/`（D · Doubao 期 · 修复前 · navigator overhead 假 0）
+- ⑥ `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T160813Z/`（D · Doubao 期 · **修复后首条真实归因**）
+- ⑦ `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T173011Z/`（D · Doubao 期 · 修复后复跑）
+- ⑧ `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T173306Z/`（C · Doubao 期 · 对照基准）
 
 均含 `history.json`、`conversation.json`；D 另含 `navigator_plan.md`。**失败 / JSON 形态早停样例**（如 `exp-D/20260514T110508Z`）与 **C vs D 写作注意** 见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
 
 **模型版本切分点**：自 2026-05-21 提交 `48d1660b` 起，C/D 默认执行器从 **Qwen（`qwen3-max` · DashScope）** 改为 **Doubao（`doubao-seed-2-0-pro-260215` · Volcengine Ark）**。表中 2026-05-26 之后的 C/D 记录默认是 Doubao 时期；若仍用 Qwen 跑（`--executor-model qwen3-max`），请在备注中注明，避免混淆。
 
-**Doubao 期初步统计**（基于 2026-05-26 ③④⑤ 3 条跑次 · 详见 `experiment_resource_report.json`）：
+**Navigator 归因修复点**：自 2026-05-27 commit `40674ae5` 起，`ChatDeepSeek` 不再写死 `usage=None`。**该 commit 之前所有 D 跑次的 `navigator_initial_plan_usage` / `usage_navigator_cycle_llm` / `navigator_overhead_ratio` 字段都不可用**（强制 0），不应作为 navigator 成本来源；之后所有 D 跑次才有真实归因。Qwen 期的老 D 跑次（2026-05-09）也属于"navigator 成本黑盒"区，但因换模型已不可比。
 
-| 维度 | C（n=2） | D（n=1） | hint |
+**Doubao 期统计**（基于 2026-05-26 ③④⑥⑦⑧ 5 条跑次，n_C=3, n_D=3 · 详见 `experiment_resource_report.json`）：
+
+| 维度 | C（n=3） | D（n=3，修复后） | hint |
 |---|---|---|---|
-| `duration_seconds` mean | 199.0 (median 199.0, std 54.3) | 119.2 | D 最快，C 最慢 |
-| `number_of_steps` mean | 7.00 (std 1.41) | 5.00 | D 最少步 |
-| `total_tokens` mean | 104,836 (std 19,684) | 75,651 | D 最省 token |
-| `navigator_overhead_ratio` mean | 0.0000 | 0.0000 | **两组都是 0**：要么没领航 token，要么领航周期未拆分 |
-| `token_efficiency_score` mean | 0.0097 | 0.0132 | D 千 token 成功率较高 |
-| `execution_velocity` mean (tok/s) | 533.2 | 634.9 | D 推理吞吐略高 |
+| 成功率 | 3/3 | 3/3 | 持平 |
+| `number_of_steps` mean | **6.33（±1.53）** | **5.00（±0.0）** | D 更少且**方差为 0**（path 稳定性高） |
+| `duration_seconds` mean | 181.2s（±49.1） | **130.0s（±10.4）** | D 快 28%、std 仅 1/5 |
+| `total_tokens` mean | 93,738（±23,733） | **76,575（±816）** | D 省 18%、std 仅 1/29 |
+| `navigator_overhead_ratio` mean | 0.0000 | **0.0247**（修复前曾恒为 0；修复后 ⑥/⑦ 都 ≈ 0.037） | 首次可量化 navigator 真实税率 ≈ 3.7% |
+| `token_efficiency_score` mean | 0.0111 | **0.0131** | D 高 18% |
+| `execution_velocity` mean (tok/s) | 519.0 | **591.3** | D 高 14% |
+| **net token saving (D vs C)** | — | **≈ 17,163 tokens / 任务** | D 多花 navigator ~2,800，但少花 executor ~20,000 → **净省 ≈ 14,400** |
 
-> ⚠️ n=1 vs n=2 不足以下结论；并且 navigator 的 token 未被独立计入（见 ⑤ 备注），所以"D 是否真比 C 好"暂不可结论。下一步建议：**D 再跑 ≥2 次** + 排查为何 `usage_navigator_cycle_llm` 为 null。
+> **首次可下结论**（在该任务下、Doubao+DeepSeek、n=3 量级）：navigator 不仅没拖累，反而带来 step / time / token 三项一致性提升，且 navigator 自身税率仅 ~3.7%，远低于它带来的 executor 节省。下一步建议：**扩第二个任务（如 `daily_service_hours_lookup` 或 `paper_link_collection`）验证这个结论是不是任务无关的**；同时跑 1 条 D **不开** `--continuous-navigation`，把"是 navigator 还是仅 plan 注入起作用"拆开。
 
 ---
 
