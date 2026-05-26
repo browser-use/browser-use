@@ -2,6 +2,7 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional
 
+from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT
 from browser_use.dom.views import NodeType, SimplifiedNode
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 from browser_use.observability import observe_debug
@@ -390,13 +391,8 @@ Available tabs:
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
 		"""Get complete state as a single cached message"""
-		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
-		if (
-			is_new_tab_page(self.browser_state.url)
-			and self.step_info is not None
-			and self.step_info.step_number == 0
-			and len(self.browser_state.tabs) == 1
-		):
+		# New-tab pages only carry placeholder screenshots, even later in a multi-tab session.
+		if is_new_tab_page(self.browser_state.url):
 			use_vision = False
 
 		# Build complete state description
@@ -431,8 +427,9 @@ Available tabs:
 
 		# Check if we have images to include (from read_file action)
 		has_images = bool(self.read_state_images)
+		screenshots = [screenshot for screenshot in self.screenshots if screenshot != PLACEHOLDER_4PX_SCREENSHOT]
 
-		if (use_vision is True and self.screenshots) or has_images:
+		if (use_vision is True and screenshots) or has_images:
 			# Start with text description
 			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
 
@@ -440,8 +437,8 @@ Available tabs:
 			content_parts.extend(self.sample_images)
 
 			# Add screenshots with labels
-			for i, screenshot in enumerate(self.screenshots):
-				if i == len(self.screenshots) - 1:
+			for i, screenshot in enumerate(screenshots):
+				if i == len(screenshots) - 1:
 					label = 'Current screenshot:'
 				else:
 					# Use simple, accurate labeling since we don't have actual step timing info
