@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from dateutil import parser as dtparser
@@ -178,7 +178,7 @@ def load_seen_hashes(file_path: str = 'news_data.json') -> set:
 	if not os.path.exists(file_path):
 		return set()
 	try:
-		with open(file_path) as f:
+		with open(file_path, encoding='utf-8') as f:
 			items = json.load(f)
 		return {entry['hash'] for entry in items if 'hash' in entry}
 	except Exception:
@@ -196,7 +196,7 @@ def save_article(article: dict, file_path: str = 'news_data.json'):
 	existing = []
 	if os.path.exists(file_path):
 		try:
-			with open(file_path) as f:
+			with open(file_path, encoding='utf-8') as f:
 				existing = json.load(f)
 		except Exception:
 			existing = []
@@ -205,7 +205,7 @@ def save_article(article: dict, file_path: str = 'news_data.json'):
 	# Keep last 100
 	existing = existing[-100:]
 
-	with open(file_path, 'w') as f:
+	with open(file_path, 'w', encoding='utf-8') as f:
 		json.dump(existing, f, ensure_ascii=False, indent=2)
 
 
@@ -219,7 +219,7 @@ def _fmt(ts_raw: str) -> str:
 	try:
 		return dtparser.parse(ts_raw).strftime('%Y-%m-%d %H:%M:%S')
 	except Exception:
-		return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+		return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
 
 async def run_once(url: str, output_path: str, debug: bool):
