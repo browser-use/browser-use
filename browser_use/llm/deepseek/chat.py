@@ -20,9 +20,31 @@ from browser_use.llm.deepseek.serializer import DeepSeekMessageSerializer
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
-from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _extract_usage(resp: Any) -> ChatInvokeUsage | None:
+	"""Map an OpenAI-compatible ``response.usage`` to ``ChatInvokeUsage``.
+
+	DeepSeek goes through ``AsyncOpenAI`` so ``resp.usage`` is the same shape as the
+	OpenAI provider (``CompletionUsage``). Some legacy proxies may omit it; in that
+	case we keep ``None`` to stay backwards-compatible.
+	"""
+	usage = getattr(resp, 'usage', None)
+	if usage is None:
+		return None
+	prompt_details = getattr(usage, 'prompt_tokens_details', None)
+	cached = getattr(prompt_details, 'cached_tokens', None) if prompt_details is not None else None
+	return ChatInvokeUsage(
+		prompt_tokens=getattr(usage, 'prompt_tokens', 0) or 0,
+		prompt_cached_tokens=cached,
+		prompt_cache_creation_tokens=None,
+		prompt_image_tokens=None,
+		completion_tokens=getattr(usage, 'completion_tokens', 0) or 0,
+		total_tokens=getattr(usage, 'total_tokens', 0) or 0,
+	)
 
 
 @dataclass
@@ -125,7 +147,7 @@ class ChatDeepSeek(BaseChatModel):
 				)
 				return ChatInvokeCompletion(
 					completion=resp.choices[0].message.content or '',
-					usage=None,
+					usage=_extract_usage(resp),
 				)
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e
@@ -173,13 +195,13 @@ class ChatDeepSeek(BaseChatModel):
 				if output_format is not None:
 					return ChatInvokeCompletion(
 						completion=output_format.model_validate(parsed),
-						usage=None,
+						usage=_extract_usage(resp),
 					)
 				else:
 					# If no output_format, return dict directly
 					return ChatInvokeCompletion(
 						completion=parsed,
-						usage=None,
+						usage=_extract_usage(resp),
 					)
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e
@@ -203,7 +225,7 @@ class ChatDeepSeek(BaseChatModel):
 				parsed = output_format.model_validate_json(content)
 				return ChatInvokeCompletion(
 					completion=parsed,
-					usage=None,
+					usage=_extract_usage(resp),
 				)
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e

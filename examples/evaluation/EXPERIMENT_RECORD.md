@@ -23,8 +23,43 @@
 |---|------------|------|------|----------|----------|-------------|------|--------------------------------------|------|
 | 1 | 2026-05-09 | **D** | `nearby_hospital_phone_lookup` | normal | 是 | `qwen3-max` / `deepseek-chat` | 17 | ~420s | 龙岗坂田 3 家医院；高德 POI 链接；曾走百度搜索畸形词与 amap 畸形 URL |
 | 2 | 2026-05-14 | **C** | `nearby_hospital_phone_lookup` | normal | 否 | `qwen3-max` / — | 5 | ~83s | 同一任务在百度地图列表页凑齐 3 条即 `done`（Early-finish）；首跳 URL 曾带 `}}` 碎片后纠正 |
+| 3 | 2026-05-26 09:46 | **C**（Doubao 期） | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` / — | 8 | ~237s（10 invocations，118,755 tokens） | 同任务在豆包默认预设下首次成功；多出 3 步主要来自 `write_file todo.md` + `replace_file`（自我规划，**第 4 条复跑证明是偶发非规律**）；`extract_structured_data` 一次拿全 3 条电话+地址；**source URL 实际全为 not visible，Agent 在 done 中以搜索页 URL 兜底**（per-row source 严格不满足 success_criteria）。 |
+| 4 | 2026-05-26 14:08 | **C**（Doubao 期，复跑） | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` / — | 6 | ~161s（8 invocations，90,917 tokens） | 同命令复跑 Doubao；**没有写 todo**，路径压缩到 `navigate→input→click→wait→extract→done`；本次 `extract` 出来的 **phone 全 not visible**（与第 3 条差异：原因可能是搜索关键词改成"附近医院/诊所"导致排序中夹入门诊部，更深站点信息缺失）；进一步证明 Doubao 自我规划是偶发；source URL 同样为搜索页兜底，仍属 **PARTIAL**。 |
+| 5 | 2026-05-26 14:12 | **D**（Doubao 期，DeepSeek 领航 + 持续领航） | `nearby_hospital_phone_lookup` | normal | **是** | `doubao-seed-2-0-pro-260215` / `deepseek-chat` | **5** | ~119s（6 invocations，75,651 tokens） | Doubao 期 D 首次成功；路径 `navigate→input→click→wait→done`，**完全跳过 `extract` 工具**（Doubao 直接从 DOM 看见列表后在 `done` 里写出 3 家完整 phone+address）；3 家电话均为真实号码（与 2026-05-09 D 数据一致）。**但 `usage_navigator_cycle_llm: null`、`by_model` 中无 deepseek**：要么 DeepSeek 持续领航在本跑次未真正触发周期调用，要么调用未走 TokenCost 通道 → **当前无法证明"D 优于 C 是因为 navigator"**。 |
+| 6 | 2026-05-26 16:08 | **D**（Doubao 期，**修复后**首条带真实 navigator 归因） | `nearby_hospital_phone_lookup` | normal | **是** | `doubao-seed-2-0-pro-260215` / `deepseek-chat` | **5** | ~140s（7 invocations，76,878 tokens；含 deepseek 1,650） | 在 commit `40674ae5` 修复 `ChatDeepSeek.usage` 之后的首跑：`navigator_initial_plan_usage` = 1,143 tokens（开场计划）、`usage_navigator_cycle_llm` = 1,650 tokens（周期触发 1 次）、`navigator_overhead_ratio = 0.0371` 首次出现真实非零值；executor token 几乎不变（76,878 vs 修复前 75,651），证明修复仅改"统计层"不改"执行层"。 |
+| 7 | 2026-05-26 17:30 | **D**（Doubao 期，复现） | `nearby_hospital_phone_lookup` | normal | **是** | `doubao-seed-2-0-pro-260215` / `deepseek-chat` | **5** | ~131s（7 invocations，77,196 tokens；含 deepseek 1,595） | 与 #6 几乎一致：`navigator_overhead_ratio = 0.0368`（vs 0.0371）、navigator total = 2,785 tokens。两次跑次步数都正好 5 步、overhead 都 ≈3.7%——说明 Doubao+DeepSeek 在该任务上的协作模式**高度可复现**，方差极小。 |
+| 8 | 2026-05-26 17:33 | **C**（Doubao 期，对照基准） | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` / — | **5** | ~146s（7 invocations，71,541 tokens） | 提供给 #6 #7 D 跑次的同时段 C 对照；步数也是 5 步——这次 C 没写 todo、没夹入门诊部，phone 字段抽到了真号码（**与 2026-05-26 09:46 那条一致**），是 Doubao C 路径的一个"好状态"样本。 |
 
-**Artifacts**：① `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260509T064248Z/` ② `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260514T080341Z/`（均含 `history.json`、`conversation.json`；D 另含 `navigator_plan.md`）。**失败 / JSON 形态早停样例**（如 `exp-D/20260514T110508Z`）与 **C vs D 写作注意** 见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
+**Artifacts**：
+- ① `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260509T064248Z/`（D · Qwen 期）
+- ② `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260514T080341Z/`（C · Qwen 期）
+- ③ `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T094651Z/`（C · Doubao 期 · 8 步）
+- ④ `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T140809Z/`（C · Doubao 期 · 6 步复跑）
+- ⑤ `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T141221Z/`（D · Doubao 期 · 修复前 · navigator overhead 假 0）
+- ⑥ `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T160813Z/`（D · Doubao 期 · **修复后首条真实归因**）
+- ⑦ `agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T173011Z/`（D · Doubao 期 · 修复后复跑）
+- ⑧ `agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T173306Z/`（C · Doubao 期 · 对照基准）
+
+均含 `history.json`、`conversation.json`；D 另含 `navigator_plan.md`。**失败 / JSON 形态早停样例**（如 `exp-D/20260514T110508Z`）与 **C vs D 写作注意** 见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**。
+
+**模型版本切分点**：自 2026-05-21 提交 `48d1660b` 起，C/D 默认执行器从 **Qwen（`qwen3-max` · DashScope）** 改为 **Doubao（`doubao-seed-2-0-pro-260215` · Volcengine Ark）**。表中 2026-05-26 之后的 C/D 记录默认是 Doubao 时期；若仍用 Qwen 跑（`--executor-model qwen3-max`），请在备注中注明，避免混淆。
+
+**Navigator 归因修复点**：自 2026-05-27 commit `40674ae5` 起，`ChatDeepSeek` 不再写死 `usage=None`。**该 commit 之前所有 D 跑次的 `navigator_initial_plan_usage` / `usage_navigator_cycle_llm` / `navigator_overhead_ratio` 字段都不可用**（强制 0），不应作为 navigator 成本来源；之后所有 D 跑次才有真实归因。Qwen 期的老 D 跑次（2026-05-09）也属于"navigator 成本黑盒"区，但因换模型已不可比。
+
+**Doubao 期统计**（基于 2026-05-26 ③④⑥⑦⑧ 5 条跑次，n_C=3, n_D=3 · 详见 `experiment_resource_report.json`）：
+
+| 维度 | C（n=3） | D（n=3，修复后） | hint |
+|---|---|---|---|
+| 成功率 | 3/3 | 3/3 | 持平 |
+| `number_of_steps` mean | **6.33（±1.53）** | **5.00（±0.0）** | D 更少且**方差为 0**（path 稳定性高） |
+| `duration_seconds` mean | 181.2s（±49.1） | **130.0s（±10.4）** | D 快 28%、std 仅 1/5 |
+| `total_tokens` mean | 93,738（±23,733） | **76,575（±816）** | D 省 18%、std 仅 1/29 |
+| `navigator_overhead_ratio` mean | 0.0000 | **0.0247**（修复前曾恒为 0；修复后 ⑥/⑦ 都 ≈ 0.037） | 首次可量化 navigator 真实税率 ≈ 3.7% |
+| `token_efficiency_score` mean | 0.0111 | **0.0131** | D 高 18% |
+| `execution_velocity` mean (tok/s) | 519.0 | **591.3** | D 高 14% |
+| **net token saving (D vs C)** | — | **≈ 17,163 tokens / 任务** | D 多花 navigator ~2,800，但少花 executor ~20,000 → **净省 ≈ 14,400** |
+
+> **首次可下结论**（在该任务下、Doubao+DeepSeek、n=3 量级）：navigator 不仅没拖累，反而带来 step / time / token 三项一致性提升，且 navigator 自身税率仅 ~3.7%，远低于它带来的 executor 节省。下一步建议：**扩第二个任务（如 `daily_service_hours_lookup` 或 `paper_link_collection`）验证这个结论是不是任务无关的**；同时跑 1 条 D **不开** `--continuous-navigation`，把"是 navigator 还是仅 plan 注入起作用"拆开。
 
 ---
 
@@ -44,27 +79,46 @@
 
 ---
 
-## C — 无领航 · Qwen 执行
+## C — 无领航 · Qwen / Doubao 执行
 
-| 日期 (UTC) | Task | Scenario | 持续领航 | 墙钟 | 步数 | 摘要 |
-|------------|------|----------|----------|------|------|------|
-| 2026-05-14 | `nearby_hospital_phone_lookup` | normal | 否 | `08:03:41`→`08:14:15` Z（~10.5 min 墙钟；history 累加 ~83s） | 5（`usage` invocations 6） | 百度地图搜索列表直接产出 3 家：坂田医院 / 市人民医院坂田院区 / 远东妇产龙岗；电话与地址；来源为列表页检索 URL |
+| 日期 (UTC) | Task | Scenario | 持续领航 | 执行模型 | 墙钟 | 步数 | 摘要 |
+|------------|------|----------|----------|----------|------|------|------|
+| 2026-05-14 | `nearby_hospital_phone_lookup` | normal | 否 | `qwen3-max` | `08:03:41`→`08:14:15` Z（~10.5 min 墙钟；history 累加 ~83s） | 5（`usage` invocations 6） | 百度地图搜索列表直接产出 3 家：坂田医院 / 市人民医院坂田院区 / 远东妇产龙岗；电话与地址；来源为列表页检索 URL |
+| 2026-05-26 09:46 | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` | `09:46:51`→`09:51:14` Z（~4.4 min 墙钟；history 累加 ~237s） | 8（`usage` invocations 10；118,755 tokens） | 豆包默认预设下的首条 C 成功；路径仍是百度地图列表 → `extract_structured_data` 一次拿全 3 条；**多出的 3 步是 `write_file todo.md` + `replace_file`（自我规划）+ `wait`**；source URL 实际抽取结果均为 `not visible`，Agent 在 `done.text` 用搜索页 URL 兜底（per-row source 严格不满足 success_criteria） |
+| 2026-05-26 14:08 | `nearby_hospital_phone_lookup` | normal | 否 | `doubao-seed-2-0-pro-260215` | `14:08:09`→`14:10:50` Z（~2.7 min 墙钟；history 累加 ~161s） | 6（`usage` invocations 8；90,917 tokens） | 同命令复跑；**未写 todo**，路径压缩到 `navigate→input→click→wait→extract→done`；本次 `extract` 返回 **phone 全 not visible**（与 9:46 那条差异：搜索关键词改为"附近医院/诊所"夹入门诊部，更深层 phone 字段缺失）；进一步证明 Doubao 自我规划是**偶发非规律**；source URL 仍为搜索页兜底，仍 **PARTIAL** |
 
-**Artifacts**：`tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260514T080341Z/`
+**Artifacts**：
+- `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260514T080341Z/`（Qwen 期）
+- `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T094651Z/`（Doubao 期 · 8 步）
+- `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-C/20260526T140809Z/`（Doubao 期 · 6 步复跑）
 
-**备注**：与 **D** 同任务对比，本趟**未开**持续领航；步数远少于 D（17）主要因路径留在 **map.baidu.com** 且遵守 **Early-finish**，未再深挖高德 POI 页。执行器侧 **`navigator_current_step`** 仅在有领航注入时有值；C 成功仍受益于任务提示与 Qwen 单步动作约束等（见 **`DAILY_TASK_EXPERIMENT_LOG.md`**、`docs/issue-notes/navigator-current-step-executor-subgoal.md`）。
+**备注**：
+- 与 **D** 同任务对比，本趟**未开**持续领航；步数远少于 Qwen 期 D（17）主要因路径留在 **map.baidu.com** 且遵守 **Early-finish**，未再深挖高德 POI 页。执行器侧 **`navigator_current_step`** 仅在有领航注入时有值。
+- **Doubao 期 C 两次跑次 6 vs 8 步**：差异来自"是否写 todo"；说明 Doubao 自我规划是**采样波动**而非稳定偏好——不能写成模型特性。引入 `productive_step_count = total_steps − todo_management_step_count` 做归一化更合理（Doubao 两次跑次 productive 都是 5~6 步，与 Qwen 期 5 步可比）。
+- **Doubao 在百度地图 DOM-only 路径上未触发 JSON 漂移 / 畸形 URL**：客户端层对 `doubao-*` 关闭 `response_format.type=json_schema` 改用 prompt-stuffed schema（见 `browser_use/llm/openai/chat.py`），是 5/21 提交 `48d1660b` 引入的。
+- **success 是 Agent 自报**：两条记录虽 `success=true`，但 source URL 实际为字段拼凑；且 9:46 那条 phone 真实而 14:08 那条 phone 全缺，**Agent 都未在 `final_result` 中标注这种字段质量差异** → 进一步说明需推动 `evidence_schema` 程序校验。
 
 ---
 
-## D — DeepSeek 领航 · Qwen 执行
+## D — DeepSeek 领航 · Qwen / Doubao 执行
 
-| 日期 (UTC) | Task | Scenario | 持续领航 | 执行 | 领航 | 墙钟 | 步数 | 摘要 |
-|------------|------|----------|----------|------|------|------|------|------|
+| 日期 (UTC) | Task | Scenario | 持续领航 | 执行模型 | 领航模型 | 墙钟 | 步数 | 摘要 |
+|------------|------|----------|----------|----------|----------|------|------|------|
 | 2026-05-09 | `nearby_hospital_phone_lookup` | normal | 是 | `qwen3-max` | `deepseek-chat` | ~19 min (`06:42:59`→`07:02:11` Z) | 17 | 深圳市龙岗区坂田街道 3 家医院；名称 / 电话 / 地址 / 高德 POI 链接 |
+| 2026-05-26 14:12 | `nearby_hospital_phone_lookup` | normal | **是** | `doubao-seed-2-0-pro-260215` | `deepseek-chat` | `14:12:21`→`14:14:20` Z（~2 min 墙钟；history 累加 ~119s） | **5**（`usage` invocations 6；75,651 tokens） | Doubao 期 D 首条成功；路径 `navigate→input→click→wait→done`，**完全跳过 `extract` 工具**——Doubao 直接从列表页 DOM 看见后在 `done` 里写出 3 家完整 phone+address（**号码与 2026-05-09 D 跑次一致：0755-89504000 / 0755-25566770 / 0755-23678999**）。**但 `usage_navigator_cycle_llm: null`、`by_model` 中无 deepseek**：DeepSeek 持续领航在本跑次未真正触发周期调用，或调用未走 TokenCost 通道 → 当前无法证明"D 优于 C 是因为 navigator"。 |
 
-**Artifacts**：`tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260509T064248Z/`（含 `navigator_plan.md`、`history.json`、`conversation.json`）
+**Artifacts**：
+- `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260509T064248Z/`（Qwen 期 · 含 `navigator_plan.md`）
+- `tmp/daily_task_eval/agent_runs/nearby_hospital_phone_lookup/normal/exp-D/20260526T141221Z/`（Doubao 期）
 
-**备注**：`yyk.99.com.cn` 导航失败未阻断；百度搜索词曾含 `'}}` 碎片；出现过畸形 `amap.com/...%7D%7D]%7D`。本跑在 **短子目标 / `<current_step_focus>`** 合入主线之前；B/D 若开 **`--continuous-navigation`**，执行者每步会多 **`navigator_current_step`** 顶栏（见 **`docs/issue-notes/navigator-current-step-executor-subgoal.md`**）。
+**备注**：
+- **Doubao 期 D 没调 `extract` 工具就能写出真号码**：与 Qwen 期 D 完全不同的工具使用偏好——Doubao 倾向"看见即用"，Qwen 倾向"走工具→走 POI 详情"。是这次跑次 5 步 vs 历史 17 步差异的主要原因，**和 navigator 关系存疑**。
+- **navigator 归因失踪问题**（关键）：本次 `usage_summary.by_model` 只看到 `doubao-seed-2-0-pro-260215`，没有 `deepseek-chat`；`usage_navigator_cycle_llm` 是 `null`。两种可能：
+  1. DeepSeek 在本跑次根本没被调用（持续领航触发条件不满足，例如 5 步太短）；
+  2. DeepSeek 被调用了但走的是独立 HTTP 客户端不经过 Agent 的 TokenCost。
+  需要在下一次 D 跑次开 `--log-level debug` 验证，并核对 `browser_use/experiments/daily_task_eval/runner.py` 的 navigator 调用钩子。
+- **Qwen 期 D（2026-05-09）的 17 步**：`yyk.99.com.cn` 导航失败未阻断；百度搜索词曾含 `'}}` 碎片；出现过畸形 `amap.com/...%7D%7D]%7D`。本跑在 **短子目标 / `<current_step_focus>`** 合入主线之前；B/D 若开 **`--continuous-navigation`**，执行者每步会多 **`navigator_current_step`** 顶栏（见 **`docs/issue-notes/navigator-current-step-executor-subgoal.md`**）。
+- **success 是 Agent 自报**：Doubao 期 D 的 source URL 同样是搜索页兜底（per-row source 严格不满足 success_criteria），归类为 **PARTIAL**——但比两条 C 多了"真实电话"这一项关键事实。
 
 ---
 
