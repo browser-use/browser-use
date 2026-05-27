@@ -6,6 +6,7 @@ import logging
 import re
 import traceback
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generic, Literal
 
@@ -589,6 +590,34 @@ class AgentHistory(BaseModel):
 		}
 
 
+class AgentRunTraceStep(BaseModel):
+	"""A compact, shareable trace row for one agent action or step."""
+
+	step_index: int
+	action_index: int | None = None
+	timestamp: str | None = None
+	url: str | None = None
+	title: str | None = None
+	action_type: str | None = None
+	action_payload: dict[str, Any] | None = None
+	llm_thought: dict[str, Any] | None = None
+	screenshot_ref: str | None = None
+	step_outcome: Literal['success', 'error', 'done', 'unknown'] = 'unknown'
+	error: str | None = None
+	result: str | None = None
+	duration_seconds: float | None = None
+
+
+class AgentRunTrace(BaseModel):
+	"""Structured replay data for debugging and sharing browser-use agent runs."""
+
+	steps: list[AgentRunTraceStep]
+	final_result: str | None = None
+	is_done: bool = False
+	success: bool | None = None
+	total_duration_seconds: float | None = None
+
+
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
 
 
@@ -630,6 +659,90 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			Path(filepath).parent.mkdir(parents=True, exist_ok=True)
 			data = self.model_dump(sensitive_data=sensitive_data)
 			with open(filepath, 'w', encoding='utf-8') as f:
+				json.dump(data, f, indent=2, ensure_ascii=False)
+		except Exception as e:
+			raise e
+
+	def to_run_trace(self, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> AgentRunTrace:
+		"""Convert history into a compact action-by-action trace for replay and debugging."""
+
+		steps: list[AgentRunTraceStep] = []
+
+		for history_index, history_item in enumerate(self.history):
+			step_number = history_item.metadata.step_number if history_item.metadata else history_index
+			timestamp = None
+			duration_seconds = None
+			if history_item.metadata:
+				timestamp = datetime.fromtimestamp(history_item.metadata.step_end_time, tz=timezone.utc).isoformat()
+				duration_seconds = history_item.metadata.duration_seconds
+
+			llm_thought = None
+			actions: list[dict[str, Any]] = []
+			if history_item.model_output:
+				brain = history_item.model_output.current_state
+				llm_thought = brain.model_dump(exclude_none=True)
+				actions = [action.model_dump(exclude_none=True, mode='json') for action in history_item.model_output.action]
+				if sensitive_data:
+					actions = [
+						history_item._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
+						for action in actions
+					]
+
+			results = history_item.result or []
+			row_count = max(len(actions), len(results), 1)
+
+			for action_index in range(row_count):
+				action = actions[action_index] if action_index < len(actions) else None
+				action_type = next(iter(action.keys()), None) if action else None
+				action_payload = action.get(action_type) if action and action_type else None
+				result = results[action_index] if action_index < len(results) else None
+
+				step_outcome: Literal['success', 'error', 'done', 'unknown'] = 'unknown'
+				error = None
+				result_text = None
+				if result:
+					error = result.error
+					result_text = result.long_term_memory or result.extracted_content
+					if result.error:
+						step_outcome = 'error'
+					elif result.is_done:
+						step_outcome = 'done'
+					else:
+						step_outcome = 'success'
+
+				steps.append(
+					AgentRunTraceStep(
+						step_index=step_number,
+						action_index=action_index if action else None,
+						timestamp=timestamp,
+						url=history_item.state.url,
+						title=history_item.state.title,
+						action_type=action_type,
+						action_payload=action_payload,
+						llm_thought=llm_thought,
+						screenshot_ref=history_item.state.screenshot_path,
+						step_outcome=step_outcome,
+						error=error,
+						result=result_text,
+						duration_seconds=duration_seconds,
+					)
+				)
+
+		return AgentRunTrace(
+			steps=steps,
+			final_result=self.final_result(),
+			is_done=self.is_done(),
+			success=self.is_successful(),
+			total_duration_seconds=self.total_duration_seconds() if self.history else None,
+		)
+
+	def save_trace_to_file(self, filepath: str | Path, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> None:
+		"""Save a compact run trace JSON file for replay and debugging."""
+		try:
+			path = Path(filepath)
+			path.parent.mkdir(parents=True, exist_ok=True)
+			data = self.to_run_trace(sensitive_data=sensitive_data).model_dump(exclude_none=True, mode='json')
+			with open(path, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2, ensure_ascii=False)
 		except Exception as e:
 			raise e
