@@ -161,3 +161,24 @@ Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.
 ALWAYS prefer editing an existing file to creating a new one.
 NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+
+
+---
+
+## DevFlow — AI Dev Workflow Commands
+
+This project has `DEVFLOW_SKILL.md` in the repo root. Use short commands to drive development:
+
+| Command | Action |
+|---------|--------|
+| `B` | Build the next roadmap item |
+| `I` | Integrate — sync code, docs, state |
+| `Im` | Improve — refactor/harden, no new features |
+| `E` | Evaluate — structured security/quality audit |
+| `C` | Consolidate — remove dead code, extract helpers |
+| `Bl` | Blueprint — update living docs |
+| `P` | Push — smart commit + push to all remotes |
+| `D` | Deploy — auto-detect Netlify/Vercel/GH Pages |
+| `CI` | Full pipeline: I → Im → E → C → Bl → P → D |
+
+Combine freely: `B+P+D`, `E Im`, `CI`. See `DEVFLOW_SKILL.md` for full specs.

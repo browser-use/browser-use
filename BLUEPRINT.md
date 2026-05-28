@@ -1,6 +1,6 @@
 # Browser-Use × Claude Code — Interactive Agent Blueprint
 
-> Living design document. Last updated: 2026-05-21. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push.
+> Living design document. Last updated: 2026-05-28. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS.
 
 ---
 
@@ -388,9 +388,11 @@ browser-use --mcp    # Exposes browser tools to Claude Desktop / other MCP clien
 **Cross-track wildcard:** imec (A6) does blockchain/distributed systems research alongside hardware deep tech; Securitize (B5) is heavily engineering-weighted.
 
 **Next actions:**
+- [x] A1–A8 / B1–B6 identified (2026-05-21)
 - [ ] Review full JDs for A1, A2, A4, B1, B3
 - [ ] Tailor CV to highlight: startup experience · engineering background · innovation frameworks · sector (space OR blockchain)
 - [ ] Check for newer listings — space sector roles turn over fast
+- → *See §10 for the 2026-05-23 follow-up search targeting the Business Innovation Manager dimension*
 
 ---
 
@@ -445,3 +447,206 @@ Intended audience: new users arriving at the GitHub repo for the first time.
 - [ ] Add a "time to first result" benchmark (e.g., "median 47 seconds from install to first completed task")
 - [ ] Localise the Windows friction section — add a one-liner to permanently fix the `PYTHONIOENCODING` issue in PowerShell profile
 - [ ] Add a copy button to all code blocks (if hosting as a web doc)
+
+---
+
+## 9. Udemy Curriculum → deeptechx.xyz (2026-05-22)
+
+### Task
+Fetch module/lecture outlines from Udemy instructor course and populate the curriculum on deeptechx.xyz.
+
+- **Udemy course:** https://www.udemy.com/instructor/course/7092157/manage/curriculum/
+  - Course title: *DeepTechX Launchpad — From Vision to Execution Framework*
+- **Target site:** http://deeptechx.xyz (hosted at https://deeptechx.vercel.app, source: https://github.com/dnzengou/deeptechx)
+
+### How Cloudflare Was Bypassed
+Headless Chromium and Chrome profile modes both hit Cloudflare's "Just a moment…" check.  
+Solution: `browser-use cloud connect` provisions a stealth cloud browser via `BROWSER_USE_API_KEY`.  
+User authenticated via the live browser URL: `https://live.browser-use.com/?wss=...`
+
+### Udemy Curriculum Extracted (12 sections)
+
+| # | Section | Key Lectures |
+|---|---------|-------------|
+| 1 | EO Space Data Commercialization | The Earth Observation Startup Playbook (Parts 1 & 2) |
+| 2 | AI Agency Launchpad | Local AI Automation Agency (The "Digital Operator") |
+| 3 | Tokenomics & Real-World Assets Tokenization | Tokenomics and RWAs Tokenization Presentation |
+| 4 | Stratégie Financière Africaine: Réserves de Bitcoin | Reserve de bitcoin strategie nationale |
+| 5 | Post-Quantum Cryptography & Quantum-Safe Systems | PQC & Systems, The Crypto Agility Manifesto |
+| 6 | The AI-Powered Consulting Revolution | Consulting Productization Training — Productize Yourself! |
+| 7 | Human-Centered Design for Deep Tech Innovation | The Commercial Velocity Playbook |
+| 8 | Deep Tech Venture Launchpad — From Scientist to Scalable Startup | The Expert Trap & The 5-Steps Framework |
+| 9 | Space Technology in Healthcare | EGNSS In Healthcare |
+| 10 | Space & Gaming | Why Space Tech-Enabled Gaming is More than a Game |
+| 11 | Boardroom Statecraft 2026 | Navigating the Global Drift |
+| 12 | Bridging Space Technology with User Needs on Earth | EGNSS+EO Data for Mobility, Health, Logistics, Climate |
+
+### What Was Updated in deeptechx.xyz
+Site is a **Vite + React + TypeScript SPA** (Bolt.new origin, code-path attributes in DOM).  
+Source at `dnzengou/deeptechx` → `src/App.tsx`.
+
+Changes to `src/App.tsx` (commit `c0d67b3`):
+1. Added `description` field to every module object (specific, non-generic)
+2. Added `lectures: string[]` field mapping Udemy section/lecture titles to each module:
+   - M01 ← Human-Centered Design
+   - M02 ← Deep Tech Venture Launchpad (5-Steps Framework)
+   - M04 ← Tokenomics + Bitcoin Reserves (FR)
+   - M05 ← AI Agency / Digital Operator
+   - M06 ← PQC + Crypto Agility Manifesto
+   - M08 ← 6 lectures across EO, Space/Health, Space/Gaming, EGNSS
+   - M09 ← Boardroom Statecraft 2026
+   - M14 ← Consulting Productization
+3. Updated dialog popup rendering: replaces generic filler copy with `module.description` and renders `module.lectures` as a `Play`-icon bullet list under a **"UDEMY LECTURES"** heading
+
+### Deployment
+- Push to `main` → Vercel auto-deployed in ~2 seconds
+- Deployment ID: `4787620260`, status: `success`
+- Live at: https://deeptechx.vercel.app / http://deeptechx.xyz
+
+---
+
+## 10. Job Search v2 — Business Innovation Manager Profile (2026-05-23)
+
+**Session method:** "caveman + karpathy + fixclaude" — strip the search to first principles, no fancy aggregation, direct signal over noise.
+
+**Profile pivot from §7:** This search targets the *Business Innovation Manager* dimension of the profile (GeoVille, EUSPA CASSINI, Antler) rather than the BD/blockchain angle. Key differentiators being leveraged: 15 yrs deep tech breadth (space EO + AI/ML + quantum + blockchain), EU institutional network, startup coaching/acceleration, curriculum development, international profile (EU/Africa/Americas).
+
+**Sources attempted vs. accessible:**
+
+| Board | Result |
+|-------|--------|
+| LinkedIn Jobs | Login wall — partial scrape only (4 cards visible) |
+| RemoteOK | Premium paywall |
+| Google Jobs | Cloudflare CAPTCHA |
+| Indeed | Cloudflare block |
+| WeWorkRemotely | 0 results for the query |
+| Remotive | 404 on search URL |
+| Wellfound | Bot detection block |
+| Space-Career.com | ESET antivirus block (local) |
+| **ESA jobs.esa.int** | ✅ Clean access — 15 results |
+| **Bing Jobs** | ✅ Clean access — 7 unique listings |
+
+**Anti-bot lesson:** All major boards (LinkedIn, Indeed, Google, Wellfound) block headless Chromium via Cloudflare or fingerprinting. ESA and Bing are the most open aggregators for this use case without login.
+
+---
+
+### 🚀 Track C — Innovation / Deep Tech Founder & Analyst Roles (Remote)
+
+| # | Role | Company | Type | Location | Fit signal | Apply |
+|---|------|---------|------|----------|-----------|-------|
+| C1 | **Space Tech Co-Founder / CMO** | EWOR | Full-time | 100% Remote (EU/Americas) | ⭐⭐⭐⭐⭐ Build your own space tech startup; salary + up to €500k funding; 1:1 with unicorn founders (Adjust €1.2B, SumUp €8B). Perfect for serial builder profile. | [Jobrapido](https://www.jobrapido.com) / [LinkedIn](https://linkedin.com) |
+| C2 | **AI Co-Founder / CCO** | EWOR | Full-time | 100% Remote (EU/Americas) | ⭐⭐⭐⭐⭐ Same EWOR programme, AI-focused. CCO angle covers customer/commercialisation — matches the coaching + ML deployment background. | [LinkedIn](https://linkedin.com) |
+| C3 | **Senior Director, Analyst — Strategic Innovation Insights** | Gartner | Full-time | Remote Europe | ⭐⭐⭐⭐⭐ "Innovate the innovation process" for CIOs. 12+ yrs tech/business, emerging tech (AI, quantum, autonomous), consulting background, executive presence. JD reads as a direct description of the profile. Job ID: 108490 | [Gartner Careers](https://jobs.gartner.com) / LinkedIn |
+| C4 | **Earth Observation Service Manager** | ESA | 4-yr contract | Frascati, Italy (on-site) | ⭐⭐⭐ Strong EO/satellite background via GeoVille. Not remote; requires relocation. Closes 12 June 2026. | [jobs.esa.int](https://jobs.esa.int) |
+| C5 | **COSMIC Project Manager** | ESA | 4-yr contract | Darmstadt, Germany (on-site) | ⭐⭐ TPM background (Google). Not remote. Closes 29 May 2026. | [jobs.esa.int](https://jobs.esa.int) |
+
+---
+
+### EWOR Programme Detail (C1 + C2)
+
+- Salary while building your startup, OR up to €500k in equity funding (founder's choice)
+- Weekly 1:1 with unicorn founders
+- Network: top 0.1% founders + 50,000+ professionals for hiring
+- Average EWOR fellow raises >€2M after Grand Pitch (12-month target)
+- Record: €12M pre-seed by a first-time founder
+- Requirement: based in Europe or Americas, or willing to relocate; full ownership of startup
+
+### Gartner Senior Director Detail (C3)
+
+- Audience: C-level clients (CIOs, CTOs) of enterprise organisations globally
+- Content area: Innovation and Emerging Technologies — AI (including Physical AI), quantum, autonomous systems, digital sovereignty, cybersecurity
+- Output: "must-have" research notes, predictions, keynotes at Gartner events
+- Key differentiator asked for: *re-engineer the innovation pipeline* away from "innovation theater" → practical, tech-driven, agentic
+- Travel: up to 25%
+- Hands-on GenAI literacy required (Gemini, ChatGPT, Copilot, agentic tools)
+
+---
+
+### Priority Ranking (§7 + §10 combined)
+
+**Tier 1 — Exact profile fit, apply immediately:**
+1. **C1 / C2** — EWOR Space Tech / AI Co-Founder: serial builder profile + space + AI + remote = perfect vector
+2. **C3** — Gartner Senior Director: the JD is a word-for-word description of what this profile does
+3. **A1** — Tandem NewSpace Co-founder BD (§7): engineering + startup + NewSpace combo
+
+**Tier 2 — Strong fit with one gap (location or narrow scope):**
+4. **A4** — Infleqtion Quantum/Space BDM
+5. **A2** — Loft Orbital VP BD EMEA
+6. **B1** — Wert.io remote blockchain BD
+7. **C4** — ESA EO Service Manager (if open to Frascati relocation)
+
+**Tier 3 — Good signal, worth monitoring:**
+8. **A5** — Aalto R2B Business Developer
+9. **A6** — imec Senior BDM
+10. **B3** — Chainlink EMEA AE
+
+---
+
+### Next Actions (§10 — updated 2026-05-28)
+
+- [x] EWOR form 95% complete — only missing: video URL + pitch deck upload → provide video link to complete
+- [x] Gartner Job 108490 closed → replaced by Job 110514 (Sr Director Analyst - Innovation & Emerging Tech, Remote EU) — Workday page open
+- [x] Bing Jobs alert saved (SAVED SEARCHES 1) — login with `desire.yavro@gmail.com` to activate email alerts
+- [ ] Provide EWOR 1-min pitch video URL (Loom/YouTube/LinkedIn) to unblock form submission
+- [ ] Upload pitch deck PDF to EWOR form at `https://form.ewor.com/t/sn9FZVeJWkus`
+- [ ] Apply to Gartner 110514 via Workday (Apply button at element [45])
+- [ ] See §11 for new Nordic/Remote EU innovation leads (EIT Health, SMRT Copenhagen)
+
+---
+
+## §11. Job Search v3 — Nordic & Remote EU Innovation Roles (2026-05-28)
+
+> Methodology: Himalayas.app, ESA Jobs, Bing Jobs, LinkedIn public, Remotive, Vinnova direct check. IP 81.223.72.186 blocked by Google/Indeed/Wellfound. Results file: `C:\Users\nzengou\Documents\Perso\job_search_innovation_2026-05-28.md` (local only, not committed).
+
+### New Tier 1 Leads (additive to §10)
+
+| ID | Title | Company | Location | Deadline | Match |
+|----|-------|---------|----------|----------|-------|
+| D1 | **Innovation to Market Manager** (m/f/d) | EIT Health | Remote FR/DE/PL/ES | **28 Jun 2026** | ⭐⭐⭐⭐ EU programme management, 5+ yrs, exact EUSPA pattern |
+| D2 | **Sr Director Analyst — Innovation & Emerging Tech** | Gartner BTI | Remote UK/Europe | Open | ⭐⭐⭐⭐ Replaces closed C3 (Job 108490); digital assets + blockchain |
+| D3 | **Innovation Manager, Project & Engineering** | SMRT Corporation | Copenhagen, DK | Open | ⭐⭐⭐ Nordic base (DK), metro infrastructure + engineering PM |
+
+### Nordic Career Pages to Monitor
+
+| Company | Type | Why |
+|---------|------|-----|
+| Ericsson | Deep tech / 5G / AI | Stockholm HQ; innovation strategy roles |
+| Saab AB | Defence / space | Space/EO, Swedish, innovation labs |
+| RISE Research Institutes | Swedish public R&D | Programme management, Govt-adjacent |
+| Business Sweden | Innovation export | Africa/APAC cross-sector focus matches profile |
+| EIT Digital | EU digital innovation | Same DNA as D1 (EIT Health), digital-first |
+| Innovation Norway | Nordic public body | Cross-sector mandate, Nordic ecosystem |
+
+### WorldMonitor RSS Feeds Curated (2026-05-28)
+
+Platform: `worldmonitor-core.vercel.app` — fuses GDELT + ADS-B + AIS + RSS. Feed list curated to match profile domains (space, AI, EU policy, Africa, startup/VC):
+
+```
+# SPACE & EARTH OBSERVATION
+https://spacenews.com/feed/
+https://www.space.com/feeds/all
+https://www.esa.int/rssfeed/Our_Activities/Space_Engineering_Technology/rss20.xml
+
+# AI & DEEP TECH
+https://techcrunch.com/category/artificial-intelligence/feed/
+https://venturebeat.com/category/ai/feed/
+https://feeds.feedburner.com/mit-technology-review/
+
+# EU INNOVATION & POLICY
+https://eic.ec.europa.eu/news/rss.xml
+https://www.politico.eu/section/tech/feed/
+
+# AFRICA & EMERGING MARKETS
+https://african.business/feed/
+https://techcabal.com/feed/
+https://disrupt-africa.com/feed/
+
+# STARTUP / VC
+https://news.crunchbase.com/feed/
+https://sifted.eu/feed/
+
+# GEOPOLITICS
+https://feeds.reuters.com/reuters/worldNews
+https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+```
+- [ ] Set a Bing Jobs alert for: "innovation manager deep tech space AI senior remote"

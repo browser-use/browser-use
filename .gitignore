@@ -84,3 +84,5 @@ product_extraction.py
 plot.py
 
 .claude/
+BLUEPRINT_browser_backup*.md
+*.png
