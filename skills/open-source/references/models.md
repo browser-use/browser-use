@@ -59,8 +59,8 @@ Optimized for browser automation — highest accuracy, fastest speed, lowest tok
 ```python
 from browser_use import Agent, ChatBrowserUse
 
-llm = ChatBrowserUse()                    # bu-latest (default)
-llm = ChatBrowserUse(model='bu-2-0')      # Premium model
+llm = ChatBrowserUse()                    # bu-2-0 (default, = bu-latest)
+llm = ChatBrowserUse(model='bu-1-0')      # Previous generation model
 ```
 
 **Env:** `BROWSER_USE_API_KEY` — get at https://cloud.browser-use.com/new-api-key
@@ -68,8 +68,8 @@ llm = ChatBrowserUse(model='bu-2-0')      # Premium model
 **Models & Pricing (per 1M tokens):**
 | Model | Input | Cached | Output |
 |-------|-------|--------|--------|
-| bu-1-0 / bu-latest (default) | $0.20 | $0.02 | $2.00 |
-| bu-2-0 (premium) | $0.60 | $0.06 | $3.50 |
+| bu-2-0 / bu-latest (default) | $0.60 | $0.06 | $3.50 |
+| bu-1-0 (previous generation) | $0.20 | $0.02 | $2.00 |
 | browser-use/bu-30b-a3b-preview (OSS) | — | — | — |
 
 ## OpenAI
