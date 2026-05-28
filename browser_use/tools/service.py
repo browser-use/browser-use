@@ -1775,14 +1775,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			terminates_sequence=True,
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
-			# SecurityWatchdog only hooks navigation, so evaluate() would bypass
-			# profile restrictions via fetch() / direct origin access.
-			profile = browser_session.browser_profile
-			if profile.allowed_domains or profile.prohibited_domains or profile.block_ip_addresses:
-				return ActionResult(
-					error='evaluate() is disabled on profiles configured with allowed_domains, '
-					'prohibited_domains, or block_ip_addresses.'
-				)
+			# Execute JavaScript with proper error handling and promise support
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 

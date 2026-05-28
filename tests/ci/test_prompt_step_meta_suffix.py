@@ -1,6 +1,7 @@
 """Lock per-step varying metadata (step counter, wall-clock date) at the tail of the user message.
 
 The agent's user message looks roughly:
+  <user_request>...</user_request>
   <agent_history>...</agent_history>
   <agent_state>...</agent_state>
   <browser_state>...</browser_state>
@@ -60,6 +61,8 @@ def test_step_info_lives_at_suffix(tmp_path):
 	assert isinstance(content, str)
 
 	assert '<step_info>' in content
+	assert content.index('<user_request>') < content.index('<agent_history>')
+	assert content.index('</agent_history>') < content.index('<agent_state>')
 	# Suffix: step_info must come after agent_state and browser_state.
 	assert content.index('<agent_state>') < content.index('<step_info>')
 	assert content.index('<browser_state>') < content.index('<step_info>')
@@ -68,6 +71,16 @@ def test_step_info_lives_at_suffix(tmp_path):
 	state_start = content.index('<agent_state>')
 	state_end = content.index('</agent_state>')
 	assert '<step_info>' not in content[state_start:state_end], 'per-step metadata leaked into <agent_state> prefix region'
+	assert '<user_request>' not in content[state_start:state_end], 'user request leaked back into <agent_state>'
+
+
+def test_agent_history_end_marker_is_present_once(tmp_path):
+	content = _make_prompt(tmp_path).get_user_message(use_vision=False).content
+	assert isinstance(content, str)
+
+	assert content.count('</agent_history>') == 1, (
+		'super important: LLM gateway cache splitting expects exactly one </agent_history> marker'
+	)
 
 
 def test_prefix_up_to_step_info_is_stable_across_steps(tmp_path):

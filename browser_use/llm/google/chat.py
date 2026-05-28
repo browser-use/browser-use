@@ -99,9 +99,6 @@ class ChatGoogle(BaseChatModel):
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
-	cached_content: str | None = (
-		None  # Gemini explicit CachedContent name (e.g. "cachedContents/abc123") to reuse a precomputed prefix across calls. Per-call override via ainvoke(..., cached_content=...).
-	)
 	max_retries: int = 5  # Number of retries for retryable errors
 	retryable_status_codes: list[int] = field(default_factory=lambda: [429, 500, 502, 503, 504])  # Status codes to retry on
 	retry_base_delay: float = 1.0  # Base delay in seconds for exponential backoff
@@ -323,11 +320,6 @@ class ChatGoogle(BaseChatModel):
 
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
-
-		# Explicit Gemini CachedContent: per-call kwarg takes precedence over the instance default.
-		cached_content_name = kwargs.get('cached_content', self.cached_content)
-		if cached_content_name:
-			config['cached_content'] = cached_content_name
 
 		async def _make_api_call():
 			start_time = time.time()
