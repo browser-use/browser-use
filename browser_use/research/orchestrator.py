@@ -133,11 +133,12 @@ class ParallelResearchOrchestrator:
 def _default_synthesize(question: str, results: list[CitedResult]) -> str:
 	"""Concatenate all cited results into a plain-text answer.
 
-	Replace with an LLM call for production synthesis::
+	Replace with an LLM call for production synthesis (synthesize_fn must be sync;
+	wrap async LLM calls with asyncio.run() or extract the text before passing in)::
 
-		async def llm_synthesize(q, results):
+		def llm_synthesize(q: str, results: list[CitedResult]) -> str:
 			context = "\\n---\\n".join(r.content for r in results)
-			return await llm.complete(f"Answer '{q}' using:\\n{context}")
+			return asyncio.run(llm.complete(f"Answer '{q}' using:\\n{context}"))
 	"""
 	if not results:
 		return 'No results were retrieved.'

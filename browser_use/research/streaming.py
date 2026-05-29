@@ -44,7 +44,8 @@ class StreamingReasoningTracer:
 	"""
 
 	def __init__(self, buffer_size: int = 256) -> None:
-		self._queue: asyncio.Queue[ReasoningTrace | None] = asyncio.Queue(maxsize=buffer_size)
+		# +1 reserves a guaranteed slot for the sentinel so close() never fails silently
+		self._queue: asyncio.Queue[ReasoningTrace | None] = asyncio.Queue(maxsize=buffer_size + 1)
 		self._traces: list[ReasoningTrace] = []  # in-memory accumulator
 		self._sinks: list[Callable[[ReasoningTrace], None]] = []
 		self._step = 0
