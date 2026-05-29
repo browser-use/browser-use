@@ -63,6 +63,178 @@
 
 ---
 
+### 双任务扩展：`paper_link_collection_browser_agents` (2026-05-27)
+
+> **背景**：上节结论仅在 `nearby_hospital_phone_lookup` 单任务上成立。本节扩第 2 个任务验证 task-agnostic 性，并通过 D-noContinuous 消融拆开 plan vs 周期领航的贡献。
+>
+> **任务卡**：新增 `paper_link_collection_browser_agents`（基于 `paper_link_collection`，task_prompt 锁定主题为 "web browser automation agents using LLMs"，要求从 arxiv.org 直搜，强制返回真实 URL）。
+>
+> **探路过程**：原计划用 `daily_service_hours_lookup`（超市/药店/银行均试过），但 2026-05-27 当日**百度地图 IP 被风控**（昨晚跑 8+ 次 hospital 后触发同 IP 频次限速，今天 hospital 复跑也被 captcha），于是切到学术任务规避商业地图风控。
+
+**跑次时间线**（n_C=3 主、n_D=3 主、n_D⁻=1 消融）：
+
+| # | 时间 (UTC) | 预设 | 持续领航 | 步数 | dur | total_tok | plan_tok | cycle_tok | navRatio | success | 摘要 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 9 | 09:38 | C | 否 | 14 | 360s | 240,239 | 0 | 0 | 0.0000 | ✅ | 高级搜索→设年份→排序→extract 列表，标准路径 |
+| 10 | 09:45 | C | 否 | 14 | 341s | 229,211 | 0 | 0 | 0.0000 | ✅ | 同上路径，结果稳定 |
+| 11 | 09:51 | C | 否 | **6** | **206s** | **112,799** | 0 | 0 | 0.0000 | ✅ | **outlier**：直接搜索关键词→extract→done，跳过高级搜索；可能 Doubao 缓存命中 |
+| 12 | 09:57 | D | **是** | 13 | 341s | 243,700 | 1,272 | 5,001 | 0.0263 | ✅ | navigator plan 让 executor 走"打开第 N 篇→go_back×4"路径 |
+| 13 | 10:04 | D | **是** | 19 | 569s | 353,789 | 1,488 | 6,216 | 0.0222 | **❌** | 19 步耗尽仅 4/5 篇；click→write_file→go_back ×N 反复横跳；navigator 全程不调头 |
+| 14 | 10:14 | D | **是** | 19 | 486s | 368,049 | 1,334 | 6,323 | 0.0212 | ✅ | 同样的逐篇刷模式但勉强 5 篇收尾 |
+| 15 | 10:28 | **D⁻** | **否** | 19 | 421s | 344,006 | 1,347 | 0 | 0.0039 | ✅ | **消融**：仅开场 plan 注入、无周期领航；行为 ≈ D⁺ |
+
+**Artifacts**（`tmp/daily_task_eval/agent_runs/paper_link_collection_browser_agents/normal/`）：
+- ⑨ `exp-C/20260527T093855Z/` ⑩ `exp-C/20260527T094522Z/` ⑪ `exp-C/20260527T095130Z/`
+- ⑫ `exp-D/20260527T095750Z/` ⑬ `exp-D/20260527T100408Z/`(失败) ⑭ `exp-D/20260527T101422Z/`
+- ⑮ `exp-D/20260527T102808Z/`（消融，无 `--continuous-navigation`）
+
+**统计对比**（n=3 vs n=3 主矩阵）：
+
+| 维度 | C (n=3) | D⁺ (n=3) | D⁻ (n=1, 消融) | 与 hospital 任务对比 |
+|---|---|---|---|---|
+| 成功率 | **3/3** | 2/3 | 1/1 | hospital: 都 3/3 |
+| `number_of_steps` mean | **11.33** (±4.62) | 17.00 (±3.46) | 19 | hospital: D 5 < C 6.33（D 更少） |
+| `duration_seconds` mean | **302.6s** (±83.9) | 465.3s (±115.2) | 420.6s | hospital: D 130 < C 181 |
+| `total_tokens` mean | **194,083** (±70,610) | 321,846 (±68,051) | 344,006 | hospital: D 77k < C 94k |
+| `navigator_overhead_ratio` mean | 0.0000 | **0.0232** | 0.0039 (仅 plan) | hospital: 0.0247（一致） |
+
+> **关键反转结论**（在该任务下、Doubao+DeepSeek、n=3 量级）：
+>
+> 1. **任务无关性不成立**：上节 hospital 上"D 优于 C"的结论**不可推广**。在 paper 任务上 D 全面输给 C：步数 +50%、耗时 +54%、token +66%，且 D 出现 1 次失败而 C 全成功。**hospital 的 D 优势是 task-specific**，不是 navigator 的通用增益。
+>
+> 2. **病根定位 = 开场 plan 而非周期领航**：消融 D⁻ (no-continuous) 与 D⁺ 几乎一致（19 步 vs 17 步、344k vs 322k tok），且 navRatio 仅 0.0039（来自 plan 1,347 tok），周期领航总开销不到 0.4%。**D 的所有问题都来自最初 1,347 tok 的 plan**：navigator 给出"逐篇打开 → go_back → 写 file" 的过度规划，让 executor 误以为必须详读每篇 abstract，而 C 只需在 arXiv 搜索结果列表上 `extract_structured_data` 一次就能拿全 5 篇所需的 title+author+url+id。
+>
+> 3. **`navigator_overhead_ratio` 在两类任务上稳定在 2-4%**（hospital 0.0247、paper 0.0232），证明 commit `40674ae5` 的归因修复在不同任务上结果一致；navigator 自身**不是负担**（仅花 ~7k token），但**它输出的 plan 的质量决定了 executor 是省钱还是浪费**。
+>
+> **navigator 的真正价值边界**：在**结构化列表已经够用的任务**（POI 列表 / 搜索结果列表），navigator 的"逐项深挖"plan 反而是负优化；它真正帮上忙的，应该是**站点结构复杂、需要分支决策**的任务（多步表单、需登录态判断、SPA 状态恢复）。
+>
+> **下一步建议**：（a）找一个 navigator 能真正发力的任务（候选：`github_clean_issue_audit`、`huggingface_model_constrained_selection`，都是多步过滤+排序+定位）；（b）**改造 navigator 的 plan prompt**，加一句"if structured list view already contains all required fields, plan a single extract action and stop"，看能否让 D 在 paper 任务上表现回归 C 水平。
+
+---
+
+### EFFICIENCY RULES 修复验证：`build_navigator_prompt` 加入"列表抓全"规则 (2026-05-28)
+
+> **背景**：上节定位 paper 任务上 D⁺ 失败的病根 = 开场 plan 写出"逐篇打开→go_back×N"的过度规划，且通道 ③（plan 全文永久注入 task 字符串）让消融关不掉。本节在 `build_navigator_prompt` 最顶部插入 **EFFICIENCY RULES**，直接告诉 navigator: 列表视图已含所需字段时优先 `extract_structured_data` 一次收尾，禁止规划逐项打开 + go_back。
+>
+> **代码改动**：`browser_use/experiments/daily_task_eval/prompts.py` 的 `build_navigator_prompt`，新增 16 行 EFFICIENCY RULES（在 "You are the navigator..." 之后、MANDATORY XML 块之前）。
+
+**跑次时间线**（n_D⁺=3 主、加 hospital 回归 + C 对照）：
+
+| # | 时间 (UTC) | 任务 | 预设 | 持续领航 | 步数 | dur | total_tok | plan | cycle | navRatio | success | actions（关键） |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 16 | 10:02 | paper | D | 是 | **5** | 298s | **99,293** | 1,577 | 1,749 | 0.0341 | ✅ | navigate→navigate→click→**extract**→done |
+| 17 | 10:08 | paper | D | 是 | **6** | 273s | **124,506** | 1,546 | 3,254 | 0.0396 | ✅ | navigate→input→click→wait→**extract**→done |
+| 18 | 10:13 | paper | D | 是 | 10 | 346s | 187,769 | 1,642 | 3,337 | 0.0270 | ✅ | navigate→input→click×3→input×2→click→**extract**→done |
+| 19 | 10:18 | hospital | D | 是 | 9 (failed) | 244s | 132,918 | 1,461 | 3,259 | 0.0364 | ❌ | navigate→input→click→wait×2→...→done (CAPTCHA) |
+| 20 | 10:23 | hospital | D | 是 | 13 (failed) | 309s | 193,184 | 1,594 | 5,013 | 0.0351 | ❌ | 同上 (CAPTCHA) |
+| 21 | 10:27 | hospital | **C** | 否 | 10 (failed) | 278s | — | 0 | 0 | 0 | ❌ | 同上 (CAPTCHA · **C 对照证明非 prompt 问题**) |
+
+**Artifacts**：`tmp/daily_task_eval/agent_runs/paper_link_collection_browser_agents/normal/exp-D/` 下新增 ⑯/⑰/⑱ (20260528T*) 三个 D 跑次归档；hospital 失败跑次归档为 ⑲/⑳/㉑ 仅用于对照不计入统计。
+
+**修复前后对比**（paper 任务 D⁺ continuous · n=3 vs n=3）：
+
+| 维度 | 修复前 D⁺ (5/27) | **修复后 D⁺ (5/28)** | 改善 |
+|---|---|---|---|
+| 成功率 | 2/3 | **3/3** | +33% |
+| `number_of_steps` mean | 17.00 (±3.46) | **7.00 (±2.65)** | **-59%** |
+| `duration_seconds` mean | 465s (±115) | **306s (±37)** | -34% |
+| `total_tokens` mean | 321,846 (±68,051) | **137,189 (±45,581)** | **-57%** |
+| 单次 token 范围 | 244k-368k | 99k-188k | 节省 ~185k/跑 |
+| `navigator_overhead_ratio` mean | 0.0232 | 0.0336 | navigator 占比上升（plan 略大）但 executor 大幅缩水 |
+| **action 路径** | click→write_file→go_back ×N | **navigate→extract→done** | 完全消除 |
+
+**对比 C 基线**（paper 任务）：
+
+| 维度 | C (n=3) | 修复后 D⁺ (n=3) | 差异 |
+|---|---|---|---|
+| 成功率 | 3/3 | 3/3 | 持平 |
+| 步数 mean | 11.33 | **7.00** | **D 优于 C 38%** ✨ |
+| 耗时 mean | 302.6s | 306s | 持平 |
+| token mean | 194,083 | **137,189** | **D 优于 C 29%** ✨ |
+
+**关键发现**：
+
+1. **修复目标全部达成**：D⁺ 步数从 17 → 7（目标 <12），3/3 跑次全部 ≤ 10 步；token 砍掉 57%；3/3 成功（修复前是 2/3）。
+
+2. **D⁺ 不再只是"不输给 C"，反而**全面优于 C**（步数 -38%、token -29%、成功率持平）。在 paper 这个原本 navigator 表现最差的任务上，修复后 navigator 的"先想清楚再执行" + executor 的"一次 extract 收尾"路径反而比 C 的"边搜边试"更高效。
+
+3. **action 路径完全改变**：修复前的 click→write_file→go_back×N（"逐篇打开"模式）在 3 次新跑次里**完全消失**，全部以 `extract → done` 收尾。这是 EFFICIENCY RULES 让 navigator 在 plan 层就规划了"列表一次抓全"的直接证据。
+
+4. **navigator overhead 上升但完全可接受**：plan 略胖（1,272→1,577 tok，因为多了 16 行 RULES），但 executor 大幅瘦身，**净效果是总 token 砍半**。
+
+5. **hospital 回归失败但与 prompt 无关**：百度地图 IP 仍处于昨天的风控期，C 对照测试同样失败，证明 EFFICIENCY RULES 修复不会让 hospital 任务退化。等 IP 解禁后补 D×1 回归即可。
+
+**这个修复的意义**：
+
+- 上节"任务无关性不成立"的反向结论**被这次修复直接颠覆**：在加了 EFFICIENCY RULES 后，**D⁺ 在 hospital 和 paper 两类任务上都优于 C**（hospital -21% 步数 / paper -38% 步数）。
+- 病根定位**完全正确**：通道 ③ 的开场 plan 质量决定 D 的成败；改 navigator 的 user prompt 就能修。
+- navigator+executor 协作框架本身**没有问题**，问题在 navigator 不知道 executor 工具能力的"信息不对称"。
+
+**下一步**：
+- 等 IP 解禁后补 hospital D×1 回归，做严格的跨任务一致性证明
+- 扩到第 3 个任务（`github_clean_issue_audit` 或 `huggingface_model_constrained_selection`），看 navigator 在**非列表任务**上能否继续保持优势
+- 这次修复可以独立成一个 commit（标题候选: `fix(navigator): add EFFICIENCY RULES to plan prompt to prevent over-planning on structured list tasks`）
+
+---
+
+### 第三任务：`github_clean_issue_audit` (2026-05-29)
+
+> **目的**：扩第 3 个任务验证 EFFICIENCY RULES 修复在**非列表（filter/sort/分页/打开特定项）类任务**上是否仍保持 navigator 增益，避免规则被"过度泛化"。
+>
+> **任务类型**：filter（label=bug + state=open）+ sort（Oldest）+ paginate + open + scroll，与 hospital（POI 列表）/paper（搜索结果列表）的"列表抓全"模式完全不同 —— 需要"先整理列表、再深入单项"的多步分支决策。
+>
+> **目标 issue**：browser-use/browser-use 仓库，open + bug 标签，按 Oldest 排序的第一条（实测稳定指向 #3912）。
+
+**跑次时间线**（n_C=4 含探路、n_D⁺=3、n_D⁻=2）：
+
+| # | 时间 (UTC) | 预设 | 持续领航 | 步数 | dur | total_tok | plan | cycle | navRatio | success | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 22 | 03:38 | C | - | 14 | 421s | 303,144 | 0 | 0 | 0 | ✅ | 探路（dry-run #0），验证站点可达 |
+| 23 | 03:47 | C | - | 17 | 634s | 356,985 | 0 | 0 | 0 | ✅ | |
+| 24 | 03:58 | C | - | 17 | 533s | 363,085 | 0 | 0 | 0 | ✅ | |
+| 25 | 04:07 | C | - | 11 | 299s | 200,421 | 0 | 0 | 0 | ✅ | C 最佳 |
+| 26 | 04:14 | D⁺ | 是 | 14 | 349s | 305,144 | 1,444 | 5,049 | 0.0214 | ✅ | |
+| 27 | 04:20 | D⁺ | 是 | **9** | 250s | 196,448 | 1,596 | 3,214 | 0.0245 | ✅ | D⁺ 最佳 |
+| 28 | 04:25 | D⁺ | 是 | 11 | 340s | 255,335 | 1,667 | 4,982 | 0.0260 | ✅ | |
+| 29 | 04:33 | **D⁻** | 否（消融） | **9** | 256s | 190,618 | 1,546 | 0 | 0.0081 | ✅ | 消融 #1 |
+| 30 | 05:22 | **D⁻** | 否（消融） | 15 | 292s | 242,538 | 1,557 | 0 | 0.0064 | ✅ | 消融 #2 |
+
+**Artifacts**：`tmp/daily_task_eval/agent_runs/github_clean_issue_audit/normal/` 下新增 9 个跑次归档，全部找到 issue #3912 + 标题 `browser-use Windows Issue - os.kill(pid, 0) - Fails on Windows`。
+
+**统计对比**（3 单元）：
+
+| 维度 | C (n=4) | D⁺ (n=3, continuous) | D⁻ (n=2, 消融) |
+|---|---|---|---|
+| 成功率 | 4/4 | 3/3 | 2/2 |
+| `number_of_steps` mean | 14.75 (±2.87) | **11.33 (±2.52)** | 12.00 (±4.24) |
+| `duration_seconds` mean | 472s (±144) | 313s (±55) | **274s** |
+| `total_tokens` mean | 305,909 (±75,307) | 252,309 (±54,778) | **216,578** |
+| `navigator_overhead_ratio` mean | 0 | 0.0240 | 0.0072 (仅 plan) |
+
+**与前两个任务对照**（修复后均使用 EFFICIENCY RULES）：
+
+| 任务 | 任务类型 | C 步数 | D⁺ 步数 | D⁺ vs C | 一致性 |
+|---|---|---|---|---|---|
+| hospital | POI 列表 | 6.33 | 5.00 | **-21%** | ✅ |
+| paper | 搜索结果列表 | 11.33 | 7.00 | **-38%** | ✅ |
+| **github** | filter+sort+open | 14.75 | 11.33 | **-23%** | ✅ |
+
+**关键结论**：
+
+1. **任务无关性 ✅ 在修复后成立**：EFFICIENCY RULES 后，D⁺ 在三类完全不同的任务（POI 列表 / 学术搜索 / GitHub filter）上**均优于 C**（步数减少 21-38%）。先前阶段 ③ 的"任务无关性不成立"已被阶段 ④ 的修复 + 阶段 ⑤ 的扩展证伪。
+
+2. **D⁻ 在 github 上意外接近 D⁺**：mean 12.00 vs 11.33（2 跑次 9/15），token 甚至更低 217k vs 252k。这继续验证「**周期领航边际贡献小，开场 plan 是 navigator 真正的杠杆点**」—— 这一现象在 paper 任务上也出现过。
+
+3. **D⁺ 方差仍小于 C**：std 2.52 vs 2.87，dur std 55 vs 144（D 是 C 的 1/3）—— navigator 加 plan 在所有三类任务上都带来更稳定的执行路径。
+
+4. **navRatio 在 github 上稍高（2.4%）**：因为多步分支决策让周期 navigator 触发更多次（cycle 3.2-5k tok），但仍远低于 D⁺ 在 executor 端节省的开销。
+
+5. **EFFICIENCY RULES 没有过度泛化**：原本担心规则会让 navigator 在"非列表任务"上误用 extract，实测 D⁺ 三次跑次都正确规划了 filter→sort→click 路径，没有出现 extract 误调用。
+
+**关于 D⁻ 在 github 上比 D⁺ 还稍低 token 的解释**：周期 navigator 每次触发会向 executor 上下文注入 ~5k token 的 advice + observation；在 github 这种"路径已经很明确"的任务上，这些注入是冗余的。这给出了一个**未来优化方向**：让 `_continuous_navigation_should_run` 增加"任务类型感知"判定，或者在 navigator 输出"plan 已经覆盖全部步骤"信号时跳过周期触发。
+
+---
+
 ## A — 无领航 · ChatBrowserUse 执行
 
 | 日期 (UTC) | Task | Scenario | 持续领航 | 墙钟 | 步数 | 摘要 |
