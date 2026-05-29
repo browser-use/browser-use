@@ -333,8 +333,8 @@ browser-use --mcp    # Exposes browser tools to Claude Desktop / other MCP clien
 - [x] Pushed to `dnzengou/browser-use-reverse-engineered` — branch `workspace` · 2026-05-26
 - [ ] Run `browser-use profile update` to enable Chrome profile sync
 - [ ] Install `cloudflared` for tunnel support (`winget install cloudflare.cloudflared`)
-- [ ] LLM-powered synthesis injection for `ParallelResearchOrchestrator`
-- [ ] FastAPI SSE demo endpoint for `StreamingReasoningTracer`
+- [x] **LLM-powered synthesis injection** — `make_llm_synthesize_fn(llm)` factory; async `synthesize_fn` support via `_call_synthesize`; 2 new CI tests · 2026-05-29
+- [x] **FastAPI SSE demo** — `examples/research_streaming_sse.py`; `/stream` SSE + `/traces` JSON endpoints · 2026-05-29
 
 ---
 
