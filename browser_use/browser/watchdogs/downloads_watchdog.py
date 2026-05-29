@@ -703,6 +703,20 @@ class DownloadsWatchdog(BaseWatchdog):
 
 			self.logger.debug(f'[DownloadsWatchdog] Downloading from: {url[:100]}...')
 
+			# Validate URL to prevent SSRF attacks
+			_parsed = urlparse(url)
+			if _parsed.scheme not in ('http', 'https'):
+				raise ValueError(f'[DownloadsWatchdog] Rejected download URL with disallowed scheme: {_parsed.scheme}')
+			_host = _parsed.hostname or ''
+			if (
+				_host in ('localhost', '127.0.0.1', '::1')
+				or _host.startswith('169.254.')
+				or _host.startswith('10.')
+				or _host.startswith('192.168.')
+				or any(_host.startswith(f'172.{i}.') for i in range(16, 32))
+			):
+				raise ValueError(f'[DownloadsWatchdog] Rejected download URL targeting internal resource: {_host}')
+
 			# Download using JavaScript fetch to leverage browser cache
 			escaped_url = json.dumps(url)
 
