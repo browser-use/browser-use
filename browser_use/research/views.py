@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -126,11 +127,9 @@ class ReasoningTrace(BaseModel):
 
 	def to_sse(self) -> str:
 		"""Serialize as a Server-Sent Events frame."""
-		import json
 		payload = self.model_dump(mode='json')
 		return f'event: {self.event_type}\ndata: {json.dumps(payload)}\n\n'
 
 	def to_json_line(self) -> str:
 		"""NDJSON format — one JSON object per line."""
-		import json
 		return json.dumps(self.model_dump(mode='json'))

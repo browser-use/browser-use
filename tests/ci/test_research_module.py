@@ -9,16 +9,31 @@ Conventions (CLAUDE.md):
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
-import pytest
 from pytest_httpserver import HTTPServer
 
+from browser_use.llm import BaseChatModel
+from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.research import (
 	CitationTracker,
 	ParallelResearchOrchestrator,
 	StreamingReasoningTracer,
+	make_llm_synthesize_fn,
 )
 from browser_use.research.views import CitedResult, ReasoningTrace
+
+
+def _make_synthesis_llm(synthesis_text: str) -> BaseChatModel:
+	"""Minimal mock LLM that returns *synthesis_text* for any ainvoke call."""
+	llm = AsyncMock(spec=BaseChatModel)
+	llm.model = 'mock-synth'
+	llm._verified_api_keys = True
+	llm.provider = 'mock'
+	llm.name = 'mock-synth'
+	llm.model_name = 'mock-synth'
+	llm.ainvoke.return_value = ChatInvokeCompletion(completion=synthesis_text, usage=None)
+	return llm
 
 
 # ── CitationTracker ───────────────────────────────────────────────────────────
@@ -85,7 +100,7 @@ class TestCitationTracker:
 
 # ── ParallelResearchOrchestrator ──────────────────────────────────────────────
 
-async def _make_research_fn(httpserver: HTTPServer):
+def _make_research_fn(httpserver: HTTPServer):
 	"""Return a research_fn that fetches the body of a URL via a stub server."""
 	async def research_fn(query: str, url: str) -> str:
 		import httpx
@@ -101,7 +116,7 @@ class TestParallelResearchOrchestrator:
 		httpserver.expect_request('/page1').respond_with_data('Result for page 1', content_type='text/plain')
 		httpserver.expect_request('/page2').respond_with_data('Result for page 2', content_type='text/plain')
 
-		research_fn = await _make_research_fn(httpserver)
+		research_fn = _make_research_fn(httpserver)
 		orch = ParallelResearchOrchestrator(research_fn=research_fn, max_concurrency=2)
 
 		report = await orch.run(
@@ -118,7 +133,7 @@ class TestParallelResearchOrchestrator:
 	async def test_failed_tab_does_not_crash_report(self, httpserver: HTTPServer):
 		httpserver.expect_request('/good').respond_with_data('Good content', content_type='text/plain')
 
-		research_fn = await _make_research_fn(httpserver)
+		research_fn = _make_research_fn(httpserver)
 		orch = ParallelResearchOrchestrator(research_fn=research_fn, max_concurrency=2)
 
 		report = await orch.run(
@@ -136,7 +151,7 @@ class TestParallelResearchOrchestrator:
 	async def test_synthesis_contains_content(self, httpserver: HTTPServer):
 		httpserver.expect_request('/data').respond_with_data('The answer is 42.', content_type='text/plain')
 
-		research_fn = await _make_research_fn(httpserver)
+		research_fn = _make_research_fn(httpserver)
 		orch = ParallelResearchOrchestrator(research_fn=research_fn)
 
 		report = await orch.run(
@@ -150,7 +165,7 @@ class TestParallelResearchOrchestrator:
 		for i in range(3):
 			httpserver.expect_request(f'/p{i}').respond_with_data(f'page {i}', content_type='text/plain')
 
-		research_fn = await _make_research_fn(httpserver)
+		research_fn = _make_research_fn(httpserver)
 		orch = ParallelResearchOrchestrator(research_fn=research_fn, max_concurrency=1)
 
 		report = await orch.run(
@@ -168,6 +183,39 @@ class TestParallelResearchOrchestrator:
 		md = report.as_markdown()
 		assert 'What is AI?' in md
 		assert 'AI is artificial intelligence.' in md
+
+	async def test_async_synthesize_fn(self, httpserver: HTTPServer):
+		"""ParallelResearchOrchestrator correctly awaits an async synthesize_fn."""
+		httpserver.expect_request('/fact').respond_with_data('Fact content.', content_type='text/plain')
+
+		async def async_synth(question: str, results: list[CitedResult]) -> str:
+			await asyncio.sleep(0)  # prove it actually awaits
+			return f'ASYNC:{question}:{len(results)}'
+
+		research_fn = _make_research_fn(httpserver)
+		orch = ParallelResearchOrchestrator(research_fn=research_fn, synthesize_fn=async_synth)
+		report = await orch.run(
+			research_question='What is truth?',
+			urls=[httpserver.url_for('/fact')],
+		)
+		assert report.synthesis == 'ASYNC:What is truth?:1'
+
+	async def test_make_llm_synthesize_fn(self, httpserver: HTTPServer):
+		"""make_llm_synthesize_fn wires the LLM and returns its completion as synthesis."""
+		httpserver.expect_request('/src').respond_with_data('Source material.', content_type='text/plain')
+
+		llm = _make_synthesis_llm('LLM-generated synthesis')
+		research_fn = _make_research_fn(httpserver)
+		orch = ParallelResearchOrchestrator(
+			research_fn=research_fn,
+			synthesize_fn=make_llm_synthesize_fn(llm),
+		)
+		report = await orch.run(
+			research_question='Summarise the source.',
+			urls=[httpserver.url_for('/src')],
+		)
+		assert report.synthesis == 'LLM-generated synthesis'
+		llm.ainvoke.assert_called_once()
 
 
 # ── StreamingReasoningTracer ──────────────────────────────────────────────────

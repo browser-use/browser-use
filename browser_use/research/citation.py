@@ -10,10 +10,6 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-	pass
 
 from browser_use.research.views import Citation, CitedResult
 

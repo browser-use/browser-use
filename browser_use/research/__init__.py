@@ -8,7 +8,7 @@ Three innovations extracted from Kimi / Perplexity / Grok patterns:
 """
 
 from browser_use.research.citation import CitationTracker
-from browser_use.research.orchestrator import ParallelResearchOrchestrator
+from browser_use.research.orchestrator import ParallelResearchOrchestrator, make_llm_synthesize_fn
 from browser_use.research.streaming import StreamingReasoningTracer
 from browser_use.research.views import (
 	Citation,
@@ -22,6 +22,7 @@ __all__ = [
 	'CitationTracker',
 	'ParallelResearchOrchestrator',
 	'StreamingReasoningTracer',
+	'make_llm_synthesize_fn',
 	'Citation',
 	'CitedResult',
 	'ReasoningTrace',
