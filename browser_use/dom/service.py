@@ -363,12 +363,15 @@ class DomService:
 			)
 			ax_tree_requests.append(ax_tree_request)
 
-		# Wait for all requests to complete
-		ax_trees = await asyncio.gather(*ax_tree_requests)
+		# Wait for all requests; tolerate individual frames that vanish mid-build (e.g. ad
+		# iframes on heavy sites) instead of failing the whole accessibility-tree request.
+		ax_trees = await asyncio.gather(*ax_tree_requests, return_exceptions=True)
 
 		# Merge all AX nodes into a single array
 		merged_nodes: list[AXNode] = []
 		for ax_tree in ax_trees:
+			if isinstance(ax_tree, BaseException):
+				continue
 			merged_nodes.extend(ax_tree['nodes'])
 
 		return {'nodes': merged_nodes}
@@ -545,7 +548,8 @@ class DomService:
 		}
 
 		# Wait for all tasks with timeout
-		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
+		# (raised from 10s to tolerate several headed browsers building DOM+AX trees concurrently)
+		done, pending = await asyncio.wait(tasks.values(), timeout=30.0)
 
 		# Retry any failed or timed out tasks
 		if pending:
@@ -570,7 +574,7 @@ class DomService:
 					tasks[key] = retry_map[task]()
 
 			# Wait again with shorter timeout
-			done2, pending2 = await asyncio.wait([t for t in tasks.values() if not t.done()], timeout=2.0)
+			done2, pending2 = await asyncio.wait([t for t in tasks.values() if not t.done()], timeout=5.0)
 
 			if pending2:
 				for task in pending2:

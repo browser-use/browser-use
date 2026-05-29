@@ -63,6 +63,7 @@ async def execute_task(
 	task: WebVoyagerTask,
 	slot: int,
 	llm,
+	coord: BatchCoordinator,
 	profile_root: Path,
 	cfg: RunConfig,
 	*,
@@ -70,7 +71,11 @@ async def execute_task(
 	on_finish: Callable[[Agent, str, bool | None], None] | None = None,
 ) -> TaskOutcome:
 	"""Run one task in its own headed window with a wall-clock timeout, then clean up."""
-	browser = Browser(headless=False, user_data_dir=str(profile_root / f'slot{slot}_{uuid.uuid4().hex[:8]}'))
+	browser = Browser(
+		headless=False,
+		user_data_dir=str(profile_root / f'slot{slot}_{uuid.uuid4().hex[:8]}'),
+		max_iframes=15,  # ad-heavy sites (e.g. Allrecipes) have many iframes; cap AX-tree work
+	)
 	agent = Agent(
 		task=task.question,
 		llm=llm,
@@ -85,6 +90,7 @@ async def execute_task(
 
 	t0 = time.time()
 	status, success, history, err = 'error', None, None, None
+	coord.enter()  # this agent now contributes to each batch until it finishes
 	try:
 		history = await asyncio.wait_for(
 			agent.run(max_steps=cfg.max_steps, on_step_start=on_step_start), timeout=cfg.task_timeout
@@ -95,6 +101,7 @@ async def execute_task(
 	except Exception as e:  # noqa: BLE001
 		status, success, err = 'error', False, str(e)[:300]
 	finally:
+		coord.leave()  # stop expecting this agent; release any batch waiting on it
 		if on_finish is not None:
 			try:
 				on_finish(agent, status, success)
@@ -126,7 +133,7 @@ async def run_batch(cfg: RunConfig) -> list[TaskOutcome]:
 
 	async def handler(task, slot) -> TaskOutcome:
 		print(f'  [slot {slot}] ▶ {task.id}', flush=True)
-		outcome = await execute_task(task, slot, BatchLLMProxy(coord), profile_root, cfg)
+		outcome = await execute_task(task, slot, BatchLLMProxy(coord), coord, profile_root, cfg)
 		print(f'  [slot {slot}] ■ {outcome.status:9s} {outcome.seconds}s  {task.id}', flush=True)
 		return outcome
 
@@ -152,6 +159,7 @@ async def run_capture(cfg: RunConfig, out_dir: Path | None = None) -> Path:
 			task,
 			slot,
 			RecordingProxy(coord, recorder),
+			coord,
 			profile_root,
 			cfg,
 			on_step_start=recorder.on_step_start,

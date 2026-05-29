@@ -63,7 +63,7 @@ async def judge_success(judge: AsyncOpenAI, model: str, task_dir: Path, k: int) 
 	ref = meta.get('reference_answer')
 	ref_type = meta.get('reference_type')
 	ref_notice = meta.get('reference_notice')
-	shots = sorted(task_dir.glob('step_*/screenshot.png'))[-k:]
+	shots = sorted(task_dir.glob('step_*/screenshot.*'))[-k:]
 
 	text = f'TASK: {question}\n'
 	if ref:
@@ -74,8 +74,9 @@ async def judge_success(judge: AsyncOpenAI, model: str, task_dir: Path, k: int) 
 
 	content: list[dict] = [{'type': 'text', 'text': text}]
 	for p in shots:
+		mime = 'image/jpeg' if p.suffix.lower() in ('.jpg', '.jpeg') else 'image/png'
 		b64 = base64.b64encode(p.read_bytes()).decode()
-		content.append({'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{b64}'}})
+		content.append({'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}})
 	content.append({'type': 'text', 'text': 'Your verdict:\n'})
 
 	system = WV_SYSTEM_PROMPT + (REFERENCE_GUIDANCE if ref else '')

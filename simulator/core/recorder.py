@@ -10,7 +10,7 @@ Layout written per task::
     step_001/
       messages.json    EXACT LLM input context (reloadable list[BaseMessage])
       output.json      the LLM output for that step (thinking + action taken)
-      screenshot.png   page at the start of the step
+      screenshot.jpg   page at the start of the step
       state.json       url + title at the start of the step
     step_002/ ...
 
@@ -71,8 +71,12 @@ class TrajectoryRecorder:
 		d = self._stepdir()
 		try:
 			cdp = await agent.browser_session.get_or_create_cdp_session()
-			shot = await cdp.cdp_client.send.Page.captureScreenshot(params={'format': 'png'}, session_id=cdp.session_id)
-			(d / 'screenshot.png').write_bytes(base64.b64decode(shot['data']))
+			# JPEG (not PNG) keeps the per-step capture light so it doesn't starve the
+			# event loop / CDP while N headed browsers build their DOM+AX trees concurrently.
+			shot = await cdp.cdp_client.send.Page.captureScreenshot(
+				params={'format': 'jpeg', 'quality': 60}, session_id=cdp.session_id
+			)
+			(d / 'screenshot.jpg').write_bytes(base64.b64decode(shot['data']))
 			info = await cdp.cdp_client.send.Runtime.evaluate(
 				params={'expression': 'JSON.stringify({url:location.href,title:document.title})', 'returnByValue': True},
 				session_id=cdp.session_id,

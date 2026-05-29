@@ -37,9 +37,9 @@ class RunConfig:
 	batch_size: int = 2
 	source: str = 'both'  # 'webvoyager' | 'gaia' | 'both'
 	model: str = DEFAULT_MODEL
-	max_steps: int = 15
-	task_timeout: float = 180.0
-	max_wait: float = 8.0  # max seconds the batch coordinator waits to fill a batch
+	max_steps: int = 25
+	task_timeout: float = 600.0  # heavy sites under several headed browsers run ~30-50s/step
+	max_wait: float = 1.5  # how long to wait to fill a batch before dispatching a partial one (see note below)
 	use_vision: bool = False  # qwen-max is text-only
 	shuffle: bool = False
 	seed: int = 0
