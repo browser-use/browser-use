@@ -3,7 +3,7 @@ Tests for the SchemaOptimizer to ensure it correctly processes and
 optimizes the schemas for agent actions without losing information.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from browser_use.agent.views import AgentOutput
 from browser_use.llm.schema import SchemaOptimizer
@@ -16,6 +16,12 @@ class ProductInfo(BaseModel):
 	price: str
 	title: str
 	rating: float | None = None
+
+
+class FixedLengthCode(BaseModel):
+	"""A sample structured output model with constrained string length."""
+
+	code: str = Field(min_length=4, max_length=4)
 
 
 def test_optimizer_preserves_all_fields_in_structured_done_action():
@@ -74,3 +80,21 @@ def test_gemini_schema_retains_required_fields():
 
 	required_fields = set(schema['required'])
 	assert {'price', 'title'}.issubset(required_fields), 'Mandatory fields must stay required for Gemini.'
+
+
+def test_optimizer_can_remove_string_length_constraints():
+	"""Schema optimizer should optionally strip minLength/maxLength for provider compatibility."""
+	schema = SchemaOptimizer.create_optimized_json_schema(FixedLengthCode)
+	code_schema = schema['properties']['code']
+
+	assert code_schema['minLength'] == 4
+	assert code_schema['maxLength'] == 4
+
+	compatible_schema = SchemaOptimizer.create_optimized_json_schema(
+		FixedLengthCode,
+		remove_string_length_constraints=True,
+	)
+	compatible_code_schema = compatible_schema['properties']['code']
+
+	assert 'minLength' not in compatible_code_schema
+	assert 'maxLength' not in compatible_code_schema
