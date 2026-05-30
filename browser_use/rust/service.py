@@ -319,6 +319,18 @@ class Agent:
 
 	follow_up_task = follow_up
 
+	async def _judge_and_log(self) -> None:
+		"""
+		No-op compatibility stub.
+
+		The eval-internal harness calls this method when `judge_type ==
+		'comprehensivev1'`. Classic browser_use.Agent didn't have it
+		either (the harness hits AttributeError on stock browser-use).
+		Providing a stub means the eval keeps running and the external
+		judge stage handles scoring instead.
+		"""
+		return None
+
 	async def cancel(self) -> None:
 		self._cancelled = True
 		if self.session_id:
