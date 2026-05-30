@@ -227,6 +227,33 @@ class AgentRunResult(BaseModel):
 				return event.cdp_url
 		return None
 
+	@property
+	def laminar_trace_id(self) -> str | None:
+		"""OTel trace id from the Rust core's `telemetry.trace` event, or None
+		if telemetry was off / Laminar wasn't reachable."""
+		from browser_use.rust.events import TelemetryTrace
+
+		for event in self.events:
+			if isinstance(event, TelemetryTrace):
+				return event.trace_id
+		return None
+
+	def laminar_trace_url(self, project_id: str | None = None) -> str | None:
+		"""Build a Laminar deep link to this run's trace.
+
+		project_id falls back to `LMNR_PROJECT_ID` env var when not passed —
+		matches what eval/cloudv2.py:577 does for the cloud path.
+		"""
+		import os
+
+		trace_id = self.laminar_trace_id
+		if not trace_id:
+			return None
+		pid = project_id or os.environ.get('LMNR_PROJECT_ID') or os.environ.get('LMNR_CLOUD_PROJECT_ID')
+		if not pid:
+			return None
+		return f'https://www.lmnr.ai/project/{pid}/traces?traceId={trace_id}'
+
 
 # ----------------------------------------------------------------------
 # AgentHistoryList compatibility views (formerly compat.py)

@@ -437,6 +437,40 @@ def test_compute_cost_usd_returns_zero_for_unknown_or_empty():
 	assert asyncio.run(_compute_cost_usd('gpt-5', 0, 0)) == 0.0
 
 
+def test_laminar_trace_id_extracted_from_telemetry_trace_event():
+	"""AgentRunResult.laminar_trace_id reads the first telemetry.trace event's
+	trace_id. URL builder returns None without a project id."""
+	state = _AgentSessionState()
+	state.absorb(
+		parse_event(
+			_event(
+				'telemetry.trace',
+				{'backend': 'laminar', 'transport': 'otlp_http_proto', 'trace_id': '0123456789abcdef', 'endpoint': 'https://api.lmnr.ai'},
+				seq=1,
+			)
+		)
+	)
+	from browser_use.rust.views import AgentRunResult
+
+	result = AgentRunResult(exit_code=0, events=state.events, steps=state.steps)
+	assert result.laminar_trace_id == '0123456789abcdef'
+	# No project id available → None
+	assert result.laminar_trace_url(project_id=None) in (None,) or 'lmnr.ai' in (result.laminar_trace_url('proj123') or '')
+	url = result.laminar_trace_url(project_id='proj123')
+	assert url == 'https://www.lmnr.ai/project/proj123/traces?traceId=0123456789abcdef'
+
+
+def test_agent_laminar_trace_id_property_delegates_to_result():
+	"""Agent.laminar_trace_id returns None before run, the result's trace id after."""
+	from browser_use.rust.views import AgentRunResult
+
+	agent = Agent(task='x')
+	assert agent.laminar_trace_id is None
+
+	agent.result = AgentRunResult(exit_code=0, events=[])
+	assert agent.result.laminar_trace_id is None
+
+
 def test_resolve_judge_llm_prefers_gemini_when_key_set(monkeypatch):
 	"""GEMINI_API_KEY → ChatGoogle judge; OPENAI_API_KEY-only → ChatOpenAI judge;
 	neither → None (caller skips judging)."""

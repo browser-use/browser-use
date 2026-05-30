@@ -472,6 +472,15 @@ class Agent:
 
 		return _UsageView()
 
+	@property
+	def laminar_trace_id(self) -> str | None:
+		"""OTel trace id from the Rust core's `telemetry.trace` event, or None
+		if telemetry was off or the run hasn't finished yet. Eval harnesses
+		use this to build a Laminar deep link for the task."""
+		if self.result is not None:
+			return self.result.laminar_trace_id
+		return None
+
 	async def _judge_and_log(self) -> None:
 		"""
 		Run the ComprehensiveV1 judge over the just-finished run and stash the

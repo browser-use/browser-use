@@ -325,6 +325,28 @@ class BrowserLiveUrl(_BaseEvent):
 		return self.payload.get('url') or self.payload.get('live_url')
 
 
+class TelemetryTrace(_BaseEvent):
+	"""Rust `telemetry.trace` — emitted once per session with the Laminar trace ID.
+
+	Payload: `{backend: "laminar", transport: "otlp_http_proto", trace_id, endpoint}`.
+	`trace_id` is the OTel hex trace id; lets the eval pipeline build a
+	`https://www.lmnr.ai/project/<project>/traces?traceId=<id>` deep link.
+	"""
+
+	type: Literal['telemetry.trace']
+	payload: dict[str, Any] = Field(default_factory=dict)
+
+	@property
+	def trace_id(self) -> str | None:
+		value = self.payload.get('trace_id')
+		return str(value) if value else None
+
+	@property
+	def backend(self) -> str | None:
+		value = self.payload.get('backend')
+		return str(value) if value else None
+
+
 # Legacy aliases — older consumer code can still import these names.
 ModelTextDelta = ModelDelta
 ToolCall = ModelToolCall
@@ -369,6 +391,7 @@ _KNOWN_TYPED = Annotated[
 		ToolOutput,
 		TokenCount,
 		TaskStarted,
+		TelemetryTrace,
 		BrowserScript,
 		BrowserConnected,
 		BrowserLiveUrl,
