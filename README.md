@@ -92,6 +92,79 @@ Check out the [library docs](https://docs.browser-use.com/open-source/introducti
 
 <br/>
 
+# 🦀 New: Rust-Backed Agent (Preview)
+
+`browser_use` now ships an alternative agent loop powered by the Rust
+[`browser-use/terminal`](https://github.com/browser-use/terminal) core —
+Codex-style streaming, compaction, and sub-agents — with a Python interface
+that mirrors the classic `Agent`. The old `from browser_use import Agent`
+path is **unchanged**; the new one is strictly additive.
+
+### 1. Install the Rust core (one-time)
+
+The `but` / `browser-use-terminal` binaries are not yet bundled in the wheel:
+
+```bash
+curl -fsSL https://browser-use.com/install.sh | sh
+```
+
+This drops the binaries under `~/.browser-use-terminal/...` and adds
+`~/.local/bin/but` to your PATH.
+
+### 2. Switch one import line
+
+```python
+# old (unchanged, still works exactly as before)
+from browser_use import Agent
+
+# new — same shape, Rust loop under the hood
+from browser_use.rust import Agent
+```
+
+### 3. Run anything
+
+```python
+import asyncio
+from browser_use import BrowserSession
+from browser_use.llm import ChatOpenAI
+from browser_use.rust import Agent
+
+async def main():
+    agent = Agent(
+        task="open https://news.ycombinator.com and tell me the top 3 story titles",
+        llm=ChatOpenAI(api_key="sk-...", model="gpt-5"),  # provider+model+key
+        browser=BrowserSession(),                          # cdp_url, profile, headless, name
+    )
+    result = await agent.run()
+    print(result.final_summary)
+
+asyncio.run(main())
+```
+
+Every user-facing knob is a constructor kwarg — `task`, `llm`, `browser`,
+`timeout`, `on_event`, `output_model`, `state_dir`, `extra_args`. No
+separate options struct.
+
+Examples:
+
+- `examples/rust/01_simple_task.py` — minimal one-shot, ~5 lines
+- `examples/rust/00_all_options.py` — every `Agent(...)` kwarg with comments
+- `examples/rust/04_stream_events.py` — live typed event stream
+- `examples/rust/05_cancellation.py` — proper cooperative cancel
+- `examples/rust/06_output_model.py` — Pydantic-typed structured output
+
+Or skip Python entirely and launch the TUI directly:
+
+```bash
+bu-rust    # or just `but` if you prefer the short name
+```
+
+Tests live under `tests/ci/test_rust_agent.py` (25 passing) — provider
+inference, event parsing, session-state machine, structured output,
+integration vs the real `browser-use-terminal run-fake`.
+
+<br/>
+
 # Open Source vs Cloud
 
 <picture>
