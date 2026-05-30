@@ -612,7 +612,30 @@ class Agent:
 		if self.output_model is not None and state.final_summary:
 			result.final_output = self._parse_output_model(state.final_summary)
 
-		# Surface real token/cost numbers + the prompt messages for evals.
+		# Loud diagnostics when the run produced nothing — helps debug eval
+		# wrapper-vs-rust handoff issues. Prints argv, exit, and stderr.
+		if not state.events and not state.final_summary:
+			import logging
+			import sys
+
+			logger = logging.getLogger('browser_use.rust.Agent')
+			diag = (
+				'\n========= rust Agent: subprocess returned no events =========\n'
+				f'argv:     {argv}\n'
+				f'cwd:      {os.getcwd()}\n'
+				f'exit:     {exit_code}\n'
+				f'duration: {(time.monotonic() - started):.2f}s\n'
+				f'session:  {state.session_id}\n'
+				f'env override keys: {sorted(self._env_overrides().keys())}\n'
+				f'LLM_BROWSER_BROWSER_MODE: {env.get("LLM_BROWSER_BROWSER_MODE")}\n'
+				f'browser-use-terminal: {find_browser_use_terminal_binary()}\n'
+				'stderr:\n'
+				f'{stderr_blob.decode(errors="replace")[:4000]}\n'
+				'============================================================='
+			)
+			logger.error(diag)
+			print(diag, file=sys.stderr, flush=True)
+
 		from browser_use.rust.compat import _UsageView
 
 		usage = _UsageView()
