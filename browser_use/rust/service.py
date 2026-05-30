@@ -936,22 +936,24 @@ def _browser_preference_mode(browser: Any) -> str | None:
 	"""
 	Map Python BrowserSession config onto the Rust core's
 	`browser.preference.mode` setting (local / managed-headless /
-	managed-headed / cloud / remote).
+	managed-headed / cloud).
 
-	Default = managed-headless: auto-launches bundled Chromium with no
-	"Allow remote debugging" click on macOS. Set browser=BrowserSession()
-	to get this; pass `headless=False` to switch to managed-headed.
+	Default = managed-headless: the Rust binary auto-launches bundled
+	Chromium with no "Allow remote debugging" click on macOS and works
+	out of the box in headless CI.
+
+	We DELIBERATELY do not auto-pick `remote` from `BrowserSession.cdp_url`.
+	When a Python-side BrowserSession starts a local browser it populates
+	cdp_url with `ws://127.0.0.1:9222/...` — but the Rust agent owns its
+	own browser; connecting to the Python one would race two agents on
+	the same CDP target. To attach the Rust agent to a REMOTE CDP url
+	(e.g. cloud / Browserbase) pass it explicitly via
+	`extra_args=['-c', 'browser.preference.mode=cloud']` or set
+	`LLM_BROWSER_BROWSER_MODE=cloud` in your env.
 	"""
-	if _browser_cdp_url(browser):
-		# Remote CDP — let the Rust binary attach to whatever's at that url.
-		# (Pending matching --cdp-url flag Rust-side; setting the mode is
-		# the contract.)
-		return 'remote'
 	headless = _browser_headless(browser)
 	if headless is False:
 		return 'managed-headed'
-	# Default — including when `browser=None` — picks managed-headless so
-	# eval / CI runs don't block on a macOS Chrome dialog.
 	return 'managed-headless'
 
 
