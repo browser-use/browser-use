@@ -1,6 +1,6 @@
 # Browser-Use × Claude Code — Interactive Agent Blueprint
 
-> Living design document. Last updated: 2026-05-29. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS · **research module** (citation tracking · parallel tab orchestration · streaming reasoning traces · async synthesis · make_llm_synthesize_fn).
+> Living design document. Last updated: 2026-05-30. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS · **research module** · **EWOR submitted ✅ 2026-05-30** · resume-site deployed → vercel.
 
 ---
 
@@ -691,9 +691,9 @@ Changes to `src/App.tsx` (commit `c0d67b3`):
 
 ---
 
-### Next Actions (§10 — updated 2026-05-29)
+### Next Actions (§10 — updated 2026-05-30)
 
-- [x] EWOR form 95% complete — only missing: video URL + pitch deck upload → provide video link to complete
+- [x] **EWOR Fellowship application SUBMITTED ✅** — 2026-05-30. Confirmation: `https://www.ewor.com/thank-you`. "Application successfully submitted. We review on a rolling basis."
 - [x] Gartner Job 108490 closed → replaced by Job 110514 (Sr Director Analyst - Innovation & Emerging Tech, Remote EU) — Workday page open
 - [x] Bing Jobs alert saved (SAVED SEARCHES 1) — login with `desire.yavro@gmail.com` to activate email alerts
 - [ ] Provide EWOR 1-min pitch video URL (Loom/YouTube/LinkedIn) to unblock form submission
@@ -760,3 +760,41 @@ https://rss.nytimes.com/services/xml/rss/nyt/World.xml
 ```
 
 - [ ] Set a Bing Jobs alert for: "innovation manager deep tech space AI senior remote"
+
+---
+
+## §12. Resume Site & GitHub Portfolio (2026-05-30)
+
+### Live Resume Site
+
+**URL:** `https://resume-site-zeta-sepia.vercel.app`
+
+- Source: `C:/Users/nzengou/Documents/programming/test_programming/resume-site/`
+- Deployed via Vercel (project: `dnzengous-projects/resume-site`)
+- 3 resume tabs: Business Dev · Tech/Product · Startup/Innovation
+- Dark mode + print-to-PDF per tab
+- ATS-safe layout, no tables
+
+### GitHub Portfolio Items Extracted (dnzengou)
+
+| Repo | Domain | Stack | Highlight |
+|------|--------|-------|-----------|
+| worldmonitor | AI/Geospatial | TypeScript | Real-time GDELT+AIS+ADS-B intelligence dashboard |
+| wm-agents-claude | AI Agents | TypeScript | Multi-agent Claude API pipeline |
+| cas_dashboard | CAS/Space | Python | Complex Adaptive Systems for space policy |
+| carbon-credit-backed-stablecoin | Blockchain/Climate | Solidity | Climate DeFi instrument |
+| quantum-computing-w-qiskit | Quantum | Jupyter | Quantum circuit optimisation |
+| AutoResearchClaw | Research AI | — | Autonomous idea→paper pipeline |
+| deeptechx | Startup | TypeScript | Deep-tech founder launchpad |
+| graphify | AI Tooling | — | Code→knowledge graph for RAG |
+| worldmodel-geosim | Geospatial | Python | World-model geospatial simulation |
+| Universal_Agentic_Advisory_Platform | Advisory | TypeScript | Strategic decision framework |
+| bmc | BD Tools | HTML | Interactive Business Model Canvas |
+| jobs-for-ai-agents | HR Tech | — | AI job-search Claude Code tool |
+
+### Next Actions §12
+- [ ] Add custom domain (e.g. `cv.desiredsolutions.me`) via Vercel DNS settings
+- [ ] Enrich with LinkedIn-scraped experience bullets (requires manual review)
+- [ ] Generate PDF versions per tab for email attachments
+- [ ] Apply `deeptechx.xyz` or `desiredsolutions.me` subdomain
+
