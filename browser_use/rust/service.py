@@ -346,16 +346,24 @@ class Agent:
 		if interactive is None:
 			interactive = self.task is None
 		if interactive:
-			return await self._run_interactive()
-		if self.task is None:
-			raise ValueError('Agent.run(interactive=False) requires a task.')
-		return await self._run_headless(self.task, attach_to_session=None)
+			result = await self._run_interactive()
+		else:
+			if self.task is None:
+				raise ValueError('Agent.run(interactive=False) requires a task.')
+			result = await self._run_headless(self.task, attach_to_session=None)
+		# Pin the result so `agent.history` / `agent.usage` reads see it.
+		# Eval harnesses do `await agent.run(); agent.history.history` and
+		# would otherwise read an empty placeholder.
+		self.result = result
+		return result
 
 	async def follow_up(self, task: str) -> AgentRunResult:
 		"""Continue the current session with another user turn."""
 		if self.session_id is None:
 			raise RuntimeError('No active session — call run() first or Agent.attach(...).')
-		return await self._run_headless(task, attach_to_session=self.session_id, subcommand='followup')
+		result = await self._run_headless(task, attach_to_session=self.session_id, subcommand='followup')
+		self.result = result
+		return result
 
 	follow_up_task = follow_up
 
