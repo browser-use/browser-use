@@ -140,23 +140,12 @@ GRACEFUL_CANCEL_TIMEOUT_S = 5.0
 # screenshots; without them the eval judge has no visual evidence and
 # scores everything 0. The wrapper forwards this directive once per task.
 EVAL_SCREENSHOT_DIRECTIVE = (
-	'\n\n[EVAL MODE]'
-	'\n1. ALWAYS use the browser to verify your answer from the live website — '
-	'never answer from prior knowledge alone. The grading judge will mark any '
-	'task where you did not actually navigate the site as failed.'
-	'\n2. Every browser_script tool call you make MUST end with '
-	'`screenshot("step")` so the judge can visually verify what changed. '
-	'Capture both the page state after a successful action and the page state '
-	'at completion.'
-	'\n3. If a cookie-consent banner blocks the page, dismiss it first '
-	'(click "Accept all", "Accept cookies", or the close button) before '
-	'attempting to extract data. Without dismissing it, screenshots will show '
-	'the banner instead of the real content.'
-	'\n4. The final answer MUST contain the actual data inline (full list of '
-	'items, all the prices, every field requested). NEVER reply with "see the '
-	'saved file" or "the JSON is in outputs/..." — the judge has no access to '
-	'your filesystem. If the task asks for a list of N items, return all N '
-	'items in the message.'
+	'\n\n[EVAL MODE — automated test, no human will reply]'
+	'\nVerify on the live website (never from memory). Return every requested '
+	'data field inline in the final answer (never "see the file" — judge has '
+	'no filesystem). Dismiss cookie banners before extracting. End each '
+	'browser_script with `screenshot("step")`. Do not ask clarifying questions '
+	'— finish with the best answer you can produce from the live page.'
 )
 
 
