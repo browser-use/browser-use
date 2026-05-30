@@ -20,7 +20,6 @@ jobs:
     steps:
       - name: Trigger Evaluation settings
         id: trigger
-        continue-on-error: true
         run: |
           echo "🚀 Triggering evaluation - PR #${{ github.event.pull_request.number }}"
           echo "Commit: ${{ github.event.pull_request.head.sha }}"

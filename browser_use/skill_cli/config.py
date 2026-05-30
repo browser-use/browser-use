@@ -47,7 +47,13 @@ def read_config() -> dict:
 	path = _get_config_path()
 	if path.exists():
 		try:
-			return json.loads(path.read_text())
+			data = json.loads(path.read_text()
+
+			if not isinstance(data, dict):
+
+			    return {}
+
+			return data)
 		except (json.JSONDecodeError, OSError):
 			return {}
 	return {}

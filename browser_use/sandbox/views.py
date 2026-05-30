@@ -98,6 +98,8 @@ class SSEEvent(BaseModel):
 		    ValueError: If event type is invalid
 		"""
 		raw_data = json.loads(event_json)
+        if not isinstance(raw_data, dict):
+            raise ValueError(f"Expected JSON object (dict), got {type(raw_data).__name__}")
 		event_type = SSEEventType(raw_data.get('type'))
 		data_dict = raw_data.get('data', {})
 

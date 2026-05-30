@@ -35,6 +35,18 @@ _PRIMITIVE_MAP: dict[str, type] = {
 }
 
 
+
+def _normalize_type(type_value) -> str | None:
+    """Normalize a JSON Schema type field that may be a string or list."""
+    if type_value is None:
+        return None
+    if isinstance(type_value, list):
+        # Pick the first non-null type from union arrays like ["string", "null"]
+        non_null = [t for t in type_value if t != "null"]
+        return non_null[0] if non_null else "string"
+    return type_value
+
+
 class _StrictBase(BaseModel):
 	model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
 
@@ -156,7 +168,7 @@ def schema_dict_to_pydantic_model(schema: dict) -> type[BaseModel]:
 	"""
 	_check_unsupported(schema)
 
-	top_type = schema.get('type')
+	top_type = _normalize_type(schema.get("type"))
 	if top_type != 'object':
 		raise ValueError(f'Top-level schema must have type "object", got {top_type!r}')
 
