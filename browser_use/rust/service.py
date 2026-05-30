@@ -464,12 +464,21 @@ class Agent:
 			task_text = _maybe_inject_eval_directive(self.task) or self.task
 			result = await self._run_headless(task_text, attach_to_session=None)
 
-			# Retry-on-skip safety net (BU_RUST_RETRY_ON_SKIP=1). When the agent
-			# finished without doing any real browser_script work — common
-			# failure mode where it shortcuts to a training-data answer — re-run
-			# once with an explicit "you skipped browsing" preamble. Adds cost
-			# only when triggered; bounded to one retry.
-			if os.environ.get('BU_RUST_RETRY_ON_SKIP') == '1' and _looks_like_skip(result):
+			# Retry-on-skip safety net. When the agent finished without doing
+			# any real browser_script work — common failure mode where it
+			# shortcuts to a training-data answer — re-run once with an
+			# explicit "you skipped browsing" preamble. Adds cost only when
+			# triggered; bounded to one retry. Default-on when FORCE_SCREENSHOTS
+			# is set (i.e. we're in eval mode where skip = guaranteed failure).
+			# Disable explicitly with BU_RUST_RETRY_ON_SKIP=0.
+			retry_skip_enabled = (
+				os.environ.get('BU_RUST_RETRY_ON_SKIP') == '1'
+				or (
+					os.environ.get('BU_RUST_FORCE_SCREENSHOTS') == '1'
+					and os.environ.get('BU_RUST_RETRY_ON_SKIP') != '0'
+				)
+			)
+			if retry_skip_enabled and _looks_like_skip(result):
 				import logging
 				logging.getLogger('browser_use.rust.Agent').warning(
 					'Detected skipped-browsing on initial run (%d steps); retrying with explicit preamble',
