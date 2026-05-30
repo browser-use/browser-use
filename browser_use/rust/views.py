@@ -93,6 +93,10 @@ class AgentRunResult(BaseModel):
 	started_at: datetime = Field(default_factory=datetime.utcnow)
 	ended_at: datetime | None = None
 	duration_seconds: float | None = None
+	# Populated by Agent._judge_and_log() when the eval harness requests the
+	# in-Agent ComprehensiveV1 judge. Mirrors classic browser_use.Agent so the
+	# eval flows through agent_history.is_judged() / .judgement() unchanged.
+	judgement_dict: dict[str, Any] | None = None
 
 	@property
 	def succeeded(self) -> bool:
@@ -193,11 +197,12 @@ class AgentRunResult(BaseModel):
 		return getattr(self, '_usage_cache')
 
 	def is_judged(self) -> bool:
-		"""Always False — the Rust core doesn't run an inline judge today."""
-		return False
+		"""True once Agent._judge_and_log() ran and stashed a verdict here."""
+		return self.judgement_dict is not None
 
 	def judgement(self) -> dict[str, Any] | None:
-		return None
+		"""The comprehensive judge verdict (eval harness reads .verdict, .reasoning, etc.)."""
+		return self.judgement_dict
 
 	def is_validated(self) -> bool | None:
 		return None

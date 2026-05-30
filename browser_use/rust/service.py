@@ -474,15 +474,71 @@ class Agent:
 
 	async def _judge_and_log(self) -> None:
 		"""
-		No-op compatibility stub.
+		Run the ComprehensiveV1 judge over the just-finished run and stash the
+		verdict on `self.result.judgement_dict`. Mirrors classic
+		`browser_use.Agent._judge_and_log` so the eval harness's
+		`agent_history.is_judged()` / `.judgement()` reads work unchanged.
 
-		The eval-internal harness calls this method when `judge_type ==
-		'comprehensivev1'`. Classic browser_use.Agent didn't have it
-		either (the harness hits AttributeError on stock browser-use).
-		Providing a stub means the eval keeps running and the external
-		judge stage handles scoring instead.
+		If anything in the judge LLM path fails, leave judgement_dict=None —
+		the eval falls back to "Agent history not judged" and score 0, which
+		is what we'd get from the noop anyway.
 		"""
-		return None
+		result = self.result
+		if result is None or result.exit_code != 0:
+			return
+
+		# Lazy import — avoids dragging classic-Agent deps into wrapper startup.
+		try:
+			from browser_use.agent.judge import construct_judge_messages
+			from browser_use.agent.views import JudgementResult
+		except Exception:
+			return
+
+		llm = self.llm
+		if llm is None:
+			return
+
+		task = self.task or ''
+		final_result = result.final_result() or ''
+		# Per-step textual summary — close enough to classic agent_steps.
+		agent_steps: list[str] = []
+		for step in result.steps:
+			tool = step.tool or '?'
+			arg_keys = ','.join(sorted((step.tool_input or {}).keys()))
+			out_keys = ','.join(sorted((step.tool_output or {}).keys()))
+			agent_steps.append(f'{tool}(args={arg_keys}) -> ({out_keys})')
+
+		screenshot_paths = [p for s in result.steps for p in s.screenshot_paths if p]
+
+		try:
+			messages = construct_judge_messages(
+				task=task,
+				final_result=final_result,
+				agent_steps=agent_steps,
+				screenshot_paths=screenshot_paths,
+				max_images=10,
+				ground_truth=None,
+				use_vision=True,
+			)
+			response = await llm.ainvoke(messages, output_format=JudgementResult)
+			judgement: JudgementResult = response.completion  # type: ignore[assignment]
+		except Exception as exc:
+			import logging
+
+			logging.getLogger('browser_use.rust.Agent').warning(
+				'Judge LLM call failed: %s', exc, exc_info=True
+			)
+			return
+
+		# Store the verdict as a plain dict — the eval harness reads
+		# `agent_history.judgement()['verdict']` etc.
+		result.judgement_dict = {
+			'verdict': bool(judgement.verdict),
+			'reasoning': judgement.reasoning or '',
+			'failure_reason': judgement.failure_reason or '',
+			'impossible_task': bool(judgement.impossible_task),
+			'reached_captcha': bool(judgement.reached_captcha),
+		}
 
 	async def cancel(self) -> None:
 		self._cancelled = True

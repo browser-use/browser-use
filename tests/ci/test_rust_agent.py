@@ -418,6 +418,29 @@ def test_history_view_returns_none_when_screenshot_path_missing():
 	assert result.history[0].state.get_screenshot() is None
 
 
+def test_judgement_round_trip_via_is_judged_and_judgement():
+	"""eval harness reads agent.history.is_judged() / .judgement() — both must
+	reflect what Agent._judge_and_log stashed."""
+	from browser_use.rust.views import AgentRunResult
+
+	r = AgentRunResult(exit_code=0, final_summary='done')
+	assert r.is_judged() is False
+	assert r.judgement() is None
+
+	r.judgement_dict = {
+		'verdict': True,
+		'reasoning': 'looked plausible',
+		'failure_reason': '',
+		'impossible_task': False,
+		'reached_captcha': False,
+	}
+	assert r.is_judged() is True
+	out = r.judgement()
+	assert out is not None
+	assert out['verdict'] is True
+	assert out['reasoning'] == 'looked plausible'
+
+
 # ---------------------------------------------------------------------------
 # Structured output
 # ---------------------------------------------------------------------------
