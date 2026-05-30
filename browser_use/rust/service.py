@@ -498,6 +498,10 @@ class Agent:
 		self.output_model = output_model or _unsupported.pop('output_model_schema', None)
 		self.state_dir = Path(state_dir) if state_dir else None
 		self.extra_args: list[str] = list(extra_args or [])
+		# Pull max_steps off the constructor so we can forward to --max-turns
+		# without waiting for .run(max_steps=...). Some eval paths pass it here.
+		ctor_max_steps = _unsupported.pop('max_steps', None) or _unsupported.pop('max_turns', None)
+		self._ctor_max_steps: int | None = int(ctor_max_steps) if ctor_max_steps else None
 		self.session_id: str | None = None
 		self.result: AgentRunResult | None = None
 		self._proc: asyncio.subprocess.Process | None = None
@@ -542,9 +546,12 @@ class Agent:
 		and our wrapper doesn't surface per-step lifecycle hooks (use
 		`on_event` on the constructor for live observability instead).
 		"""
-		# max_steps / on_step_* are no-ops here — accepted to match the
-		# classic Agent.run signature. Document loudly when debugging.
-		_ = (max_steps, on_step_start, on_step_end, _unused)
+		# on_step_* are accepted for classic-Agent signature compat (we don't
+		# expose per-step callbacks — use on_event on the constructor instead).
+		# max_steps IS now used — forwarded to the Rust --max-turns flag so
+		# long research tasks don't crash with "exceeded maximum provider turns".
+		_ = (on_step_start, on_step_end, _unused)
+		effective_max = max_steps or self._ctor_max_steps
 		if interactive is None:
 			interactive = self.task is None
 		if interactive:
@@ -553,7 +560,7 @@ class Agent:
 			if self.task is None:
 				raise ValueError('Agent.run(interactive=False) requires a task.')
 			task_text = _maybe_inject_eval_directive(self.task) or self.task
-			result = await self._run_headless(task_text, attach_to_session=None)
+			result = await self._run_headless(task_text, attach_to_session=None, max_turns=effective_max)
 
 			# Retry-on-skip safety net. When the agent finished without doing
 			# any real browser_script work — common failure mode where it
@@ -583,7 +590,7 @@ class Agent:
 					'in the task, screenshots the loaded page, and extracts the answer. '
 					'Do not call `done` before that.\n\n'
 				) + task_text
-				retry = await self._run_headless(retry_task, attach_to_session=None)
+				retry = await self._run_headless(retry_task, attach_to_session=None, max_turns=effective_max)
 				# Only keep the retry if it's clearly better — i.e. actually browsed.
 				if not _looks_like_skip(retry):
 					result = retry
@@ -823,6 +830,7 @@ class Agent:
 		*,
 		attach_to_session: str | None,
 		subcommand: str | None = None,
+		max_turns: int | None = None,
 	) -> AgentRunResult:
 		cli = find_browser_use_terminal_binary()
 		if subcommand is None:
@@ -840,6 +848,13 @@ class Agent:
 		argv.append(text)
 		if self._model and subcommand != 'followup':
 			argv.extend(['--model', self._model])
+		# Forward --max-turns when caller specified or constructor stored it.
+		# Rust core default is 80; long research tasks (real_v8 #4 UniFi
+		# product table, #7 arxiv search) exceed that and crash with
+		# "agent exceeded maximum provider turns".
+		effective_turns = max_turns or self._ctor_max_steps
+		if effective_turns and subcommand != 'followup' and not any(a == '--max-turns' for a in self.extra_args):
+			argv.extend(['--max-turns', str(int(effective_turns))])
 		argv.extend(self.extra_args)
 
 		env = {**os.environ, **self._env_overrides()}
