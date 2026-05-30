@@ -418,6 +418,48 @@ def test_history_view_returns_none_when_screenshot_path_missing():
 	assert result.history[0].state.get_screenshot() is None
 
 
+def test_compute_cost_usd_for_known_model(tmp_path):
+	"""TokenCost lookup should yield a non-zero $ cost for a priced model."""
+	import asyncio
+	from browser_use.rust.service import _compute_cost_usd
+
+	cost = asyncio.run(_compute_cost_usd('gpt-4o-mini', 100_000, 5_000))
+	# gpt-4o-mini is $0.15/1M input, $0.60/1M output → ~$0.018 for this load.
+	assert 0.001 < cost < 0.10, f'unexpected cost: {cost}'
+
+
+def test_compute_cost_usd_returns_zero_for_unknown_or_empty():
+	"""Unknown model name or zero tokens must return 0.0, not raise."""
+	import asyncio
+	from browser_use.rust.service import _compute_cost_usd
+
+	assert asyncio.run(_compute_cost_usd(None, 1000, 100)) == 0.0
+	assert asyncio.run(_compute_cost_usd('gpt-5', 0, 0)) == 0.0
+
+
+def test_resolve_judge_llm_prefers_gemini_when_key_set(monkeypatch):
+	"""GEMINI_API_KEY → ChatGoogle judge; OPENAI_API_KEY-only → ChatOpenAI judge;
+	neither → None (caller skips judging)."""
+	from browser_use.rust.service import _resolve_judge_llm
+
+	monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+	monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
+	monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+	assert _resolve_judge_llm() is None
+
+	monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+	llm = _resolve_judge_llm()
+	assert llm is not None
+	# ChatOpenAI fallback
+	assert type(llm).__name__ == 'ChatOpenAI'
+
+	monkeypatch.setenv('GEMINI_API_KEY', 'gm-test')
+	llm = _resolve_judge_llm()
+	assert llm is not None
+	# Gemini preferred when key present
+	assert type(llm).__name__ == 'ChatGoogle'
+
+
 def test_judgement_round_trip_via_is_judged_and_judgement():
 	"""eval harness reads agent.history.is_judged() / .judgement() — both must
 	reflect what Agent._judge_and_log stashed."""

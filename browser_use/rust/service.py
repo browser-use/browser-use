@@ -479,6 +479,10 @@ class Agent:
 		`browser_use.Agent._judge_and_log` so the eval harness's
 		`agent_history.is_judged()` / `.judgement()` reads work unchanged.
 
+		Uses gemini-3-flash-preview as the judge LLM (parity with eval/service.py
+		line 335) — not the agent's main LLM, since judges must be cheap +
+		independent.
+
 		If anything in the judge LLM path fails, leave judgement_dict=None —
 		the eval falls back to "Agent history not judged" and score 0, which
 		is what we'd get from the noop anyway.
@@ -494,8 +498,15 @@ class Agent:
 		except Exception:
 			return
 
-		llm = self.llm
+		llm = _resolve_judge_llm()
 		if llm is None:
+			# No judge LLM available (Gemini key missing AND no fallback) —
+			# leave unjudged rather than billing the user for an agent-LLM judge.
+			import logging
+			logging.getLogger('browser_use.rust.Agent').warning(
+				'Judge LLM unavailable (no GEMINI_API_KEY / GOOGLE_API_KEY '
+				'and no fallback llm) — skipping ComprehensiveV1 judge.'
+			)
 			return
 
 		task = self.task or ''
@@ -793,6 +804,13 @@ class Agent:
 			if ev.type == 'model.config':
 				usage.model = ev.payload.get('model')
 				break
+		# Rust core emits cost=0 on every model.usage event; compute it ourselves
+		# from input/output token totals so the eval pipeline shows real $.
+		if usage.cost == 0.0 and (usage.input_tokens > 0 or usage.output_tokens > 0):
+			try:
+				usage.cost = await _compute_cost_usd(usage.model, usage.input_tokens, usage.output_tokens)
+			except Exception:
+				pass
 		object.__setattr__(result, '_usage_cache', usage)
 		# Feed agent.message_manager.last_input_messages for eval harness reads.
 		self.message_manager.last_input_messages = list(state.input_messages)
@@ -1002,6 +1020,77 @@ class Agent:
 	@staticmethod
 	def headless_binary_path() -> Path:
 		return find_browser_use_terminal_binary()
+
+
+# ----------------------------------------------------------------------
+# Judge LLM resolution + cost computation
+# ----------------------------------------------------------------------
+
+
+def _resolve_judge_llm() -> Any | None:
+	"""Pick a cheap, independent judge LLM. Matches eval/service.py:335.
+
+	Order of preference:
+	1. `gemini-3-flash-preview` via ChatGoogle (cheap, fast, used in eval today)
+	2. `gpt-4o-mini` via ChatOpenAI (fallback if Google key absent)
+	3. None — caller skips judging rather than burn agent-LLM cost.
+	"""
+	# Gemini (preferred): only attempt if a Google API key is set.
+	if os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY'):
+		try:
+			from browser_use.llm.google.chat import ChatGoogle
+
+			return ChatGoogle(model='gemini-3-flash-preview')
+		except Exception:
+			pass
+
+	# OpenAI mini fallback.
+	if os.environ.get('OPENAI_API_KEY'):
+		try:
+			from browser_use.llm.openai.chat import ChatOpenAI
+
+			return ChatOpenAI(model='gpt-4o-mini')
+		except Exception:
+			pass
+
+	return None
+
+
+async def _compute_cost_usd(model: str | None, input_tokens: int, output_tokens: int) -> float:
+	"""Best-effort cost computation from LiteLLM's public pricing JSON.
+
+	Returns 0.0 if the model isn't priced or the lookup fails. The Rust core
+	emits `cost: 0.0` on `model.usage` events; this is the canonical place to
+	fill it in so eval `usage.cost` lines up with reality.
+	"""
+	if not model or (input_tokens <= 0 and output_tokens <= 0):
+		return 0.0
+	try:
+		from browser_use.llm.views import ChatInvokeUsage
+		from browser_use.tokens.service import TokenCost
+	except Exception:
+		return 0.0
+
+	cost_service = TokenCost(include_cost=True)
+	try:
+		await cost_service.initialize()
+		usage = ChatInvokeUsage(
+			prompt_tokens=int(input_tokens),
+			prompt_cached_tokens=0,
+			prompt_cache_creation_tokens=0,
+			prompt_image_tokens=0,
+			completion_tokens=int(output_tokens),
+			total_tokens=int(input_tokens) + int(output_tokens),
+		)
+		breakdown = await cost_service.calculate_cost(model, usage)
+		if breakdown is None:
+			return 0.0
+		# Sum the relevant components — uncached prompt + completion. Cached
+		# reads and cache creation are zero in our case (Rust doesn't emit them).
+		total = float(breakdown.new_prompt_cost or 0.0) + float(breakdown.completion_cost or 0.0)
+		return total
+	except Exception:
+		return 0.0
 
 
 # ----------------------------------------------------------------------
