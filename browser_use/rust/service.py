@@ -78,6 +78,9 @@ _PROVIDER_BY_CLASS: dict[str, Provider] = {
 # no-ops for this wrapper. Anything outside this set still warns.
 _KNOWN_LEGACY_KWARGS: frozenset[str] = frozenset(
 	{
+		# First-version (handled): task, llm, browser, browser_session,
+		# timeout, on_event, output_model, output_model_schema, state_dir
+		# Eval-harness-specific kwargs (accepted, no-op):
 		'controller',
 		'tools',
 		'use_vision',
@@ -93,12 +96,30 @@ _KNOWN_LEGACY_KWARGS: frozenset[str] = frozenset(
 		'judge_llm',
 		'ground_truth',
 		'browser_profile',
-		'browser_session',  # already handled as alias below
+		'browser_session',  # alias handled below
 		'save_conversation_path',
 		'max_failures',
 		'skill_ids',
 		'skills',
-		'output_model_schema',
+		# Second-version (accepted; partial Rust support — see roadmap):
+		'sensitive_data',  # Rust core would need a secrets surface
+		'allowed_domains',  # browser_profile.allowed_domains exists; forward only
+		'blocked_domains',  # same as above
+		'webhook_url',  # third-version; accepted now
+		'webhook_token',
+		'viewport_size',
+		'window_size',
+		'recordings_dir',  # Rust core records to state_dir/recordings/
+		'live_url_callback',  # Rust may emit live_url events; future
+		'metadata',
+		'tags',
+		'name',
+		'description',
+		'priority',
+		'budget_usd',  # Rust would need to emit usage warnings
+		'budget_tokens',
+		'cache_key',
+		'deterministic_replay',
 	}
 )
 
