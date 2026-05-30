@@ -397,6 +397,37 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	assert _maybe_inject_eval_directive(None) is None
 
 
+def test_tool_output_text_promoted_to_extracted_content():
+	"""tool.output events carry the actual script output in `text`/`data`/etc.
+	The wrapper must merge that into step.tool_output (alongside tool.finished's
+	{name, tool_call_id}) and synthesise extracted_content for the judge."""
+	state = _AgentSessionState()
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'id': 'tc1', 'arguments': {'code': 'print(page_info())'}}, seq=1)))
+	state.absorb(parse_event(_event('tool.started', {'tool_call_id': 'tc1'}, seq=2)))
+	state.absorb(parse_event(_event('tool.finished', {'name': 'browser_script', 'tool_call_id': 'tc1'}, seq=3)))
+	state.absorb(parse_event(_event('tool.output', {'name': 'browser_script', 'tool_call_id': 'tc1', 'text': 'Example Domain\n', 'status': 'finished', 'ok': True}, seq=4)))
+	step = state.steps[0]
+	assert step.tool_output is not None
+	assert step.tool_output.get('text') == 'Example Domain\n'
+	assert step.tool_output.get('status') == 'finished'
+	assert step.tool_output.get('extracted_content') == 'Example Domain\n'
+
+
+def test_response_output_item_message_text_attached_to_step():
+	"""LLM messages between tool calls (the agent's reasoning prose) should
+	land on the most recent step's model_text so the judge sees the chain
+	of thought / commentary."""
+	state = _AgentSessionState()
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser', 'id': 'tc1'}, seq=1)))
+	# OpenAI/Codex output_item with content list
+	state.absorb(parse_event(_event('model.response.output_item', {'type': 'message', 'content': [{'type': 'output_text', 'text': 'I went to example.com and read the title.'}]}, seq=2)))
+	assert state.steps[0].model_text == 'I went to example.com and read the title.'
+
+	# Reasoning items must NOT leak into model_text
+	state.absorb(parse_event(_event('model.response.output_item', {'type': 'reasoning', 'content': []}, seq=3)))
+	assert state.steps[0].model_text == 'I went to example.com and read the title.'
+
+
 def test_looks_like_skip_classification():
 	"""Match the agent's training-data-shortcut pattern: 0-2 steps, all of which
 	are browser admin calls or observe polls. Any real browser_script code call

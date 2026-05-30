@@ -152,6 +152,40 @@ EVAL_SCREENSHOT_DIRECTIVE = (
 OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[None]]
 
 
+def _extract_message_text(payload: dict[str, Any]) -> str:
+	"""Pull the visible assistant text out of a `model.response.output_item`
+	payload. OpenAI/Codex shapes: `{type:"message", content:[{type:"output_text", text:"..."}]}`
+	with variants. Returns '' for reasoning, function_call, or any non-text item.
+	"""
+	if not isinstance(payload, dict):
+		return ''
+	item_type = payload.get('type')
+	# Some Rust builds nest under `item` instead of flattening
+	inner = payload.get('item') if isinstance(payload.get('item'), dict) else payload
+	inner_type = inner.get('type') or item_type
+	if inner_type not in (None, 'message', 'response.output_text'):
+		return ''
+	# Flat text variant
+	text = inner.get('text') if isinstance(inner.get('text'), str) else None
+	if text:
+		return text
+	# Content-list variant
+	content = inner.get('content')
+	if isinstance(content, list):
+		parts: list[str] = []
+		for c in content:
+			if not isinstance(c, dict):
+				continue
+			ctype = c.get('type')
+			if ctype in (None, 'output_text', 'text', 'response.output_text'):
+				ctext = c.get('text')
+				if isinstance(ctext, str) and ctext:
+					parts.append(ctext)
+		if parts:
+			return '\n'.join(parts)
+	return ''
+
+
 def _looks_like_skip(result: Any) -> bool:
 	"""True when the agent finished without doing any actual browser_script
 	page interaction. Pattern: 0-2 steps, all of which are `browser` admin
@@ -272,9 +306,25 @@ class _AgentSessionState:
 		if isinstance(event, ModelResponseInputItem):
 			self.input_messages.append(event.payload)
 			return
-		# (output items captured for completeness; not yet exposed to callers)
-		if event.type == 'model.response.output_item':  # pragma: no cover
+		# LLM output items — captured here AND mined for message-type text so
+		# the judge can see the agent's reasoning between tool calls. For
+		# OpenAI/Codex responses, `type='message'` items carry the visible
+		# assistant text (the "I navigated to X and found Y" prose); `type='reasoning'`
+		# items carry hidden chain-of-thought (skip — judge doesn't get those);
+		# `type='function_call'` is the raw tool_call (covered separately).
+		if event.type == 'model.response.output_item':
 			self.output_messages.append(event.payload)
+			item_text = _extract_message_text(event.payload)
+			if item_text:
+				if self._last_model_text:
+					self._last_model_text += '\n' + item_text
+				else:
+					self._last_model_text = item_text
+				# If we already have a step in flight (text arrived between
+				# tool_call and next tool_call), attach the text to the last
+				# step retroactively so the judge sees the agent's reply.
+				if self.steps and not self.steps[-1].model_text:
+					self.steps[-1].model_text = item_text
 			return
 
 		# Tool calls — Rust emits THREE events per call:
@@ -322,16 +372,37 @@ class _AgentSessionState:
 				step.screenshot_paths.append(path)
 			return
 		if isinstance(event, ToolOutput):
-			# `tool.output` from `browser_script` carries an `images` array with
-			# paths. Treat them the same way as `tool.image` so steps without an
-			# explicit `tool.image` (e.g. older Rust builds, or scripts that
-			# returned an `image` dict in `outputs`) still attach screenshots.
+			# `tool.output` from `browser_script` is where the REAL data lives:
+			# `text` (the captured stdout/result), `data`, `outputs`, plus the
+			# `images` array of file paths. `tool.finished` only has
+			# {name, tool_call_id} — without merging in tool.output the judge
+			# sees empty extracted_content for every step.
 			step = _step_for_call_id(self, event.tool_call_id, event.payload)
 			if step is None:
 				return
 			for path in event.image_paths:
 				if path and path not in step.screenshot_paths:
 					step.screenshot_paths.append(path)
+			# Promote text/data/outputs into the step's tool_output for the
+			# judge to read. Don't blow away an already-populated tool_output
+			# (e.g. from tool.finished arriving first); merge instead.
+			merged: dict[str, Any] = dict(step.tool_output or {})
+			payload = event.payload if isinstance(event.payload, dict) else {}
+			for key in ('text', 'data', 'outputs', 'summary', 'status', 'ok', 'next_observe_ms', 'error', 'diagnosis'):
+				if key in payload and payload[key] is not None and merged.get(key) in (None, '', [], {}):
+					merged[key] = payload[key]
+			# Derive a usable extracted_content the eval reformat_agent_history
+			# loop will surface. Priority: payload.text → payload.summary →
+			# payload.data → first artifact output.
+			if not merged.get('extracted_content'):
+				candidate = (
+					payload.get('text')
+					or payload.get('summary')
+					or (payload.get('data') if isinstance(payload.get('data'), str) else None)
+				)
+				if candidate:
+					merged['extracted_content'] = candidate
+			step.tool_output = merged
 			return
 
 
