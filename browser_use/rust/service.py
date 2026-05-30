@@ -378,7 +378,7 @@ class Agent:
 		if self.result is not None:
 			return self.result.usage
 		# Empty stub with .model_dump() so harness calls don't crash.
-		from browser_use.rust.compat import _UsageView
+		from browser_use.rust.views import _UsageView
 
 		return _UsageView()
 
@@ -636,7 +636,7 @@ class Agent:
 			logger.error(diag)
 			print(diag, file=sys.stderr, flush=True)
 
-		from browser_use.rust.compat import _UsageView
+		from browser_use.rust.views import _UsageView
 
 		usage = _UsageView()
 		usage.input_tokens = state.token_input_total
