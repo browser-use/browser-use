@@ -161,7 +161,7 @@ def _maybe_inject_eval_directive(task: str | None) -> str | None:
 		return None
 	if os.environ.get('BU_RUST_FORCE_SCREENSHOTS') != '1':
 		return task
-	if '[EVAL MODE]' in task:
+	if '[EVAL MODE' in task:
 		return task
 	return task + EVAL_SCREENSHOT_DIRECTIVE
 

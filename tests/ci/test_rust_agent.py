@@ -389,7 +389,7 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	monkeypatch.setenv('BU_RUST_FORCE_SCREENSHOTS', '1')
 	out = _maybe_inject_eval_directive('go to example.com')
 	assert out is not None
-	assert '[EVAL MODE]' in out
+	assert '[EVAL MODE' in out
 	# Idempotent — re-injecting must not duplicate.
 	assert _maybe_inject_eval_directive(out) == out
 
