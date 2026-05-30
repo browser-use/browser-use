@@ -152,6 +152,11 @@ EVAL_SCREENSHOT_DIRECTIVE = (
 	'(click "Accept all", "Accept cookies", or the close button) before '
 	'attempting to extract data. Without dismissing it, screenshots will show '
 	'the banner instead of the real content.'
+	'\n4. The final answer MUST contain the actual data inline (full list of '
+	'items, all the prices, every field requested). NEVER reply with "see the '
+	'saved file" or "the JSON is in outputs/..." — the judge has no access to '
+	'your filesystem. If the task asks for a list of N items, return all N '
+	'items in the message.'
 )
 
 
