@@ -53,6 +53,13 @@ class StepRecord(BaseModel):
 
 	`screenshot_paths` holds absolute disk paths to screenshot/image artifacts
 	emitted by `tool.image` events for this tool call (in arrival order).
+
+	`started_ts_ms` / `finished_ts_ms` are unix-millis from the Rust core's
+	`tool.started` and `tool.finished` events; let the eval dashboard show
+	a real per-step duration instead of 0s.
+
+	`input_tokens` mirrors the per-step ModelUsage if attributable; otherwise
+	the eval pipeline aggregates from the run-level usage.
 	"""
 
 	model_config = ConfigDict(extra='allow')
@@ -63,6 +70,9 @@ class StepRecord(BaseModel):
 	tool_output: dict[str, Any] | None = None
 	model_text: str = ''
 	screenshot_paths: list[str] = Field(default_factory=list)
+	started_ts_ms: int | None = None
+	finished_ts_ms: int | None = None
+	input_tokens: int | None = None
 
 
 class AgentRunResult(BaseModel):
@@ -243,6 +253,9 @@ class AgentRunResult(BaseModel):
 
 		project_id falls back to `LMNR_PROJECT_ID` env var when not passed —
 		matches what eval/cloudv2.py:577 does for the cloud path.
+
+		Laminar requires UUID format (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+		the Rust core emits raw 32-char hex OTel trace ids, so format here.
 		"""
 		import os
 
@@ -252,7 +265,24 @@ class AgentRunResult(BaseModel):
 		pid = project_id or os.environ.get('LMNR_PROJECT_ID') or os.environ.get('LMNR_CLOUD_PROJECT_ID')
 		if not pid:
 			return None
-		return f'https://www.lmnr.ai/project/{pid}/traces?traceId={trace_id}'
+		return f'https://www.lmnr.ai/project/{pid}/traces?traceId={_format_trace_id_as_uuid(trace_id)}'
+
+
+def _format_trace_id_as_uuid(trace_id: str) -> str:
+	"""Format a 32-char hex OTel trace id as a UUID (8-4-4-4-12).
+
+	Pass-through if already UUID-formatted or not 32-hex (let the caller decide
+	what to do with garbage)."""
+	if not trace_id:
+		return trace_id
+	# Already UUID-formatted
+	if len(trace_id) == 36 and trace_id.count('-') == 4:
+		return trace_id
+	# Strip any existing dashes and normalize
+	clean = trace_id.replace('-', '').lower()
+	if len(clean) != 32 or not all(c in '0123456789abcdef' for c in clean):
+		return trace_id
+	return f'{clean[0:8]}-{clean[8:12]}-{clean[12:16]}-{clean[16:20]}-{clean[20:32]}'
 
 
 # ----------------------------------------------------------------------
@@ -380,6 +410,20 @@ class _HistoryItemView:
 		self.result = results
 		self.model_output = _ModelOutputView(step.tool, step.tool_input, step.model_text)
 		self.metadata = _MetadataView()
+		# Populate timing from the step record (set by the wrapper from
+		# tool.started / tool.finished event ts_ms). Without this the eval
+		# dashboard shows duration 0s and 30s/step averages are nonsense.
+		start_ts_ms = getattr(step, 'started_ts_ms', None)
+		end_ts_ms = getattr(step, 'finished_ts_ms', None)
+		if start_ts_ms is not None:
+			self.metadata.step_start_time = float(start_ts_ms) / 1000.0
+		if end_ts_ms is not None:
+			self.metadata.step_end_time = float(end_ts_ms) / 1000.0
+		if start_ts_ms is not None and end_ts_ms is not None and end_ts_ms >= start_ts_ms:
+			self.metadata.duration_seconds = float(end_ts_ms - start_ts_ms) / 1000.0
+		input_tok = getattr(step, 'input_tokens', None)
+		if input_tok is not None:
+			self.metadata.input_tokens = int(input_tok)
 
 	def model_dump(self) -> dict[str, Any]:
 		return {

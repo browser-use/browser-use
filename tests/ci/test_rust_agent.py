@@ -211,12 +211,12 @@ def test_event_parse_accepts_bytes_and_str_and_dict():
 # ---------------------------------------------------------------------------
 
 
-def _event(type_, payload, seq=1, session_id='s'):
+def _event(type_, payload, seq=1, session_id='s', ts_ms=None):
 	return {
 		'seq': seq,
 		'id': f'id-{seq}',
 		'session_id': session_id,
-		'ts_ms': seq * 1000,
+		'ts_ms': ts_ms if ts_ms is not None else seq * 1000,
 		'type': type_,
 		'payload': payload,
 	}
@@ -395,6 +395,44 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 
 	# None passes through unchanged.
 	assert _maybe_inject_eval_directive(None) is None
+
+
+def test_laminar_trace_url_formats_hex_as_uuid():
+	"""Laminar requires UUID format (8-4-4-4-12); Rust emits raw 32-hex.
+	URL builder must convert so the dashboard link actually opens the trace."""
+	from browser_use.rust.views import AgentRunResult, _format_trace_id_as_uuid
+
+	# 32-hex pass-through case
+	assert _format_trace_id_as_uuid('97db9503a669d1d1507e6459b46660f7') == '97db9503-a669-d1d1-507e-6459b46660f7'
+	# Already UUID-formatted: passthrough
+	assert _format_trace_id_as_uuid('97db9503-a669-d1d1-507e-6459b46660f7') == '97db9503-a669-d1d1-507e-6459b46660f7'
+	# Garbage: passthrough (caller deals with it)
+	assert _format_trace_id_as_uuid('not-a-trace-id') == 'not-a-trace-id'
+	assert _format_trace_id_as_uuid('') == ''
+
+	# End-to-end URL
+	state = _AgentSessionState()
+	state.absorb(parse_event(_event('telemetry.trace', {'backend': 'laminar', 'trace_id': '97db9503a669d1d1507e6459b46660f7'}, seq=1)))
+	r = AgentRunResult(exit_code=0, events=state.events, steps=state.steps)
+	url = r.laminar_trace_url(project_id='proj-123')
+	assert url == 'https://www.lmnr.ai/project/proj-123/traces?traceId=97db9503-a669-d1d1-507e-6459b46660f7'
+
+
+def test_step_timing_populated_from_tool_started_and_finished():
+	"""Per-step duration must come from tool.started→tool.finished ts_ms so
+	the eval dashboard doesn't show 30s/step nonsense averages."""
+	state = _AgentSessionState()
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'id': 'tc1'}, seq=1, ts_ms=1_700_000_000_000)))
+	state.absorb(parse_event(_event('tool.started', {'tool_call_id': 'tc1'}, seq=2, ts_ms=1_700_000_000_100)))
+	state.absorb(parse_event(_event('tool.finished', {'name': 'browser_script', 'tool_call_id': 'tc1'}, seq=3, ts_ms=1_700_000_003_500)))
+	step = state.steps[0]
+	assert step.started_ts_ms == 1_700_000_000_100
+	assert step.finished_ts_ms == 1_700_000_003_500
+
+	from browser_use.rust.views import _HistoryItemView
+	hv = _HistoryItemView(step, is_last=True, final_summary=None)
+	assert abs(hv.metadata.duration_seconds - 3.4) < 0.01
+	assert hv.metadata.step_start_time > 1_000_000_000  # sane unix timestamp
 
 
 def test_tool_output_text_promoted_to_extracted_content():

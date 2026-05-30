@@ -338,6 +338,11 @@ class _AgentSessionState:
 				tool=event.tool_name or '?',
 				tool_input=event.payload,
 				model_text=self._last_model_text,
+				# Use model.tool_call ts_ms as a fallback "start" — ToolStarted
+				# will override if it arrives, but for cases where the agent
+				# emits a tool call without a separate tool.started event
+				# (some Rust paths) this keeps duration non-zero.
+				started_ts_ms=event.ts_ms,
 			)
 			self._pending_tool_calls[call_id] = step
 			self.steps.append(step)
@@ -348,6 +353,9 @@ class _AgentSessionState:
 			step = self._pending_tool_calls.get(call_id)
 			if step is not None:
 				self._pending_started_tool_calls[call_id] = step
+				# tool.started is the canonical start moment — always overrides
+				# the model.tool_call ts_ms fallback we set as an initial estimate.
+				step.started_ts_ms = event.ts_ms
 			return
 		if isinstance(event, ToolFinished):
 			call_id = _call_id(event.payload, event.seq)
@@ -356,9 +364,21 @@ class _AgentSessionState:
 			)
 			if step is not None:
 				step.tool_output = event.payload
+				# Record tool.finished timestamp for per-step duration.
+				step.finished_ts_ms = event.ts_ms
+				# If we never saw tool.started (older Rust builds, or events
+				# arrived out of order), back-fill start from the model.tool_call
+				# event's ts_ms so duration is at least positive.
+				if step.started_ts_ms is None:
+					# Find the model.tool_call event for this step
+					for prior in reversed(self.events):
+						if prior.seq <= step.seq and getattr(prior, 'ts_ms', None) is not None:
+							step.started_ts_ms = prior.ts_ms
+							break
 			elif self.steps and self.steps[-1].tool_output is None:
 				# Fall back to last-write-wins when call_id correlation is missing.
 				self.steps[-1].tool_output = event.payload
+				self.steps[-1].finished_ts_ms = event.ts_ms
 			return
 		if isinstance(event, ToolImage):
 			# Rust emits one `tool.image` per screenshot/image artifact a tool
