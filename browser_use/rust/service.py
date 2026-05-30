@@ -153,17 +153,19 @@ OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[
 
 
 def _maybe_inject_eval_directive(task: str | None) -> str | None:
-	"""Append the eval-mode screenshot directive when explicitly enabled.
+	"""Prepend the eval-mode directive when explicitly enabled.
 
-	Gated by `BU_RUST_FORCE_SCREENSHOTS=1`; idempotent (won't re-append if the
-	directive is already present)."""
+	Gated by `BU_RUST_FORCE_SCREENSHOTS=1`; idempotent (won't re-add if the
+	directive is already present). Prepended (not appended) because the
+	earlier text in a long task instruction has more weight on the model's
+	plan — the agent was ignoring the rule when it lived at the bottom."""
 	if task is None:
 		return None
 	if os.environ.get('BU_RUST_FORCE_SCREENSHOTS') != '1':
 		return task
 	if '[EVAL MODE' in task:
 		return task
-	return task + EVAL_SCREENSHOT_DIRECTIVE
+	return EVAL_SCREENSHOT_DIRECTIVE.lstrip() + '\n\n' + task
 
 
 class _AgentSessionState:
