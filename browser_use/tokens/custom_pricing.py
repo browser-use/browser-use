@@ -30,4 +30,4 @@ CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
 }
 CUSTOM_MODEL_PRICING['bu-latest'] = CUSTOM_MODEL_PRICING['bu-2-0']
 
-CUSTOM_MODEL_PRICING['smart'] = CUSTOM_MODEL_PRICING['bu-2-0']
+CUSTOM_MODEL_PRICING['smart'] = CUSTOM_MODEL_PRICING['bu-latest']
