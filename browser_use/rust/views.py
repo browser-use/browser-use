@@ -302,14 +302,33 @@ class _StateView:
 		return {'url': self.url, 'title': self.title}
 
 
+def _compact_tool_input(tool: str | None, tool_input: dict[str, Any] | None) -> dict[str, Any] | None:
+	"""Compress noisy tool inputs to keep the judge's context lean.
+
+	The Rust core's `browser_script(action='observe', observe_timeout_ms=...,
+	run_id=...)` is an internal poll for browser state — useful at runtime,
+	pure noise for the judge. Replace its arguments with a one-line summary.
+	Other tools pass through unchanged.
+	"""
+	if tool_input is None:
+		return None
+	args = tool_input.get('arguments') if isinstance(tool_input, dict) else None
+	if tool == 'browser_script' and isinstance(args, dict) and args.get('action') == 'observe':
+		out = dict(tool_input)
+		out['arguments'] = {'action': 'observe', 'note': 'internal browser-state poll'}
+		return out
+	return tool_input
+
+
 class _ModelOutputView:
 	"""Shape: AgentOutput — `.action` list of dicts + `.current_state`."""
 
 	__slots__ = ('action', 'current_state', '_data')
 
 	def __init__(self, tool: str | None, tool_input: dict[str, Any] | None, model_text: str) -> None:
+		compact = _compact_tool_input(tool, tool_input)
 		self._data = {
-			'action': [{tool: tool_input}] if tool else [],
+			'action': [{tool: compact}] if tool else [],
 			'current_state': {'thought': model_text} if model_text else {},
 		}
 		self.action = self._data['action']

@@ -397,6 +397,34 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	assert _maybe_inject_eval_directive(None) is None
 
 
+def test_compact_tool_input_strips_observe_noise():
+	"""browser_script(action=observe, observe_timeout_ms, run_id) is internal
+	browser-state polling. Judge doesn't need 300 chars of poll metadata per step."""
+	from browser_use.rust.views import _compact_tool_input
+
+	noisy = {
+		'arguments': {'action': 'observe', 'observe_timeout_ms': 2000, 'run_id': 'bs-1780125407172-1'},
+		'id': 'call_xyz',
+		'name': 'browser_script',
+	}
+	out = _compact_tool_input('browser_script', noisy)
+	assert out['arguments'] == {'action': 'observe', 'note': 'internal browser-state poll'}
+	assert out['id'] == 'call_xyz'  # passthrough
+
+	# A real `code` browser_script must pass through untouched
+	code_call = {
+		'arguments': {'code': 'screenshot("x")\nresult = "ok"'},
+		'id': 'call_abc',
+		'name': 'browser_script',
+	}
+	out2 = _compact_tool_input('browser_script', code_call)
+	assert out2['arguments']['code'].startswith('screenshot')
+
+	# Non-browser_script tools pass through unchanged
+	other = {'arguments': {'cmd': 'status --json'}, 'id': 'c1', 'name': 'browser'}
+	assert _compact_tool_input('browser', other) is other
+
+
 def test_history_view_returns_none_when_screenshot_path_missing():
 	"""Missing or unreadable screenshot files must not crash the history view."""
 	from browser_use.rust.views import AgentRunResult, StepRecord
