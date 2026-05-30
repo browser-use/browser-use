@@ -345,7 +345,13 @@ class _HistoryItemView:
 
 
 class _UsageView:
-	"""Shape: tokens/cost view exposed via `.usage`."""
+	"""Shape: tokens/cost view exposed via `.usage`.
+
+	`cost` is the in-process field; `total_cost` is also surfaced in
+	model_dump() so the convex reconciler (parseUsageCost in
+	evaluation-platform) actually reads our $ amount — it looks for
+	`total_cost`, not `cost`.
+	"""
 
 	__slots__ = ('input_tokens', 'output_tokens', 'cost', 'model')
 
@@ -360,6 +366,10 @@ class _UsageView:
 			'input_tokens': self.input_tokens,
 			'output_tokens': self.output_tokens,
 			'cost': self.cost,
+			# convex/actions/reconcileRuns.ts:parseUsageCost reads `total_cost`
+			# (or prompt_cost+completion_cost) to roll up the run's totalCost.
+			# Without this the eval-platform dashboard shows $0 for the run.
+			'total_cost': self.cost,
 			'model': self.model,
 		}
 
