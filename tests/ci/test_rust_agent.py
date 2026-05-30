@@ -281,6 +281,143 @@ def test_session_state_captures_failure():
 	assert state.failure == 'oops'
 
 
+def test_session_state_attaches_tool_image_path_to_matching_step(tmp_path):
+	"""tool.image events emitted between model.tool_call and tool.finished should
+	attach the on-disk PNG path to the corresponding step so the eval judge can
+	render screenshots."""
+	state = _AgentSessionState()
+	state.absorb(
+		parse_event(
+			_event('model.tool_call', {'name': 'browser_script', 'call_id': 'c1'}, seq=1)
+		)
+	)
+	state.absorb(parse_event(_event('tool.started', {'call_id': 'c1'}, seq=2)))
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.image',
+				{
+					'name': 'browser_script',
+					'tool_call_id': 'c1',
+					'image': {'path': '/tmp/before.png', 'label': 'before'},
+				},
+				seq=3,
+			)
+		)
+	)
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.image',
+				{
+					'name': 'browser_script',
+					'tool_call_id': 'c1',
+					'image': {'path': '/tmp/after.png', 'label': 'after'},
+				},
+				seq=4,
+			)
+		)
+	)
+	state.absorb(parse_event(_event('tool.finished', {'call_id': 'c1', 'ok': True}, seq=5)))
+	assert len(state.steps) == 1
+	assert state.steps[0].screenshot_paths == ['/tmp/before.png', '/tmp/after.png']
+
+
+def test_session_state_tool_output_images_array_attached_to_step():
+	"""tool.output for browser_script carries an `images` array — those paths
+	should also land on the step (alongside tool.image events)."""
+	state = _AgentSessionState()
+	state.absorb(
+		parse_event(_event('model.tool_call', {'name': 'browser_script', 'call_id': 'c2'}, seq=1))
+	)
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.output',
+				{
+					'name': 'browser_script',
+					'tool_call_id': 'c2',
+					'images': [{'path': '/tmp/x.png'}, {'path': '/tmp/y.png'}],
+				},
+				seq=2,
+			)
+		)
+	)
+	state.absorb(parse_event(_event('tool.finished', {'call_id': 'c2', 'ok': True}, seq=3)))
+	assert state.steps[0].screenshot_paths == ['/tmp/x.png', '/tmp/y.png']
+
+
+def test_history_view_reads_screenshot_b64_from_disk(tmp_path):
+	"""AgentRunResult.history[i].state.get_screenshot() returns base64 PNG bytes
+	read from the path the Rust core emitted. This is what the eval judge consumes."""
+	import base64
+	from browser_use.rust.views import AgentRunResult, StepRecord
+
+	# Write a tiny PNG-ish blob to disk; the wrapper just base64-encodes
+	# whatever the path points at — it doesn't validate the magic bytes.
+	png_path = tmp_path / 'shot.png'
+	png_path.write_bytes(b'\x89PNG\r\n\x1a\nfake')
+
+	result = AgentRunResult(
+		exit_code=0,
+		final_summary='done',
+		steps=[
+			StepRecord(
+				seq=1,
+				tool='browser_script',
+				tool_input=None,
+				tool_output={'ok': True},
+				model_text='',
+				screenshot_paths=[str(png_path)],
+			)
+		],
+	)
+	hist = result.history
+	assert len(hist) == 1
+	b64 = hist[0].state.get_screenshot()
+	assert b64 is not None
+	assert base64.b64decode(b64) == b'\x89PNG\r\n\x1a\nfake'
+
+
+def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
+	"""BU_RUST_FORCE_SCREENSHOTS=1 appends the directive; unset/anything else is a no-op."""
+	from browser_use.rust.service import _maybe_inject_eval_directive
+
+	monkeypatch.delenv('BU_RUST_FORCE_SCREENSHOTS', raising=False)
+	assert _maybe_inject_eval_directive('go to example.com') == 'go to example.com'
+
+	monkeypatch.setenv('BU_RUST_FORCE_SCREENSHOTS', '1')
+	out = _maybe_inject_eval_directive('go to example.com')
+	assert out is not None
+	assert '[EVAL MODE]' in out
+	# Idempotent — re-injecting must not duplicate.
+	assert _maybe_inject_eval_directive(out) == out
+
+	# None passes through unchanged.
+	assert _maybe_inject_eval_directive(None) is None
+
+
+def test_history_view_returns_none_when_screenshot_path_missing():
+	"""Missing or unreadable screenshot files must not crash the history view."""
+	from browser_use.rust.views import AgentRunResult, StepRecord
+
+	result = AgentRunResult(
+		exit_code=0,
+		final_summary='done',
+		steps=[
+			StepRecord(
+				seq=1,
+				tool='browser_script',
+				tool_input=None,
+				tool_output={'ok': True},
+				model_text='',
+				screenshot_paths=['/nonexistent/path/that/should/not/exist.png'],
+			)
+		],
+	)
+	assert result.history[0].state.get_screenshot() is None
+
+
 # ---------------------------------------------------------------------------
 # Structured output
 # ---------------------------------------------------------------------------

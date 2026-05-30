@@ -206,6 +206,63 @@ class ToolFinished(_BaseEvent):
 		return str(self.payload.get('name') or self.payload.get('tool') or '')
 
 
+class ToolImage(_BaseEvent):
+	"""Rust `tool.image` — a screenshot or other image artifact emitted by a tool call.
+
+	Payload: {name, tool_call_id?, image: {path, label, mime_type, bytes, ...}}.
+	The `path` is an absolute file path on disk under the task's artifact directory.
+	"""
+
+	type: Literal['tool.image']
+	payload: dict[str, Any] = Field(default_factory=dict)
+
+	@property
+	def tool_call_id(self) -> str | None:
+		value = self.payload.get('tool_call_id')
+		return str(value) if value else None
+
+	@property
+	def image_path(self) -> str | None:
+		image = self.payload.get('image') or {}
+		value = image.get('path') if isinstance(image, dict) else None
+		return str(value) if value else None
+
+	@property
+	def label(self) -> str | None:
+		image = self.payload.get('image') or {}
+		value = image.get('label') if isinstance(image, dict) else None
+		return str(value) if value else None
+
+
+class ToolOutput(_BaseEvent):
+	"""Rust `tool.output` — verbose payload variant emitted by tools like `browser_script`.
+
+	Payload includes the `images` array (each with a `path`), the rendered text,
+	and outputs. We surface this alongside `ToolFinished` since the latter only
+	includes the trimmed summary.
+	"""
+
+	type: Literal['tool.output']
+	payload: dict[str, Any] = Field(default_factory=dict)
+
+	@property
+	def tool_call_id(self) -> str | None:
+		value = self.payload.get('tool_call_id')
+		return str(value) if value else None
+
+	@property
+	def image_paths(self) -> list[str]:
+		images = self.payload.get('images') or []
+		out: list[str] = []
+		if isinstance(images, list):
+			for img in images:
+				if isinstance(img, dict):
+					path = img.get('path')
+					if isinstance(path, str) and path:
+						out.append(path)
+		return out
+
+
 class TokenCount(_BaseEvent):
 	type: Literal['token_count']
 	payload: dict[str, Any] = Field(default_factory=dict)
@@ -308,6 +365,8 @@ _KNOWN_TYPED = Annotated[
 		ModelToolCall,
 		ToolStarted,
 		ToolFinished,
+		ToolImage,
+		ToolOutput,
 		TokenCount,
 		TaskStarted,
 		BrowserScript,

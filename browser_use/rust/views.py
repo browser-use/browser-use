@@ -49,7 +49,11 @@ class Provider(str, Enum):
 
 
 class StepRecord(BaseModel):
-	"""One agent turn — tool call + result + the model text that produced it."""
+	"""One agent turn — tool call + result + the model text that produced it.
+
+	`screenshot_paths` holds absolute disk paths to screenshot/image artifacts
+	emitted by `tool.image` events for this tool call (in arrival order).
+	"""
 
 	model_config = ConfigDict(extra='allow')
 
@@ -58,6 +62,7 @@ class StepRecord(BaseModel):
 	tool_input: dict[str, Any] | None = None
 	tool_output: dict[str, Any] | None = None
 	model_text: str = ''
+	screenshot_paths: list[str] = Field(default_factory=list)
 
 
 class AgentRunResult(BaseModel):
@@ -309,6 +314,13 @@ class _HistoryItemView:
 
 	def __init__(self, step, is_last: bool, final_summary: str | None) -> None:
 		self.state = _StateView()
+		# Read the last screenshot the tool produced (post-action state) and
+		# expose it as base64 so the eval judge can render it. The Rust core
+		# emits absolute on-disk paths via `tool.image` events; we read them
+		# lazily here so we don't keep PNG bytes in memory for the whole run.
+		paths = getattr(step, 'screenshot_paths', None) or []
+		if paths:
+			self.state._screenshot_b64 = _read_screenshot_b64(paths[-1])
 		raw_results = step.tool_output or {}
 		results = [_ActionResultView(raw_results, is_done=is_last)]
 		if is_last and final_summary and not results[0].extracted_content:
@@ -389,3 +401,21 @@ def build_usage(result) -> _UsageView:
 		if isinstance(event, ModelConfig):
 			usage.model = event.model or usage.model
 	return usage
+
+
+def _read_screenshot_b64(path: str) -> str | None:
+	"""Read a PNG/JPEG file from disk and return its base64 representation.
+
+	Returns None when the file is missing or unreadable — screenshots are a
+	best-effort signal for the judge; we never raise.
+	"""
+	import base64
+	from pathlib import Path
+
+	try:
+		data = Path(path).read_bytes()
+	except (OSError, FileNotFoundError):
+		return None
+	if not data:
+		return None
+	return base64.b64encode(data).decode('ascii')

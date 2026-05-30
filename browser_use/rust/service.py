@@ -50,6 +50,8 @@ from browser_use.rust.events import (
 	SessionFailure,
 	SessionResult,
 	ToolFinished,
+	ToolImage,
+	ToolOutput,
 	ToolStarted,
 	parse_event,
 )
@@ -133,7 +135,33 @@ class _MessageManagerStub:
 DEFAULT_POLL_INTERVAL_MS = 250
 GRACEFUL_CANCEL_TIMEOUT_S = 5.0
 
+# Appended to the task text when BU_RUST_FORCE_SCREENSHOTS=1 (set by the
+# eval CI). The Rust core's default system prompt only *encourages*
+# screenshots; without them the eval judge has no visual evidence and
+# scores everything 0. The wrapper forwards this directive once per task.
+EVAL_SCREENSHOT_DIRECTIVE = (
+	'\n\n[EVAL MODE] Every browser_script tool call you make MUST end with '
+	'`screenshot("step")` so the evaluation judge can visually verify what '
+	'changed. Capture both the page state after a successful action and the '
+	'page state at completion.'
+)
+
+
 OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[None]]
+
+
+def _maybe_inject_eval_directive(task: str | None) -> str | None:
+	"""Append the eval-mode screenshot directive when explicitly enabled.
+
+	Gated by `BU_RUST_FORCE_SCREENSHOTS=1`; idempotent (won't re-append if the
+	directive is already present)."""
+	if task is None:
+		return None
+	if os.environ.get('BU_RUST_FORCE_SCREENSHOTS') != '1':
+		return task
+	if '[EVAL MODE]' in task:
+		return task
+	return task + EVAL_SCREENSHOT_DIRECTIVE
 
 
 class _AgentSessionState:
@@ -251,6 +279,29 @@ class _AgentSessionState:
 				# Fall back to last-write-wins when call_id correlation is missing.
 				self.steps[-1].tool_output = event.payload
 			return
+		if isinstance(event, ToolImage):
+			# Rust emits one `tool.image` per screenshot/image artifact a tool
+			# produces. Stash the on-disk path on the matching step so the
+			# AgentHistoryList view can lazily base64-encode it for the judge.
+			path = event.image_path
+			if not path:
+				return
+			step = _step_for_call_id(self, event.tool_call_id, event.payload)
+			if step is not None and path not in step.screenshot_paths:
+				step.screenshot_paths.append(path)
+			return
+		if isinstance(event, ToolOutput):
+			# `tool.output` from `browser_script` carries an `images` array with
+			# paths. Treat them the same way as `tool.image` so steps without an
+			# explicit `tool.image` (e.g. older Rust builds, or scripts that
+			# returned an `image` dict in `outputs`) still attach screenshots.
+			step = _step_for_call_id(self, event.tool_call_id, event.payload)
+			if step is None:
+				return
+			for path in event.image_paths:
+				if path and path not in step.screenshot_paths:
+					step.screenshot_paths.append(path)
+			return
 
 
 def _call_id(payload: dict[str, Any], seq: int) -> str:
@@ -259,6 +310,35 @@ def _call_id(payload: dict[str, Any], seq: int) -> str:
 		if value is not None:
 			return str(value)
 	return str(seq)
+
+
+def _step_for_call_id(
+	state: '_AgentSessionState',
+	tool_call_id: str | None,
+	payload: dict[str, Any],
+) -> 'StepRecord | None':
+	"""Find the StepRecord for a given tool_call_id, falling back to the most
+	recent in-flight tool call. Used by `tool.image` / `tool.output` events
+	that fire after the matching `model.tool_call`."""
+	if tool_call_id:
+		for bucket in (state._pending_started_tool_calls, state._pending_tool_calls):
+			step = bucket.get(tool_call_id)
+			if step is not None:
+				return step
+		# The tool may have already finished (image arrived late). Scan steps.
+		for step in reversed(state.steps):
+			tin = step.tool_input or {}
+			for key in ('call_id', 'tool_call_id', 'id'):
+				if str(tin.get(key) or '') == tool_call_id:
+					return step
+	# No tool_call_id correlation possible — attach to the last step that
+	# matches the tool name when available, else the most recent step.
+	tool_name = str(payload.get('name') or '') if isinstance(payload, dict) else ''
+	if tool_name:
+		for step in reversed(state.steps):
+			if step.tool == tool_name:
+				return step
+	return state.steps[-1] if state.steps else None
 
 
 class Agent:
@@ -350,7 +430,8 @@ class Agent:
 		else:
 			if self.task is None:
 				raise ValueError('Agent.run(interactive=False) requires a task.')
-			result = await self._run_headless(self.task, attach_to_session=None)
+			task_text = _maybe_inject_eval_directive(self.task) or self.task
+			result = await self._run_headless(task_text, attach_to_session=None)
 		# Pin the result so `agent.history` / `agent.usage` reads see it.
 		# Eval harnesses do `await agent.run(); agent.history.history` and
 		# would otherwise read an empty placeholder.
@@ -361,7 +442,8 @@ class Agent:
 		"""Continue the current session with another user turn."""
 		if self.session_id is None:
 			raise RuntimeError('No active session — call run() first or Agent.attach(...).')
-		result = await self._run_headless(task, attach_to_session=self.session_id, subcommand='followup')
+		task_text = _maybe_inject_eval_directive(task) or task
+		result = await self._run_headless(task_text, attach_to_session=self.session_id, subcommand='followup')
 		self.result = result
 		return result
 
