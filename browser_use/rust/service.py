@@ -323,7 +323,26 @@ class Agent:
 	# Public API
 	# ------------------------------------------------------------------
 
-	async def run(self, *, interactive: bool | None = None) -> AgentRunResult:
+	async def run(
+		self,
+		max_steps: int | None = None,
+		*,
+		interactive: bool | None = None,
+		on_step_start: Any | None = None,
+		on_step_end: Any | None = None,
+		**_unused: Any,
+	) -> AgentRunResult:
+		"""
+		Mirrors `browser_use.Agent.run(max_steps, on_step_start, on_step_end)`.
+
+		max_steps and the on_step_* callbacks are accepted for eval-harness
+		compatibility; today the Rust core caps step count via its own config
+		and our wrapper doesn't surface per-step lifecycle hooks (use
+		`on_event` on the constructor for live observability instead).
+		"""
+		# max_steps / on_step_* are no-ops here — accepted to match the
+		# classic Agent.run signature. Document loudly when debugging.
+		_ = (max_steps, on_step_start, on_step_end, _unused)
 		if interactive is None:
 			interactive = self.task is None
 		if interactive:
