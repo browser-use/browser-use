@@ -246,6 +246,28 @@ class BrowserScript(_BaseEvent):
 	payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class BrowserConnected(_BaseEvent):
+	"""Rust `browser.connected` — emitted right after a successful CDP attach."""
+
+	type: Literal['browser.connected']
+	payload: dict[str, Any] = Field(default_factory=dict)
+
+	@property
+	def cdp_url(self) -> str | None:
+		return self.payload.get('cdp_url') or self.payload.get('cdp_ws_url')
+
+
+class BrowserLiveUrl(_BaseEvent):
+	"""Rust `browser.live_url` — a watch URL for the agent's session (cloud / remote)."""
+
+	type: Literal['browser.live_url']
+	payload: dict[str, Any] = Field(default_factory=dict)
+
+	@property
+	def url(self) -> str | None:
+		return self.payload.get('url') or self.payload.get('live_url')
+
+
 # Legacy aliases — older consumer code can still import these names.
 ModelTextDelta = ModelDelta
 ToolCall = ModelToolCall
@@ -289,6 +311,8 @@ _KNOWN_TYPED = Annotated[
 		TokenCount,
 		TaskStarted,
 		BrowserScript,
+		BrowserConnected,
+		BrowserLiveUrl,
 	],
 	Field(discriminator='type'),
 ]

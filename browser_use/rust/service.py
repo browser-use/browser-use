@@ -359,6 +359,29 @@ class Agent:
 
 	follow_up_task = follow_up
 
+	@property
+	def history(self) -> Any:
+		"""
+		Eval harnesses (and `Agent.run()` callers in classic browser-use) read
+		`agent.history` to get the AgentHistoryList. Mirror that surface by
+		returning the most recent run's result (which already implements the
+		AgentHistoryList shape) or an empty placeholder before the first run.
+		"""
+		if self.result is not None:
+			return self.result
+		# Empty placeholder so `agent.history.history` etc. don't AttributeError.
+		return AgentRunResult(exit_code=0, session_id=self.session_id)
+
+	@property
+	def usage(self) -> Any:
+		"""Alias: `agent.usage` is read by some harnesses; delegate to result.usage."""
+		if self.result is not None:
+			return self.result.usage
+		# Empty stub with .model_dump() so harness calls don't crash.
+		from browser_use.rust.compat import _UsageView
+
+		return _UsageView()
+
 	async def _judge_and_log(self) -> None:
 		"""
 		No-op compatibility stub.

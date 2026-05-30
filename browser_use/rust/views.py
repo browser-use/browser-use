@@ -193,3 +193,23 @@ class AgentRunResult(BaseModel):
 
 	def is_validated(self) -> bool | None:
 		return None
+
+	@property
+	def live_url(self) -> str | None:
+		"""URL the user can open to watch the agent live (cloud / remote backends)."""
+		from browser_use.rust.events import BrowserLiveUrl
+
+		for event in reversed(self.events):
+			if isinstance(event, BrowserLiveUrl):
+				return event.url
+		return None
+
+	@property
+	def cdp_url(self) -> str | None:
+		"""CDP URL of the browser the agent attached to (when emitted by the Rust core)."""
+		from browser_use.rust.events import BrowserConnected
+
+		for event in reversed(self.events):
+			if isinstance(event, BrowserConnected):
+				return event.cdp_url
+		return None
