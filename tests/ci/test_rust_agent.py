@@ -397,6 +397,46 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	assert _maybe_inject_eval_directive(None) is None
 
 
+def test_looks_like_skip_classification():
+	"""Match the agent's training-data-shortcut pattern: 0-2 steps, all of which
+	are browser admin calls or observe polls. Any real browser_script code call
+	or extra tool means the agent actually browsed."""
+	from browser_use.rust.service import _looks_like_skip
+	from browser_use.rust.views import AgentRunResult, StepRecord
+
+	# 0 steps → no work happened at all (counts as skip)
+	r = AgentRunResult(exit_code=0, steps=[])
+	assert _looks_like_skip(r) is True
+
+	# Only browser admin
+	r = AgentRunResult(exit_code=0, steps=[
+		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+	])
+	assert _looks_like_skip(r) is True
+
+	# observe-mode browser_script is still a skip (no real page interaction)
+	r = AgentRunResult(exit_code=0, steps=[
+		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+		StepRecord(seq=2, tool='browser_script', tool_input={'arguments': {'action': 'observe', 'observe_timeout_ms': 2000}}, model_text=''),
+	])
+	assert _looks_like_skip(r) is True
+
+	# code-mode browser_script = real browsing
+	r = AgentRunResult(exit_code=0, steps=[
+		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+		StepRecord(seq=2, tool='browser_script', tool_input={'arguments': {'code': 'new_tab("https://example.com")'}}, model_text=''),
+	])
+	assert _looks_like_skip(r) is False
+
+	# 3+ steps → automatically not a skip
+	r = AgentRunResult(exit_code=0, steps=[
+		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+		StepRecord(seq=2, tool='browser', tool_input={'arguments': {'cmd': 'connect managed --headless'}}, model_text=''),
+		StepRecord(seq=3, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+	])
+	assert _looks_like_skip(r) is False
+
+
 def test_compact_tool_input_strips_observe_noise():
 	"""browser_script(action=observe, observe_timeout_ms, run_id) is internal
 	browser-state polling. Judge doesn't need 300 chars of poll metadata per step."""

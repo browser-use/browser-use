@@ -152,6 +152,33 @@ EVAL_SCREENSHOT_DIRECTIVE = (
 OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[None]]
 
 
+def _looks_like_skip(result: Any) -> bool:
+	"""True when the agent finished without doing any actual browser_script
+	page interaction. Pattern: 0-2 steps, all of which are `browser` admin
+	commands (`status`, `connect`, `recover`) or browser_script `observe`
+	polls. This is the brust agent's most common failure mode on
+	knowledge-flavoured tasks where it shortcuts to a training-data answer.
+	"""
+	if result is None:
+		return False
+	steps = getattr(result, 'steps', None) or []
+	if len(steps) > 2:
+		return False
+	for step in steps:
+		tool = (step.tool or '').lower()
+		args = (step.tool_input or {}).get('arguments') if isinstance(step.tool_input, dict) else None
+		if tool == 'browser_script':
+			# code-mode browser_script counts as real browsing; observe-mode does not.
+			if isinstance(args, dict) and args.get('action') in ('observe', 'cancel'):
+				continue
+			# Any code-mode call → real browsing happened.
+			return False
+		if tool not in ('browser', ''):
+			# Some other real tool was used; not a skip.
+			return False
+	return True
+
+
 def _maybe_inject_eval_directive(task: str | None) -> str | None:
 	"""Prepend the eval-mode directive when explicitly enabled.
 
@@ -436,6 +463,30 @@ class Agent:
 				raise ValueError('Agent.run(interactive=False) requires a task.')
 			task_text = _maybe_inject_eval_directive(self.task) or self.task
 			result = await self._run_headless(task_text, attach_to_session=None)
+
+			# Retry-on-skip safety net (BU_RUST_RETRY_ON_SKIP=1). When the agent
+			# finished without doing any real browser_script work — common
+			# failure mode where it shortcuts to a training-data answer — re-run
+			# once with an explicit "you skipped browsing" preamble. Adds cost
+			# only when triggered; bounded to one retry.
+			if os.environ.get('BU_RUST_RETRY_ON_SKIP') == '1' and _looks_like_skip(result):
+				import logging
+				logging.getLogger('browser_use.rust.Agent').warning(
+					'Detected skipped-browsing on initial run (%d steps); retrying with explicit preamble',
+					len(result.steps),
+				)
+				retry_task = (
+					'[CRITICAL RETRY] Your previous attempt at this task did NOT use '
+					'browser_script to open the page — that is failure. The grader '
+					'requires evidence of live navigation. Your FIRST action this time '
+					'MUST be a browser_script call that navigates to the URL referenced '
+					'in the task, screenshots the loaded page, and extracts the answer. '
+					'Do not call `done` before that.\n\n'
+				) + task_text
+				retry = await self._run_headless(retry_task, attach_to_session=None)
+				# Only keep the retry if it's clearly better — i.e. actually browsed.
+				if not _looks_like_skip(retry):
+					result = retry
 		# Pin the result so `agent.history` / `agent.usage` reads see it.
 		# Eval harnesses do `await agent.run(); agent.history.history` and
 		# would otherwise read an empty placeholder.
