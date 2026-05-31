@@ -3,6 +3,20 @@ from typing import TYPE_CHECKING
 # Type stubs for lazy imports
 if TYPE_CHECKING:
 	from .profile import BrowserProfile, ProxySettings
+	from .services import (
+		ActionService,
+		BrowserServiceBundle,
+		BrowserStateService,
+		ClickService,
+		DialogService,
+		DownloadService,
+		LifecycleService,
+		NavigationService,
+		NetworkService,
+		StorageStateService,
+		TabService,
+		TypeService,
+	)
 	from .session import BrowserSession
 
 
@@ -11,6 +25,18 @@ _LAZY_IMPORTS = {
 	'ProxySettings': ('.profile', 'ProxySettings'),
 	'BrowserProfile': ('.profile', 'BrowserProfile'),
 	'BrowserSession': ('.session', 'BrowserSession'),
+	'ActionService': ('.services', 'ActionService'),
+	'BrowserServiceBundle': ('.services', 'BrowserServiceBundle'),
+	'BrowserStateService': ('.services', 'BrowserStateService'),
+	'ClickService': ('.services', 'ClickService'),
+	'DialogService': ('.services', 'DialogService'),
+	'DownloadService': ('.services', 'DownloadService'),
+	'LifecycleService': ('.services', 'LifecycleService'),
+	'NavigationService': ('.services', 'NavigationService'),
+	'NetworkService': ('.services', 'NetworkService'),
+	'StorageStateService': ('.services', 'StorageStateService'),
+	'TabService': ('.services', 'TabService'),
+	'TypeService': ('.services', 'TypeService'),
 }
 
 
@@ -38,4 +64,16 @@ __all__ = [
 	'BrowserSession',
 	'BrowserProfile',
 	'ProxySettings',
+	'ActionService',
+	'BrowserServiceBundle',
+	'BrowserStateService',
+	'ClickService',
+	'DialogService',
+	'DownloadService',
+	'LifecycleService',
+	'NavigationService',
+	'NetworkService',
+	'StorageStateService',
+	'TabService',
+	'TypeService',
 ]

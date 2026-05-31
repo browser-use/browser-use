@@ -174,24 +174,24 @@ Goal: move browser action execution out of bubus/watchdog routing.
 
 Implement:
 
-- [ ] Create explicit services for state capture, actions, downloads, dialogs, tabs, network, lifecycle, and storage.
+- [x] Create explicit services for state capture, actions, downloads, dialogs, tabs, network, lifecycle, and storage.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [ ] Keep event streaming for observability, not internal control flow.
-- [ ] Keep compatibility path until direct services have parity.
+- [x] Keep compatibility path until direct services have parity.
 
 Suggested services:
 
-- [ ] `BrowserStateService`
-- [ ] `ActionService`
-- [ ] `ClickService`
-- [ ] `TypeService`
-- [ ] `NavigationService`
-- [ ] `TabService`
-- [ ] `DownloadService`
-- [ ] `DialogService`
-- [ ] `NetworkService`
-- [ ] `StorageStateService`
-- [ ] `LifecycleService`
+- [x] `BrowserStateService`
+- [x] `ActionService`
+- [x] `ClickService`
+- [x] `TypeService`
+- [x] `NavigationService`
+- [x] `TabService`
+- [x] `DownloadService`
+- [x] `DialogService`
+- [x] `NetworkService`
+- [x] `StorageStateService`
+- [x] `LifecycleService`
 
 Target shape:
 
