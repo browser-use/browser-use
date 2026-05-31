@@ -406,62 +406,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 		)
 
 	async def on_ScrollEvent(self, event: ScrollEvent) -> None:
-		"""Handle scroll request with CDP."""
-		# Check if we have a current target for scrolling
-		if not self.browser_session.agent_focus_target_id:
-			error_msg = 'No active target for scrolling'
-			raise BrowserError(error_msg)
+		"""Compatibility adapter for legacy event-based scroll requests."""
+		from browser_use.browser.services import ScrollService
 
-		try:
-
-			def invalidate_dom_cache() -> None:
-				if self.browser_session._dom_watchdog:
-					self.browser_session._dom_watchdog.clear_cache()
-
-			# Convert direction and amount to pixels
-			# Positive pixels = scroll down, negative = scroll up
-			pixels = event.amount if event.direction == 'down' else -event.amount
-
-			# Element-specific scrolling if node is provided
-			if event.node is not None:
-				element_node = event.node
-				index_for_logging = element_node.backend_node_id or 'unknown'
-
-				# Check if the element is an iframe
-				is_iframe = element_node.tag_name and element_node.tag_name.upper() == 'IFRAME'
-
-				# Try to scroll the element's container
-				success = await self._scroll_element_container(element_node, pixels)
-				if success:
-					self.logger.debug(
-						f'📜 Scrolled element {index_for_logging} container {event.direction} by {event.amount} pixels'
-					)
-
-					# For iframe scrolling, we need to force a full DOM refresh
-					# because the iframe's content has changed position
-					if is_iframe:
-						self.logger.debug('🔄 Forcing DOM refresh after iframe scroll')
-						# Note: We don't clear cached state here - let multi_act handle DOM change detection
-						# by explicitly rebuilding and comparing when needed
-
-						# Wait a bit for the scroll to settle and DOM to update
-						await asyncio.sleep(0.2)
-
-					invalidate_dom_cache()
-					return None
-
-			# Perform target-level scroll
-			await self._scroll_with_cdp_gesture(pixels)
-
-			# Note: We don't clear cached state here - let multi_act handle DOM change detection
-			# by explicitly rebuilding and comparing when needed
-			invalidate_dom_cache()
-
-			# Log success
-			self.logger.debug(f'📜 Scrolled {event.direction} by {event.amount} pixels')
-			return None
-		except Exception as e:
-			raise
+		await ScrollService(browser_session=self.browser_session).scroll_page(
+			event.amount,
+			direction=event.direction,
+			node=event.node,
+		)
+		return None
 
 	# ========== Implementation Methods ==========
 
@@ -2588,98 +2541,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise
 
 	async def on_ScrollToTextEvent(self, event: ScrollToTextEvent) -> None:
-		"""Handle scroll to text request with CDP. Raises exception if text not found."""
+		"""Compatibility adapter for legacy event-based scroll-to-text requests."""
+		from browser_use.browser.services import ScrollService
 
-		# TODO: handle looking for text inside cross-origin iframes as well
-
-		# Get focused CDP session using public API (validates and waits for recovery if needed)
-		cdp_session = await self.browser_session.get_or_create_cdp_session()
-		cdp_client = cdp_session.cdp_client
-		session_id = cdp_session.session_id
-
-		# Enable DOM
-		await cdp_client.send.DOM.enable(session_id=session_id)
-
-		# Get document
-		doc = await cdp_client.send.DOM.getDocument(params={'depth': -1}, session_id=session_id)
-		root_node_id = doc['root']['nodeId']
-
-		# Search for text using XPath
-		search_queries = [
-			f'//*[contains(text(), "{event.text}")]',
-			f'//*[contains(., "{event.text}")]',
-			f'//*[@*[contains(., "{event.text}")]]',
-		]
-
-		found = False
-		for query in search_queries:
-			try:
-				# Perform search
-				search_result = await cdp_client.send.DOM.performSearch(params={'query': query}, session_id=session_id)
-				search_id = search_result['searchId']
-				result_count = search_result['resultCount']
-
-				if result_count > 0:
-					# Get the first match
-					node_ids = await cdp_client.send.DOM.getSearchResults(
-						params={'searchId': search_id, 'fromIndex': 0, 'toIndex': 1},
-						session_id=session_id,
-					)
-
-					if node_ids['nodeIds']:
-						node_id = node_ids['nodeIds'][0]
-
-						# Scroll the element into view
-						await cdp_client.send.DOM.scrollIntoViewIfNeeded(params={'nodeId': node_id}, session_id=session_id)
-
-						found = True
-						self.logger.debug(f'📜 Scrolled to text: "{event.text}"')
-						break
-
-				# Clean up search
-				await cdp_client.send.DOM.discardSearchResults(params={'searchId': search_id}, session_id=session_id)
-			except Exception as e:
-				self.logger.debug(f'Search query failed: {query}, error: {e}')
-				continue
-
-		if not found:
-			# Fallback: Try JavaScript search
-			js_result = await cdp_client.send.Runtime.evaluate(
-				params={
-					'expression': f'''
-							(() => {{
-								const walker = document.createTreeWalker(
-									document.body,
-									NodeFilter.SHOW_TEXT,
-									null,
-									false
-								);
-								let node;
-								while (node = walker.nextNode()) {{
-									if (node.textContent.includes("{event.text}")) {{
-										node.parentElement.scrollIntoView({{behavior: 'smooth', block: 'center'}});
-										return true;
-									}}
-								}}
-								return false;
-							}})()
-						'''
-				},
-				session_id=session_id,
-			)
-
-			if js_result.get('result', {}).get('value'):
-				self.logger.debug(f'📜 Scrolled to text: "{event.text}" (via JS)')
-				return None
-			else:
-				self.logger.warning(f'⚠️ Text not found: "{event.text}"')
-				raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
-
-		# If we got here and found is True, return None (success)
-		if found:
-			return None
-		else:
-			raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
+		await ScrollService(browser_session=self.browser_session).scroll_to_text(event.text)
+		return None
 
 	async def on_GetDropdownOptionsEvent(self, event: GetDropdownOptionsEvent) -> dict[str, str]:
 		"""Compatibility adapter for legacy event-based dropdown option requests."""

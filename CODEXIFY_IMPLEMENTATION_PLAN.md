@@ -198,6 +198,7 @@ Implement:
 - [x] Expose explicit dropdown handler methods and keep event handlers as compatibility adapters.
 - [x] Move click safety, print, and download heuristics into `ClickService`.
 - [x] Move text-entry fallback and sensitive logging policy into `TypeService`.
+- [x] Make legacy scroll and scroll-to-text handlers delegate to `ScrollService`.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.
