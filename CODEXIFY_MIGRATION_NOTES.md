@@ -21,6 +21,7 @@ These notes describe the current migration state after the codexification cleanu
 - Browser navigation event handling and lifecycle readiness waiting now live in `browser_use.browser.session_navigation`.
 - Browser tab, focus-cache, and download event handlers now live in `browser_use.browser.session_tab_events`.
 - Browser actor-style page and storage helpers now live in `browser_use.browser.session_actor_api`.
+- Raw BrowserSession CDP target, storage, permission, viewport, and navigation helpers now live in `browser_use.browser.session_cdp`.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible renderer and state holder.
 

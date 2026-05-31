@@ -2265,3 +2265,27 @@ Results:
 - Pyright: `0 errors`.
 - Session start and CDP header tests: `6 passed`.
 - Direct headless Chromium smoke: actor page helpers returned page objects/targets and wrote `storage.json`.
+
+## Codexification Verification 92
+
+After extracting raw CDP helpers into `browser_use/browser/session_cdp.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_cdp.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_cdp.py
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_cdp_headers.py -q
+uv run pytest tests/ci/browser/test_tabs.py -q
+uv run python - <<'PY'
+# Starts BrowserSession, calls _cdp_create_new_page(), _cdp_get_all_pages(),
+# _cdp_navigate(), _cdp_get_storage_state(), and _cdp_close_page().
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Session start and CDP header tests: `6 passed`.
+- Tab operation tests: `5 passed`.
+- Direct headless Chromium smoke: created, found, navigated, inspected storage for, and closed a CDP tab.
+- `browser_use/browser/session.py` reduced from `3077` to `2755` lines in this slice.
