@@ -12,14 +12,20 @@ from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
-from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
-from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.observability import observe_debug
 from browser_use.tools.done_result import build_done_result as build_done_action_result
 from browser_use.tools.dropdown import dropdown_options_action, select_dropdown_action
+from browser_use.tools.element_actions import (
+	click_by_coordinate_action,
+	click_by_index_action,
+	find_text_action,
+	input_text_action,
+	scroll_action,
+)
+from browser_use.tools.error_handling import handle_browser_error
 from browser_use.tools.evaluate import execute_evaluate_action
 from browser_use.tools.extraction.action import extract_action
 from browser_use.tools.file_actions import (
@@ -41,7 +47,6 @@ from browser_use.tools.navigation import (
 from browser_use.tools.page_query import find_elements_action, search_page_action
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.upload import upload_file_action
-from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
 	ClickElementAction,
 	ClickElementActionIndexOnly,
@@ -70,12 +75,9 @@ from browser_use.tools.views import (
 	WaitAction,
 	WriteFileAction,
 )
-from browser_use.utils import create_task_with_error_handling, time_execution_sync
+from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
-
-# Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
-# This must be done after all imports are complete
 
 Context = TypeVar('Context')
 
@@ -149,56 +151,6 @@ def _coerce_valid_action_timeout(value: float | None) -> float:
 	return float(value)
 
 
-def _detect_sensitive_key_name(text: str, sensitive_data: dict[str, str | dict[str, str]] | None) -> str | None:
-	"""Detect which sensitive key name corresponds to the given text value."""
-	if not sensitive_data or not text:
-		return None
-
-	# Collect all sensitive values and their keys
-	for domain_or_key, content in sensitive_data.items():
-		if isinstance(content, dict):
-			# New format: {domain: {key: value}}
-			for key, value in content.items():
-				if value and value == text:
-					return key
-		elif content:  # Old format: {key: value}
-			if content == text:
-				return domain_or_key
-
-	return None
-
-
-def handle_browser_error(e: BrowserError) -> ActionResult:
-	if e.long_term_memory is not None:
-		if e.short_term_memory is not None:
-			return ActionResult(
-				extracted_content=e.short_term_memory, error=e.long_term_memory, include_extracted_content_only_once=True
-			)
-		else:
-			return ActionResult(error=e.long_term_memory)
-	# Fallback to original error handling if long_term_memory is None
-	logger.warning(
-		'⚠️ A BrowserError was raised without long_term_memory - always set long_term_memory when raising BrowserError to propagate right messages to LLM.'
-	)
-	raise e
-
-
-def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
-	"""Detect if a node is an autocomplete/combobox field from its attributes."""
-	attrs = node.attributes or {}
-	if attrs.get('role') == 'combobox':
-		return True
-	aria_ac = attrs.get('aria-autocomplete', '')
-	if aria_ac and aria_ac != 'none':
-		return True
-	if attrs.get('list'):
-		return True
-	haspopup = attrs.get('aria-haspopup', '')
-	if haspopup and haspopup != 'false' and (attrs.get('aria-controls') or attrs.get('aria-owns')):
-		return True
-	return False
-
-
 class Tools(Generic[Context]):
 	def __init__(
 		self,
@@ -240,156 +192,6 @@ class Tools(Generic[Context]):
 		async def wait(params: WaitAction):
 			return await wait_action(params)
 
-		# Helper function for coordinate conversion
-		def _convert_llm_coordinates_to_viewport(llm_x: int, llm_y: int, browser_session: BrowserSession) -> tuple[int, int]:
-			"""Convert coordinates from LLM screenshot size to original viewport size."""
-			if browser_session.llm_screenshot_size and browser_session._original_viewport_size:
-				original_width, original_height = browser_session._original_viewport_size
-				llm_width, llm_height = browser_session.llm_screenshot_size
-
-				# Convert coordinates using fractions
-				actual_x = int((llm_x / llm_width) * original_width)
-				actual_y = int((llm_y / llm_height) * original_height)
-
-				logger.info(
-					f'🔄 Converting coordinates: LLM ({llm_x}, {llm_y}) @ {llm_width}x{llm_height} '
-					f'→ Viewport ({actual_x}, {actual_y}) @ {original_width}x{original_height}'
-				)
-				return actual_x, actual_y
-			return llm_x, llm_y
-
-		# Element Interaction Actions
-		async def _detect_new_tab_opened(
-			browser_session: BrowserSession,
-			tabs_before: set[str],
-		) -> str:
-			"""Detect if a click opened a new tab and automatically switch to it."""
-			try:
-				# Brief delay to allow CDP Target.attachedToTarget events to propagate
-				# and be processed by SessionManager._handle_target_attached
-				await asyncio.sleep(0.05)
-
-				tabs_after = await browser_session.get_tabs()
-				new_tabs = [t for t in tabs_after if t.target_id not in tabs_before]
-				if new_tabs:
-					new_tab = new_tabs[0]
-					new_tab_id = new_tab.target_id[-4:]
-					# Auto-switch to the new tab so the agent can immediately interact with it
-					try:
-						await BrowserServiceBundle.from_session(browser_session).tabs.switch(new_tab.target_id)
-						return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
-					except Exception:
-						return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
-			except Exception:
-				pass
-			return ''
-
-		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
-			# Ensure coordinates are provided (type safety)
-			if params.coordinate_x is None or params.coordinate_y is None:
-				return ActionResult(error='Both coordinate_x and coordinate_y must be provided')
-
-			try:
-				# Convert coordinates from LLM size to original viewport size if resizing was used
-				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
-					params.coordinate_x, params.coordinate_y, browser_session
-				)
-
-				# Capture tab IDs before click to detect new tabs
-				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
-
-				# Highlight the coordinate being clicked (truly non-blocking)
-				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
-
-				click_metadata = await BrowserServiceBundle.from_session(browser_session).actions.click.click_coordinates(
-					actual_x,
-					actual_y,
-					force=True,
-				)
-
-				# Check for validation errors (only happens when force=False)
-				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
-					error_msg = click_metadata['validation_error']
-					return ActionResult(error=error_msg)
-
-				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}'
-				memory += await _detect_new_tab_opened(browser_session, tabs_before)
-				logger.info(f'🖱️ {memory}')
-
-				return ActionResult(
-					extracted_content=memory,
-					metadata={'click_x': actual_x, 'click_y': actual_y},
-				)
-			except BrowserError as e:
-				return handle_browser_error(e)
-			except Exception as e:
-				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
-				return ActionResult(error=error_msg)
-
-		async def _click_by_index(
-			params: ClickElementAction | ClickElementActionIndexOnly, browser_session: BrowserSession
-		) -> ActionResult:
-			assert params.index is not None
-			try:
-				assert params.index != 0, (
-					'Cannot click on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
-				)
-
-				# Look up the node from the selector map
-				node = await browser_session.get_element_by_index(params.index)
-				if node is None:
-					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
-
-				# Get description of clicked element
-				element_desc = get_click_description(node)
-
-				# Capture tab IDs before click to detect new tabs
-				tabs_before = {t.target_id for t in await browser_session.get_tabs()}
-
-				# Highlight the element being clicked (truly non-blocking)
-				create_task_with_error_handling(
-					browser_session.highlight_interaction_element(node), name='highlight_click_element', suppress_exceptions=True
-				)
-
-				click_metadata = await BrowserServiceBundle.from_session(browser_session).actions.click.click_index(params.index)
-
-				# Check if result contains validation error (e.g., trying to click <select> or file input)
-				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
-					error_msg = click_metadata['validation_error']
-					# If it's a select element, try to get dropdown options as a helpful shortcut
-					if 'Cannot click on <select> elements.' in error_msg:
-						try:
-							return await dropdown_options(
-								params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
-							)
-						except Exception as dropdown_error:
-							logger.debug(
-								f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
-							)
-					return ActionResult(error=error_msg)
-
-				# Build memory with element info
-				memory = f'Clicked {element_desc}'
-				memory += await _detect_new_tab_opened(browser_session, tabs_before)
-				logger.info(f'🖱️ {memory}')
-
-				# Include click coordinates in metadata if available
-				return ActionResult(
-					extracted_content=memory,
-					metadata=click_metadata if isinstance(click_metadata, dict) else None,
-				)
-			except BrowserError as e:
-				return handle_browser_error(e)
-			except Exception as e:
-				error_msg = f'Failed to click element {params.index}: {str(e)}'
-				return ActionResult(error=error_msg)
-
-		# Store click handlers for re-registration
-		self._click_by_index = _click_by_index
-		self._click_by_coordinate = _click_by_coordinate
-
 		# Register click action (index-only by default)
 		self._register_click_action()
 
@@ -403,77 +205,12 @@ class Tools(Generic[Context]):
 			has_sensitive_data: bool = False,
 			sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		):
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
-			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
-
-			# Highlight the element being typed into (truly non-blocking)
-			create_task_with_error_handling(
-				browser_session.highlight_interaction_element(node), name='highlight_type_element', suppress_exceptions=True
+			return await input_text_action(
+				params,
+				browser_session,
+				has_sensitive_data=has_sensitive_data,
+				sensitive_data=sensitive_data,
 			)
-
-			# Dispatch type text event with node
-			try:
-				# Detect which sensitive key is being used
-				sensitive_key_name = None
-				if has_sensitive_data and sensitive_data:
-					sensitive_key_name = _detect_sensitive_key_name(params.text, sensitive_data)
-
-				input_metadata = await BrowserServiceBundle.from_session(browser_session).actions.type.type_index(
-					params.index,
-					params.text,
-					clear=params.clear,
-					is_sensitive=has_sensitive_data,
-					sensitive_key_name=sensitive_key_name,
-				)
-
-				# Create message with sensitive data handling
-				if has_sensitive_data:
-					if sensitive_key_name:
-						msg = f'Typed {sensitive_key_name}'
-						log_msg = f'Typed <{sensitive_key_name}>'
-					else:
-						msg = 'Typed sensitive data'
-						log_msg = 'Typed <sensitive>'
-				else:
-					msg = f"Typed '{params.text}'"
-					log_msg = f"Typed '{params.text}'"
-
-				logger.debug(log_msg)
-
-				# Check for value mismatch (non-sensitive only)
-				actual_value = None
-				if isinstance(input_metadata, dict):
-					actual_value = input_metadata.pop('actual_value', None)
-
-				if not has_sensitive_data and actual_value is not None and actual_value != params.text:
-					msg += f"\n⚠️ Note: the field's actual value '{actual_value}' differs from typed text '{params.text}'. The page may have reformatted or autocompleted your input."
-
-				# Check for autocomplete/combobox field — add mechanical delay for dropdown
-				if _is_autocomplete_field(node):
-					msg += '\n💡 This is an autocomplete field. Wait for suggestions to appear, then click the correct suggestion instead of pressing Enter.'
-					# Only delay for true JS-driven autocomplete (combobox / aria-autocomplete),
-					# not native <datalist> or loose aria-haspopup which the browser handles instantly
-					attrs = node.attributes or {}
-					if attrs.get('role') == 'combobox' or (attrs.get('aria-autocomplete', '') not in ('', 'none')):
-						await asyncio.sleep(0.4)  # let JS dropdown populate before next action
-
-				# Include input coordinates in metadata if available
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=msg,
-					metadata=input_metadata if isinstance(input_metadata, dict) else None,
-				)
-			except BrowserError as e:
-				return handle_browser_error(e)
-			except Exception as e:
-				# Log the full error for debugging
-				logger.error(f'Failed to type through direct browser service: {type(e).__name__}: {e}')
-				error_msg = f'Failed to type text into element {params.index}: {e}'
-				return ActionResult(error=error_msg)
 
 		@self.registry.action(
 			'',
@@ -546,39 +283,7 @@ class Tools(Generic[Context]):
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
-			try:
-				# Look up the node from the selector map if index is provided
-				# Special case: index 0 means scroll the whole page (root/body element)
-				node = None
-				if params.index is not None and params.index != 0:
-					node = await browser_session.get_element_by_index(params.index)
-					if node is None:
-						# Element does not exist
-						msg = f'Element index {params.index} not found in browser state'
-						return ActionResult(error=msg)
-
-				direction = 'down' if params.down else 'up'
-				target = f'element {params.index}' if params.index is not None and params.index != 0 else ''
-
-				scroll_metadata = await BrowserServiceBundle.from_session(browser_session).actions.scroll.scroll_pages_with_node(
-					params.pages,
-					direction=direction,
-					node=node,
-				)
-				completed_pages = scroll_metadata['completed_pages']
-				viewport_height = scroll_metadata['viewport_height']
-				if params.pages == 1.0:
-					long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
-				else:
-					long_term_memory = f'Scrolled {direction} {target} {completed_pages:.1f} pages'.replace('  ', ' ')
-
-				msg = f'🔍 {long_term_memory}'
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
-			except Exception as e:
-				logger.error(f'Failed to scroll through direct browser service: {type(e).__name__}: {e}')
-				error_msg = 'Failed to execute scroll action.'
-				return ActionResult(error=error_msg)
+			return await scroll_action(params, browser_session)
 
 		@self.registry.action(
 			'',
@@ -589,20 +294,7 @@ class Tools(Generic[Context]):
 
 		@self.registry.action('Scroll to text.', param_model=FindTextAction)
 		async def find_text(params: FindTextAction, browser_session: BrowserSession):  # type: ignore
-			try:
-				await BrowserServiceBundle.from_session(browser_session).actions.scroll.scroll_to_text(params.text)
-				memory = f'Scrolled to text: {params.text}'
-				msg = f'🔍  {memory}'
-				logger.info(msg)
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
-			except Exception as e:
-				# Text not found
-				msg = f"Text '{params.text}' not found or not visible on page"
-				logger.info(msg)
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=f"Tried scrolling to text '{params.text}' but it was not found",
-				)
+			return await find_text_action(params, browser_session)
 
 		@self.registry.action(
 			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
@@ -763,10 +455,10 @@ class Tools(Generic[Context]):
 
 				# Try index-based clicking first if index is provided
 				if params.index is not None:
-					return await self._click_by_index(params, browser_session)
+					return await click_by_index_action(params, browser_session)
 				# Coordinate-based clicking when index is not provided
 				else:
-					return await self._click_by_coordinate(params, browser_session)
+					return await click_by_coordinate_action(params, browser_session)
 		else:
 			# Register click action WITHOUT coordinate support (index only)
 			@self.registry.action(
@@ -774,7 +466,7 @@ class Tools(Generic[Context]):
 				param_model=ClickElementActionIndexOnly,
 			)
 			async def click(params: ClickElementActionIndexOnly, browser_session: BrowserSession):
-				return await self._click_by_index(params, browser_session)
+				return await click_by_index_action(params, browser_session)
 
 	def set_coordinate_clicking(self, enabled: bool) -> None:
 		"""Enable or disable coordinate-based clicking.

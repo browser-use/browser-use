@@ -1331,3 +1331,21 @@ Results:
 - Pyright: `0 errors`.
 - Browser-backed navigation, keyboard, wait, and native-router tests: `4 passed`.
 - Python compile: passed.
+
+## Codexification Verification 65
+
+After extracting click, input, scroll, and text-scroll tool implementations into `browser_use.tools.element_actions` and shared browser-error conversion into `browser_use.tools.error_handling`:
+
+```bash
+uv run ruff check browser_use/tools/element_actions.py browser_use/tools/error_handling.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/interactions/test_autocomplete_interaction.py tests/ci/test_native_tool_router.py
+uv run pyright browser_use/tools/element_actions.py browser_use/tools/error_handling.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/interactions/test_autocomplete_interaction.py tests/ci/test_native_tool_router.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_tools_click_and_type_use_direct_services tests/ci/browser/test_browser_services.py::test_public_page_scroll_tool_uses_direct_service tests/ci/browser/test_browser_services.py::test_public_element_scroll_tool_uses_direct_service tests/ci/browser/test_browser_services.py::test_public_find_text_tool_uses_direct_service tests/ci/test_native_tool_router.py::test_native_tool_router_executes_coordinate_click tests/ci/interactions/test_autocomplete_interaction.py -q
+uv run python -m py_compile browser_use/tools/element_actions.py browser_use/tools/error_handling.py browser_use/tools/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Browser-backed click/type/scroll/text-scroll, coordinate-click, and autocomplete interaction tests: `15 passed`.
+- Python compile: passed.
