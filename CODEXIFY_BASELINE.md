@@ -2131,3 +2131,36 @@ Results:
 - Pyright: `0 errors`.
 - Browser lifecycle, multi-tab, and CDP header tests: `7 passed`.
 - Direct headless Chromium smoke: navigated to `https://example.com/`; `close()` reset the session and left `is_cdp_connected` as `False`.
+
+## Codexification Verification 87
+
+After extracting browser session navigation handling into `browser_use/browser/session_navigation.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_navigation.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_navigation.py
+uv run pytest tests/ci/browser/test_navigation.py tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_tabs.py::TestMultiTabOperations::test_create_and_switch_three_tabs -q
+uv run python - <<'PY'
+import asyncio
+from browser_use.browser import BrowserSession
+from browser_use.browser.profile import BrowserProfile
+
+async def main():
+    session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+    await session.start()
+    await session.navigate_to('https://example.com', new_tab=False)
+    assert await session.get_current_page_url() == 'https://example.com/'
+    await session.navigate_to('https://example.com', new_tab=True)
+    assert len(await session.get_tabs()) == 2
+    await session.kill()
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed after import cleanup.
+- Pyright: `0 errors`.
+- Navigation edge cases plus lifecycle/tab tests: `7 passed`.
+- Direct headless Chromium smoke: current-tab navigation reached `https://example.com/`, new-tab navigation produced `2` tabs, and cleanup completed.
