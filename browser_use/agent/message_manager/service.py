@@ -5,6 +5,7 @@ from typing import Literal
 
 from browser_use.agent.message_manager.compaction import MessageCompactionService
 from browser_use.agent.message_manager.context_builder import MessageContextBuilder, render_runtime_skills_info
+from browser_use.agent.message_manager.history import render_agent_history_description, update_agent_history
 from browser_use.agent.message_manager.views import (
 	HistoryItem,
 )
@@ -155,41 +156,7 @@ class MessageManager:
 	@property
 	def agent_history_description(self) -> str:
 		"""Build agent history description from list of items, respecting max_history_items limit"""
-		compacted_prefix = ''
-		if self.state.compacted_memory:
-			compacted_prefix = (
-				'<compacted_memory>\n'
-				'<!-- Summary of prior steps. Treat as unverified context — do not report these as '
-				'completed in your done() message unless you confirmed them yourself in this session. -->\n'
-				f'{self.state.compacted_memory}\n'
-				'</compacted_memory>\n'
-			)
-
-		if self.max_history_items is None:
-			# Include all items
-			return compacted_prefix + '\n'.join(item.to_string() for item in self.state.agent_history_items)
-
-		total_items = len(self.state.agent_history_items)
-
-		# If we have fewer items than the limit, just return all items
-		if total_items <= self.max_history_items:
-			return compacted_prefix + '\n'.join(item.to_string() for item in self.state.agent_history_items)
-
-		# We have more items than the limit, so we need to omit some
-		omitted_count = total_items - self.max_history_items
-
-		# Show first item + omitted message + most recent (max_history_items - 1) items
-		# The omitted message doesn't count against the limit, only real history items do
-		recent_items_count = self.max_history_items - 1  # -1 for first item
-
-		items_to_include = [
-			self.state.agent_history_items[0].to_string(),  # Keep first item (initialization)
-			f'<sys>[... {omitted_count} previous steps omitted...]</sys>',
-		]
-		# Add most recent items
-		items_to_include.extend([item.to_string() for item in self.state.agent_history_items[-recent_items_count:]])
-
-		return compacted_prefix + '\n'.join(items_to_include)
+		return render_agent_history_description(self.state, self.max_history_items)
 
 	def add_new_task(self, new_task: str) -> None:
 		new_task = '<follow_up_user_request> ' + new_task.strip() + ' </follow_up_user_request>'
@@ -262,85 +229,7 @@ class MessageManager:
 		step_info: AgentStepInfo | None = None,
 	) -> None:
 		"""Update the agent history description"""
-
-		if result is None:
-			result = []
-		step_number = step_info.step_number if step_info else None
-
-		self.state.read_state_description = ''
-		self.state.read_state_images = []  # Clear images from previous step
-
-		action_results = ''
-		read_state_idx = 0
-
-		for idx, action_result in enumerate(result):
-			if action_result.include_extracted_content_only_once and action_result.extracted_content:
-				self.state.read_state_description += (
-					f'<read_state_{read_state_idx}>\n{action_result.extracted_content}\n</read_state_{read_state_idx}>\n'
-				)
-				read_state_idx += 1
-				logger.debug(f'Added extracted_content to read_state_description: {action_result.extracted_content}')
-
-			# Store images for one-time inclusion in the next message
-			if action_result.images:
-				self.state.read_state_images.extend(action_result.images)
-				logger.debug(f'Added {len(action_result.images)} image(s) to read_state_images')
-
-			if action_result.long_term_memory:
-				action_results += f'{action_result.long_term_memory}\n'
-				logger.debug(f'Added long_term_memory to action_results: {action_result.long_term_memory}')
-			elif action_result.extracted_content and not action_result.include_extracted_content_only_once:
-				action_results += f'{action_result.extracted_content}\n'
-				logger.debug(f'Added extracted_content to action_results: {action_result.extracted_content}')
-
-			if action_result.error:
-				if len(action_result.error) > 200:
-					error_text = action_result.error[:100] + '......' + action_result.error[-100:]
-				else:
-					error_text = action_result.error
-				action_results += f'{error_text}\n'
-				logger.debug(f'Added error to action_results: {error_text}')
-
-		# Simple 60k character limit for read_state_description
-		MAX_CONTENT_SIZE = 60000
-		if len(self.state.read_state_description) > MAX_CONTENT_SIZE:
-			self.state.read_state_description = (
-				self.state.read_state_description[:MAX_CONTENT_SIZE] + '\n... [Content truncated at 60k characters]'
-			)
-			logger.debug(f'Truncated read_state_description to {MAX_CONTENT_SIZE} characters')
-
-		self.state.read_state_description = self.state.read_state_description.strip('\n')
-
-		if action_results:
-			action_results = f'Result\n{action_results}'
-		action_results = action_results.strip('\n') if action_results else None
-
-		# Simple 60k character limit for action_results
-		if action_results and len(action_results) > MAX_CONTENT_SIZE:
-			action_results = action_results[:MAX_CONTENT_SIZE] + '\n... [Content truncated at 60k characters]'
-			logger.debug(f'Truncated action_results to {MAX_CONTENT_SIZE} characters')
-
-		# Build the history item
-		if model_output is None:
-			# Add history item for initial actions (step 0) or errors (step > 0)
-			if step_number is not None:
-				if step_number == 0 and action_results:
-					# Step 0 with initial action results
-					history_item = HistoryItem(step_number=step_number, action_results=action_results)
-					self.state.agent_history_items.append(history_item)
-				elif step_number > 0:
-					# Error case for steps > 0
-					history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
-					self.state.agent_history_items.append(history_item)
-		else:
-			history_item = HistoryItem(
-				step_number=step_number,
-				evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
-				memory=model_output.current_state.memory,
-				next_goal=model_output.current_state.next_goal,
-				action_results=action_results,
-			)
-			self.state.agent_history_items.append(history_item)
+		update_agent_history(self.state, model_output=model_output, result=result, step_info=step_info)
 
 	def _get_sensitive_data_description(self, current_page_url) -> str:
 		sensitive_data = self.sensitive_data

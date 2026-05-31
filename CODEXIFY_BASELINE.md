@@ -1022,3 +1022,23 @@ Results:
 - Compaction and typed context tests: `5 passed`.
 - Python compile: passed.
 - File-system and sensitive-data message tests: `25 passed`.
+
+## Codexification Verification 48
+
+After extracting message history rendering and mutation into `browser_use.agent.message_manager.history` while keeping the old `MessageManager._update_agent_history_description()` wrapper:
+
+```bash
+uv run ruff check browser_use/agent/message_manager/history.py browser_use/agent/message_manager/service.py tests/ci/test_file_system_llm_integration.py
+uv run pyright browser_use/agent/message_manager/history.py browser_use/agent/message_manager/service.py tests/ci/test_file_system_llm_integration.py
+uv run pytest tests/ci/test_file_system_llm_integration.py tests/ci/test_message_manager_typed_context.py tests/ci/test_message_manager_compaction.py -q
+uv run python -m py_compile browser_use/agent/message_manager/history.py browser_use/agent/message_manager/service.py
+uv run pytest tests/ci/security/test_sensitive_data.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- File-system, typed context, and compaction tests: `16 passed`.
+- Python compile: passed.
+- Sensitive-data tests: `14 passed`.
