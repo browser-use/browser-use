@@ -40,3 +40,4 @@ These notes describe the current migration state after the codexification cleanu
 - Watchdog/event-bus code still exists for browser compatibility paths.
 - Google judge-based task evals could not complete because the `GOOGLE_API_KEY` in the shared `.env` is expired.
 - External local CDP validation requires launching Chrome with `--remote-allow-origins=*`; with that flag, `Browser(cdp_url=...)` connected and navigated successfully.
+- Current `ChatBrowserUse` smoke/eval comparison is equal or better on success, steps, speed, and token usage for the measured baseline cases.

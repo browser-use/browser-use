@@ -2211,3 +2211,36 @@ Results:
 - Ruff: passed after import cleanup.
 - Pyright: `0 errors`.
 - Session start and cloud browser session property/logic tests: `3 passed`.
+
+## Codexification Verification 90
+
+Current comparison against the baseline:
+
+```bash
+uv run python - <<'PY'
+# Runs tests/agent_tasks/browser_use_pip.yaml and tests/agent_tasks/amazon_laptop.yaml
+# with ChatBrowserUse, no Google judge, and records steps/actions/final output.
+PY
+uv run python - <<'PY'
+# Runs the cost-tracked local Reveal Answer smoke with ChatBrowserUse.
+PY
+```
+
+Results:
+
+| Scenario | Baseline | Current | Status |
+| --- | --- | --- | --- |
+| `browser_use_pip.yaml` | success from agent output, `6` steps | success `True`, `6` steps, final includes `pip install browser-use` | equal |
+| `amazon_laptop.yaml` | success from agent output, `5` steps | success `True`, `4` steps, first laptop result returned | better |
+| Local Reveal Answer smoke | success `True`, `5` steps, `19.67s`, `18,197` tokens, `$0.00909176` | success `True`, `3` steps, `16.16s`, `7,502` tokens, `$0.00381542` | better |
+
+Current `ChatBrowserUse` task actions:
+
+- `browser_use_pip.yaml`: `['search', 'search', 'navigate', 'search_page', 'navigate', 'done']`.
+- `amazon_laptop.yaml`: `['navigate', 'input', 'click', 'wait', 'done']`.
+
+Failure categories:
+
+- Google judge evals are still blocked by the expired shared `GOOGLE_API_KEY`.
+- The generic `gpt-4.1-mini` `browser_use_pip.yaml` run still has the previously documented semantic accuracy gap, but this is model behavior rather than a runtime regression.
+- Browser-backed tests continue to log expected judge-validation and mocked-CDP errors in specific tests while passing.

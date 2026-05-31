@@ -423,16 +423,16 @@ Implement:
 - [x] Run browser tests.
 - [x] Run task evals with `ChatBrowserUse`.
 - [x] Run task evals with at least one generic model.
-- [ ] Compare against baseline success rate, speed, steps, token usage, and failure categories.
+- [x] Compare against baseline success rate, speed, steps, token usage, and failure categories.
 - [x] Validate local browser, remote CDP, and `Browser(use_cloud=True)`.
 - [x] Run pre-commit.
 - [x] Update docs and migration notes.
 
 Exit criteria:
 
-- [ ] Success rate is equal or better.
-- [ ] Speed is equal or better on common tasks.
-- [ ] Token usage is equal or better on common tasks.
+- [x] Success rate is equal or better.
+- [x] Speed is equal or better on common tasks.
+- [x] Token usage is equal or better on common tasks.
 - [x] Failures are easier to debug.
 - [x] Migration path is documented.
 
