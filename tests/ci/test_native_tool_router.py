@@ -79,7 +79,8 @@ async def test_native_tool_router_executes_existing_action_without_fake_action_m
 
 	assert result.call_id == 'call-1'
 	assert result.is_error is False
-	assert result.structured_content['extracted_content'] == 'Waited for 1 seconds'
+	assert result.content == 'Waited for 1 seconds'
+	assert result.structured_content == {'seconds': 1, 'actual_seconds': 0, 'direct_service': True}
 	assert result.to_context_item().render().startswith('<tool_result name="browser.wait" id="call-1">')
 	assert [event.event_type for event in session.event_stream.events] == ['turn.started', 'tool.started', 'tool.completed']
 
@@ -124,6 +125,61 @@ async def test_native_tool_router_can_drive_simple_browser_task(browser_session,
 		session_id=cdp_session.session_id,
 	)
 	assert readback.get('result', {}).get('value') == 'native-tool-ok'
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_direct_navigation_go_back_and_page_scroll(browser_session, httpserver) -> None:
+	httpserver.expect_request('/first').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<a href="/second">Second</a>
+		<div style="height: 2400px">First page</div>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	httpserver.expect_request('/second').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<div style="height: 2400px">Second page</div>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+
+	tools = Tools()
+	router = NativeToolRouter.from_tools(tools)
+	session = BrowserAgentSession.create(task='Use direct navigation services')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools, browser_session=browser_session, action_timeout=30)
+
+	first_url = httpserver.url_for('/first')
+	second_url = httpserver.url_for('/second')
+	first_result = await router.execute(NativeToolCall(tool_name='browser.navigate', arguments={'url': first_url}), context)
+	second_result = await router.execute(NativeToolCall(tool_name='browser.navigate', arguments={'url': second_url}), context)
+	back_result = await router.execute(NativeToolCall(tool_name='browser.go_back', arguments={}), context)
+
+	assert first_result.is_error is False
+	assert first_result.structured_content['direct_service'] is True
+	assert second_result.is_error is False
+	assert back_result.is_error is False
+	assert back_result.structured_content['url'].endswith('/first')
+
+	scroll_result = await router.execute(
+		NativeToolCall(tool_name='browser.scroll', arguments={'down': True, 'pages': 1.0, 'index': 0}), context
+	)
+	assert scroll_result.is_error is False
+	assert scroll_result.structured_content['direct_service'] is True
+	assert scroll_result.structured_content['pixels'] > 0
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': 'Math.round(window.scrollY)', 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert readback.get('result', {}).get('value') > 0
 
 
 @pytest.mark.asyncio

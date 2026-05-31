@@ -5,6 +5,7 @@ import json
 import mimetypes
 import re
 import shutil
+import urllib.parse
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -19,7 +20,7 @@ from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
 from browser_use.tools.registry.views import RegisteredAction
 from browser_use.tools.service import Tools, _coerce_valid_action_timeout, handle_browser_error
-from browser_use.tools.views import ClickElementAction
+from browser_use.tools.views import ClickElementAction, NavigateAction, ScrollAction, SearchAction
 
 
 def _api_safe_tool_name(name: str) -> str:
@@ -433,6 +434,27 @@ class NativeToolRouter(BaseModel):
 
 	async def execute(self, call: NativeToolCall, context: ToolContext) -> NativeToolResult:
 		definition = self.resolve(call.tool_name)
+		if definition.name == 'browser.search':
+			params = cast(SearchAction, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._search(params, context))
+
+		if definition.name == 'browser.navigate':
+			params = cast(NavigateAction, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._navigate(params, context))
+
+		if definition.name == 'browser.go_back':
+			return await self._execute_direct_tool(call, context, definition, lambda: self._go_back(context))
+
+		if definition.name == 'browser.wait':
+			params = self.validate_call(call)
+			return await self._execute_direct_tool(call, context, definition, lambda: self._wait(params))
+
+		if definition.name == 'browser.scroll':
+			params = cast(ScrollAction, self.validate_call(call))
+			if params.index not in (None, 0):
+				return await self._execute_registered_action(call, context, definition)
+			return await self._execute_direct_tool(call, context, definition, lambda: self._scroll(params, context))
+
 		if definition.name == 'browser.click_coordinates':
 			params = cast(ClickCoordinatesInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._click_coordinates(params, context))
@@ -491,6 +513,14 @@ class NativeToolRouter(BaseModel):
 			params = cast(ShellRunInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._shell_run(params, context))
 
+		return await self._execute_registered_action(call, context, definition)
+
+	async def _execute_registered_action(
+		self,
+		call: NativeToolCall,
+		context: ToolContext,
+		definition: NativeToolDefinition,
+	) -> NativeToolResult:
 		if not definition.executable or not definition.source_action:
 			return NativeToolResult(
 				tool_name=call.tool_name,
@@ -603,6 +633,120 @@ class NativeToolRouter(BaseModel):
 			},
 		)
 		return native_result
+
+	async def _search(self, params: SearchAction, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.search',
+				call_id='',
+				is_error=True,
+				content='browser.search requires ToolContext.browser_session.',
+			)
+
+		encoded_query = urllib.parse.quote_plus(params.query)
+		search_engines = {
+			'duckduckgo': f'https://duckduckgo.com/?q={encoded_query}',
+			'google': f'https://www.google.com/search?q={encoded_query}&udm=14',
+			'bing': f'https://www.bing.com/search?q={encoded_query}',
+		}
+		engine = params.engine.lower()
+		if engine not in search_engines:
+			return NativeToolResult(
+				tool_name='browser.search',
+				call_id='',
+				is_error=True,
+				content=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing',
+			)
+
+		url = search_engines[engine]
+		services = BrowserServiceBundle.from_session(context.browser_session)
+		await services.navigation.navigate(url, new_tab=False)
+		memory = f"Searched {engine.title()} for '{params.query}'"
+		return NativeToolResult(
+			tool_name='browser.search',
+			call_id='',
+			content=memory,
+			structured_content={'query': params.query, 'engine': engine, 'url': url, 'direct_service': True},
+		)
+
+	async def _navigate(self, params: NavigateAction, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.navigate',
+				call_id='',
+				is_error=True,
+				content='browser.navigate requires ToolContext.browser_session.',
+			)
+
+		services = BrowserServiceBundle.from_session(context.browser_session)
+		await services.navigation.navigate(params.url, new_tab=params.new_tab)
+		content = f'Opened new tab with URL {params.url}' if params.new_tab else f'Navigated to {params.url}'
+		return NativeToolResult(
+			tool_name='browser.navigate',
+			call_id='',
+			content=content,
+			structured_content={'url': params.url, 'new_tab': params.new_tab, 'direct_service': True},
+		)
+
+	async def _go_back(self, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.go_back',
+				call_id='',
+				is_error=True,
+				content='browser.go_back requires ToolContext.browser_session.',
+			)
+
+		services = BrowserServiceBundle.from_session(context.browser_session)
+		url = await services.navigation.go_back()
+		if url is None:
+			return NativeToolResult(
+				tool_name='browser.go_back',
+				call_id='',
+				content='No previous history entry to go back to',
+				structured_content={'url': None, 'direct_service': True},
+			)
+		return NativeToolResult(
+			tool_name='browser.go_back',
+			call_id='',
+			content=f'Navigated back to {url}',
+			structured_content={'url': url, 'direct_service': True},
+		)
+
+	async def _wait(self, params: BaseModel) -> NativeToolResult:
+		seconds = int(getattr(params, 'seconds', 3))
+		actual_seconds = min(max(seconds - 1, 0), 30)
+		await asyncio.sleep(actual_seconds)
+		memory = f'Waited for {seconds} seconds'
+		return NativeToolResult(
+			tool_name='browser.wait',
+			call_id='',
+			content=memory,
+			structured_content={'seconds': seconds, 'actual_seconds': actual_seconds, 'direct_service': True},
+		)
+
+	async def _scroll(self, params: ScrollAction, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.scroll',
+				call_id='',
+				is_error=True,
+				content='browser.scroll requires ToolContext.browser_session.',
+			)
+
+		services = BrowserServiceBundle.from_session(context.browser_session)
+		direction = 'down' if params.down else 'up'
+		metadata = await services.actions.scroll.scroll_pages(params.pages, direction=direction)
+		if params.pages == 1.0:
+			memory = f'Scrolled {direction} {metadata["viewport_height"]}px'
+		else:
+			memory = f'Scrolled {direction} {metadata["completed_pages"]:.1f} pages'
+		return NativeToolResult(
+			tool_name='browser.scroll',
+			call_id='',
+			content=memory,
+			structured_content={**metadata, 'index': params.index, 'direct_service': True},
+		)
 
 	async def _click_coordinates(self, params: ClickCoordinatesInput, context: ToolContext) -> NativeToolResult:
 		if context.browser_session is None:

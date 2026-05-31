@@ -45,11 +45,29 @@ class BrowserStateService(BrowserService):
 class NavigationService(BrowserService):
 	"""Page navigation operations."""
 
-	async def navigate(self, url: str, *, new_tab: bool = False) -> None:
+	async def navigate(self, url: str, *, new_tab: bool = False, verify_not_empty: bool = True) -> None:
 		self._ensure_url_allowed(url)
 		target_id = await self._target_for_navigation(new_tab=new_tab)
 		await self.browser_session._navigate_and_wait(url, target_id)
 		await self.browser_session._close_extension_options_pages()
+		if verify_not_empty and not new_tab:
+			await self._ensure_page_not_empty(url)
+
+	async def go_back(self) -> str | None:
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+		history = await cdp_session.cdp_client.send.Page.getNavigationHistory(session_id=cdp_session.session_id)
+		current_index = history['currentIndex']
+		entries = history['entries']
+		if current_index <= 0:
+			return None
+
+		previous_entry = entries[current_index - 1]
+		await cdp_session.cdp_client.send.Page.navigateToHistoryEntry(
+			params={'entryId': previous_entry['id']},
+			session_id=cdp_session.session_id,
+		)
+		await asyncio.sleep(0.5)
+		return str(previous_entry.get('url', ''))
 
 	async def current_url(self) -> str:
 		return await self.browser_session.get_current_page_url()
@@ -73,6 +91,33 @@ class NavigationService(BrowserService):
 		security_watchdog = getattr(self.browser_session, '_security_watchdog', None)
 		if security_watchdog is not None and not security_watchdog._is_url_allowed(url):
 			raise ValueError(f'Navigation to {url} blocked by security policy')
+
+	async def _ensure_page_not_empty(self, url: str) -> None:
+		state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+		url_is_http = state.url.lower().startswith(('http://', 'https://'))
+		if not url_is_http or not _page_appears_empty(state):
+			return
+
+		self.browser_session.logger.warning(f'⚠️ Empty DOM detected after navigation to {url}, waiting 3s and rechecking...')
+		await asyncio.sleep(3.0)
+		state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+		if not state.url.lower().startswith(('http://', 'https://')) or not _page_appears_empty(state):
+			return
+
+		self.browser_session.logger.warning(f'⚠️ Still empty after 3s, attempting page reload for {url}...')
+		target_id = self.browser_session.agent_focus_target_id
+		if target_id is None:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+			target_id = cdp_session.target_id
+		await self.browser_session._navigate_and_wait(url, target_id)
+		await asyncio.sleep(5.0)
+		state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+		if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
+			raise RuntimeError(
+				f'Page loaded but returned empty content for {url}. '
+				f'The page may require JavaScript that failed to render, use anti-bot measures, '
+				f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
+			)
 
 
 class TabService(BrowserService):
@@ -191,6 +236,49 @@ class TypeService(BrowserService):
 class ScrollService(BrowserService):
 	"""Scrolling operations."""
 
+	async def viewport_height(self, *, fallback: int = 1000) -> int:
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+			metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=cdp_session.session_id)
+			css_viewport = metrics.get('cssVisualViewport', {})
+			css_layout_viewport = metrics.get('cssLayoutViewport', {})
+			return int(css_viewport.get('clientHeight') or css_layout_viewport.get('clientHeight', fallback))
+		except Exception as exc:
+			self.browser_session.logger.debug(f'Failed to get viewport height, using fallback {fallback}px: {exc}')
+			return fallback
+
+	async def scroll_pages(self, pages: float, *, direction: Literal['up', 'down'] = 'down') -> dict[str, Any]:
+		viewport_height = await self.viewport_height()
+		completed_scrolls = 0.0
+		total_pixels = 0
+
+		if pages >= 1.0:
+			num_full_pages = int(pages)
+			remaining_fraction = pages - num_full_pages
+			for _ in range(num_full_pages):
+				await self.scroll_page(viewport_height, direction=direction)
+				completed_scrolls += 1
+				total_pixels += viewport_height
+				await asyncio.sleep(0.15)
+			if remaining_fraction > 0:
+				pixels = int(remaining_fraction * viewport_height)
+				await self.scroll_page(pixels, direction=direction)
+				completed_scrolls += remaining_fraction
+				total_pixels += pixels
+		else:
+			pixels = int(pages * viewport_height)
+			await self.scroll_page(pixels, direction=direction)
+			completed_scrolls = pages
+			total_pixels = pixels
+
+		return {
+			'direction': direction,
+			'pages': pages,
+			'completed_pages': completed_scrolls,
+			'viewport_height': viewport_height,
+			'pixels': total_pixels,
+		}
+
 	async def scroll_page(self, amount: int, *, direction: Literal['up', 'down', 'left', 'right'] = 'down') -> None:
 		delta_x = 0
 		delta_y = 0
@@ -208,6 +296,10 @@ class ScrollService(BrowserService):
 			params={'expression': f'window.scrollBy({delta_x}, {delta_y})', 'returnByValue': True},
 			session_id=cdp_session.session_id,
 		)
+
+
+def _page_appears_empty(state: BrowserStateSummary) -> bool:
+	return state.dom_state._root is None or not state.dom_state.llm_representation().strip()
 
 
 class DownloadService(BrowserService):
