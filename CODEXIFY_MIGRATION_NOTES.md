@@ -34,6 +34,7 @@ These notes describe the current migration state after the codexification cleanu
 - Storage-state load/save now uses direct watchdog methods from browser lifecycle paths; the old storage request event handlers remain as adapters.
 - About:blank tab recovery now creates/focuses the replacement tab directly through CDP instead of dispatching a navigation request event.
 - Tab-close focus recovery now calls a direct tab switch helper; `SwitchTabEvent` remains as a compatibility adapter.
+- `BrowserSession.navigate_to()` now calls the direct navigation helper; `NavigateToUrlEvent` remains as a compatibility adapter.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
 - The typed runtime/context/event structures are present behind compatibility paths; the runtime model-context manager owns state around focused context/rendering helpers.
@@ -56,6 +57,32 @@ These notes describe the current migration state after the codexification cleanu
 - Google judge-based task evals could not complete because the `GOOGLE_API_KEY` in the shared `.env` is expired.
 - External local CDP validation requires launching Chrome with `--remote-allow-origins=*`; with that flag, `Browser(cdp_url=...)` connected and navigated successfully.
 - Current `ChatBrowserUse` smoke/eval comparison is equal or better on success, steps, speed, and token usage for the measured baseline cases.
+
+## Codexification Verification 107
+
+After directizing public `BrowserSession.navigate_to()`:
+
+```bash
+uv run ruff check browser_use/browser/session_navigation.py browser_use/browser/session_dom.py tests/ci/browser/test_direct_navigation.py
+uv run pyright browser_use/browser/session_navigation.py browser_use/browser/session_dom.py tests/ci/browser/test_direct_navigation.py
+uv run pytest tests/ci/browser/test_direct_navigation.py -q
+uv run pytest tests/ci/browser/test_direct_state_capture.py tests/ci/browser/test_cross_origin_click.py tests/ci/browser/test_session_start.py -q
+uv run pytest tests/ci/browser/test_navigation_slow_pages.py tests/ci/browser/test_screenshot.py -q
+```
+
+Results:
+
+- Direct navigation adapter tests: `2 passed`.
+- State capture, cross-origin click, and session lifecycle tests: `11 passed`.
+- Legacy navigation-event and screenshot tests: `7 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+- Final: `The main heading of https://example.com is 'Example Domain'.`
 
 ## Codexification Verification 102
 

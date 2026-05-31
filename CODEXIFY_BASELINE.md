@@ -2539,6 +2539,32 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - `https://example.com` heading task: success `True`, done `True`, `3` steps.
 - Actions: `['navigate', 'extract', 'done']`.
 
+## Codexification Verification 107
+
+After directizing public `BrowserSession.navigate_to()`:
+
+```bash
+uv run ruff check browser_use/browser/session_navigation.py browser_use/browser/session_dom.py tests/ci/browser/test_direct_navigation.py
+uv run pyright browser_use/browser/session_navigation.py browser_use/browser/session_dom.py tests/ci/browser/test_direct_navigation.py
+uv run pytest tests/ci/browser/test_direct_navigation.py -q
+uv run pytest tests/ci/browser/test_direct_state_capture.py tests/ci/browser/test_cross_origin_click.py tests/ci/browser/test_session_start.py -q
+uv run pytest tests/ci/browser/test_navigation_slow_pages.py tests/ci/browser/test_screenshot.py -q
+```
+
+Results:
+
+- Direct navigation adapter tests: `2 passed`.
+- State capture, cross-origin click, and session lifecycle tests: `11 passed`.
+- Legacy navigation-event and screenshot tests: `7 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+- Final: `The main heading of https://example.com is 'Example Domain'.`
+
 ## Codexification Verification 106
 
 After directizing tab-close focus recovery:

@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 from cdp_use.cdp.target import TargetID
 
-from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.browser.views import TabInfo
 from browser_use.dom.views import EnhancedDOMTreeNode, NodeType, TargetInfo
 from browser_use.utils import _log_pretty_url, is_new_tab_page
@@ -97,10 +96,8 @@ class BrowserSessionDOMMixin:
 		return 'Unknown page title'
 
 	async def navigate_to(self: Any, url: str, new_tab: bool = False) -> None:
-		"""Navigate to a URL using the standard event system."""
-		event = self.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=new_tab))
-		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
+		"""Navigate to a URL without routing through a navigation request event."""
+		await self.navigate_to_url_direct(url, new_tab=new_tab)
 
 	async def get_dom_element_by_index(self: Any, index: int) -> EnhancedDOMTreeNode | None:
 		"""Get DOM element by index from the cached selector map."""
