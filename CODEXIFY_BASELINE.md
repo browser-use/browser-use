@@ -1078,3 +1078,23 @@ Results:
 - Pyright: `0 errors`.
 - Message-manager, file-system, and sensitive-data tests: `28 passed`.
 - Python compile: passed.
+
+## Codexification Verification 51
+
+After extracting legacy dynamic `ActionModel` creation and caching into `ActionModelFactory`:
+
+```bash
+uv run ruff check browser_use/tools/registry/action_models.py browser_use/tools/registry/service.py tests/ci/infrastructure/test_registry_core.py
+uv run pyright browser_use/tools/registry/action_models.py browser_use/tools/registry/service.py tests/ci/infrastructure/test_registry_core.py
+uv run pytest tests/ci/infrastructure/test_registry_core.py::TestRegistryEdgeCases::test_create_action_model_reuses_cache_and_invalidates_on_registry_changes tests/ci/test_tools_explicit_schemas.py -q
+uv run python -m py_compile browser_use/tools/registry/action_models.py browser_use/tools/registry/service.py
+uv run pytest tests/ci/infrastructure/test_registry_core.py tests/ci/infrastructure/test_registry_action_parameter_injection.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Focused registry/tool schema tests: `4 passed`.
+- Python compile: passed.
+- Registry core and parameter-injection tests: `19 passed`, `8 skipped`.
