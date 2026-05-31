@@ -208,7 +208,7 @@ tool -> event -> bubus -> watchdog -> CDP
 Exit criteria:
 
 - [x] Core actions can execute without bubus in the hot path.
-- [ ] Downloads and dialogs still work.
+- [x] Downloads and dialogs still work.
 - [x] Click/type behavior remains at least as robust as before.
 
 ## Phase 5: Streaming Events

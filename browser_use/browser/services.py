@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import mimetypes
+import os
+from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from cdp_use.cdp.target import TargetID
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser.events import (
 	ClickElementEvent,
+	FileDownloadedEvent,
 	TypeTextEvent,
 )
 from browser_use.browser.session import BrowserSession
@@ -318,11 +324,144 @@ def _page_appears_empty(state: BrowserStateSummary) -> bool:
 	return state.dom_state._root is None or not state.dom_state.llm_representation().strip()
 
 
+def _download_filename(url: str, *, content_type: str | None, suggested_filename: str | None) -> str:
+	if suggested_filename:
+		return _sanitize_download_filename(suggested_filename)
+
+	parsed = urlparse(url)
+	filename = _sanitize_download_filename(os.path.basename(parsed.path))
+	if filename != 'download' and '.' in filename:
+		return filename
+	if content_type and 'pdf' in content_type:
+		return 'document.pdf'
+	return filename
+
+
+def _sanitize_download_filename(name: str | None) -> str:
+	if not name:
+		return 'download'
+	name = name.replace('\x00', '')
+	name = name.replace('\\', '/')
+	name = os.path.basename(name.rsplit('/', 1)[-1])
+	if name in ('', '.', '..'):
+		return 'download'
+	return name
+
+
+def _unique_download_destination(downloads_dir: Path, filename: str) -> Path:
+	destination = downloads_dir / filename
+	if not destination.exists():
+		return destination
+
+	base = destination.stem
+	ext = destination.suffix
+	counter = 1
+	while True:
+		candidate = downloads_dir / f'{base} ({counter}){ext}'
+		if not candidate.exists():
+			return candidate
+		counter += 1
+
+
+def _is_path_contained(path: str | Path, directory: str | Path) -> bool:
+	real_path = os.path.realpath(str(path))
+	real_dir = os.path.realpath(str(directory))
+	return real_path == real_dir or real_path.startswith(real_dir + os.sep)
+
+
 class DownloadService(BrowserService):
 	"""Downloaded file access."""
 
 	def list_downloads(self) -> list[str]:
 		return self.browser_session.downloaded_files
+
+	async def download_url(
+		self,
+		url: str,
+		*,
+		target_id: TargetID | None = None,
+		content_type: str | None = None,
+		suggested_filename: str | None = None,
+		timeout_s: float = 15.0,
+	) -> dict[str, Any] | None:
+		"""Download a URL through the browser context and track it without the event bus."""
+
+		downloads_path = self.browser_session.browser_profile.downloads_path
+		if not downloads_path:
+			self.browser_session.logger.warning('[DownloadService] No downloads path configured')
+			return None
+
+		downloads_dir = Path(downloads_path).expanduser().resolve()
+		downloads_dir.mkdir(parents=True, exist_ok=True)
+		filename = _download_filename(url, content_type=content_type, suggested_filename=suggested_filename)
+		destination = _unique_download_destination(downloads_dir, filename)
+		if not _is_path_contained(destination, downloads_dir):
+			self.browser_session.logger.error(
+				f'[DownloadService] Refusing to write download outside downloads_dir: {destination}'
+			)
+			return None
+
+		if target_id is None:
+			if self.browser_session.agent_focus_target_id is None:
+				cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+			else:
+				cdp_session = await self.browser_session.get_or_create_cdp_session(
+					target_id=self.browser_session.agent_focus_target_id, focus=False
+				)
+		else:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+
+		result = await asyncio.wait_for(
+			cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': f"""
+(async () => {{
+	const response = await fetch({json.dumps(url)}, {{ cache: 'force-cache' }});
+	if (!response.ok) {{
+		throw new Error(`HTTP error! status: ${{response.status}}`);
+	}}
+	const blob = await response.blob();
+	const arrayBuffer = await blob.arrayBuffer();
+	const uint8Array = new Uint8Array(arrayBuffer);
+	return {{ data: Array.from(uint8Array), responseSize: uint8Array.length }};
+}})()
+""",
+					'awaitPromise': True,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			),
+			timeout=timeout_s,
+		)
+		download_result = result.get('result', {}).get('value') or {}
+		data = download_result.get('data') or []
+		if not data:
+			self.browser_session.logger.warning(f'[DownloadService] No data received when downloading from {url}')
+			return None
+
+		payload = bytes(data)
+		await asyncio.to_thread(destination.write_bytes, payload)
+		file_size = destination.stat().st_size
+		resolved_content_type = content_type or mimetypes.guess_type(destination.name)[0]
+		file_ext = destination.suffix.lower().lstrip('.') or None
+		event = FileDownloadedEvent(
+			url=url,
+			path=str(destination),
+			file_name=destination.name,
+			file_size=file_size,
+			file_type=file_ext,
+			mime_type=resolved_content_type,
+			auto_download=True,
+		)
+		await self.browser_session.on_FileDownloadedEvent(event)
+		return {
+			'url': url,
+			'path': str(destination),
+			'file_name': destination.name,
+			'file_size': file_size,
+			'file_type': file_ext,
+			'mime_type': resolved_content_type,
+		}
 
 
 class DialogService(BrowserService):
@@ -330,6 +469,9 @@ class DialogService(BrowserService):
 
 	def closed_messages(self) -> list[str]:
 		return list(self.browser_session._closed_popup_messages)
+
+	def clear_closed_messages(self) -> None:
+		self.browser_session._closed_popup_messages.clear()
 
 
 class NetworkService(BrowserService):
