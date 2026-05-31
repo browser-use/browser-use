@@ -418,7 +418,7 @@ Implement:
 - [x] Run task evals with `ChatBrowserUse`.
 - [x] Run task evals with at least one generic model.
 - [ ] Compare against baseline success rate, speed, steps, token usage, and failure categories.
-- [ ] Validate local browser, remote CDP, and `Browser(use_cloud=True)`.
+- [x] Validate local browser, remote CDP, and `Browser(use_cloud=True)`.
 - [x] Run pre-commit.
 - [x] Update docs and migration notes.
 

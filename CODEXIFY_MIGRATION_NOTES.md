@@ -30,5 +30,5 @@ These notes describe the current migration state after the codexification cleanu
 - The old message manager is still part of the compatibility path.
 - The old structured-output action protocol is still supported and has not been removed.
 - Watchdog/event-bus code still exists for browser compatibility paths.
-- Local CDP validation needs follow-up: launching an external local Chrome CDP endpoint connected initially but dropped and entered reconnect cleanup during smoke testing.
 - Google judge-based task evals could not complete because the `GOOGLE_API_KEY` in the shared `.env` is expired.
+- External local CDP validation requires launching Chrome with `--remote-allow-origins=*`; with that flag, `Browser(cdp_url=...)` connected and navigated successfully.

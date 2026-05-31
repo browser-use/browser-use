@@ -1985,4 +1985,24 @@ Browser environment validation:
 
 - Local headed/headless browser path: repeatedly validated by browser-backed tests and live `ChatBrowserUse`/`ChatOpenAI` smokes.
 - `Browser(use_cloud=True)`: provisioned a cloud browser, navigated to `https://example.com/`, and cleaned up successfully.
-- Local external CDP smoke: blocked. The Homebrew `chromium` shim points to a missing app bundle; launching `/Applications/Google Chrome.app/...` with `--remote-debugging-port` connected initially but the CDP websocket dropped and cleanup entered reconnect handling. This needs follow-up before marking remote CDP fully validated.
+- Local external CDP smoke: passed when launching `/Applications/Google Chrome.app/...` with `--remote-debugging-port` and `--remote-allow-origins=*`; `Browser(cdp_url=...)` connected, navigated to `https://example.com/`, and cleaned up successfully. The Homebrew `chromium` shim on this machine points to a missing app bundle and should not be used for this validation.
+
+## Codexification Verification 82
+
+Focused local external CDP validation:
+
+```bash
+uv run python - <<'PY'
+# Launches /Applications/Google Chrome.app/Contents/MacOS/Google Chrome with:
+#   --remote-debugging-port=<port>
+#   --remote-allow-origins=*
+# Then connects Browser(cdp_url=f'http://127.0.0.1:<port>'), navigates to example.com,
+# verifies the URL, closes Browser, and terminates Chrome.
+PY
+```
+
+Results:
+
+- External Chrome CDP endpoint reported `Chrome/148.0.7778.181`.
+- `Browser(cdp_url=...)` connected and navigated to `https://example.com/`.
+- URL assertion passed and cleanup completed.
