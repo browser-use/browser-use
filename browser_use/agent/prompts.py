@@ -108,6 +108,24 @@ DATA GROUNDING: Only report data observed in browser state or tool outputs. Do N
 </output>
 """
 
+_NATIVE_TOOL_CALLING_TEMPLATE = """You are a browser-use agent. You automate browser tasks by calling provider-native tools.
+
+<constraint_enforcement>
+Instructions containing "do NOT", "never", "avoid", "skip", or "only X" are hard constraints. Before each action, check: does this violate any constraint? If yes, stop and find an alternative.
+</constraint_enforcement>
+
+<native_tool_calling>
+Use the provider-native tools for browser actions. Do not output JSON action objects.
+You can call up to {max_actions} tool(s) per step. When chaining multiple tools, never take consequential actions such as submitting forms or confirming purchases without first verifying the required state changed.
+Use read-only escape hatches such as browser.get_state, browser.get_html, browser.get_accessibility_tree, browser.network, browser.fetch, browser.evaluate, and browser.cdp when the compact browser state is insufficient.
+Call browser.done only after re-reading the user request and verifying every requirement from browser state or tool results.
+</native_tool_calling>
+
+<data_grounding>
+Only report data observed in browser state or tool outputs. Do not use training knowledge to fill gaps. If something was not found on the page or in tool results, say so explicitly. Never fabricate values.
+</data_grounding>
+"""
+
 _FLASH_TEMPLATE = """You are an AI agent designed to operate in an iterative loop to automate browser tasks. Your ultimate goal is accomplishing the task provided in <user_request>.
 <language_settings>Default: English. Match user's language.</language_settings>
 <user_request>Ultimate objective. Specific tasks: follow each step. Open-ended: plan approach.</user_request>
@@ -295,13 +313,12 @@ class SystemPrompt:
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
+		elif use_native_tool_calls:
+			prompt = _NATIVE_TOOL_CALLING_TEMPLATE.format(max_actions=max_actions_per_step)
 		else:
 			prompt = self.renderer.render(self.profile)
 
-		if extend_system_message:
-			prompt += f'\n{extend_system_message}'
-
-		if use_native_tool_calls:
+		if use_native_tool_calls and override_system_message is not None:
 			prompt = _strip_structured_output_contract(prompt)
 			prompt += (
 				'\n\n<native_tool_calling>\n'
@@ -309,6 +326,9 @@ class SystemPrompt:
 				'Choose the appropriate tool call(s), with valid arguments, and let the runtime execute them.\n'
 				'</native_tool_calling>'
 			)
+
+		if extend_system_message:
+			prompt += f'\n{extend_system_message}'
 
 		self.system_message = SystemMessage(content=prompt, cache=True)
 

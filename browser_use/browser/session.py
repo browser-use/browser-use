@@ -1215,6 +1215,9 @@ class BrowserSession(
 		Dispatches BrowserReconnectingEvent before each attempt and
 		BrowserReconnectedEvent on success.
 		"""
+		if self._intentional_stop or not self.cdp_url:
+			return
+
 		async with self._reconnect_lock:
 			if self._reconnecting:
 				return  # already in progress from another caller
@@ -1226,6 +1229,9 @@ class BrowserSession(
 
 		try:
 			for attempt in range(1, max_attempts + 1):
+				if self._intentional_stop or not self.cdp_url:
+					return
+
 				self.event_bus.dispatch(
 					BrowserReconnectingEvent(
 						cdp_url=self.cdp_url or '',

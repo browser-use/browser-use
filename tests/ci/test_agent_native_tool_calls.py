@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from browser_use import Agent
+from browser_use.agent.runtime.tools import NativeToolResult
 from browser_use.agent.views import ActionResult
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import SerializedDOMState
@@ -233,6 +234,61 @@ async def test_agent_executes_pure_native_file_tool_without_legacy_action_execut
 	assert (agent.file_system.get_dir() / 'reports' / 'native.txt').read_text(encoding='utf-8') == 'native-file-ok'
 	assert output.native_tool_results[0].tool_name == 'file_write'
 	assert output.native_tool_results[0].structured_content['appended'] is False
+
+
+@pytest.mark.asyncio
+async def test_agent_executes_action_model_initial_actions_through_native_router(monkeypatch) -> None:
+	llm = NativeDoneLLM()
+	agent = Agent(task='Use initial wait', llm=cast(Any, llm))
+	action = agent.ActionModel(**{'wait': {'seconds': 0}})
+
+	async def fail_execute_action(*args, **kwargs):
+		raise AssertionError('native action-model adapter should not use the legacy action executor')
+
+	monkeypatch.setattr(agent.tools.registry, 'execute_action', fail_execute_action)
+
+	results, native_results, tool_calls = await agent.multi_act_action_models_native([action])
+
+	assert results[0].error is None
+	assert results[0].extracted_content == 'Waited for 0 seconds'
+	assert native_results[0].tool_name == 'browser_wait'
+	assert tool_calls[0].function.name == 'browser_wait'
+
+
+@pytest.mark.asyncio
+async def test_initial_actions_use_native_model_output_context(monkeypatch) -> None:
+	llm = NativeDoneLLM()
+	agent = Agent(
+		task='Run an initial action',
+		llm=cast(Any, llm),
+		initial_actions=[{'wait': {'seconds': 0}}],
+	)
+
+	async def fail_multi_act(*args, **kwargs):
+		raise AssertionError('initial actions should avoid legacy multi_act when native tools are enabled')
+
+	async def fake_native_initial_actions(actions):
+		tool_call = ToolCall(
+			id='initial-call',
+			function=Function(name='browser_wait', arguments='{"seconds":0}'),
+		)
+		native_result = NativeToolResult(
+			tool_name='browser_wait',
+			call_id='initial-call',
+			content='Waited for 0 seconds',
+			structured_content={'seconds': 0},
+		)
+		return [ActionResult(extracted_content='Waited for 0 seconds')], [native_result], [tool_call]
+
+	monkeypatch.setattr(agent, 'multi_act', fail_multi_act)
+	monkeypatch.setattr(agent, 'multi_act_action_models_native', fake_native_initial_actions)
+
+	await agent._execute_initial_actions()
+
+	assert agent.state.last_result is not None
+	assert agent.state.last_model_output is not None
+	assert agent.state.last_model_output.native_tool_calls[0].function.name == 'browser_wait'
+	assert agent.state.last_model_output.native_tool_results[0].content == 'Waited for 0 seconds'
 
 
 def test_agent_can_force_legacy_action_output_for_native_capable_models() -> None:

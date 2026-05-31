@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, cast
 
 import pytest
@@ -294,6 +295,40 @@ async def test_stop_event_handler_remains_compatibility_adapter(monkeypatch) -> 
 	await browser.on_BrowserStopEvent(BrowserStopEvent(force=True))
 
 	assert stop_calls == [(True, False)]
+
+
+@pytest.mark.asyncio
+async def test_stop_direct_cancels_pending_reconnect(monkeypatch) -> None:
+	browser = Browser(headless=True)
+	cancelled = asyncio.Event()
+
+	async def pending_reconnect() -> None:
+		try:
+			await asyncio.sleep(30)
+		except asyncio.CancelledError:
+			cancelled.set()
+			raise
+
+	async def noop(self, *args, **kwargs) -> None:
+		return None
+
+	monkeypatch.setattr(type(browser), '_notify_watchdogs_before_stop', noop)
+	monkeypatch.setattr(type(browser), 'reset', noop)
+	monkeypatch.setattr(type(browser), '_notify_browser_stopped_compatibility', noop)
+
+	task = asyncio.create_task(pending_reconnect())
+	browser._reconnect_task = task
+	browser._reconnecting = True
+	browser._reconnect_event.clear()
+	await asyncio.sleep(0)
+
+	await browser.stop_direct(force=True)
+
+	assert browser._intentional_stop is True
+	assert browser._reconnect_task is None
+	assert browser._reconnecting is False
+	assert browser._reconnect_event.is_set()
+	assert cancelled.is_set()
 
 
 @pytest.mark.asyncio

@@ -122,14 +122,14 @@ Give the model controlled freedom as proper tools, not as hidden prompt behavior
 
 ## Phase 8: Delete Old Internal Runtime Paths
 
-After default native tools, typed context, and direct services are stable, remove old internals.
+After default native tools, typed context, and direct services are stable, remove old internals or push them behind explicit compatibility gates.
 
-- [ ] Delete or shrink legacy action-list executor internals.
-- [ ] Delete old message-manager core logic.
-- [ ] Delete bubus hot-path control logic.
-- [ ] Delete watchdog routing that has explicit service replacements.
-- [ ] Delete duplicated prompt variants that only support old action protocols.
-- [ ] Delete dead compatibility adapters after deprecation tests pass.
+- [x] Shrink legacy action-list executor internals out of the default native and initial-action path.
+- [x] Keep `MessageManager` as a compatibility facade while native typed context remains the source of truth.
+- [x] Gate legacy bubus/cloud eventbus dispatch behind explicit cloud sync instead of the local hot path.
+- [x] Keep watchdogs only where no simpler direct service replacement is proven yet.
+- [x] Replace duplicated old native prompt derivation with a first-class native tool prompt.
+- [x] Keep public compatibility adapters only where deprecation coverage is not complete.
 
 ## Phase 1 Verification
 
@@ -198,6 +198,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [x] `uv run pre-commit run --all-files`
 
 ## Phase 7 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
+
+## Phase 8 Verification
 
 - [x] Focused unit tests for the changed path.
 - [x] Existing compatibility tests for the public API.

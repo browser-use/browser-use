@@ -1,6 +1,10 @@
+import json
+import logging
+
 import pytest
 
 from browser_use import Agent
+from browser_use.agent.llm_debug_trace import write_runtime_events_debug_snapshot
 from browser_use.agent.runtime import BrowserRuntimeEventTypes
 
 
@@ -42,3 +46,56 @@ async def test_agent_callbacks_are_routed_through_runtime_event_subscribers(brow
 	)
 	assert context_event.payload['item_count'] >= 2
 	assert context_event.payload['rendered_chars'] > 0
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_skips_legacy_cloud_eventbus_without_cloud_sync(browser_session, mock_llm, monkeypatch) -> None:
+	agent = Agent(
+		task='Finish immediately',
+		llm=mock_llm,
+		browser_session=browser_session,
+		use_judge=False,
+		enable_signal_handler=False,
+	)
+
+	def fail_dispatch(*_args, **_kwargs) -> None:
+		raise AssertionError('legacy cloud eventbus should not run without cloud_sync')
+
+	monkeypatch.setattr(agent.eventbus, 'dispatch', fail_dispatch)
+
+	history = await agent.run(max_steps=2)
+
+	assert history.is_done()
+	event_types = [event.event_type for event in agent.runtime_session.event_stream.events]
+	assert BrowserRuntimeEventTypes.RUN_STARTED in event_types
+	assert BrowserRuntimeEventTypes.RUN_COMPLETED in event_types
+
+
+@pytest.mark.asyncio
+async def test_runtime_event_debug_snapshot_summarizes_terminal_history(browser_session, mock_llm, tmp_path) -> None:
+	agent = Agent(
+		task='Finish immediately',
+		llm=mock_llm,
+		browser_session=browser_session,
+		use_judge=False,
+		enable_signal_handler=False,
+	)
+	agent.logger.setLevel(logging.DEBUG)
+
+	history = await agent.run(max_steps=2)
+	await write_runtime_events_debug_snapshot(
+		agent_directory=tmp_path,
+		logger=agent.logger,
+		runtime_session=agent.runtime_session,
+	)
+
+	assert history.is_done()
+	runtime_events_path = tmp_path / 'runtime_events.jsonl'
+	events = [json.loads(line) for line in runtime_events_path.read_text(encoding='utf-8').splitlines()]
+	terminal_event = next(event for event in reversed(events) if event['event_type'] == BrowserRuntimeEventTypes.RUN_COMPLETED)
+	history_payload = terminal_event['payload']['history']
+	assert history_payload['is_done'] is True
+	assert history_payload['history_length'] == len(history.history)
+	assert 'final_result' in history_payload
+	assert 'screenshots' not in history_payload
+	assert runtime_events_path.stat().st_size < 50_000

@@ -13,7 +13,7 @@ from browser_use.agent.runtime.views import BrowserAgentSession, ToolContext
 from browser_use.agent.views import ActionResult, AgentSettings, AgentState
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm.messages import ToolCall
+from browser_use.llm.messages import Function, ToolCall
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
@@ -177,6 +177,49 @@ class AgentActionExecutionMixin:
 				return results
 
 		return results
+
+	async def multi_act_action_models_native(
+		self,
+		actions: list[ActionModel],
+	) -> tuple[list[ActionResult], list[NativeToolResult], list[ToolCall]]:
+		"""Execute compatibility action models through the native tool router."""
+		tool_calls = self._action_models_to_provider_tool_calls(actions)
+		if len(tool_calls) != len(actions):
+			self.logger.debug('Falling back to legacy action executor for unsupported initial action model.')
+			return await self.multi_act(actions), [], []
+
+		results, native_results = await self.multi_act_native(tool_calls)
+		return results, native_results, tool_calls
+
+	def _action_models_to_provider_tool_calls(self, actions: list[ActionModel]) -> list[ToolCall]:
+		router = NativeToolRouter.from_tools(self.tools, include_experimental=True)
+		definitions_by_source_action = {
+			definition.source_action: definition for definition in router.definitions.values() if definition.source_action
+		}
+		tool_calls: list[ToolCall] = []
+
+		for index, action in enumerate(actions):
+			action_data = action.model_dump(mode='json', exclude_unset=True, exclude_none=True)
+			if not action_data:
+				continue
+			action_name = next(iter(action_data.keys()))
+			definition = definitions_by_source_action.get(action_name)
+			if definition is None:
+				continue
+			arguments = action_data[action_name]
+			if not isinstance(arguments, dict):
+				arguments = {}
+			tool_calls.append(
+				ToolCall(
+					id=f'compat-action-{self.state.n_steps}-{index + 1}',
+					function=Function(
+						name=definition.api_name or definition.name,
+						arguments=json.dumps(arguments),
+					),
+				)
+			)
+
+		return tool_calls
 
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act_native')

@@ -34,17 +34,18 @@ class AgentRuntimeEventBridge(BaseModel):
 		if self.agent.register_done_callback is not None:
 			stream.subscribe_async(AgentDoneCallbackSubscriber(callback=self.agent.register_done_callback))
 
-		stream.subscribe_async(
-			FilteredAsyncRuntimeEventCallback(
-				callback=self._dispatch_legacy_cloud_event,
-				event_types={
-					BrowserRuntimeEventTypes.RUN_STARTED,
-					BrowserRuntimeEventTypes.TURN_COMPLETED,
-					BrowserRuntimeEventTypes.RUN_COMPLETED,
-					BrowserRuntimeEventTypes.RUN_FAILED,
-				},
+		if getattr(self.agent, 'cloud_sync', None) is not None:
+			stream.subscribe_async(
+				FilteredAsyncRuntimeEventCallback(
+					callback=self._dispatch_legacy_cloud_event,
+					event_types={
+						BrowserRuntimeEventTypes.RUN_STARTED,
+						BrowserRuntimeEventTypes.TURN_COMPLETED,
+						BrowserRuntimeEventTypes.RUN_COMPLETED,
+						BrowserRuntimeEventTypes.RUN_FAILED,
+					},
+				)
 			)
-		)
 		stream.subscribe_async(
 			FilteredAsyncRuntimeEventCallback(
 				callback=self._capture_telemetry_from_runtime_event,

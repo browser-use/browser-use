@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 from typing import Any
 from urllib.parse import urlparse
@@ -119,6 +120,9 @@ class BrowserSessionLifecycleMixin:
 	async def stop_direct(self: Any, *, force: bool = False, notify_watchdogs: bool = True) -> None:
 		"""Stop the browser session without routing through a stop request event."""
 		try:
+			self._intentional_stop = True
+			await self._cancel_reconnect_task()
+
 			if notify_watchdogs:
 				await self._notify_watchdogs_before_stop()
 
@@ -159,6 +163,18 @@ class BrowserSessionLifecycleMixin:
 					details={'cdp_url': self.cdp_url, 'is_local': self.is_local},
 				)
 			)
+
+	async def _cancel_reconnect_task(self: Any) -> None:
+		"""Stop pending CDP reconnect work before intentional shutdown."""
+		reconnect_task = getattr(self, '_reconnect_task', None)
+		current_task = asyncio.current_task()
+		if reconnect_task is not None and reconnect_task is not current_task and not reconnect_task.done():
+			reconnect_task.cancel()
+			with contextlib.suppress(asyncio.CancelledError):
+				await reconnect_task
+		self._reconnect_task = None
+		self._reconnecting = False
+		self._reconnect_event.set()
 
 	async def _notify_browser_stopped_compatibility(self: Any, reason: str) -> None:
 		"""Notify BrowserStoppedEvent listeners without making them control stop semantics."""

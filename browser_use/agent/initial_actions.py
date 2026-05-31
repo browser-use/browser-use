@@ -4,6 +4,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from browser_use.agent.runtime.tools import NativeToolResult
 from browser_use.agent.views import (
 	ActionResult,
 	AgentHistory,
@@ -16,6 +17,7 @@ from browser_use.agent.views import (
 from browser_use.agent.views import (
 	AgentOutput as AgentOutputModel,
 )
+from browser_use.llm.messages import ToolCall
 from browser_use.tools.registry.views import ActionModel as ActionModelType
 from browser_use.tools.service import Tools
 
@@ -31,6 +33,9 @@ class AgentInitialActionsMixin:
 	history: AgentHistoryList
 	tools: Tools[Any]
 	multi_act: Callable[[list[ActionModelType]], Awaitable[list[ActionResult]]]
+	multi_act_action_models_native: Callable[
+		[list[ActionModelType]], Awaitable[tuple[list[ActionResult], list[NativeToolResult], list[ToolCall]]]
+	]
 
 	def _extract_start_url(self, task: str) -> str | None:
 		"""Extract URL from task string using naive pattern matching."""
@@ -177,7 +182,12 @@ class AgentInitialActionsMixin:
 		# Execute initial actions if provided
 		if self.initial_actions and not self.state.follow_up_task:
 			self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
-			result = await self.multi_act(self.initial_actions)
+			native_tool_calls: list[ToolCall] = []
+			native_tool_results: list[NativeToolResult] = []
+			if self.settings.use_native_tool_calls:
+				result, native_tool_results, native_tool_calls = await self.multi_act_action_models_native(self.initial_actions)
+			else:
+				result = await self.multi_act(self.initial_actions)
 			# update result 1 to mention that its was automatically loaded
 			if result and self.initial_url and result[0].long_term_memory:
 				result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
@@ -199,6 +209,11 @@ class AgentInitialActionsMixin:
 					next_goal='Initial navigation',
 					action=self.initial_actions,
 				)
+
+			if native_tool_calls:
+				model_output.set_native_tool_calls(native_tool_calls)
+				model_output.set_native_tool_results(native_tool_results)
+			self.state.last_model_output = model_output
 
 			metadata = StepMetadata(step_number=0, step_start_time=time.time(), step_end_time=time.time(), step_interval=None)
 

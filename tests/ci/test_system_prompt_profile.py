@@ -77,3 +77,19 @@ def test_system_prompt_can_override_for_native_tool_calling() -> None:
 	assert 'Do not output JSON action objects' in content
 	assert 'AgentOutput tool' not in content
 	assert 'You must ALWAYS respond with a valid JSON' not in content
+	assert 'outputting structured JSON actions' not in content
+	assert 'provider-native tools' in content
+
+
+def test_system_prompt_keeps_override_as_native_compatibility_path() -> None:
+	prompt = SystemPrompt(
+		override_system_message='Custom instructions.\n<output>You must ALWAYS respond with a valid JSON</output>',
+		use_native_tool_calls=True,
+	)
+
+	content = prompt.get_system_message().content
+	assert isinstance(content, str)
+	assert 'Custom instructions.' in content
+	assert '<output>' not in content
+	assert '<native_tool_calling>' in content
+	assert 'Do not output JSON action objects' in content

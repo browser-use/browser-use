@@ -1417,6 +1417,7 @@ class Agent(
 			if self.history._output_model_schema is None and self.output_model_schema is not None:
 				self.history._output_model_schema = self.output_model_schema
 
+			self.logger.debug('🏁 Agent run loop complete; entering cleanup.')
 			return self.history
 
 		except KeyboardInterrupt:
@@ -1434,25 +1435,33 @@ class Agent(
 			raise e
 
 		finally:
+			self.logger.debug('🧹 Agent cleanup: start')
 			if should_delay_close and self._demo_mode_enabled and agent_run_error is None:
 				await asyncio.sleep(30)
 			if agent_run_error:
 				await self._demo_mode_log(f'Agent stopped: {agent_run_error}', 'error', {'tag': 'run'})
 			# Log token usage summary
+			self.logger.debug('🧹 Agent cleanup: logging token usage')
 			await self.token_cost_service.log_usage_summary()
 
 			# Unregister signal handlers before cleanup
+			self.logger.debug('🧹 Agent cleanup: unregistering signal handler')
 			signal_handler.unregister()
 
 			if self._force_exit_telemetry_logged:
 				# ADDED: Info message when custom telemetry for SIGINT was already logged
 				self.logger.debug('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
 
+			if self.browser_session is not None and not self.browser_session.browser_profile.keep_alive:
+				self.browser_session._intentional_stop = True
+
+			self.logger.debug('🧹 Agent cleanup: emitting terminal runtime event')
 			await self.runtime_events.emit_terminal_event(
 				max_steps=max_steps,
 				agent_run_error=agent_run_error,
 				skip_telemetry=self._force_exit_telemetry_logged,
 			)
+			self.logger.debug('🧹 Agent cleanup: writing debug summary')
 			await write_run_debug_summary(
 				agent_directory=self.agent_directory,
 				logger=self.logger,
@@ -1465,13 +1474,17 @@ class Agent(
 			)
 
 			# Log final messages to user based on outcome
+			self.logger.debug('🧹 Agent cleanup: logging final outcome')
 			self._log_final_outcome_messages()
 
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Configurable via TIMEOUT_AgentEventBusStop env var (default: 3.0s)
+			self.logger.debug('🧹 Agent cleanup: stopping legacy eventbus')
 			await self.eventbus.stop(clear=True, timeout=_get_timeout('TIMEOUT_AgentEventBusStop', 3.0))
 
+			self.logger.debug('🧹 Agent cleanup: closing resources')
 			await self.close()
+			self.logger.debug('🧹 Agent cleanup: complete')
 
 	async def log_completion(self) -> None:
 		"""Log the completion of the task"""

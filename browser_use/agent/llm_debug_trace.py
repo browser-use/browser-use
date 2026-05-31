@@ -339,6 +339,62 @@ def _dom_snapshot_payload(browser_state_summary: Any, include_attributes: list[s
 	}
 
 
+def _history_debug_summary(history: Any) -> dict[str, Any]:
+	"""Return a small history summary for event logs without screenshots or full step payloads."""
+
+	def _call(name: str, default: Any = None) -> Any:
+		method = getattr(history, name, None)
+		if not callable(method):
+			return default
+		try:
+			return method()
+		except Exception as exc:
+			return {'error': f'{type(exc).__name__}: {exc}'}
+
+	return {
+		'history_length': len(getattr(history, 'history', []) or []),
+		'is_done': _call('is_done', False),
+		'is_successful': _call('is_successful'),
+		'has_errors': _call('has_errors', False),
+		'final_result': _call('final_result'),
+		'action_names': _call('action_names', []),
+		'errors': _call('errors', []),
+		'urls': _call('urls', []),
+		'total_duration_seconds': _call('total_duration_seconds'),
+	}
+
+
+def _runtime_event_debug_snapshot(event: Any) -> dict[str, Any]:
+	"""Serialize runtime events for local debugging without recursively dumping heavy objects."""
+	payload = {}
+	for key, value in (getattr(event, 'payload', None) or {}).items():
+		if key == 'history':
+			payload[key] = _history_debug_summary(value)
+		elif key == 'browser_state_summary':
+			payload[key] = _browser_state_payload(value, None)
+		elif key == 'legacy_step_event':
+			payload[key] = {
+				'type': type(value).__name__,
+				'event_name': getattr(value, 'event_name', None),
+			}
+		else:
+			payload[key] = _jsonable(value)
+
+	timestamp = getattr(event, 'timestamp', None)
+	if isinstance(timestamp, datetime):
+		timestamp = timestamp.isoformat()
+
+	return {
+		'event_id': getattr(event, 'event_id', None),
+		'run_id': getattr(event, 'run_id', None),
+		'turn_id': getattr(event, 'turn_id', None),
+		'sequence': getattr(event, 'sequence', None),
+		'event_type': getattr(event, 'event_type', None),
+		'timestamp': timestamp,
+		'payload': payload,
+	}
+
+
 async def write_debug_run_manifest(
 	*,
 	agent_directory: str | Path,
@@ -507,7 +563,7 @@ async def write_runtime_events_debug_snapshot(
 	path.parent.mkdir(parents=True, exist_ok=True)
 	async with await anyio.open_file(path, 'w', encoding='utf-8') as events_file:
 		for event in events:
-			await events_file.write(json.dumps(_jsonable(event), ensure_ascii=False) + '\n')
+			await events_file.write(json.dumps(_runtime_event_debug_snapshot(event), ensure_ascii=False) + '\n')
 
 
 async def write_run_debug_summary(
