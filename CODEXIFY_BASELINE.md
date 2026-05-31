@@ -935,3 +935,31 @@ Results:
 - Pyright: `0 errors`.
 - Public interaction service import compatibility: passed.
 - Full browser service suite: `15 passed`.
+
+## Codexification Verification 44
+
+After splitting `browser_use.browser.interaction_services` into service-specific modules for click, type, scroll, keyboard, upload, and dropdown behavior while preserving the existing public facades:
+
+```bash
+uv run ruff check browser_use/browser/click_service.py browser_use/browser/type_service.py browser_use/browser/scroll_service.py browser_use/browser/keyboard_service.py browser_use/browser/upload_service.py browser_use/browser/dropdown_service.py browser_use/browser/interaction_services.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/click_service.py browser_use/browser/type_service.py browser_use/browser/scroll_service.py browser_use/browser/keyboard_service.py browser_use/browser/upload_service.py browser_use/browser/dropdown_service.py browser_use/browser/interaction_services.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run python - <<'PY'
+from browser_use.browser.services import ClickService, TypeService, ScrollService, KeyboardService, UploadService, DropdownService, BrowserServiceBundle
+from browser_use.browser.click_service import ClickService as DirectClickService
+from browser_use.browser.type_service import TypeService as DirectTypeService
+from browser_use.browser.scroll_service import ScrollService as DirectScrollService
+assert ClickService is DirectClickService
+assert TypeService is DirectTypeService
+assert ScrollService is DirectScrollService
+assert KeyboardService and UploadService and DropdownService and BrowserServiceBundle
+print('split service facades ok')
+PY
+uv run pytest tests/ci/browser/test_browser_services.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Public split-service import compatibility: passed.
+- Full browser service suite: `15 passed`.
