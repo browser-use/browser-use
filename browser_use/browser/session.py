@@ -489,6 +489,7 @@ class BrowserSession(
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_har_recording_watchdog: Any | None = PrivateAttr(default=None)
 	_captcha_watchdog: Any | None = PrivateAttr(default=None)
 	_watchdogs_attached: bool = PrivateAttr(default=False)
 

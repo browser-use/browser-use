@@ -142,6 +142,7 @@ class BrowserSessionStateMixin:
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		self._har_recording_watchdog = None
 		self._captcha_watchdog = None
 		self._watchdogs_attached = False
 		if self._demo_mode:

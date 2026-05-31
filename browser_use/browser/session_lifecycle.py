@@ -68,7 +68,7 @@ class BrowserSessionLifecycleMixin:
 
 		await self._save_storage_state_before_stop()
 
-		await self.event_bus.dispatch(BrowserStopEvent(force=True))
+		await self.stop_direct(force=True)
 		await self.event_bus.stop(clear=True, timeout=5)
 		await self.reset()
 		self.event_bus = EventBus()
@@ -80,7 +80,7 @@ class BrowserSessionLifecycleMixin:
 
 		await self._save_storage_state_before_stop()
 
-		await self.event_bus.dispatch(BrowserStopEvent(force=False))
+		await self.stop_direct(force=False)
 		await self.event_bus.stop(clear=True, timeout=5)
 		await self.reset()
 		self.event_bus = EventBus()
@@ -112,12 +112,20 @@ class BrowserSessionLifecycleMixin:
 		return match.group(1) if match else None
 
 	async def on_BrowserStopEvent(self: Any, event: BrowserStopEvent) -> None:
-		"""Handle browser stop request."""
+		"""Compatibility adapter for browser stop events."""
+		await self.stop_direct(force=event.force, notify_watchdogs=False)
+
+	async def stop_direct(self: Any, *, force: bool = False, notify_watchdogs: bool = True) -> None:
+		"""Stop the browser session without routing through a stop request event."""
 		try:
-			if self.browser_profile.keep_alive and not event.force:
+			if notify_watchdogs:
+				await self._notify_watchdogs_before_stop()
+
+			if self.browser_profile.keep_alive and not force:
 				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
 				return
 
+			local_browser_watchdog = self._local_browser_watchdog
 			cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
 			if cloud_session_id:
 				try:
@@ -131,13 +139,14 @@ class BrowserSessionLifecycleMixin:
 					except Exception:
 						pass
 
-			self.logger.info(
-				f'📢 on_BrowserStopEvent - Calling reset() (force={event.force}, keep_alive={self.browser_profile.keep_alive})'
-			)
+			self.logger.info(f'📢 stop_direct() - Calling reset() (force={force}, keep_alive={self.browser_profile.keep_alive})')
 			await self.reset()
 
 			if self.is_local:
 				self.browser_profile.cdp_url = None
+
+			if notify_watchdogs and local_browser_watchdog is not None and self.is_local:
+				await local_browser_watchdog.cleanup_browser()
 
 			stop_event = self.event_bus.dispatch(BrowserStoppedEvent(reason='Stopped by request'))
 			await stop_event
@@ -150,3 +159,22 @@ class BrowserSessionLifecycleMixin:
 					details={'cdp_url': self.cdp_url, 'is_local': self.is_local},
 				)
 			)
+
+	async def _notify_watchdogs_before_stop(self: Any) -> None:
+		"""Finalize stop-aware watchdogs on the direct public stop path."""
+
+		aboutblank_watchdog = self._aboutblank_watchdog
+		if aboutblank_watchdog is not None:
+			aboutblank_watchdog.mark_stopping()
+
+		storage_state_watchdog = self._storage_state_watchdog
+		if storage_state_watchdog is not None:
+			await storage_state_watchdog.stop_monitoring()
+
+		recording_watchdog = self._recording_watchdog
+		if recording_watchdog is not None:
+			await recording_watchdog.stop_recording()
+
+		har_recording_watchdog = getattr(self, '_har_recording_watchdog', None)
+		if har_recording_watchdog is not None:
+			await har_recording_watchdog.save_har()

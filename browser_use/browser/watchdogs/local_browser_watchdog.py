@@ -67,7 +67,11 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			raise
 
 	async def on_BrowserKillEvent(self, event: BrowserKillEvent) -> None:
-		"""Kill the local browser subprocess."""
+		"""Compatibility adapter for local browser subprocess cleanup."""
+		await self.cleanup_browser()
+
+	async def cleanup_browser(self) -> None:
+		"""Kill the local browser subprocess and clean temporary profile resources."""
 		self.logger.debug('[LocalBrowserWatchdog] Killing local browser process')
 
 		if self._subprocess:
@@ -87,11 +91,10 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		self.logger.debug('[LocalBrowserWatchdog] Browser cleanup completed')
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
-		"""Listen for BrowserStopEvent and dispatch BrowserKillEvent without awaiting it."""
+		"""Compatibility adapter for browser stop cleanup."""
 		if self.browser_session.is_local and self._subprocess:
-			self.logger.debug('[LocalBrowserWatchdog] BrowserStopEvent received, dispatching BrowserKillEvent')
-			# Dispatch BrowserKillEvent without awaiting so it gets processed after all BrowserStopEvent handlers
-			self.event_bus.dispatch(BrowserKillEvent())
+			self.logger.debug('[LocalBrowserWatchdog] BrowserStopEvent received, cleaning local browser')
+			await self.cleanup_browser()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='launch_browser_process')
 	async def _launch_browser(self, max_retries: int = 3) -> tuple[psutil.Process, str]:

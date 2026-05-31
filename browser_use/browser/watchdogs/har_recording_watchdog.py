@@ -198,6 +198,10 @@ class HarRecordingWatchdog(BaseWatchdog):
 			self._enabled = False
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
+		await self.save_har()
+
+	async def save_har(self) -> None:
+		"""Write the recorded HAR directly when recording is enabled."""
 		if not self._enabled:
 			return
 		try:

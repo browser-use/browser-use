@@ -36,6 +36,7 @@ These notes describe the current migration state after the codexification cleanu
 - Tab-close focus recovery now calls a direct tab switch helper; `SwitchTabEvent` remains as a compatibility adapter.
 - `BrowserSession.navigate_to()` now calls the direct navigation helper; `NavigateToUrlEvent` remains as a compatibility adapter.
 - `BrowserSession.start()` now calls a direct startup method, and local browser launch calls the local launch service directly; `BrowserStartEvent` and `BrowserLaunchEvent` remain as compatibility adapters.
+- `BrowserSession.stop()` and `kill()` now call direct lifecycle cleanup and direct watchdog finalizers; `BrowserStopEvent` and `BrowserKillEvent` remain as compatibility adapters.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
 - The typed runtime/context/event structures are present behind compatibility paths; the runtime model-context manager owns state around focused context/rendering helpers.
@@ -108,6 +109,32 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - `https://example.com` heading task: success `True`, done `True`, `2` steps.
 - Actions: `['navigate', 'done']`.
 - Final: `The main heading on https://example.com is 'Example Domain'.`
+
+## Codexification Verification 109
+
+After directizing public `BrowserSession.stop()`/`kill()` and stop-aware watchdog finalizers:
+
+```bash
+uv run ruff check browser_use/browser/session_lifecycle.py browser_use/browser/session.py browser_use/browser/session_state.py browser_use/browser/watchdogs/aboutblank_watchdog.py browser_use/browser/watchdogs/storage_state_watchdog.py browser_use/browser/watchdogs/har_recording_watchdog.py browser_use/browser/watchdogs/local_browser_watchdog.py tests/ci/browser/test_direct_lifecycle.py
+uv run pyright browser_use/browser/session_lifecycle.py browser_use/browser/session.py browser_use/browser/session_state.py browser_use/browser/watchdogs/aboutblank_watchdog.py browser_use/browser/watchdogs/storage_state_watchdog.py browser_use/browser/watchdogs/har_recording_watchdog.py browser_use/browser/watchdogs/local_browser_watchdog.py tests/ci/browser/test_direct_lifecycle.py
+uv run pytest tests/ci/browser/test_direct_lifecycle.py -q
+uv run pytest tests/ci/browser/test_direct_lifecycle.py tests/ci/browser/test_session_start.py tests/ci/browser/test_direct_storage_state.py -q
+uv run pytest tests/ci/test_action_record.py::test_profile_record_video_dir_still_works -q
+```
+
+Results:
+
+- Direct lifecycle tests: `7 passed`.
+- Direct lifecycle, browser session startup, and direct storage-state suite: `19 passed`.
+- Recording finalization test: `1 skipped` because optional recording dependencies are not active in this environment.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+- Final: `The main heading of the website is Example Domain.`
 
 ## Codexification Verification 102
 

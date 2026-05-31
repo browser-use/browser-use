@@ -39,12 +39,14 @@ class AboutBlankWatchdog(BaseWatchdog):
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Handle browser stop request - stop creating new tabs."""
-		# logger.info('[AboutBlankWatchdog] Browser stop requested, stopping tab creation')
-		self._stopping = True
+		self.mark_stopping()
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
 		"""Handle browser stopped event."""
-		# logger.info('[AboutBlankWatchdog] Browser stopped')
+		self.mark_stopping()
+
+	def mark_stopping(self) -> None:
+		"""Prevent about:blank recovery while the browser is stopping."""
 		self._stopping = True
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:

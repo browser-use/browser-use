@@ -418,6 +418,7 @@ Implement:
 - [x] Replace tab-close focus recovery request events with a direct tab switch helper.
 - [x] Replace public `BrowserSession.navigate_to()` request-event dispatch with direct navigation.
 - [x] Replace public `BrowserSession.start()` and local-browser launch request events with direct lifecycle methods.
+- [x] Replace public `BrowserSession.stop()`/`kill()` request-event dispatch with direct lifecycle and watchdog finalization methods.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
 Exit criteria:

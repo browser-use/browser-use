@@ -58,6 +58,10 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Stop monitoring when browser stops."""
+		await self.stop_monitoring()
+
+	async def stop_monitoring(self) -> None:
+		"""Stop storage-state monitoring directly."""
 		self.logger.debug('[StorageStateWatchdog] Stopping storage_state monitoring')
 		await self._stop_monitoring()
 
