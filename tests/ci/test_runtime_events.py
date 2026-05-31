@@ -1,4 +1,4 @@
-from browser_use.agent.runtime import BrowserEventStream, BrowserRuntimeEventTypes
+from browser_use.agent.runtime import BrowserAgentSession, BrowserEventStream, BrowserRuntimeEventTypes
 
 
 def test_event_stream_subscribers_receive_events_and_can_unsubscribe() -> None:
@@ -50,3 +50,45 @@ def test_runtime_event_type_catalog_contains_expected_events() -> None:
 	assert BrowserRuntimeEventTypes.MODEL_DELTA in BrowserRuntimeEventTypes.ALL
 	assert BrowserRuntimeEventTypes.DOWNLOAD_COMPLETED in BrowserRuntimeEventTypes.ALL
 	assert BrowserRuntimeEventTypes.CONTEXT_COMPACTED in BrowserRuntimeEventTypes.ALL
+
+
+def test_agent_session_emits_context_model_download_and_run_events(tmp_path) -> None:
+	session = BrowserAgentSession.create(task='Download report')
+	turn = session.start_turn(step_index=4)
+
+	session.emit_context_built(turn, item_count=5, rendered_chars=1200)
+	session.emit_model_delta(turn, text='Need the CSV file.', tool_call_count=1)
+	session.emit_download_started(file_name='report.csv', url='https://example.com/report.csv', turn=turn)
+	artifact = session.record_download_completed(
+		file_name='report.csv',
+		path=tmp_path / 'report.csv',
+		url='https://example.com/report.csv',
+		turn=turn,
+		metadata={'bytes': 12},
+	)
+	session.complete_run(metadata={'success': True})
+
+	assert session.artifact_store.get(artifact.artifact_id) == artifact
+	assert [event.event_type for event in session.event_stream.events] == [
+		BrowserRuntimeEventTypes.TURN_STARTED,
+		BrowserRuntimeEventTypes.CONTEXT_BUILT,
+		BrowserRuntimeEventTypes.MODEL_DELTA,
+		BrowserRuntimeEventTypes.DOWNLOAD_STARTED,
+		BrowserRuntimeEventTypes.DOWNLOAD_COMPLETED,
+		BrowserRuntimeEventTypes.ARTIFACT_CREATED,
+		BrowserRuntimeEventTypes.RUN_COMPLETED,
+	]
+	assert session.event_stream.events[1].payload == {'step_index': 4, 'item_count': 5, 'rendered_chars': 1200}
+	assert session.event_stream.events[2].payload['text_chars'] == len('Need the CSV file.')
+	assert session.event_stream.events[4].payload['artifact_id'] == artifact.artifact_id
+	assert session.event_stream.events[4].payload['media_type'] == 'text/csv'
+	assert session.event_stream.events[-1].payload == {'success': True}
+
+
+def test_agent_session_emits_run_failure_event() -> None:
+	session = BrowserAgentSession.create(task='Fail clearly')
+
+	event = session.fail_run('max failures reached', metadata={'step': 8})
+
+	assert event.event_type == BrowserRuntimeEventTypes.RUN_FAILED
+	assert event.payload == {'error': 'max failures reached', 'step': 8}

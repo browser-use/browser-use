@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -444,6 +445,48 @@ class BrowserAgentSession(BaseModel):
 			payload={'step_index': turn.step_index, **(metadata or {})},
 		)
 
+	def emit_context_built(
+		self,
+		turn: BrowserTurnContext,
+		*,
+		item_count: int,
+		rendered_chars: int,
+		metadata: dict[str, Any] | None = None,
+	) -> BrowserRuntimeEvent:
+		return self.event_stream.emit(
+			run_id=self.run_id,
+			turn_id=turn.turn_id,
+			event_type=BrowserRuntimeEventTypes.CONTEXT_BUILT,
+			payload={
+				'step_index': turn.step_index,
+				'item_count': item_count,
+				'rendered_chars': rendered_chars,
+				**(metadata or {}),
+			},
+		)
+
+	def emit_model_delta(
+		self,
+		turn: BrowserTurnContext,
+		*,
+		text: str | None = None,
+		tool_call_count: int | None = None,
+		is_final: bool = False,
+		metadata: dict[str, Any] | None = None,
+	) -> BrowserRuntimeEvent:
+		payload: dict[str, Any] = {'step_index': turn.step_index, 'is_final': is_final, **(metadata or {})}
+		if text is not None:
+			payload['text'] = text
+			payload['text_chars'] = len(text)
+		if tool_call_count is not None:
+			payload['tool_call_count'] = tool_call_count
+		return self.event_stream.emit(
+			run_id=self.run_id,
+			turn_id=turn.turn_id,
+			event_type=BrowserRuntimeEventTypes.MODEL_DELTA,
+			payload=payload,
+		)
+
 	def compact_context(
 		self,
 		context: BrowserContext,
@@ -467,6 +510,75 @@ class BrowserAgentSession(BaseModel):
 				payload=result.event_payload(),
 			)
 		return result
+
+	def emit_download_started(
+		self,
+		*,
+		file_name: str | None = None,
+		url: str | None = None,
+		turn: BrowserTurnContext | None = None,
+		metadata: dict[str, Any] | None = None,
+	) -> BrowserRuntimeEvent:
+		return self.event_stream.emit(
+			run_id=self.run_id,
+			turn_id=turn.turn_id if turn is not None else None,
+			event_type=BrowserRuntimeEventTypes.DOWNLOAD_STARTED,
+			payload={'file_name': file_name, 'url': url, **(metadata or {})},
+		)
+
+	def record_download_completed(
+		self,
+		*,
+		file_name: str,
+		path: str | Path | None = None,
+		url: str | None = None,
+		media_type: str | None = None,
+		turn: BrowserTurnContext | None = None,
+		metadata: dict[str, Any] | None = None,
+	) -> ArtifactRef:
+		resolved_media_type = media_type or mimetypes.guess_type(file_name)[0]
+		artifact = self.artifact_store.add(
+			kind='download',
+			name=file_name,
+			path=path,
+			media_type=resolved_media_type,
+			metadata={'url': url, **(metadata or {})},
+		)
+		payload = {
+			'artifact_id': artifact.artifact_id,
+			'file_name': file_name,
+			'path': str(path) if path is not None else None,
+			'url': url,
+			'media_type': resolved_media_type,
+			**(metadata or {}),
+		}
+		self.event_stream.emit(
+			run_id=self.run_id,
+			turn_id=turn.turn_id if turn is not None else None,
+			event_type=BrowserRuntimeEventTypes.DOWNLOAD_COMPLETED,
+			payload=payload,
+		)
+		self.event_stream.emit(
+			run_id=self.run_id,
+			turn_id=turn.turn_id if turn is not None else None,
+			event_type=BrowserRuntimeEventTypes.ARTIFACT_CREATED,
+			payload={'artifact_id': artifact.artifact_id, 'kind': artifact.kind, 'path': str(path) if path else None},
+		)
+		return artifact
+
+	def complete_run(self, *, metadata: dict[str, Any] | None = None) -> BrowserRuntimeEvent:
+		return self.event_stream.emit(
+			run_id=self.run_id,
+			event_type=BrowserRuntimeEventTypes.RUN_COMPLETED,
+			payload=metadata or {},
+		)
+
+	def fail_run(self, error: str, *, metadata: dict[str, Any] | None = None) -> BrowserRuntimeEvent:
+		return self.event_stream.emit(
+			run_id=self.run_id,
+			event_type=BrowserRuntimeEventTypes.RUN_FAILED,
+			payload={'error': error, **(metadata or {})},
+		)
 
 	def tool_context(
 		self,
