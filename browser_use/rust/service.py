@@ -259,6 +259,36 @@ def _maybe_inject_eval_directive(task: str | None) -> str | None:
 	return EVAL_SCREENSHOT_DIRECTIVE.lstrip() + '\n\n' + task
 
 
+def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | None:
+	"""When the Python BrowserSession owns a real remote CDP endpoint (Unikraft
+	cloud, Browserbase, anchor-browser etc.), tell the agent to attach to it
+	as the FIRST browser action — otherwise the Rust default kicks in and
+	launches a local managed-headless Chromium, which:
+	  (a) wastes resources by booting a parallel browser the user already paid for,
+	  (b) bypasses the proxy/stealth headers the cloud browser provides, and
+	  (c) means stealth-only tests run against a vanilla Chromium that gets
+	      CAPTCHA-walled instantly.
+
+	Idempotent on the directive string. Only triggers when both task and
+	cdp_url are present.
+	"""
+	if task is None or not cdp_url:
+		return task
+	if 'connect remote-cdp' in task:
+		return task
+	scheme = 'ws' if cdp_url.startswith('ws') else 'http'
+	flag = '--ws' if scheme == 'ws' else '--url'
+	preamble = (
+		'[BROWSER ATTACH — required first action]\n'
+		f'Before any page work, attach to the prepared external browser: '
+		f'`browser connect remote-cdp {flag} {cdp_url}`\n'
+		'Do not call `browser connect managed` — a real cloud browser with '
+		'proxy + stealth is already running at the URL above, launching a '
+		'local Chromium bypasses it.\n\n'
+	)
+	return preamble + task
+
+
 class _AgentSessionState:
 	"""Internal — accumulates per-session state from the event stream."""
 
@@ -393,7 +423,23 @@ class _AgentSessionState:
 				call_id, None
 			)
 			if step is not None:
-				step.tool_output = event.payload
+				# Merge, don't overwrite. For browser_script the event order is
+				# tool.output (with data/text/outputs) -> tool.finished (just
+				# {name, tool_call_id}). Assigning event.payload directly here
+				# clobbered all the merged-in fields, leaving the convex
+				# dashboard's per-step "tool response" view blank.
+				existing = step.tool_output or {}
+				if isinstance(event.payload, dict):
+					merged = {**event.payload, **existing}  # existing wins for shared keys
+					# But take name/tool_call_id from the more recent event if missing.
+					for k in ('name', 'tool_call_id'):
+						if k not in merged and k in event.payload:
+							merged[k] = event.payload[k]
+					step.tool_output = merged
+				elif existing:
+					step.tool_output = existing
+				else:
+					step.tool_output = event.payload
 				# Record tool.finished timestamp for per-step duration.
 				step.finished_ts_ms = event.ts_ms
 				# If we never saw tool.started (older Rust builds, or events
@@ -589,7 +635,10 @@ class Agent:
 		else:
 			if self.task is None:
 				raise ValueError('Agent.run(interactive=False) requires a task.')
-			task_text = _maybe_inject_eval_directive(self.task) or self.task
+			task_text = _maybe_inject_cdp_connect(
+			_maybe_inject_eval_directive(self.task) or self.task,
+			_browser_cdp_url(self.browser),
+		)
 			result = await self._run_headless(task_text, attach_to_session=None, max_turns=effective_max)
 
 			# Retry-on-skip safety net. When the agent finished without doing
@@ -634,7 +683,10 @@ class Agent:
 		"""Continue the current session with another user turn."""
 		if self.session_id is None:
 			raise RuntimeError('No active session — call run() first or Agent.attach(...).')
-		task_text = _maybe_inject_eval_directive(task) or task
+		task_text = _maybe_inject_cdp_connect(
+			_maybe_inject_eval_directive(task) or task,
+			_browser_cdp_url(self.browser),
+		)
 		result = await self._run_headless(task_text, attach_to_session=self.session_id, subcommand='followup')
 		self.result = result
 		return result

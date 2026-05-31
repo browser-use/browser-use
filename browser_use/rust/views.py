@@ -297,9 +297,30 @@ class _ActionResultView:
 
 	def __init__(self, data: dict[str, Any], *, is_done: bool = False) -> None:
 		self._data = data
+		# Field-name priority covers every tool's "human-readable result" key:
+		#   extracted_content (explicit) → text (browser_script transcript_text)
+		#   → content → result → output (browser tool.finished payload).
+		# The browser tool emits the JSON status blob under `output`, NOT `text`
+		# — without including it here the convex dashboard's per-step view shows
+		# the tool call but blank response.
 		self.extracted_content = (
-			data.get('extracted_content') or data.get('text') or data.get('content') or data.get('result')
+			data.get('extracted_content')
+			or data.get('text')
+			or data.get('content')
+			or data.get('result')
+			or data.get('output')
+			or data.get('summary')
+			or data.get('outputs')
+			or data.get('data')
 		)
+		# Stringify dict/list outputs so the judge / dashboard sees structure
+		# instead of repr(<dict>).
+		if self.extracted_content is not None and not isinstance(self.extracted_content, str):
+			try:
+				import json as _json
+				self.extracted_content = _json.dumps(self.extracted_content)[:8000]
+			except Exception:
+				self.extracted_content = str(self.extracted_content)[:8000]
 		self.error = data.get('error') or data.get('failure')
 		self.is_done = bool(data.get('is_done', is_done))
 		self.success = data.get('success')
