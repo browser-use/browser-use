@@ -28,7 +28,15 @@ from browser_use.agent.files import AgentFileSystemMixin
 from browser_use.agent.initial_actions import AgentInitialActionsMixin
 from browser_use.agent.judge import AgentJudgeMixin
 from browser_use.agent.lifecycle import AgentLifecycleMixin
-from browser_use.agent.llm_debug_trace import is_llm_debug_trace_enabled, llm_debug_trace_path, write_model_input_snapshot
+from browser_use.agent.llm_debug_trace import (
+	append_step_debug_summary,
+	is_llm_debug_trace_enabled,
+	llm_debug_trace_path,
+	write_browser_debug_snapshot,
+	write_debug_run_manifest,
+	write_model_input_snapshot,
+	write_run_debug_summary,
+)
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
@@ -702,6 +710,15 @@ class Agent(
 			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
 		else:
 			self.logger.debug('📸 Got browser state WITHOUT screenshot')
+		await write_browser_debug_snapshot(
+			agent_directory=self.agent_directory,
+			logger=self.logger,
+			step=self.state.n_steps,
+			session_id=self.session_id,
+			browser_state_summary=browser_state_summary,
+			browser_session=self.browser_session,
+			include_attributes=self.settings.include_attributes,
+		)
 
 		# Check for new downloads after getting browser state (catches PDF auto-downloads and previous step downloads)
 		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
@@ -1023,6 +1040,16 @@ class Agent(
 				metadata,
 				state_message=self._message_manager.last_state_message_text,
 			)
+			await append_step_debug_summary(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				model_output=self.state.last_model_output,
+				results=self.state.last_result,
+				metadata=metadata,
+				browser_state_summary=browser_state_summary,
+			)
 
 		# Log step completion summary
 		summary_message = self._log_step_completion_summary(self.step_start_time, self.state.last_result)
@@ -1277,6 +1304,18 @@ class Agent(
 			self._task_start_time = self._session_start_time  # Initialize task start time
 
 			await self.runtime_events.emit_runtime_event(BrowserRuntimeEventTypes.RUN_STARTED, payload={'max_steps': max_steps})
+			await write_debug_run_manifest(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				session_id=self.session_id,
+				agent_id=self.id,
+				task_id=self.task_id,
+				task=self.task,
+				llm=self.llm,
+				settings=self.settings,
+				browser_session=self.browser_session,
+				max_steps=max_steps,
+			)
 
 			# Log startup message on first step (only if we haven't already done steps)
 			self._log_first_step_startup()
@@ -1413,6 +1452,16 @@ class Agent(
 				max_steps=max_steps,
 				agent_run_error=agent_run_error,
 				skip_telemetry=self._force_exit_telemetry_logged,
+			)
+			await write_run_debug_summary(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				session_id=self.session_id,
+				agent_id=self.id,
+				task_id=self.task_id,
+				agent_run_error=agent_run_error,
+				history=self.history,
+				runtime_session=self.runtime_session,
 			)
 
 			# Log final messages to user based on outcome

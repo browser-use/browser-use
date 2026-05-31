@@ -94,16 +94,16 @@ Keep useful heuristics, delete the watchdog architecture where possible.
 
 Make each debug run locally explainable.
 
-- [ ] Create one run folder per agent run in debug mode.
-- [ ] Save `llm_trace.jsonl`.
-- [ ] Save rendered model inputs.
-- [ ] Save tool call/result traces.
-- [ ] Save browser state snapshots.
-- [ ] Save screenshots when available.
-- [ ] Save DOM/selector snapshots.
-- [ ] Save CDP summaries for browser operations.
-- [ ] Save timing, token usage, cost, errors, and final outcome.
-- [ ] Link records by `step`, `tool_call_id`, and browser target/frame identifiers.
+- [x] Create one run folder per agent run in debug mode.
+- [x] Save `llm_trace.jsonl`.
+- [x] Save rendered model inputs.
+- [x] Save tool call/result traces.
+- [x] Save browser state snapshots.
+- [x] Save screenshots when available.
+- [x] Save DOM/selector snapshots.
+- [x] Save CDP summaries for browser operations.
+- [x] Save timing, token usage, cost, errors, and final outcome.
+- [x] Link records by `step`, `tool_call_id`, and browser target/frame identifiers.
 
 ## Phase 7: Real Escape-Hatch Tools
 
@@ -176,6 +176,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [x] `uv run pre-commit run --all-files`
 
 ## Phase 5 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
+
+## Phase 6 Verification
 
 - [x] Focused unit tests for the changed path.
 - [x] Existing compatibility tests for the public API.

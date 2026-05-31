@@ -10,11 +10,24 @@ import pytest
 from browser_use import Agent
 from browser_use.agent.llm_debug_trace import (
 	append_llm_debug_trace,
+	append_step_debug_summary,
+	append_tool_debug_trace,
+	browser_state_snapshot_path,
+	cdp_summary_path,
+	dom_snapshot_paths,
 	llm_debug_trace_path,
 	model_input_snapshot_paths,
+	run_summary_path,
+	step_summary_path,
+	tool_trace_path,
+	write_browser_debug_snapshot,
 	write_model_input_snapshot,
+	write_run_debug_summary,
 )
 from browser_use.agent.runtime.context import BrowserContext, TaskItem
+from browser_use.agent.views import AgentHistoryList
+from browser_use.browser.views import BrowserStateSummary
+from browser_use.dom.views import SerializedDOMState
 from browser_use.llm.messages import Function, ToolCall, UserMessage
 from browser_use.llm.views import ChatInvokeCompletion
 
@@ -172,3 +185,137 @@ async def test_native_tool_llm_debug_trace_captures_provider_tool_schemas(
 
 	assert result['event'] == 'llm_call_result'
 	assert result['response']['tool_calls'][0]['function']['name'] == 'browser_done'
+
+
+@pytest.mark.asyncio
+async def test_debug_run_folder_captures_browser_state_dom_and_cdp(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	monkeypatch.setenv('BROWSER_USE_LOGGING_LEVEL', 'debug')
+	logger = logging.getLogger('browser_use.tests.debug_run.state')
+	state = BrowserStateSummary(
+		dom_state=SerializedDOMState(_root=None, selector_map={}),
+		url='https://example.com/state',
+		title='Debug State',
+		tabs=[],
+		screenshot='fake-screenshot-base64',
+	)
+
+	await write_browser_debug_snapshot(
+		agent_directory=tmp_path,
+		logger=logger,
+		step=4,
+		session_id='session',
+		browser_state_summary=state,
+		browser_session=None,
+	)
+
+	browser_record = json.loads(browser_state_snapshot_path(tmp_path, 4).read_text(encoding='utf-8'))
+	assert browser_record['event'] == 'browser_state_snapshot'
+	assert browser_record['browser_state']['url'] == 'https://example.com/state'
+	assert browser_record['browser_state']['screenshot']['base64_chars'] == len('fake-screenshot-base64')
+
+	dom_json_path, dom_text_path = dom_snapshot_paths(tmp_path, 4)
+	dom_record = json.loads(dom_json_path.read_text(encoding='utf-8'))
+	assert dom_record['event'] == 'dom_snapshot'
+	assert dom_record['selector_map'] == []
+	assert 'Empty DOM tree' in dom_text_path.read_text(encoding='utf-8')
+
+	cdp_record = json.loads(cdp_summary_path(tmp_path, 4).read_text(encoding='utf-8'))
+	assert cdp_record['event'] == 'cdp_summary'
+	assert cdp_record['cdp_handles']['available'] is False
+
+
+@pytest.mark.asyncio
+async def test_tool_trace_and_step_summary_are_written_in_debug_mode(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	monkeypatch.setenv('BROWSER_USE_LOGGING_LEVEL', 'debug')
+	logger = logging.getLogger('browser_use.tests.debug_run.tools')
+
+	await append_tool_debug_trace(
+		agent_directory=tmp_path,
+		logger=logger,
+		event='tool_call_start',
+		step=2,
+		session_id='session',
+		tool_name='browser.done',
+		tool_call_id='call_1',
+		arguments={'success': True, 'text': 'ok'},
+	)
+	await append_tool_debug_trace(
+		agent_directory=tmp_path,
+		logger=logger,
+		event='tool_call_result',
+		step=2,
+		session_id='session',
+		tool_name='browser.done',
+		tool_call_id='call_1',
+		result={'content': 'ok'},
+		duration_ms=12.5,
+	)
+	await append_step_debug_summary(
+		agent_directory=tmp_path,
+		logger=logger,
+		step=2,
+		session_id='session',
+		model_output=None,
+		results=[],
+		metadata=None,
+		browser_state_summary=None,
+	)
+
+	tool_records = _read_trace(tool_trace_path(tmp_path))
+	assert [record['event'] for record in tool_records] == ['tool_call_start', 'tool_call_result']
+	assert tool_records[1]['tool_call_id'] == 'call_1'
+	assert tool_records[1]['duration_ms'] == 12.5
+
+	step_records = _read_trace(step_summary_path(tmp_path))
+	assert step_records[0]['event'] == 'step_summary'
+	assert step_records[0]['step'] == 2
+
+
+@pytest.mark.asyncio
+async def test_native_tool_execution_writes_debug_tool_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+	monkeypatch.setenv('BROWSER_USE_LOGGING_LEVEL', 'debug')
+	llm = NativeTraceLLM()
+	agent = Agent(task='Return done', llm=cast(Any, llm), use_vision=False, use_native_tool_calls=True)
+
+	output = await agent.get_model_output([UserMessage(content='Call done')])
+	agent.state.last_model_output = output
+	await agent._execute_actions()
+
+	tool_records = _read_trace(tool_trace_path(agent.agent_directory))
+	assert [record['event'] for record in tool_records] == ['tool_call_start', 'tool_call_result']
+	assert tool_records[0]['tool_name'] == 'browser.done'
+	assert tool_records[0]['tool_call_id'] == 'call_1'
+	assert tool_records[1]['result']['structured_content']['is_done'] is True
+	assert agent.state.last_result and agent.state.last_result[0].is_done is True
+
+
+@pytest.mark.asyncio
+async def test_run_summary_records_final_outcome(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	monkeypatch.setenv('BROWSER_USE_LOGGING_LEVEL', 'debug')
+	logger = logging.getLogger('browser_use.tests.debug_run.summary')
+	history = AgentHistoryList(history=[], usage=None)
+
+	await write_run_debug_summary(
+		agent_directory=tmp_path,
+		logger=logger,
+		session_id='session',
+		agent_id='agent',
+		task_id='task',
+		agent_run_error=None,
+		history=history,
+		runtime_session=None,
+	)
+
+	summary = json.loads(run_summary_path(tmp_path).read_text(encoding='utf-8'))
+	assert summary['event'] == 'run_summary'
+	assert summary['is_done'] is False
+	assert summary['agent_run_error'] is None

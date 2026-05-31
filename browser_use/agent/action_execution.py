@@ -3,9 +3,11 @@
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from browser_use.agent.llm_debug_trace import append_tool_debug_trace
 from browser_use.agent.runtime.tools import NativeToolCall, NativeToolResult, NativeToolRouter
 from browser_use.agent.runtime.views import BrowserAgentSession, ToolContext
 from browser_use.agent.views import ActionResult, AgentSettings, AgentState
@@ -19,6 +21,7 @@ from browser_use.utils import time_execution_async
 
 
 class AgentActionExecutionMixin:
+	agent_directory: Any
 	available_file_paths: list[str] | None
 	browser_profile: BrowserProfile
 	browser_session: BrowserSession | None
@@ -30,6 +33,7 @@ class AgentActionExecutionMixin:
 	state: AgentState
 	tools: Tools[Any]
 	runtime_session: BrowserAgentSession
+	session_id: str
 	_demo_mode_enabled: bool
 	_check_stop_or_pause: Callable[[], Awaitable[None]]
 	_demo_mode_log: Callable[[str, str, dict[str, Any]], Awaitable[None]]
@@ -58,6 +62,8 @@ class AgentActionExecutionMixin:
 		for i, action in enumerate(actions):
 			action_data = action.model_dump(exclude_unset=True)
 			action_name = next(iter(action_data.keys())) if action_data else 'unknown'
+			tool_call_id = f'legacy-{self.state.n_steps}-{i + 1}'
+			action_arguments = action_data.get(action_name, {}) if isinstance(action_data, dict) else {}
 
 			if i > 0 and action_data.get('done') is not None:
 				msg = f'Done action is allowed only as a single action - stopped after action {i} / {total_actions}.'
@@ -71,6 +77,18 @@ class AgentActionExecutionMixin:
 			try:
 				await self._check_stop_or_pause()
 				await self._log_action(action, action_name, i + 1, total_actions)
+				tool_start_time = time.perf_counter()
+				await append_tool_debug_trace(
+					agent_directory=self.agent_directory,
+					logger=self.logger,
+					event='tool_call_start',
+					step=self.state.n_steps,
+					session_id=self.session_id,
+					tool_name=action_name,
+					tool_call_id=tool_call_id,
+					arguments=action_arguments,
+					browser_session=self.browser_session,
+				)
 
 				pre_action_url = await self.browser_session.get_current_page_url()
 				pre_action_focus = self.browser_session.agent_focus_target_id
@@ -101,6 +119,19 @@ class AgentActionExecutionMixin:
 					)
 
 				results.append(result)
+				await append_tool_debug_trace(
+					agent_directory=self.agent_directory,
+					logger=self.logger,
+					event='tool_call_result',
+					step=self.state.n_steps,
+					session_id=self.session_id,
+					tool_name=action_name,
+					tool_call_id=tool_call_id,
+					arguments=action_arguments,
+					action_result=result,
+					duration_ms=(time.perf_counter() - tool_start_time) * 1000,
+					browser_session=self.browser_session,
+				)
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
 					break
@@ -130,6 +161,18 @@ class AgentActionExecutionMixin:
 					'error',
 					{'action': action_name, 'step': self.state.n_steps},
 				)
+				await append_tool_debug_trace(
+					agent_directory=self.agent_directory,
+					logger=self.logger,
+					event='tool_call_error',
+					step=self.state.n_steps,
+					session_id=self.session_id,
+					tool_name=action_name,
+					tool_call_id=tool_call_id,
+					arguments=action_arguments,
+					error=e,
+					browser_session=self.browser_session,
+				)
 				results.append(ActionResult(error=f'{type(e).__name__}: {e}'))
 				return results
 
@@ -145,11 +188,27 @@ class AgentActionExecutionMixin:
 		total_actions = len(tool_calls)
 
 		for i, provider_tool_call in enumerate(tool_calls):
+			call: NativeToolCall | None = None
+			definition_name = getattr(getattr(provider_tool_call, 'function', None), 'name', 'unknown')
 			try:
 				await self._check_stop_or_pause()
 				call = self._native_tool_call_from_provider(provider_tool_call)
 				definition = router.resolve(call.tool_name)
+				definition_name = definition.name
 				await self._log_native_tool_call(definition.name, call, i + 1, total_actions)
+				tool_start_time = time.perf_counter()
+				await append_tool_debug_trace(
+					agent_directory=self.agent_directory,
+					logger=self.logger,
+					event='tool_call_start',
+					step=self.state.n_steps,
+					session_id=self.session_id,
+					tool_name=definition.name,
+					tool_call_id=call.call_id,
+					arguments=call.arguments,
+					provider_tool_call=provider_tool_call,
+					browser_session=self.browser_session,
+				)
 
 				pre_action_url = None
 				pre_action_focus = None
@@ -161,6 +220,21 @@ class AgentActionExecutionMixin:
 				native_results.append(native_result)
 				action_result = self._action_result_from_native_tool_result(native_result)
 				results.append(action_result)
+				await append_tool_debug_trace(
+					agent_directory=self.agent_directory,
+					logger=self.logger,
+					event='tool_call_result',
+					step=self.state.n_steps,
+					session_id=self.session_id,
+					tool_name=definition.name,
+					tool_call_id=call.call_id,
+					arguments=call.arguments,
+					provider_tool_call=provider_tool_call,
+					result=native_result,
+					action_result=action_result,
+					duration_ms=(time.perf_counter() - tool_start_time) * 1000,
+					browser_session=self.browser_session,
+				)
 
 				if action_result.error:
 					await self._demo_mode_log(
@@ -198,6 +272,19 @@ class AgentActionExecutionMixin:
 				if self._is_connection_like_error(e):
 					raise
 				self.logger.error(f'❌ Executing native tool call {i + 1} failed -> {type(e).__name__}: {e}')
+				await append_tool_debug_trace(
+					agent_directory=self.agent_directory,
+					logger=self.logger,
+					event='tool_call_error',
+					step=self.state.n_steps,
+					session_id=self.session_id,
+					tool_name=definition_name,
+					tool_call_id=call.call_id if call is not None else getattr(provider_tool_call, 'id', None),
+					arguments=call.arguments if call is not None else {},
+					provider_tool_call=provider_tool_call,
+					error=e,
+					browser_session=self.browser_session,
+				)
 				results.append(ActionResult(error=f'{type(e).__name__}: {e}'))
 				return results, native_results
 
