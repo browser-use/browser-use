@@ -555,6 +555,46 @@ async def test_browser_download_service_downloads_and_tracks_without_event_dispa
 
 
 @pytest.mark.asyncio
+async def test_print_button_click_tracks_pdf_without_download_event_dispatch(browser_session, httpserver, monkeypatch) -> None:
+	httpserver.expect_request('/print-button').respond_with_data(
+		"""<!doctype html>
+<html>
+	<head><title>Codexify Print Smoke</title></head>
+	<body>
+		<button id="print" onclick="window.print()">Print</button>
+		<p>content for generated pdf</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	services = BrowserServiceBundle.from_session(browser_session)
+
+	await services.navigation.navigate(httpserver.url_for('/print-button'))
+	state = await services.state.get_state(include_screenshot=False)
+	button_index = next(
+		idx for idx, element in state.dom_state.selector_map.items() if getattr(element, 'attributes', {}).get('id') == 'print'
+	)
+
+	original_dispatch = browser_session.event_bus.dispatch
+
+	def fail_download_dispatch(event, *args, **kwargs):
+		if event.__class__.__name__ == 'FileDownloadedEvent':
+			raise AssertionError('Print-button PDF tracking should call the direct download handler, not FileDownloadedEvent')
+		return original_dispatch(event, *args, **kwargs)
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_download_dispatch)
+
+	result = await services.actions.click.click_index(button_index)
+
+	assert result is not None
+	assert result.get('pdf_generated') is True
+	path = Path(result['path'])
+	assert path.exists()
+	assert path.suffix == '.pdf'
+	assert str(path) in services.downloads.list_downloads()
+
+
+@pytest.mark.asyncio
 async def test_browser_dialog_service_records_auto_closed_dialogs_without_click_dispatch(
 	browser_session, httpserver, monkeypatch
 ) -> None:

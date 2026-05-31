@@ -10,6 +10,7 @@ from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
 	ClickCoordinateEvent,
 	ClickElementEvent,
+	FileDownloadedEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
 	GoForwardEvent,
@@ -308,11 +309,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 			file_size = final_path.stat().st_size
 			self.logger.info(f'✅ Generated PDF via CDP: {final_path} ({file_size:,} bytes)')
 
-			# Dispatch FileDownloadedEvent
-			from browser_use.browser.events import FileDownloadedEvent
-
 			page_url = await self.browser_session.get_current_page_url()
-			self.browser_session.event_bus.dispatch(
+			await self.browser_session.on_FileDownloadedEvent(
 				FileDownloadedEvent(
 					url=page_url,
 					path=str(final_path),

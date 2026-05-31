@@ -477,3 +477,21 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Static check: no `event_bus.dispatch(...)` remains in `browser_use/browser/services.py`.
+
+## Codexification Verification 18
+
+After routing print-button PDF tracking through the direct download handler instead of `FileDownloadedEvent` dispatch:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_print_button_click_tracks_pdf_without_download_event_dispatch -q
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run ruff check browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Print-button Chromium smoke: `1 passed`.
+- Browser service and public direct-tool suite: `15 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
