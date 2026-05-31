@@ -11,6 +11,7 @@ from browser_use.agent.runtime import (
 	NativeToolRouter,
 	click_coordinates_as_click_arguments,
 )
+from browser_use.agent.runtime.tools import _TOOL_CONTEXT_BUILTIN_ACTIONS
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
 from browser_use.tools.views import StructuredOutputAction
@@ -44,6 +45,13 @@ def test_native_tool_router_workspace_tools_are_opt_in() -> None:
 	assert 'workspace.read_file' in workspace_router.definitions
 	assert 'workspace.import_artifacts' in workspace_router.definitions
 	assert workspace_router.resolve('shell_run').name == 'shell.run'
+
+
+def test_default_native_builtin_actions_are_direct_or_tool_context_backed() -> None:
+	dedicated_direct_actions = {'search', 'navigate', 'go_back', 'wait', 'done', 'scroll'}
+	default_actions = set(Tools().registry.registry.actions)
+
+	assert default_actions <= _TOOL_CONTEXT_BUILTIN_ACTIONS | dedicated_direct_actions
 
 
 def test_native_tool_router_validates_with_existing_pydantic_models() -> None:
@@ -178,7 +186,37 @@ async def test_native_tool_router_executes_structured_done_without_registered_ac
 
 
 @pytest.mark.asyncio
-async def test_native_tool_router_can_drive_simple_browser_task(browser_session, httpserver) -> None:
+async def test_native_tool_router_executes_builtin_file_tool_without_registered_action_adapter(monkeypatch, tmp_path) -> None:
+	tools = Tools()
+
+	async def fail_execute_action(*args, **kwargs):
+		raise AssertionError('built-in native file tools should not use the registered action adapter')
+
+	monkeypatch.setattr(tools.registry, 'execute_action', fail_execute_action)
+
+	session = BrowserAgentSession.create(task='Write a file directly')
+	turn = session.start_turn(step_index=0)
+	file_system = FileSystem(str(tmp_path))
+	context = session.tool_context(turn, tools=tools, file_system=file_system, action_timeout=5)
+	router = NativeToolRouter.from_tools(tools)
+
+	result = await router.execute(
+		NativeToolCall(
+			tool_name='browser.write_file',
+			arguments={'file_name': 'native-file.txt', 'content': 'native-file-ok'},
+			call_id='write-call',
+		),
+		context,
+	)
+
+	assert result.call_id == 'write-call'
+	assert result.is_error is False
+	assert (file_system.get_dir() / 'native-file.txt').read_text() == 'native-file-ok\n'
+	assert result.structured_content['long_term_memory']
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_can_drive_simple_browser_task(monkeypatch, browser_session, httpserver) -> None:
 	httpserver.expect_request('/native-tool').respond_with_data(
 		"""<!doctype html>
 <html>
@@ -191,6 +229,12 @@ async def test_native_tool_router_can_drive_simple_browser_task(browser_session,
 	)
 
 	tools = Tools()
+
+	async def fail_execute_action(*args, **kwargs):
+		raise AssertionError('built-in native browser tools should not use the registered action adapter')
+
+	monkeypatch.setattr(tools.registry, 'execute_action', fail_execute_action)
+
 	router = NativeToolRouter.from_tools(tools)
 	session = BrowserAgentSession.create(task='Reveal the answer')
 	turn = session.start_turn(step_index=0)

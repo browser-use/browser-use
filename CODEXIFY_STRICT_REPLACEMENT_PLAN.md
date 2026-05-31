@@ -38,12 +38,12 @@ Replace `AgentOutput(action=[...])` as the primary model action protocol.
 
 Replace special function-parameter injection as the core tool mechanism.
 
-- [ ] Define built-in browser tools as explicit Pydantic input/output models.
-- [ ] Use one explicit `ToolContext` for browser session, CDP client, page URL, files, sensitive data, extraction schema, and user context.
-- [ ] Convert built-in tools to `async def tool(params, ctx)` shape.
-- [ ] Keep `@tools.action(...)` legacy functions through a thin adapter.
-- [ ] Remove the "parameter must be named exactly `browser_session`" behavior from the primary path.
-- [ ] Add focused tests for custom legacy tools and new native tools.
+- [x] Define built-in browser tools as explicit Pydantic input/output models.
+- [x] Use one explicit `ToolContext` for browser session, CDP client, page URL, files, sensitive data, extraction schema, and user context.
+- [x] Convert built-in tools to `async def tool(params, ctx)` shape.
+- [x] Keep `@tools.action(...)` legacy functions through a thin adapter.
+- [x] Remove the "parameter must be named exactly `browser_session`" behavior from the primary path.
+- [x] Add focused tests for custom legacy tools and new native tools.
 
 ## Phase 3: Typed Context Ledger Replaces Message Mutation
 
@@ -132,6 +132,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [ ] Delete dead compatibility adapters after deprecation tests pass.
 
 ## Phase 1 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
+
+## Phase 2 Verification
 
 - [x] Focused unit tests for the changed path.
 - [x] Existing compatibility tests for the public API.

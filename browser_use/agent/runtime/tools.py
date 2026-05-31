@@ -34,17 +34,54 @@ from browser_use.agent.runtime.views import BrowserRuntimeEventTypes, ToolContex
 from browser_use.agent.views import ActionResult
 from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
+from browser_use.tools.dropdown import dropdown_options_action, select_dropdown_action
+from browser_use.tools.element_actions import (
+	click_by_coordinate_action,
+	click_by_index_action,
+	find_text_action,
+	input_text_action,
+)
 from browser_use.tools.error_handling import handle_browser_error
+from browser_use.tools.evaluate import execute_evaluate_action
 from browser_use.tools.execution import _coerce_valid_action_timeout
+from browser_use.tools.extraction.action import extract_action
+from browser_use.tools.file_actions import (
+	read_file_action,
+	replace_file_action,
+	save_as_pdf_action,
+	take_screenshot_action,
+	write_file_action,
+)
+from browser_use.tools.navigation import close_tab_action, send_keys_action, switch_tab_action
+from browser_use.tools.page_query import find_elements_action, search_page_action
 from browser_use.tools.registry.views import RegisteredAction
 from browser_use.tools.service import Tools
+from browser_use.tools.upload import upload_file_action
 from browser_use.tools.views import (
 	ClickElementAction,
+	ClickElementActionIndexOnly,
+	CloseTabAction,
 	DoneAction,
+	EvaluateAction,
+	ExtractAction,
+	FindElementsAction,
+	FindTextAction,
+	GetDropdownOptionsAction,
+	InputTextAction,
 	NavigateAction,
+	ReadFileAction,
+	ReplaceFileAction,
+	SaveAsPdfAction,
+	ScreenshotAction,
 	ScrollAction,
 	SearchAction,
+	SearchPageAction,
+	SelectDropdownOptionAction,
+	SendKeysAction,
 	StructuredDoneInput,
+	SwitchTabAction,
+	UploadFileAction,
+	WriteFileAction,
 )
 
 
@@ -177,6 +214,27 @@ _ACTION_TO_NATIVE_TOOL = {
 	'done': 'browser.done',
 }
 
+_TOOL_CONTEXT_BUILTIN_ACTIONS = {
+	'click',
+	'input',
+	'upload_file',
+	'switch',
+	'close',
+	'extract',
+	'search_page',
+	'find_elements',
+	'send_keys',
+	'find_text',
+	'screenshot',
+	'save_as_pdf',
+	'dropdown_options',
+	'select_dropdown',
+	'write_file',
+	'replace_file',
+	'read_file',
+	'evaluate',
+}
+
 
 def _experimental_definitions() -> list[NativeToolDefinition]:
 	return [
@@ -273,7 +331,7 @@ def _workspace_definitions() -> list[NativeToolDefinition]:
 
 
 class NativeToolRouter(BaseModel):
-	"""Routes native tool calls to Browser Use actions during migration."""
+	"""Routes provider-native tool calls through explicit runtime context."""
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -432,7 +490,200 @@ class NativeToolRouter(BaseModel):
 			params = cast(ShellRunInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._shell_run(params, context))
 
+		if definition.source_action in _TOOL_CONTEXT_BUILTIN_ACTIONS:
+			params = self.validate_call(call)
+			return await self._execute_direct_tool(
+				call,
+				context,
+				definition,
+				lambda: self._execute_builtin_action(definition.source_action or '', params, context, call),
+			)
+
 		return await self._execute_registered_action(call, context, definition)
+
+	async def _execute_builtin_action(
+		self,
+		action_name: str,
+		params: BaseModel,
+		context: ToolContext,
+		call: NativeToolCall,
+	) -> NativeToolResult:
+		"""Execute built-in Browser Use tools from explicit ToolContext instead of registry injection."""
+		browser_session = cast(Any, context.browser_session)
+		file_system = cast(Any, context.file_system)
+		page_extraction_llm = cast(Any, context.page_extraction_llm or context.llm)
+
+		if action_name == 'click':
+			click_params = cast(ClickElementAction | ClickElementActionIndexOnly, params)
+			if isinstance(click_params, ClickElementAction) and click_params.index is None:
+				result = await self._require_browser_action(
+					action_name,
+					context,
+					lambda: click_by_coordinate_action(click_params, browser_session),
+				)
+			else:
+				result = await self._require_browser_action(
+					action_name,
+					context,
+					lambda: click_by_index_action(click_params, browser_session),
+				)
+		elif action_name == 'input':
+			input_params = cast(InputTextAction, params)
+			result = await self._require_browser_action(
+				action_name,
+				context,
+				lambda: input_text_action(
+					input_params,
+					browser_session,
+					has_sensitive_data=bool(context.sensitive_data),
+					sensitive_data=context.sensitive_data,
+				),
+			)
+		elif action_name == 'upload_file':
+			result = await self._require_browser_and_files_action(
+				action_name,
+				context,
+				lambda: upload_file_action(
+					cast(UploadFileAction, params),
+					browser_session=browser_session,
+					available_file_paths=context.available_file_paths or [],
+					file_system=file_system,
+				),
+			)
+		elif action_name == 'switch':
+			result = await self._require_browser_action(
+				action_name, context, lambda: switch_tab_action(cast(SwitchTabAction, params), browser_session)
+			)
+		elif action_name == 'close':
+			result = await self._require_browser_action(
+				action_name, context, lambda: close_tab_action(cast(CloseTabAction, params), browser_session)
+			)
+		elif action_name == 'extract':
+			if context.page_extraction_llm is None and context.llm is None:
+				result = ActionResult(error='extract requires ToolContext.page_extraction_llm or ToolContext.llm.')
+			else:
+				result = await self._require_browser_and_files_action(
+					action_name,
+					context,
+					lambda: extract_action(
+						cast(ExtractAction, params),
+						browser_session=browser_session,
+						page_extraction_llm=page_extraction_llm,
+						file_system=file_system,
+						extraction_schema=context.extraction_schema,
+					),
+				)
+		elif action_name == 'search_page':
+			result = await self._require_browser_action(
+				action_name, context, lambda: search_page_action(cast(SearchPageAction, params), browser_session)
+			)
+		elif action_name == 'find_elements':
+			result = await self._require_browser_action(
+				action_name, context, lambda: find_elements_action(cast(FindElementsAction, params), browser_session)
+			)
+		elif action_name == 'send_keys':
+			result = await self._require_browser_action(
+				action_name, context, lambda: send_keys_action(cast(SendKeysAction, params), browser_session)
+			)
+		elif action_name == 'find_text':
+			result = await self._require_browser_action(
+				action_name, context, lambda: find_text_action(cast(FindTextAction, params), browser_session)
+			)
+		elif action_name == 'screenshot':
+			result = await self._require_browser_and_files_action(
+				action_name,
+				context,
+				lambda: take_screenshot_action(
+					cast(ScreenshotAction, params),
+					browser_session=browser_session,
+					file_system=file_system,
+				),
+			)
+		elif action_name == 'save_as_pdf':
+			result = await self._require_browser_and_files_action(
+				action_name,
+				context,
+				lambda: save_as_pdf_action(
+					cast(SaveAsPdfAction, params),
+					browser_session=browser_session,
+					file_system=file_system,
+				),
+			)
+		elif action_name == 'dropdown_options':
+			result = await self._require_browser_action(
+				action_name,
+				context,
+				lambda: dropdown_options_action(cast(GetDropdownOptionsAction, params), browser_session),
+			)
+		elif action_name == 'select_dropdown':
+			result = await self._require_browser_action(
+				action_name,
+				context,
+				lambda: select_dropdown_action(cast(SelectDropdownOptionAction, params), browser_session),
+			)
+		elif action_name == 'write_file':
+			result = await self._require_files_action(
+				action_name, context, lambda: write_file_action(cast(WriteFileAction, params), file_system)
+			)
+		elif action_name == 'replace_file':
+			result = await self._require_files_action(
+				action_name, context, lambda: replace_file_action(cast(ReplaceFileAction, params), file_system)
+			)
+		elif action_name == 'read_file':
+			result = await self._require_files_action(
+				action_name,
+				context,
+				lambda: read_file_action(
+					cast(ReadFileAction, params),
+					available_file_paths=context.available_file_paths or [],
+					file_system=file_system,
+				),
+			)
+		elif action_name == 'evaluate':
+			result = await self._require_browser_action(
+				action_name, context, lambda: execute_evaluate_action(cast(EvaluateAction, params), browser_session)
+			)
+		else:
+			return NativeToolResult(
+				tool_name=call.tool_name,
+				call_id=call.call_id,
+				is_error=True,
+				content=f'Built-in action {action_name} is not executable through ToolContext.',
+			)
+
+		return NativeToolResult.from_action_result(call=call, result=result)
+
+	async def _require_browser_action(
+		self,
+		action_name: str,
+		context: ToolContext,
+		operation: Callable[[], Awaitable[ActionResult]],
+	) -> ActionResult:
+		if context.browser_session is None:
+			return ActionResult(error=f'{action_name} requires ToolContext.browser_session.')
+		return await operation()
+
+	async def _require_files_action(
+		self,
+		action_name: str,
+		context: ToolContext,
+		operation: Callable[[], Awaitable[ActionResult]],
+	) -> ActionResult:
+		if context.file_system is None:
+			return ActionResult(error=f'{action_name} requires ToolContext.file_system.')
+		return await operation()
+
+	async def _require_browser_and_files_action(
+		self,
+		action_name: str,
+		context: ToolContext,
+		operation: Callable[[], Awaitable[ActionResult]],
+	) -> ActionResult:
+		if context.browser_session is None:
+			return ActionResult(error=f'{action_name} requires ToolContext.browser_session.')
+		if context.file_system is None:
+			return ActionResult(error=f'{action_name} requires ToolContext.file_system.')
+		return await operation()
 
 	async def _execute_registered_action(
 		self,
