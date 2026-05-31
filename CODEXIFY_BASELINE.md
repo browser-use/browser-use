@@ -1669,3 +1669,91 @@ Results:
 - Pyright: `0 errors`.
 - AI-step and rerun-summary/replay tests: `18 passed`.
 - Python compile: passed.
+
+## Codexification Verification 75
+
+After extracting start-URL detection, initial action conversion, and initial action history persistence into `browser_use.agent.initial_actions.AgentInitialActionsMixin`:
+
+```bash
+uv run ruff check browser_use/agent/initial_actions.py browser_use/agent/service.py browser_use/agent/skills.py
+uv run pyright browser_use/agent/initial_actions.py browser_use/agent/service.py browser_use/agent/skills.py
+uv run python -m py_compile browser_use/agent/initial_actions.py browser_use/agent/service.py
+uv run python - <<'PY'
+import asyncio
+from unittest.mock import AsyncMock
+
+from browser_use import Agent
+from browser_use.agent.views import ActionResult
+from browser_use.llm.base import BaseChatModel
+
+async def main():
+    llm = AsyncMock(spec=BaseChatModel)
+    llm.provider = 'mock'
+    llm.model = 'mock-model'
+    llm.name = 'mock-model'
+
+    agent = Agent(task='initial action smoke', llm=llm, use_judge=False, directly_open_url=False)
+    assert agent._extract_start_url('Go to example.com and report title') == 'https://example.com'
+    assert agent._extract_start_url('Email test@example.com and continue') is None
+    assert agent._extract_start_url('Compare https://example.com and https://browser-use.com') is None
+    assert agent._extract_start_url('Never go to https://example.com') is None
+    assert agent._extract_start_url('Open report.pdf') is None
+
+    converted = agent._convert_initial_actions([{'navigate': {'url': 'https://example.com', 'new_tab': False}}])
+    assert converted[0].model_dump(exclude_unset=True)['navigate']['url'] == 'https://example.com'
+
+    async def fake_multi_act(actions):
+        assert actions == converted
+        return [ActionResult(long_term_memory='Navigated to initial URL')]
+
+    agent.multi_act = fake_multi_act  # type: ignore[method-assign]
+    agent.initial_actions = converted
+    agent.initial_url = 'https://example.com'
+    await agent._execute_initial_actions()
+    assert agent.state.last_result[0].long_term_memory.startswith('Found initial url and automatically loaded it.')
+    assert len(agent.history.history) == 1
+    assert agent.history.history[0].state.url == 'https://example.com'
+    print('initial action smoke ok')
+    await agent.close()
+
+asyncio.run(main())
+PY
+```
+
+Live Chromium smoke:
+
+```bash
+uv run python - <<'PY'
+import asyncio
+from dotenv import load_dotenv
+
+load_dotenv('/Users/greg/Documents/browser-use/core/library/browser-use/.env')
+
+from browser_use import Agent, Browser, ChatBrowserUse
+
+async def main():
+    browser = Browser(headless=True)
+    agent = Agent(
+        task='Visit https://example.com and answer with the main heading. Use done when finished.',
+        browser=browser,
+        llm=ChatBrowserUse(),
+        use_judge=False,
+    )
+    history = await agent.run(max_steps=5)
+    print('success=', history.is_successful())
+    print('steps=', history.number_of_steps())
+    print('actions=', history.action_names())
+    print('final=', history.final_result())
+    await browser.close()
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Python compile: passed.
+- Direct initial-action smoke: URL detection, typed conversion, and step-0 history persistence passed.
+- Live `ChatBrowserUse` + local Chromium smoke: success `True`, steps `2`, actions `['navigate', 'done']`, final result `The main heading of the page is \"Example Domain\".`

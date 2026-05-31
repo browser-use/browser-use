@@ -392,6 +392,7 @@ Implement:
 - [x] Extract planning state updates, replanning/exploration/loop nudges, budget warnings, and forced-done context into a dedicated model-context policy module.
 - [x] Move judge trace evaluation and judge verdict logging next to the judge prompt builder.
 - [x] Extract AI-dependent rerun summary generation and extract-step re-evaluation out of the giant agent service.
+- [x] Extract start-URL detection, initial action conversion, and initial action history persistence out of the giant agent service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
