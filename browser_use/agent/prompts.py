@@ -2,6 +2,8 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT
 from browser_use.dom.views import NodeType, SimplifiedNode
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
@@ -25,6 +27,38 @@ def _is_anthropic_4_5_model(model_name: str | None) -> bool:
 	return is_opus_4_5 or is_haiku_4_5
 
 
+class SystemPromptTemplateProfile(BaseModel):
+	"""Typed selector for the system prompt template shown to the model."""
+
+	model_config = ConfigDict(frozen=True)
+
+	max_actions_per_step: int = Field(default=3, ge=1)
+	use_thinking: bool = True
+	flash_mode: bool = False
+	is_anthropic: bool = False
+	is_browser_use_model: bool = False
+	is_anthropic_4_5: bool = False
+	model_name: str | None = None
+
+	def template_filename(self) -> str:
+		if self.is_browser_use_model:
+			if self.flash_mode:
+				return 'system_prompt_browser_use_flash.md'
+			if self.use_thinking:
+				return 'system_prompt_browser_use.md'
+			return 'system_prompt_browser_use_no_thinking.md'
+
+		if self.is_anthropic_4_5 and self.flash_mode:
+			return 'system_prompt_anthropic_flash.md'
+		if self.flash_mode and self.is_anthropic:
+			return 'system_prompt_flash_anthropic.md'
+		if self.flash_mode:
+			return 'system_prompt_flash.md'
+		if self.use_thinking:
+			return 'system_prompt.md'
+		return 'system_prompt_no_thinking.md'
+
+
 class SystemPrompt:
 	def __init__(
 		self,
@@ -35,52 +69,33 @@ class SystemPrompt:
 		flash_mode: bool = False,
 		is_anthropic: bool = False,
 		is_browser_use_model: bool = False,
+		is_anthropic_4_5: bool | None = None,
 		model_name: str | None = None,
 	):
-		self.max_actions_per_step = max_actions_per_step
-		self.use_thinking = use_thinking
-		self.flash_mode = flash_mode
-		self.is_anthropic = is_anthropic
-		self.is_browser_use_model = is_browser_use_model
-		self.model_name = model_name
-		# Check if this is an Anthropic 4.5 model that needs longer prompts for caching
-		self.is_anthropic_4_5 = _is_anthropic_4_5_model(model_name)
+		self.profile = SystemPromptTemplateProfile(
+			max_actions_per_step=max_actions_per_step,
+			use_thinking=use_thinking,
+			flash_mode=flash_mode,
+			is_anthropic=is_anthropic,
+			is_browser_use_model=is_browser_use_model,
+			is_anthropic_4_5=_is_anthropic_4_5_model(model_name) if is_anthropic_4_5 is None else is_anthropic_4_5,
+			model_name=model_name,
+		)
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
 		else:
-			self._load_prompt_template()
-			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+			self._load_prompt_template(self.profile.template_filename())
+			prompt = self.prompt_template.format(max_actions=self.profile.max_actions_per_step)
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
 
 		self.system_message = SystemMessage(content=prompt, cache=True)
 
-	def _load_prompt_template(self) -> None:
+	def _load_prompt_template(self, template_filename: str) -> None:
 		"""Load the prompt template from the markdown file."""
 		try:
-			# Choose the appropriate template based on model type and mode
-			# Browser-use models use simplified prompts optimized for fine-tuned models
-			if self.is_browser_use_model:
-				if self.flash_mode:
-					template_filename = 'system_prompt_browser_use_flash.md'
-				elif self.use_thinking:
-					template_filename = 'system_prompt_browser_use.md'
-				else:
-					template_filename = 'system_prompt_browser_use_no_thinking.md'
-			# Anthropic 4.5 models (Opus 4.5, Haiku 4.5) need 4096+ token prompts for caching
-			elif self.is_anthropic_4_5 and self.flash_mode:
-				template_filename = 'system_prompt_anthropic_flash.md'
-			elif self.flash_mode and self.is_anthropic:
-				template_filename = 'system_prompt_flash_anthropic.md'
-			elif self.flash_mode:
-				template_filename = 'system_prompt_flash.md'
-			elif self.use_thinking:
-				template_filename = 'system_prompt.md'
-			else:
-				template_filename = 'system_prompt_no_thinking.md'
-
 			# This works both in development and when installed as a package
 			with (
 				importlib.resources.files('browser_use.agent.system_prompts')

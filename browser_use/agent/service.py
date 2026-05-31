@@ -479,6 +479,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				flash_mode=self.settings.flash_mode,
 				is_anthropic=self.model_capabilities.is_anthropic,
 				is_browser_use_model=self.model_capabilities.uses_browser_use_prompt,
+				is_anthropic_4_5=self.model_capabilities.is_anthropic_4_5,
 				model_name=self.model_capabilities.model_name,
 			).get_system_message(),
 			file_system=self.file_system,
