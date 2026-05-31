@@ -153,6 +153,10 @@ class ClickService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
+		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
+		if default_action_watchdog is not None:
+			return await default_action_watchdog.on_ClickElementEvent(ClickElementEvent(node=node, button=button))
+
 		event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=node, button=button))
 		await event
 		return await event.event_result(raise_if_any=True, raise_if_none=False)
@@ -220,6 +224,18 @@ class TypeService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
+		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
+		if default_action_watchdog is not None:
+			return await default_action_watchdog.on_TypeTextEvent(
+				TypeTextEvent(
+					node=node,
+					text=text,
+					clear=clear,
+					is_sensitive=is_sensitive,
+					sensitive_key_name=sensitive_key_name,
+				)
+			)
+
 		event = self.browser_session.event_bus.dispatch(
 			TypeTextEvent(
 				node=node,
