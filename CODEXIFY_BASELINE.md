@@ -1448,3 +1448,48 @@ Results:
 - Native tool-call, fallback LLM, and URL-shortening tests: `20 passed`.
 - Python compile: passed.
 - Live `ChatBrowserUse` + local Chromium smoke: success `True`, steps `2`, actions `['navigate', 'done']`, final result `The main heading of the page is 'Example Domain'.`
+
+## Codexification Verification 70
+
+After extracting agent run logging, demo-mode model-state broadcasting, step summaries, and telemetry event construction into `browser_use.agent.run_logging.AgentRunLoggingMixin`:
+
+```bash
+uv run ruff check browser_use/agent/run_logging.py browser_use/agent/model_io.py browser_use/agent/service.py tests/ci/test_agent_native_tool_calls.py tests/ci/test_fallback_llm.py tests/ci/test_tools.py
+uv run pyright browser_use/agent/run_logging.py browser_use/agent/model_io.py browser_use/agent/service.py tests/ci/test_agent_native_tool_calls.py tests/ci/test_fallback_llm.py tests/ci/test_tools.py
+uv run pytest tests/ci/test_agent_native_tool_calls.py tests/ci/test_fallback_llm.py tests/ci/test_tools.py::TestToolsIntegration::test_done_action -q
+uv run python -m py_compile browser_use/agent/run_logging.py browser_use/agent/model_io.py browser_use/agent/service.py
+uv run python - <<'PY'
+import asyncio
+from dotenv import load_dotenv
+
+load_dotenv('/Users/greg/Documents/browser-use/core/library/browser-use/.env')
+
+from browser_use import Agent, Browser, ChatBrowserUse
+
+async def main():
+    browser = Browser(headless=True)
+    agent = Agent(
+        task='Go to https://example.com and answer with the page title and main heading. Use done when finished.',
+        browser=browser,
+        llm=ChatBrowserUse(),
+        use_judge=False,
+        max_actions_per_step=3,
+    )
+    history = await agent.run(max_steps=5)
+    print('success=', history.is_successful())
+    print('steps=', history.number_of_steps())
+    print('actions=', history.action_names())
+    print('final=', history.final_result())
+    await browser.close()
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Native tool-call, fallback LLM, and done-action tests: `17 passed`.
+- Python compile: passed.
+- Live `ChatBrowserUse` + local Chromium smoke: success `True`, steps `3`, actions included `navigate`, `evaluate`, and `done`, final result `The page title is 'Example Domain' and the main heading is 'Example Domain'.`

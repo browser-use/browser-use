@@ -387,6 +387,7 @@ Implement:
 - [x] Extract watchdog attachment construction out of the giant browser session.
 - [x] Extract agent file-system, screenshot-service, and download tracking helpers out of the giant agent service.
 - [x] Extract model output, native tool-call adaptation, URL restoration, empty-action retry, and fallback-LLM switching out of the giant agent service.
+- [x] Extract agent run logging, demo-mode model-state broadcasting, step summaries, and telemetry event construction out of the giant agent service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
