@@ -175,6 +175,7 @@ Goal: move browser action execution out of bubus/watchdog routing.
 Implement:
 
 - [x] Create explicit services for state capture, actions, downloads, dialogs, tabs, network, lifecycle, and storage.
+- [x] Route public click/type tools through direct services instead of event dispatch.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.
@@ -365,7 +366,7 @@ Exit criteria:
 - [ ] PR 1: Baseline tests and runtime skeleton.
 - [ ] PR 2: Typed context behind feature flag.
 - [ ] PR 3: Native tool abstraction and old-path adapter.
-- [ ] PR 4: Direct services for core browser actions.
+- [x] PR 4: Direct services for core browser actions.
 - [ ] PR 5: Event stream and subscribers.
 - [ ] PR 6: Escape hatch tools.
 - [ ] PR 7: File/shell workspace.

@@ -16,8 +16,6 @@ from pydantic import BaseModel
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
-	ClickCoordinateEvent,
-	ClickElementEvent,
 	CloseTabEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
@@ -26,9 +24,9 @@ from browser_use.browser.events import (
 	ScrollToTextEvent,
 	SendKeysEvent,
 	SwitchTabEvent,
-	TypeTextEvent,
 	UploadFileEvent,
 )
+from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
@@ -65,8 +63,6 @@ logger = logging.getLogger(__name__)
 
 # Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
 # This must be done after all imports are complete
-ClickElementEvent.model_rebuild()
-TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
@@ -649,13 +645,11 @@ class Tools(Generic[Context]):
 				# Highlight the coordinate being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
-				# Dispatch ClickCoordinateEvent - handler will check for safety and click
-				event = browser_session.event_bus.dispatch(
-					ClickCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y, force=True)
+				click_metadata = await BrowserServiceBundle.from_session(browser_session).actions.click.click_coordinates(
+					actual_x,
+					actual_y,
+					force=True,
 				)
-				await event
-				# Wait for handler to complete and get any exception or metadata
-				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
 				# Check for validation errors (only happens when force=False)
 				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
@@ -703,10 +697,7 @@ class Tools(Generic[Context]):
 					browser_session.highlight_interaction_element(node), name='highlight_click_element', suppress_exceptions=True
 				)
 
-				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
-				await event
-				# Wait for handler to complete and get any exception or metadata
-				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+				click_metadata = await BrowserServiceBundle.from_session(browser_session).actions.click.click_index(params.index)
 
 				# Check if result contains validation error (e.g., trying to click <select> or file input)
 				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
@@ -775,17 +766,13 @@ class Tools(Generic[Context]):
 				if has_sensitive_data and sensitive_data:
 					sensitive_key_name = _detect_sensitive_key_name(params.text, sensitive_data)
 
-				event = browser_session.event_bus.dispatch(
-					TypeTextEvent(
-						node=node,
-						text=params.text,
-						clear=params.clear,
-						is_sensitive=has_sensitive_data,
-						sensitive_key_name=sensitive_key_name,
-					)
+				input_metadata = await BrowserServiceBundle.from_session(browser_session).actions.type.type_index(
+					params.index,
+					params.text,
+					clear=params.clear,
+					is_sensitive=has_sensitive_data,
+					sensitive_key_name=sensitive_key_name,
 				)
-				await event
-				input_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
 				# Create message with sensitive data handling
 				if has_sensitive_data:
@@ -828,7 +815,7 @@ class Tools(Generic[Context]):
 				return handle_browser_error(e)
 			except Exception as e:
 				# Log the full error for debugging
-				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
+				logger.error(f'Failed to type through direct browser service: {type(e).__name__}: {e}')
 				error_msg = f'Failed to type text into element {params.index}: {e}'
 				return ActionResult(error=error_msg)
 

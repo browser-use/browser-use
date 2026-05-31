@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from browser_use.browser.services import BrowserServiceBundle
+from browser_use.tools.service import Tools
 
 
 @pytest.mark.asyncio
@@ -142,6 +143,66 @@ async def test_browser_services_can_click_and_type_index_without_event_dispatch(
 	)
 
 	assert readback.get('result', {}).get('value') == 'browser-use-done'
+
+
+@pytest.mark.asyncio
+async def test_public_tools_click_and_type_use_direct_services(browser_session, httpserver, monkeypatch) -> None:
+	httpserver.expect_request('/direct-tool-actions').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<input id="name" value="">
+		<button id="reveal" onclick="document.getElementById('answer').textContent =
+			document.getElementById('name').value + '-tools-done'">
+			Reveal
+		</button>
+		<p id="answer">hidden</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	services = BrowserServiceBundle.from_session(browser_session)
+	tools = Tools()
+
+	await services.navigation.navigate(httpserver.url_for('/direct-tool-actions'))
+	state = await services.state.get_state(include_screenshot=False)
+	input_index = next(
+		idx
+		for idx, element in state.dom_state.selector_map.items()
+		if getattr(element, 'tag_name', None) == 'input' and getattr(element, 'attributes', {}).get('id') == 'name'
+	)
+	button_index = next(
+		idx
+		for idx, element in state.dom_state.selector_map.items()
+		if getattr(element, 'tag_name', None) == 'button' and getattr(element, 'attributes', {}).get('id') == 'reveal'
+	)
+
+	def fail_dispatch(*args, **kwargs):
+		raise AssertionError('Public click/input tools should use direct services, not event bus dispatch')
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_dispatch)
+
+	type_result = await tools.registry.execute_action(
+		action_name='input',
+		params={'index': input_index, 'text': 'browser-use'},
+		browser_session=browser_session,
+	)
+	click_result = await tools.registry.execute_action(
+		action_name='click',
+		params={'index': button_index},
+		browser_session=browser_session,
+	)
+
+	assert type_result.error is None
+	assert click_result.error is None
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('answer').textContent", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+
+	assert readback.get('result', {}).get('value') == 'browser-use-tools-done'
 
 
 @pytest.mark.asyncio

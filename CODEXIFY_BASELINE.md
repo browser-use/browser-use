@@ -244,3 +244,20 @@ Real `ChatBrowserUse` + headless local Chromium smoke:
 - Final result: `codexify-real-smoke-ok`
 - Runtime events: `run.started`, repeated `context.built` / `model.delta` / `turn.completed`, then `run.completed`.
 - Notes: the `data:` URL still produced an empty indexed DOM, and the agent again recovered with `evaluate`. This confirms the escape-hatch path remains useful while we preserve the DOM pipeline.
+
+## Codexification Verification 4
+
+After routing public click/type tools through the explicit browser service bundle:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py::test_native_tool_router_can_drive_simple_browser_task -q
+uv run ruff check browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Browser services and public tool direct-service suite: `8 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Notes: the public `input` and `click` tool test monkeypatches `browser_session.event_bus.dispatch` to fail, proving those actions no longer need bubus dispatch in the public agent path.
