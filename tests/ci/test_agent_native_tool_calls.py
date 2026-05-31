@@ -46,6 +46,7 @@ async def test_agent_can_adapt_provider_native_tool_calls_to_actions() -> None:
 
 	assert agent.settings.use_native_tool_calls is True
 	assert agent.runtime_session.config.use_native_tool_calls is True
+	assert 'Do not output JSON action objects' in agent._message_manager.system_prompt.text
 	assert llm.last_kwargs['output_format'] is None
 	assert llm.last_kwargs['tool_choice'] == 'auto'
 	assert any(tool['function']['name'] == 'browser_navigate' for tool in llm.last_kwargs['tools'])

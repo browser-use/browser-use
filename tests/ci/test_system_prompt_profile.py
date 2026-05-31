@@ -45,3 +45,12 @@ def test_system_prompt_uses_model_capability_prompt_profile() -> None:
 
 	assert prompt.profile.template_filename() == 'system_prompt_flash_anthropic.md'
 	assert 'maximum of 7 actions per step' in prompt.get_system_message().content
+
+
+def test_system_prompt_can_override_for_native_tool_calling() -> None:
+	prompt = SystemPrompt(use_native_tool_calls=True)
+
+	content = prompt.get_system_message().content
+	assert isinstance(content, str)
+	assert '<native_tool_calling>' in content
+	assert 'Do not output JSON action objects' in content

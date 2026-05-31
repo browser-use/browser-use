@@ -148,6 +148,7 @@ Implement:
 - [x] Keep `ActionResult`/tool result content structured and model-readable.
 - [x] Add provider-facing tool result messages and OpenAI native tool-call response parsing.
 - [x] Add an opt-in agent path that adapts provider-native tool calls to existing registered actions.
+- [x] Add native-tool-call prompt guidance when the opt-in path is enabled.
 
 Core tools:
 

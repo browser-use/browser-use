@@ -668,6 +668,24 @@ Results:
 - Pyright: `0 errors`.
 - Ruff format: passed.
 
+## Codexification Verification 33
+
+After adding native-tool-call prompt guidance for the opt-in native agent path:
+
+```bash
+uv run pytest tests/ci/test_agent_native_tool_calls.py tests/ci/test_system_prompt_profile.py -q
+uv run ruff check browser_use/agent/prompts.py browser_use/agent/service.py tests/ci/test_agent_native_tool_calls.py tests/ci/test_system_prompt_profile.py
+uv run pyright browser_use/agent/prompts.py browser_use/agent/service.py tests/ci/test_agent_native_tool_calls.py tests/ci/test_system_prompt_profile.py
+uv run ruff format --check browser_use/agent/prompts.py browser_use/agent/service.py tests/ci/test_agent_native_tool_calls.py tests/ci/test_system_prompt_profile.py
+```
+
+Results:
+
+- Native-agent prompt and system prompt tests: `13 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.
+
 ## Codexification Verification 27
 
 After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:

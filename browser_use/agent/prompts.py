@@ -90,6 +90,7 @@ class SystemPrompt:
 		is_browser_use_model: bool = False,
 		is_anthropic_4_5: bool | None = None,
 		model_name: str | None = None,
+		use_native_tool_calls: bool = False,
 	):
 		self.renderer = SystemPromptRenderer()
 		self.profile = SystemPromptTemplateProfile(
@@ -109,6 +110,14 @@ class SystemPrompt:
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
+
+		if use_native_tool_calls:
+			prompt += (
+				'\n\n<native_tool_calling>\n'
+				'Use the provider-native tools for browser actions. Do not output JSON action objects. '
+				'Choose the appropriate tool call(s), with valid arguments, and let the runtime execute them.\n'
+				'</native_tool_calling>'
+			)
 
 		self.system_message = SystemMessage(content=prompt, cache=True)
 

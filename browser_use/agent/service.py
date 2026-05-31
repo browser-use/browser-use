@@ -481,6 +481,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				is_browser_use_model=self.model_capabilities.uses_browser_use_prompt,
 				is_anthropic_4_5=self.model_capabilities.is_anthropic_4_5,
 				model_name=self.model_capabilities.model_name,
+				use_native_tool_calls=self.settings.use_native_tool_calls,
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
