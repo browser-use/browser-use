@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from browser_use.browser.services import BrowserServiceBundle
@@ -42,3 +44,50 @@ def test_browser_service_bundle_exposes_lightweight_state(browser_session) -> No
 	assert services.downloads.list_downloads() == browser_session.downloaded_files
 	assert services.dialogs.closed_messages() == []
 	assert services.actions.navigation is not services.navigation
+
+
+@pytest.mark.asyncio
+async def test_browser_services_can_navigate_and_click_coordinates_without_event_dispatch(
+	browser_session, httpserver, monkeypatch
+) -> None:
+	httpserver.expect_request('/direct-services').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<button id="reveal" style="margin: 40px; width: 160px; height: 60px;"
+			onclick="document.getElementById('answer').textContent = 'direct-services-ok'">
+			Reveal
+		</button>
+		<p id="answer">hidden</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	services = BrowserServiceBundle.from_session(browser_session)
+
+	def fail_dispatch(*args, **kwargs):
+		raise AssertionError('Direct services should not dispatch through the event bus')
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_dispatch)
+
+	await services.navigation.navigate(httpserver.url_for('/direct-services'))
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	rect_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': """
+const rect = document.getElementById('reveal').getBoundingClientRect();
+JSON.stringify({ x: Math.floor(rect.left + rect.width / 2), y: Math.floor(rect.top + rect.height / 2) });
+""",
+			'returnByValue': True,
+		},
+		session_id=cdp_session.session_id,
+	)
+
+	coords = json.loads(rect_result['result']['value'])
+	await services.actions.click.click_coordinates(coords['x'], coords['y'])
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('answer').textContent", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+
+	assert readback.get('result', {}).get('value') == 'direct-services-ok'

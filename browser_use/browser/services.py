@@ -1,20 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from cdp_use.cdp.target import TargetID
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser.events import (
-	ClickCoordinateEvent,
 	ClickElementEvent,
-	CloseTabEvent,
-	ScrollEvent,
-	SwitchTabEvent,
 	TypeTextEvent,
 )
 from browser_use.browser.session import BrowserSession
-from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.browser.views import BrowserError, BrowserStateSummary, TabInfo
 
 
 class BrowserService(BaseModel):
@@ -49,13 +46,33 @@ class NavigationService(BrowserService):
 	"""Page navigation operations."""
 
 	async def navigate(self, url: str, *, new_tab: bool = False) -> None:
-		await self.browser_session.navigate_to(url, new_tab=new_tab)
+		self._ensure_url_allowed(url)
+		target_id = await self._target_for_navigation(new_tab=new_tab)
+		await self.browser_session._navigate_and_wait(url, target_id)
+		await self.browser_session._close_extension_options_pages()
 
 	async def current_url(self) -> str:
 		return await self.browser_session.get_current_page_url()
 
 	async def current_title(self) -> str:
 		return await self.browser_session.get_current_page_title()
+
+	async def _target_for_navigation(self, *, new_tab: bool) -> TargetID:
+		if self.browser_session.agent_focus_target_id is None:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+			return cdp_session.target_id
+
+		if not new_tab:
+			return self.browser_session.agent_focus_target_id
+
+		target_id = await self.browser_session._cdp_create_new_page('about:blank')
+		await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
+		return target_id
+
+	def _ensure_url_allowed(self, url: str) -> None:
+		security_watchdog = getattr(self.browser_session, '_security_watchdog', None)
+		if security_watchdog is not None and not security_watchdog._is_url_allowed(url):
+			raise ValueError(f'Navigation to {url} blocked by security policy')
 
 
 class TabService(BrowserService):
@@ -65,16 +82,18 @@ class TabService(BrowserService):
 		return await self.browser_session.get_tabs()
 
 	async def switch(self, target_id: TargetID | None = None) -> TargetID:
-		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-		await event
-		result = await event.event_result(raise_if_any=True, raise_if_none=True)
-		assert result is not None
-		return result
+		if target_id is None:
+			if self.browser_session.agent_focus_target_id is None:
+				cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+				return cdp_session.target_id
+			return self.browser_session.agent_focus_target_id
+
+		await self.browser_session.cdp_client.send.Target.activateTarget(params={'targetId': target_id})
+		await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
+		return target_id
 
 	async def close(self, target_id: TargetID) -> None:
-		event = self.browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
-		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
+		await self.browser_session._cdp_close_page(target_id)
 
 
 class ClickService(BrowserService):
@@ -101,11 +120,44 @@ class ClickService(BrowserService):
 		button: Literal['left', 'right', 'middle'] = 'left',
 		force: bool = False,
 	) -> dict[str, Any] | None:
-		event = self.browser_session.event_bus.dispatch(
-			ClickCoordinateEvent(coordinate_x=coordinate_x, coordinate_y=coordinate_y, button=button, force=force)
+		if not self.browser_session.agent_focus_target_id:
+			raise BrowserError('Cannot click coordinates because no browser target is focused.')
+
+		if not force:
+			element_node = await self.browser_session.get_dom_element_at_coordinates(coordinate_x, coordinate_y)
+			if element_node is not None:
+				if self.browser_session.is_file_input(element_node):
+					return {'validation_error': 'Cannot click a file input by coordinates. Use upload_file instead.'}
+				if element_node.tag_name.lower() == 'select':
+					return {'validation_error': 'Cannot click a <select> by coordinates. Use dropdown tools instead.'}
+
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+		await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+			params={'type': 'mouseMoved', 'x': coordinate_x, 'y': coordinate_y}, session_id=cdp_session.session_id
 		)
-		await event
-		return await event.event_result(raise_if_any=True, raise_if_none=False)
+		await asyncio.sleep(0.05)
+		await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+			params={
+				'type': 'mousePressed',
+				'x': coordinate_x,
+				'y': coordinate_y,
+				'button': button,
+				'clickCount': 1,
+			},
+			session_id=cdp_session.session_id,
+		)
+		await asyncio.sleep(0.05)
+		await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+			params={
+				'type': 'mouseReleased',
+				'x': coordinate_x,
+				'y': coordinate_y,
+				'button': button,
+				'clickCount': 1,
+			},
+			session_id=cdp_session.session_id,
+		)
+		return {'click_x': coordinate_x, 'click_y': coordinate_y}
 
 
 class TypeService(BrowserService):
@@ -140,9 +192,22 @@ class ScrollService(BrowserService):
 	"""Scrolling operations."""
 
 	async def scroll_page(self, amount: int, *, direction: Literal['up', 'down', 'left', 'right'] = 'down') -> None:
-		event = self.browser_session.event_bus.dispatch(ScrollEvent(direction=direction, amount=amount, node=None))
-		await event
-		await event.event_result(raise_if_any=True, raise_if_none=False)
+		delta_x = 0
+		delta_y = 0
+		if direction == 'down':
+			delta_y = amount
+		elif direction == 'up':
+			delta_y = -amount
+		elif direction == 'right':
+			delta_x = amount
+		elif direction == 'left':
+			delta_x = -amount
+
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+		await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': f'window.scrollBy({delta_x}, {delta_y})', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
 
 
 class DownloadService(BrowserService):

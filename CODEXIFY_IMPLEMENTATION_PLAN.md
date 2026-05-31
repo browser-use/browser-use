@@ -176,7 +176,7 @@ Implement:
 
 - [x] Create explicit services for state capture, actions, downloads, dialogs, tabs, network, lifecycle, and storage.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
-- [ ] Keep event streaming for observability, not internal control flow.
+- [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.
 
 Suggested services:
