@@ -183,6 +183,16 @@ class TestToolsIntegration:
 
 		assert 3.5 <= end_time - start_time <= 4.5  # We wait 5-1 seconds for LLM call
 
+	async def test_evaluate_action_executes_browser_javascript(self, tools, browser_session, base_url):
+		"""Test that evaluate executes JavaScript through CDP and returns normalized results."""
+		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
+
+		result = await tools.evaluate(code='document.title', browser_session=browser_session)
+
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content == 'Test Page 1'
+		assert result.long_term_memory == 'Test Page 1'
+
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
 		# Navigate to first page

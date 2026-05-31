@@ -1152,3 +1152,39 @@ Results:
 - Pyright: `0 errors`.
 - Agent output cache and planning tests: `20 passed`.
 - Python compile: passed.
+
+## Codexification Verification 55
+
+After confirming credentials from the main worktree `.env` without printing secret values:
+
+```bash
+uv run python - <<'PY'
+# Inline smoke: ChatBrowserUse + local headless Chromium navigates to example.com and finishes.
+PY
+```
+
+Results:
+
+- `BROWSER_USE_API_KEY`, `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY`: present in the main worktree `.env`.
+- Live `ChatBrowserUse` smoke with local Chromium: completed successfully.
+- Actions: `navigate`, `done`.
+- Steps: `2`.
+- Final result: `The main heading of the page is 'Example Domain'.`
+
+## Codexification Verification 56
+
+After extracting JavaScript `evaluate` execution and CDP result normalization into `browser_use.tools.evaluate`:
+
+```bash
+uv run ruff check browser_use/tools/evaluate.py browser_use/tools/service.py tests/ci/test_tools.py
+uv run pyright browser_use/tools/evaluate.py browser_use/tools/service.py tests/ci/test_tools.py
+uv run pytest tests/ci/test_tools.py::TestToolsIntegration::test_evaluate_action_executes_browser_javascript tests/ci/test_native_tool_router.py::test_native_tool_router_can_drive_simple_browser_task -q
+uv run python -m py_compile browser_use/tools/evaluate.py browser_use/tools/service.py tests/ci/test_tools.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Browser-backed evaluate and native-router smoke tests: `2 passed`.
+- Python compile: passed.

@@ -374,6 +374,7 @@ Implement:
 - [x] Extract static DOM search/find scripts out of the giant tools service.
 - [x] Extract done-action result building out of the giant tools service.
 - [x] Cache dynamic `AgentOutput` model generation by action model and mode.
+- [x] Extract JavaScript `evaluate` execution and CDP result normalization out of the giant tools service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
