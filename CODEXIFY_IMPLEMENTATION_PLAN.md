@@ -186,6 +186,7 @@ Implement:
 - [x] Route public upload through direct services while preserving file safety checks.
 - [x] Route public scroll-to-text through direct services.
 - [x] Route public dropdown tools through a direct service wrapper.
+- [x] Remove event-bus fallbacks from direct click/type/dropdown service wrappers.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.

@@ -1,10 +1,11 @@
 import asyncio
+import inspect
 import json
 from pathlib import Path
 
 import pytest
 
-from browser_use.browser.services import BrowserServiceBundle
+from browser_use.browser.services import BrowserServiceBundle, ClickService, DropdownService, TypeService
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
 
@@ -48,6 +49,11 @@ def test_browser_service_bundle_exposes_lightweight_state(browser_session) -> No
 	assert services.downloads.list_downloads() == browser_session.downloaded_files
 	assert services.dialogs.closed_messages() == []
 	assert services.actions.navigation is not services.navigation
+
+
+def test_direct_action_services_do_not_define_event_bus_fallbacks() -> None:
+	for service in (ClickService.click_index, TypeService.type_index, DropdownService.get_options, DropdownService.select_option):
+		assert 'event_bus.dispatch' not in inspect.getsource(service)
 
 
 @pytest.mark.asyncio

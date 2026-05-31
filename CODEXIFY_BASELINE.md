@@ -459,3 +459,21 @@ Results:
 - Full `multi_act` guard suite: `13 passed`.
 - Ruff: passed.
 - Pyright: `0 errors`.
+
+## Codexification Verification 17
+
+After removing event-bus fallback branches from direct click/type/dropdown service wrappers:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run ruff check browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+rg -n "event_bus\.dispatch\(" browser_use/browser/services.py
+```
+
+Results:
+
+- Browser service and public direct-tool suite: `14 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Static check: no `event_bus.dispatch(...)` remains in `browser_use/browser/services.py`.

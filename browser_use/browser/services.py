@@ -32,6 +32,15 @@ class BrowserService(BaseModel):
 
 	browser_session: BrowserSession
 
+	def _default_action_watchdog(self) -> Any:
+		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
+		if default_action_watchdog is None:
+			raise BrowserError(
+				'Default action handler is not attached to this browser session. '
+				'Start the BrowserSession before using click, type, or dropdown services.'
+			)
+		return default_action_watchdog
+
 
 class BrowserStateService(BrowserService):
 	"""Fresh browser state capture."""
@@ -164,13 +173,7 @@ class ClickService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
-		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
-		if default_action_watchdog is not None:
-			return await default_action_watchdog.on_ClickElementEvent(ClickElementEvent(node=node, button=button))
-
-		event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=node, button=button))
-		await event
-		return await event.event_result(raise_if_any=True, raise_if_none=False)
+		return await self._default_action_watchdog().on_ClickElementEvent(ClickElementEvent(node=node, button=button))
 
 	async def click_coordinates(
 		self,
@@ -235,19 +238,7 @@ class TypeService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
-		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
-		if default_action_watchdog is not None:
-			return await default_action_watchdog.on_TypeTextEvent(
-				TypeTextEvent(
-					node=node,
-					text=text,
-					clear=clear,
-					is_sensitive=is_sensitive,
-					sensitive_key_name=sensitive_key_name,
-				)
-			)
-
-		event = self.browser_session.event_bus.dispatch(
+		return await self._default_action_watchdog().on_TypeTextEvent(
 			TypeTextEvent(
 				node=node,
 				text=text,
@@ -256,8 +247,6 @@ class TypeService(BrowserService):
 				sensitive_key_name=sensitive_key_name,
 			)
 		)
-		await event
-		return await event.event_result(raise_if_any=True, raise_if_none=False)
 
 
 class ScrollService(BrowserService):
@@ -794,31 +783,17 @@ class DropdownService(BrowserService):
 	"""Dropdown option inspection and selection."""
 
 	async def get_options(self, node: EnhancedDOMTreeNode) -> dict[str, str]:
-		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
-		if default_action_watchdog is not None:
-			result = await default_action_watchdog.on_GetDropdownOptionsEvent(GetDropdownOptionsEvent(node=node))
-			if result is None:
-				raise RuntimeError('Dropdown options handler returned no data')
-			return result
-
-		event = self.browser_session.event_bus.dispatch(GetDropdownOptionsEvent(node=node))
-		result = await event.event_result(timeout=3.0, raise_if_none=True, raise_if_any=True)
+		result = await self._default_action_watchdog().on_GetDropdownOptionsEvent(GetDropdownOptionsEvent(node=node))
 		if result is None:
-			raise RuntimeError('Dropdown options event returned no data')
+			raise RuntimeError('Dropdown options handler returned no data')
 		return result
 
 	async def select_option(self, node: EnhancedDOMTreeNode, text: str) -> dict[str, str]:
-		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
-		if default_action_watchdog is not None:
-			result = await default_action_watchdog.on_SelectDropdownOptionEvent(SelectDropdownOptionEvent(node=node, text=text))
-			if result is None:
-				raise RuntimeError('Dropdown select handler returned no data')
-			return result
-
-		event = self.browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=text))
-		result = await event.event_result(raise_if_none=True, raise_if_any=True)
+		result = await self._default_action_watchdog().on_SelectDropdownOptionEvent(
+			SelectDropdownOptionEvent(node=node, text=text)
+		)
 		if result is None:
-			raise RuntimeError('Dropdown select event returned no data')
+			raise RuntimeError('Dropdown select handler returned no data')
 		return result
 
 
