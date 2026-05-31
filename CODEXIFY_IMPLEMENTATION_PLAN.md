@@ -8,24 +8,24 @@ This document is intentionally not a full implementation spec. Each implementati
 
 ## Principles
 
-- [ ] Preserve Browser Use's current browser automation strengths.
-- [ ] Keep `backendNodeId` as the model-visible element index unless a better replacement is proven.
-- [ ] Keep runtime access to full `targetId`, `sessionId`, `frameId`, and `backendNodeId`.
-- [ ] Give the model more freedom through screenshot, coordinate click, JS eval, raw CDP, HTML/markdown reads, accessibility tree, network inspection, and HTTP fetch.
-- [ ] Replace heavy indirection with explicit runtime pieces.
-- [ ] Keep old behavior working while the new runtime is introduced.
+- [x] Preserve Browser Use's current browser automation strengths.
+- [x] Keep `backendNodeId` as the model-visible element index unless a better replacement is proven.
+- [x] Keep runtime access to full `targetId`, `sessionId`, `frameId`, and `backendNodeId`.
+- [x] Give the model more freedom through screenshot, coordinate click, JS eval, raw CDP, HTML/markdown reads, accessibility tree, network inspection, and HTTP fetch.
+- [x] Replace heavy indirection with explicit runtime pieces.
+- [x] Keep old behavior working while the new runtime is introduced.
 - [ ] Use focused tests and evals to prove each simplification works.
-- [ ] Avoid huge rewrites that remove hard-won browser heuristics.
+- [x] Avoid huge rewrites that remove hard-won browser heuristics.
 
 ## What To Keep
 
-- [ ] State -> action browser automation loop.
-- [ ] DOM processing and cleaned interactive representation.
-- [ ] Selector map keyed by `backendNodeId`.
-- [ ] Robust click, type, scroll, tabs, downloads, dialogs, upload, and PDF behavior.
-- [ ] `ActionResult` style structured feedback.
-- [ ] `ChatBrowserUse` as the recommended default model for browser automation.
-- [ ] `Browser(use_cloud=True)` as the production performance path for hosted browser execution.
+- [x] State -> action browser automation loop.
+- [x] DOM processing and cleaned interactive representation.
+- [x] Selector map keyed by `backendNodeId`.
+- [x] Robust click, type, scroll, tabs, downloads, dialogs, upload, and PDF behavior.
+- [x] `ActionResult` style structured feedback.
+- [x] `ChatBrowserUse` as the recommended default model for browser automation.
+- [x] `Browser(use_cloud=True)` as the production performance path for hosted browser execution.
 
 ## What To Simplify
 
@@ -333,7 +333,7 @@ Implement:
 
 Exit criteria:
 
-- [ ] Public API remains usable.
+- [x] Public API remains usable.
 - [ ] New API is simpler.
 - [ ] Internal modules have clearer ownership.
 
@@ -343,13 +343,13 @@ Goal: prove the new runtime is actually better, not just cleaner.
 
 Implement:
 
-- [ ] Run unit tests.
-- [ ] Run browser tests.
+- [x] Run unit tests.
+- [x] Run browser tests.
 - [ ] Run task evals with `ChatBrowserUse`.
 - [ ] Run task evals with at least one generic model.
 - [ ] Compare against baseline success rate, speed, steps, token usage, and failure categories.
 - [ ] Validate local browser, remote CDP, and `Browser(use_cloud=True)`.
-- [ ] Run pre-commit.
+- [x] Run pre-commit.
 - [ ] Update docs and migration notes.
 
 Exit criteria:
@@ -357,7 +357,7 @@ Exit criteria:
 - [ ] Success rate is equal or better.
 - [ ] Speed is equal or better on common tasks.
 - [ ] Token usage is equal or better on common tasks.
-- [ ] Failures are easier to debug.
+- [x] Failures are easier to debug.
 - [ ] Migration path is documented.
 
 ## Suggested PR Sequence
@@ -428,7 +428,7 @@ set_goal:
 ## First Milestone
 
 - [x] Add or identify baseline tests.
-- [ ] Add runtime skeleton.
-- [ ] Add typed context item models.
-- [ ] Add a context renderer behind a feature flag.
-- [ ] Do not change default runtime behavior.
+- [x] Add runtime skeleton.
+- [x] Add typed context item models.
+- [x] Add a context renderer behind a feature flag.
+- [x] Do not change default runtime behavior.

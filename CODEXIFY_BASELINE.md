@@ -184,3 +184,20 @@ Metrics from the cost-tracked run:
 - Real `ChatBrowserUse` + Chromium smoke works and now has steps, duration, token usage, and cost recorded.
 - Full repository test suite was not run in one command; instead, targeted suites covering the risky browser/runtime surfaces were run.
 - Task eval judging is blocked by an expired Google API key, even though the agent executions produced plausible task outputs.
+
+## Codexification Verification
+
+Post-implementation targeted suite:
+
+```bash
+uv run pytest tests/ci/test_runtime_shape.py tests/ci/test_runtime_context.py tests/ci/test_runtime_events.py tests/ci/test_runtime_subscribers.py tests/ci/test_runtime_skills.py tests/ci/test_runtime_compaction.py tests/ci/test_native_tool_router.py tests/ci/browser/test_browser_services.py tests/ci/test_multi_act_guards.py::TestTerminatesSequenceMetadata tests/ci/test_multi_act_guards.py::TestRuntimeGuard::test_click_link_aborts_remaining -q
+```
+
+Result: `48 passed in 42.15s`.
+
+Post-implementation real `ChatBrowserUse` + local Chromium smoke:
+
+- Success: `True`
+- Steps: `3`
+- Final result: `codexify-agent-ok`
+- Notes: public `Agent` path still works; the new runtime pieces remain side-by-side and do not change default behavior.
