@@ -28,6 +28,7 @@ from browser_use.agent.runtime.context import (
 	UserSteerItem,
 	WarningItem,
 )
+from browser_use.agent.runtime.model_context import ModelContextManager
 from browser_use.agent.runtime.skills import BrowserSkill, BrowserSkillRegistry
 from browser_use.agent.runtime.subscribers import (
 	AgentDoneCallbackSubscriber,
@@ -105,6 +106,7 @@ __all__ = [
 	'InspectElementInput',
 	'MarkdownInput',
 	'ModelCapabilities',
+	'ModelContextManager',
 	'BrowserSkill',
 	'BrowserSkillRegistry',
 	'NativeToolCall',

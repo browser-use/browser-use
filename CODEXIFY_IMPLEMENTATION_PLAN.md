@@ -412,6 +412,7 @@ Implement:
 - [x] Extract browser session tab, focus, and download event handlers out of the giant browser session.
 - [x] Split giant files into smaller modules once the new runtime owns the behavior.
 - [x] Extract state-message rendering out of the old message manager while preserving the compatibility API.
+- [x] Move the model-context manager into the runtime package and leave `MessageManager` as a legacy import shim.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
 Exit criteria:

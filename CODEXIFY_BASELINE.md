@@ -2539,3 +2539,32 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - `https://example.com` heading task: success `True`, done `True`, `3` steps.
 - Actions: `['navigate', 'extract', 'done']`.
 - Final: `The main heading of the page is 'Example Domain'.`
+
+## Codexification Verification 103
+
+After moving the runtime-owned model-context manager out of the legacy message-manager service module:
+
+```bash
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_message_manager_compaction.py -q
+uv run pytest tests/ci/test_agent_native_tool_calls.py -q
+uv run pytest tests/ci/security/test_sensitive_data.py -q
+uv run pytest tests/ci/test_file_system_llm_integration.py -q
+uv run pytest tests/ci/test_agent_planning.py tests/ci/test_budget_warning.py tests/ci/test_action_loop_detection.py -q
+uv run ruff check browser_use/agent/service.py browser_use/agent/configuration.py browser_use/agent/planning.py browser_use/agent/runtime/__init__.py browser_use/agent/runtime/model_context.py browser_use/agent/message_manager/service.py
+uv run pyright browser_use/agent/service.py browser_use/agent/configuration.py browser_use/agent/planning.py browser_use/agent/runtime/__init__.py browser_use/agent/runtime/model_context.py browser_use/agent/message_manager/service.py
+```
+
+Results:
+
+- Message-manager compatibility tests: `6 passed`.
+- Native tool-call agent tests: `2 passed`.
+- Sensitive-data tests: `14 passed`.
+- File-system LLM integration tests: `11 passed`.
+- Planning, budget-warning, and loop-detection tests: `68 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.

@@ -1,6 +1,6 @@
 import logging
 
-from browser_use.agent.message_manager.service import MessageManager
+from browser_use.agent.runtime.model_context import ModelContextManager
 from browser_use.agent.views import AgentOutput as AgentOutputModel
 from browser_use.agent.views import AgentSettings, AgentState, AgentStepInfo, PlanItem
 from browser_use.browser.views import BrowserStateSummary
@@ -11,7 +11,7 @@ class AgentPlanningMixin:
 	settings: AgentSettings
 	state: AgentState
 	logger: logging.Logger
-	_message_manager: MessageManager
+	_message_manager: ModelContextManager
 	AgentOutput: type[AgentOutputModel]
 	DoneAgentOutput: type[AgentOutputModel]
 

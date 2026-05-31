@@ -31,9 +31,6 @@ from browser_use.agent.lifecycle import AgentLifecycleMixin
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
-from browser_use.agent.message_manager.service import (
-	MessageManager,
-)
 from browser_use.agent.model_io import AgentModelIOMixin
 from browser_use.agent.planning import AgentPlanningMixin
 from browser_use.agent.prompts import SystemPrompt
@@ -48,6 +45,7 @@ from browser_use.agent.runtime import (
 	BrowserSkillRegistry,
 	ModelCapabilities,
 )
+from browser_use.agent.runtime.model_context import ModelContextManager
 from browser_use.agent.skills import AgentSkillMixin
 from browser_use.agent.variables import AgentVariableMixin
 from browser_use.agent.views import (
@@ -459,9 +457,9 @@ class Agent(
 		# Store llm_screenshot_size in browser_session so tools can access it
 		self.browser_session.llm_screenshot_size = llm_screenshot_size
 
-		# Initialize message manager with state
+		# Initialize model context with state
 		# Initial system prompt with all actions - will be updated during each step
-		self._message_manager = MessageManager(
+		self._message_manager = ModelContextManager(
 			task=self.task,
 			system_message=SystemPrompt(
 				max_actions_per_step=self.settings.max_actions_per_step,

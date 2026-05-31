@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from browser_use import BrowserProfile, BrowserSession
-from browser_use.agent.message_manager.service import MessageManager
+from browser_use.agent.runtime.model_context import ModelContextManager
 from browser_use.agent.views import AgentOutput, AgentSettings, AgentStructuredOutput
 from browser_use.config import CONFIG
 from browser_use.tools.service import Tools
@@ -22,7 +22,7 @@ class AgentConfigurationMixin:
 	tools: Tools[Any]
 	version: str
 	_using_fallback_llm: bool
-	_message_manager: MessageManager
+	_message_manager: ModelContextManager
 
 	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
 		"""Enhance task description with output schema information if provided."""
@@ -112,7 +112,7 @@ class AgentConfigurationMixin:
 		return None
 
 	@property
-	def message_manager(self) -> MessageManager:
+	def message_manager(self) -> ModelContextManager:
 		return self._message_manager
 
 	async def _update_action_models_for_page(self, page_url: str) -> None:
