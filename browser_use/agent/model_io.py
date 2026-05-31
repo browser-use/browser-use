@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from browser_use.agent.llm_debug_trace import append_llm_debug_trace
 from browser_use.agent.runtime import NativeToolCall, NativeToolRouter
 from browser_use.agent.url_shortening import (
 	process_messages_and_replace_long_urls,
@@ -74,6 +75,7 @@ class AgentModelIOMixin:
 	_using_fallback_llm: bool
 	token_cost_service: TokenCost
 	session_id: str
+	agent_directory: Any
 	_url_shortening_limit: int
 	ActionModel: type[ActionModel]
 	AgentOutput: type[AgentOutputModel]
@@ -177,9 +179,31 @@ class AgentModelIOMixin:
 		# Build kwargs for ainvoke
 		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
 		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
+		response = None
 
 		try:
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_start',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				messages=input_messages,
+				output_format=self.AgentOutput,
+				tools=self.tools,
+				invoke_kwargs=kwargs,
+			)
 			response = await self.llm.ainvoke(input_messages, **kwargs)
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_result',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				response=response,
+			)
 			parsed: AgentOutputModel = response.completion  # type: ignore[assignment]
 
 			# Replace any shortened URLs in the LLM response back to original URLs
@@ -196,16 +220,46 @@ class AgentModelIOMixin:
 
 			self._log_next_action_summary(parsed)
 			return parsed
-		except ValidationError:
+		except ValidationError as e:
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_error',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				error=e,
+			)
 			# Just re-raise - Pydantic's validation errors are already descriptive
 			raise
 		except (ModelRateLimitError, ModelProviderError) as e:
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_error',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				error=e,
+			)
 			# Check if we can switch to a fallback LLM
 			if not self._try_switch_to_fallback_llm(e):
 				# No fallback available, re-raise the original error
 				raise
 			# Retry with the fallback LLM
 			return await self.get_model_output(input_messages)
+		except Exception as exc:
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_error',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				response=response,
+				error=exc,
+			)
+			raise
 
 	async def _get_model_output_with_native_tool_calls(
 		self,
@@ -214,34 +268,84 @@ class AgentModelIOMixin:
 	) -> AgentOutputModel:
 		"""Call an LLM with provider-native tools and adapt registered tool calls to legacy action execution."""
 		router = NativeToolRouter.from_tools(self.tools, include_experimental=False)
-		response = await self.llm.ainvoke(
-			input_messages,
-			output_format=None,
-			tools=router.tool_schemas(),
-			tool_choice='auto',
-			parallel_tool_calls=self.settings.max_actions_per_step > 1,
+		tool_schemas = router.tool_schemas()
+		kwargs: dict[str, Any] = {
+			'output_format': None,
+			'tools': tool_schemas,
+			'tool_choice': 'auto',
+			'parallel_tool_calls': self.settings.max_actions_per_step > 1,
+			'session_id': self.session_id,
+		}
+		await append_llm_debug_trace(
+			agent_directory=self.agent_directory,
+			logger=self.logger,
+			event='llm_call_start',
+			step=self.state.n_steps,
 			session_id=self.session_id,
+			llm=self.llm,
+			messages=input_messages,
+			native_tools=tool_schemas,
+			tools=self.tools,
+			invoke_kwargs=kwargs,
 		)
-		if not response.tool_calls:
-			raise ValueError('Model returned no native tool calls.')
-
-		actions: list[ActionModel] = []
-		for tool_call in response.tool_calls[: self.settings.max_actions_per_step]:
-			try:
-				arguments = json.loads(tool_call.function.arguments or '{}')
-			except json.JSONDecodeError as exc:
-				raise ValueError(f'Invalid JSON arguments for native tool {tool_call.function.name}: {exc}') from exc
-
-			call = NativeToolCall(
-				tool_name=tool_call.function.name,
-				arguments=arguments,
-				call_id=tool_call.id,
+		response = None
+		try:
+			response = await self.llm.ainvoke(input_messages, **kwargs)
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_result',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				response=response,
 			)
-			definition = router.resolve(call.tool_name)
-			if definition.source_action is None:
-				raise ValueError(f'Native tool {definition.name} cannot be adapted to the legacy action executor.')
-			validated_params = router.validate_call(call)
-			actions.append(self.ActionModel(**{definition.source_action: validated_params.model_dump(mode='json')}))
+		except Exception as exc:
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_error',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				response=response,
+				error=exc,
+			)
+			raise
+		assert response is not None
+		try:
+			if not response.tool_calls:
+				raise ValueError('Model returned no native tool calls.')
+
+			actions: list[ActionModel] = []
+			for tool_call in response.tool_calls[: self.settings.max_actions_per_step]:
+				try:
+					arguments = json.loads(tool_call.function.arguments or '{}')
+				except json.JSONDecodeError as exc:
+					raise ValueError(f'Invalid JSON arguments for native tool {tool_call.function.name}: {exc}') from exc
+
+				call = NativeToolCall(
+					tool_name=tool_call.function.name,
+					arguments=arguments,
+					call_id=tool_call.id,
+				)
+				definition = router.resolve(call.tool_name)
+				if definition.source_action is None:
+					raise ValueError(f'Native tool {definition.name} cannot be adapted to the legacy action executor.')
+				validated_params = router.validate_call(call)
+				actions.append(self.ActionModel(**{definition.source_action: validated_params.model_dump(mode='json')}))
+		except Exception as exc:
+			await append_llm_debug_trace(
+				agent_directory=self.agent_directory,
+				logger=self.logger,
+				event='llm_call_error',
+				step=self.state.n_steps,
+				session_id=self.session_id,
+				llm=self.llm,
+				response=response,
+				error=exc,
+			)
+			raise
 
 		parsed = self.AgentOutput(
 			evaluation_previous_goal='Received provider-native tool calls.',

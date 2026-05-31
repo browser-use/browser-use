@@ -28,6 +28,7 @@ from browser_use.agent.files import AgentFileSystemMixin
 from browser_use.agent.initial_actions import AgentInitialActionsMixin
 from browser_use.agent.judge import AgentJudgeMixin
 from browser_use.agent.lifecycle import AgentLifecycleMixin
+from browser_use.agent.llm_debug_trace import is_llm_debug_trace_enabled, llm_debug_trace_path
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
@@ -420,6 +421,8 @@ class Agent(
 		timestamp = int(time.time())
 		base_tmp = Path(tempfile.gettempdir())
 		self.agent_directory = base_tmp / f'browser_use_agent_{self.id}_{timestamp}'
+		if is_llm_debug_trace_enabled(self.logger):
+			self.logger.debug(f'🧾 LLM debug trace: {llm_debug_trace_path(self.agent_directory)}')
 
 		# Initialize file system and screenshot service
 		self._set_file_system(file_system_path)
