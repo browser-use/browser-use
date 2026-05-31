@@ -1222,8 +1222,15 @@ class Agent:
 		if self.state_dir:
 			flags.extend(['--state-dir', str(self.state_dir)])
 		mode = _browser_preference_mode(self.browser)
-		# Honour any explicit mode the user already set via extra_args.
-		if mode and not any('browser.preference.mode=' in a for a in self.extra_args):
+		# Honour any explicit mode the user already set via extra_args. Also
+		# skip when an external CDP url is provided so the agent's
+		# `browser connect remote-cdp` command is not rejected by the Rust
+		# enforce_browser_command_matches_selected_mode guard.
+		if (
+			mode
+			and not _browser_cdp_url(self.browser)
+			and not any('browser.preference.mode=' in a for a in self.extra_args)
+		):
 			flags.extend(['-c', f'browser.preference.mode={mode}'])
 		return flags
 
@@ -1260,8 +1267,15 @@ class Agent:
 		env: dict[str, str] = {}
 		if self._api_key:
 			env[self.provider.api_key_env] = self._api_key
-		# Authoritative browser-mode lever. Read by browser-use-cli.
-		env['LLM_BROWSER_BROWSER_MODE'] = _browser_preference_mode(self.browser) or 'managed-headless'
+		# Authoritative browser-mode lever. Read by browser-use-cli. SKIP when
+		# an external CDP url is provided — setting any browser mode here
+		# locks `browser connect remote-cdp` out (`enforce_browser_command_
+		# matches_selected_mode` only allows remote-cdp if selected_mode is
+		# None/empty). With this skip the agent's `connect remote-cdp` call
+		# succeeds and attaches to the cloud browser instead of falling
+		# through to a fresh local Chromium.
+		if not _browser_cdp_url(self.browser):
+			env['LLM_BROWSER_BROWSER_MODE'] = _browser_preference_mode(self.browser) or 'managed-headless'
 		# Forward-looking BUT_BROWSER_* — Rust doesn't read these yet.
 		cdp_url = _browser_cdp_url(self.browser)
 		if cdp_url:
