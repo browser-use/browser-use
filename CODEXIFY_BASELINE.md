@@ -1134,3 +1134,21 @@ Results:
 - Pyright: `0 errors`.
 - Done/structured-output tool tests: `7 passed`.
 - Python compile: passed.
+
+## Codexification Verification 54
+
+After caching dynamic `AgentOutput` model generation by action model and output mode:
+
+```bash
+uv run ruff check browser_use/agent/views.py tests/ci/test_agent_output_model_cache.py
+uv run pyright browser_use/agent/views.py tests/ci/test_agent_output_model_cache.py
+uv run pytest tests/ci/test_agent_output_model_cache.py tests/ci/test_agent_planning.py -q
+uv run python -m py_compile browser_use/agent/views.py tests/ci/test_agent_output_model_cache.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Agent output cache and planning tests: `20 passed`.
+- Python compile: passed.

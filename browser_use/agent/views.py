@@ -6,6 +6,7 @@ import logging
 import re
 import traceback
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Generic, Literal
 
@@ -417,6 +418,7 @@ class AgentOutput(BaseModel):
 		)
 
 	@staticmethod
+	@lru_cache(maxsize=256)
 	def type_with_custom_actions(custom_actions: type[ActionModel]) -> type[AgentOutput]:
 		"""Extend actions with custom actions"""
 
@@ -432,6 +434,7 @@ class AgentOutput(BaseModel):
 		return model_
 
 	@staticmethod
+	@lru_cache(maxsize=256)
 	def type_with_custom_actions_no_thinking(custom_actions: type[ActionModel]) -> type[AgentOutput]:
 		"""Extend actions with custom actions and exclude thinking field"""
 
@@ -456,6 +459,7 @@ class AgentOutput(BaseModel):
 		return model
 
 	@staticmethod
+	@lru_cache(maxsize=256)
 	def type_with_custom_actions_flash_mode(custom_actions: type[ActionModel]) -> type[AgentOutput]:
 		"""Extend actions with custom actions for flash mode - memory and action fields only"""
 

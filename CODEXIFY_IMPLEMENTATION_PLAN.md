@@ -34,7 +34,7 @@ This document is intentionally not a full implementation spec. Each implementati
 - [x] Bubus/event bus in the hot action path.
 - [ ] Watchdog architecture.
 - [ ] Giant agent/browser/tool files.
-- [ ] Dynamic tool/action model generation.
+- [x] Dynamic tool/action model generation.
 - [x] Prompt variant sprawl.
 - [x] Cloud, telemetry, GIF, and callback logic inside the core agent loop.
 
@@ -373,6 +373,7 @@ Implement:
 - [x] Extract legacy dynamic `ActionModel` generation into one factory.
 - [x] Extract static DOM search/find scripts out of the giant tools service.
 - [x] Extract done-action result building out of the giant tools service.
+- [x] Cache dynamic `AgentOutput` model generation by action model and mode.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
