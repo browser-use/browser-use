@@ -143,6 +143,7 @@ Implement:
 - [x] Route tools through one `ToolContext`, not magic function parameter injection.
 - [x] Keep compatibility with the old `AgentOutput(action=[...])` path during migration.
 - [x] Treat `done` and structured final output as proper native outputs, not fake actions.
+- [x] Execute native `browser.done` directly instead of routing completion through the registered action adapter.
 - [x] Keep `ActionResult`/tool result content structured and model-readable.
 
 Core tools:

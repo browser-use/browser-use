@@ -36,7 +36,14 @@ from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
 from browser_use.tools.registry.views import RegisteredAction
 from browser_use.tools.service import Tools, _coerce_valid_action_timeout, handle_browser_error
-from browser_use.tools.views import ClickElementAction, NavigateAction, ScrollAction, SearchAction
+from browser_use.tools.views import (
+	ClickElementAction,
+	DoneAction,
+	NavigateAction,
+	ScrollAction,
+	SearchAction,
+	StructuredOutputAction,
+)
 
 
 def _api_safe_tool_name(name: str) -> str:
@@ -111,7 +118,9 @@ class NativeToolResult(BaseModel):
 
 	@classmethod
 	def from_action_result(cls, *, call: NativeToolCall, result: ActionResult) -> NativeToolResult:
-		content = result.error or result.long_term_memory or result.extracted_content
+		content = result.error or (
+			result.extracted_content if result.is_done else result.long_term_memory or result.extracted_content
+		)
 		return cls(
 			tool_name=call.tool_name,
 			call_id=call.call_id,
@@ -338,6 +347,10 @@ class NativeToolRouter(BaseModel):
 		if definition.name == 'browser.wait':
 			params = self.validate_call(call)
 			return await self._execute_direct_tool(call, context, definition, lambda: self._wait(params))
+
+		if definition.name == 'browser.done':
+			params = cast(DoneAction | StructuredOutputAction[Any], self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._done(call, params, context))
 
 		if definition.name == 'browser.scroll':
 			params = cast(ScrollAction, self.validate_call(call))
@@ -614,6 +627,37 @@ class NativeToolRouter(BaseModel):
 			content=memory,
 			structured_content={'seconds': seconds, 'actual_seconds': actual_seconds, 'direct_service': True},
 		)
+
+	async def _done(
+		self,
+		call: NativeToolCall,
+		params: DoneAction | StructuredOutputAction[Any],
+		context: ToolContext,
+	) -> NativeToolResult:
+		if not isinstance(context.tools, Tools):
+			return NativeToolResult(
+				tool_name=call.tool_name,
+				call_id=call.call_id,
+				is_error=True,
+				content='Native browser.done execution requires ToolContext.tools to be a browser_use Tools instance.',
+			)
+
+		if context.file_system is None:
+			return NativeToolResult(
+				tool_name=call.tool_name,
+				call_id=call.call_id,
+				is_error=True,
+				content='Native browser.done execution requires ToolContext.file_system.',
+			)
+
+		try:
+			result = context.tools.build_done_result(
+				params, file_system=context.file_system, browser_session=context.browser_session
+			)
+		except Exception as e:
+			return NativeToolResult(tool_name=call.tool_name, call_id=call.call_id, is_error=True, content=str(e))
+
+		return NativeToolResult.from_action_result(call=call, result=result)
 
 	async def _scroll(self, params: ScrollAction, context: ToolContext) -> NativeToolResult:
 		if context.browser_session is None:

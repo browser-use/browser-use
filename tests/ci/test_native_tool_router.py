@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from pydantic import BaseModel
 
 from browser_use.agent.runtime import (
 	BrowserAgentSession,
@@ -83,6 +84,79 @@ async def test_native_tool_router_executes_existing_action_without_fake_action_m
 	assert result.structured_content == {'seconds': 1, 'actual_seconds': 0, 'direct_service': True}
 	assert result.to_context_item().render().startswith('<tool_result name="browser.wait" id="call-1">')
 	assert [event.event_type for event in session.event_stream.events] == ['turn.started', 'tool.started', 'tool.completed']
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_done_without_registered_action_adapter(monkeypatch, tmp_path) -> None:
+	tools = Tools()
+
+	async def fail_execute_action(*args, **kwargs):
+		raise AssertionError('browser.done should not use the registered action adapter in native mode')
+
+	monkeypatch.setattr(tools.registry, 'execute_action', fail_execute_action)
+
+	session = BrowserAgentSession.create(task='Finish directly')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools, file_system=FileSystem(str(tmp_path)), action_timeout=5)
+	router = NativeToolRouter.from_tools(tools)
+
+	result = await router.execute(
+		NativeToolCall(
+			tool_name='browser.done',
+			arguments={'text': 'native done ok', 'success': True},
+			call_id='done-call',
+		),
+		context,
+	)
+
+	assert result.call_id == 'done-call'
+	assert result.is_error is False
+	assert result.content == 'native done ok'
+	assert result.structured_content['is_done'] is True
+	assert result.structured_content['success'] is True
+	assert [event.event_type for event in session.event_stream.events] == ['turn.started', 'tool.started', 'tool.completed']
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_structured_done_without_registered_action_adapter(
+	monkeypatch, tmp_path, browser_session
+) -> None:
+	class MyOutput(BaseModel):
+		answer: str
+
+	tools = Tools(output_model=MyOutput)
+
+	async def fail_execute_action(*args, **kwargs):
+		raise AssertionError('structured browser.done should not use the registered action adapter in native mode')
+
+	monkeypatch.setattr(tools.registry, 'execute_action', fail_execute_action)
+
+	session = BrowserAgentSession.create(task='Finish with structured output')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(
+		turn,
+		tools=tools,
+		browser_session=browser_session,
+		file_system=FileSystem(str(tmp_path)),
+		action_timeout=5,
+	)
+	router = NativeToolRouter.from_tools(tools)
+
+	result = await router.execute(
+		NativeToolCall(
+			tool_name='browser.done',
+			arguments={'data': {'answer': 'structured ok'}, 'success': True},
+			call_id='structured-done-call',
+		),
+		context,
+	)
+
+	assert result.call_id == 'structured-done-call'
+	assert result.is_error is False
+	assert result.content is not None
+	assert json.loads(result.content) == {'answer': 'structured ok'}
+	assert result.structured_content['is_done'] is True
+	assert result.structured_content['success'] is True
 
 
 @pytest.mark.asyncio

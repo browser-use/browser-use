@@ -393,3 +393,22 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - AST audit: every `Tools` built-in action decorator in `browser_use/tools/service.py` declares `param_model`.
+
+## Codexification Verification 13
+
+After routing native `browser.done` through a direct terminal-result builder instead of the registered action adapter:
+
+```bash
+uv run pytest tests/ci/test_native_tool_router.py::test_native_tool_router_executes_done_without_registered_action_adapter tests/ci/test_native_tool_router.py::test_native_tool_router_executes_structured_done_without_registered_action_adapter tests/ci/test_tools.py::TestToolsIntegration::test_done_action tests/ci/test_tools.py::TestStructuredOutputDoneWithFiles -q
+uv run pytest tests/ci/test_native_tool_router.py -q
+uv run ruff check browser_use/tools/service.py browser_use/agent/runtime/tools.py tests/ci/test_native_tool_router.py
+uv run pyright browser_use/tools/service.py browser_use/agent/runtime/tools.py tests/ci/test_native_tool_router.py
+```
+
+Results:
+
+- Native done, native structured done, legacy done, and structured-output file/download tests: `9 passed`.
+- Full native tool router suite: `15 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Notes: the native tests monkeypatch `tools.registry.execute_action` to fail, proving native `browser.done` no longer depends on the fake action adapter.
