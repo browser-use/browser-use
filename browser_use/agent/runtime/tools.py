@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -102,6 +103,40 @@ class HttpFetchInput(BaseModel):
 	body: str | None = None
 	credentials: Literal['include', 'same-origin', 'omit'] = 'include'
 	max_chars: int = Field(default=100_000, ge=1, le=1_000_000, description='Maximum response body characters to return')
+
+
+class WorkspaceReadFileInput(BaseModel):
+	"""Read a file from the configured workspace root."""
+
+	path: str
+	max_chars: int = Field(default=100_000, ge=1, le=1_000_000)
+
+
+class WorkspaceWriteFileInput(BaseModel):
+	"""Write a file inside the configured workspace root."""
+
+	path: str
+	content: str
+	append: bool = False
+	create_parent_dirs: bool = False
+
+
+class WorkspaceListFilesInput(BaseModel):
+	"""List files inside the configured workspace root."""
+
+	path: str = '.'
+	pattern: str = '*'
+	recursive: bool = False
+	max_entries: int = Field(default=200, ge=1, le=5000)
+
+
+class ShellRunInput(BaseModel):
+	"""Run a command in the configured workspace root."""
+
+	command: list[str] = Field(min_length=1)
+	cwd: str = '.'
+	timeout_s: float = Field(default=30, gt=0, le=300)
+	max_output_chars: int = Field(default=50_000, ge=1, le=1_000_000)
 
 
 class NativeToolDefinition(BaseModel):
@@ -275,6 +310,35 @@ def _experimental_definitions() -> list[NativeToolDefinition]:
 	]
 
 
+def _workspace_definitions() -> list[NativeToolDefinition]:
+	return [
+		NativeToolDefinition(
+			name='workspace.read_file',
+			description='Read a text file from the configured workspace root. Requires allow_file_tools metadata.',
+			input_model=WorkspaceReadFileInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='workspace.write_file',
+			description='Write or append a text file inside the configured workspace root. Requires allow_file_tools metadata.',
+			input_model=WorkspaceWriteFileInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='workspace.list_files',
+			description='List files inside the configured workspace root. Requires allow_file_tools metadata.',
+			input_model=WorkspaceListFilesInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='shell.run',
+			description='Run an argv-style command in the configured workspace root. Requires allow_shell_tools metadata.',
+			input_model=ShellRunInput,
+			executable=True,
+		),
+	]
+
+
 class NativeToolRouter(BaseModel):
 	"""Routes native tool calls to Browser Use actions during migration."""
 
@@ -290,6 +354,7 @@ class NativeToolRouter(BaseModel):
 		include_actions: list[str] | None = None,
 		page_url: str | None = None,
 		include_experimental: bool = True,
+		include_workspace_tools: bool = False,
 	) -> NativeToolRouter:
 		definitions: dict[str, NativeToolDefinition] = {}
 
@@ -308,6 +373,10 @@ class NativeToolRouter(BaseModel):
 
 		if include_experimental:
 			for definition in _experimental_definitions():
+				definitions.setdefault(definition.name, definition)
+
+		if include_workspace_tools:
+			for definition in _workspace_definitions():
 				definitions.setdefault(definition.name, definition)
 
 		return cls(definitions=definitions)
@@ -379,6 +448,22 @@ class NativeToolRouter(BaseModel):
 		if definition.name == 'browser.http_fetch':
 			params = cast(HttpFetchInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._http_fetch(params, context))
+
+		if definition.name == 'workspace.read_file':
+			params = cast(WorkspaceReadFileInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._workspace_read_file(params, context))
+
+		if definition.name == 'workspace.write_file':
+			params = cast(WorkspaceWriteFileInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._workspace_write_file(params, context))
+
+		if definition.name == 'workspace.list_files':
+			params = cast(WorkspaceListFilesInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._workspace_list_files(params, context))
+
+		if definition.name == 'shell.run':
+			params = cast(ShellRunInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._shell_run(params, context))
 
 		if not definition.executable or not definition.source_action:
 			return NativeToolResult(
@@ -956,6 +1041,168 @@ performance.getEntriesByType('resource').slice(-{params.max_entries}).map((entry
 			return {'html_error': f'Could not read HTML for backendNodeId {backend_node_id}'}
 		return {'html': _truncate_text(str(html), max_chars)}
 
+	async def _workspace_read_file(self, params: WorkspaceReadFileInput, context: ToolContext) -> NativeToolResult:
+		try:
+			root = _workspace_root(context, permission='file')
+			path = _resolve_workspace_path(root, params.path)
+		except ValueError as e:
+			return NativeToolResult(tool_name='workspace.read_file', call_id='', is_error=True, content=str(e))
+
+		if not path.exists() or not path.is_file():
+			return NativeToolResult(
+				tool_name='workspace.read_file',
+				call_id='',
+				is_error=True,
+				content=f'File not found: {params.path}',
+			)
+
+		content = path.read_text(encoding='utf-8', errors='replace')
+		truncated = _truncate_text(content, params.max_chars)
+		return NativeToolResult(
+			tool_name='workspace.read_file',
+			call_id='',
+			content=f'Read {truncated["returned_chars"]} characters from {params.path}',
+			structured_content={'path': str(path), 'content': truncated['text'], **truncated},
+		)
+
+	async def _workspace_write_file(self, params: WorkspaceWriteFileInput, context: ToolContext) -> NativeToolResult:
+		try:
+			root = _workspace_root(context, permission='file')
+			path = _resolve_workspace_path(root, params.path)
+		except ValueError as e:
+			return NativeToolResult(tool_name='workspace.write_file', call_id='', is_error=True, content=str(e))
+
+		if not path.parent.exists():
+			if params.create_parent_dirs:
+				path.parent.mkdir(parents=True, exist_ok=True)
+			else:
+				return NativeToolResult(
+					tool_name='workspace.write_file',
+					call_id='',
+					is_error=True,
+					content=f'Parent directory does not exist: {path.parent}',
+				)
+
+		mode = 'a' if params.append else 'w'
+		with path.open(mode, encoding='utf-8') as file:
+			file.write(params.content)
+		return NativeToolResult(
+			tool_name='workspace.write_file',
+			call_id='',
+			content=f'Wrote {len(params.content)} characters to {params.path}',
+			structured_content={
+				'path': str(path),
+				'bytes': path.stat().st_size,
+				'appended': params.append,
+			},
+		)
+
+	async def _workspace_list_files(self, params: WorkspaceListFilesInput, context: ToolContext) -> NativeToolResult:
+		try:
+			root = _workspace_root(context, permission='file')
+			path = _resolve_workspace_path(root, params.path)
+		except ValueError as e:
+			return NativeToolResult(tool_name='workspace.list_files', call_id='', is_error=True, content=str(e))
+
+		if not path.exists() or not path.is_dir():
+			return NativeToolResult(
+				tool_name='workspace.list_files',
+				call_id='',
+				is_error=True,
+				content=f'Directory not found: {params.path}',
+			)
+
+		iterator = path.rglob(params.pattern) if params.recursive else path.glob(params.pattern)
+		entries = []
+		for entry in iterator:
+			try:
+				resolved = entry.resolve()
+				if resolved == root or root not in resolved.parents:
+					continue
+				relative = resolved.relative_to(root)
+				entries.append(
+					{
+						'path': str(relative),
+						'type': 'directory' if resolved.is_dir() else 'file',
+						'bytes': resolved.stat().st_size if resolved.is_file() else None,
+					}
+				)
+			except OSError:
+				continue
+			if len(entries) >= params.max_entries:
+				break
+
+		return NativeToolResult(
+			tool_name='workspace.list_files',
+			call_id='',
+			content=f'Listed {len(entries)} workspace entries',
+			structured_content={
+				'root': str(root),
+				'path': str(path),
+				'entries': entries,
+				'max_entries': params.max_entries,
+				'truncated': len(entries) >= params.max_entries,
+			},
+		)
+
+	async def _shell_run(self, params: ShellRunInput, context: ToolContext) -> NativeToolResult:
+		try:
+			root = _workspace_root(context, permission='shell')
+			cwd = _resolve_workspace_path(root, params.cwd)
+		except ValueError as e:
+			return NativeToolResult(tool_name='shell.run', call_id='', is_error=True, content=str(e))
+
+		if not cwd.exists() or not cwd.is_dir():
+			return NativeToolResult(
+				tool_name='shell.run', call_id='', is_error=True, content=f'cwd is not a directory: {params.cwd}'
+			)
+
+		allowed_commands = context.metadata.get('allowed_shell_commands')
+		if allowed_commands is not None and params.command[0] not in set(allowed_commands):
+			return NativeToolResult(
+				tool_name='shell.run',
+				call_id='',
+				is_error=True,
+				content=f'Shell command is not allowed: {params.command[0]}',
+			)
+
+		process = await asyncio.create_subprocess_exec(
+			*params.command,
+			cwd=str(cwd),
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+		)
+		try:
+			stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=params.timeout_s)
+			timed_out = False
+		except TimeoutError:
+			process.kill()
+			stdout_bytes, stderr_bytes = await process.communicate()
+			timed_out = True
+
+		stdout = stdout_bytes.decode('utf-8', errors='replace')
+		stderr = stderr_bytes.decode('utf-8', errors='replace')
+		stdout_truncated = _truncate_text(stdout, params.max_output_chars)
+		stderr_truncated = _truncate_text(stderr, params.max_output_chars)
+		return NativeToolResult(
+			tool_name='shell.run',
+			call_id='',
+			is_error=timed_out or process.returncode != 0,
+			content=f'Shell command exited with code {process.returncode}',
+			structured_content={
+				'command': params.command,
+				'cwd': str(cwd),
+				'exit_code': process.returncode,
+				'timed_out': timed_out,
+				'stdout': stdout_truncated['text'],
+				'stderr': stderr_truncated['text'],
+				'stdout_original_chars': stdout_truncated['original_chars'],
+				'stderr_original_chars': stderr_truncated['original_chars'],
+				'stdout_truncated': stdout_truncated['truncated'],
+				'stderr_truncated': stderr_truncated['truncated'],
+			},
+		)
+
 
 def click_coordinates_as_click_arguments(params: ClickCoordinatesInput) -> dict[str, Any]:
 	"""Translate coordinate-only input to the current click action shape."""
@@ -975,3 +1222,30 @@ def _truncate_text(value: str, max_chars: int) -> dict[str, Any]:
 		'returned_chars': len(text),
 		'truncated': truncated,
 	}
+
+
+def _workspace_root(context: ToolContext, *, permission: Literal['file', 'shell']) -> Path:
+	permission_key = 'allow_file_tools' if permission == 'file' else 'allow_shell_tools'
+	if context.metadata.get(permission_key) is not True:
+		raise ValueError(f'{permission_key} metadata must be true to use {permission} workspace tools.')
+
+	root_value = context.metadata.get('workspace_root')
+	if root_value is None:
+		get_dir = getattr(context.file_system, 'get_dir', None)
+		if callable(get_dir):
+			root_value = get_dir()
+
+	if root_value is None:
+		raise ValueError('workspace_root metadata is required for workspace tools.')
+
+	root = Path(cast(str | Path, root_value)).expanduser().resolve()
+	root.mkdir(parents=True, exist_ok=True)
+	return root
+
+
+def _resolve_workspace_path(root: Path, path: str) -> Path:
+	requested = Path(path).expanduser()
+	candidate = requested.resolve() if requested.is_absolute() else (root / requested).resolve()
+	if candidate != root and root not in candidate.parents:
+		raise ValueError(f'Path escapes workspace root: {path}')
+	return candidate

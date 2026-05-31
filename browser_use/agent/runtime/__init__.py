@@ -34,6 +34,10 @@ from browser_use.agent.runtime.tools import (
 	NativeToolResult,
 	NativeToolRouter,
 	NetworkStateInput,
+	ShellRunInput,
+	WorkspaceListFilesInput,
+	WorkspaceReadFileInput,
+	WorkspaceWriteFileInput,
 	click_coordinates_as_click_arguments,
 )
 from browser_use.agent.runtime.views import (
@@ -80,11 +84,15 @@ __all__ = [
 	'NativeToolResult',
 	'NativeToolRouter',
 	'NetworkStateInput',
+	'ShellRunInput',
 	'TaskItem',
 	'ToolContext',
 	'ToolCallItem',
 	'ToolResultItem',
 	'UserSteerItem',
 	'WarningItem',
+	'WorkspaceListFilesInput',
+	'WorkspaceReadFileInput',
+	'WorkspaceWriteFileInput',
 	'click_coordinates_as_click_arguments',
 ]

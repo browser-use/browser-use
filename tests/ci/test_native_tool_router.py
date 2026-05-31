@@ -33,6 +33,15 @@ def test_native_tool_router_exposes_api_safe_names() -> None:
 	assert 'browser.cdp only when lower-level CDP handles' in router.guidance()
 
 
+def test_native_tool_router_workspace_tools_are_opt_in() -> None:
+	default_router = NativeToolRouter.from_tools(Tools())
+	workspace_router = NativeToolRouter.from_tools(Tools(), include_workspace_tools=True)
+
+	assert 'workspace.read_file' not in default_router.definitions
+	assert 'workspace.read_file' in workspace_router.definitions
+	assert workspace_router.resolve('shell_run').name == 'shell.run'
+
+
 def test_native_tool_router_validates_with_existing_pydantic_models() -> None:
 	router = NativeToolRouter.from_tools(Tools())
 	call = NativeToolCall(tool_name='browser_navigate', arguments={'url': 'https://example.com', 'new_tab': False})
@@ -329,6 +338,70 @@ async def test_native_tool_router_returns_structured_error_without_browser_sessi
 
 	assert result.is_error is True
 	assert 'requires ToolContext.browser_session' in (result.content or '')
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_permission_gated_workspace_tools(tmp_path) -> None:
+	tools = Tools()
+	router = NativeToolRouter.from_tools(tools, include_workspace_tools=True)
+	session = BrowserAgentSession.create(task='Use workspace tools')
+	turn = session.start_turn(step_index=0)
+	denied_context = session.tool_context(turn, tools=tools, metadata={'workspace_root': str(tmp_path)})
+
+	denied = await router.execute(
+		NativeToolCall(tool_name='workspace.write_file', arguments={'path': 'notes.txt', 'content': 'blocked'}),
+		denied_context,
+	)
+	assert denied.is_error is True
+	assert 'allow_file_tools' in (denied.content or '')
+
+	context = session.tool_context(
+		turn,
+		tools=tools,
+		metadata={
+			'workspace_root': str(tmp_path),
+			'allow_file_tools': True,
+			'allow_shell_tools': True,
+			'allowed_shell_commands': ['/bin/echo'],
+		},
+	)
+	write_result = await router.execute(
+		NativeToolCall(
+			tool_name='workspace.write_file',
+			arguments={'path': 'reports/notes.txt', 'content': 'workspace-ok', 'create_parent_dirs': True},
+		),
+		context,
+	)
+	assert write_result.is_error is False
+	assert (tmp_path / 'reports' / 'notes.txt').read_text() == 'workspace-ok'
+
+	read_result = await router.execute(
+		NativeToolCall(tool_name='workspace.read_file', arguments={'path': 'reports/notes.txt'}), context
+	)
+	assert read_result.is_error is False
+	assert read_result.structured_content['content'] == 'workspace-ok'
+
+	list_result = await router.execute(
+		NativeToolCall(tool_name='workspace.list_files', arguments={'path': '.', 'recursive': True}), context
+	)
+	assert list_result.is_error is False
+	assert any(entry['path'] == 'reports/notes.txt' for entry in list_result.structured_content['entries'])
+
+	escape_result = await router.execute(
+		NativeToolCall(tool_name='workspace.read_file', arguments={'path': '../outside.txt'}), context
+	)
+	assert escape_result.is_error is True
+	assert 'escapes workspace root' in (escape_result.content or '')
+
+	shell_result = await router.execute(
+		NativeToolCall(tool_name='shell.run', arguments={'command': ['/bin/echo', 'shell-ok']}), context
+	)
+	assert shell_result.is_error is False
+	assert shell_result.structured_content['stdout'].strip() == 'shell-ok'
+
+	blocked_shell = await router.execute(NativeToolCall(tool_name='shell.run', arguments={'command': ['/bin/pwd']}), context)
+	assert blocked_shell.is_error is True
+	assert 'not allowed' in (blocked_shell.content or '')
 
 
 def test_click_coordinates_translate_to_current_click_shape() -> None:
