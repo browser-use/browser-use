@@ -592,9 +592,12 @@ def test_laminar_trace_id_extracted_from_telemetry_trace_event():
 	result = AgentRunResult(exit_code=0, events=state.events, steps=state.steps)
 	assert result.laminar_trace_id == '0123456789abcdef'
 	# No project id available → None
-	assert result.laminar_trace_url(project_id=None) in (None,) or 'lmnr.ai' in (result.laminar_trace_url('proj123') or '')
+	url_none = result.laminar_trace_url(project_id=None)
+	assert url_none is None or 'laminar.sh' in url_none
 	url = result.laminar_trace_url(project_id='proj123')
-	assert url == 'https://www.lmnr.ai/project/proj123/traces?traceId=0123456789abcdef'
+	# 16-hex trace_id (not 32) passes through un-formatted (the UUID formatter
+	# only converts 32-hex strings); URL still works for diagnostic purposes.
+	assert url == 'https://laminar.sh/project/proj123/traces?traceId=0123456789abcdef'
 
 
 def test_agent_laminar_trace_id_property_delegates_to_result():
