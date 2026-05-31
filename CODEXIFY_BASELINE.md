@@ -740,6 +740,18 @@ Results:
 - Pyright: `0 errors`.
 - Ruff format: passed.
 
+## Codexification Verification 37
+
+Broader focused regression suite after the direct-service and native-tool-call batch:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py tests/ci/test_agent_native_tool_calls.py browser_use/llm/tests/test_openai_native_tools.py tests/ci/test_system_prompt_profile.py -q
+```
+
+Results:
+
+- Browser services, native router, native-agent adapter, OpenAI native tools, and system prompt profile suite: `45 passed`.
+
 ## Codexification Verification 27
 
 After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:
