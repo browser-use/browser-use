@@ -20,6 +20,7 @@ Internally, each phase must make one simpler source of truth the default path. C
 - [ ] Prefer explicit services and typed data over event routing, magic injection, and prompt-only contracts.
 - [ ] Commit after every phase.
 - [ ] Run focused tests and at least one Chromium smoke between phases.
+- [ ] Run evals deliberately: small/local evals can be used during the work, but the expensive real-world eval gate runs only at the end.
 - [ ] Keep user changes out of commits unless explicitly requested.
 
 ## Phase 1: Native Tools Become The Default Protocol
@@ -136,9 +137,22 @@ After default native tools, typed context, and direct services are stable, remov
 - [ ] Existing compatibility tests for the public API.
 - [ ] Chromium smoke using a simple local or stable web page.
 - [ ] At least one real Browser Use task with the default recommended model when keys are available.
+- [ ] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
 - [ ] `uv run ruff check ...`
 - [ ] `uv run pyright ...`
 - [ ] `uv run pre-commit run --all-files`
+
+## Final Eval Gate
+
+Run this only after all replacement phases are implemented, tested, and committed.
+
+- [ ] Run a final real-world eval on `/Users/greg/Downloads/real_v17_short.json`.
+- [ ] Use the current default recommended Browser Use model unless the user explicitly requests a different model.
+- [ ] Run with enough debug logging to preserve local run folders for failed tasks.
+- [ ] Report task-level pass/fail, final answers, major failure modes, and trace locations for failures.
+- [ ] Report aggregate success rate, average steps, average duration, token usage, and estimated cost.
+- [ ] Compare against any available baseline from before the strict replacement work.
+- [ ] Do not mark the strict replacement goal complete until the eval result is reported.
 
 ## Non-Goals
 
