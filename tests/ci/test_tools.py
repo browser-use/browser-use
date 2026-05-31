@@ -193,6 +193,49 @@ class TestToolsIntegration:
 		assert result.extracted_content == 'Test Page 1'
 		assert result.long_term_memory == 'Test Page 1'
 
+	async def test_file_actions_write_replace_and_read(self, tools):
+		"""Test that file actions execute through the tool wrapper path."""
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			write_result = await tools.write_file(file_name='notes.txt', content='alpha', file_system=file_system)
+			replace_result = await tools.replace_file(
+				file_name='notes.txt',
+				old_str='alpha',
+				new_str='beta',
+				file_system=file_system,
+			)
+			read_result = await tools.read_file(file_name='notes.txt', available_file_paths=[], file_system=file_system)
+
+		assert isinstance(write_result, ActionResult)
+		assert isinstance(replace_result, ActionResult)
+		assert isinstance(read_result, ActionResult)
+		assert read_result.extracted_content is not None
+		assert '<content>\nbeta\n\n</content>' in read_result.extracted_content
+		assert read_result.long_term_memory is not None
+		assert '<content>\nbeta\n\n</content>' in read_result.long_term_memory
+
+	async def test_screenshot_action_saves_file(self, tools, browser_session, base_url):
+		"""Test that screenshot can save an image into the file system."""
+		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			result = await tools.screenshot(
+				file_name='viewport-shot',
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+			assert result.attachments is not None
+			screenshot_path = result.attachments[0]
+			assert await anyio.Path(screenshot_path).exists()
+			assert (await anyio.Path(screenshot_path).stat()).st_size > 0
+
+		assert isinstance(result, ActionResult)
+		assert result.attachments is not None
+		assert len(result.attachments) == 1
+		assert result.attachments[0].endswith('viewport-shot.png')
+
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
 		# Navigate to first page

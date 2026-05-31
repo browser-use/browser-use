@@ -5,8 +5,6 @@ import math
 import os
 from typing import Any, Generic, TypeVar
 
-import anyio
-
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
@@ -25,6 +23,13 @@ from browser_use.observability import observe_debug
 from browser_use.tools.dom_scripts import build_find_elements_js, build_search_page_js
 from browser_use.tools.done_result import build_done_result as build_done_action_result
 from browser_use.tools.evaluate import execute_evaluate_action
+from browser_use.tools.file_actions import (
+	read_file_action,
+	replace_file_action,
+	save_as_pdf_action,
+	take_screenshot_action,
+	write_file_action,
+)
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
@@ -1197,33 +1202,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			browser_session: BrowserSession,
 			file_system: FileSystem,
 		):
-			"""Take screenshot, optionally saving to file."""
-			if params.file_name:
-				# Save screenshot to file
-				file_name = params.file_name
-				if not file_name.lower().endswith('.png'):
-					file_name = f'{file_name}.png'
-				file_name = FileSystem.sanitize_filename(file_name)
-
-				screenshot_bytes = await browser_session.take_screenshot(full_page=False)
-				file_path = file_system.get_dir() / file_name
-				file_path.write_bytes(screenshot_bytes)
-
-				result = f'Screenshot saved to {file_name}'
-				logger.info(f'📸 {result}. Full path: {file_path}')
-				return ActionResult(
-					extracted_content=result,
-					long_term_memory=f'{result}. Full path: {file_path}',
-					attachments=[str(file_path)],
-				)
-			else:
-				# Flag for next observation
-				memory = 'Requested screenshot for next observation'
-				logger.info(f'📸 {memory}')
-				return ActionResult(
-					extracted_content=memory,
-					metadata={'include_screenshot': True},
-				)
+			return await take_screenshot_action(params, browser_session=browser_session, file_system=file_system)
 
 		# PDF Actions
 
@@ -1237,83 +1216,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			browser_session: BrowserSession,
 			file_system: FileSystem,
 		):
-			"""Save the current page as a PDF using CDP Page.printToPDF."""
-			import base64
-			import re
-
-			# Paper format dimensions in inches (width, height)
-			paper_sizes: dict[str, tuple[float, float]] = {
-				'letter': (8.5, 11),
-				'legal': (8.5, 14),
-				'a4': (8.27, 11.69),
-				'a3': (11.69, 16.54),
-				'tabloid': (11, 17),
-			}
-
-			paper_key = params.paper_format.lower()
-			if paper_key not in paper_sizes:
-				paper_key = 'letter'
-			paper_width, paper_height = paper_sizes[paper_key]
-
-			cdp_session = await browser_session.get_or_create_cdp_session(focus=True)
-
-			result = await asyncio.wait_for(
-				cdp_session.cdp_client.send.Page.printToPDF(
-					params={
-						'printBackground': params.print_background,
-						'landscape': params.landscape,
-						'scale': params.scale,
-						'paperWidth': paper_width,
-						'paperHeight': paper_height,
-						'preferCSSPageSize': True,
-					},
-					session_id=cdp_session.session_id,
-				),
-				timeout=30.0,
-			)
-
-			pdf_data = result.get('data')
-			assert pdf_data, 'CDP Page.printToPDF returned no data'
-
-			pdf_bytes = base64.b64decode(pdf_data)
-
-			# Determine filename
-			if params.file_name:
-				file_name = params.file_name
-			else:
-				try:
-					page_title = await asyncio.wait_for(browser_session.get_current_page_title(), timeout=2.0)
-					safe_title = re.sub(r'[^\w\s-]', '', page_title).strip()[:50]
-					file_name = safe_title if safe_title else 'page'
-				except Exception:
-					file_name = 'page'
-
-			if not file_name.lower().endswith('.pdf'):
-				file_name = f'{file_name}.pdf'
-			file_name = FileSystem.sanitize_filename(file_name)
-
-			file_path = file_system.get_dir() / file_name
-			# Handle duplicate filenames
-			if file_path.exists():
-				base, ext = os.path.splitext(file_name)
-				counter = 1
-				while (file_system.get_dir() / f'{base} ({counter}){ext}').exists():
-					counter += 1
-				file_name = f'{base} ({counter}){ext}'
-				file_path = file_system.get_dir() / file_name
-
-			async with await anyio.open_file(file_path, 'wb') as f:
-				await f.write(pdf_bytes)
-
-			file_size = file_path.stat().st_size
-			msg = f'Saved page as PDF: {file_name} ({file_size:,} bytes)'
-			logger.info(f'📄 {msg}. Full path: {file_path}')
-
-			return ActionResult(
-				extracted_content=msg,
-				long_term_memory=f'{msg}. Full path: {file_path}',
-				attachments=[str(file_path)],
-			)
+			return await save_as_pdf_action(params, browser_session=browser_session, file_system=file_system)
 
 		# Dropdown Actions
 
@@ -1396,70 +1299,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			param_model=WriteFileAction,
 		)
 		async def write_file(params: WriteFileAction, file_system: FileSystem):
-			content = params.content
-			if params.trailing_newline:
-				content += '\n'
-			if params.leading_newline:
-				content = '\n' + content
-			if params.append:
-				result = await file_system.append_file(params.file_name, content)
-			else:
-				result = await file_system.write_file(params.file_name, content)
-
-			# Log the full path where the file is stored (use resolved name)
-			resolved_name, _ = file_system._resolve_filename(params.file_name)
-			file_path = file_system.get_dir() / resolved_name
-			logger.info(f'💾 {result} File location: {file_path}')
-
-			return ActionResult(extracted_content=result, long_term_memory=result)
+			return await write_file_action(params, file_system)
 
 		@self.registry.action(
 			'Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file.',
 			param_model=ReplaceFileAction,
 		)
 		async def replace_file(params: ReplaceFileAction, file_system: FileSystem):
-			result = await file_system.replace_file_str(params.file_name, params.old_str, params.new_str)
-			logger.info(f'💾 {result}')
-			return ActionResult(extracted_content=result, long_term_memory=result)
+			return await replace_file_action(params, file_system)
 
 		@self.registry.action(
 			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).',
 			param_model=ReadFileAction,
 		)
 		async def read_file(params: ReadFileAction, available_file_paths: list[str], file_system: FileSystem):
-			if available_file_paths and params.file_name in available_file_paths:
-				structured_result = await file_system.read_file_structured(params.file_name, external_file=True)
-			else:
-				structured_result = await file_system.read_file_structured(params.file_name)
-
-			result = structured_result['message']
-			images = structured_result.get('images')
-
-			MAX_MEMORY_SIZE = 1000
-			# For images, create a shorter memory message
-			if images:
-				memory = f'Read image file {params.file_name}'
-			elif len(result) > MAX_MEMORY_SIZE:
-				lines = result.splitlines()
-				display = ''
-				lines_count = 0
-				for line in lines:
-					if len(display) + len(line) < MAX_MEMORY_SIZE:
-						display += line + '\n'
-						lines_count += 1
-					else:
-						break
-				remaining_lines = len(lines) - lines_count
-				memory = f'{display}{remaining_lines} more lines...' if remaining_lines > 0 else display
-			else:
-				memory = result
-			logger.info(f'💾 {memory}')
-			return ActionResult(
-				extracted_content=result,
-				long_term_memory=memory,
-				images=images,
-				include_extracted_content_only_once=True,
-			)
+			return await read_file_action(params, available_file_paths=available_file_paths, file_system=file_system)
 
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",

@@ -1188,3 +1188,21 @@ Results:
 - Pyright: `0 errors`.
 - Browser-backed evaluate and native-router smoke tests: `2 passed`.
 - Python compile: passed.
+
+## Codexification Verification 57
+
+After extracting file, screenshot, and PDF action implementations into `browser_use.tools.file_actions`:
+
+```bash
+uv run ruff check browser_use/tools/file_actions.py browser_use/tools/service.py tests/ci/test_tools.py tests/ci/test_action_save_as_pdf.py
+uv run pyright browser_use/tools/file_actions.py browser_use/tools/service.py tests/ci/test_tools.py tests/ci/test_action_save_as_pdf.py
+uv run pytest tests/ci/test_tools.py::TestToolsIntegration::test_file_actions_write_replace_and_read tests/ci/test_tools.py::TestToolsIntegration::test_screenshot_action_saves_file tests/ci/test_action_save_as_pdf.py -q
+uv run python -m py_compile browser_use/tools/file_actions.py browser_use/tools/service.py tests/ci/test_tools.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Browser-backed screenshot/PDF and direct file action tests: `11 passed`.
+- Python compile: passed.
