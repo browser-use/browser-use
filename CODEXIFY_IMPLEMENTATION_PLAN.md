@@ -29,7 +29,7 @@ This document is intentionally not a full implementation spec. Each implementati
 
 ## What To Simplify
 
-- [ ] Message manager.
+- [x] Message manager.
 - [ ] Fake structured-output action protocol.
 - [x] Bubus/event bus in the hot action path.
 - [ ] Watchdog architecture.
@@ -369,6 +369,7 @@ Implement:
 - [x] Extract message history rendering and mutation out of the legacy message manager.
 - [x] Extract sensitive-data message filtering and compaction redaction helpers.
 - [x] Fix shared default `MessageManagerState` construction.
+- [x] Remove dead message-manager logging scaffolding.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

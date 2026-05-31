@@ -39,72 +39,6 @@ from browser_use.utils import (
 logger = logging.getLogger(__name__)
 
 
-# ========== Logging Helper Functions ==========
-# These functions are used ONLY for formatting debug log output.
-# They do NOT affect the actual message content sent to the LLM.
-# All logging functions start with _log_ for easy identification.
-
-
-def _log_get_message_emoji(message: BaseMessage) -> str:
-	"""Get emoji for a message type - used only for logging display"""
-	emoji_map = {
-		'UserMessage': '💬',
-		'SystemMessage': '🧠',
-		'AssistantMessage': '🔨',
-	}
-	return emoji_map.get(message.__class__.__name__, '🎮')
-
-
-def _log_format_message_line(message: BaseMessage, content: str, is_last_message: bool, terminal_width: int) -> list[str]:
-	"""Format a single message for logging display"""
-	try:
-		lines = []
-
-		# Get emoji and token info
-		emoji = _log_get_message_emoji(message)
-		# token_str = str(message.metadata.tokens).rjust(4)
-		# TODO: fix the token count
-		token_str = '??? (TODO)'
-		prefix = f'{emoji}[{token_str}]: '
-
-		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)
-		content_width = terminal_width - 10
-
-		# Handle last message wrapping
-		if is_last_message and len(content) > content_width:
-			# Find a good break point
-			break_point = content.rfind(' ', 0, content_width)
-			if break_point > content_width * 0.7:  # Keep at least 70% of line
-				first_line = content[:break_point]
-				rest = content[break_point + 1 :]
-			else:
-				# No good break point, just truncate
-				first_line = content[:content_width]
-				rest = content[content_width:]
-
-			lines.append(prefix + first_line)
-
-			# Second line with 10-space indent
-			if rest:
-				if len(rest) > terminal_width - 10:
-					rest = rest[: terminal_width - 10]
-				lines.append(' ' * 10 + rest)
-		else:
-			# Single line - truncate if needed
-			if len(content) > content_width:
-				content = content[:content_width]
-			lines.append(prefix + content)
-
-		return lines
-	except Exception as e:
-		logger.warning(f'Failed to format message line for logging: {e}')
-		# Return a simple fallback line
-		return ['❓[   ?]: [Error formatting message]']
-
-
-# ========== End of Logging Helper Functions ==========
-
-
 class MessageManager:
 	vision_detail_level: Literal['auto', 'low', 'high']
 
@@ -332,49 +266,10 @@ class MessageManager:
 		# Set the state message with caching enabled
 		self._set_message_with_type(state_message, 'state')
 
-	def _log_history_lines(self) -> str:
-		"""Generate a formatted log string of message history for debugging / printing to terminal"""
-		# TODO: fix logging
-
-		# try:
-		# 	total_input_tokens = 0
-		# 	message_lines = []
-		# 	terminal_width = shutil.get_terminal_size((80, 20)).columns
-
-		# 	for i, m in enumerate(self.state.history.messages):
-		# 		try:
-		# 			total_input_tokens += m.metadata.tokens
-		# 			is_last_message = i == len(self.state.history.messages) - 1
-
-		# 			# Extract content for logging
-		# 			content = _log_extract_message_content(m.message, is_last_message, m.metadata)
-
-		# 			# Format the message line(s)
-		# 			lines = _log_format_message_line(m, content, is_last_message, terminal_width)
-		# 			message_lines.extend(lines)
-		# 		except Exception as e:
-		# 			logger.warning(f'Failed to format message {i} for logging: {e}')
-		# 			# Add a fallback line for this message
-		# 			message_lines.append('❓[   ?]: [Error formatting this message]')
-
-		# 	# Build final log message
-		# 	return (
-		# 		f'📜 LLM Message history ({len(self.state.history.messages)} messages, {total_input_tokens} tokens):\n'
-		# 		+ '\n'.join(message_lines)
-		# 	)
-		# except Exception as e:
-		# 	logger.warning(f'Failed to generate history log: {e}')
-		# 	# Return a minimal fallback message
-		# 	return f'📜 LLM Message history (error generating log: {e})'
-
-		return ''
-
 	@time_execution_sync('--get_messages')
 	def get_messages(self) -> list[BaseMessage]:
 		"""Get current message list, potentially trimmed to max tokens"""
 
-		# Log message history for debugging
-		logger.debug(self._log_history_lines())
 		self.last_input_messages = self.state.history.get_messages()
 		return self.last_input_messages
 

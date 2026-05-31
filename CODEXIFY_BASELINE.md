@@ -1060,3 +1060,21 @@ Results:
 - Pyright: `0 errors`.
 - Sensitive-data, compaction, and file-system message tests: `27 passed`.
 - Python compile: passed.
+
+## Codexification Verification 50
+
+After removing dead message-manager logging helpers and the no-op `_log_history_lines()` path:
+
+```bash
+uv run ruff check browser_use/agent/message_manager/service.py
+uv run pyright browser_use/agent/message_manager/service.py
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_file_system_llm_integration.py tests/ci/security/test_sensitive_data.py -q
+uv run python -m py_compile browser_use/agent/message_manager/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Message-manager, file-system, and sensitive-data tests: `28 passed`.
+- Python compile: passed.
