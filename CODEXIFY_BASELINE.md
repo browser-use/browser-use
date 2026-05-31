@@ -1826,3 +1826,45 @@ Results:
 - Python compile: passed.
 - Direct lifecycle smoke: pause/resume/stop/save-history/cloud-auth/close passed.
 - Rerun cleanup browser test: `1 passed`.
+
+## Codexification Verification 78
+
+After moving guarded multi-action execution and action logging into `browser_use.agent.action_execution.AgentActionExecutionMixin`:
+
+```bash
+uv run ruff check browser_use/agent/action_execution.py browser_use/agent/service.py
+uv run pyright browser_use/agent/action_execution.py browser_use/agent/service.py
+uv run pytest tests/ci/test_multi_act_guards.py -q
+uv run python - <<'PY'
+import asyncio
+from dotenv import load_dotenv
+
+load_dotenv('/Users/greg/Documents/browser-use/core/library/browser-use/.env')
+
+from browser_use import Agent, Browser, ChatBrowserUse
+
+async def main():
+    browser = Browser(headless=True)
+    agent = Agent(
+        task='Visit https://example.com and answer with the main heading. Use done when finished.',
+        browser=browser,
+        llm=ChatBrowserUse(),
+        use_judge=False,
+    )
+    history = await agent.run(max_steps=5)
+    print('success=', history.is_successful())
+    print('steps=', history.number_of_steps())
+    print('actions=', history.action_names())
+    print('final=', history.final_result())
+    await browser.close()
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Multi-action guard browser tests: `13 passed`.
+- Live `ChatBrowserUse` + local Chromium smoke: success `True`, steps `2`, actions `['navigate', 'done']`, final result `The main heading of the page is 'Example Domain'.`
