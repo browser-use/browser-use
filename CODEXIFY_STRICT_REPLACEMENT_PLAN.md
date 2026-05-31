@@ -1,0 +1,148 @@
+# Browser Use Strict Codexification Replacement Plan
+
+This plan is for finishing the codexification work by replacing old internal mechanisms, not by adding parallel systems that live forever.
+
+The public API should stay stable where practical:
+
+```python
+Agent(task=..., llm=...)
+Browser(...)
+Tools()
+```
+
+Internally, each phase must make one simpler source of truth the default path. Compatibility is allowed only when it is explicit, tested, and temporary.
+
+## Rules
+
+- [ ] Do not mark a phase complete because a new abstraction exists. Mark it complete only when the old hot path is no longer the default.
+- [ ] Preserve Browser Use browser-state/action strengths: cleaned DOM, selector map, `backendNodeId`, robust click/type/scroll/tab/download/upload behavior.
+- [ ] Keep full runtime handles available: `targetId`, `sessionId`, `frameId`, `backendNodeId`.
+- [ ] Prefer explicit services and typed data over event routing, magic injection, and prompt-only contracts.
+- [ ] Commit after every phase.
+- [ ] Run focused tests and at least one Chromium smoke between phases.
+- [ ] Keep user changes out of commits unless explicitly requested.
+
+## Phase 1: Native Tools Become The Default Protocol
+
+Replace `AgentOutput(action=[...])` as the primary model action protocol.
+
+- [ ] Make provider-native tool calls the default for capable models.
+- [ ] Keep legacy action-list output behind an explicit compatibility flag.
+- [ ] Represent `done` as a real native tool result, not a fake action.
+- [ ] Return provider tool-result messages back to the model in the normal loop.
+- [ ] Remove prompt/schema assumptions that force models to emit Browser Use JSON when native tools are available.
+- [ ] Prove simple browser tasks work in native mode by default.
+
+## Phase 2: Replace Magic Tool Injection With `ToolContext`
+
+Replace special function-parameter injection as the core tool mechanism.
+
+- [ ] Define built-in browser tools as explicit Pydantic input/output models.
+- [ ] Use one explicit `ToolContext` for browser session, CDP client, page URL, files, sensitive data, extraction schema, and user context.
+- [ ] Convert built-in tools to `async def tool(params, ctx)` shape.
+- [ ] Keep `@tools.action(...)` legacy functions through a thin adapter.
+- [ ] Remove the "parameter must be named exactly `browser_session`" behavior from the primary path.
+- [ ] Add focused tests for custom legacy tools and new native tools.
+
+## Phase 3: Typed Context Ledger Replaces Message Mutation
+
+Replace the current message-manager mutation model with typed context as the source of truth.
+
+- [ ] Store task, steering, browser state, model calls, tool calls, tool results, downloads, files, warnings, screenshots, and compaction as typed context items.
+- [ ] Render model input deterministically from typed context each turn.
+- [ ] Persist the exact rendered model input snapshot in debug mode.
+- [ ] Compact old context items, not the active browser state.
+- [ ] Keep `MessageManager` only as a compatibility facade, then shrink it.
+- [ ] Remove separate save-conversation behavior once run-folder traces cover the same need.
+
+## Phase 4: Direct Browser Services Replace Bubus Control Flow
+
+Replace event dispatch for browser control with direct service calls.
+
+Target shape:
+
+```text
+tool -> ToolContext -> BrowserService -> CDP
+```
+
+Not:
+
+```text
+tool -> event -> bubus -> watchdog -> CDP
+```
+
+- [ ] Route all public browser actions through explicit services.
+- [ ] Keep events only for observability/subscribers.
+- [ ] Remove event-bus fallback dispatch from hot-path browser action execution.
+- [ ] Keep behavior parity for click, type, scroll, tabs, navigation, downloads, dialogs, uploads, and PDFs.
+- [ ] Add tests proving public tools no longer require bubus to execute.
+
+## Phase 5: Collapse Watchdogs Into Services
+
+Keep useful heuristics, delete the watchdog architecture where possible.
+
+- [ ] Move download behavior into `DownloadService`.
+- [ ] Move dialog behavior into `DialogService`.
+- [ ] Move lifecycle finalization into `LifecycleService`.
+- [ ] Move storage state behavior into `StorageStateService`.
+- [ ] Move page readiness and recovery policies into explicit services.
+- [ ] Keep recording/HAR code as explicit finalizers, not hidden watchdog receivers.
+- [ ] Delete watchdogs that only exist to receive events after service parity is proven.
+
+## Phase 6: Codex-Style Debug Run Folder
+
+Make each debug run locally explainable.
+
+- [ ] Create one run folder per agent run in debug mode.
+- [ ] Save `llm_trace.jsonl`.
+- [ ] Save rendered model inputs.
+- [ ] Save tool call/result traces.
+- [ ] Save browser state snapshots.
+- [ ] Save screenshots when available.
+- [ ] Save DOM/selector snapshots.
+- [ ] Save CDP summaries for browser operations.
+- [ ] Save timing, token usage, cost, errors, and final outcome.
+- [ ] Link records by `step`, `tool_call_id`, and browser target/frame identifiers.
+
+## Phase 7: Real Escape-Hatch Tools
+
+Give the model controlled freedom as proper tools, not as hidden prompt behavior.
+
+- [ ] `browser.get_state`
+- [ ] `browser.get_html`
+- [ ] `browser.get_accessibility_tree`
+- [ ] `browser.evaluate`
+- [ ] `browser.cdp`
+- [ ] `browser.network`
+- [ ] `browser.fetch`
+- [ ] `file.read`
+- [ ] `file.write`
+- [ ] Consider `shell.run` only after file/browser tools are stable and safety boundaries are explicit.
+
+## Phase 8: Delete Old Internal Runtime Paths
+
+After default native tools, typed context, and direct services are stable, remove old internals.
+
+- [ ] Delete or shrink legacy action-list executor internals.
+- [ ] Delete old message-manager core logic.
+- [ ] Delete bubus hot-path control logic.
+- [ ] Delete watchdog routing that has explicit service replacements.
+- [ ] Delete duplicated prompt variants that only support old action protocols.
+- [ ] Delete dead compatibility adapters after deprecation tests pass.
+
+## Required Verification Per Phase
+
+- [ ] Focused unit tests for the changed path.
+- [ ] Existing compatibility tests for the public API.
+- [ ] Chromium smoke using a simple local or stable web page.
+- [ ] At least one real Browser Use task with the default recommended model when keys are available.
+- [ ] `uv run ruff check ...`
+- [ ] `uv run pyright ...`
+- [ ] `uv run pre-commit run --all-files`
+
+## Non-Goals
+
+- [ ] Do not rewrite DOM processing from scratch.
+- [ ] Do not remove `backendNodeId` or runtime CDP identifiers.
+- [ ] Do not break existing public `Agent`, `Browser`, or `Tools` usage without an explicit compatibility path.
+- [ ] Do not keep two complete internal runtimes once the replacement path is proven.
