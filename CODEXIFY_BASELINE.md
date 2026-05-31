@@ -296,3 +296,13 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Notes: the typed context now mirrors the important non-browser sections of the legacy state prompt, not only task/history/browser state.
+
+## Codexification Verification 7
+
+Real `ChatBrowserUse` + headless local Chromium smoke after routing public navigation/click/input through services:
+
+- Success: `True`
+- Done: `True`
+- Steps: `3`
+- Final result: `codexify-real-service-ok`
+- Notes: the task opened a local HTTP page, typed into an input, clicked a button, and finished with the revealed text through the public `Agent` path.
