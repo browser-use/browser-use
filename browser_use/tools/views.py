@@ -149,6 +149,36 @@ class NoParamsAction(BaseModel):
 	description: str | None = Field(None, description='Optional description for the action')
 
 
+class WaitAction(BaseModel):
+	seconds: int = Field(default=3, ge=0, le=30, description='Seconds to wait before continuing')
+
+
+class FindTextAction(BaseModel):
+	text: str = Field(description='Exact text to scroll into view')
+
+
+class WriteFileAction(BaseModel):
+	file_name: str
+	content: str
+	append: bool = False
+	trailing_newline: bool = True
+	leading_newline: bool = False
+
+
+class ReplaceFileAction(BaseModel):
+	file_name: str
+	old_str: str
+	new_str: str
+
+
+class ReadFileAction(BaseModel):
+	file_name: str
+
+
+class EvaluateAction(BaseModel):
+	code: str = Field(description='JavaScript code to execute in the current browser page')
+
+
 class ScreenshotAction(BaseModel):
 	model_config = ConfigDict(extra='ignore')
 

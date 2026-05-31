@@ -374,3 +374,22 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Notes: `browser_use/tools/service.py` has no remaining direct `event_bus.dispatch(...)` calls. Some services still fall back to legacy event handlers when a direct watchdog instance is unavailable.
+
+## Codexification Verification 12
+
+After moving remaining default built-in tools to explicit Pydantic action schemas:
+
+```bash
+uv run pytest tests/ci/test_tools_explicit_schemas.py tests/ci/browser/test_browser_services.py::test_public_find_text_tool_uses_direct_service -q
+uv run pytest tests/ci/test_tools.py::TestToolsIntegration::test_wait_action -q
+uv run ruff check browser_use/tools/views.py browser_use/tools/service.py tests/ci/test_tools_explicit_schemas.py
+uv run pyright browser_use/tools/views.py browser_use/tools/service.py tests/ci/test_tools_explicit_schemas.py
+```
+
+Results:
+
+- Explicit schema regression, file-action compatibility, and Chromium-backed service smoke: `3 passed`.
+- Existing wait-action browser test: `1 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- AST audit: every `Tools` built-in action decorator in `browser_use/tools/service.py` declares `param_model`.

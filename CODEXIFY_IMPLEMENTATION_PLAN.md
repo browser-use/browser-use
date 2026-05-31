@@ -139,6 +139,7 @@ Goal: make native tool calls the primary action protocol.
 Implement:
 
 - [x] Define browser tools with explicit Pydantic v2 input/output models.
+- [x] Ensure default built-in tools use explicit Pydantic models instead of signature-generated models.
 - [x] Route tools through one `ToolContext`, not magic function parameter injection.
 - [x] Keep compatibility with the old `AgentOutput(action=[...])` path during migration.
 - [x] Treat `done` and structured final output as proper native outputs, not fake actions.

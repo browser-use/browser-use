@@ -29,12 +29,16 @@ from browser_use.tools.views import (
 	ClickElementActionIndexOnly,
 	CloseTabAction,
 	DoneAction,
+	EvaluateAction,
 	ExtractAction,
 	FindElementsAction,
+	FindTextAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	ReadFileAction,
+	ReplaceFileAction,
 	SaveAsPdfAction,
 	ScreenshotAction,
 	ScrollAction,
@@ -45,6 +49,8 @@ from browser_use.tools.views import (
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
+	WaitAction,
+	WriteFileAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
 
@@ -512,13 +518,14 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Wait for x seconds.')
-		async def wait(seconds: int = 3):
+		@self.registry.action('Wait for x seconds.', param_model=WaitAction)
+		async def wait(params: WaitAction):
 			# Cap wait time at maximum 30 seconds
 			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
 			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
 			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
 			# so I revert this.
+			seconds = params.seconds
 			actual_seconds = min(max(seconds - 1, 0), 30)
 			memory = f'Waited for {seconds} seconds'
 			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
@@ -1318,21 +1325,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				error_msg = f'Failed to send keys: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Scroll to text.')
-		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
+		@self.registry.action('Scroll to text.', param_model=FindTextAction)
+		async def find_text(params: FindTextAction, browser_session: BrowserSession):  # type: ignore
 			try:
-				await BrowserServiceBundle.from_session(browser_session).actions.scroll.scroll_to_text(text)
-				memory = f'Scrolled to text: {text}'
+				await BrowserServiceBundle.from_session(browser_session).actions.scroll.scroll_to_text(params.text)
+				memory = f'Scrolled to text: {params.text}'
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
 				# Text not found
-				msg = f"Text '{text}' not found or not visible on page"
+				msg = f"Text '{params.text}' not found or not visible on page"
 				logger.info(msg)
 				return ActionResult(
 					extracted_content=msg,
-					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
+					long_term_memory=f"Tried scrolling to text '{params.text}' but it was not found",
 				)
 
 		@self.registry.action(
@@ -1540,48 +1547,45 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'FILENAME RULES: Use only letters, numbers, underscores, hyphens, dots, parentheses. Spaces are auto-converted to hyphens. '
 			'SUPPORTED EXTENSIONS: .txt, .md, .json, .jsonl, .csv, .html, .xml, .pdf, .docx. '
 			'CANNOT write binary/image files (.png, .jpg, .mp4, etc.) - do not attempt to save screenshots as files. '
-			'For PDF files, write content in markdown format and it will be auto-converted to PDF.'
+			'For PDF files, write content in markdown format and it will be auto-converted to PDF.',
+			param_model=WriteFileAction,
 		)
-		async def write_file(
-			file_name: str,
-			content: str,
-			file_system: FileSystem,
-			append: bool = False,
-			trailing_newline: bool = True,
-			leading_newline: bool = False,
-		):
-			if trailing_newline:
+		async def write_file(params: WriteFileAction, file_system: FileSystem):
+			content = params.content
+			if params.trailing_newline:
 				content += '\n'
-			if leading_newline:
+			if params.leading_newline:
 				content = '\n' + content
-			if append:
-				result = await file_system.append_file(file_name, content)
+			if params.append:
+				result = await file_system.append_file(params.file_name, content)
 			else:
-				result = await file_system.write_file(file_name, content)
+				result = await file_system.write_file(params.file_name, content)
 
 			# Log the full path where the file is stored (use resolved name)
-			resolved_name, _ = file_system._resolve_filename(file_name)
+			resolved_name, _ = file_system._resolve_filename(params.file_name)
 			file_path = file_system.get_dir() / resolved_name
 			logger.info(f'💾 {result} File location: {file_path}')
 
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action(
-			'Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file.'
+			'Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file.',
+			param_model=ReplaceFileAction,
 		)
-		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
-			result = await file_system.replace_file_str(file_name, old_str, new_str)
+		async def replace_file(params: ReplaceFileAction, file_system: FileSystem):
+			result = await file_system.replace_file_str(params.file_name, params.old_str, params.new_str)
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action(
-			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).'
+			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).',
+			param_model=ReadFileAction,
 		)
-		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
-			if available_file_paths and file_name in available_file_paths:
-				structured_result = await file_system.read_file_structured(file_name, external_file=True)
+		async def read_file(params: ReadFileAction, available_file_paths: list[str], file_system: FileSystem):
+			if available_file_paths and params.file_name in available_file_paths:
+				structured_result = await file_system.read_file_structured(params.file_name, external_file=True)
 			else:
-				structured_result = await file_system.read_file_structured(file_name)
+				structured_result = await file_system.read_file_structured(params.file_name)
 
 			result = structured_result['message']
 			images = structured_result.get('images')
@@ -1589,7 +1593,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			MAX_MEMORY_SIZE = 1000
 			# For images, create a shorter memory message
 			if images:
-				memory = f'Read image file {file_name}'
+				memory = f'Read image file {params.file_name}'
 			elif len(result) > MAX_MEMORY_SIZE:
 				lines = result.splitlines()
 				display = ''
@@ -1614,10 +1618,12 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",
+			param_model=EvaluateAction,
 			terminates_sequence=True,
 		)
-		async def evaluate(code: str, browser_session: BrowserSession):
+		async def evaluate(params: EvaluateAction, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
+			code = params.code
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
