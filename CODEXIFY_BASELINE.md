@@ -1224,3 +1224,21 @@ Results:
 - Pyright: `0 errors`.
 - Browser-backed upload plus upload-containment security tests: `4 passed`.
 - Python compile: passed.
+
+## Codexification Verification 59
+
+After extracting zero-LLM page search/find execution and result formatting into `browser_use.tools.page_query`:
+
+```bash
+uv run ruff check browser_use/tools/page_query.py browser_use/tools/service.py tests/ci/test_search_find.py
+uv run pyright browser_use/tools/page_query.py browser_use/tools/service.py tests/ci/test_search_find.py
+uv run pytest tests/ci/test_search_find.py -q
+uv run python -m py_compile browser_use/tools/page_query.py browser_use/tools/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Search/find browser tests: `24 passed`.
+- Python compile: passed.
