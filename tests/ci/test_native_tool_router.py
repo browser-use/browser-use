@@ -28,13 +28,18 @@ def test_native_tool_router_exposes_api_safe_names() -> None:
 	assert 'browser.get_state' in router.definitions
 	assert 'browser.cdp' in router.definitions
 	assert 'browser.html' in router.definitions
+	assert 'browser.get_html' in router.definitions
 	assert 'browser.markdown' in router.definitions
 	assert 'browser.accessibility' in router.definitions
+	assert 'browser.get_accessibility_tree' in router.definitions
 	assert 'browser.inspect_element' in router.definitions
 	assert 'browser.network' in router.definitions
 	assert 'browser.http_fetch' in router.definitions
+	assert 'browser.fetch' in router.definitions
+	assert 'file.read' in router.definitions
+	assert 'file.write' in router.definitions
 	assert any(tool['function']['name'] == 'browser_navigate' for tool in router.tool_schemas())
-	assert 'browser.cdp only when lower-level CDP handles' in router.guidance()
+	assert 'file.read/file.write for workspace files' in router.guidance()
 
 
 def test_native_tool_router_workspace_tools_are_opt_in() -> None:
@@ -488,6 +493,12 @@ async def test_native_tool_router_executes_read_and_inspect_escape_hatches(brows
 	assert html_result.is_error is False
 	assert 'Inspect Me' in html_result.structured_content['html']
 
+	get_html_result = await router.execute(
+		NativeToolCall(tool_name='browser.get_html', arguments={'selector': '#inspect', 'max_chars': 2000}), context
+	)
+	assert get_html_result.is_error is False
+	assert 'Inspect Me' in get_html_result.structured_content['html']
+
 	markdown_result = await router.execute(NativeToolCall(tool_name='browser.markdown', arguments={'max_chars': 2000}), context)
 	assert markdown_result.is_error is False
 	assert 'Read Tools' in markdown_result.structured_content['markdown']
@@ -498,6 +509,12 @@ async def test_native_tool_router_executes_read_and_inspect_escape_hatches(brows
 	assert accessibility_result.is_error is False
 	assert accessibility_result.structured_content['returned_nodes'] > 0
 	assert len(accessibility_result.structured_content['session_id']) > 4
+
+	get_accessibility_result = await router.execute(
+		NativeToolCall(tool_name='browser.get_accessibility_tree', arguments={'max_nodes': 50}), context
+	)
+	assert get_accessibility_result.is_error is False
+	assert get_accessibility_result.structured_content['returned_nodes'] > 0
 
 	state = await browser_session.get_browser_state_summary(include_screenshot=False)
 	button_index = next(
@@ -523,6 +540,13 @@ async def test_native_tool_router_executes_read_and_inspect_escape_hatches(brows
 	assert fetch_result.structured_content['status'] == 200
 	assert 'fetch-ok' in fetch_result.structured_content['body']
 
+	browser_fetch_result = await router.execute(
+		NativeToolCall(tool_name='browser.fetch', arguments={'url': httpserver.url_for('/api/tool-data')}), context
+	)
+	assert browser_fetch_result.is_error is False
+	assert browser_fetch_result.structured_content['status'] == 200
+	assert 'fetch-ok' in browser_fetch_result.structured_content['body']
+
 
 @pytest.mark.asyncio
 async def test_native_tool_router_returns_structured_error_without_browser_session() -> None:
@@ -536,6 +560,34 @@ async def test_native_tool_router_returns_structured_error_without_browser_sessi
 
 	assert result.is_error is True
 	assert 'requires ToolContext.browser_session' in (result.content or '')
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_agent_workspace_file_aliases(tmp_path) -> None:
+	tools = Tools()
+	router = NativeToolRouter.from_tools(tools)
+	session = BrowserAgentSession.create(task='Use file aliases')
+	turn = session.start_turn(step_index=0)
+	file_system = FileSystem(tmp_path / 'agent-files', create_default_files=False)
+	context = session.tool_context(turn, tools=tools, file_system=file_system)
+
+	write_result = await router.execute(
+		NativeToolCall(
+			tool_name='file.write',
+			arguments={'path': 'reports/notes.txt', 'content': 'file-ok', 'create_parent_dirs': True},
+		),
+		context,
+	)
+	assert write_result.is_error is False
+
+	read_result = await router.execute(NativeToolCall(tool_name='file.read', arguments={'path': 'reports/notes.txt'}), context)
+	assert read_result.is_error is False
+	assert read_result.structured_content['content'] == 'file-ok'
+	assert read_result.artifact_ids
+
+	escape_result = await router.execute(NativeToolCall(tool_name='file.read', arguments={'path': '../outside.txt'}), context)
+	assert escape_result.is_error is True
+	assert 'escapes workspace root' in (escape_result.content or '')
 
 
 @pytest.mark.asyncio

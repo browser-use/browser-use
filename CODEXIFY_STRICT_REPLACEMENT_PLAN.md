@@ -109,16 +109,16 @@ Make each debug run locally explainable.
 
 Give the model controlled freedom as proper tools, not as hidden prompt behavior.
 
-- [ ] `browser.get_state`
-- [ ] `browser.get_html`
-- [ ] `browser.get_accessibility_tree`
-- [ ] `browser.evaluate`
-- [ ] `browser.cdp`
-- [ ] `browser.network`
-- [ ] `browser.fetch`
-- [ ] `file.read`
-- [ ] `file.write`
-- [ ] Consider `shell.run` only after file/browser tools are stable and safety boundaries are explicit.
+- [x] `browser.get_state`
+- [x] `browser.get_html`
+- [x] `browser.get_accessibility_tree`
+- [x] `browser.evaluate`
+- [x] `browser.cdp`
+- [x] `browser.network`
+- [x] `browser.fetch`
+- [x] `file.read`
+- [x] `file.write`
+- [x] Consider `shell.run` only after file/browser tools are stable and safety boundaries are explicit.
 
 ## Phase 8: Delete Old Internal Runtime Paths
 
@@ -187,6 +187,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [x] `uv run pre-commit run --all-files`
 
 ## Phase 6 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
+
+## Phase 7 Verification
 
 - [x] Focused unit tests for the changed path.
 - [x] Existing compatibility tests for the public API.

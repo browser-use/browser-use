@@ -184,7 +184,7 @@ class AgentActionExecutionMixin:
 		"""Execute provider-native tool calls as the primary action path."""
 		results: list[ActionResult] = []
 		native_results: list[NativeToolResult] = []
-		router = NativeToolRouter.from_tools(self.tools, include_experimental=False)
+		router = NativeToolRouter.from_tools(self.tools, include_experimental=True)
 		total_actions = len(tool_calls)
 
 		for i, provider_tool_call in enumerate(tool_calls):

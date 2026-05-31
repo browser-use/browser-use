@@ -96,6 +96,31 @@ class NativeDoneLLM:
 		)
 
 
+class NativeFileWriteLLM:
+	model = 'native-file-write-llm'
+	provider = 'openai'
+	name = 'native-file-write-llm'
+	model_name = 'native-file-write-llm'
+	_verified_api_keys = True
+	supports_native_tool_calling = True
+
+	async def ainvoke(self, messages, output_format=None, **kwargs):
+		return ChatInvokeCompletion(
+			completion='',
+			usage=None,
+			stop_reason='tool_calls',
+			tool_calls=[
+				ToolCall(
+					id='file_write_call_1',
+					function=Function(
+						name='file_write',
+						arguments='{"path":"reports/native.txt","content":"native-file-ok","create_parent_dirs":true}',
+					),
+				)
+			],
+		)
+
+
 def _browser_state() -> BrowserStateSummary:
 	return BrowserStateSummary(
 		url='https://example.com',
@@ -121,6 +146,10 @@ async def test_agent_can_adapt_provider_native_tool_calls_to_actions() -> None:
 	assert llm.last_kwargs['output_format'] is None
 	assert llm.last_kwargs['tool_choice'] == 'required'
 	assert any(tool['function']['name'] == 'browser_navigate' for tool in llm.last_kwargs['tools'])
+	assert any(tool['function']['name'] == 'browser_get_html' for tool in llm.last_kwargs['tools'])
+	assert any(tool['function']['name'] == 'browser_get_accessibility_tree' for tool in llm.last_kwargs['tools'])
+	assert any(tool['function']['name'] == 'browser_fetch' for tool in llm.last_kwargs['tools'])
+	assert any(tool['function']['name'] == 'file_read' for tool in llm.last_kwargs['tools'])
 	assert output.action[0].model_dump(exclude_none=True) == {'navigate': {'url': 'https://example.com', 'new_tab': False}}
 
 
@@ -178,6 +207,32 @@ async def test_agent_executes_native_done_without_legacy_action_executor(monkeyp
 	tool_message = cast(ToolMessage, agent._message_manager.get_messages()[2])
 	assert tool_message.tool_call_id == 'done_call_1'
 	assert 'native loop done' in tool_message.content
+
+
+@pytest.mark.asyncio
+async def test_agent_executes_pure_native_file_tool_without_legacy_action_executor(monkeypatch) -> None:
+	llm = NativeFileWriteLLM()
+	agent = Agent(task='Write a file through a native tool', llm=cast(Any, llm))
+
+	async def fail_execute_action(*args, **kwargs):
+		raise AssertionError('pure native file tools should not use the legacy action executor')
+
+	monkeypatch.setattr(agent.tools.registry, 'execute_action', fail_execute_action)
+
+	output = await agent.get_model_output([UserMessage(content='Write native-file-ok to a file')])
+
+	assert output.action[0].model_dump(exclude_none=True) == {'wait': {'seconds': 0}}
+	assert output.native_tool_calls[0].function.name == 'file_write'
+
+	agent.state.last_model_output = output
+	await agent._execute_actions()
+
+	assert agent.state.last_result is not None
+	assert agent.state.last_result[0].error is None
+	assert 'Wrote 14 characters' in (agent.state.last_result[0].extracted_content or '')
+	assert (agent.file_system.get_dir() / 'reports' / 'native.txt').read_text(encoding='utf-8') == 'native-file-ok'
+	assert output.native_tool_results[0].tool_name == 'file_write'
+	assert output.native_tool_results[0].structured_content['appended'] is False
 
 
 def test_agent_can_force_legacy_action_output_for_native_capable_models() -> None:

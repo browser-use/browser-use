@@ -23,7 +23,7 @@ from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tokens.service import TokenCost
-from browser_use.tools.registry.views import ActionModel
+from browser_use.tools.registry.views import ActionModel as BaseActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import time_execution_async
 
@@ -77,7 +77,7 @@ class AgentModelIOMixin:
 	session_id: str
 	agent_directory: Any
 	_url_shortening_limit: int
-	ActionModel: type[ActionModel]
+	ActionModel: type[BaseActionModel]
 	AgentOutput: type[AgentOutputModel]
 	tools: Tools[Any]
 	logger: logging.Logger
@@ -266,8 +266,8 @@ class AgentModelIOMixin:
 		input_messages: list[BaseMessage],
 		urls_replaced: dict[str, str],
 	) -> AgentOutputModel:
-		"""Call an LLM with provider-native tools and adapt registered tool calls to legacy action execution."""
-		router = NativeToolRouter.from_tools(self.tools, include_experimental=False)
+		"""Call an LLM with provider-native tools and keep legacy action output as compatibility metadata."""
+		router = NativeToolRouter.from_tools(self.tools, include_experimental=True)
 		tool_schemas = router.tool_schemas()
 		kwargs: dict[str, Any] = {
 			'output_format': None,
@@ -317,7 +317,7 @@ class AgentModelIOMixin:
 			if not response.tool_calls:
 				raise ValueError('Model returned no native tool calls.')
 
-			actions: list[ActionModel] = []
+			actions: list[BaseActionModel] = []
 			for tool_call in response.tool_calls[: self.settings.max_actions_per_step]:
 				try:
 					arguments = json.loads(tool_call.function.arguments or '{}')
@@ -330,10 +330,11 @@ class AgentModelIOMixin:
 					call_id=tool_call.id,
 				)
 				definition = router.resolve(call.tool_name)
-				if definition.source_action is None:
-					raise ValueError(f'Native tool {definition.name} cannot be adapted to the legacy action executor.')
 				validated_params = router.validate_call(call)
-				actions.append(self.ActionModel(**{definition.source_action: validated_params.model_dump(mode='json')}))
+				if definition.source_action is None:
+					actions.append(self._native_tool_placeholder_action(definition.name))
+				else:
+					actions.append(self.ActionModel(**{definition.source_action: validated_params.model_dump(mode='json')}))
 		except Exception as exc:
 			await append_llm_debug_trace(
 				agent_directory=self.agent_directory,
@@ -363,6 +364,14 @@ class AgentModelIOMixin:
 
 		self._log_next_action_summary(parsed)
 		return parsed
+
+	def _native_tool_placeholder_action(self, tool_name: str) -> BaseActionModel:
+		"""Create a valid legacy action entry for pure native tools that execute from ToolCall metadata."""
+		try:
+			return self.ActionModel(**{'wait': {'seconds': 0}})
+		except Exception:
+			self.logger.debug('Could not create wait placeholder for native tool %s; using empty action.', tool_name)
+			return self.ActionModel()
 
 	def _try_switch_to_fallback_llm(self, error: ModelRateLimitError | ModelProviderError) -> bool:
 		"""

@@ -263,6 +263,12 @@ def _experimental_definitions() -> list[NativeToolDefinition]:
 			executable=True,
 		),
 		NativeToolDefinition(
+			name='browser.get_html',
+			description='Read raw HTML for the full page or a CSS selector. Alias for browser.html with a clearer escape-hatch name.',
+			input_model=HtmlInput,
+			executable=True,
+		),
+		NativeToolDefinition(
 			name='browser.markdown',
 			description='Read the current page as cleaned markdown. Use for dense text extraction before reaching for raw HTML.',
 			input_model=MarkdownInput,
@@ -271,6 +277,12 @@ def _experimental_definitions() -> list[NativeToolDefinition]:
 		NativeToolDefinition(
 			name='browser.accessibility',
 			description='Read the accessibility tree. Use for roles/names when DOM indexes or screenshots are ambiguous.',
+			input_model=AccessibilityTreeInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='browser.get_accessibility_tree',
+			description='Read the accessibility tree. Alias for browser.accessibility with a clearer escape-hatch name.',
 			input_model=AccessibilityTreeInput,
 			executable=True,
 		),
@@ -290,6 +302,24 @@ def _experimental_definitions() -> list[NativeToolDefinition]:
 			name='browser.http_fetch',
 			description='Fetch a URL from inside the browser context with page credentials. Use for APIs or page-adjacent data.',
 			input_model=HttpFetchInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='browser.fetch',
+			description='Fetch a URL from inside the browser context with page credentials. Alias for browser.http_fetch.',
+			input_model=HttpFetchInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='file.read',
+			description='Read a text file from the agent workspace.',
+			input_model=WorkspaceReadFileInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='file.write',
+			description='Write or append a text file inside the agent workspace.',
+			input_model=WorkspaceWriteFileInput,
 			executable=True,
 		),
 	]
@@ -393,9 +423,9 @@ class NativeToolRouter(BaseModel):
 			'Prefer browser.click/type/scroll on DOM indexes for ordinary interaction. '
 			'Use browser.get_state to refresh DOM, screenshot, targetId, and sessionId handles. '
 			'Use browser.click_coordinates when visual placement is clearer than a DOM index. '
-			'Use browser.markdown for readable page text, browser.html for raw structure, and browser.inspect_element for one element. '
-			'Use browser.accessibility for roles/names, browser.network for request debugging, browser.http_fetch for API/data reads, '
-			'and browser.cdp only when lower-level CDP handles or browser primitives are needed.'
+			'Use browser.markdown for readable page text, browser.get_html for raw structure, and browser.inspect_element for one element. '
+			'Use browser.get_accessibility_tree for roles/names, browser.network for request debugging, browser.fetch for API/data reads, '
+			'browser.cdp only when lower-level CDP handles or browser primitives are needed, and file.read/file.write for workspace files.'
 		)
 
 	def validate_call(self, call: NativeToolCall) -> BaseModel:
@@ -444,7 +474,7 @@ class NativeToolRouter(BaseModel):
 			params = cast(GetStateInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._get_state(params, context))
 
-		if definition.name == 'browser.html':
+		if definition.name in ('browser.html', 'browser.get_html'):
 			params = cast(HtmlInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._get_html(params, context))
 
@@ -452,7 +482,7 @@ class NativeToolRouter(BaseModel):
 			params = cast(MarkdownInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._get_markdown(params, context))
 
-		if definition.name == 'browser.accessibility':
+		if definition.name in ('browser.accessibility', 'browser.get_accessibility_tree'):
 			params = cast(AccessibilityTreeInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._get_accessibility(params, context))
 
@@ -464,9 +494,17 @@ class NativeToolRouter(BaseModel):
 			params = cast(NetworkStateInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._get_network(params, context))
 
-		if definition.name == 'browser.http_fetch':
+		if definition.name in ('browser.http_fetch', 'browser.fetch'):
 			params = cast(HttpFetchInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._http_fetch(params, context))
+
+		if definition.name == 'file.read':
+			params = cast(WorkspaceReadFileInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._file_read(params, context))
+
+		if definition.name == 'file.write':
+			params = cast(WorkspaceWriteFileInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._file_write(params, context))
 
 		if definition.name == 'workspace.read_file':
 			params = cast(WorkspaceReadFileInput, self.validate_call(call))
@@ -1412,6 +1450,79 @@ performance.getEntriesByType('resource').slice(-{params.max_entries}).map((entry
 			return {'html_error': f'Could not read HTML for backendNodeId {backend_node_id}'}
 		return {'html': _truncate_text(str(html), max_chars)}
 
+	async def _file_read(self, params: WorkspaceReadFileInput, context: ToolContext) -> NativeToolResult:
+		try:
+			root = _agent_file_root(context)
+			path = _resolve_workspace_path(root, params.path)
+		except ValueError as e:
+			return NativeToolResult(tool_name='file.read', call_id='', is_error=True, content=str(e))
+
+		if not path.exists() or not path.is_file():
+			return NativeToolResult(
+				tool_name='file.read',
+				call_id='',
+				is_error=True,
+				content=f'File not found: {params.path}',
+			)
+
+		content = path.read_text(encoding='utf-8', errors='replace')
+		truncated = _truncate_text(content, params.max_chars)
+		artifact = context.artifact_store.add(
+			kind='workspace_file',
+			name=path.name,
+			path=path,
+			media_type=mimetypes.guess_type(path.name)[0],
+			metadata={'source': 'file.read', 'truncated': truncated['truncated']},
+		)
+		context.emit_tool_event(
+			BrowserRuntimeEventTypes.ARTIFACT_CREATED,
+			{'artifact_id': artifact.artifact_id, 'kind': artifact.kind, 'path': str(path)},
+		)
+		return NativeToolResult(
+			tool_name='file.read',
+			call_id='',
+			content=f'Read {truncated["returned_chars"]} characters from {params.path}',
+			artifact_ids=[artifact.artifact_id],
+			structured_content={
+				'path': str(path),
+				'content': truncated['text'],
+				'artifact_id': artifact.artifact_id,
+				**truncated,
+			},
+		)
+
+	async def _file_write(self, params: WorkspaceWriteFileInput, context: ToolContext) -> NativeToolResult:
+		try:
+			root = _agent_file_root(context)
+			path = _resolve_workspace_path(root, params.path)
+		except ValueError as e:
+			return NativeToolResult(tool_name='file.write', call_id='', is_error=True, content=str(e))
+
+		if not path.parent.exists():
+			if params.create_parent_dirs:
+				path.parent.mkdir(parents=True, exist_ok=True)
+			else:
+				return NativeToolResult(
+					tool_name='file.write',
+					call_id='',
+					is_error=True,
+					content=f'Parent directory does not exist: {path.parent}',
+				)
+
+		mode = 'a' if params.append else 'w'
+		with path.open(mode, encoding='utf-8') as file:
+			file.write(params.content)
+		return NativeToolResult(
+			tool_name='file.write',
+			call_id='',
+			content=f'Wrote {len(params.content)} characters to {params.path}',
+			structured_content={
+				'path': str(path),
+				'bytes': path.stat().st_size,
+				'appended': params.append,
+			},
+		)
+
 	async def _workspace_read_file(self, params: WorkspaceReadFileInput, context: ToolContext) -> NativeToolResult:
 		try:
 			root = _workspace_root(context, permission='file')
@@ -1706,6 +1817,15 @@ def _workspace_root(context: ToolContext, *, permission: Literal['file', 'shell'
 		raise ValueError('workspace_root metadata is required for workspace tools.')
 
 	root = Path(cast(str | Path, root_value)).expanduser().resolve()
+	root.mkdir(parents=True, exist_ok=True)
+	return root
+
+
+def _agent_file_root(context: ToolContext) -> Path:
+	get_dir = getattr(context.file_system, 'get_dir', None)
+	if not callable(get_dir):
+		raise ValueError('file tools require ToolContext.file_system.')
+	root = Path(cast(str | Path, get_dir())).expanduser().resolve()
 	root.mkdir(parents=True, exist_ok=True)
 	return root
 
