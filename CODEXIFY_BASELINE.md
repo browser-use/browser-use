@@ -2289,3 +2289,27 @@ Results:
 - Tab operation tests: `5 passed`.
 - Direct headless Chromium smoke: created, found, navigated, inspected storage for, and closed a CDP tab.
 - `browser_use/browser/session.py` reduced from `3077` to `2755` lines in this slice.
+
+## Codexification Verification 93
+
+After extracting frame/session resolution into `browser_use/browser/session_frames.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_frames.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_frames.py
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_cdp_headers.py -q
+uv run pytest tests/ci/browser/test_tabs.py -q
+uv run python - <<'PY'
+# Starts a local HTTP server with an iframe, then calls get_all_frames(),
+# find_frame_target(), and cdp_client_for_frame().
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Session start and CDP header tests: `6 passed`.
+- Tab operation tests: `5 passed`.
+- Direct headless Chromium iframe smoke: found `2` frames, retained a target session, and resolved a frame CDP session.
+- `browser_use/browser/session.py` reduced from `2755` to `2464` lines in this slice.
