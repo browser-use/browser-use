@@ -5,7 +5,12 @@ events, artifacts, and tool execution context without changing the existing
 `Agent` execution path.
 """
 
-from browser_use.agent.runtime.compaction import BrowserContextCompactor, ContextCompactionPolicy, ContextCompactionResult
+from browser_use.agent.runtime.compaction import (
+	BrowserContextCompactor,
+	CompactionReason,
+	ContextCompactionPolicy,
+	ContextCompactionResult,
+)
 from browser_use.agent.runtime.context import (
 	BrowserContext,
 	BrowserContextRenderer,
@@ -75,6 +80,7 @@ __all__ = [
 	'CdpCommandInput',
 	'ClickCoordinatesInput',
 	'CompactionItem',
+	'CompactionReason',
 	'ContextItem',
 	'ContextCompactionPolicy',
 	'ContextCompactionResult',

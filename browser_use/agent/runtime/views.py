@@ -4,12 +4,16 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 from uuid_extensions import uuid7str
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+	from browser_use.agent.runtime.compaction import BrowserContextCompactor, ContextCompactionResult
+	from browser_use.agent.runtime.context import BrowserContext
 
 
 RuntimeEventSubscriber = Callable[['BrowserRuntimeEvent'], None]
@@ -363,6 +367,30 @@ class BrowserAgentSession(BaseModel):
 			event_type=f'turn.{status}',
 			payload={'step_index': turn.step_index, **(metadata or {})},
 		)
+
+	def compact_context(
+		self,
+		context: BrowserContext,
+		*,
+		compactor: BrowserContextCompactor | None = None,
+		turn: BrowserTurnContext | None = None,
+	) -> ContextCompactionResult:
+		"""Compact typed model context and emit an observable runtime event."""
+
+		if compactor is None:
+			from browser_use.agent.runtime.compaction import BrowserContextCompactor
+
+			compactor = BrowserContextCompactor()
+
+		result = compactor.compact(context)
+		if result.compacted:
+			self.event_stream.emit(
+				run_id=self.run_id,
+				turn_id=turn.turn_id if turn is not None else None,
+				event_type=BrowserRuntimeEventTypes.CONTEXT_COMPACTED,
+				payload=result.event_payload(),
+			)
+		return result
 
 	def tool_context(
 		self,

@@ -312,11 +312,11 @@ Implement:
 - [x] Preserve current task, active browser state, recent failures, active files/downloads, output constraints, and runtime handles.
 - [x] Summarize old turns, old browser states, old tool results, and large extraction outputs.
 - [x] Keep current page execution safe after compaction.
-- [ ] Trigger compaction from token/context pressure.
+- [x] Trigger compaction from token/context pressure.
 
 Exit criteria:
 
-- [ ] Long tasks keep working after compaction.
+- [x] Long tasks keep working after compaction.
 - [x] Compaction does not break element targeting or current page actions.
 
 ## Phase 10: Cleanup
