@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from cdp_use.cdp.target import TargetID
 
@@ -21,27 +21,38 @@ class BrowserSessionTabEventsMixin:
 
 	async def on_SwitchTabEvent(self: Any, event: SwitchTabEvent) -> TargetID:
 		"""Handle tab switching - core browser functionality."""
-		if not self.agent_focus_target_id:
+		return await self.switch_tab_direct(event.target_id, require_existing_focus=True)
+
+	async def switch_tab_direct(
+		self: Any, target_id: TargetID | None = None, *, require_existing_focus: bool = False
+	) -> TargetID:
+		"""Switch the active tab without routing through a request event."""
+
+		if require_existing_focus and not self.agent_focus_target_id:
 			raise RuntimeError('Cannot switch tabs - browser not connected')
 
+		if self.agent_focus_target_id is None and target_id is None:
+			cdp_session = await self.get_or_create_cdp_session(target_id=None, focus=True)
+			return cdp_session.target_id
+
 		page_targets = self.session_manager.get_all_page_targets()
-		if event.target_id is None:
+		if target_id is None:
 			if page_targets:
-				event.target_id = page_targets[-1].target_id
+				target_id = page_targets[-1].target_id
 			else:
 				assert self._cdp_client_root is not None, 'CDP client root not initialized - browser may not be connected yet'
 				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
-				target_id = new_target['targetId']
+				target_id = cast(TargetID, new_target['targetId'])
 				self.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=target_id))
 				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url='about:blank'))
 				return target_id
 
-		assert event.target_id is not None, 'target_id must be set at this point'
-		cdp_session = await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
+		selected_target_id = cast(TargetID, target_id)
+		cdp_session = await self.get_or_create_cdp_session(target_id=selected_target_id, focus=True)
 
-		await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': event.target_id})
+		await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': selected_target_id})
 
-		target = self.session_manager.get_target(event.target_id)
+		target = self.session_manager.get_target(selected_target_id)
 
 		await self.event_bus.dispatch(
 			AgentFocusChangedEvent(
@@ -89,7 +100,7 @@ class BrowserSessionTabEventsMixin:
 		current_target_id = self.agent_focus_target_id
 
 		if current_target_id == event.target_id:
-			await self.event_bus.dispatch(SwitchTabEvent(target_id=None))
+			await self.switch_tab_direct(None)
 
 	async def on_AgentFocusChangedEvent(self: Any, event: AgentFocusChangedEvent) -> None:
 		"""Handle agent focus change - update focus and clear cache."""

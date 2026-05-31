@@ -415,6 +415,7 @@ Implement:
 - [x] Move the model-context manager into the runtime package and leave `MessageManager` as a legacy import shim.
 - [x] Replace storage-state load/save request events on the lifecycle path with direct watchdog calls.
 - [x] Replace about:blank recovery navigation request events with direct CDP tab creation.
+- [x] Replace tab-close focus recovery request events with a direct tab switch helper.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
 Exit criteria:

@@ -2539,6 +2539,31 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - `https://example.com` heading task: success `True`, done `True`, `3` steps.
 - Actions: `['navigate', 'extract', 'done']`.
 
+## Codexification Verification 106
+
+After directizing tab-close focus recovery:
+
+```bash
+uv run pytest tests/ci/browser/test_direct_tab_focus.py -q
+uv run pytest tests/ci/browser/test_aboutblank_watchdog.py tests/ci/browser/test_direct_storage_state.py tests/ci/browser/test_direct_tab_focus.py -q
+uv run pytest tests/ci/browser/test_session_start.py -q
+uv run ruff check browser_use/browser/session_tab_events.py browser_use/browser/services.py tests/ci/browser/test_direct_tab_focus.py
+uv run pyright browser_use/browser/session_tab_events.py browser_use/browser/services.py tests/ci/browser/test_direct_tab_focus.py
+```
+
+Results:
+
+- Direct tab focus tests: `2 passed`.
+- About:blank, storage, and tab direct-call tests: `7 passed`.
+- Browser session lifecycle tests: `9 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+
 ## Codexification Verification 105
 
 After directizing about:blank tab recovery:

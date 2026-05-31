@@ -153,15 +153,7 @@ class TabService(BrowserService):
 		return await self.browser_session.get_tabs()
 
 	async def switch(self, target_id: TargetID | None = None) -> TargetID:
-		if target_id is None:
-			if self.browser_session.agent_focus_target_id is None:
-				cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
-				return cdp_session.target_id
-			return self.browser_session.agent_focus_target_id
-
-		await self.browser_session.cdp_client.send.Target.activateTarget(params={'targetId': target_id})
-		await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
-		return target_id
+		return await self.browser_session.switch_tab_direct(target_id)
 
 	async def close(self, target_id: TargetID) -> None:
 		await self.browser_session._cdp_close_page(target_id)
