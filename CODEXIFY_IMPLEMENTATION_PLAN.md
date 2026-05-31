@@ -385,6 +385,7 @@ Implement:
 - [x] Extract click, input, scroll, and text-scroll action implementations out of the giant tools service.
 - [x] Extract tool execution, timeout, and direct-call wrapper plumbing out of the giant tools service.
 - [x] Extract watchdog attachment construction out of the giant browser session.
+- [x] Extract agent file-system, screenshot-service, and download tracking helpers out of the giant agent service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
