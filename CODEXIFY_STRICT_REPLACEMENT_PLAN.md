@@ -234,13 +234,23 @@ After default native tools, typed context, and direct services are stable, remov
 
 Run this only after all replacement phases are implemented, tested, and committed.
 
-- [ ] Run a final real-world eval on `/Users/greg/Downloads/real_v17_short.json`.
-- [ ] Use the current default recommended Browser Use model unless the user explicitly requests a different model.
-- [ ] Run with enough debug logging to preserve local run folders for failed tasks.
-- [ ] Report task-level pass/fail, final answers, major failure modes, and trace locations for failures.
-- [ ] Report aggregate success rate, average steps, average duration, token usage, and estimated cost.
-- [ ] Compare against any available baseline from before the strict replacement work.
-- [ ] Do not mark the strict replacement goal complete until the eval result is reported.
+- [x] Run a final real-world eval on `/Users/greg/Downloads/real_v17_short.json`.
+- [x] Use the current default recommended Browser Use model unless the user explicitly requests a different model.
+- [x] Run with enough debug logging to preserve local run folders for failed tasks.
+- [x] Report task-level pass/fail, final answers, major failure modes, and trace locations for failures.
+- [x] Report aggregate success rate, average steps, average duration, token usage, and estimated cost.
+- [x] Compare against any available baseline from before the strict replacement work.
+- [x] Do not mark the strict replacement goal complete until the eval result is reported.
+
+Final eval result:
+
+- Dataset: `/Users/greg/Downloads/real_v17_short.json`
+- Runner: local cloud-browser eval, `ChatBrowserUse`, concurrency `2`, `max_steps=100`, debug logging enabled
+- Results: `2/10` judge pass, `8/10` judge fail, `0` runner exceptions
+- Aggregate: `20%` judge accuracy, `54.5` avg steps, `658.6s` avg duration, `11,044,442` total tokens, `$5.31` estimated total cost
+- Artifacts: `/tmp/browser_use_codexify_real_v17_local_eval/summary.json`, `/tmp/browser_use_codexify_real_v17_local_eval/results.jsonl`, and per-agent debug folders listed inside the summary
+- Eval platform attempt: dataset upload succeeded, but the hosted run returned no task records for this branch/repo setup, so the reported numbers above come from the local cloud-browser run
+- Baseline: no directly comparable pre-strict-replacement `real_v17_short` baseline was available in this worktree/session
 
 ## Non-Goals
 
