@@ -420,6 +420,46 @@ async def test_public_upload_tool_uses_direct_service(browser_session, httpserve
 
 
 @pytest.mark.asyncio
+async def test_public_find_text_tool_uses_direct_service(browser_session, httpserver, monkeypatch) -> None:
+	httpserver.expect_request('/direct-find-text').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body style="margin:0">
+		<div style="height: 2200px">top</div>
+		<p id="target">Codexify target text</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	tools = Tools()
+	services = BrowserServiceBundle.from_session(browser_session)
+	await services.navigation.navigate(httpserver.url_for('/direct-find-text'))
+
+	original_dispatch = browser_session.event_bus.dispatch
+
+	def fail_scroll_to_text_dispatch(event, *args, **kwargs):
+		if event.__class__.__name__ == 'ScrollToTextEvent':
+			raise AssertionError('Public find_text should use direct services, not ScrollToTextEvent')
+		return original_dispatch(event, *args, **kwargs)
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_scroll_to_text_dispatch)
+
+	find_result = await tools.registry.execute_action(
+		action_name='find_text',
+		params={'text': 'Codexify target text'},
+		browser_session=browser_session,
+	)
+	assert find_result.error is None
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': 'window.scrollY', 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert readback.get('result', {}).get('value') > 0
+
+
+@pytest.mark.asyncio
 async def test_browser_download_service_downloads_and_tracks_without_event_dispatch(
 	browser_session, httpserver, monkeypatch
 ) -> None:

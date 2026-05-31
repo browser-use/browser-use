@@ -17,7 +17,6 @@ from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
 	GetDropdownOptionsEvent,
-	ScrollToTextEvent,
 )
 from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
@@ -1324,12 +1323,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		@self.registry.action('Scroll to text.')
 		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
-			# Dispatch scroll to text event
-			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
-
 			try:
-				# The handler returns None on success or raises an exception if text not found
-				await event.event_result(raise_if_any=True, raise_if_none=False)
+				await BrowserServiceBundle.from_session(browser_session).actions.scroll.scroll_to_text(text)
 				memory = f'Scrolled to text: {text}'
 				msg = f'🔍  {memory}'
 				logger.info(msg)

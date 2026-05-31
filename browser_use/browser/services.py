@@ -429,6 +429,80 @@ class ScrollService(BrowserService):
 			self.browser_session.logger.debug(f'Failed to scroll element container via CDP: {e}')
 			return False
 
+	async def scroll_to_text(self, text: str) -> None:
+		cdp_session = await self.browser_session.get_or_create_cdp_session()
+		cdp_client = cdp_session.cdp_client
+		session_id = cdp_session.session_id
+
+		await cdp_client.send.DOM.enable(session_id=session_id)
+		await cdp_client.send.DOM.getDocument(params={'depth': -1}, session_id=session_id)
+
+		search_queries = [
+			f'//*[contains(text(), {_xpath_literal(text)})]',
+			f'//*[contains(., {_xpath_literal(text)})]',
+			f'//*[@*[contains(., {_xpath_literal(text)})]]',
+		]
+
+		for query in search_queries:
+			search_id = None
+			try:
+				search_result = await cdp_client.send.DOM.performSearch(params={'query': query}, session_id=session_id)
+				search_id = search_result['searchId']
+				result_count = search_result['resultCount']
+				if result_count <= 0:
+					continue
+
+				node_ids = await cdp_client.send.DOM.getSearchResults(
+					params={'searchId': search_id, 'fromIndex': 0, 'toIndex': 1},
+					session_id=session_id,
+				)
+				if node_ids['nodeIds']:
+					await cdp_client.send.DOM.scrollIntoViewIfNeeded(
+						params={'nodeId': node_ids['nodeIds'][0]}, session_id=session_id
+					)
+					self.browser_session.logger.debug(f'📜 Scrolled to text: "{text}"')
+					return
+			except Exception as e:
+				self.browser_session.logger.debug(f'Search query failed: {query}, error: {e}')
+			finally:
+				if search_id:
+					try:
+						await cdp_client.send.DOM.discardSearchResults(params={'searchId': search_id}, session_id=session_id)
+					except Exception:
+						pass
+
+		js_result = await cdp_client.send.Runtime.evaluate(
+			params={
+				'expression': f"""
+					(() => {{
+						const target = {json.dumps(text)};
+						const walker = document.createTreeWalker(
+							document.body,
+							NodeFilter.SHOW_TEXT,
+							null,
+							false
+						);
+						let node;
+						while ((node = walker.nextNode())) {{
+							if (node.textContent.includes(target)) {{
+								node.parentElement.scrollIntoView({{behavior: 'smooth', block: 'center'}});
+								return true;
+							}}
+						}}
+						return false;
+					}})()
+				"""
+			},
+			session_id=session_id,
+		)
+
+		if js_result.get('result', {}).get('value'):
+			self.browser_session.logger.debug(f'📜 Scrolled to text: "{text}" (via JS)')
+			return
+
+		self.browser_session.logger.warning(f'⚠️ Text not found: "{text}"')
+		raise BrowserError(f'Text not found: "{text}"', details={'text': text})
+
 
 class KeyboardService(BrowserService):
 	"""Keyboard input operations."""
@@ -716,6 +790,16 @@ class UploadService(BrowserService):
 
 def _page_appears_empty(state: BrowserStateSummary) -> bool:
 	return state.dom_state._root is None or not state.dom_state.llm_representation().strip()
+
+
+def _xpath_literal(value: str) -> str:
+	if "'" not in value:
+		return f"'{value}'"
+	if '"' not in value:
+		return f'"{value}"'
+	parts = value.split("'")
+	single_quote_literal = '"\'"'
+	return 'concat(' + f', {single_quote_literal}, '.join(f"'{part}'" for part in parts) + ')'
 
 
 def _download_filename(url: str, *, content_type: str | None, suggested_filename: str | None) -> str:
