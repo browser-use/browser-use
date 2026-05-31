@@ -1,9 +1,13 @@
-"""Detect variables in agent history for reuse"""
+"""Detect variables in agent history for reuse."""
 
+import copy
+import logging
 import re
 
 from browser_use.agent.views import AgentHistoryList, DetectedVariable
 from browser_use.dom.views import DOMInteractedElement
+
+logger = logging.getLogger(__name__)
 
 
 def detect_variables_in_history(history: AgentHistoryList) -> dict[str, DetectedVariable]:
@@ -44,6 +48,79 @@ def detect_variables_in_history(history: AgentHistoryList) -> dict[str, Detected
 			_detect_in_action(action_dict, element, detected, detected_values)
 
 	return detected
+
+
+def substitute_variables_in_history(
+	history: AgentHistoryList,
+	variables: dict[str, str],
+	substitution_logger: logging.Logger | None = None,
+) -> AgentHistoryList:
+	"""Substitute detected variable values in a copied history for reruns."""
+	log = substitution_logger or logger
+	detected_vars = detect_variables_in_history(history)
+
+	value_replacements: dict[str, str] = {}
+	for var_name, new_value in variables.items():
+		if var_name in detected_vars:
+			old_value = detected_vars[var_name].original_value
+			value_replacements[old_value] = new_value
+		else:
+			log.warning(f'Variable "{var_name}" not found in history, skipping substitution')
+
+	if not value_replacements:
+		log.info('No variables to substitute')
+		return history
+
+	modified_history = copy.deepcopy(history)
+
+	substitution_count = 0
+	for history_item in modified_history.history:
+		if not history_item.model_output or not history_item.model_output.action:
+			continue
+
+		for action in history_item.model_output.action:
+			if hasattr(action, 'model_dump'):
+				action_dict = action.model_dump()
+			elif isinstance(action, dict):
+				action_dict = action
+			else:
+				action_dict = vars(action) if hasattr(action, '__dict__') else {}
+
+			substitution_count += _substitute_in_dict(action_dict, value_replacements)
+
+			if hasattr(action, 'model_dump'):
+				if hasattr(action, 'root'):
+					new_action = type(action).model_validate(action_dict)
+					object.__setattr__(action, 'root', getattr(new_action, 'root'))
+				else:
+					for key, val in action_dict.items():
+						if hasattr(action, key):
+							setattr(action, key, val)
+			elif isinstance(action, dict):
+				action.update(action_dict)
+
+	log.info(f'Substituted {substitution_count} value(s) in {len(value_replacements)} variable type(s) in history')
+	return modified_history
+
+
+def _substitute_in_dict(data: dict, replacements: dict[str, str]) -> int:
+	"""Recursively substitute exact string values in a dictionary."""
+	count = 0
+	for key, value in data.items():
+		if isinstance(value, str):
+			if value in replacements:
+				data[key] = replacements[value]
+				count += 1
+		elif isinstance(value, dict):
+			count += _substitute_in_dict(value, replacements)
+		elif isinstance(value, list):
+			for i, item in enumerate(value):
+				if isinstance(item, str) and item in replacements:
+					value[i] = replacements[item]
+					count += 1
+				elif isinstance(item, dict):
+					count += _substitute_in_dict(item, replacements)
+	return count
 
 
 def _detect_in_action(

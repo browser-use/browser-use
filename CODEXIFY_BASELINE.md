@@ -1757,3 +1757,19 @@ Results:
 - Python compile: passed.
 - Direct initial-action smoke: URL detection, typed conversion, and step-0 history persistence passed.
 - Live `ChatBrowserUse` + local Chromium smoke: success `True`, steps `2`, actions `['navigate', 'done']`, final result `The main heading of the page is \"Example Domain\".`
+
+## Codexification Verification 76
+
+After moving agent variable detection wrappers and rerun substitution into `browser_use.agent.variables` and `browser_use.agent.variable_detector`:
+
+```bash
+uv run ruff check browser_use/agent/variable_detector.py browser_use/agent/variables.py browser_use/agent/service.py
+uv run pyright browser_use/agent/variable_detector.py browser_use/agent/variables.py browser_use/agent/service.py
+uv run pytest tests/ci/test_variable_detection.py tests/ci/test_variable_substitution.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Variable detection/substitution tests: `40 passed`.
