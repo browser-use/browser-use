@@ -29,9 +29,10 @@ These notes describe the current migration state after the codexification cleanu
 - Provider-native `browser.done` schemas now use a native `StructuredDoneInput` model instead of reusing the legacy `StructuredOutputAction` action wrapper. The legacy structured-output action remains as a compatibility wrapper for action-list mode.
 - Browser state capture now calls the DOM state builder directly instead of dispatching `BrowserStateRequestEvent`; screenshot capture during state refresh also uses direct CDP instead of `ScreenshotEvent`. The event handlers remain as compatibility adapters.
 - The MCP server's direct browser-control methods now call `BrowserServiceBundle` services instead of dispatching browser action events.
+- State-message rendering now lives in `browser_use.agent.message_manager.state_message`; the old `MessageManager` remains as a compatibility facade for history, compaction, sensitive filtering, and public state access.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
-- The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible renderer and state holder.
+- The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible state holder around focused context/rendering helpers.
 
 ## Migration Guidance
 
@@ -45,9 +46,40 @@ These notes describe the current migration state after the codexification cleanu
 ## Known Remaining Work
 
 - The legacy `Agent(...)` constructor is still broad for backwards compatibility, but new code has a grouped `AgentConfig` path.
-- The old message manager is still part of the compatibility path.
+- The old message manager is still part of the compatibility path, but state-message construction has been moved into a focused builder.
 - The old structured-output action protocol is still supported for legacy action-list compatibility, but provider-native structured completion no longer depends on it.
 - Watchdog/event-bus code still exists for browser compatibility paths, lifecycle wiring, and selected observers, but the core state and action hot paths no longer depend on event dispatch.
 - Google judge-based task evals could not complete because the `GOOGLE_API_KEY` in the shared `.env` is expired.
 - External local CDP validation requires launching Chrome with `--remote-allow-origins=*`; with that flag, `Browser(cdp_url=...)` connected and navigated successfully.
 - Current `ChatBrowserUse` smoke/eval comparison is equal or better on success, steps, speed, and token usage for the measured baseline cases.
+
+## Codexification Verification 102
+
+After extracting state-message rendering out of `MessageManager`:
+
+```bash
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_message_manager_compaction.py -q
+uv run pytest tests/ci/test_agent_native_tool_calls.py -q
+uv run pytest tests/ci/security/test_sensitive_data.py -q
+uv run pytest tests/ci/test_file_system_llm_integration.py -q
+uv run pytest tests/ci/test_agent_planning.py tests/ci/test_budget_warning.py tests/ci/test_action_loop_detection.py -q
+uv run ruff check browser_use/agent/message_manager/service.py browser_use/agent/message_manager/state_message.py tests/ci/test_message_manager_typed_context.py
+uv run pyright browser_use/agent/message_manager/service.py browser_use/agent/message_manager/state_message.py tests/ci/test_message_manager_typed_context.py
+```
+
+Results:
+
+- Message-manager typed-context and compaction tests: `6 passed`.
+- Native tool-call agent tests: `2 passed`.
+- Sensitive-data tests: `14 passed`.
+- File-system LLM integration tests: `11 passed`.
+- Planning, budget-warning, and loop-detection tests: `68 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse`:
+
+- Task: go to `https://example.com` and report the main heading.
+- Result: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+- Final: `The main heading of the page is 'Example Domain'.`

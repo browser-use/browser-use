@@ -2509,3 +2509,33 @@ Results:
 - Pyright: `0 errors`.
 - MCP allowed-domain security tests: `3 passed`.
 - `browser_use/mcp/server.py` no longer dispatches browser action events for navigate, click, type, scroll, go-back, switch-tab, close-tab, or close-browser.
+
+## Codexification Verification 102
+
+After extracting state-message rendering into `browser_use.agent.message_manager.state_message`:
+
+```bash
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_message_manager_compaction.py -q
+uv run pytest tests/ci/test_agent_native_tool_calls.py -q
+uv run pytest tests/ci/security/test_sensitive_data.py -q
+uv run pytest tests/ci/test_file_system_llm_integration.py -q
+uv run pytest tests/ci/test_agent_planning.py tests/ci/test_budget_warning.py tests/ci/test_action_loop_detection.py -q
+uv run ruff check browser_use/agent/message_manager/service.py browser_use/agent/message_manager/state_message.py tests/ci/test_message_manager_typed_context.py
+uv run pyright browser_use/agent/message_manager/service.py browser_use/agent/message_manager/state_message.py tests/ci/test_message_manager_typed_context.py
+```
+
+Results:
+
+- Message-manager typed-context and compaction tests: `6 passed`.
+- Native tool-call agent tests: `2 passed`.
+- Sensitive-data tests: `14 passed`.
+- File-system LLM integration tests: `11 passed`.
+- Planning, budget-warning, and loop-detection tests: `68 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+- Final: `The main heading of the page is 'Example Domain'.`

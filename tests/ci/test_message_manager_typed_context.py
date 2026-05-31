@@ -109,6 +109,29 @@ def test_create_state_messages_stores_typed_context_snapshot(tmp_path) -> None:
 	assert '<runtime_skills>' not in manager.last_state_message_text
 
 
+def test_create_state_messages_supports_prepared_step_state(tmp_path) -> None:
+	manager = MessageManager(
+		task='Find the answer',
+		system_message=SystemMessage(content='system'),
+		file_system=FileSystem(tmp_path / 'files', create_default_files=False),
+	)
+	browser_state = _browser_state()
+
+	manager.prepare_step_state(browser_state)
+	manager.create_state_messages(
+		browser_state,
+		page_filtered_actions='special_action: available',
+		available_file_paths=['/tmp/result.csv'],
+		step_info=AgentStepInfo(step_number=0, max_steps=5),
+		skip_state_update=True,
+	)
+
+	assert manager.last_typed_context is not None
+	assert manager.last_state_message_text is not None
+	assert '<page_specific_actions>' in manager.last_state_message_text
+	assert '<available_file_paths>/tmp/result.csv' in manager.last_state_message_text
+
+
 def test_create_state_messages_includes_selected_runtime_skills_only_when_relevant(tmp_path) -> None:
 	manager = MessageManager(
 		task='Download the receipt PDF',
