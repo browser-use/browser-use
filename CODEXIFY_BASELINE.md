@@ -218,3 +218,29 @@ Real `ChatBrowserUse` + headless local Chromium smoke:
 - Steps: `6`
 - Final result: `codexify-agent-ok`
 - Notes: the `data:` URL page produced an empty indexed DOM, but the agent recovered with `evaluate` and completed. This is useful signal for future DOM/read escape-hatch work.
+
+## Codexification Verification 3
+
+After routing Agent side effects through runtime subscribers, extracting the runtime bridge, splitting native tool input schemas, and adding the typed message-manager mirror:
+
+```bash
+uv run pytest tests/ci/test_runtime_events.py tests/ci/test_runtime_subscribers.py tests/ci/test_agent_runtime_events.py tests/ci/browser/test_output_paths.py -q
+uv run pytest tests/ci/test_native_tool_router.py -q
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_agent_runtime_events.py tests/ci/test_runtime_context.py -q
+```
+
+Results:
+
+- Runtime/subscriber/output-path suite: `17 passed, 3 skipped`.
+- Native tool router suite: `13 passed`.
+- Typed context/message-manager suite: `6 passed`.
+
+Real `ChatBrowserUse` + headless local Chromium smoke:
+
+- Success: `True`
+- Done: `True`
+- Steps: `4`
+- Duration: `8.28s`
+- Final result: `codexify-real-smoke-ok`
+- Runtime events: `run.started`, repeated `context.built` / `model.delta` / `turn.completed`, then `run.completed`.
+- Notes: the `data:` URL still produced an empty indexed DOM, and the agent again recovered with `evaluate`. This confirms the escape-hatch path remains useful while we preserve the DOM pipeline.

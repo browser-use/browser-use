@@ -36,7 +36,7 @@ This document is intentionally not a full implementation spec. Each implementati
 - [ ] Giant agent/browser/tool files.
 - [ ] Dynamic tool/action model generation.
 - [ ] Prompt variant sprawl.
-- [ ] Cloud, telemetry, GIF, and callback logic inside the core agent loop.
+- [x] Cloud, telemetry, GIF, and callback logic inside the core agent loop.
 
 ## Phase 0: Baseline
 
@@ -254,14 +254,14 @@ Implement:
 
 Important:
 
-- [ ] Do not remove the current DOM pipeline.
+- [x] Do not remove the current DOM pipeline.
 - [x] Do not hide runtime handles needed for CDP.
 - [x] Do not force the model to use a single representation of the page.
 
 Exit criteria:
 
 - [x] The model can solve tasks using DOM, screenshot, coordinates, JS, CDP, and HTTP as appropriate.
-- [ ] Simple tasks do not get slower or noisier.
+- [x] Simple tasks do not get slower or noisier.
 
 ## Phase 7: File And Shell Workspace
 
