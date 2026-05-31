@@ -194,7 +194,12 @@ class ToolContext(BaseModel):
 	browser_session: Any | None = None
 	tools: Any | None = None
 	llm: Any | None = None
+	page_extraction_llm: Any | None = None
 	file_system: Any | None = None
+	sensitive_data: dict[str, str | dict[str, str]] | None = None
+	available_file_paths: list[str] | None = None
+	extraction_schema: dict[str, Any] | None = None
+	action_timeout: float | None = None
 	artifact_store: ArtifactStore = Field(default_factory=ArtifactStore)
 	event_stream: BrowserEventStream = Field(default_factory=BrowserEventStream)
 	metadata: dict[str, Any] = Field(default_factory=dict)
@@ -295,7 +300,12 @@ class BrowserAgentSession(BaseModel):
 		browser_session: Any | None = None,
 		tools: Any | None = None,
 		llm: Any | None = None,
+		page_extraction_llm: Any | None = None,
 		file_system: Any | None = None,
+		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		available_file_paths: list[str] | None = None,
+		extraction_schema: dict[str, Any] | None = None,
+		action_timeout: float | None = None,
 		metadata: dict[str, Any] | None = None,
 	) -> ToolContext:
 		return ToolContext(
@@ -304,7 +314,12 @@ class BrowserAgentSession(BaseModel):
 			browser_session=browser_session,
 			tools=tools,
 			llm=llm,
+			page_extraction_llm=page_extraction_llm,
 			file_system=file_system,
+			sensitive_data=sensitive_data,
+			available_file_paths=available_file_paths,
+			extraction_schema=extraction_schema,
+			action_timeout=action_timeout,
 			artifact_store=self.artifact_store,
 			event_stream=self.event_stream,
 			metadata=metadata or {},

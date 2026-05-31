@@ -1,0 +1,125 @@
+import pytest
+
+from browser_use.agent.runtime import (
+	BrowserAgentSession,
+	ClickCoordinatesInput,
+	NativeToolCall,
+	NativeToolRouter,
+	click_coordinates_as_click_arguments,
+)
+from browser_use.tools.service import Tools
+
+
+def test_native_tool_router_exposes_api_safe_names() -> None:
+	router = NativeToolRouter.from_tools(Tools())
+
+	navigate = router.resolve('browser.navigate')
+	click = router.resolve('browser_click')
+
+	assert navigate.api_name == 'browser_navigate'
+	assert click.name == 'browser.click'
+	assert 'browser.get_state' in router.definitions
+	assert 'browser.cdp' in router.definitions
+	assert any(tool['function']['name'] == 'browser_navigate' for tool in router.tool_schemas())
+
+
+def test_native_tool_router_validates_with_existing_pydantic_models() -> None:
+	router = NativeToolRouter.from_tools(Tools())
+	call = NativeToolCall(tool_name='browser_navigate', arguments={'url': 'https://example.com', 'new_tab': False})
+
+	params = router.validate_call(call)
+
+	assert params.model_dump() == {'url': 'https://example.com', 'new_tab': False}
+
+	with pytest.raises(ValueError):
+		router.validate_call(NativeToolCall(tool_name='browser.navigate', arguments={'new_tab': False}))
+
+
+def test_native_tool_router_filters_page_specific_actions() -> None:
+	tools = Tools()
+
+	@tools.action('Only available on example.com', domains=['example.com'])
+	async def example_only() -> str:
+		return 'ok'
+
+	assert 'browser.example_only' not in NativeToolRouter.from_tools(tools).definitions
+	assert 'browser.example_only' in NativeToolRouter.from_tools(tools, page_url='https://example.com').definitions
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_existing_action_without_fake_action_model() -> None:
+	tools = Tools()
+	session = BrowserAgentSession.create(task='Wait briefly')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools, action_timeout=5)
+	router = NativeToolRouter.from_tools(tools)
+
+	result = await router.execute(NativeToolCall(tool_name='browser.wait', arguments={'seconds': 1}, call_id='call-1'), context)
+
+	assert result.call_id == 'call-1'
+	assert result.is_error is False
+	assert result.structured_content['extracted_content'] == 'Waited for 1 seconds'
+	assert result.to_context_item().render().startswith('<tool_result name="browser.wait" id="call-1">')
+	assert [event.event_type for event in session.event_stream.events] == ['turn.started', 'tool.started', 'tool.completed']
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_can_drive_simple_browser_task(browser_session, httpserver) -> None:
+	httpserver.expect_request('/native-tool').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<button id="reveal" onclick="document.getElementById('answer').textContent = 'native-tool-ok'">Reveal</button>
+		<p id="answer">hidden</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+
+	tools = Tools()
+	router = NativeToolRouter.from_tools(tools)
+	session = BrowserAgentSession.create(task='Reveal the answer')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools, browser_session=browser_session, action_timeout=30)
+
+	navigate_result = await router.execute(
+		NativeToolCall(tool_name='browser.navigate', arguments={'url': httpserver.url_for('/native-tool')}), context
+	)
+	assert navigate_result.is_error is False
+
+	state = await browser_session.get_browser_state_summary(include_screenshot=False)
+	button_index = next(
+		idx
+		for idx, element in state.dom_state.selector_map.items()
+		if getattr(element, 'tag_name', None) == 'button' and getattr(element, 'attributes', {}).get('id') == 'reveal'
+	)
+
+	click_result = await router.execute(NativeToolCall(tool_name='browser.click', arguments={'index': button_index}), context)
+	assert click_result.is_error is False
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('answer').textContent", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert readback.get('result', {}).get('value') == 'native-tool-ok'
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_returns_structured_error_for_non_executable_tool() -> None:
+	tools = Tools()
+	session = BrowserAgentSession.create(task='Inspect state')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools)
+	router = NativeToolRouter.from_tools(tools)
+
+	result = await router.execute(NativeToolCall(tool_name='browser.get_state', arguments={}), context)
+
+	assert result.is_error is True
+	assert 'not executable' in (result.content or '')
+
+
+def test_click_coordinates_translate_to_current_click_shape() -> None:
+	arguments = click_coordinates_as_click_arguments(ClickCoordinatesInput(coordinate_x=10, coordinate_y=20))
+
+	assert arguments == {'coordinate_x': 10, 'coordinate_y': 20}

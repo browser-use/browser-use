@@ -135,38 +135,38 @@ Goal: make native tool calls the primary action protocol.
 
 Implement:
 
-- [ ] Define browser tools with explicit Pydantic v2 input/output models.
-- [ ] Route tools through one `ToolContext`, not magic function parameter injection.
-- [ ] Keep compatibility with the old `AgentOutput(action=[...])` path during migration.
-- [ ] Treat `done` and structured final output as proper native outputs, not fake actions.
-- [ ] Keep `ActionResult`/tool result content structured and model-readable.
+- [x] Define browser tools with explicit Pydantic v2 input/output models.
+- [x] Route tools through one `ToolContext`, not magic function parameter injection.
+- [x] Keep compatibility with the old `AgentOutput(action=[...])` path during migration.
+- [x] Treat `done` and structured final output as proper native outputs, not fake actions.
+- [x] Keep `ActionResult`/tool result content structured and model-readable.
 
 Core tools:
 
-- [ ] `browser.navigate`
-- [ ] `browser.click`
+- [x] `browser.navigate`
+- [x] `browser.click`
 - [ ] `browser.click_coordinates`
-- [ ] `browser.type`
-- [ ] `browser.scroll`
-- [ ] `browser.send_keys`
-- [ ] `browser.extract`
-- [ ] `browser.screenshot`
-- [ ] `browser.evaluate`
+- [x] `browser.type`
+- [x] `browser.scroll`
+- [x] `browser.send_keys`
+- [x] `browser.extract`
+- [x] `browser.screenshot`
+- [x] `browser.evaluate`
 - [ ] `browser.cdp`
 - [ ] `browser.get_state`
-- [ ] `browser.find_elements`
-- [ ] `browser.search_page`
-- [ ] `browser.switch_tab`
-- [ ] `browser.close_tab`
-- [ ] `browser.upload_file`
-- [ ] `browser.wait`
-- [ ] `browser.done`
+- [x] `browser.find_elements`
+- [x] `browser.search_page`
+- [x] `browser.switch_tab`
+- [x] `browser.close_tab`
+- [x] `browser.upload_file`
+- [x] `browser.wait`
+- [x] `browser.done`
 
 Exit criteria:
 
-- [ ] Native tool-call mode can complete simple browser tasks.
-- [ ] Old action-list mode still works.
-- [ ] Tool results are added back into typed context.
+- [x] Native tool-call mode can complete simple browser tasks.
+- [x] Old action-list mode still works.
+- [x] Tool results are added back into typed context.
 
 ## Phase 4: Direct Browser Services
 
