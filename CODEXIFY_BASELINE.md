@@ -963,3 +963,22 @@ Results:
 - Pyright: `0 errors`.
 - Public split-service import compatibility: passed.
 - Full browser service suite: `15 passed`.
+
+## Codexification Verification 45
+
+After collapsing the small system prompt variants into the `SystemPromptRenderer` spec table and keeping only the large prompt bodies as resource files:
+
+```bash
+uv run pytest tests/ci/test_system_prompt_profile.py -q
+uv run ruff check browser_use/agent/prompts.py tests/ci/test_system_prompt_profile.py
+uv run pyright browser_use/agent/prompts.py tests/ci/test_system_prompt_profile.py
+```
+
+Results:
+
+- Prompt renderer/profile tests: `13 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Python compile: passed.
+- File-scoped pre-commit on changed files: passed.
+- `uv run pre-commit run --all-files` ran, but the repo-wide Pyright hook still fails on existing serializer type errors outside this slice (`browser_use/llm/*/serializer.py`, `examples/models/langchain/serializer.py`).

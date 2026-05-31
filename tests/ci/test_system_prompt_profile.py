@@ -1,7 +1,13 @@
 import pytest
 from pydantic import ValidationError
 
-from browser_use.agent.prompts import SystemPrompt, SystemPromptRenderer, SystemPromptTemplateProfile
+from browser_use.agent.prompts import (
+	SYSTEM_PROMPT_TEMPLATE_SPECS,
+	SystemPrompt,
+	SystemPromptRenderer,
+	SystemPromptTemplateProfile,
+	SystemPromptTemplateSource,
+)
 
 
 @pytest.mark.parametrize(
@@ -32,6 +38,21 @@ def test_system_prompt_renderer_formats_selected_template() -> None:
 
 	assert 'maximum of 7 actions per step' in rendered
 	assert '{max_actions}' not in rendered
+
+
+def test_system_prompt_renderer_uses_inline_specs_for_small_variants() -> None:
+	inline_template_names = {
+		'system_prompt_browser_use.md',
+		'system_prompt_browser_use_no_thinking.md',
+		'system_prompt_browser_use_flash.md',
+		'system_prompt_flash.md',
+		'system_prompt_flash_anthropic.md',
+	}
+
+	for template_name in inline_template_names:
+		template_spec = SYSTEM_PROMPT_TEMPLATE_SPECS[template_name]
+		assert template_spec.source == SystemPromptTemplateSource.INLINE
+		assert template_spec.inline_template
 
 
 def test_system_prompt_uses_model_capability_prompt_profile() -> None:

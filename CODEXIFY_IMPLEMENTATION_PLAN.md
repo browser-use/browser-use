@@ -35,7 +35,7 @@ This document is intentionally not a full implementation spec. Each implementati
 - [ ] Watchdog architecture.
 - [ ] Giant agent/browser/tool files.
 - [ ] Dynamic tool/action model generation.
-- [ ] Prompt variant sprawl.
+- [x] Prompt variant sprawl.
 - [x] Cloud, telemetry, GIF, and callback logic inside the core agent loop.
 
 ## Phase 0: Baseline
@@ -363,7 +363,7 @@ Implement:
 - [x] Extract the shared browser service base into its own module.
 - [x] Extract browser interaction services out of the browser service facade.
 - [x] Split browser interaction services into service-specific modules.
-- [ ] Collapse prompt variants into one renderer with capability/mode blocks.
+- [x] Collapse prompt variants into one renderer with capability/mode blocks.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
