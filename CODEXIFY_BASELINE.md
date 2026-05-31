@@ -1242,3 +1242,38 @@ Results:
 - Pyright: `0 errors`.
 - Search/find browser tests: `24 passed`.
 - Python compile: passed.
+
+## Codexification Verification 60
+
+After the tool-service extractions:
+
+```bash
+uv run python - <<'PY'
+# Inline smoke: ChatBrowserUse + local headless Chromium navigates to example.com and finishes.
+PY
+```
+
+Results:
+
+- Live `ChatBrowserUse` smoke with local Chromium: completed successfully.
+- Actions: `navigate`, `done`.
+- Steps: `2`.
+- Final result: `The main heading on the page is 'Example Domain'.`
+
+## Codexification Verification 61
+
+After extracting dropdown option and selection tool implementations into `browser_use.tools.dropdown`:
+
+```bash
+uv run ruff check browser_use/tools/dropdown.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py
+uv run pyright browser_use/tools/dropdown.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_dropdown_tools_use_direct_service tests/ci/test_tools.py::TestToolsIntegration::test_get_dropdown_options tests/ci/test_tools.py::TestToolsIntegration::test_select_dropdown_option -q
+uv run python -m py_compile browser_use/tools/dropdown.py browser_use/tools/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Browser-backed dropdown direct-service tests: `3 passed`.
+- Python compile: passed.

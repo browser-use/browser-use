@@ -378,6 +378,7 @@ Implement:
 - [x] Extract file, screenshot, and PDF action implementations out of the giant tools service.
 - [x] Extract upload action path validation and file-input discovery out of the giant tools service.
 - [x] Extract zero-LLM page search/find execution and formatting out of the giant tools service.
+- [x] Extract dropdown option/selection tool implementations out of the giant tools service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

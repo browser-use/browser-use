@@ -21,6 +21,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.done_result import build_done_result as build_done_action_result
+from browser_use.tools.dropdown import dropdown_options_action, select_dropdown_action
 from browser_use.tools.evaluate import execute_evaluate_action
 from browser_use.tools.file_actions import (
 	read_file_action,
@@ -976,68 +977,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			param_model=GetDropdownOptionsAction,
 		)
 		async def dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
-			"""Get all options from a native dropdown or ARIA menu"""
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
-			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
-
-			dropdown_data = await BrowserServiceBundle.from_session(browser_session).actions.dropdown.get_options(node)
-
-			if not dropdown_data:
-				raise ValueError('Failed to get dropdown options - no data returned')
-
-			# Use structured memory from the handler
-			return ActionResult(
-				extracted_content=dropdown_data['short_term_memory'],
-				long_term_memory=dropdown_data['long_term_memory'],
-				include_extracted_content_only_once=True,
-			)
+			return await dropdown_options_action(params, browser_session)
 
 		@self.registry.action(
 			'Set the option of a <select> element.',
 			param_model=SelectDropdownOptionAction,
 		)
 		async def select_dropdown(params: SelectDropdownOptionAction, browser_session: BrowserSession):
-			"""Select dropdown option by the text of the option you want to select"""
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
-			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
-
-			selection_data = await BrowserServiceBundle.from_session(browser_session).actions.dropdown.select_option(
-				node, params.text
-			)
-
-			if not selection_data:
-				raise ValueError('Failed to select dropdown option - no data returned')
-
-			# Check if the selection was successful
-			if selection_data.get('success') == 'true':
-				# Extract the message from the returned data
-				msg = selection_data.get('message', f'Selected option: {params.text}')
-				return ActionResult(
-					extracted_content=msg,
-					include_in_memory=True,
-					long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
-				)
-			else:
-				# Handle structured error response
-				# TODO: raise BrowserError instead of returning ActionResult
-				if 'short_term_memory' in selection_data and 'long_term_memory' in selection_data:
-					return ActionResult(
-						extracted_content=selection_data['short_term_memory'],
-						long_term_memory=selection_data['long_term_memory'],
-						include_extracted_content_only_once=True,
-					)
-				else:
-					# Fallback to regular error
-					error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
-					return ActionResult(error=error_msg)
+			return await select_dropdown_action(params, browser_session)
 
 		# File System Actions
 
