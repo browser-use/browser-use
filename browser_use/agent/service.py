@@ -47,6 +47,8 @@ from browser_use.agent.runtime import (
 	BrowserSkill,
 	BrowserSkillRegistry,
 	ModelCapabilities,
+	NativeToolCall,
+	NativeToolRouter,
 )
 from browser_use.agent.views import (
 	ActionResult,
@@ -194,6 +196,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		pricing_url: str | None = None,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
+		use_native_tool_calls: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int | None = None,
 		step_timeout: int = 180,
@@ -386,6 +389,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			page_extraction_llm=page_extraction_llm,
 			calculate_cost=calculate_cost,
 			include_tool_call_examples=include_tool_call_examples,
+			use_native_tool_calls=use_native_tool_calls,
 			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
@@ -562,6 +566,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				run_id=self.session_id,
 				max_actions_per_step=self.settings.max_actions_per_step,
 				runtime_mode='legacy',
+				use_native_tool_calls=self.settings.use_native_tool_calls,
 				stream_events=True,
 			),
 			metadata={'agent_id': self.id, 'task_id': self.task_id},
@@ -1951,6 +1956,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
+		if self.settings.use_native_tool_calls:
+			return await self._get_model_output_with_native_tool_calls(input_messages, urls_replaced)
+
 		# Build kwargs for ainvoke
 		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
 		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
@@ -1983,6 +1991,58 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise
 			# Retry with the fallback LLM
 			return await self.get_model_output(input_messages)
+
+	async def _get_model_output_with_native_tool_calls(
+		self,
+		input_messages: list[BaseMessage],
+		urls_replaced: dict[str, str],
+	) -> AgentOutput:
+		"""Call an LLM with provider-native tools and adapt registered tool calls to legacy action execution."""
+		router = NativeToolRouter.from_tools(self.tools, include_experimental=False)
+		response = await self.llm.ainvoke(
+			input_messages,
+			output_format=None,
+			tools=router.tool_schemas(),
+			tool_choice='auto',
+			parallel_tool_calls=self.settings.max_actions_per_step > 1,
+			session_id=self.session_id,
+		)
+		if not response.tool_calls:
+			raise ValueError('Model returned no native tool calls.')
+
+		actions: list[ActionModel] = []
+		for tool_call in response.tool_calls[: self.settings.max_actions_per_step]:
+			try:
+				arguments = json.loads(tool_call.function.arguments or '{}')
+			except json.JSONDecodeError as exc:
+				raise ValueError(f'Invalid JSON arguments for native tool {tool_call.function.name}: {exc}') from exc
+
+			call = NativeToolCall(
+				tool_name=tool_call.function.name,
+				arguments=arguments,
+				call_id=tool_call.id,
+			)
+			definition = router.resolve(call.tool_name)
+			if definition.source_action is None:
+				raise ValueError(f'Native tool {definition.name} cannot be adapted to the legacy action executor.')
+			validated_params = router.validate_call(call)
+			actions.append(self.ActionModel(**{definition.source_action: validated_params}))
+
+		parsed = self.AgentOutput(
+			evaluation_previous_goal='Received provider-native tool calls.',
+			memory=response.completion or 'Native tool call response.',
+			next_goal='Execute the requested tool calls.',
+			action=actions,
+		)
+		if urls_replaced:
+			self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
+
+		if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+			log_response(parsed, self.tools.registry.registry, self.logger)
+			await self._broadcast_model_state(parsed)
+
+		self._log_next_action_summary(parsed)
+		return parsed
 
 	def _try_switch_to_fallback_llm(self, error: ModelRateLimitError | ModelProviderError) -> bool:
 		"""

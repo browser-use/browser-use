@@ -147,6 +147,7 @@ Implement:
 - [x] Execute native `browser.done` directly instead of routing completion through the registered action adapter.
 - [x] Keep `ActionResult`/tool result content structured and model-readable.
 - [x] Add provider-facing tool result messages and OpenAI native tool-call response parsing.
+- [x] Add an opt-in agent path that adapts provider-native tool calls to existing registered actions.
 
 Core tools:
 

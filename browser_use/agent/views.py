@@ -82,6 +82,7 @@ class AgentSettings(BaseModel):
 	page_extraction_llm: BaseChatModel | None = None
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
+	use_native_tool_calls: bool = False
 	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
 	step_timeout: int = 180  # Timeout in seconds for each step
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures

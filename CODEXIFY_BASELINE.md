@@ -650,6 +650,24 @@ Results:
 - Pyright: `0 errors`.
 - Ruff format: passed.
 
+## Codexification Verification 32
+
+After adding an opt-in `Agent(use_native_tool_calls=True)` path that adapts provider-native tool calls back into existing registered actions:
+
+```bash
+uv run pytest tests/ci/test_agent_native_tool_calls.py browser_use/llm/tests/test_openai_native_tools.py -q
+uv run ruff check browser_use/agent/service.py browser_use/agent/views.py tests/ci/test_agent_native_tool_calls.py browser_use/llm/tests/test_openai_native_tools.py
+uv run pyright browser_use/agent/service.py browser_use/agent/views.py tests/ci/test_agent_native_tool_calls.py browser_use/llm/tests/test_openai_native_tools.py
+uv run ruff format --check browser_use/agent/service.py browser_use/agent/views.py tests/ci/test_agent_native_tool_calls.py browser_use/llm/tests/test_openai_native_tools.py
+```
+
+Results:
+
+- Agent native-tool adapter and OpenAI native-tool tests: `3 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.
+
 ## Codexification Verification 27
 
 After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:
