@@ -17,7 +17,7 @@ These notes describe the current migration state after the codexification cleanu
 - The main `Agent` service is now closer to an orchestrator. File handling, model I/O, run logging, skills, planning policy, judge handling, initial actions, lifecycle controls, variable substitution, action execution, rerun replay, and configuration helpers live in dedicated modules.
 - Browser tool implementations have been split out of the giant tools service into focused action modules.
 - Browser session state, logging identity, and reset cleanup now live in a focused `browser_use.browser.session_state` helper instead of the giant session module.
-- Browser session lifecycle entrypoints and event-handler registration now live in `browser_use.browser.session_lifecycle`.
+- Browser session lifecycle entrypoints, event-handler registration, browser stop handling, and cloud-session cleanup now live in `browser_use.browser.session_lifecycle`.
 - Browser navigation event handling and lifecycle readiness waiting now live in `browser_use.browser.session_navigation`.
 - Browser tab, focus-cache, and download event handlers now live in `browser_use.browser.session_tab_events`.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.

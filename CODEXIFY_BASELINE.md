@@ -2195,3 +2195,19 @@ Results:
 - Pyright: `0 errors`.
 - Tab operations, session start, and direct download-service tracking tests: `7 passed`.
 - Direct download event handler smoke: `_downloaded_files` tracked `/tmp/report.csv`.
+
+## Codexification Verification 89
+
+After moving `BrowserStopEvent` and cloud-session cleanup into `browser_use/browser/session_lifecycle.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_lifecycle.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_lifecycle.py
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_cloud_browser.py::TestBrowserSessionCloudIntegration::test_cloud_browser_profile_property tests/ci/browser/test_cloud_browser.py::TestBrowserSessionCloudIntegration::test_browser_session_cloud_browser_logic -q
+```
+
+Results:
+
+- Ruff: passed after import cleanup.
+- Pyright: `0 errors`.
+- Session start and cloud browser session property/logic tests: `3 passed`.

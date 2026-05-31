@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from bubus import EventBus
 
 from browser_use.browser.events import (
 	AgentFocusChangedEvent,
+	BrowserErrorEvent,
 	BrowserStartEvent,
 	BrowserStopEvent,
+	BrowserStoppedEvent,
 	CloseTabEvent,
 	FileDownloadedEvent,
 	NavigateToUrlEvent,
@@ -92,3 +96,51 @@ class BrowserSessionLifecycleMixin:
 	async def close(self: Any) -> None:
 		"""Alias for stop()."""
 		await self.stop()
+
+	def _cloud_session_id_from_cdp_url(self: Any) -> str | None:
+		"""Derive cloud browser session ID from a Browser Use CDP URL."""
+		if not self.cdp_url:
+			return None
+		host = urlparse(self.cdp_url).hostname or ''
+		match = re.match(r'^([0-9a-fA-F-]{36})\.cdp\d+\.browser-use\.com$', host)
+		return match.group(1) if match else None
+
+	async def on_BrowserStopEvent(self: Any, event: BrowserStopEvent) -> None:
+		"""Handle browser stop request."""
+		try:
+			if self.browser_profile.keep_alive and not event.force:
+				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
+				return
+
+			cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
+			if cloud_session_id:
+				try:
+					await self._cloud_browser_client.stop_browser(cloud_session_id)
+					self.logger.info(f'🌤️ Cloud browser session cleaned up: {cloud_session_id}')
+				except Exception as e:
+					self.logger.debug(f'Failed to cleanup cloud browser session {cloud_session_id}: {e}')
+				finally:
+					try:
+						await self._cloud_browser_client.close()
+					except Exception:
+						pass
+
+			self.logger.info(
+				f'📢 on_BrowserStopEvent - Calling reset() (force={event.force}, keep_alive={self.browser_profile.keep_alive})'
+			)
+			await self.reset()
+
+			if self.is_local:
+				self.browser_profile.cdp_url = None
+
+			stop_event = self.event_bus.dispatch(BrowserStoppedEvent(reason='Stopped by request'))
+			await stop_event
+
+		except Exception as e:
+			self.event_bus.dispatch(
+				BrowserErrorEvent(
+					error_type='BrowserStopEventError',
+					message=f'Failed to stop browser: {type(e).__name__} {e}',
+					details={'cdp_url': self.cdp_url, 'is_local': self.is_local},
+				)
+			)
