@@ -220,7 +220,7 @@ Implement:
 - [x] Add a clean runtime event stream.
 - [ ] Emit events for turns, context, model output, tool calls, browser state, downloads, artifacts, compaction, completion, and failures.
 - [ ] Move cloud sync, telemetry, GIF generation, and user callbacks to subscribers.
-- [ ] Make runs understandable without reading internal debug logs.
+- [x] Make runs understandable without reading internal debug logs.
 
 Example events:
 
@@ -240,7 +240,7 @@ Example events:
 Exit criteria:
 
 - [x] Cloud/telemetry/GIF/callback behavior can be implemented as subscribers.
-- [ ] A failed run can be debugged from events and typed history.
+- [x] A failed run can be debugged from events and typed history.
 
 ## Phase 6: Browser-Harness Escape Hatches
 
