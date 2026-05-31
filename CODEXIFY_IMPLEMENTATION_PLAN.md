@@ -389,6 +389,7 @@ Implement:
 - [x] Extract model output, native tool-call adaptation, URL restoration, empty-action retry, and fallback-LLM switching out of the giant agent service.
 - [x] Extract agent run logging, demo-mode model-state broadcasting, step summaries, and telemetry event construction out of the giant agent service.
 - [x] Extract external skill slugging, registration, and unavailable-cookie reporting out of the giant agent service.
+- [x] Extract planning state updates, replanning/exploration/loop nudges, budget warnings, and forced-done context into a dedicated model-context policy module.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

@@ -1558,3 +1558,21 @@ Results:
 - Typed-context runtime skill tests: `3 passed`.
 - Python compile: passed.
 - Direct fake-skill smoke: duplicate skill slugs and skill action registration passed.
+
+## Codexification Verification 72
+
+After extracting planning state updates, replanning/exploration/loop nudges, budget warnings, and forced-done context into `browser_use.agent.planning.AgentPlanningMixin`:
+
+```bash
+uv run ruff check browser_use/agent/planning.py browser_use/agent/service.py tests/ci/test_agent_planning.py tests/ci/test_budget_warning.py tests/ci/test_action_loop_detection.py
+uv run pyright browser_use/agent/planning.py browser_use/agent/service.py tests/ci/test_agent_planning.py tests/ci/test_budget_warning.py tests/ci/test_action_loop_detection.py
+uv run pytest tests/ci/test_agent_planning.py tests/ci/test_budget_warning.py tests/ci/test_action_loop_detection.py -q
+uv run python -m py_compile browser_use/agent/planning.py browser_use/agent/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Planning, budget-warning, and loop-detection tests: `68 passed`.
+- Python compile: passed.
