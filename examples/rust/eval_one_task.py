@@ -102,10 +102,9 @@ async def main() -> None:
 	print(f'  $ cost       : ${u.cost:.4f}')
 	print(f'  model        : {u.model}')
 
-	trace_id = result.laminar_trace_id
-	if trace_id:
-		pid = os.environ.get('LMNR_PROJECT_ID') or os.environ.get('LMNR_CLOUD_PROJECT_ID') or '<project>'
-		print(f'  laminar      : https://www.lmnr.ai/project/{pid}/traces?traceId={trace_id}')
+	url = result.laminar_trace_url()
+	if url:
+		print(f'  laminar      : {url}')
 
 	print(f'\n== final ==')
 	print(f'  {(result.final_summary or "(no summary)")[:500]}')
