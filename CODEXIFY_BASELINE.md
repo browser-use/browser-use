@@ -1651,3 +1651,21 @@ Results:
 - Runtime event test: `1 passed`.
 - Python compile: passed.
 - Direct fake-judge smoke: `_judge_trace` and `_judge_and_log` passed.
+
+## Codexification Verification 74
+
+After extracting AI-dependent rerun summary generation and extract-step re-evaluation into `browser_use.agent.rerun.AgentRerunMixin`:
+
+```bash
+uv run ruff check browser_use/agent/rerun.py browser_use/agent/service.py tests/ci/test_ai_step.py tests/ci/test_rerun_ai_summary.py
+uv run pyright browser_use/agent/rerun.py browser_use/agent/service.py tests/ci/test_ai_step.py tests/ci/test_rerun_ai_summary.py
+uv run pytest tests/ci/test_ai_step.py tests/ci/test_rerun_ai_summary.py -q
+uv run python -m py_compile browser_use/agent/rerun.py browser_use/agent/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- AI-step and rerun-summary/replay tests: `18 passed`.
+- Python compile: passed.
