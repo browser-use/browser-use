@@ -2164,3 +2164,34 @@ Results:
 - Pyright: `0 errors`.
 - Navigation edge cases plus lifecycle/tab tests: `7 passed`.
 - Direct headless Chromium smoke: current-tab navigation reached `https://example.com/`, new-tab navigation produced `2` tabs, and cleanup completed.
+
+## Codexification Verification 88
+
+After extracting tab, focus, and download event handlers into `browser_use/browser/session_tab_events.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_tab_events.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_tab_events.py
+uv run pytest tests/ci/browser/test_tabs.py tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_browser_services.py::test_browser_download_service_downloads_and_tracks_without_event_dispatch -q
+uv run python - <<'PY'
+import asyncio
+from browser_use.browser import BrowserSession
+from browser_use.browser.events import FileDownloadedEvent
+
+async def main():
+    session = BrowserSession(headless=True)
+    await session.on_FileDownloadedEvent(
+        FileDownloadedEvent(file_name='report.csv', path='/tmp/report.csv', url='https://example.com/report.csv', file_size=3)
+    )
+    assert session.downloaded_files == ['/tmp/report.csv']
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed after import cleanup.
+- Pyright: `0 errors`.
+- Tab operations, session start, and direct download-service tracking tests: `7 passed`.
+- Direct download event handler smoke: `_downloaded_files` tracked `/tmp/report.csv`.

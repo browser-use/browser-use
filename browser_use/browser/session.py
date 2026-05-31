@@ -42,17 +42,14 @@ from browser_use.browser.events import (
 	BrowserStateRequestEvent,
 	BrowserStopEvent,
 	BrowserStoppedEvent,
-	CloseTabEvent,
-	FileDownloadedEvent,
 	NavigateToUrlEvent,
-	SwitchTabEvent,
-	TabClosedEvent,
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.session_lifecycle import BrowserSessionLifecycleMixin
 from browser_use.browser.session_navigation import BrowserSessionNavigationMixin
 from browser_use.browser.session_state import BrowserSessionStateMixin
+from browser_use.browser.session_tab_events import BrowserSessionTabEventsMixin
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
@@ -98,7 +95,13 @@ class CDPSession(BaseModel):
 	_lifecycle_lock: Any = PrivateAttr(default=None)
 
 
-class BrowserSession(BrowserSessionLifecycleMixin, BrowserSessionNavigationMixin, BrowserSessionStateMixin, BaseModel):
+class BrowserSession(
+	BrowserSessionLifecycleMixin,
+	BrowserSessionNavigationMixin,
+	BrowserSessionTabEventsMixin,
+	BrowserSessionStateMixin,
+	BaseModel,
+):
 	"""Event-driven browser session with backwards compatibility.
 
 	This class provides a 2-layer architecture:
@@ -620,145 +623,6 @@ class BrowserSession(BrowserSessionLifecycleMixin, BrowserSessionNavigationMixin
 					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=browser_launch_failure'
 				)
 			raise
-
-	async def on_SwitchTabEvent(self, event: SwitchTabEvent) -> TargetID:
-		"""Handle tab switching - core browser functionality."""
-		if not self.agent_focus_target_id:
-			raise RuntimeError('Cannot switch tabs - browser not connected')
-
-		# Get all page targets
-		page_targets = self.session_manager.get_all_page_targets()
-		if event.target_id is None:
-			# Most recently opened page
-			if page_targets:
-				# Update the target id to be the id of the most recently opened page, then proceed to switch to it
-				event.target_id = page_targets[-1].target_id
-			else:
-				# No pages open at all, create a new one (handles switching to it automatically)
-				assert self._cdp_client_root is not None, 'CDP client root not initialized - browser may not be connected yet'
-				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
-				target_id = new_target['targetId']
-				# Don't await, these may circularly trigger SwitchTabEvent and could deadlock, dispatch to enqueue and return
-				self.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=target_id))
-				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url='about:blank'))
-				return target_id
-
-		# Switch to the target
-		assert event.target_id is not None, 'target_id must be set at this point'
-		# Ensure session exists and update agent focus (only for page/tab targets)
-		cdp_session = await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
-
-		# Visually switch to the tab in the browser
-		# The Force Background Tab extension prevents Chrome from auto-switching when links create new tabs,
-		# but we still want the agent to be able to explicitly switch tabs when needed
-		await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': event.target_id})
-
-		# Get target to access url
-		target = self.session_manager.get_target(event.target_id)
-
-		# dispatch focus changed event
-		await self.event_bus.dispatch(
-			AgentFocusChangedEvent(
-				target_id=target.target_id,
-				url=target.url,
-			)
-		)
-		return target.target_id
-
-	async def on_CloseTabEvent(self, event: CloseTabEvent) -> None:
-		"""Handle tab closure - update focus if needed."""
-		try:
-			# Dispatch tab closed event
-			await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
-
-			# Try to close the target, but don't fail if it's already closed
-			try:
-				cdp_session = await self.get_or_create_cdp_session(target_id=None, focus=False)
-				await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': event.target_id})
-			except Exception as e:
-				self.logger.debug(f'Target may already be closed: {e}')
-		except Exception as e:
-			self.logger.warning(f'Error during tab close cleanup: {e}')
-
-	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
-		"""Handle tab creation - apply viewport settings to new tab."""
-		# Note: Tab switching prevention is handled by the Force Background Tab extension
-		# The extension automatically keeps focus on the current tab when new tabs are created
-
-		# Apply viewport settings if configured
-		if self.browser_profile.viewport and not self.browser_profile.no_viewport:
-			try:
-				viewport_width = self.browser_profile.viewport.width
-				viewport_height = self.browser_profile.viewport.height
-				device_scale_factor = self.browser_profile.device_scale_factor or 1.0
-
-				self.logger.info(
-					f'Setting viewport to {viewport_width}x{viewport_height} with device scale factor {device_scale_factor} whereas original device scale factor was {self.browser_profile.device_scale_factor}'
-				)
-				# Use the helper method with the new tab's target_id
-				await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
-
-				self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
-			except Exception as e:
-				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
-
-	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
-		"""Handle tab closure - update focus if needed."""
-		if not self.agent_focus_target_id:
-			return
-
-		# Get current tab index
-		current_target_id = self.agent_focus_target_id
-
-		# If the closed tab was the current one, find a new target
-		if current_target_id == event.target_id:
-			await self.event_bus.dispatch(SwitchTabEvent(target_id=None))
-
-	async def on_AgentFocusChangedEvent(self, event: AgentFocusChangedEvent) -> None:
-		"""Handle agent focus change - update focus and clear cache."""
-		self.logger.debug(f'🔄 AgentFocusChangedEvent received: target_id=...{event.target_id[-4:]} url={event.url}')
-
-		# Clear cached DOM state since focus changed
-		if self._dom_watchdog:
-			self._dom_watchdog.clear_cache()
-
-		# Clear cached browser state
-		self._cached_browser_state_summary = None
-		self._cached_selector_map.clear()
-		self.logger.debug('🔄 Cached browser state cleared')
-
-		# Update agent focus if a specific target_id is provided (only for page/tab targets)
-		if event.target_id:
-			# Ensure session exists and update agent focus (validates target_type internally)
-			await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
-
-			# Apply viewport settings to the newly focused tab
-			if self.browser_profile.viewport and not self.browser_profile.no_viewport:
-				try:
-					viewport_width = self.browser_profile.viewport.width
-					viewport_height = self.browser_profile.viewport.height
-					device_scale_factor = self.browser_profile.device_scale_factor or 1.0
-
-					# Use the helper method with the current tab's target_id
-					await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
-
-					self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
-				except Exception as e:
-					self.logger.warning(f'Failed to set viewport for tab {event.target_id[-8:]}: {e}')
-		else:
-			raise RuntimeError('AgentFocusChangedEvent received with no target_id for newly focused tab')
-
-	async def on_FileDownloadedEvent(self, event: FileDownloadedEvent) -> None:
-		"""Track downloaded files during this session."""
-		self.logger.debug(f'FileDownloadedEvent received: {event.file_name} at {event.path}')
-		if event.path and event.path not in self._downloaded_files:
-			self._downloaded_files.append(event.path)
-			self.logger.info(f'📁 Tracked download: {event.file_name} ({len(self._downloaded_files)} total downloads in session)')
-		else:
-			if not event.path:
-				self.logger.warning(f'FileDownloadedEvent has no path: {event}')
-			else:
-				self.logger.debug(f'File already tracked: {event.path}')
 
 	def _cloud_session_id_from_cdp_url(self) -> str | None:
 		"""Derive cloud browser session ID from a Browser Use CDP URL."""

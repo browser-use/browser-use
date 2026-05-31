@@ -19,6 +19,7 @@ These notes describe the current migration state after the codexification cleanu
 - Browser session state, logging identity, and reset cleanup now live in a focused `browser_use.browser.session_state` helper instead of the giant session module.
 - Browser session lifecycle entrypoints and event-handler registration now live in `browser_use.browser.session_lifecycle`.
 - Browser navigation event handling and lifecycle readiness waiting now live in `browser_use.browser.session_navigation`.
+- Browser tab, focus-cache, and download event handlers now live in `browser_use.browser.session_tab_events`.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible renderer and state holder.
 
