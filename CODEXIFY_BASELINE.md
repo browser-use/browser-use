@@ -201,3 +201,20 @@ Post-implementation real `ChatBrowserUse` + local Chromium smoke:
 - Steps: `3`
 - Final result: `codexify-agent-ok`
 - Notes: public `Agent` path still works; the new runtime pieces remain side-by-side and do not change default behavior.
+
+## Codexification Verification 2
+
+After adding workspace artifact bridging, context-pressure compaction, direct native navigation services, centralized model capability detection, and lifecycle event helpers:
+
+```bash
+uv run pytest tests/ci/test_runtime_shape.py tests/ci/test_runtime_context.py tests/ci/test_runtime_events.py tests/ci/test_runtime_subscribers.py tests/ci/test_runtime_skills.py tests/ci/test_runtime_compaction.py tests/ci/test_native_tool_router.py -q
+```
+
+Result: `42 passed in 6.71s`.
+
+Real `ChatBrowserUse` + headless local Chromium smoke:
+
+- Success: `True`
+- Steps: `6`
+- Final result: `codexify-agent-ok`
+- Notes: the `data:` URL page produced an empty indexed DOM, but the agent recovered with `evaluate` and completed. This is useful signal for future DOM/read escape-hatch work.
