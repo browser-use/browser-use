@@ -5,6 +5,7 @@ events, artifacts, and tool execution context without changing the existing
 `Agent` execution path.
 """
 
+from browser_use.agent.runtime.agent_bridge import AgentRuntimeEventBridge
 from browser_use.agent.runtime.compaction import (
 	BrowserContextCompactor,
 	CompactionReason,
@@ -73,6 +74,7 @@ __all__ = [
 	'ArtifactRef',
 	'ArtifactStore',
 	'AccessibilityTreeInput',
+	'AgentRuntimeEventBridge',
 	'BrowserContext',
 	'BrowserContextCompactor',
 	'BrowserContextRenderer',

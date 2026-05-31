@@ -16,11 +16,7 @@ if TYPE_CHECKING:
 from dotenv import load_dotenv
 
 from browser_use.agent.cloud_events import (
-	CreateAgentOutputFileEvent,
-	CreateAgentSessionEvent,
 	CreateAgentStepEvent,
-	CreateAgentTaskEvent,
-	UpdateAgentTaskEvent,
 )
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.llm.base import BaseChatModel
@@ -44,13 +40,10 @@ from browser_use.agent.message_manager.service import (
 )
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.runtime import (
-	AgentDoneCallbackSubscriber,
-	AgentStepCallbackSubscriber,
+	AgentRuntimeEventBridge,
 	BrowserAgentSession,
 	BrowserRunConfig,
-	BrowserRuntimeEvent,
 	BrowserRuntimeEventTypes,
-	FilteredAsyncRuntimeEventCallback,
 	ModelCapabilities,
 )
 from browser_use.agent.views import (
@@ -570,7 +563,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			),
 			metadata={'agent_id': self.id, 'task_id': self.task_id},
 		)
-		self._setup_runtime_event_subscribers()
+		self.runtime_events = AgentRuntimeEventBridge(agent=self, runtime_session=self.runtime_session)
+		self.runtime_events.attach()
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
@@ -586,132 +580,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Event-based pause control (kept out of AgentState for serialization)
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
-
-	def _setup_runtime_event_subscribers(self) -> None:
-		"""Attach side-effect subscribers to the runtime stream."""
-
-		stream = self.runtime_session.event_stream
-		if self.register_new_step_callback is not None:
-			stream.subscribe_async(AgentStepCallbackSubscriber(callback=self.register_new_step_callback))
-		if self.register_done_callback is not None:
-			stream.subscribe_async(AgentDoneCallbackSubscriber(callback=self.register_done_callback))
-
-		stream.subscribe_async(
-			FilteredAsyncRuntimeEventCallback(
-				callback=self._dispatch_legacy_cloud_event,
-				event_types={
-					BrowserRuntimeEventTypes.RUN_STARTED,
-					BrowserRuntimeEventTypes.TURN_COMPLETED,
-					BrowserRuntimeEventTypes.RUN_COMPLETED,
-					BrowserRuntimeEventTypes.RUN_FAILED,
-				},
-			)
-		)
-		stream.subscribe_async(
-			FilteredAsyncRuntimeEventCallback(
-				callback=self._capture_telemetry_from_runtime_event,
-				event_types={BrowserRuntimeEventTypes.RUN_COMPLETED, BrowserRuntimeEventTypes.RUN_FAILED},
-			)
-		)
-		stream.subscribe_async(
-			FilteredAsyncRuntimeEventCallback(
-				callback=self._generate_gif_from_runtime_event,
-				event_types={BrowserRuntimeEventTypes.RUN_COMPLETED, BrowserRuntimeEventTypes.RUN_FAILED},
-			)
-		)
-
-	async def _emit_runtime_event(
-		self,
-		event_type: str,
-		*,
-		payload: dict[str, Any] | None = None,
-		turn_id: str | None = None,
-	) -> BrowserRuntimeEvent:
-		return await self.runtime_session.event_stream.emit_async(
-			run_id=self.runtime_session.run_id,
-			turn_id=turn_id,
-			event_type=event_type,
-			payload=payload,
-		)
-
-	async def _dispatch_legacy_cloud_event(self, event: BrowserRuntimeEvent) -> None:
-		"""Bridge observable runtime events to the legacy cloud/eventbus events."""
-
-		if event.payload.get('skip_cloud_events'):
-			return
-
-		if event.event_type == BrowserRuntimeEventTypes.RUN_STARTED:
-			if not self.state.session_initialized:
-				self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
-				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
-				self.state.session_initialized = True
-
-			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
-			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
-			return
-
-		if event.event_type == BrowserRuntimeEventTypes.TURN_COMPLETED:
-			step_event = event.payload.get('legacy_step_event')
-			if step_event is not None:
-				self.eventbus.dispatch(step_event)
-			return
-
-		if event.event_type in {BrowserRuntimeEventTypes.RUN_COMPLETED, BrowserRuntimeEventTypes.RUN_FAILED}:
-			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
-
-	async def _capture_telemetry_from_runtime_event(self, event: BrowserRuntimeEvent) -> None:
-		if event.payload.get('skip_telemetry'):
-			return
-		max_steps = event.payload.get('max_steps')
-		if not isinstance(max_steps, int):
-			return
-		agent_run_error = event.payload.get('agent_run_error')
-		self._log_agent_event(
-			max_steps=max_steps,
-			agent_run_error=agent_run_error if isinstance(agent_run_error, str) else None,
-		)
-
-	async def _generate_gif_from_runtime_event(self, event: BrowserRuntimeEvent) -> None:
-		if event.payload.get('skip_gif') or not self.settings.generate_gif:
-			return
-
-		output_path = 'agent_history.gif'
-		if isinstance(self.settings.generate_gif, str):
-			output_path = self.settings.generate_gif
-
-		from browser_use.agent.gif import create_history_gif
-
-		create_history_gif(task=self.task, history=self.history, output_path=output_path)
-
-		if not Path(output_path).exists() or event.payload.get('skip_cloud_events'):
-			return
-
-		output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
-		self.eventbus.dispatch(output_event)
-
-	async def _emit_run_terminal_event(
-		self,
-		*,
-		max_steps: int,
-		agent_run_error: str | None,
-		skip_telemetry: bool = False,
-		skip_cloud_events: bool = False,
-		skip_gif: bool = False,
-	) -> BrowserRuntimeEvent:
-		event_type = BrowserRuntimeEventTypes.RUN_FAILED if agent_run_error else BrowserRuntimeEventTypes.RUN_COMPLETED
-		return await self._emit_runtime_event(
-			event_type,
-			payload={
-				'max_steps': max_steps,
-				'agent_run_error': agent_run_error,
-				'history': self.history,
-				'success': self.history.is_successful(),
-				'notify_done_callback': agent_run_error is None and self.history.is_done(),
-				'skip_telemetry': skip_telemetry,
-				'skip_cloud_events': skip_cloud_events,
-				'skip_gif': skip_gif,
-			},
-		)
 
 	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
 		"""Enhance task description with output schema information if provided."""
@@ -1510,7 +1378,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				actions_data,
 				browser_state_summary,
 			)
-			await self._emit_runtime_event(
+			await self.runtime_events.emit_runtime_event(
 				BrowserRuntimeEventTypes.TURN_COMPLETED,
 				payload={
 					'step': self.state.n_steps,
@@ -1818,7 +1686,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	) -> None:
 		"""Handle callbacks and conversation saving after LLM interaction"""
 		if self.state.last_model_output:
-			await self._emit_runtime_event(
+			await self.runtime_events.emit_runtime_event(
 				BrowserRuntimeEventTypes.MODEL_DELTA,
 				payload={
 					'browser_state_summary': browser_state_summary,
@@ -2381,7 +2249,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if self.settings.use_judge:
 				await self._judge_and_log()
 
-			await self._emit_run_terminal_event(
+			await self.runtime_events.emit_terminal_event(
 				max_steps=step_info.max_steps if step_info is not None else self.state.n_steps,
 				agent_run_error=None,
 				skip_telemetry=True,
@@ -2640,7 +2508,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._session_start_time = time.time()
 			self._task_start_time = self._session_start_time  # Initialize task start time
 
-			await self._emit_runtime_event(BrowserRuntimeEventTypes.RUN_STARTED, payload={'max_steps': max_steps})
+			await self.runtime_events.emit_runtime_event(BrowserRuntimeEventTypes.RUN_STARTED, payload={'max_steps': max_steps})
 
 			# Log startup message on first step (only if we haven't already done steps)
 			self._log_first_step_startup()
@@ -2773,7 +2641,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# ADDED: Info message when custom telemetry for SIGINT was already logged
 				self.logger.debug('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
 
-			await self._emit_run_terminal_event(
+			await self.runtime_events.emit_terminal_event(
 				max_steps=max_steps,
 				agent_run_error=agent_run_error,
 				skip_telemetry=self._force_exit_telemetry_logged,
