@@ -603,3 +603,21 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Ruff format: passed.
+
+## Codexification Verification 26
+
+After making the public type service call an explicit text-entry handler while preserving the legacy event handler as an adapter:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_browser_services_can_click_and_type_index_without_event_dispatch tests/ci/browser/test_browser_services.py::test_public_tools_click_and_type_use_direct_services -q
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run ruff format --check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Focused direct type/public tool tests: `2 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.

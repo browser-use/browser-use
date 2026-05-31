@@ -17,7 +17,6 @@ from browser_use.browser.events import (
 	FileDownloadedEvent,
 	GetDropdownOptionsEvent,
 	SelectDropdownOptionEvent,
-	TypeTextEvent,
 )
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.views import BrowserError, BrowserStateSummary, TabInfo
@@ -205,14 +204,12 @@ class TypeService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
-		return await self._default_action_watchdog().on_TypeTextEvent(
-			TypeTextEvent(
-				node=node,
-				text=text,
-				clear=clear,
-				is_sensitive=is_sensitive,
-				sensitive_key_name=sensitive_key_name,
-			)
+		return await self._default_action_watchdog().type_text(
+			node,
+			text,
+			clear=clear,
+			is_sensitive=is_sensitive,
+			sensitive_key_name=sensitive_key_name,
 		)
 
 

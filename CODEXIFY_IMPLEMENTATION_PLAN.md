@@ -191,6 +191,7 @@ Implement:
 - [x] Route print-button PDF tracking through the direct download handler.
 - [x] Route coordinate clicks through the direct click handler so they share click/download heuristics.
 - [x] Expose explicit click handler methods and keep event handlers as compatibility adapters.
+- [x] Expose explicit text-entry handler methods and keep event handlers as compatibility adapters.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.
