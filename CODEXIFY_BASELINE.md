@@ -1277,3 +1277,21 @@ Results:
 - Pyright: `0 errors`.
 - Browser-backed dropdown direct-service tests: `3 passed`.
 - Python compile: passed.
+
+## Codexification Verification 62
+
+After extracting the LLM-backed page extraction action into `browser_use.tools.extraction.action`:
+
+```bash
+uv run ruff check browser_use/tools/extraction/action.py browser_use/tools/service.py tests/ci/test_structured_extraction.py tests/ci/test_extract_images.py
+uv run pyright browser_use/tools/extraction/action.py browser_use/tools/service.py tests/ci/test_structured_extraction.py tests/ci/test_extract_images.py
+uv run pytest tests/ci/test_structured_extraction.py::TestExtractStructured tests/ci/test_structured_extraction.py::TestExtractionSchemaInjection tests/ci/test_extract_images.py::TestExtractImagesAutoDetection -q
+uv run python -m py_compile browser_use/tools/extraction/action.py browser_use/tools/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Structured/free-text extraction and image auto-detection tests: `9 passed`.
+- Python compile: passed.
