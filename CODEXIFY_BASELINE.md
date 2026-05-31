@@ -911,3 +911,27 @@ Results:
 - Pyright: `0 errors`.
 - Public service import compatibility: passed.
 - Focused browser service tests: `3 passed`.
+
+## Codexification Verification 43
+
+After extracting click, type, scroll, keyboard, upload, and dropdown services from `browser_use.browser.services` into `browser_use.browser.interaction_services` while preserving public imports from `browser_use.browser.services`:
+
+```bash
+uv run ruff check browser_use/browser/interaction_services.py browser_use/browser/service_base.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/interaction_services.py browser_use/browser/service_base.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run python - <<'PY'
+from browser_use.browser.services import BrowserServiceBundle, ClickService, TypeService, ScrollService, DropdownService
+from browser_use.browser.interaction_services import ClickService as SplitClickService
+assert ClickService is SplitClickService
+assert BrowserServiceBundle and TypeService and ScrollService and DropdownService
+print('interaction facade imports ok')
+PY
+uv run pytest tests/ci/browser/test_browser_services.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Public interaction service import compatibility: passed.
+- Full browser service suite: `15 passed`.
