@@ -364,6 +364,7 @@ Implement:
 - [x] Extract browser interaction services out of the browser service facade.
 - [x] Split browser interaction services into service-specific modules.
 - [x] Collapse prompt variants into one renderer with capability/mode blocks.
+- [x] Extract typed context construction out of the legacy message manager.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

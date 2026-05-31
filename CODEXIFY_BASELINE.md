@@ -982,3 +982,23 @@ Results:
 - Python compile: passed.
 - File-scoped pre-commit on changed files: passed.
 - `uv run pre-commit run --all-files` ran, but the repo-wide Pyright hook still fails on existing serializer type errors outside this slice (`browser_use/llm/*/serializer.py`, `examples/models/langchain/serializer.py`).
+
+## Codexification Verification 46
+
+After extracting typed context construction from `MessageManager` into `MessageContextBuilder` while preserving legacy state-message rendering:
+
+```bash
+uv run ruff check browser_use/agent/message_manager/context_builder.py browser_use/agent/message_manager/service.py tests/ci/test_message_manager_typed_context.py
+uv run pyright browser_use/agent/message_manager/context_builder.py browser_use/agent/message_manager/service.py tests/ci/test_message_manager_typed_context.py
+uv run pytest tests/ci/test_message_manager_typed_context.py -q
+uv run python -m py_compile browser_use/agent/message_manager/context_builder.py browser_use/agent/message_manager/service.py
+uv run pytest tests/ci/test_file_system_llm_integration.py tests/ci/security/test_sensitive_data.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Typed context tests: `3 passed`.
+- Python compile: passed.
+- File-system and sensitive-data message tests: `25 passed`.
