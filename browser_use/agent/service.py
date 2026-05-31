@@ -2,7 +2,6 @@ import asyncio
 import gc
 import json
 import logging
-import re
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
@@ -50,6 +49,14 @@ from browser_use.agent.runtime import (
 	NativeToolCall,
 	NativeToolRouter,
 )
+from browser_use.agent.url_shortening import (
+	process_messages_and_replace_long_urls,
+	replace_shortened_urls_in_string,
+	replace_urls_in_text,
+	restore_shortened_urls_in_dict,
+	restore_shortened_urls_in_model,
+	restore_shortened_urls_in_sequence,
+)
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -79,7 +86,6 @@ from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import (
-	URL_PATTERN,
 	_log_pretty_path,
 	check_latest_browser_use_version,
 	get_browser_use_version,
@@ -1790,6 +1796,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.history.add_item(history_item)
 
 	def _remove_think_tags(self, text: str) -> str:
+		import re
+
 		THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
 		STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
 		# Step 1: Remove well-formed <think>...</think>
@@ -1802,50 +1810,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	# region - URL replacement
 	def _replace_urls_in_text(self, text: str) -> tuple[str, dict[str, str]]:
 		"""Replace URLs in a text string"""
-
-		replaced_urls: dict[str, str] = {}
-
-		def replace_url(match: re.Match) -> str:
-			"""Url can only have 1 query and 1 fragment"""
-			import hashlib
-
-			original_url = match.group(0)
-
-			# Find where the query/fragment starts
-			query_start = original_url.find('?')
-			fragment_start = original_url.find('#')
-
-			# Find the earliest position of query or fragment
-			after_path_start = len(original_url)  # Default: no query/fragment
-			if query_start != -1:
-				after_path_start = min(after_path_start, query_start)
-			if fragment_start != -1:
-				after_path_start = min(after_path_start, fragment_start)
-
-			# Split URL into base (up to path) and after_path (query + fragment)
-			base_url = original_url[:after_path_start]
-			after_path = original_url[after_path_start:]
-
-			# If after_path is within the limit, don't shorten
-			if len(after_path) <= self._url_shortening_limit:
-				return original_url
-
-			# If after_path is too long, truncate and add hash
-			if after_path:
-				truncated_after_path = after_path[: self._url_shortening_limit]
-				# Create a short hash of the full after_path content
-				hash_obj = hashlib.md5(after_path.encode('utf-8'))
-				short_hash = hash_obj.hexdigest()[:7]
-				# Create shortened URL
-				shortened = f'{base_url}{truncated_after_path}...{short_hash}'
-				# Only use shortened URL if it's actually shorter than the original
-				if len(shortened) < len(original_url):
-					replaced_urls[shortened] = original_url
-					return shortened
-
-			return original_url
-
-		return URL_PATTERN.sub(replace_url, text), replaced_urls
+		return replace_urls_in_text(text, self._url_shortening_limit)
 
 	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[BaseMessage]) -> dict[str, str]:
 		"""Replace long URLs with shorter ones
@@ -1854,99 +1819,27 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		returns:
 			tuple[filtered_input_messages, urls we replaced {shorter_url: original_url}]
 		"""
-		from browser_use.llm.messages import AssistantMessage, UserMessage
-
-		urls_replaced: dict[str, str] = {}
-
-		# Process each message, in place
-		for message in input_messages:
-			# no need to process SystemMessage, we have control over that anyway
-			if isinstance(message, (UserMessage, AssistantMessage)):
-				if isinstance(message.content, str):
-					# Simple string content
-					message.content, replaced_urls = self._replace_urls_in_text(message.content)
-					urls_replaced.update(replaced_urls)
-
-				elif isinstance(message.content, list):
-					# List of content parts
-					for part in message.content:
-						if isinstance(part, ContentPartTextParam):
-							part.text, replaced_urls = self._replace_urls_in_text(part.text)
-							urls_replaced.update(replaced_urls)
-
-		return urls_replaced
+		return process_messages_and_replace_long_urls(input_messages, self._url_shortening_limit)
 
 	@staticmethod
 	def _recursive_process_all_strings_inside_pydantic_model(model: BaseModel, url_replacements: dict[str, str]) -> None:
 		"""Recursively process all strings inside a Pydantic model, replacing shortened URLs with originals in place."""
-		for field_name, field_value in model.__dict__.items():
-			if isinstance(field_value, str):
-				# Replace shortened URLs with original URLs in string
-				processed_string = Agent._replace_shortened_urls_in_string(field_value, url_replacements)
-				setattr(model, field_name, processed_string)
-			elif isinstance(field_value, BaseModel):
-				# Recursively process nested Pydantic models
-				Agent._recursive_process_all_strings_inside_pydantic_model(field_value, url_replacements)
-			elif isinstance(field_value, dict):
-				# Process dictionary values in place
-				Agent._recursive_process_dict(field_value, url_replacements)
-			elif isinstance(field_value, (list, tuple)):
-				processed_value = Agent._recursive_process_list_or_tuple(field_value, url_replacements)
-				setattr(model, field_name, processed_value)
+		restore_shortened_urls_in_model(model, url_replacements)
 
 	@staticmethod
 	def _recursive_process_dict(dictionary: dict, url_replacements: dict[str, str]) -> None:
 		"""Helper method to process dictionaries."""
-		for k, v in dictionary.items():
-			if isinstance(v, str):
-				dictionary[k] = Agent._replace_shortened_urls_in_string(v, url_replacements)
-			elif isinstance(v, BaseModel):
-				Agent._recursive_process_all_strings_inside_pydantic_model(v, url_replacements)
-			elif isinstance(v, dict):
-				Agent._recursive_process_dict(v, url_replacements)
-			elif isinstance(v, (list, tuple)):
-				dictionary[k] = Agent._recursive_process_list_or_tuple(v, url_replacements)
+		restore_shortened_urls_in_dict(dictionary, url_replacements)
 
 	@staticmethod
 	def _recursive_process_list_or_tuple(container: list | tuple, url_replacements: dict[str, str]) -> list | tuple:
 		"""Helper method to process lists and tuples."""
-		if isinstance(container, tuple):
-			# For tuples, create a new tuple with processed items
-			processed_items = []
-			for item in container:
-				if isinstance(item, str):
-					processed_items.append(Agent._replace_shortened_urls_in_string(item, url_replacements))
-				elif isinstance(item, BaseModel):
-					Agent._recursive_process_all_strings_inside_pydantic_model(item, url_replacements)
-					processed_items.append(item)
-				elif isinstance(item, dict):
-					Agent._recursive_process_dict(item, url_replacements)
-					processed_items.append(item)
-				elif isinstance(item, (list, tuple)):
-					processed_items.append(Agent._recursive_process_list_or_tuple(item, url_replacements))
-				else:
-					processed_items.append(item)
-			return tuple(processed_items)
-		else:
-			# For lists, modify in place
-			for i, item in enumerate(container):
-				if isinstance(item, str):
-					container[i] = Agent._replace_shortened_urls_in_string(item, url_replacements)
-				elif isinstance(item, BaseModel):
-					Agent._recursive_process_all_strings_inside_pydantic_model(item, url_replacements)
-				elif isinstance(item, dict):
-					Agent._recursive_process_dict(item, url_replacements)
-				elif isinstance(item, (list, tuple)):
-					container[i] = Agent._recursive_process_list_or_tuple(item, url_replacements)
-			return container
+		return restore_shortened_urls_in_sequence(container, url_replacements)
 
 	@staticmethod
 	def _replace_shortened_urls_in_string(text: str, url_replacements: dict[str, str]) -> str:
 		"""Replace all shortened URLs in a string with their original URLs."""
-		result = text
-		for shortened_url, original_url in url_replacements.items():
-			result = result.replace(shortened_url, original_url)
-		return result
+		return replace_shortened_urls_in_string(text, url_replacements)
 
 	# endregion - URL replacement
 
