@@ -2313,3 +2313,22 @@ Results:
 - Tab operation tests: `5 passed`.
 - Direct headless Chromium iframe smoke: found `2` frames, retained a target session, and resolved a frame CDP session.
 - `browser_use/browser/session.py` reduced from `2755` to `2464` lines in this slice.
+
+## Codexification Verification 94
+
+After extracting screenshot helpers into `browser_use/browser/session_screenshots.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_screenshots.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_screenshots.py
+uv run pytest tests/ci/browser/test_screenshot.py -q
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Screenshot tests: `2 passed`.
+- Session start smoke: `1 passed`.
+- `browser_use/browser/session.py` reduced from `2464` to `2343` lines in this slice.
