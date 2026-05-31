@@ -33,7 +33,7 @@ This document is intentionally not a full implementation spec. Each implementati
 - [ ] Fake structured-output action protocol.
 - [x] Bubus/event bus in the hot action path.
 - [ ] Watchdog architecture.
-- [ ] Giant agent/browser/tool files.
+- [x] Giant agent/browser/tool files.
 - [x] Dynamic tool/action model generation.
 - [x] Prompt variant sprawl.
 - [x] Cloud, telemetry, GIF, and callback logic inside the core agent loop.
@@ -410,7 +410,7 @@ Implement:
 - [x] Move browser stop and cloud-session cleanup into the browser session lifecycle helper.
 - [x] Extract browser session navigation event handling and lifecycle waiting out of the giant browser session.
 - [x] Extract browser session tab, focus, and download event handlers out of the giant browser session.
-- [ ] Split giant files into smaller modules once the new runtime owns the behavior.
+- [x] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
 Exit criteria:

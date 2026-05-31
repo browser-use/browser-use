@@ -27,6 +27,7 @@ These notes describe the current migration state after the codexification cleanu
 - Browser visual highlight overlays, coordinate-click highlights, and element-coordinate lookup now live in `browser_use.browser.session_highlights`.
 - Browser tab metadata, current-target lookup, DOM coordinate lookup, selector-map access, and file-input search now live in `browser_use.browser.session_dom`.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
+- The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
 - The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible renderer and state holder.
 
 ## Migration Guidance

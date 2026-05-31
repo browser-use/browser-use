@@ -2387,3 +2387,32 @@ Results:
 - Session start and CDP header tests: `6 passed`.
 - Direct headless Chromium DOM smoke: resolved the button node at coordinates and target id from URL.
 - `browser_use/browser/session.py` reduced from `1753` to `1340` lines in this slice.
+
+## Codexification Verification 97
+
+Current no-judge `ChatBrowserUse` task smoke after the BrowserSession module split:
+
+```bash
+set -a && source /Users/greg/Documents/browser-use/core/library/browser-use/.env && set +a
+uv run python - <<'PY'
+# Runs tests/agent_tasks/browser_use_pip.yaml and tests/agent_tasks/amazon_laptop.yaml
+# with ChatBrowserUse, use_judge=False, and a fresh headless BrowserSession per task.
+PY
+```
+
+Results:
+
+| Scenario | Current Result |
+| --- | --- |
+| `browser_use_pip.yaml` | success `True`, done `True`, `10` steps; final includes `pip install browser-use` and `uv pip install browser-use` |
+| `amazon_laptop.yaml` | success `True`, done `True`, `4` steps; first laptop result returned |
+
+Actions:
+
+- `browser_use_pip.yaml`: `['search', 'search', 'search', 'wait', 'navigate', 'scroll', 'search_page', 'click', 'click', 'done']`.
+- `amazon_laptop.yaml`: `['navigate', 'input', 'click', 'wait', 'scroll', 'done']`.
+
+Notes:
+
+- The pip task spent early steps on DuckDuckGo, Google, and Bing challenges before direct GitHub/docs navigation. It still completed successfully within the task budget.
+- The Amazon task stayed at the previous successful `4` step count.
