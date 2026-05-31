@@ -371,6 +371,7 @@ Implement:
 - [x] Fix shared default `MessageManagerState` construction.
 - [x] Remove dead message-manager logging scaffolding.
 - [x] Extract legacy dynamic `ActionModel` generation into one factory.
+- [x] Extract static DOM search/find scripts out of the giant tools service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

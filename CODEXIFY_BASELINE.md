@@ -1098,3 +1098,21 @@ Results:
 - Focused registry/tool schema tests: `4 passed`.
 - Python compile: passed.
 - Registry core and parameter-injection tests: `19 passed`, `8 skipped`.
+
+## Codexification Verification 52
+
+After extracting the static `search_page` and `find_elements` JavaScript builders into `browser_use.tools.dom_scripts`:
+
+```bash
+uv run ruff check browser_use/tools/dom_scripts.py browser_use/tools/service.py tests/ci/test_search_find.py
+uv run pyright browser_use/tools/dom_scripts.py browser_use/tools/service.py tests/ci/test_search_find.py
+uv run pytest tests/ci/test_search_find.py -q
+uv run python -m py_compile browser_use/tools/dom_scripts.py browser_use/tools/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Search/find browser tests: `24 passed`.
+- Python compile: passed.
