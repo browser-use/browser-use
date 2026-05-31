@@ -52,7 +52,13 @@ def test_browser_service_bundle_exposes_lightweight_state(browser_session) -> No
 
 
 def test_direct_action_services_do_not_define_event_bus_fallbacks() -> None:
-	for service in (ClickService.click_index, TypeService.type_index, DropdownService.get_options, DropdownService.select_option):
+	for service in (
+		ClickService.click_index,
+		ClickService.click_coordinates,
+		TypeService.type_index,
+		DropdownService.get_options,
+		DropdownService.select_option,
+	):
 		assert 'event_bus.dispatch' not in inspect.getsource(service)
 
 

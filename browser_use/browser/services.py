@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
+	ClickCoordinateEvent,
 	ClickElementEvent,
 	FileDownloadedEvent,
 	GetDropdownOptionsEvent,
@@ -183,44 +184,9 @@ class ClickService(BrowserService):
 		button: Literal['left', 'right', 'middle'] = 'left',
 		force: bool = False,
 	) -> dict[str, Any] | None:
-		if not self.browser_session.agent_focus_target_id:
-			raise BrowserError('Cannot click coordinates because no browser target is focused.')
-
-		if not force:
-			element_node = await self.browser_session.get_dom_element_at_coordinates(coordinate_x, coordinate_y)
-			if element_node is not None:
-				if self.browser_session.is_file_input(element_node):
-					return {'validation_error': 'Cannot click a file input by coordinates. Use upload_file instead.'}
-				if element_node.tag_name.lower() == 'select':
-					return {'validation_error': 'Cannot click a <select> by coordinates. Use dropdown tools instead.'}
-
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
-		await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-			params={'type': 'mouseMoved', 'x': coordinate_x, 'y': coordinate_y}, session_id=cdp_session.session_id
+		return await self._default_action_watchdog().on_ClickCoordinateEvent(
+			ClickCoordinateEvent(coordinate_x=coordinate_x, coordinate_y=coordinate_y, button=button, force=force)
 		)
-		await asyncio.sleep(0.05)
-		await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-			params={
-				'type': 'mousePressed',
-				'x': coordinate_x,
-				'y': coordinate_y,
-				'button': button,
-				'clickCount': 1,
-			},
-			session_id=cdp_session.session_id,
-		)
-		await asyncio.sleep(0.05)
-		await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-			params={
-				'type': 'mouseReleased',
-				'x': coordinate_x,
-				'y': coordinate_y,
-				'button': button,
-				'clickCount': 1,
-			},
-			session_id=cdp_session.session_id,
-		)
-		return {'click_x': coordinate_x, 'click_y': coordinate_y}
 
 
 class TypeService(BrowserService):

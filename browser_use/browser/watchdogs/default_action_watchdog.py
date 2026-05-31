@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from typing import Literal
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
@@ -397,7 +398,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			if event.force:
 				self.logger.debug(f'Force clicking at coordinates ({event.coordinate_x}, {event.coordinate_y})')
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True)
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True, button=event.button)
 				)
 
 			# Get element at coordinates for safety checks
@@ -408,7 +409,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
 				)
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False, button=event.button)
 				)
 
 			# Safety check: file input
@@ -440,7 +441,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# All safety checks passed, click at coordinates (with download detection)
 			return await self._execute_click_with_download_detection(
-				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False, button=event.button)
 			)
 
 		except Exception:
@@ -1057,7 +1058,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 				long_term_memory=error_detail,
 			)
 
-	async def _click_on_coordinate(self, coordinate_x: int, coordinate_y: int, force: bool = False) -> dict | None:
+	async def _click_on_coordinate(
+		self,
+		coordinate_x: int,
+		coordinate_y: int,
+		force: bool = False,
+		button: Literal['left', 'right', 'middle'] = 'left',
+	) -> dict | None:
 		"""
 		Click directly at coordinates using CDP Input.dispatchMouseEvent.
 
@@ -1096,7 +1103,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							'type': 'mousePressed',
 							'x': coordinate_x,
 							'y': coordinate_y,
-							'button': 'left',
+							'button': button,
 							'clickCount': 1,
 						},
 						session_id=session_id,
@@ -1115,7 +1122,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							'type': 'mouseReleased',
 							'x': coordinate_x,
 							'y': coordinate_y,
-							'button': 'left',
+							'button': button,
 							'clickCount': 1,
 						},
 						session_id=session_id,

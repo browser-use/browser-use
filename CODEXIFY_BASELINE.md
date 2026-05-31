@@ -565,3 +565,23 @@ Real `ChatBrowserUse` + headless local Chromium download smoke after runtime ski
 - Steps: `4`
 - Final result: `codexify,42`
 - Notes: the task opened a local HTTP page, downloaded `report.csv`, read the downloaded file through the public file tool path, and completed through the public `Agent` path.
+
+## Codexification Verification 24
+
+After routing coordinate clicks through the direct click handler instead of duplicating raw CDP dispatch in `ClickService`:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_browser_services_can_navigate_and_click_coordinates_without_event_dispatch tests/ci/test_native_tool_router.py::test_native_tool_router_executes_coordinate_click -q
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run ruff format --check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Coordinate-click direct service and native-router tests: `2 passed`.
+- Browser service suite: `15 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.
