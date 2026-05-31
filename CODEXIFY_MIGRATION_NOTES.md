@@ -28,6 +28,7 @@ These notes describe the current migration state after the codexification cleanu
 - Browser tab metadata, current-target lookup, DOM coordinate lookup, selector-map access, and file-input search now live in `browser_use.browser.session_dom`.
 - Provider-native `browser.done` schemas now use a native `StructuredDoneInput` model instead of reusing the legacy `StructuredOutputAction` action wrapper. The legacy structured-output action remains as a compatibility wrapper for action-list mode.
 - Browser state capture now calls the DOM state builder directly instead of dispatching `BrowserStateRequestEvent`; screenshot capture during state refresh also uses direct CDP instead of `ScreenshotEvent`. The event handlers remain as compatibility adapters.
+- The MCP server's direct browser-control methods now call `BrowserServiceBundle` services instead of dispatching browser action events.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
 - The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible renderer and state holder.

@@ -92,6 +92,7 @@ logging.disable(logging.CRITICAL)
 # Import browser_use modules
 from browser_use import ActionModel, Agent
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.services import BrowserServiceBundle
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.openai.chat import ChatOpenAI
@@ -746,16 +747,10 @@ class BrowserUseServer:
 		# Update session activity
 		self._update_session_activity(self.browser_session.id)
 
-		from browser_use.browser.events import NavigateToUrlEvent
-
+		await BrowserServiceBundle.from_session(self.browser_session).navigation.navigate(url, new_tab=new_tab)
 		if new_tab:
-			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
-			await event
 			return f'Opened new tab with URL: {url}'
-		else:
-			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
-			await event
-			return f'Navigated to: {url}'
+		return f'Navigated to: {url}'
 
 	async def _click(
 		self,
@@ -773,12 +768,10 @@ class BrowserUseServer:
 
 		# Coordinate-based clicking
 		if coordinate_x is not None and coordinate_y is not None:
-			from browser_use.browser.events import ClickCoordinateEvent
-
-			event = self.browser_session.event_bus.dispatch(
-				ClickCoordinateEvent(coordinate_x=coordinate_x, coordinate_y=coordinate_y)
+			await BrowserServiceBundle.from_session(self.browser_session).actions.click.click_coordinates(
+				coordinate_x,
+				coordinate_y,
 			)
-			await event
 			return f'Clicked at coordinates ({coordinate_x}, {coordinate_y})'
 
 		# Index-based clicking
@@ -806,25 +799,13 @@ class BrowserUseServer:
 				else:
 					full_url = href
 
-				# Open link in new tab
-				from browser_use.browser.events import NavigateToUrlEvent
-
-				event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=full_url, new_tab=True))
-				await event
+				await BrowserServiceBundle.from_session(self.browser_session).navigation.navigate(full_url, new_tab=True)
 				return f'Clicked element {index} and opened in new tab {full_url[:20]}...'
 			else:
-				# For non-link elements, just do a normal click
-				from browser_use.browser.events import ClickElementEvent
-
-				event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
-				await event
+				await BrowserServiceBundle.from_session(self.browser_session).actions.click.click_node(element)
 				return f'Clicked element {index} (new tab not supported for non-link elements)'
 		else:
-			# Normal click
-			from browser_use.browser.events import ClickElementEvent
-
-			event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
-			await event
+			await BrowserServiceBundle.from_session(self.browser_session).actions.click.click_node(element)
 			return f'Clicked element {index}'
 
 	async def _type_text(self, index: int, text: str) -> str:
@@ -835,8 +816,6 @@ class BrowserUseServer:
 		element = await self.browser_session.get_dom_element_by_index(index)
 		if not element:
 			return f'Element with index {index} not found'
-
-		from browser_use.browser.events import TypeTextEvent
 
 		# Conservative heuristic to detect potentially sensitive data
 		# Only flag very obvious patterns to minimize false positives
@@ -860,10 +839,12 @@ class BrowserUseServer:
 			else:
 				sensitive_key_name = 'credential'
 
-		event = self.browser_session.event_bus.dispatch(
-			TypeTextEvent(node=element, text=text, is_sensitive=is_potentially_sensitive, sensitive_key_name=sensitive_key_name)
+		await BrowserServiceBundle.from_session(self.browser_session).actions.type.type_node(
+			element,
+			text,
+			is_sensitive=is_potentially_sensitive,
+			sensitive_key_name=sensitive_key_name,
 		)
-		await event
 
 		if is_potentially_sensitive:
 			if sensitive_key_name:
@@ -1027,16 +1008,10 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		from browser_use.browser.events import ScrollEvent
-
 		# Scroll by a standard amount (500 pixels)
-		event = self.browser_session.event_bus.dispatch(
-			ScrollEvent(
-				direction=direction,  # type: ignore
-				amount=500,
-			)
-		)
-		await event
+		if direction not in ('up', 'down', 'left', 'right'):
+			return f'Error: Unsupported scroll direction: {direction}'
+		await BrowserServiceBundle.from_session(self.browser_session).actions.scroll.scroll_page(500, direction=direction)
 		return f'Scrolled {direction}'
 
 	async def _go_back(self) -> str:
@@ -1044,19 +1019,13 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		from browser_use.browser.events import GoBackEvent
-
-		event = self.browser_session.event_bus.dispatch(GoBackEvent())
-		await event
+		await BrowserServiceBundle.from_session(self.browser_session).navigation.go_back()
 		return 'Navigated back'
 
 	async def _close_browser(self) -> str:
 		"""Close the browser session."""
 		if self.browser_session:
-			from browser_use.browser.events import BrowserStopEvent
-
-			event = self.browser_session.event_bus.dispatch(BrowserStopEvent())
-			await event
+			await self.browser_session.stop()
 			self.browser_session = None
 			self.tools = None
 			return 'Browser closed'
@@ -1078,11 +1047,8 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		from browser_use.browser.events import SwitchTabEvent
-
 		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
-		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-		await event
+		await BrowserServiceBundle.from_session(self.browser_session).tabs.switch(target_id)
 		state = await self.browser_session.get_browser_state_summary()
 		return f'Switched to tab {tab_id}: {state.url}'
 
@@ -1091,11 +1057,8 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		from browser_use.browser.events import CloseTabEvent
-
 		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
-		event = self.browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
-		await event
+		await BrowserServiceBundle.from_session(self.browser_session).tabs.close(target_id)
 		current_url = await self.browser_session.get_current_page_url()
 		return f'Closed tab # {tab_id}, now on {current_url}'
 

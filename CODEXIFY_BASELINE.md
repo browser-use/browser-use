@@ -2492,3 +2492,20 @@ Notes:
 
 - The pip task still hit search-engine challenges but recovered through direct GitHub/docs navigation.
 - The pip task improved from `10` to `8` steps in this smoke; Amazon stayed at the previous successful `4` step count.
+
+## Codexification Verification 101
+
+After routing MCP direct browser-control methods through `BrowserServiceBundle` instead of browser action events:
+
+```bash
+uv run ruff check browser_use/mcp/server.py
+uv run pyright browser_use/mcp/server.py
+uv run pytest tests/ci/security/test_mcp_allowed_domains.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- MCP allowed-domain security tests: `3 passed`.
+- `browser_use/mcp/server.py` no longer dispatches browser action events for navigate, click, type, scroll, go-back, switch-tab, close-tab, or close-browser.
