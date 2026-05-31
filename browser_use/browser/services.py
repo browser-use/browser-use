@@ -169,7 +169,53 @@ class ClickService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
-		return await self._default_action_watchdog().click_element(node, button=button)
+		return await self.click_node(node, button=button)
+
+	async def click_node(
+		self,
+		node: EnhancedDOMTreeNode,
+		*,
+		button: Literal['left', 'right', 'middle'] = 'left',
+	) -> dict[str, Any] | None:
+		"""Click an element while preserving current safety, print, and download heuristics."""
+		_ = button  # Element clicking currently preserves the historical left-click behavior.
+		action_handler = self._default_action_watchdog()
+		if not self.browser_session.agent_focus_target_id:
+			error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
+			self.browser_session.logger.error(error_msg)
+			raise BrowserError(error_msg)
+
+		index_for_logging = node.backend_node_id or 'unknown'
+		if self.browser_session.is_file_input(node):
+			msg = (
+				f'Index {index_for_logging} - has an element which opens file upload dialog. '
+				'To upload files please use a specific function to upload files'
+			)
+			self.browser_session.logger.info(msg)
+			return {'validation_error': msg}
+
+		if action_handler._is_print_related_element(node):
+			self.browser_session.logger.info(
+				f'🖨️ Detected print button (index {index_for_logging}), generating PDF directly instead of opening dialog...'
+			)
+			click_metadata = await action_handler._handle_print_button_click(node)
+			if click_metadata and click_metadata.get('pdf_generated'):
+				self.browser_session.logger.info(f'💾 Generated PDF: {click_metadata.get("path")}')
+				return click_metadata
+			self.browser_session.logger.warning('⚠️ PDF generation failed, falling back to regular click')
+
+		click_metadata = await action_handler._execute_click_with_download_detection(
+			action_handler._click_element_node_impl(node)
+		)
+		if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
+			self.browser_session.logger.info(f'{click_metadata["validation_error"]}')
+			return click_metadata
+
+		if 'download' not in (click_metadata or {}):
+			msg = f'Clicked button {node.node_name}: {node.get_all_children_text(max_depth=2)}'
+			self.browser_session.logger.debug(f'🖱️ {msg}')
+		self.browser_session.logger.debug(f'Element xpath: {node.xpath}')
+		return click_metadata
 
 	async def click_coordinates(
 		self,
@@ -179,11 +225,55 @@ class ClickService(BrowserService):
 		button: Literal['left', 'right', 'middle'] = 'left',
 		force: bool = False,
 	) -> dict[str, Any] | None:
-		return await self._default_action_watchdog().click_coordinates(
-			coordinate_x,
-			coordinate_y,
-			button=button,
-			force=force,
+		action_handler = self._default_action_watchdog()
+		if not self.browser_session.agent_focus_target_id:
+			error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
+			self.browser_session.logger.error(error_msg)
+			raise BrowserError(error_msg)
+
+		if force:
+			self.browser_session.logger.debug(f'Force clicking at coordinates ({coordinate_x}, {coordinate_y})')
+			return await action_handler._execute_click_with_download_detection(
+				action_handler._click_on_coordinate(coordinate_x, coordinate_y, force=True, button=button)
+			)
+
+		node = await self.browser_session.get_dom_element_at_coordinates(coordinate_x, coordinate_y)
+		if node is None:
+			self.browser_session.logger.debug(
+				f'No element found at coordinates ({coordinate_x}, {coordinate_y}), proceeding with click anyway'
+			)
+			return await action_handler._execute_click_with_download_detection(
+				action_handler._click_on_coordinate(coordinate_x, coordinate_y, force=False, button=button)
+			)
+
+		if self.browser_session.is_file_input(node):
+			msg = (
+				f'Cannot click at ({coordinate_x}, {coordinate_y}) - element is a file input. '
+				'To upload files please use upload_file action'
+			)
+			self.browser_session.logger.info(msg)
+			return {'validation_error': msg}
+
+		tag_name = node.tag_name.lower() if node.tag_name else ''
+		if tag_name == 'select':
+			msg = (
+				f'Cannot click at ({coordinate_x}, {coordinate_y}) - element is a <select>. Use dropdown_options action instead.'
+			)
+			self.browser_session.logger.info(msg)
+			return {'validation_error': msg}
+
+		if action_handler._is_print_related_element(node):
+			self.browser_session.logger.info(
+				f'🖨️ Detected print button at ({coordinate_x}, {coordinate_y}), generating PDF directly instead of opening dialog...'
+			)
+			click_metadata = await action_handler._handle_print_button_click(node)
+			if click_metadata and click_metadata.get('pdf_generated'):
+				self.browser_session.logger.info(f'💾 Generated PDF: {click_metadata.get("path")}')
+				return click_metadata
+			self.browser_session.logger.warning('⚠️ PDF generation failed, falling back to regular click')
+
+		return await action_handler._execute_click_with_download_detection(
+			action_handler._click_on_coordinate(coordinate_x, coordinate_y, force=False, button=button)
 		)
 
 

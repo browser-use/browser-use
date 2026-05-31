@@ -639,3 +639,21 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Ruff format: passed.
+
+## Codexification Verification 28
+
+After moving click safety, print-PDF, and download-detection decision logic into `ClickService` while leaving legacy watchdog click methods as adapters:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_browser_service_bundle_navigates_and_clicks tests/ci/browser/test_browser_services.py::test_browser_services_can_navigate_and_click_coordinates_without_event_dispatch tests/ci/browser/test_browser_services.py::test_print_button_click_tracks_pdf_without_download_event_dispatch tests/ci/test_native_tool_router.py::test_native_tool_router_executes_coordinate_click -q
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+uv run ruff format --check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+```
+
+Results:
+
+- Focused click/print/coordinate tests: `4 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.

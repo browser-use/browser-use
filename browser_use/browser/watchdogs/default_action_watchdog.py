@@ -343,55 +343,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 		*,
 		button: Literal['left', 'right', 'middle'] = 'left',
 	) -> dict | None:
-		"""Click an element with CDP and automatically wait for file downloads if triggered."""
-		_ = button  # Element clicking currently preserves the historical left-click behavior.
-		try:
-			# Check if session is alive before attempting any operations
-			if not self.browser_session.agent_focus_target_id:
-				error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
-				self.logger.error(f'{error_msg}')
-				raise BrowserError(error_msg)
+		"""Compatibility adapter for direct click calls that still reference this handler."""
+		from browser_use.browser.services import ClickService
 
-			index_for_logging = element_node.backend_node_id or 'unknown'
-
-			# Check if element is a file input (should not be clicked)
-			if self.browser_session.is_file_input(element_node):
-				msg = f'Index {index_for_logging} - has an element which opens file upload dialog. To upload files please use a specific function to upload files'
-				self.logger.info(f'{msg}')
-				return {'validation_error': msg}
-
-			# Detect print-related elements and handle them specially
-			is_print_element = self._is_print_related_element(element_node)
-			if is_print_element:
-				self.logger.info(
-					f'🖨️ Detected print button (index {index_for_logging}), generating PDF directly instead of opening dialog...'
-				)
-				click_metadata = await self._handle_print_button_click(element_node)
-				if click_metadata and click_metadata.get('pdf_generated'):
-					msg = f'Generated PDF: {click_metadata.get("path")}'
-					self.logger.info(f'💾 {msg}')
-					return click_metadata
-				else:
-					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
-
-			# Execute click with automatic download detection
-			click_metadata = await self._execute_click_with_download_detection(self._click_element_node_impl(element_node))
-
-			# Check for validation errors
-			if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
-				self.logger.info(f'{click_metadata["validation_error"]}')
-				return click_metadata
-
-			# Build success message for non-download clicks
-			if 'download' not in (click_metadata or {}):
-				msg = f'Clicked button {element_node.node_name}: {element_node.get_all_children_text(max_depth=2)}'
-				self.logger.debug(f'🖱️ {msg}')
-			self.logger.debug(f'Element xpath: {element_node.xpath}')
-
-			return click_metadata
-
-		except Exception:
-			raise
+		return await ClickService(browser_session=self.browser_session).click_node(element_node, button=button)
 
 	async def on_ClickCoordinateEvent(self, event: ClickCoordinateEvent) -> dict | None:
 		"""Compatibility adapter for legacy event-based coordinate click dispatch."""
@@ -410,66 +365,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 		button: Literal['left', 'right', 'middle'] = 'left',
 		force: bool = False,
 	) -> dict | None:
-		"""Click page coordinates with CDP and automatically wait for file downloads if triggered."""
-		try:
-			# Check if session is alive before attempting any operations
-			if not self.browser_session.agent_focus_target_id:
-				error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
-				self.logger.error(f'{error_msg}')
-				raise BrowserError(error_msg)
+		"""Compatibility adapter for direct coordinate-click calls that still reference this handler."""
+		from browser_use.browser.services import ClickService
 
-			# If force=True, skip safety checks and click directly (with download detection)
-			if force:
-				self.logger.debug(f'Force clicking at coordinates ({coordinate_x}, {coordinate_y})')
-				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(coordinate_x, coordinate_y, force=True, button=button)
-				)
-
-			# Get element at coordinates for safety checks
-			element_node = await self.browser_session.get_dom_element_at_coordinates(coordinate_x, coordinate_y)
-			if element_node is None:
-				# No element found, click directly (with download detection)
-				self.logger.debug(
-					f'No element found at coordinates ({coordinate_x}, {coordinate_y}), proceeding with click anyway'
-				)
-				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(coordinate_x, coordinate_y, force=False, button=button)
-				)
-
-			# Safety check: file input
-			if self.browser_session.is_file_input(element_node):
-				msg = f'Cannot click at ({coordinate_x}, {coordinate_y}) - element is a file input. To upload files please use upload_file action'
-				self.logger.info(f'{msg}')
-				return {'validation_error': msg}
-
-			# Safety check: select element
-			tag_name = element_node.tag_name.lower() if element_node.tag_name else ''
-			if tag_name == 'select':
-				msg = f'Cannot click at ({coordinate_x}, {coordinate_y}) - element is a <select>. Use dropdown_options action instead.'
-				self.logger.info(f'{msg}')
-				return {'validation_error': msg}
-
-			# Safety check: print-related elements
-			is_print_element = self._is_print_related_element(element_node)
-			if is_print_element:
-				self.logger.info(
-					f'🖨️ Detected print button at ({coordinate_x}, {coordinate_y}), generating PDF directly instead of opening dialog...'
-				)
-				click_metadata = await self._handle_print_button_click(element_node)
-				if click_metadata and click_metadata.get('pdf_generated'):
-					msg = f'Generated PDF: {click_metadata.get("path")}'
-					self.logger.info(f'💾 {msg}')
-					return click_metadata
-				else:
-					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
-
-			# All safety checks passed, click at coordinates (with download detection)
-			return await self._execute_click_with_download_detection(
-				self._click_on_coordinate(coordinate_x, coordinate_y, force=False, button=button)
-			)
-
-		except Exception:
-			raise
+		return await ClickService(browser_session=self.browser_session).click_coordinates(
+			coordinate_x,
+			coordinate_y,
+			button=button,
+			force=force,
+		)
 
 	async def on_TypeTextEvent(self, event: TypeTextEvent) -> dict | None:
 		"""Compatibility adapter for legacy event-based text entry dispatch."""
