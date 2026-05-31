@@ -1888,3 +1888,48 @@ Results:
 - Python compile: passed.
 - AI-step tests: `3 passed`.
 - Rerun replay, cleanup, retry, AX-name rematching, and menu heuristic tests: `25 passed`.
+
+## Codexification Verification 80
+
+After moving task schema enhancement, model identity properties, package source/version setup, LLM verification, message-manager facade access, and action-model setup into `browser_use.agent.configuration.AgentConfigurationMixin`:
+
+```bash
+uv run ruff check browser_use/agent/configuration.py browser_use/agent/service.py
+uv run pyright browser_use/agent/configuration.py browser_use/agent/service.py
+uv run python -m py_compile browser_use/agent/configuration.py browser_use/agent/service.py
+uv run pytest tests/ci/test_fallback_llm.py tests/ci/test_agent_native_tool_calls.py -q
+uv run python - <<'PY'
+from unittest.mock import AsyncMock
+
+from pydantic import BaseModel
+
+from browser_use import Agent
+from browser_use.llm.base import BaseChatModel
+
+class OutputSchema(BaseModel):
+    answer: str
+
+llm = AsyncMock(spec=BaseChatModel)
+llm.provider = 'mock'
+llm.model = 'mock-model'
+llm.name = 'mock-model'
+agent = Agent(task='configuration smoke', llm=llm, output_model_schema=OutputSchema, use_judge=False, directly_open_url=False)
+assert 'Expected output format: OutputSchema' in agent.task
+assert agent.current_llm_model == 'mock-model'
+assert agent.is_using_fallback_llm is False
+assert agent.message_manager is agent._message_manager
+assert agent.ActionModel is not None
+assert agent.AgentOutput is not None
+assert agent.DoneActionModel is not None
+assert agent.DoneAgentOutput is not None
+print('configuration smoke ok')
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Python compile: passed.
+- Fallback/native tool-call tests: `16 passed`.
+- Direct configuration smoke: schema enhancement, public model properties, message manager property, and action model setup passed.

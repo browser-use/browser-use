@@ -23,6 +23,7 @@ from uuid_extensions import uuid7str
 
 from browser_use import Browser, BrowserProfile, BrowserSession
 from browser_use.agent.action_execution import AgentActionExecutionMixin
+from browser_use.agent.configuration import AgentConfigurationMixin
 from browser_use.agent.files import AgentFileSystemMixin
 from browser_use.agent.initial_actions import AgentInitialActionsMixin
 from browser_use.agent.judge import AgentJudgeMixin
@@ -72,7 +73,6 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.tools.service import Tools
 from browser_use.utils import (
 	_log_pretty_path,
-	get_browser_use_version,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -89,6 +89,7 @@ AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 class Agent(
 	AgentFileSystemMixin,
 	AgentActionExecutionMixin,
+	AgentConfigurationMixin,
 	AgentModelIOMixin,
 	AgentJudgeMixin,
 	AgentRunLoggingMixin,
@@ -555,96 +556,6 @@ class Agent(
 		# Event-based pause control (kept out of AgentState for serialization)
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
-
-	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
-		"""Enhance task description with output schema information if provided."""
-		if output_model_schema is None:
-			return task
-
-		try:
-			schema = output_model_schema.model_json_schema()
-			import json
-
-			schema_json = json.dumps(schema, indent=2)
-
-			enhancement = f'\nExpected output format: {output_model_schema.__name__}\n{schema_json}'
-			return task + enhancement
-		except Exception as e:
-			self.logger.debug(f'Could not parse output schema: {e}')
-
-		return task
-
-	@property
-	def logger(self) -> logging.Logger:
-		"""Get instance-specific logger with task ID in the name"""
-		# logger may be called in __init__ so we don't assume self.* attributes have been initialized
-		_task_id = task_id[-4:] if (task_id := getattr(self, 'task_id', None)) else '----'
-		_browser_session_id = browser_session.id[-4:] if (browser_session := getattr(self, 'browser_session', None)) else '----'
-		_current_target_id = (
-			browser_session.agent_focus_target_id[-2:]
-			if (browser_session := getattr(self, 'browser_session', None)) and browser_session.agent_focus_target_id
-			else '--'
-		)
-		return logging.getLogger(f'browser_use.Agent🅰 {_task_id} ⇢ 🅑 {_browser_session_id} 🅣 {_current_target_id}')
-
-	@property
-	def browser_profile(self) -> BrowserProfile:
-		assert self.browser_session is not None, 'BrowserSession is not set up'
-		return self.browser_session.browser_profile
-
-	@property
-	def is_using_fallback_llm(self) -> bool:
-		"""Check if the agent is currently using the fallback LLM."""
-		return self._using_fallback_llm
-
-	@property
-	def current_llm_model(self) -> str:
-		"""Get the model name of the currently active LLM."""
-		return self.llm.model if hasattr(self.llm, 'model') else 'unknown'
-
-	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
-		"""Get the version from pyproject.toml and determine the source of the browser-use package"""
-		# Use the helper function for version detection
-		version = get_browser_use_version()
-
-		# Determine source
-		try:
-			package_root = Path(__file__).parent.parent.parent
-			repo_files = ['.git', 'README.md', 'docs', 'examples']
-			if all(Path(package_root / file).exists() for file in repo_files):
-				source = 'git'
-			else:
-				source = 'pip'
-		except Exception as e:
-			self.logger.debug(f'Error determining source: {e}')
-			source = 'unknown'
-
-		if source_override is not None:
-			source = source_override
-		# self.logger.debug(f'Version: {version}, Source: {source}')  # moved later to _log_agent_run so that people are more likely to include it in copy-pasted support ticket logs
-		self.version = version
-		self.source = source
-
-	def _setup_action_models(self) -> None:
-		"""Setup dynamic action models from tools registry"""
-		# Initially only include actions with no filters
-		self.ActionModel = self.tools.registry.create_action_model()
-		# Create output model with the dynamic actions
-		if self.settings.flash_mode:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
-		elif self.settings.use_thinking:
-			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
-		else:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
-
-		# used to force the done action when max_steps is reached
-		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'])
-		if self.settings.flash_mode:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
-		elif self.settings.use_thinking:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
-		else:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
 
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a new task to the agent, keeping the same task_id as tasks are continuous"""
@@ -1471,39 +1382,3 @@ class Agent(
 		if self.history.is_successful():
 			self.logger.info('✅ Task completed successfully')
 			await self._demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
-
-	def _verify_and_setup_llm(self):
-		"""
-		Verify that the LLM API keys are setup and the LLM API is responding properly.
-		Also handles tool calling method detection if in auto mode.
-		"""
-
-		# Skip verification if already done
-		if getattr(self.llm, '_verified_api_keys', None) is True or CONFIG.SKIP_LLM_API_KEY_VERIFICATION:
-			setattr(self.llm, '_verified_api_keys', True)
-			return True
-
-	@property
-	def message_manager(self) -> MessageManager:
-		return self._message_manager
-
-	async def _update_action_models_for_page(self, page_url: str) -> None:
-		"""Update action models with page-specific actions"""
-		# Create new action model with current page's filtered actions
-		self.ActionModel = self.tools.registry.create_action_model(page_url=page_url)
-		# Update output model with the new actions
-		if self.settings.flash_mode:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
-		elif self.settings.use_thinking:
-			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
-		else:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
-
-		# Update done action model too
-		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'], page_url=page_url)
-		if self.settings.flash_mode:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
-		elif self.settings.use_thinking:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
-		else:
-			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
