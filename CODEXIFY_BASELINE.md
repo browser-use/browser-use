@@ -722,6 +722,24 @@ Results:
 - Pyright: `0 errors`.
 - Ruff format: passed.
 
+## Codexification Verification 36
+
+After making legacy navigation and keyboard handlers delegate to direct services:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_navigation_and_keyboard_tools_use_direct_services tests/ci/test_native_tool_router.py::test_native_tool_router_executes_direct_navigation_go_back_and_page_scroll -q
+uv run ruff check browser_use/browser/watchdogs/default_action_watchdog.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+uv run pyright browser_use/browser/watchdogs/default_action_watchdog.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+uv run ruff format --check browser_use/browser/watchdogs/default_action_watchdog.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+```
+
+Results:
+
+- Focused navigation/keyboard tests: `2 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.
+
 ## Codexification Verification 27
 
 After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:

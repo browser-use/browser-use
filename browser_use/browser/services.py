@@ -85,6 +85,27 @@ class NavigationService(BrowserService):
 		await asyncio.sleep(0.5)
 		return str(previous_entry.get('url', ''))
 
+	async def go_forward(self) -> str | None:
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+		history = await cdp_session.cdp_client.send.Page.getNavigationHistory(session_id=cdp_session.session_id)
+		current_index = history['currentIndex']
+		entries = history['entries']
+		if current_index >= len(entries) - 1:
+			return None
+
+		next_entry = entries[current_index + 1]
+		await cdp_session.cdp_client.send.Page.navigateToHistoryEntry(
+			params={'entryId': next_entry['id']},
+			session_id=cdp_session.session_id,
+		)
+		await asyncio.sleep(0.5)
+		return str(next_entry.get('url', ''))
+
+	async def refresh(self) -> None:
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+		await cdp_session.cdp_client.send.Page.reload(session_id=cdp_session.session_id)
+		await asyncio.sleep(1.0)
+
 	async def current_url(self) -> str:
 		return await self.browser_session.get_current_page_url()
 

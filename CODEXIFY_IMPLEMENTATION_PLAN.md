@@ -200,6 +200,7 @@ Implement:
 - [x] Move text-entry fallback and sensitive logging policy into `TypeService`.
 - [x] Make legacy scroll and scroll-to-text handlers delegate to `ScrollService`.
 - [x] Make legacy upload handler delegate to `UploadService`.
+- [x] Make legacy navigation and keyboard handlers delegate to direct services.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.
