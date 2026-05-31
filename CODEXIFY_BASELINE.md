@@ -1116,3 +1116,21 @@ Results:
 - Pyright: `0 errors`.
 - Search/find browser tests: `24 passed`.
 - Python compile: passed.
+
+## Codexification Verification 53
+
+After extracting legacy and structured `done` result construction into `browser_use.tools.done_result`:
+
+```bash
+uv run ruff check browser_use/tools/done_result.py browser_use/tools/service.py tests/ci/test_tools.py
+uv run pyright browser_use/tools/done_result.py browser_use/tools/service.py tests/ci/test_tools.py
+uv run pytest tests/ci/test_tools.py::TestToolsIntegration::test_done_action tests/ci/test_tools.py::TestStructuredOutputDoneWithFiles -q
+uv run python -m py_compile browser_use/tools/done_result.py browser_use/tools/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Done/structured-output tool tests: `7 passed`.
+- Python compile: passed.
