@@ -805,3 +805,23 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Ruff format: passed.
+
+## Codexification Verification 38
+
+After moving dropdown option extraction and selection policy into `DropdownService` while keeping legacy watchdog dropdown handlers as adapters:
+
+```bash
+uv run python -m py_compile browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_dropdown_tools_use_direct_service tests/ci/test_tools.py::TestToolsIntegration::test_get_dropdown_options tests/ci/test_tools.py::TestToolsIntegration::test_select_dropdown_option -q
+uv run pytest tests/ci/interactions/test_dropdown_native.py -q
+```
+
+Results:
+
+- Python compile: passed.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Focused direct dropdown/browser tests: `3 passed`.
+- Legacy dropdown interaction file: `7 skipped`.
