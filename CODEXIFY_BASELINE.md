@@ -825,3 +825,23 @@ Results:
 - Pyright: `0 errors`.
 - Focused direct dropdown/browser tests: `3 passed`.
 - Legacy dropdown interaction file: `7 skipped`.
+
+## Codexification Verification 39
+
+After moving low-level click, coordinate-click, print-PDF, occlusion, and click/download helper implementations into `ClickService` while keeping old watchdog private helpers as wrappers:
+
+```bash
+uv run python -m py_compile browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_browser_service_bundle_navigates_and_clicks tests/ci/browser/test_browser_services.py::test_browser_services_can_navigate_and_click_coordinates_without_event_dispatch tests/ci/browser/test_browser_services.py::test_print_button_click_tracks_pdf_without_download_event_dispatch tests/ci/test_native_tool_router.py::test_native_tool_router_executes_coordinate_click -q
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_tools_click_and_type_use_direct_services tests/ci/browser/test_browser_services.py::test_browser_services_can_click_and_type_index_without_event_dispatch -q
+```
+
+Results:
+
+- Python compile: passed.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Focused click/coordinate/print/native tests: `4 passed`.
+- Public click/type and direct index smoke tests: `2 passed`.

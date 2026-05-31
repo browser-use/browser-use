@@ -197,6 +197,7 @@ Implement:
 - [x] Expose explicit text-entry handler methods and keep event handlers as compatibility adapters.
 - [x] Expose explicit dropdown handler methods and keep event handlers as compatibility adapters.
 - [x] Move click safety, print, and download heuristics into `ClickService`.
+- [x] Move low-level click helpers into `ClickService` so direct clicks no longer call watchdog internals.
 - [x] Move text-entry fallback and sensitive logging policy into `TypeService`.
 - [x] Make legacy scroll and scroll-to-text handlers delegate to `ScrollService`.
 - [x] Make legacy upload handler delegate to `UploadService`.
