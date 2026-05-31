@@ -68,27 +68,27 @@ Goal: introduce the Codex-like runtime skeleton without changing default behavio
 
 Implement:
 
-- [ ] Add a session/turn runtime layer beside the existing `Agent`.
-- [ ] Add high-level concepts: session, turn context, runtime config, model capabilities, event stream, artifact store.
-- [ ] Keep `Agent` as the public facade.
-- [ ] Keep the old runtime as the default path while the new pieces mature.
+- [x] Add a session/turn runtime layer beside the existing `Agent`.
+- [x] Add high-level concepts: session, turn context, runtime config, model capabilities, event stream, artifact store.
+- [x] Keep `Agent` as the public facade.
+- [x] Keep the old runtime as the default path while the new pieces mature.
 
 Suggested shape:
 
-- [ ] `BrowserAgentSession`
-- [ ] `BrowserTurnContext`
-- [ ] `BrowserRunConfig`
-- [ ] `ModelCapabilities`
-- [ ] `ToolContext`
-- [ ] `BrowserRuntimeEvent`
-- [ ] `BrowserEventStream`
-- [ ] `ArtifactStore`
+- [x] `BrowserAgentSession`
+- [x] `BrowserTurnContext`
+- [x] `BrowserRunConfig`
+- [x] `ModelCapabilities`
+- [x] `ToolContext`
+- [x] `BrowserRuntimeEvent`
+- [x] `BrowserEventStream`
+- [x] `ArtifactStore`
 
 Exit criteria:
 
-- [ ] New runtime objects can represent a run and a turn.
-- [ ] No public API break.
-- [ ] Existing tests still pass.
+- [x] New runtime objects can represent a run and a turn.
+- [x] No public API break.
+- [x] Existing tests still pass.
 
 ## Phase 2: Typed Context
 
