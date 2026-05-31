@@ -323,3 +323,20 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Notes: whole-page and element-scoped scroll now reject the old `ScrollEvent` control path in tests.
+
+## Codexification Verification 9
+
+After routing public upload through `UploadService`:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run ruff check browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Browser services and public direct-service suite: `11 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Notes: the upload test uses a real temp file and rejects the old `UploadFileEvent` control path.

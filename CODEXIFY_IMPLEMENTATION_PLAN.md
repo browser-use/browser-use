@@ -181,6 +181,7 @@ Implement:
 - [x] Route public click/type tools through direct services instead of event dispatch.
 - [x] Route public navigation, back, tab, and keyboard tools through direct services where parity is clear.
 - [x] Route public page and element scroll through direct services, including scroll-container heuristics.
+- [x] Route public upload through direct services while preserving file safety checks.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.

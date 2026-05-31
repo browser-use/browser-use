@@ -686,6 +686,34 @@ class KeyboardService(BrowserService):
 		return f'Key{char.upper()}'
 
 
+class UploadService(BrowserService):
+	"""File upload operations."""
+
+	async def upload_file(self, node: EnhancedDOMTreeNode, file_path: str) -> None:
+		index_for_logging = node.backend_node_id or 'unknown'
+		if not self.browser_session.is_file_input(node):
+			msg = f'Upload failed - element {index_for_logging} is not a file input.'
+			raise BrowserError(message=msg, long_term_memory=msg)
+
+		if os.path.exists(file_path):
+			file_size = os.path.getsize(file_path)
+			if file_size == 0:
+				msg = f'Upload failed - file {file_path} is empty (0 bytes).'
+				raise BrowserError(message=msg, long_term_memory=msg)
+			self.browser_session.logger.debug(f'📎 File {file_path} validated ({file_size} bytes)')
+
+		cdp_session = await self.browser_session.cdp_client_for_node(node)
+		await cdp_session.cdp_client.send.DOM.setFileInputFiles(
+			params={
+				'files': [file_path],
+				'backendNodeId': node.backend_node_id,
+			},
+			session_id=cdp_session.session_id,
+		)
+
+		self.browser_session.logger.info(f'📎 Uploaded file {file_path} to element {index_for_logging}')
+
+
 def _page_appears_empty(state: BrowserStateSummary) -> bool:
 	return state.dom_state._root is None or not state.dom_state.llm_representation().strip()
 
@@ -876,6 +904,7 @@ class ActionService(BaseModel):
 	type: TypeService
 	scroll: ScrollService
 	keyboard: KeyboardService
+	upload: UploadService
 	navigation: NavigationService
 	tabs: TabService
 
@@ -886,6 +915,7 @@ class ActionService(BaseModel):
 			type=TypeService(browser_session=browser_session),
 			scroll=ScrollService(browser_session=browser_session),
 			keyboard=KeyboardService(browser_session=browser_session),
+			upload=UploadService(browser_session=browser_session),
 			navigation=NavigationService(browser_session=browser_session),
 			tabs=TabService(browser_session=browser_session),
 		)

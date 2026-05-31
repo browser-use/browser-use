@@ -18,7 +18,6 @@ from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
 	GetDropdownOptionsEvent,
 	ScrollToTextEvent,
-	UploadFileEvent,
 )
 from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
@@ -57,7 +56,6 @@ logger = logging.getLogger(__name__)
 
 # Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
 # This must be done after all imports are complete
-UploadFileEvent.model_rebuild()
 
 Context = TypeVar('Context')
 
@@ -893,11 +891,8 @@ class Tools(Generic[Context]):
 					raise BrowserError(msg)
 					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
 
-			# Dispatch upload file event with the file input node
 			try:
-				event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
-				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
+				await BrowserServiceBundle.from_session(browser_session).actions.upload.upload_file(file_input_node, params.path)
 				msg = f'Successfully uploaded file to index {params.index}'
 				logger.info(f'📁 {msg}')
 				return ActionResult(

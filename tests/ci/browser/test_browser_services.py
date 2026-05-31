@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from browser_use.browser.services import BrowserServiceBundle
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
 
 
@@ -368,6 +369,54 @@ async def test_public_element_scroll_tool_uses_direct_service(browser_session, h
 		session_id=cdp_session.session_id,
 	)
 	assert readback.get('result', {}).get('value') > 0
+
+
+@pytest.mark.asyncio
+async def test_public_upload_tool_uses_direct_service(browser_session, httpserver, tmp_path, monkeypatch) -> None:
+	upload_path = tmp_path / 'codexify-upload.txt'
+	upload_path.write_text('upload-ok', encoding='utf-8')
+	httpserver.expect_request('/direct-upload').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<input id="file" type="file" onchange="document.getElementById('answer').textContent = this.files[0].name">
+		<p id="answer">hidden</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	tools = Tools()
+	services = BrowserServiceBundle.from_session(browser_session)
+	await services.navigation.navigate(httpserver.url_for('/direct-upload'))
+	state = await services.state.get_state(include_screenshot=False)
+	file_index = next(
+		idx for idx, element in state.dom_state.selector_map.items() if getattr(element, 'attributes', {}).get('id') == 'file'
+	)
+
+	original_dispatch = browser_session.event_bus.dispatch
+
+	def fail_upload_dispatch(event, *args, **kwargs):
+		if event.__class__.__name__ == 'UploadFileEvent':
+			raise AssertionError('Public upload should use direct services, not UploadFileEvent')
+		return original_dispatch(event, *args, **kwargs)
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_upload_dispatch)
+
+	upload_result = await tools.registry.execute_action(
+		action_name='upload_file',
+		params={'index': file_index, 'path': str(upload_path)},
+		browser_session=browser_session,
+		available_file_paths=[str(upload_path)],
+		file_system=FileSystem(tmp_path / 'files', create_default_files=False),
+	)
+	assert upload_result.error is None
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('answer').textContent", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert readback.get('result', {}).get('value') == upload_path.name
 
 
 @pytest.mark.asyncio
