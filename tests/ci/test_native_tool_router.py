@@ -1,7 +1,10 @@
+import json
+
 import pytest
 
 from browser_use.agent.runtime import (
 	BrowserAgentSession,
+	BrowserRuntimeEventTypes,
 	ClickCoordinatesInput,
 	NativeToolCall,
 	NativeToolRouter,
@@ -106,7 +109,137 @@ async def test_native_tool_router_can_drive_simple_browser_task(browser_session,
 
 
 @pytest.mark.asyncio
-async def test_native_tool_router_returns_structured_error_for_non_executable_tool() -> None:
+async def test_native_tool_router_executes_get_state_and_raw_cdp(browser_session, httpserver) -> None:
+	httpserver.expect_request('/native-state').respond_with_data(
+		"""<!doctype html>
+<html>
+	<head><title>Native State</title></head>
+	<body>
+		<button id="state-button">State Button</button>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+
+	tools = Tools()
+	session = BrowserAgentSession.create(task='Inspect state')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools, browser_session=browser_session, action_timeout=30)
+	router = NativeToolRouter.from_tools(tools)
+
+	navigate_result = await router.execute(
+		NativeToolCall(tool_name='browser.navigate', arguments={'url': httpserver.url_for('/native-state')}), context
+	)
+	assert navigate_result.is_error is False
+
+	state_result = await router.execute(
+		NativeToolCall(
+			tool_name='browser.get_state',
+			arguments={'include_screenshot': False, 'include_dom': True},
+			call_id='state-call',
+		),
+		context,
+	)
+	assert state_result.is_error is False
+	assert state_result.call_id == 'state-call'
+	assert state_result.structured_content['url'].endswith('/native-state')
+	assert 'State Button' in state_result.structured_content['dom']
+	assert len(state_result.structured_content['runtime_handles']['current_target_id']) > 4
+	assert len(state_result.structured_content['runtime_handles']['current_session_id']) > 4
+	assert len(state_result.structured_content['tabs'][0]['target_id']) > 4
+
+	cdp_result = await router.execute(
+		NativeToolCall(
+			tool_name='browser.cdp',
+			arguments={
+				'method': 'Runtime.evaluate',
+				'params': {'expression': 'document.title', 'returnByValue': True},
+			},
+			call_id='cdp-call',
+		),
+		context,
+	)
+	assert cdp_result.is_error is False
+	assert cdp_result.call_id == 'cdp-call'
+	assert cdp_result.structured_content['response']['result']['value'] == 'Native State'
+	assert len(cdp_result.structured_content['target_id']) > 4
+	assert len(cdp_result.structured_content['session_id']) > 4
+
+	assert BrowserRuntimeEventTypes.BROWSER_STATE_REFRESHED in [event.event_type for event in session.event_stream.events]
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_coordinate_click(browser_session, httpserver) -> None:
+	httpserver.expect_request('/native-coordinate').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<button id="reveal" style="margin: 40px; width: 160px; height: 60px;"
+			onclick="document.getElementById('answer').textContent = 'coordinate-ok'">
+			Reveal
+		</button>
+		<p id="answer">hidden</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+
+	tools = Tools()
+	router = NativeToolRouter.from_tools(tools)
+	session = BrowserAgentSession.create(task='Click by coordinates')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools, browser_session=browser_session, action_timeout=30)
+
+	navigate_result = await router.execute(
+		NativeToolCall(tool_name='browser.navigate', arguments={'url': httpserver.url_for('/native-coordinate')}), context
+	)
+	assert navigate_result.is_error is False
+
+	rect_result = await router.execute(
+		NativeToolCall(
+			tool_name='browser.cdp',
+			arguments={
+				'method': 'Runtime.evaluate',
+				'params': {
+					'expression': """
+const rect = document.getElementById('reveal').getBoundingClientRect();
+JSON.stringify({ x: Math.floor(rect.left + rect.width / 2), y: Math.floor(rect.top + rect.height / 2) });
+""",
+					'returnByValue': True,
+				},
+			},
+		),
+		context,
+	)
+	assert rect_result.is_error is False
+
+	coords = json.loads(rect_result.structured_content['response']['result']['value'])
+	click_result = await router.execute(
+		NativeToolCall(
+			tool_name='browser.click_coordinates',
+			arguments={'coordinate_x': coords['x'], 'coordinate_y': coords['y']},
+			call_id='coordinate-click',
+		),
+		context,
+	)
+	assert click_result.is_error is False
+	assert click_result.call_id == 'coordinate-click'
+
+	readback = await router.execute(
+		NativeToolCall(
+			tool_name='browser.cdp',
+			arguments={
+				'method': 'Runtime.evaluate',
+				'params': {'expression': "document.getElementById('answer').textContent", 'returnByValue': True},
+			},
+		),
+		context,
+	)
+	assert readback.structured_content['response']['result']['value'] == 'coordinate-ok'
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_returns_structured_error_without_browser_session() -> None:
 	tools = Tools()
 	session = BrowserAgentSession.create(task='Inspect state')
 	turn = session.start_turn(step_index=0)
@@ -116,7 +249,7 @@ async def test_native_tool_router_returns_structured_error_for_non_executable_to
 	result = await router.execute(NativeToolCall(tool_name='browser.get_state', arguments={}), context)
 
 	assert result.is_error is True
-	assert 'not executable' in (result.content or '')
+	assert 'requires ToolContext.browser_session' in (result.content or '')
 
 
 def test_click_coordinates_translate_to_current_click_shape() -> None:

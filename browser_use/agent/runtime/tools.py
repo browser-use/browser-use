@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from uuid_extensions import uuid7str
@@ -10,6 +11,7 @@ from uuid_extensions import uuid7str
 from browser_use.agent.runtime.context import ToolResultItem
 from browser_use.agent.runtime.views import BrowserRuntimeEventTypes, ToolContext
 from browser_use.agent.views import ActionResult
+from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
 from browser_use.tools.registry.views import RegisteredAction
 from browser_use.tools.service import Tools, _coerce_valid_action_timeout, handle_browser_error
@@ -162,20 +164,19 @@ def _experimental_definitions() -> list[NativeToolDefinition]:
 			name='browser.click_coordinates',
 			description='Click a viewport coordinate directly. Use when screenshot reasoning is more reliable than a DOM index.',
 			input_model=ClickCoordinatesInput,
-			source_action='click',
-			executable=False,
+			executable=True,
 		),
 		NativeToolDefinition(
 			name='browser.cdp',
 			description='Send a raw Chrome DevTools Protocol command using full runtime CDP handles.',
 			input_model=CdpCommandInput,
-			executable=False,
+			executable=True,
 		),
 		NativeToolDefinition(
 			name='browser.get_state',
 			description='Request a fresh browser state snapshot.',
 			input_model=GetStateInput,
-			executable=False,
+			executable=True,
 		),
 	]
 
@@ -239,6 +240,18 @@ class NativeToolRouter(BaseModel):
 
 	async def execute(self, call: NativeToolCall, context: ToolContext) -> NativeToolResult:
 		definition = self.resolve(call.tool_name)
+		if definition.name == 'browser.click_coordinates':
+			params = cast(ClickCoordinatesInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._click_coordinates(params, context))
+
+		if definition.name == 'browser.cdp':
+			params = cast(CdpCommandInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._send_cdp(params, context))
+
+		if definition.name == 'browser.get_state':
+			params = cast(GetStateInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._get_state(params, context))
+
 		if not definition.executable or not definition.source_action:
 			return NativeToolResult(
 				tool_name=call.tool_name,
@@ -307,6 +320,170 @@ class NativeToolRouter(BaseModel):
 			},
 		)
 		return native_result
+
+	async def _execute_direct_tool(
+		self,
+		call: NativeToolCall,
+		context: ToolContext,
+		definition: NativeToolDefinition,
+		operation: Callable[[], Awaitable[NativeToolResult]],
+	) -> NativeToolResult:
+		context.emit_tool_event(
+			BrowserRuntimeEventTypes.TOOL_STARTED,
+			{
+				'tool_name': definition.name,
+				'api_name': definition.api_name,
+				'source_action': definition.source_action,
+			},
+		)
+
+		timeout_s = _coerce_valid_action_timeout(context.action_timeout)
+		try:
+			native_result = await asyncio.wait_for(operation(), timeout=timeout_s)
+		except BrowserError as e:
+			native_result = NativeToolResult.from_action_result(call=call, result=handle_browser_error(e))
+		except TimeoutError:
+			native_result = NativeToolResult(
+				tool_name=call.tool_name,
+				call_id=call.call_id,
+				is_error=True,
+				content=f'Native tool {definition.name} timed out after {timeout_s:.0f}s.',
+			)
+		except Exception as e:
+			native_result = NativeToolResult(tool_name=call.tool_name, call_id=call.call_id, is_error=True, content=str(e))
+
+		native_result.tool_name = call.tool_name
+		native_result.call_id = call.call_id
+		context.emit_tool_event(
+			BrowserRuntimeEventTypes.TOOL_COMPLETED if not native_result.is_error else BrowserRuntimeEventTypes.TOOL_FAILED,
+			{
+				'tool_name': definition.name,
+				'api_name': definition.api_name,
+				'source_action': definition.source_action,
+				'is_error': native_result.is_error,
+			},
+		)
+		return native_result
+
+	async def _click_coordinates(self, params: ClickCoordinatesInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.click_coordinates',
+				call_id='',
+				is_error=True,
+				content='browser.click_coordinates requires ToolContext.browser_session.',
+			)
+
+		services = BrowserServiceBundle.from_session(context.browser_session)
+		await services.actions.click.click_coordinates(params.coordinate_x, params.coordinate_y)
+		return NativeToolResult(
+			tool_name='browser.click_coordinates',
+			call_id='',
+			content=f'Clicked coordinates ({params.coordinate_x}, {params.coordinate_y})',
+			structured_content=click_coordinates_as_click_arguments(params),
+		)
+
+	async def _send_cdp(self, params: CdpCommandInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.cdp',
+				call_id='',
+				is_error=True,
+				content='browser.cdp requires ToolContext.browser_session.',
+			)
+
+		target_id = cast(Any, params.target_id) if params.target_id is not None else None
+		cdp_session = await context.browser_session.get_or_create_cdp_session(
+			target_id=target_id,
+			focus=params.target_id is None,
+		)
+		session_id = params.session_id or cdp_session.session_id
+		response = await cdp_session.cdp_client.send_raw(params.method, params.params, session_id=session_id)
+		return NativeToolResult(
+			tool_name='browser.cdp',
+			call_id='',
+			content=f'CDP command {params.method} completed',
+			structured_content={
+				'method': params.method,
+				'params': params.params,
+				'target_id': params.target_id or str(cdp_session.target_id),
+				'session_id': session_id,
+				'response': response,
+			},
+		)
+
+	async def _get_state(self, params: GetStateInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.get_state',
+				call_id='',
+				is_error=True,
+				content='browser.get_state requires ToolContext.browser_session.',
+			)
+
+		services = BrowserServiceBundle.from_session(context.browser_session)
+		state = await services.state.get_state(include_screenshot=params.include_screenshot)
+		cdp_session = await context.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
+		context.emit_tool_event(
+			BrowserRuntimeEventTypes.BROWSER_STATE_REFRESHED,
+			{
+				'url': state.url,
+				'title': state.title,
+				'include_screenshot': params.include_screenshot,
+				'include_dom': params.include_dom,
+			},
+		)
+
+		tabs = [
+			{
+				'url': tab.url,
+				'title': tab.title,
+				'target_id': str(tab.target_id),
+				'parent_target_id': str(tab.parent_target_id) if tab.parent_target_id is not None else None,
+			}
+			for tab in state.tabs
+		]
+		structured_content: dict[str, Any] = {
+			'url': state.url,
+			'title': state.title,
+			'tabs': tabs,
+			'pixels_above': state.pixels_above,
+			'pixels_below': state.pixels_below,
+			'is_pdf_viewer': state.is_pdf_viewer,
+			'browser_errors': state.browser_errors,
+			'closed_popup_messages': state.closed_popup_messages,
+			'pending_network_requests': [
+				{
+					'url': request.url,
+					'method': request.method,
+					'resource_type': request.resource_type,
+					'loading_duration_ms': request.loading_duration_ms,
+				}
+				for request in state.pending_network_requests
+			],
+			'runtime_handles': {
+				'agent_focus_target_id': str(context.browser_session.agent_focus_target_id)
+				if context.browser_session.agent_focus_target_id is not None
+				else None,
+				'current_target_id': str(cdp_session.target_id),
+				'current_session_id': cdp_session.session_id,
+				'tab_target_ids': [tab['target_id'] for tab in tabs],
+			},
+		}
+
+		if params.include_dom:
+			structured_content['dom'] = state.dom_state.llm_representation()
+			structured_content['selector_count'] = len(state.dom_state.selector_map)
+
+		if params.include_screenshot:
+			structured_content['screenshot'] = state.screenshot
+
+		return NativeToolResult(
+			tool_name='browser.get_state',
+			call_id='',
+			content=f'Browser state captured for {state.url}',
+			structured_content=structured_content,
+		)
 
 
 def click_coordinates_as_click_arguments(params: ClickCoordinatesInput) -> dict[str, Any]:

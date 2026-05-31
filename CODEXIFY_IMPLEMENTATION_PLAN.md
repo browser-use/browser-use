@@ -145,15 +145,15 @@ Core tools:
 
 - [x] `browser.navigate`
 - [x] `browser.click`
-- [ ] `browser.click_coordinates`
+- [x] `browser.click_coordinates`
 - [x] `browser.type`
 - [x] `browser.scroll`
 - [x] `browser.send_keys`
 - [x] `browser.extract`
 - [x] `browser.screenshot`
 - [x] `browser.evaluate`
-- [ ] `browser.cdp`
-- [ ] `browser.get_state`
+- [x] `browser.cdp`
+- [x] `browser.get_state`
 - [x] `browser.find_elements`
 - [x] `browser.search_page`
 - [x] `browser.switch_tab`
@@ -255,7 +255,7 @@ Implement:
 Important:
 
 - [ ] Do not remove the current DOM pipeline.
-- [ ] Do not hide runtime handles needed for CDP.
+- [x] Do not hide runtime handles needed for CDP.
 - [ ] Do not force the model to use a single representation of the page.
 
 Exit criteria:
