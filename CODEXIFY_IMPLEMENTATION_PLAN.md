@@ -355,7 +355,7 @@ Goal: simplify public API and internals after the new runtime has proven parity.
 
 Implement:
 
-- [ ] Simplify the public config shape.
+- [x] Simplify the public config shape.
 - [x] Move model-name heuristics into model capability detection.
 - [x] Remove per-call dynamic `ActionModel` creation from direct `Tools` action calls.
 - [x] Cache legacy action-list model generation for stable available action sets.
@@ -404,7 +404,7 @@ Implement:
 Exit criteria:
 
 - [x] Public API remains usable.
-- [ ] New API is simpler.
+- [x] New API is simpler.
 - [x] Internal modules have clearer ownership.
 
 ## Phase 11: Prove It Works

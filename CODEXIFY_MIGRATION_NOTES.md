@@ -5,6 +5,7 @@ These notes describe the current migration state after the codexification cleanu
 ## Public API
 
 - `Agent(...)`, `Browser(...)`, `Tools(...)`, and existing action names remain compatible.
+- `AgentConfig` plus `Agent.from_config(...)` is available as the grouped public configuration path for new code.
 - `ChatBrowserUse` remains the recommended default model for browser automation.
 - `Browser(use_cloud=True)` remains the recommended production browser path when remote browser performance, CAPTCHA resistance, profile sync, or low-latency hosted execution matters.
 - Native tool-call mode remains opt-in through `use_native_tool_calls=True`.
@@ -20,13 +21,15 @@ These notes describe the current migration state after the codexification cleanu
 ## Migration Guidance
 
 - Existing users should not need code changes for normal `Agent(task=..., llm=...)` usage.
+- New code can use `Agent.from_config(task, llm=..., config=AgentConfig(...))` to avoid the large legacy constructor surface.
+- `Agent.from_config(..., **overrides)` accepts the same names as legacy `Agent(...)` keyword arguments; explicit overrides win over values in `AgentConfig`.
 - Users who want provider-native tool calls can opt in with `use_native_tool_calls=True`; old model-output parsing remains available.
 - Custom tools should continue returning structured `ActionResult` data where possible.
 - New internal changes should prefer adding focused modules or services rather than growing `agent/service.py`, `tools/service.py`, or `browser/session.py`.
 
 ## Known Remaining Work
 
-- The public config surface is still broad and has not been simplified yet.
+- The legacy `Agent(...)` constructor is still broad for backwards compatibility, but new code has a grouped `AgentConfig` path.
 - The old message manager is still part of the compatibility path.
 - The old structured-output action protocol is still supported and has not been removed.
 - Watchdog/event-bus code still exists for browser compatibility paths.

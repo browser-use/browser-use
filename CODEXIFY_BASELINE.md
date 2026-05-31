@@ -2006,3 +2006,43 @@ Results:
 - External Chrome CDP endpoint reported `Chrome/148.0.7778.181`.
 - `Browser(cdp_url=...)` connected and navigated to `https://example.com/`.
 - URL assertion passed and cleanup completed.
+
+## Codexification Verification 83
+
+After adding the grouped public config path with `AgentConfig` and `Agent.from_config(...)`:
+
+```bash
+uv run ruff check browser_use/agent/views.py browser_use/agent/service.py browser_use/__init__.py tests/ci/test_agent_config.py
+uv run pyright browser_use/agent/views.py browser_use/agent/service.py browser_use/__init__.py tests/ci/test_agent_config.py
+uv run pytest tests/ci/test_agent_config.py tests/ci/test_fallback_llm.py tests/ci/test_agent_native_tool_calls.py -q
+set -a; source /Users/greg/Documents/browser-use/core/library/browser-use/.env; set +a
+uv run python - <<'PY'
+import asyncio
+from dotenv import load_dotenv
+
+load_dotenv('/Users/greg/Documents/browser-use/core/library/browser-use/.env')
+
+from browser_use import Agent, AgentConfig, Browser, ChatBrowserUse
+
+async def main():
+    browser = Browser(headless=True)
+    agent = Agent.from_config(
+        'Visit https://example.com and answer with the main heading. Use done when finished.',
+        llm=ChatBrowserUse(),
+        config=AgentConfig(browser=browser, use_judge=False, max_actions_per_step=2),
+    )
+    history = await agent.run(max_steps=5)
+    final = history.final_result() or ''
+    assert 'example domain' in final.lower(), final
+    await browser.close()
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Agent config/fallback/native tool-call tests: `19 passed`.
+- Live `Agent.from_config(...)` + `ChatBrowserUse` + local Chromium smoke: success `True`, steps `2`, actions `['navigate', 'done']`.

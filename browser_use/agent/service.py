@@ -52,6 +52,7 @@ from browser_use.agent.skills import AgentSkillMixin
 from browser_use.agent.variables import AgentVariableMixin
 from browser_use.agent.views import (
 	ActionResult,
+	AgentConfig,
 	AgentError,
 	AgentHistory,
 	AgentHistoryList,
@@ -101,6 +102,31 @@ class Agent(
 	AgentLifecycleMixin,
 	Generic[Context, AgentStructuredOutput],
 ):
+	@classmethod
+	def from_config(
+		cls,
+		task: str,
+		llm: BaseChatModel | None = None,
+		config: AgentConfig | dict[str, Any] | None = None,
+		**overrides: Any,
+	) -> 'Agent[Context, AgentStructuredOutput]':
+		"""Construct an Agent from a grouped public config object.
+
+		``overrides`` are applied after ``config`` and use the same names as the
+		legacy ``Agent(...)`` keyword arguments.
+		"""
+		if config is None:
+			config_kwargs: dict[str, Any] = {}
+		elif isinstance(config, dict):
+			config_kwargs = AgentConfig.model_validate(config).to_agent_kwargs()
+		elif isinstance(config, AgentConfig):
+			config_kwargs = config.to_agent_kwargs()
+		else:
+			raise TypeError('config must be an AgentConfig, dict, or None')
+
+		config_kwargs.update(overrides)
+		return cls(task=task, llm=llm, **config_kwargs)
+
 	@time_execution_sync('--init')
 	def __init__(
 		self,

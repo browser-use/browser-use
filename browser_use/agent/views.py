@@ -94,6 +94,88 @@ class AgentSettings(BaseModel):
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
 
 
+class AgentConfig(BaseModel):
+	"""Grouped public configuration for constructing an Agent.
+
+	Use with ``Agent.from_config(task, llm=..., config=AgentConfig(...))`` to keep
+	the public setup path compact while preserving the legacy ``Agent(...)``
+	keyword arguments.
+	"""
+
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
+	# Browser, tools, skills, and callbacks.
+	browser_profile: Any | None = None
+	browser_session: Any | None = None
+	browser: Any | None = None
+	tools: Any | None = None
+	controller: Any | None = None
+	skill_ids: list[str | Literal['*']] | None = None
+	skills: list[str | Literal['*']] | None = None
+	skill_service: Any | None = None
+	register_new_step_callback: Any | None = None
+	register_done_callback: Any | None = None
+	register_external_agent_status_raise_error_callback: Any | None = None
+	register_should_stop_callback: Any | None = None
+
+	# Task inputs, outputs, and workspace.
+	sensitive_data: dict[str, str | dict[str, str]] | None = None
+	initial_actions: list[dict[str, dict[str, Any]]] | None = None
+	output_model_schema: type[BaseModel] | None = None
+	extraction_schema: dict[str, Any] | None = None
+	available_file_paths: list[str] | None = None
+	file_system_path: str | None = None
+	display_files_in_done_text: bool = True
+
+	# Model/runtime behavior.
+	page_extraction_llm: BaseChatModel | None = None
+	fallback_llm: BaseChatModel | None = None
+	judge_llm: BaseChatModel | None = None
+	use_vision: bool | Literal['auto'] = True
+	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
+	use_thinking: bool = True
+	flash_mode: bool = False
+	demo_mode: bool | None = None
+	use_judge: bool = True
+	ground_truth: str | None = None
+	calculate_cost: bool = False
+	pricing_url: str | None = None
+	include_tool_call_examples: bool = False
+	use_native_tool_calls: bool = False
+	llm_timeout: int | None = None
+	step_timeout: int = 180
+	final_response_after_failure: bool = True
+	llm_screenshot_size: tuple[int, int] | None = None
+
+	# Prompt, history, and planning.
+	save_conversation_path: str | Path | None = None
+	save_conversation_path_encoding: str | None = 'utf-8'
+	max_failures: int = 5
+	override_system_message: str | None = None
+	extend_system_message: str | None = None
+	generate_gif: bool | str = False
+	include_attributes: list[str] | None = None
+	max_actions_per_step: int = 5
+	max_history_items: int | None = None
+	directly_open_url: bool = True
+	include_recent_events: bool = False
+	sample_images: list[Any] | None = None
+	enable_planning: bool = True
+	planning_replan_on_stall: int = 3
+	planning_exploration_limit: int = 5
+	loop_detection_window: int = 20
+	loop_detection_enabled: bool = True
+	message_compaction: MessageCompactionSettings | bool | None = True
+	max_clickable_elements_length: int = 40000
+	enable_signal_handler: bool = True
+	source: str | None = None
+	task_id: str | None = None
+
+	def to_agent_kwargs(self) -> dict[str, Any]:
+		"""Return only fields explicitly set by the caller as Agent kwargs."""
+		return {name: getattr(self, name) for name in self.model_fields_set}
+
+
 class PageFingerprint(BaseModel):
 	"""Lightweight fingerprint of the browser page state."""
 

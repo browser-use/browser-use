@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 	from browser_use.agent.service import Agent
 
 	# from browser_use.agent.service import Agent
-	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
+	from browser_use.agent.views import ActionModel, ActionResult, AgentConfig, AgentHistoryList
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
 	from browser_use.dom.service import DomService
@@ -78,6 +78,7 @@ _LAZY_IMPORTS = {
 	# Agent views (very heavy - over 1 second!)
 	'ActionModel': ('browser_use.agent.views', 'ActionModel'),
 	'ActionResult': ('browser_use.agent.views', 'ActionResult'),
+	'AgentConfig': ('browser_use.agent.views', 'AgentConfig'),
 	'AgentHistoryList': ('browser_use.agent.views', 'AgentHistoryList'),
 	'BrowserSession': ('browser_use.browser', 'BrowserSession'),
 	'Browser': ('browser_use.browser', 'BrowserSession'),  # Alias for BrowserSession
@@ -138,6 +139,7 @@ __all__ = [
 	'SystemPrompt',
 	'ActionResult',
 	'ActionModel',
+	'AgentConfig',
 	'AgentHistoryList',
 	# Chat models
 	'ChatOpenAI',
