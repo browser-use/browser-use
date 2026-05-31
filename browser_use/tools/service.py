@@ -29,6 +29,15 @@ from browser_use.tools.file_actions import (
 	take_screenshot_action,
 	write_file_action,
 )
+from browser_use.tools.navigation import (
+	close_tab_action,
+	go_back_action,
+	navigate_action,
+	search_action,
+	send_keys_action,
+	switch_tab_action,
+	wait_action,
+)
 from browser_use.tools.page_query import find_elements_action, search_page_action
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.upload import upload_file_action
@@ -213,35 +222,7 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
-			import urllib.parse
-
-			# Encode query for URL safety
-			encoded_query = urllib.parse.quote_plus(params.query)
-
-			# Build search URL based on search engine
-			search_engines = {
-				'duckduckgo': f'https://duckduckgo.com/?q={encoded_query}',
-				'google': f'https://www.google.com/search?q={encoded_query}&udm=14',
-				'bing': f'https://www.bing.com/search?q={encoded_query}',
-			}
-
-			if params.engine.lower() not in search_engines:
-				return ActionResult(error=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing')
-
-			search_url = search_engines[params.engine.lower()]
-
-			# Simple tab logic: use current tab by default
-			use_new_tab = False
-
-			try:
-				await BrowserServiceBundle.from_session(browser_session).navigation.navigate(search_url, new_tab=use_new_tab)
-				memory = f"Searched {params.engine.title()} for '{params.query}'"
-				msg = f'🔍  {memory}'
-				logger.info(msg)
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
-			except Exception as e:
-				logger.error(f'Failed to search {params.engine}: {e}')
-				return ActionResult(error=f'Failed to search {params.engine} for "{params.query}": {str(e)}')
+			return await search_action(params, browser_session)
 
 		@self.registry.action(
 			'',
@@ -249,72 +230,15 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def navigate(params: NavigateAction, browser_session: BrowserSession):
-			try:
-				await BrowserServiceBundle.from_session(browser_session).navigation.navigate(params.url, new_tab=params.new_tab)
-
-				if params.new_tab:
-					memory = f'Opened new tab with URL {params.url}'
-					msg = f'🔗  Opened new tab with url {params.url}'
-				else:
-					memory = f'Navigated to {params.url}'
-					msg = f'🔗 {memory}'
-
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, long_term_memory=memory)
-			except Exception as e:
-				error_msg = str(e)
-				# Always log the actual error first for debugging
-				browser_session.logger.error(f'❌ Navigation failed: {error_msg}')
-
-				# Check if it's specifically a RuntimeError about CDP client
-				if isinstance(e, RuntimeError) and 'CDP client not initialized' in error_msg:
-					browser_session.logger.error('❌ Browser connection failed - CDP client not properly initialized')
-					return ActionResult(error=f'Browser connection error: {error_msg}')
-				# Check for network-related errors
-				elif any(
-					err in error_msg
-					for err in [
-						'ERR_NAME_NOT_RESOLVED',
-						'ERR_INTERNET_DISCONNECTED',
-						'ERR_CONNECTION_REFUSED',
-						'ERR_TIMED_OUT',
-						'ERR_TUNNEL_CONNECTION_FAILED',
-						'net::',
-					]
-				):
-					site_unavailable_msg = f'Navigation failed - site unavailable: {params.url}'
-					browser_session.logger.warning(f'⚠️ {site_unavailable_msg} - {error_msg}')
-					return ActionResult(error=site_unavailable_msg)
-				else:
-					# Return error in ActionResult instead of re-raising
-					return ActionResult(error=f'Navigation failed: {str(e)}')
+			return await navigate_action(params, browser_session)
 
 		@self.registry.action('Go back', param_model=NoParamsAction, terminates_sequence=True)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
-			try:
-				await BrowserServiceBundle.from_session(browser_session).navigation.go_back()
-				memory = 'Navigated back'
-				msg = f'🔙  {memory}'
-				logger.info(msg)
-				return ActionResult(extracted_content=memory)
-			except Exception as e:
-				logger.error(f'Failed to go back through direct browser service: {type(e).__name__}: {e}')
-				error_msg = f'Failed to go back: {str(e)}'
-				return ActionResult(error=error_msg)
+			return await go_back_action(browser_session)
 
 		@self.registry.action('Wait for x seconds.', param_model=WaitAction)
 		async def wait(params: WaitAction):
-			# Cap wait time at maximum 30 seconds
-			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
-			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
-			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
-			# so I revert this.
-			seconds = params.seconds
-			actual_seconds = min(max(seconds - 1, 0), 30)
-			memory = f'Waited for {seconds} seconds'
-			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
-			await asyncio.sleep(actual_seconds)
-			return ActionResult(extracted_content=memory, long_term_memory=memory)
+			return await wait_action(params)
 
 		# Helper function for coordinate conversion
 		def _convert_llm_coordinates_to_viewport(llm_x: int, llm_y: int, browser_session: BrowserSession) -> tuple[int, int]:
@@ -573,49 +497,14 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
-			# Simple switch tab logic
-			try:
-				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
-
-				new_target_id = await BrowserServiceBundle.from_session(browser_session).tabs.switch(target_id)
-
-				if new_target_id:
-					memory = f'Switched to tab #{new_target_id[-4:]}'
-				else:
-					memory = f'Switched to tab #{params.tab_id}'
-
-				logger.info(f'🔄  {memory}')
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
-			except Exception as e:
-				logger.warning(f'Tab switch may have failed: {e}')
-				memory = f'Attempted to switch to tab #{params.tab_id}'
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			return await switch_tab_action(params, browser_session)
 
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
 			param_model=CloseTabAction,
 		)
 		async def close(params: CloseTabAction, browser_session: BrowserSession):
-			# Simple close tab logic
-			try:
-				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
-
-				await BrowserServiceBundle.from_session(browser_session).tabs.close(target_id)
-
-				memory = f'Closed tab #{params.tab_id}'
-				logger.info(f'🗑️  {memory}')
-				return ActionResult(
-					extracted_content=memory,
-					long_term_memory=memory,
-				)
-			except Exception as e:
-				# Handle stale target IDs gracefully
-				logger.warning(f'Tab {params.tab_id} may already be closed: {e}')
-				memory = f'Tab #{params.tab_id} closed (was already closed or invalid)'
-				return ActionResult(
-					extracted_content=memory,
-					long_term_memory=memory,
-				)
+			return await close_tab_action(params, browser_session)
 
 		@self.registry.action(
 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
@@ -696,16 +585,7 @@ class Tools(Generic[Context]):
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
-			try:
-				await BrowserServiceBundle.from_session(browser_session).actions.keyboard.send_keys(params.keys)
-				memory = f'Sent keys: {params.keys}'
-				msg = f'⌨️  {memory}'
-				logger.info(msg)
-				return ActionResult(extracted_content=memory, long_term_memory=memory)
-			except Exception as e:
-				logger.error(f'Failed to send keys through direct browser service: {type(e).__name__}: {e}')
-				error_msg = f'Failed to send keys: {str(e)}'
-				return ActionResult(error=error_msg)
+			return await send_keys_action(params, browser_session)
 
 		@self.registry.action('Scroll to text.', param_model=FindTextAction)
 		async def find_text(params: FindTextAction, browser_session: BrowserSession):  # type: ignore

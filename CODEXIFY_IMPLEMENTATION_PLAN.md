@@ -381,6 +381,7 @@ Implement:
 - [x] Extract dropdown option/selection tool implementations out of the giant tools service.
 - [x] Extract LLM-backed page extraction action into the existing extraction package.
 - [x] Extract URL-shortening input/output restoration out of the giant agent service.
+- [x] Extract navigation, tab, wait, and keyboard action implementations out of the giant tools service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

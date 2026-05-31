@@ -1313,3 +1313,21 @@ Results:
 - Pyright: `0 errors`.
 - URL shortening pipeline tests: `4 passed`.
 - Python compile: passed.
+
+## Codexification Verification 64
+
+After extracting navigation, tab, wait, and keyboard tool implementations into `browser_use.tools.navigation`:
+
+```bash
+uv run ruff check browser_use/tools/navigation.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py tests/ci/test_native_tool_router.py
+uv run pyright browser_use/tools/navigation.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py tests/ci/test_native_tool_router.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_navigation_and_keyboard_tools_use_direct_services tests/ci/test_native_tool_router.py::test_native_tool_router_executes_direct_navigation_go_back_and_page_scroll tests/ci/test_tools.py::TestToolsIntegration::test_wait_action tests/ci/test_tools.py::TestToolsIntegration::test_go_back_action -q
+uv run python -m py_compile browser_use/tools/navigation.py browser_use/tools/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Browser-backed navigation, keyboard, wait, and native-router tests: `4 passed`.
+- Python compile: passed.
