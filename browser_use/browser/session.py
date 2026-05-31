@@ -36,7 +36,6 @@ from browser_use.browser.events import (
 	BrowserReconnectedEvent,
 	BrowserReconnectingEvent,
 	BrowserStartEvent,
-	BrowserStateRequestEvent,
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
@@ -765,20 +764,18 @@ class BrowserSession(
 				self.logger.debug('⚠️ Cached browser state has 0 interactive elements, fetching fresh state')
 				# Fall through to fetch fresh state
 
-		# Dispatch the event and wait for result
-		event: BrowserStateRequestEvent = cast(
-			BrowserStateRequestEvent,
-			self.event_bus.dispatch(
-				BrowserStateRequestEvent(
-					include_dom=True,
-					include_screenshot=include_screenshot,
-					include_recent_events=include_recent_events,
-				)
-			),
-		)
+		dom_watchdog = self._dom_watchdog
+		if dom_watchdog is None:
+			await self.attach_all_watchdogs()
+			dom_watchdog = self._dom_watchdog
+		if dom_watchdog is None:
+			raise RuntimeError('DOM state service is not attached to this browser session.')
 
-		# The handler returns the BrowserStateSummary directly
-		result = await event.event_result(raise_if_none=True, raise_if_any=True)
+		result = await dom_watchdog.get_browser_state_summary(
+			include_dom=True,
+			include_screenshot=include_screenshot,
+			include_recent_events=include_recent_events,
+		)
 		assert result is not None and result.dom_state is not None
 		return result
 

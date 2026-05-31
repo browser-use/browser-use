@@ -2437,3 +2437,29 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Provider-native `browser.done` now exposes `StructuredDoneInput[...]`; legacy `StructuredOutputAction[...]` remains supported by action-list mode.
+
+## Codexification Verification 99
+
+After routing `BrowserSession.get_browser_state_summary()` directly through the DOM state builder instead of `BrowserStateRequestEvent`, and after replacing state-refresh screenshots with direct CDP capture:
+
+```bash
+uv run pytest tests/ci/browser/test_direct_state_capture.py -q
+uv run pytest tests/ci/browser/test_dom_serializer.py tests/ci/test_action_blank_page.py tests/ci/browser/test_screenshot.py -q
+uv run pytest tests/ci/test_native_tool_router.py::test_native_tool_router_executes_get_state_and_raw_cdp tests/ci/browser/test_cross_origin_click.py -q
+uv run pytest tests/ci/interactions/test_dropdown_native.py::TestSelectDropdownOptionEvent::test_select_native_dropdown_option tests/ci/interactions/test_radio_buttons.py::TestRadioButtons::test_sibling_label_radio_click -q
+uv run pytest tests/ci/test_cli_upload.py::TestUploadCommandHandler::test_upload_happy_path -q
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionEventSystem::test_event_handlers_registration -q
+uv run ruff check browser_use/browser/session.py browser_use/browser/watchdogs/dom_watchdog.py tests/ci/browser/test_direct_state_capture.py
+uv run pyright browser_use/browser/session.py browser_use/browser/watchdogs/dom_watchdog.py tests/ci/browser/test_direct_state_capture.py
+```
+
+Results:
+
+- Direct state capture regression test: `1 passed`; guarded dispatch proves no `BrowserStateRequestEvent` or `ScreenshotEvent` during state capture.
+- DOM serializer, blank-page, and screenshot tests: `9 passed`.
+- Native state/CDP and cross-origin click tests: `2 passed`.
+- Interaction spot check: `1 passed`, `1 skipped` (native dropdown test skipped by its existing fixture conditions).
+- CLI upload happy path: `1 passed`.
+- Event handler compatibility registration: `1 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.

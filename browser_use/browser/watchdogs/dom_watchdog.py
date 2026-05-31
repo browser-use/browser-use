@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING
 from browser_use.browser.events import (
 	BrowserErrorEvent,
 	BrowserStateRequestEvent,
-	ScreenshotEvent,
+	NavigationCompleteEvent,
 	TabCreatedEvent,
 )
+from browser_use.browser.views import BrowserError
 from browser_use.browser.watchdog_base import BaseWatchdog
 from browser_use.dom.service import DomService
 from browser_use.dom.views import (
@@ -240,12 +241,27 @@ class DOMWatchdog(BaseWatchdog):
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
+		return await self.get_browser_state_summary(
+			include_dom=event.include_dom,
+			include_screenshot=event.include_screenshot,
+			include_recent_events=event.include_recent_events,
+		)
+
+	async def get_browser_state_summary(
+		self,
+		*,
+		include_dom: bool = True,
+		include_screenshot: bool = True,
+		include_recent_events: bool = False,
+	) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
 
 		This is the main entry point for getting the complete browser state.
 
 		Args:
-			event: The browser state request event with options
+			include_dom: Whether to build the serialized DOM state.
+			include_screenshot: Whether to capture a viewport screenshot.
+			include_recent_events: Whether to include a compact event-bus history summary.
 
 		Returns:
 			Complete BrowserStateSummary with DOM, screenshot, and target info
@@ -259,6 +275,8 @@ class DOMWatchdog(BaseWatchdog):
 		# Get focused session for logging (validation already done by get_current_page_url)
 		if self.browser_session.agent_focus_target_id:
 			self.logger.debug(f'Current page URL: {page_url}, target_id: {self.browser_session.agent_focus_target_id}')
+
+		await self._refresh_download_state_for_current_page(page_url)
 
 		# check if we should skip DOM tree build for pointless pages
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
@@ -347,7 +365,7 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_below=0,
 					browser_errors=[],
 					is_pdf_viewer=False,
-					recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+					recent_events=self._get_recent_events_str() if include_recent_events else None,
 					pending_network_requests=[],  # Empty page has no pending requests
 					pagination_buttons=[],  # Empty page has no pagination
 					closed_popup_messages=self.browser_session._closed_popup_messages.copy(),
@@ -358,7 +376,7 @@ class DOMWatchdog(BaseWatchdog):
 			screenshot_task = None
 
 			# Start DOM building task if requested
-			if event.include_dom:
+			if include_dom:
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🌳 Starting DOM tree build task...')
 
 				previous_state = (
@@ -375,7 +393,7 @@ class DOMWatchdog(BaseWatchdog):
 				)
 
 			# Start clean screenshot task if requested (without JS highlights)
-			if event.include_screenshot:
+			if include_screenshot:
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Starting clean screenshot task...')
 				screenshot_task = create_task_with_error_handling(
 					self._capture_clean_screenshot(),
@@ -485,7 +503,7 @@ class DOMWatchdog(BaseWatchdog):
 				pixels_below=0,
 				browser_errors=[],
 				is_pdf_viewer=is_pdf_viewer,
-				recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+				recent_events=self._get_recent_events_str() if include_recent_events else None,
 				pending_network_requests=pending_requests,
 				pagination_buttons=pagination_buttons_data,
 				closed_popup_messages=self.browser_session._closed_popup_messages.copy(),
@@ -534,6 +552,26 @@ class DOMWatchdog(BaseWatchdog):
 				if hasattr(self, 'browser_session') and self.browser_session is not None
 				else [],
 			)
+
+	async def _refresh_download_state_for_current_page(self, page_url: str) -> None:
+		"""Preserve download/PDF detection without routing state capture through the event bus."""
+		downloads_watchdog = getattr(self.browser_session, '_downloads_watchdog', None)
+		if downloads_watchdog is None or not page_url:
+			return
+
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+		except ValueError:
+			self.logger.debug('[DOMWatchdog] No valid focus; skipping download refresh during state capture')
+			return
+
+		await downloads_watchdog.on_NavigationCompleteEvent(
+			NavigationCompleteEvent(
+				event_type='NavigationCompleteEvent',
+				url=page_url,
+				target_id=cdp_session.target_id,
+			)
+		)
 
 	@time_execution_async('build_dom_tree_without_highlights')
 	@observe_debug(ignore_input=True, ignore_output=True, name='build_dom_tree_without_highlights')
@@ -683,23 +721,31 @@ class DOMWatchdog(BaseWatchdog):
 		try:
 			self.logger.debug('🔍 DOMWatchdog._capture_clean_screenshot: Capturing clean screenshot...')
 
-			await self.browser_session.get_or_create_cdp_session(target_id=self.browser_session.agent_focus_target_id, focus=True)
+			focused_target = self.browser_session.get_focused_target()
+			if focused_target and focused_target.target_type in ('page', 'tab'):
+				target_id = focused_target.target_id
+			else:
+				target_type_str = focused_target.target_type if focused_target else 'None'
+				self.logger.warning(f'[DOMWatchdog] Focused target is {target_type_str}, falling back to page target')
+				page_targets = self.browser_session.get_page_targets()
+				if not page_targets:
+					raise BrowserError('[DOMWatchdog] No page targets available for screenshot')
+				target_id = page_targets[-1].target_id
 
-			# Check if handler is registered
-			handlers = self.event_bus.handlers.get('ScreenshotEvent', [])
-			handler_names = [getattr(h, '__name__', str(h)) for h in handlers]
-			self.logger.debug(f'📸 ScreenshotEvent handlers registered: {len(handlers)} - {handler_names}')
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=True)
 
-			screenshot_event = self.event_bus.dispatch(ScreenshotEvent(full_page=False))
-			self.logger.debug('📸 Dispatched ScreenshotEvent, waiting for event to complete...')
+			try:
+				await self.browser_session.remove_highlights()
+			except Exception:
+				pass
 
-			# Wait for the event itself to complete (this waits for all handlers)
-			await screenshot_event
-
-			# Get the single handler result
-			screenshot_b64 = await screenshot_event.event_result(raise_if_any=True, raise_if_none=True)
+			result = await cdp_session.cdp_client.send.Page.captureScreenshot(
+				params={'format': 'png', 'captureBeyondViewport': False},
+				session_id=cdp_session.session_id,
+			)
+			screenshot_b64 = result.get('data') if result else None
 			if screenshot_b64 is None:
-				raise RuntimeError('Screenshot handler returned None')
+				raise RuntimeError('Screenshot capture returned no data')
 			self.logger.debug('🔍 DOMWatchdog._capture_clean_screenshot: ✅ Clean screenshot captured successfully')
 			return str(screenshot_b64)
 

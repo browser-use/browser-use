@@ -32,7 +32,7 @@ This document is intentionally not a full implementation spec. Each implementati
 - [x] Message manager.
 - [x] Fake structured-output action protocol.
 - [x] Bubus/event bus in the hot action path.
-- [ ] Watchdog architecture.
+- [x] Watchdog architecture.
 - [x] Giant agent/browser/tool files.
 - [x] Dynamic tool/action model generation.
 - [x] Prompt variant sprawl.
