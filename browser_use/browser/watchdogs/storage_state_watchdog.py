@@ -53,8 +53,8 @@ class StorageStateWatchdog(BaseWatchdog):
 		# Start monitoring
 		await self._start_monitoring()
 
-		# Automatically load storage state after browser start
-		await self.event_bus.dispatch(LoadStorageStateEvent())
+		# Automatically load storage state after browser start without a request event round trip.
+		await self.load_storage_state()
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Stop monitoring when browser stops."""
@@ -63,27 +63,27 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def on_SaveStorageStateEvent(self, event: SaveStorageStateEvent) -> None:
 		"""Handle storage state save request."""
-		# Use provided path or fall back to profile default
-		path = event.path
-		if path is None:
-			# Use profile default path if available
-			if self.browser_session.browser_profile.storage_state:
-				path = str(self.browser_session.browser_profile.storage_state)
-			else:
-				path = None  # Skip saving if no path available
-		await self._save_storage_state(path)
+		await self.save_storage_state(event.path)
 
 	async def on_LoadStorageStateEvent(self, event: LoadStorageStateEvent) -> None:
 		"""Handle storage state load request."""
-		# Use provided path or fall back to profile default
-		path = event.path
-		if path is None:
-			# Use profile default path if available
-			if self.browser_session.browser_profile.storage_state:
-				path = str(self.browser_session.browser_profile.storage_state)
-			else:
-				path = None  # Skip loading if no path available
-		await self._load_storage_state(path)
+		await self.load_storage_state(event.path)
+
+	async def save_storage_state(self, path: str | None = None) -> None:
+		"""Save storage state directly, using the profile default path when omitted."""
+
+		save_path = path
+		if save_path is None and self.browser_session.browser_profile.storage_state:
+			save_path = str(self.browser_session.browser_profile.storage_state)
+		await self._save_storage_state(save_path)
+
+	async def load_storage_state(self, path: str | None = None) -> None:
+		"""Load storage state directly, using the profile default path when omitted."""
+
+		load_path = path
+		if load_path is None and self.browser_session.browser_profile.storage_state:
+			load_path = str(self.browser_session.browser_profile.storage_state)
+		await self._load_storage_state(load_path)
 
 	async def _start_monitoring(self) -> None:
 		"""Start the monitoring task."""

@@ -2538,6 +2538,29 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 
 - `https://example.com` heading task: success `True`, done `True`, `3` steps.
 - Actions: `['navigate', 'extract', 'done']`.
+
+## Codexification Verification 104
+
+After directizing storage-state load/save on browser lifecycle paths:
+
+```bash
+uv run pytest tests/ci/browser/test_direct_storage_state.py -q
+uv run pytest tests/ci/browser/test_session_start.py -q
+uv run ruff check browser_use/browser/session_lifecycle.py browser_use/browser/watchdogs/storage_state_watchdog.py tests/ci/browser/test_direct_storage_state.py
+uv run pyright browser_use/browser/session_lifecycle.py browser_use/browser/watchdogs/storage_state_watchdog.py tests/ci/browser/test_direct_storage_state.py
+```
+
+Results:
+
+- Direct storage-state tests: `3 passed`.
+- Browser session lifecycle tests: `9 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
 - Final: `The main heading of the page is 'Example Domain'.`
 
 ## Codexification Verification 103

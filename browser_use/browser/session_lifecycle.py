@@ -68,10 +68,7 @@ class BrowserSessionLifecycleMixin:
 		self._intentional_stop = True
 		self.logger.debug('🛑 kill() called - stopping browser with force=True and resetting state')
 
-		from browser_use.browser.events import SaveStorageStateEvent
-
-		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
-		await save_event
+		await self._save_storage_state_before_stop()
 
 		await self.event_bus.dispatch(BrowserStopEvent(force=True))
 		await self.event_bus.stop(clear=True, timeout=5)
@@ -83,10 +80,7 @@ class BrowserSessionLifecycleMixin:
 		self._intentional_stop = True
 		self.logger.debug('⏸️  stop() called - stopping browser gracefully (force=False) and resetting state')
 
-		from browser_use.browser.events import SaveStorageStateEvent
-
-		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
-		await save_event
+		await self._save_storage_state_before_stop()
 
 		await self.event_bus.dispatch(BrowserStopEvent(force=False))
 		await self.event_bus.stop(clear=True, timeout=5)
@@ -96,6 +90,20 @@ class BrowserSessionLifecycleMixin:
 	async def close(self: Any) -> None:
 		"""Alias for stop()."""
 		await self.stop()
+
+	async def _save_storage_state_before_stop(self: Any) -> None:
+		"""Persist storage state directly when the storage watchdog is available."""
+
+		storage_state_watchdog = getattr(self, '_storage_state_watchdog', None)
+		if storage_state_watchdog is not None:
+			if self.is_cdp_connected:
+				await storage_state_watchdog.save_storage_state()
+			return
+
+		from browser_use.browser.events import SaveStorageStateEvent
+
+		save_event = self.event_bus.dispatch(SaveStorageStateEvent())
+		await save_event
 
 	def _cloud_session_id_from_cdp_url(self: Any) -> str | None:
 		"""Derive cloud browser session ID from a Browser Use CDP URL."""
