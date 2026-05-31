@@ -63,10 +63,66 @@ def _optional_bool_from_attr(obj: Any, names: tuple[str, ...]) -> bool:
 	for name in names:
 		value = getattr(obj, name, None)
 		if callable(value):
-			continue
+			try:
+				value = value()
+			except TypeError:
+				continue
 		if value is not None:
 			return bool(value)
 	return False
+
+
+def _optional_str_from_attr(obj: Any, names: tuple[str, ...]) -> str | None:
+	for name in names:
+		value = getattr(obj, name, None)
+		if callable(value):
+			try:
+				value = value()
+			except TypeError:
+				continue
+		if isinstance(value, str) and value:
+			return value
+	return None
+
+
+def _is_anthropic_model(provider_lower: str, model_lower: str) -> bool:
+	return provider_lower == 'anthropic' or model_lower.startswith('anthropic/') or 'claude' in model_lower
+
+
+def _is_anthropic_4_5_model(model_lower: str) -> bool:
+	is_opus_4_5 = 'opus' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	is_haiku_4_5 = 'haiku' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	return is_opus_4_5 or is_haiku_4_5
+
+
+def _supports_coordinate_clicking(model_lower: str) -> bool:
+	return any(pattern in model_lower for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/'])
+
+
+def _default_timeout_s(provider_lower: str, model_lower: str) -> int:
+	if 'gemini' in model_lower:
+		if '3-pro' in model_lower:
+			return 90
+		return 75
+	if 'groq' in provider_lower or 'groq' in model_lower:
+		return 30
+	if any(pattern in model_lower for pattern in ['o3', 'claude', 'sonnet', 'deepseek']):
+		return 90
+	return 75
+
+
+def _recommended_screenshot_size(model_lower: str) -> tuple[int, int] | None:
+	if model_lower.startswith('claude-sonnet'):
+		return (1400, 850)
+	return None
+
+
+def _unsupported_vision_reason(model_lower: str) -> str | None:
+	if 'deepseek' in model_lower:
+		return 'DeepSeek models do not support use_vision=True yet.'
+	if 'grok-3' in model_lower or 'grok-code' in model_lower:
+		return 'This XAI model does not support use_vision=True yet.'
+	return None
 
 
 class ModelCapabilities(BaseModel):
@@ -87,21 +143,41 @@ class ModelCapabilities(BaseModel):
 	streaming: bool = False
 	reasoning: bool = False
 	parallel_tool_calls: bool = False
+	prefers_flash_mode: bool = False
+	uses_browser_use_prompt: bool = False
+	is_anthropic: bool = False
+	is_anthropic_4_5: bool = False
+	supports_coordinate_clicking: bool = False
+	default_timeout_s: int = 75
+	recommended_screenshot_size: tuple[int, int] | None = None
+	unsupported_vision_reason: str | None = None
 
 	@classmethod
 	def from_llm(cls, llm: Any | None) -> ModelCapabilities:
 		if llm is None:
 			return cls()
+		provider = _optional_str_from_attr(llm, ('provider',))
+		model_name = _optional_str_from_attr(llm, ('model', 'model_name', 'name'))
+		provider_lower = (provider or '').lower()
+		model_lower = (model_name or '').lower()
 
 		return cls(
-			provider=getattr(llm, 'provider', None),
-			model_name=getattr(llm, 'model', None) or getattr(llm, 'model_name', None),
+			provider=provider,
+			model_name=model_name,
 			native_tool_calling=_optional_bool_from_attr(llm, ('supports_native_tool_calling', 'supports_tool_calling')),
 			structured_output=_optional_bool_from_attr(llm, ('supports_structured_output', 'supports_output_schema')),
 			vision=_optional_bool_from_attr(llm, ('supports_vision', 'vision')),
 			streaming=_optional_bool_from_attr(llm, ('supports_streaming', 'streaming')),
 			reasoning=_optional_bool_from_attr(llm, ('supports_reasoning', 'reasoning')),
 			parallel_tool_calls=_optional_bool_from_attr(llm, ('supports_parallel_tool_calls', 'parallel_tool_calls')),
+			prefers_flash_mode=provider_lower == 'browser-use',
+			uses_browser_use_prompt=model_lower.startswith('browser-use/'),
+			is_anthropic=_is_anthropic_model(provider_lower, model_lower),
+			is_anthropic_4_5=_is_anthropic_4_5_model(model_lower),
+			supports_coordinate_clicking=_supports_coordinate_clicking(model_lower),
+			default_timeout_s=_default_timeout_s(provider_lower, model_lower),
+			recommended_screenshot_size=_recommended_screenshot_size(model_lower),
+			unsupported_vision_reason=_unsupported_vision_reason(model_lower),
 		)
 
 

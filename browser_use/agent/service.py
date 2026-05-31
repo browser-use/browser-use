@@ -44,6 +44,7 @@ from browser_use.agent.message_manager.service import (
 	MessageManager,
 )
 from browser_use.agent.prompts import SystemPrompt
+from browser_use.agent.runtime import ModelCapabilities
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -231,8 +232,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				llm = ChatBrowserUse()
 
+		self.model_capabilities = ModelCapabilities.from_llm(llm)
+
 		# set flashmode = True if llm is ChatBrowserUse
-		if llm.provider == 'browser-use':
+		if self.model_capabilities.prefers_flash_mode:
 			flash_mode = True
 
 		# Flash mode strips plan fields from the output schema, so planning is structurally impossible
@@ -240,11 +243,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			enable_planning = False
 
 		# Auto-configure llm_screenshot_size for Claude Sonnet models
-		if llm_screenshot_size is None:
-			model_name = getattr(llm, 'model', '')
-			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
-				llm_screenshot_size = (1400, 850)
-				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
+		if llm_screenshot_size is None and self.model_capabilities.recommended_screenshot_size is not None:
+			llm_screenshot_size = self.model_capabilities.recommended_screenshot_size
+			logger.info(f'🖼️  Auto-configured LLM screenshot size: {llm_screenshot_size[0]}x{llm_screenshot_size[1]}')
 
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -255,22 +256,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Set timeout based on model name if not explicitly provided
 		if llm_timeout is None:
-
-			def _get_model_timeout(llm_model: BaseChatModel) -> int:
-				"""Determine timeout based on model name"""
-				model_name = getattr(llm_model, 'model', '').lower()
-				if 'gemini' in model_name:
-					if '3-pro' in model_name:
-						return 90
-					return 75
-				elif 'groq' in model_name:
-					return 30
-				elif 'o3' in model_name or 'claude' in model_name or 'sonnet' in model_name or 'deepseek' in model_name:
-					return 90
-				else:
-					return 75  # Default timeout
-
-			llm_timeout = _get_model_timeout(llm)
+			llm_timeout = self.model_capabilities.default_timeout_s
 
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
@@ -320,11 +306,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.tools.exclude_action('screenshot')
 
 		# Enable coordinate clicking for models that support it
-		model_name = getattr(llm, 'model', '').lower()
-		supports_coordinate_clicking = any(
-			pattern in model_name for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/']
-		)
-		if supports_coordinate_clicking:
+		if self.model_capabilities.supports_coordinate_clicking:
 			self.tools.set_coordinate_clicking(True)
 
 		# Handle skills vs skill_ids parameter (skills takes precedence)
@@ -464,17 +446,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Verify we can connect to the model
 		self._verify_and_setup_llm()
 
-		# TODO: move this logic to the LLMs
-		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.llm.model.lower():
-			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
-			self.settings.use_vision = False
-
-		# Handle users trying to use use_vision=True with XAI models that don't support it
-		# grok-3 variants and grok-code don't support vision; grok-2 and grok-4 do
-		model_lower = self.llm.model.lower()
-		if 'grok-3' in model_lower or 'grok-code' in model_lower:
-			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
+		if self.model_capabilities.unsupported_vision_reason:
+			self.logger.warning(f'⚠️ {self.model_capabilities.unsupported_vision_reason} Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
 		logger.debug(
@@ -486,14 +459,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Store llm_screenshot_size in browser_session so tools can access it
 		self.browser_session.llm_screenshot_size = llm_screenshot_size
 
-		# Check if LLM is ChatAnthropic instance
-		from browser_use.llm.anthropic.chat import ChatAnthropic
-
-		is_anthropic = isinstance(self.llm, ChatAnthropic)
-
-		# Check if model is a browser-use fine-tuned model (uses simplified prompts)
-		is_browser_use_model = 'browser-use/' in self.llm.model.lower()
-
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
 		self._message_manager = MessageManager(
@@ -504,9 +469,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				extend_system_message=extend_system_message,
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
-				is_anthropic=is_anthropic,
-				is_browser_use_model=is_browser_use_model,
-				model_name=self.llm.model,
+				is_anthropic=self.model_capabilities.is_anthropic,
+				is_browser_use_model=self.model_capabilities.uses_browser_use_prompt,
+				model_name=self.model_capabilities.model_name,
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,

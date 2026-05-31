@@ -29,6 +29,45 @@ def test_model_capabilities_preserve_unknown_model_name() -> None:
 	assert capabilities.native_tool_calling is True
 	assert capabilities.structured_output is True
 	assert capabilities.vision is True
+	assert capabilities.prefers_flash_mode is True
+	assert capabilities.uses_browser_use_prompt is False
+
+
+class ClaudeSonnetLLM:
+	provider = 'anthropic'
+	model = 'claude-sonnet-4-20260101'
+
+
+class ClaudeOpus45LLM:
+	provider = 'anthropic'
+	model = 'claude-opus-4-5-20260101'
+
+
+class GeminiLLM:
+	provider = 'google'
+	model = 'gemini-3-pro-preview'
+
+
+class GrokLLM:
+	provider = 'xai'
+	model = 'grok-3-fast'
+
+
+def test_model_capabilities_centralize_agent_setup_heuristics() -> None:
+	claude = ModelCapabilities.from_llm(ClaudeSonnetLLM())
+	opus = ModelCapabilities.from_llm(ClaudeOpus45LLM())
+	gemini = ModelCapabilities.from_llm(GeminiLLM())
+	grok = ModelCapabilities.from_llm(GrokLLM())
+
+	assert claude.is_anthropic is True
+	assert claude.recommended_screenshot_size == (1400, 850)
+	assert claude.default_timeout_s == 90
+	assert claude.supports_coordinate_clicking is True
+	assert opus.is_anthropic_4_5 is True
+	assert gemini.default_timeout_s == 90
+	assert gemini.supports_coordinate_clicking is True
+	assert grok.default_timeout_s == 75
+	assert grok.unsupported_vision_reason == 'This XAI model does not support use_vision=True yet.'
 
 
 def test_browser_agent_session_represents_run_and_turn() -> None:

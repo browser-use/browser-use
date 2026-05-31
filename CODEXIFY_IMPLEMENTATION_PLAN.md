@@ -326,7 +326,7 @@ Goal: simplify public API and internals after the new runtime has proven parity.
 Implement:
 
 - [ ] Simplify the public config shape.
-- [ ] Move model-name heuristics into model capability detection.
+- [x] Move model-name heuristics into model capability detection.
 - [ ] Collapse prompt variants into one renderer with capability/mode blocks.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
