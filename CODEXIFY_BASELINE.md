@@ -412,3 +412,13 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Notes: the native tests monkeypatch `tools.registry.execute_action` to fail, proving native `browser.done` no longer depends on the fake action adapter.
+
+## Codexification Verification 14
+
+Real `ChatBrowserUse` + headless local Chromium smoke after native terminal-result changes:
+
+- Success: `True`
+- Done: `True`
+- Steps: `3`
+- Final result: `codexify-native-done-smoke`
+- Notes: the task opened a local HTTP page, clicked a `Reveal` button, observed the revealed text, and completed through the public `Agent` path.
