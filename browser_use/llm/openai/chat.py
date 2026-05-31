@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -9,7 +10,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
@@ -19,6 +20,37 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _parse_structured_completion(output_format: type[T], content: str) -> T:
+	"""Parse structured JSON, tolerating model-added text around the JSON object."""
+
+	first_error: ValidationError | None = None
+	try:
+		return output_format.model_validate_json(content)
+	except ValidationError as error:
+		first_error = error
+		if not any(error.get('type') == 'json_invalid' for error in first_error.errors()):
+			raise
+
+	decoder = json.JSONDecoder()
+	text = content.strip()
+	for index, char in enumerate(text):
+		if char not in '{[':
+			continue
+
+		try:
+			decoded, _end = decoder.raw_decode(text, index)
+		except json.JSONDecodeError:
+			continue
+
+		try:
+			return output_format.model_validate(decoded)
+		except ValidationError:
+			continue
+
+	assert first_error is not None
+	raise first_error
 
 
 @dataclass
@@ -307,7 +339,7 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				parsed = _parse_structured_completion(output_format, choice.message.content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,

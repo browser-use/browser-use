@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from browser_use.llm.messages import ToolMessage, UserMessage
 from browser_use.llm.openai.chat import ChatOpenAI
@@ -81,3 +82,63 @@ async def test_openai_ainvoke_returns_native_tool_calls(monkeypatch: pytest.Monk
 	assert response.tool_calls[0].id == 'call_1'
 	assert response.tool_calls[0].function.name == 'browser_navigate'
 	assert response.tool_calls[0].function.arguments == '{"url":"https://example.com"}'
+
+
+class StructuredAnswer(BaseModel):
+	answer: str
+
+
+@pytest.mark.asyncio
+async def test_openai_structured_output_tolerates_trailing_text(monkeypatch: pytest.MonkeyPatch) -> None:
+	class FakeCompletions:
+		async def create(self, **kwargs: Any) -> Any:
+			return SimpleNamespace(
+				choices=[
+					SimpleNamespace(
+						finish_reason='stop',
+						message=SimpleNamespace(
+							content='{"answer":"ok"}\n\nextra trailing text that strict JSON parsing rejects',
+							tool_calls=None,
+						),
+					)
+				],
+				usage=None,
+			)
+
+	class FakeClient:
+		chat = SimpleNamespace(completions=FakeCompletions())
+
+	chat = ChatOpenAI(model='gpt-5.4-mini', temperature=0)
+	monkeypatch.setattr(chat, 'get_client', lambda: FakeClient())
+
+	response = await chat.ainvoke([UserMessage(content='answer with JSON')], StructuredAnswer)
+
+	assert response.completion.answer == 'ok'
+
+
+@pytest.mark.asyncio
+async def test_openai_structured_output_tolerates_reasoning_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+	class FakeCompletions:
+		async def create(self, **kwargs: Any) -> Any:
+			return SimpleNamespace(
+				choices=[
+					SimpleNamespace(
+						finish_reason='stop',
+						message=SimpleNamespace(
+							content='<think>I should answer with JSON.</think>\n```json\n{"answer":"ok"}\n```',
+							tool_calls=None,
+						),
+					)
+				],
+				usage=None,
+			)
+
+	class FakeClient:
+		chat = SimpleNamespace(completions=FakeCompletions())
+
+	chat = ChatOpenAI(model='gpt-5.4-mini', temperature=0)
+	monkeypatch.setattr(chat, 'get_client', lambda: FakeClient())
+
+	response = await chat.ainvoke([UserMessage(content='answer with JSON')], StructuredAnswer)
+
+	assert response.completion.answer == 'ok'
