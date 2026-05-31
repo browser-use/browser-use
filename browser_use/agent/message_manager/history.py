@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import logging
+from typing import Any
 
 from browser_use.agent.message_manager.views import HistoryItem, MessageManagerState
+from browser_use.agent.runtime.context import DownloadItem, FileArtifactItem, ScreenshotItem, ToolCallItem, ToolResultItem
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo
 
 logger = logging.getLogger(__name__)
@@ -60,16 +65,30 @@ def update_agent_history(
 
 	if model_output is None:
 		_append_without_model_output(state, step_number, action_results)
-		return
-
-	state.agent_history_items.append(
-		HistoryItem(
+		_append_context_items_for_step(
+			state=state,
 			step_number=step_number,
-			evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
-			memory=model_output.current_state.memory,
-			next_goal=model_output.current_state.next_goal,
+			model_output=None,
+			result=result,
 			action_results=action_results,
 		)
+		return
+
+	history_item = HistoryItem(
+		step_number=step_number,
+		evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
+		memory=model_output.current_state.memory,
+		next_goal=model_output.current_state.next_goal,
+		action_results=action_results,
+	)
+	state.agent_history_items.append(history_item)
+	_append_context_items_for_step(
+		state=state,
+		step_number=step_number,
+		model_output=model_output,
+		result=result,
+		action_results=action_results,
+		history_item=history_item,
 	)
 
 
@@ -134,3 +153,158 @@ def _append_without_model_output(state: MessageManagerState, step_number: int | 
 		state.agent_history_items.append(
 			HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
 		)
+
+
+def _append_context_items_for_step(
+	*,
+	state: MessageManagerState,
+	step_number: int | None,
+	model_output: AgentOutput | None,
+	result: list[ActionResult],
+	action_results: str | None,
+	history_item: HistoryItem | None = None,
+) -> None:
+	metadata = {'step_number': step_number} if step_number is not None else {}
+
+	if model_output is not None and model_output.native_tool_calls:
+		for tool_call in model_output.native_tool_calls:
+			state.context_items.append(
+				ToolCallItem(
+					tool_name=tool_call.function.name,
+					call_id=tool_call.id,
+					arguments=_parse_tool_arguments(tool_call.function.arguments),
+					metadata=metadata,
+				)
+			)
+
+		if model_output.native_tool_results:
+			for native_result in model_output.native_tool_results:
+				if hasattr(native_result, 'to_context_item'):
+					context_item = native_result.to_context_item().model_copy(update={'metadata': metadata})
+					state.context_items.append(context_item)
+		else:
+			for index, action_result in enumerate(result):
+				tool_call = model_output.native_tool_calls[index] if index < len(model_output.native_tool_calls) else None
+				state.context_items.append(
+					_action_result_context_item(
+						action_result,
+						tool_name=tool_call.function.name if tool_call is not None else 'native.tool',
+						call_id=tool_call.id if tool_call is not None else None,
+						metadata=metadata,
+					)
+				)
+	else:
+		for tool_name, arguments in _legacy_action_calls(model_output):
+			state.context_items.append(ToolCallItem(tool_name=tool_name, arguments=arguments, metadata=metadata))
+
+		if result:
+			legacy_tool_names = [tool_name for tool_name, _arguments in _legacy_action_calls(model_output)]
+			for index, action_result in enumerate(result):
+				tool_name = legacy_tool_names[index] if index < len(legacy_tool_names) else 'legacy.action'
+				state.context_items.append(_action_result_context_item(action_result, tool_name=tool_name, metadata=metadata))
+		elif history_item is not None:
+			state.context_items.append(
+				ToolResultItem(
+					tool_name='legacy.step',
+					content=history_item.to_string(),
+					structured_content=history_item.model_dump(exclude_none=True),
+					metadata=metadata,
+				)
+			)
+		elif action_results:
+			state.context_items.append(ToolResultItem(tool_name='legacy.action', content=action_results, metadata=metadata))
+
+	for action_result in result:
+		_append_artifact_context_items(state, action_result, metadata=metadata)
+
+
+def _legacy_action_calls(model_output: AgentOutput | None) -> list[tuple[str, dict[str, Any]]]:
+	if model_output is None:
+		return []
+
+	calls: list[tuple[str, dict[str, Any]]] = []
+	for action in model_output.action:
+		action_data = action.model_dump(mode='json', exclude_none=True, exclude_unset=True)
+		for tool_name, arguments in action_data.items():
+			calls.append((tool_name, arguments if isinstance(arguments, dict) else {}))
+	return calls
+
+
+def _action_result_context_item(
+	action_result: ActionResult,
+	*,
+	tool_name: str,
+	call_id: str | None = None,
+	metadata: dict[str, Any] | None = None,
+) -> ToolResultItem:
+	content = action_result.error or (
+		action_result.extracted_content
+		if action_result.is_done
+		else action_result.long_term_memory or action_result.extracted_content
+	)
+	return ToolResultItem(
+		tool_name=tool_name,
+		call_id=call_id,
+		content=None if action_result.error else content,
+		error=action_result.error,
+		structured_content=action_result.model_dump(mode='json', exclude_none=True),
+		metadata=metadata or {},
+	)
+
+
+def _append_artifact_context_items(
+	state: MessageManagerState,
+	action_result: ActionResult,
+	*,
+	metadata: dict[str, Any],
+) -> None:
+	for path in action_result.attachments or []:
+		state.context_items.append(FileArtifactItem(path=path, metadata=metadata))
+
+	download = (action_result.metadata or {}).get('download') if isinstance(action_result.metadata, dict) else None
+	if isinstance(download, dict):
+		state.context_items.append(
+			DownloadItem(
+				file_name=str(download.get('file_name') or download.get('path') or 'download'),
+				path=download.get('path'),
+				media_type=download.get('mime_type') or download.get('file_type'),
+				metadata=metadata,
+			)
+		)
+
+	for image_data in action_result.images or []:
+		name = str(image_data.get('name') or 'image')
+		data = str(image_data.get('data') or '')
+		state.context_items.append(
+			ScreenshotItem(
+				source='action_result',
+				label=name,
+				media_type='image/png' if name.lower().endswith('.png') else 'image/jpeg',
+				sha256=_base64_sha256(data) if data else None,
+				byte_length=_base64_byte_length(data) if data else None,
+				included_in_model=True,
+				metadata=metadata,
+			)
+		)
+
+
+def _parse_tool_arguments(arguments: str) -> dict[str, Any]:
+	try:
+		parsed = json.loads(arguments)
+	except json.JSONDecodeError:
+		return {'raw': arguments}
+	return parsed if isinstance(parsed, dict) else {'value': parsed}
+
+
+def _base64_byte_length(data: str) -> int | None:
+	try:
+		return len(base64.b64decode(data))
+	except Exception:
+		return None
+
+
+def _base64_sha256(data: str) -> str | None:
+	try:
+		return hashlib.sha256(base64.b64decode(data)).hexdigest()
+	except Exception:
+		return None

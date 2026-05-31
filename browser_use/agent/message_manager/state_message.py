@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 from dataclasses import dataclass
 from io import BytesIO
@@ -10,7 +11,7 @@ from PIL import Image
 
 from browser_use.agent.message_manager.context_builder import MessageContextBuilder
 from browser_use.agent.message_manager.views import MessageManagerState
-from browser_use.agent.runtime.context import BrowserContext
+from browser_use.agent.runtime.context import BrowserContext, ScreenshotItem
 from browser_use.agent.runtime.skills import BrowserSkill
 from browser_use.agent.views import ActionResult, AgentStepInfo
 from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT, BrowserStateSummary
@@ -49,6 +50,20 @@ def should_include_screenshot(
 			return True
 
 	return False
+
+
+def _base64_byte_length(data: str) -> int | None:
+	try:
+		return len(base64.b64decode(data))
+	except Exception:
+		return None
+
+
+def _base64_sha256(data: str) -> str | None:
+	try:
+		return hashlib.sha256(base64.b64decode(data)).hexdigest()
+	except Exception:
+		return None
 
 
 @dataclass(frozen=True)
@@ -128,6 +143,17 @@ class StateMessageBuilder:
 		screenshots: list[str] = []
 		if should_include_screenshot(use_vision, result) and browser_state_summary.screenshot:
 			screenshots.append(browser_state_summary.screenshot)
+			if not is_new_tab_page(browser_state_summary.url) and browser_state_summary.screenshot != PLACEHOLDER_4PX_SCREENSHOT:
+				typed_context.append(
+					ScreenshotItem(
+						source='browser_state',
+						label='Current screenshot',
+						media_type='image/png',
+						sha256=_base64_sha256(browser_state_summary.screenshot),
+						byte_length=_base64_byte_length(browser_state_summary.screenshot),
+						included_in_model=True,
+					)
+				)
 
 		return StateMessageBuild(
 			message=self._message_from_typed_context(typed_context, browser_state_summary, screenshots=screenshots),

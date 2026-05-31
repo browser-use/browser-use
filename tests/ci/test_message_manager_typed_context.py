@@ -1,7 +1,9 @@
+import base64
+
 from browser_use.agent.message_manager.service import MessageManager
-from browser_use.agent.message_manager.views import HistoryItem
 from browser_use.agent.runtime import BrowserSkillRegistry
-from browser_use.agent.views import AgentStepInfo
+from browser_use.agent.runtime.context import ToolResultItem
+from browser_use.agent.views import ActionResult, AgentStepInfo
 from browser_use.browser.views import BrowserStateSummary, PageInfo, TabInfo
 from browser_use.dom.views import SerializedDOMState
 from browser_use.filesystem.file_system import FileSystem
@@ -37,13 +39,11 @@ def test_message_manager_builds_typed_context_mirror(tmp_path) -> None:
 		file_system=FileSystem(tmp_path / 'files', create_default_files=False),
 	)
 	manager.state.compacted_memory = 'Earlier search found candidate pages.'
-	manager.state.agent_history_items.append(
-		HistoryItem(
-			step_number=1,
-			evaluation_previous_goal='Opened page',
-			memory='Need the answer',
-			next_goal='Read result',
-			action_results='Result\nNavigated to example.com',
+	manager.state.context_items.append(
+		ToolResultItem(
+			tool_name='browser.navigate',
+			content='Result\nNavigated to example.com',
+			structured_content={'step_number': 1, 'memory': 'Need the answer'},
 		)
 	)
 	manager.add_new_task('Prefer official sources')
@@ -72,7 +72,7 @@ def test_message_manager_builds_typed_context_mirror(tmp_path) -> None:
 	]
 	assert '<user_request>' in rendered
 	assert '<compacted_memory>' in rendered
-	assert '<tool_result name="legacy.step">' in rendered
+	assert '<tool_result name="browser.navigate">' in rendered
 	assert '<follow_up_user_request>' in rendered
 	assert '<agent_state>' in rendered
 	assert '<available_file_paths>/tmp/result.csv' in rendered
@@ -154,3 +154,41 @@ def test_create_state_messages_includes_selected_runtime_skills_only_when_releva
 	assert manager.last_state_message_text == manager.last_typed_context.render()
 	assert '<runtime_skills>' not in manager.last_state_message_text
 	assert '<skill name="downloads" title="Downloads">' in manager.last_state_message_text
+
+
+def test_typed_context_ledger_records_file_download_and_image_artifacts(tmp_path) -> None:
+	manager = MessageManager(
+		task='Collect artifacts',
+		system_message=SystemMessage(content='system'),
+		file_system=FileSystem(tmp_path / 'files', create_default_files=False),
+	)
+	download_path = str(tmp_path / 'receipt.pdf')
+	manager.prepare_step_state(
+		_browser_state(),
+		result=[
+			ActionResult(
+				extracted_content='Saved artifacts',
+				attachments=[download_path],
+				images=[{'name': 'receipt.png', 'data': base64.b64encode(b'image-data').decode()}],
+				metadata={
+					'download': {
+						'file_name': 'receipt.pdf',
+						'path': download_path,
+						'mime_type': 'application/pdf',
+					}
+				},
+			)
+		],
+		step_info=AgentStepInfo(step_number=0, max_steps=5),
+	)
+
+	kinds = [item.kind for item in manager.state.context_items]
+	assert 'file_artifact' in kinds
+	assert 'download' in kinds
+	assert 'screenshot' in kinds
+
+	rendered = manager.build_typed_context(_browser_state()).render()
+	assert '<file_artifact>' in rendered
+	assert '<download>' in rendered
+	assert '<screenshot>' in rendered
+	assert 'receipt.pdf' in rendered

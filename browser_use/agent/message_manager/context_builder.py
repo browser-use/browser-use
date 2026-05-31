@@ -4,14 +4,16 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
-from browser_use.agent.message_manager.views import HistoryItem, MessageManagerState
+from browser_use.agent.message_manager.views import MessageManagerState
 from browser_use.agent.runtime.context import (
 	AgentStateItem,
 	BrowserContext,
 	BrowserStateItem,
 	CompactionItem,
+	ContextItem,
 	ExtractionArtifactItem,
 	PageActionsItem,
+	ScreenshotItem,
 	SkillItem,
 	StepInfoItem,
 	TaskItem,
@@ -73,37 +75,14 @@ class MessageContextBuilder:
 		if self.state.compacted_memory:
 			context.append(CompactionItem(summary=self.state.compacted_memory))
 
-		history_items, omitted_history_count = self._history_items_for_context()
-		for history_index, history_item in enumerate(history_items):
-			if history_item.system_message:
-				message = history_item.system_message.strip()
-				if message == 'Agent initialized':
-					context.append(WarningItem(code='agent_initialized', message=message))
-				elif '<follow_up_user_request>' in message:
-					context.append(UserSteerItem(text=_strip_known_xml_tag(message, 'follow_up_user_request')))
-				else:
-					context.append(WarningItem(code='legacy_system_message', message=message))
-				if history_index == 0 and omitted_history_count:
-					context.append(
-						WarningItem(
-							code='history_omitted',
-							message=f'{omitted_history_count} previous steps omitted from active context.',
-						)
-					)
-				continue
-
-			context.append(
-				ToolResultItem(
-					tool_name='legacy.step',
-					content=history_item.to_string(),
-					structured_content=history_item.model_dump(exclude_none=True),
-				)
-			)
+		history_context_items, omitted_history_count = self._history_context_items()
+		for history_index, history_context_item in enumerate(history_context_items):
+			context.append(history_context_item)
 			if history_index == 0 and omitted_history_count:
 				context.append(
 					WarningItem(
 						code='history_omitted',
-						message=f'{omitted_history_count} previous steps omitted from active context.',
+						message=f'{omitted_history_count} previous context items omitted from active context.',
 					)
 				)
 
@@ -119,6 +98,17 @@ class MessageContextBuilder:
 
 		if self.state.read_state_description:
 			context.append(ExtractionArtifactItem(source='read_state', content=self.state.read_state_description))
+
+		for image_data in self.state.read_state_images:
+			image_name = str(image_data.get('name') or 'image')
+			context.append(
+				ScreenshotItem(
+					source='read_state',
+					label=image_name,
+					media_type='image/png' if image_name.lower().endswith('.png') else 'image/jpeg',
+					included_in_model=True,
+				)
+			)
 
 		for skill in selected_runtime_skills or []:
 			context.append(SkillItem(**skill.model_dump()))
@@ -139,16 +129,55 @@ class MessageContextBuilder:
 
 		return context
 
-	def _history_items_for_context(self) -> tuple[list[HistoryItem], int]:
-		if self.max_history_items is None or len(self.state.agent_history_items) <= self.max_history_items:
-			return self.state.agent_history_items, 0
+	def _history_context_items(self) -> tuple[list[ContextItem], int]:
+		if self._should_render_legacy_history():
+			return self._legacy_history_items_for_context()
 
-		omitted_count = len(self.state.agent_history_items) - self.max_history_items
+		if self.max_history_items is None or len(self.state.context_items) <= self.max_history_items:
+			return self.state.context_items, 0
+
+		omitted_count = len(self.state.context_items) - self.max_history_items
 		recent_items_count = self.max_history_items - 1
 		return [
-			self.state.agent_history_items[0],
-			*self.state.agent_history_items[-recent_items_count:],
+			self.state.context_items[0],
+			*self.state.context_items[-recent_items_count:],
 		], omitted_count
+
+	def _should_render_legacy_history(self) -> bool:
+		return len(self.state.context_items) <= 1 and len(self.state.agent_history_items) > len(self.state.context_items)
+
+	def _legacy_history_items_for_context(self) -> tuple[list[ContextItem], int]:
+		if self.max_history_items is None or len(self.state.agent_history_items) <= self.max_history_items:
+			legacy_items = self.state.agent_history_items
+			omitted_count = 0
+		else:
+			omitted_count = len(self.state.agent_history_items) - self.max_history_items
+			recent_items_count = self.max_history_items - 1
+			legacy_items = [
+				self.state.agent_history_items[0],
+				*self.state.agent_history_items[-recent_items_count:],
+			]
+
+		context_items: list[ContextItem] = []
+		for history_item in legacy_items:
+			if history_item.system_message:
+				message = history_item.system_message.strip()
+				if message == 'Agent initialized':
+					context_items.append(WarningItem(code='agent_initialized', message=message))
+				elif '<follow_up_user_request>' in message:
+					context_items.append(UserSteerItem(text=_strip_known_xml_tag(message, 'follow_up_user_request')))
+				else:
+					context_items.append(WarningItem(code='legacy_system_message', message=message))
+				continue
+
+			context_items.append(
+				ToolResultItem(
+					tool_name='legacy.step',
+					content=history_item.to_string(),
+					structured_content=history_item.model_dump(exclude_none=True),
+				)
+			)
+		return context_items, omitted_count
 
 	def _agent_state_context_item(
 		self,

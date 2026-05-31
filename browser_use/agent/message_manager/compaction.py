@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from browser_use.agent.message_manager.sensitive import SensitiveData, redact_sensitive_text
 from browser_use.agent.message_manager.views import MessageManagerState
+from browser_use.agent.runtime.context import BrowserContext
 from browser_use.agent.views import AgentStepInfo, MessageCompactionSettings
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
@@ -40,8 +41,8 @@ class MessageCompactionService:
 		if steps_since < settings.compact_every_n_steps:
 			return False
 
-		history_items = self.state.agent_history_items
-		full_history_text = '\n'.join(item.to_string() for item in history_items).strip()
+		history_items = self.state.context_items if self._should_use_context_items() else self.state.agent_history_items
+		full_history_text = self._history_text().strip()
 		trigger_char_count = settings.trigger_char_count or 40000
 		if len(full_history_text) < trigger_char_count:
 			return False
@@ -70,6 +71,14 @@ class MessageCompactionService:
 		logger.debug(f'Compaction complete (summary_chars={len(summary)}, history_items={len(self.state.agent_history_items)})')
 
 		return True
+
+	def _history_text(self) -> str:
+		if self._should_use_context_items():
+			return BrowserContext(items=self.state.context_items).render()
+		return '\n'.join(item.to_string() for item in self.state.agent_history_items)
+
+	def _should_use_context_items(self) -> bool:
+		return bool(self.state.context_items) and len(self.state.context_items) >= len(self.state.agent_history_items)
 
 	def _build_compaction_input(self, settings: MessageCompactionSettings, full_history_text: str) -> str:
 		compaction_sections = []
@@ -108,6 +117,13 @@ class MessageCompactionService:
 				self.state.agent_history_items = [history_items[0]]
 			else:
 				self.state.agent_history_items = [history_items[0]] + history_items[-keep_last:]
+
+		context_items = self.state.context_items
+		if len(context_items) > keep_last + 1:
+			if keep_last == 0:
+				self.state.context_items = [context_items[0]]
+			else:
+				self.state.context_items = [context_items[0]] + context_items[-keep_last:]
 
 	def _redact_sensitive_text(self, text: str) -> str:
 		return redact_sensitive_text(text, self.sensitive_data)

@@ -49,11 +49,11 @@ Replace special function-parameter injection as the core tool mechanism.
 
 Replace the current message-manager mutation model with typed context as the source of truth.
 
-- [ ] Store task, steering, browser state, model calls, tool calls, tool results, downloads, files, warnings, screenshots, and compaction as typed context items.
-- [ ] Render model input deterministically from typed context each turn.
-- [ ] Persist the exact rendered model input snapshot in debug mode.
-- [ ] Compact old context items, not the active browser state.
-- [ ] Keep `MessageManager` only as a compatibility facade, then shrink it.
+- [x] Store task, steering, browser state, model calls, tool calls, tool results, downloads, files, warnings, screenshots, and compaction as typed context items.
+- [x] Render model input deterministically from typed context each turn.
+- [x] Persist the exact rendered model input snapshot in debug mode.
+- [x] Compact old context items, not the active browser state.
+- [x] Keep `MessageManager` only as a compatibility facade, then shrink it.
 - [ ] Remove separate save-conversation behavior once run-folder traces cover the same need.
 
 ## Phase 4: Direct Browser Services Replace Bubus Control Flow
@@ -143,6 +143,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [x] `uv run pre-commit run --all-files`
 
 ## Phase 2 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
+
+## Phase 3 Verification
 
 - [x] Focused unit tests for the changed path.
 - [x] Existing compatibility tests for the public API.

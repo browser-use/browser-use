@@ -200,6 +200,22 @@ class FileArtifactItem(BaseContextItem):
 		return f'<file_artifact>\n{_json(self.model_dump(mode="json", exclude={"kind", "item_id", "created_at", "metadata"}))}\n</file_artifact>'
 
 
+class ScreenshotItem(BaseContextItem):
+	"""A screenshot or image artifact known to the runtime."""
+
+	kind: Literal['screenshot'] = 'screenshot'
+	source: str
+	label: str | None = None
+	media_type: str = 'image/png'
+	sha256: str | None = None
+	byte_length: int | None = None
+	included_in_model: bool = False
+
+	def render(self) -> str:
+		payload = self.model_dump(mode='json', exclude={'kind', 'item_id', 'created_at', 'metadata'})
+		return f'<screenshot>\n{_json(payload)}\n</screenshot>'
+
+
 class ExtractionArtifactItem(BaseContextItem):
 	"""Large extracted page/file content that should be shown explicitly."""
 
@@ -271,6 +287,7 @@ ContextItem = Annotated[
 	| ToolResultItem
 	| DownloadItem
 	| FileArtifactItem
+	| ScreenshotItem
 	| ExtractionArtifactItem
 	| WarningItem
 	| SkillItem

@@ -143,6 +143,11 @@ async def test_native_tool_results_are_returned_as_provider_tool_messages() -> N
 	assert messages[1].tool_calls[0].id == 'call_1'
 	assert messages[2].tool_call_id == 'call_1'
 	assert 'Opened https://example.com' in messages[2].content
+	assert [item.kind for item in agent._message_manager.state.context_items][-2:] == ['tool_call', 'tool_result']
+
+	rendered_context = agent._message_manager.build_typed_context(_browser_state()).render()
+	assert '<tool_call id="call_1" name="browser_navigate">' in rendered_context
+	assert '<tool_result name="browser_navigate" id="call_1">' in rendered_context
 
 
 @pytest.mark.asyncio

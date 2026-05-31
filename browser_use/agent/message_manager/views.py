@@ -89,6 +89,7 @@ class MessageManagerState(BaseModel):
 	"""Holds the state for MessageManager"""
 
 	history: MessageHistory = Field(default_factory=MessageHistory)
+	context_items: list[Any] = Field(default_factory=list)
 	tool_id: int = 1
 	agent_history_items: list[HistoryItem] = Field(
 		default_factory=lambda: [HistoryItem(step_number=0, system_message='Agent initialized')]

@@ -11,6 +11,8 @@ from browser_use.agent.message_manager.views import (
 )
 from browser_use.agent.runtime.context import (
 	BrowserContext,
+	UserSteerItem,
+	WarningItem,
 )
 from browser_use.agent.runtime.skills import BrowserSkill
 from browser_use.agent.views import (
@@ -81,6 +83,8 @@ class ModelContextManager:
 		self.last_input_messages = []
 		self.last_state_message_text: str | None = None
 		self.last_typed_context: BrowserContext | None = None
+		if not self.state.context_items:
+			self.state.context_items.append(WarningItem(code='agent_initialized', message='Agent initialized'))
 		# Only initialize messages if state is empty
 		if len(self.state.history.get_messages()) == 0:
 			self._set_message_with_type(self.system_prompt, 'system')
@@ -97,6 +101,11 @@ class ModelContextManager:
 		self.task += '\n' + new_task
 		task_update_item = HistoryItem(system_message=new_task)
 		self.state.agent_history_items.append(task_update_item)
+		self.state.context_items.append(
+			UserSteerItem(
+				text=new_task.removeprefix('<follow_up_user_request>').removesuffix('</follow_up_user_request>').strip()
+			)
+		)
 
 	def build_typed_context(
 		self,
