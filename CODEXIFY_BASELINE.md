@@ -261,3 +261,21 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Notes: the public `input` and `click` tool test monkeypatches `browser_session.event_bus.dispatch` to fail, proving those actions no longer need bubus dispatch in the public agent path.
+
+## Codexification Verification 5
+
+After routing public navigation/back/tab/keyboard tools through explicit browser services:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py tests/ci/test_native_tool_router.py::test_native_tool_router_can_drive_simple_browser_task -q
+uv run ruff check browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Browser services and public direct-service suite: `9 passed`.
+- Native tool router smoke: passed as part of the same run.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Notes: browser/session events are still allowed for observability; the new test rejects the old action-control events for public navigation, back, and send-keys.

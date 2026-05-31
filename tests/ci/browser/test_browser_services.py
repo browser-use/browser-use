@@ -206,6 +206,85 @@ async def test_public_tools_click_and_type_use_direct_services(browser_session, 
 
 
 @pytest.mark.asyncio
+async def test_public_navigation_and_keyboard_tools_use_direct_services(browser_session, httpserver, monkeypatch) -> None:
+	httpserver.expect_request('/direct-public-one').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<input id="keys" value="">
+		<p id="page">one</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	httpserver.expect_request('/direct-public-two').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<p id="page">two</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	tools = Tools()
+	original_dispatch = browser_session.event_bus.dispatch
+	forbidden_control_events = {'NavigateToUrlEvent', 'GoBackEvent', 'SendKeysEvent'}
+
+	def fail_action_dispatch(event, *args, **kwargs):
+		if event.__class__.__name__ in forbidden_control_events:
+			raise AssertionError('Public navigation/keyboard tools should use direct services, not old control-flow events')
+		return original_dispatch(event, *args, **kwargs)
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_action_dispatch)
+
+	first_url = httpserver.url_for('/direct-public-one')
+	second_url = httpserver.url_for('/direct-public-two')
+	first_result = await tools.registry.execute_action(
+		action_name='navigate',
+		params={'url': first_url},
+		browser_session=browser_session,
+	)
+	second_result = await tools.registry.execute_action(
+		action_name='navigate',
+		params={'url': second_url},
+		browser_session=browser_session,
+	)
+	back_result = await tools.registry.execute_action(
+		action_name='go_back',
+		params={},
+		browser_session=browser_session,
+	)
+
+	assert first_result.error is None
+	assert second_result.error is None
+	assert back_result.error is None
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	path_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': 'location.pathname', 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert path_result.get('result', {}).get('value') == '/direct-public-one'
+
+	await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('keys').focus()", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	keys_result = await tools.registry.execute_action(
+		action_name='send_keys',
+		params={'keys': 'abc'},
+		browser_session=browser_session,
+	)
+	assert keys_result.error is None
+
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('keys').value", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert readback.get('result', {}).get('value') == 'abc'
+
+
+@pytest.mark.asyncio
 async def test_browser_download_service_downloads_and_tracks_without_event_dispatch(
 	browser_session, httpserver, monkeypatch
 ) -> None:

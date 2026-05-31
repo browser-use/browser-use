@@ -16,14 +16,9 @@ from pydantic import BaseModel
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
-	CloseTabEvent,
 	GetDropdownOptionsEvent,
-	GoBackEvent,
-	NavigateToUrlEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
-	SendKeysEvent,
-	SwitchTabEvent,
 	UploadFileEvent,
 )
 from browser_use.browser.services import BrowserServiceBundle
@@ -456,16 +451,8 @@ class Tools(Generic[Context]):
 			# Simple tab logic: use current tab by default
 			use_new_tab = False
 
-			# Dispatch navigation event
 			try:
-				event = browser_session.event_bus.dispatch(
-					NavigateToUrlEvent(
-						url=search_url,
-						new_tab=use_new_tab,
-					)
-				)
-				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
+				await BrowserServiceBundle.from_session(browser_session).navigation.navigate(search_url, new_tab=use_new_tab)
 				memory = f"Searched {params.engine.title()} for '{params.query}'"
 				msg = f'🔍  {memory}'
 				logger.info(msg)
@@ -481,42 +468,7 @@ class Tools(Generic[Context]):
 		)
 		async def navigate(params: NavigateAction, browser_session: BrowserSession):
 			try:
-				# Dispatch navigation event
-				event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=params.new_tab))
-				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
-
-				# Health check: detect empty DOM for http/https pages and retry once.
-				# Uses _root is None (truly blank) OR empty llm_representation() (no actionable
-				# content for the LLM, e.g. SPA not yet rendered, empty body).
-				# NOTE: llm_representation() returns a non-empty placeholder when _root is None,
-				# so we must check _root is None separately — not rely on the repr string alone.
-				def _page_appears_empty(s) -> bool:
-					return s.dom_state._root is None or not s.dom_state.llm_representation().strip()
-
-				if not params.new_tab:
-					state = await browser_session.get_browser_state_summary(include_screenshot=False)
-					url_is_http = state.url.lower().startswith(('http://', 'https://'))
-					if url_is_http and _page_appears_empty(state):
-						browser_session.logger.warning(
-							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 3s and rechecking...'
-						)
-						await asyncio.sleep(3.0)
-						state = await browser_session.get_browser_state_summary(include_screenshot=False)
-						if state.url.lower().startswith(('http://', 'https://')) and _page_appears_empty(state):
-							# Second attempt: reload the page and wait longer
-							browser_session.logger.warning(f'⚠️ Still empty after 3s, attempting page reload for {params.url}...')
-							reload_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=False))
-							await reload_event
-							await reload_event.event_result(raise_if_any=False, raise_if_none=False)
-							await asyncio.sleep(5.0)
-							state = await browser_session.get_browser_state_summary(include_screenshot=False)
-							if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
-								return ActionResult(
-									error=f'Page loaded but returned empty content for {params.url}. '
-									f'The page may require JavaScript that failed to render, use anti-bot measures, '
-									f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
-								)
+				await BrowserServiceBundle.from_session(browser_session).navigation.navigate(params.url, new_tab=params.new_tab)
 
 				if params.new_tab:
 					memory = f'Opened new tab with URL {params.url}'
@@ -558,14 +510,13 @@ class Tools(Generic[Context]):
 		@self.registry.action('Go back', param_model=NoParamsAction, terminates_sequence=True)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
-				event = browser_session.event_bus.dispatch(GoBackEvent())
-				await event
+				await BrowserServiceBundle.from_session(browser_session).navigation.go_back()
 				memory = 'Navigated back'
 				msg = f'🔙  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory)
 			except Exception as e:
-				logger.error(f'Failed to dispatch GoBackEvent: {type(e).__name__}: {e}')
+				logger.error(f'Failed to go back through direct browser service: {type(e).__name__}: {e}')
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
@@ -618,9 +569,7 @@ class Tools(Generic[Context]):
 					new_tab_id = new_tab.target_id[-4:]
 					# Auto-switch to the new tab so the agent can immediately interact with it
 					try:
-						switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=new_tab.target_id))
-						await switch_event
-						await switch_event.event_result(raise_if_any=False, raise_if_none=False)
+						await BrowserServiceBundle.from_session(browser_session).tabs.switch(new_tab.target_id)
 						return f'. Automatically switched to new tab (tab_id: {new_tab_id}).'
 					except Exception:
 						return f'. Note: This opened a new tab (tab_id: {new_tab_id}) - switch to it if you need to interact with the new page.'
@@ -973,9 +922,7 @@ class Tools(Generic[Context]):
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
 
-				event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-				await event
-				new_target_id = await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
+				new_target_id = await BrowserServiceBundle.from_session(browser_session).tabs.switch(target_id)
 
 				if new_target_id:
 					memory = f'Switched to tab #{new_target_id[-4:]}'
@@ -998,10 +945,7 @@ class Tools(Generic[Context]):
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
 
-				# Dispatch close tab event - handle stale target IDs gracefully
-				event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
-				await event
-				await event.event_result(raise_if_any=False, raise_if_none=False)  # Don't raise on errors
+				await BrowserServiceBundle.from_session(browser_session).tabs.close(target_id)
 
 				memory = f'Closed tab #{params.tab_id}'
 				logger.info(f'🗑️  {memory}')
@@ -1440,17 +1384,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
-			# Dispatch send keys event
 			try:
-				event = browser_session.event_bus.dispatch(SendKeysEvent(keys=params.keys))
-				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
+				await BrowserServiceBundle.from_session(browser_session).actions.keyboard.send_keys(params.keys)
 				memory = f'Sent keys: {params.keys}'
 				msg = f'⌨️  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
-				logger.error(f'Failed to dispatch SendKeysEvent: {type(e).__name__}: {e}')
+				logger.error(f'Failed to send keys through direct browser service: {type(e).__name__}: {e}')
 				error_msg = f'Failed to send keys: {str(e)}'
 				return ActionResult(error=error_msg)
 
