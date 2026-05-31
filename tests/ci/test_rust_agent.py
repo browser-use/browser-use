@@ -415,7 +415,7 @@ def test_laminar_trace_url_formats_hex_as_uuid():
 	state.absorb(parse_event(_event('telemetry.trace', {'backend': 'laminar', 'trace_id': '97db9503a669d1d1507e6459b46660f7'}, seq=1)))
 	r = AgentRunResult(exit_code=0, events=state.events, steps=state.steps)
 	url = r.laminar_trace_url(project_id='proj-123')
-	assert url == 'https://www.lmnr.ai/project/proj-123/traces?traceId=97db9503-a669-d1d1-507e-6459b46660f7'
+	assert url == 'https://laminar.sh/project/proj-123/traces?traceId=97db9503-a669-d1d1-507e-6459b46660f7'
 
 
 def test_step_timing_populated_from_tool_started_and_finished():

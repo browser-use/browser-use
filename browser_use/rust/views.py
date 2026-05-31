@@ -265,7 +265,7 @@ class AgentRunResult(BaseModel):
 		pid = project_id or os.environ.get('LMNR_PROJECT_ID') or os.environ.get('LMNR_CLOUD_PROJECT_ID')
 		if not pid:
 			return None
-		return f'https://www.lmnr.ai/project/{pid}/traces?traceId={_format_trace_id_as_uuid(trace_id)}'
+		return f'https://laminar.sh/project/{pid}/traces?traceId={_format_trace_id_as_uuid(trace_id)}'
 
 
 def _format_trace_id_as_uuid(trace_id: str) -> str:
