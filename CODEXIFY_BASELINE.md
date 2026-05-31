@@ -2615,6 +2615,23 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - Actions: `['navigate', 'extract', 'done']`.
 - Final: `The main heading of the website is Example Domain.`
 
+## Codexification Verification 110
+
+After the final hot-path audit:
+
+```bash
+uv run pytest tests/ci/browser/test_direct_lifecycle.py tests/ci/browser/test_direct_navigation.py tests/ci/browser/test_direct_tab_focus.py tests/ci/browser/test_aboutblank_watchdog.py tests/ci/browser/test_direct_storage_state.py -q
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_message_manager_compaction.py tests/ci/test_agent_native_tool_calls.py tests/ci/test_native_tool_router.py -q
+```
+
+Results:
+
+- Direct lifecycle/navigation/tab/about:blank/storage hot-path tests: `16 passed`.
+- Browser direct-service tests: `15 passed`.
+- Message context, compaction, native tool-call, and native router tests: `24 passed`.
+- Remaining `event_bus.dispatch(...)` calls are observer notifications, compatibility adapters, or fallback paths rather than the public browser action/lifecycle request path.
+
 ## Codexification Verification 106
 
 After directizing tab-close focus recovery:
