@@ -292,13 +292,73 @@ class TypeService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
-		return await self._default_action_watchdog().type_text(
+		return await self.type_node(
 			node,
 			text,
 			clear=clear,
 			is_sensitive=is_sensitive,
 			sensitive_key_name=sensitive_key_name,
 		)
+
+	async def type_node(
+		self,
+		node: EnhancedDOMTreeNode,
+		text: str,
+		*,
+		clear: bool = True,
+		is_sensitive: bool = False,
+		sensitive_key_name: str | None = None,
+	) -> dict[str, Any] | None:
+		"""Type text into an element, falling back to the focused page when needed."""
+		action_handler = self._default_action_watchdog()
+		index_for_logging = node.backend_node_id or 'unknown'
+
+		if not node.backend_node_id or node.backend_node_id == 0:
+			await action_handler._type_to_page(text)
+			if is_sensitive:
+				if sensitive_key_name:
+					self.browser_session.logger.info(f'⌨️ Typed <{sensitive_key_name}> to the page (current focus)')
+				else:
+					self.browser_session.logger.info('⌨️ Typed <sensitive> to the page (current focus)')
+			else:
+				self.browser_session.logger.info(f'⌨️ Typed "{text}" to the page (current focus)')
+			return None
+
+		try:
+			input_metadata = await action_handler._input_text_element_node_impl(
+				node,
+				text,
+				clear=clear or (not text),
+				is_sensitive=is_sensitive,
+			)
+			if is_sensitive:
+				if sensitive_key_name:
+					self.browser_session.logger.info(
+						f'⌨️ Typed <{sensitive_key_name}> into element with index {index_for_logging}'
+					)
+				else:
+					self.browser_session.logger.info(f'⌨️ Typed <sensitive> into element with index {index_for_logging}')
+			else:
+				self.browser_session.logger.info(f'⌨️ Typed "{text}" into element with index {index_for_logging}')
+			self.browser_session.logger.debug(f'Element xpath: {node.xpath}')
+			return input_metadata
+		except Exception as exc:
+			self.browser_session.logger.warning(
+				f'Failed to type to element {index_for_logging}: {exc}. Falling back to page typing.'
+			)
+			try:
+				await asyncio.wait_for(action_handler._click_element_node_impl(node), timeout=10.0)
+			except Exception:
+				pass
+			await action_handler._type_to_page(text)
+			if is_sensitive:
+				if sensitive_key_name:
+					self.browser_session.logger.info(f'⌨️ Typed <{sensitive_key_name}> to the page as fallback')
+				else:
+					self.browser_session.logger.info('⌨️ Typed <sensitive> to the page as fallback')
+			else:
+				self.browser_session.logger.info(f'⌨️ Typed "{text}" to the page as fallback')
+			return None
 
 
 class ScrollService(BrowserService):
