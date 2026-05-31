@@ -422,3 +422,22 @@ Real `ChatBrowserUse` + headless local Chromium smoke after native terminal-resu
 - Steps: `3`
 - Final result: `codexify-native-done-smoke`
 - Notes: the task opened a local HTTP page, clicked a `Reveal` button, observed the revealed text, and completed through the public `Agent` path.
+
+## Codexification Verification 15
+
+After removing per-call dynamic `ActionModel` creation from direct `Tools` action calls:
+
+```bash
+uv run pytest tests/ci/test_tools_explicit_schemas.py tests/ci/test_tools.py::TestToolsIntegration::test_wait_action tests/ci/test_tools.py::TestToolsIntegration::test_done_action -q
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run ruff check browser_use/tools/service.py tests/ci/test_tools_explicit_schemas.py
+uv run pyright browser_use/tools/service.py tests/ci/test_tools_explicit_schemas.py
+```
+
+Results:
+
+- Explicit schema/direct-call tests plus wait/done browser tests: `5 passed`.
+- Browser service suite through public direct tools: `13 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Static check: no `DynamicActionModel` or `create_model(...)` remains in `browser_use/tools/service.py`.

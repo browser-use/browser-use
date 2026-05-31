@@ -62,3 +62,18 @@ async def test_explicit_file_action_schemas_keep_direct_kwargs_compatibility():
 		assert isinstance(read_result, ActionResult)
 		assert read_result.extracted_content is not None
 		assert 'new text' in read_result.extracted_content
+
+
+async def test_direct_tool_calls_do_not_build_dynamic_action_model(monkeypatch):
+	tools = Tools()
+
+	async def fail_act(*args, **kwargs):
+		raise AssertionError('direct tool calls should not route through Tools.act or a dynamic ActionModel')
+
+	monkeypatch.setattr(tools, 'act', fail_act)
+
+	result = await tools.wait(seconds=0)
+
+	assert isinstance(result, ActionResult)
+	assert result.error is None
+	assert result.extracted_content == 'Waited for 0 seconds'
