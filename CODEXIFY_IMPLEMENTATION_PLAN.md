@@ -309,15 +309,15 @@ Goal: implement compaction over typed context items instead of one giant convers
 
 Implement:
 
-- [ ] Preserve current task, active browser state, recent failures, active files/downloads, output constraints, and runtime handles.
-- [ ] Summarize old turns, old browser states, old tool results, and large extraction outputs.
-- [ ] Keep current page execution safe after compaction.
+- [x] Preserve current task, active browser state, recent failures, active files/downloads, output constraints, and runtime handles.
+- [x] Summarize old turns, old browser states, old tool results, and large extraction outputs.
+- [x] Keep current page execution safe after compaction.
 - [ ] Trigger compaction from token/context pressure.
 
 Exit criteria:
 
 - [ ] Long tasks keep working after compaction.
-- [ ] Compaction does not break element targeting or current page actions.
+- [x] Compaction does not break element targeting or current page actions.
 
 ## Phase 10: Cleanup
 
