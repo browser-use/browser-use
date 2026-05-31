@@ -1042,3 +1042,21 @@ Results:
 - File-system, typed context, and compaction tests: `16 passed`.
 - Python compile: passed.
 - Sensitive-data tests: `14 passed`.
+
+## Codexification Verification 49
+
+After extracting sensitive-data prompt descriptions, message filtering, and compaction redaction into `browser_use.agent.message_manager.sensitive`:
+
+```bash
+uv run ruff check browser_use/agent/message_manager/sensitive.py browser_use/agent/message_manager/compaction.py browser_use/agent/message_manager/service.py tests/ci/security/test_sensitive_data.py tests/ci/test_message_manager_compaction.py
+uv run pyright browser_use/agent/message_manager/sensitive.py browser_use/agent/message_manager/compaction.py browser_use/agent/message_manager/service.py tests/ci/security/test_sensitive_data.py tests/ci/test_message_manager_compaction.py
+uv run pytest tests/ci/security/test_sensitive_data.py tests/ci/test_message_manager_compaction.py tests/ci/test_file_system_llm_integration.py -q
+uv run python -m py_compile browser_use/agent/message_manager/sensitive.py browser_use/agent/message_manager/compaction.py browser_use/agent/message_manager/service.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Sensitive-data, compaction, and file-system message tests: `27 passed`.
+- Python compile: passed.

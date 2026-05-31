@@ -3,15 +3,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from browser_use.agent.message_manager.sensitive import SensitiveData, redact_sensitive_text
 from browser_use.agent.message_manager.views import MessageManagerState
 from browser_use.agent.views import AgentStepInfo, MessageCompactionSettings
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
-from browser_use.utils import collect_sensitive_data_values, redact_sensitive_string
 
 logger = logging.getLogger(__name__)
-
-SensitiveData = dict[str, str | dict[str, str]]
 
 
 @dataclass
@@ -112,12 +110,4 @@ class MessageCompactionService:
 				self.state.agent_history_items = [history_items[0]] + history_items[-keep_last:]
 
 	def _redact_sensitive_text(self, text: str) -> str:
-		if not self.sensitive_data:
-			return text
-
-		sensitive_values = collect_sensitive_data_values(self.sensitive_data)
-		if not sensitive_values:
-			logger.warning('No valid entries found in sensitive_data dictionary')
-			return text
-
-		return redact_sensitive_string(text, sensitive_values)
+		return redact_sensitive_text(text, self.sensitive_data)

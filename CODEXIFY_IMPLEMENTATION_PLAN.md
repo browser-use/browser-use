@@ -367,6 +367,7 @@ Implement:
 - [x] Extract typed context construction out of the legacy message manager.
 - [x] Extract message compaction out of the legacy message manager.
 - [x] Extract message history rendering and mutation out of the legacy message manager.
+- [x] Extract sensitive-data message filtering and compaction redaction helpers.
 - [x] Fix shared default `MessageManagerState` construction.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.

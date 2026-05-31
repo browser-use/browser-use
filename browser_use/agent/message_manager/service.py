@@ -6,6 +6,7 @@ from typing import Literal
 from browser_use.agent.message_manager.compaction import MessageCompactionService
 from browser_use.agent.message_manager.context_builder import MessageContextBuilder, render_runtime_skills_info
 from browser_use.agent.message_manager.history import render_agent_history_description, update_agent_history
+from browser_use.agent.message_manager.sensitive import filter_sensitive_data_message, get_sensitive_data_description
 from browser_use.agent.message_manager.views import (
 	HistoryItem,
 )
@@ -32,9 +33,6 @@ from browser_use.llm.messages import (
 )
 from browser_use.observability import observe_debug
 from browser_use.utils import (
-	collect_sensitive_data_values,
-	match_url_with_domain_pattern,
-	redact_sensitive_string,
 	time_execution_sync,
 )
 
@@ -232,35 +230,7 @@ class MessageManager:
 		update_agent_history(self.state, model_output=model_output, result=result, step_info=step_info)
 
 	def _get_sensitive_data_description(self, current_page_url) -> str:
-		sensitive_data = self.sensitive_data
-		if not sensitive_data:
-			return ''
-
-		# Collect placeholders for sensitive data
-		placeholders: set[str] = set()
-
-		for key, value in sensitive_data.items():
-			if isinstance(value, dict):
-				# New format: {domain: {key: value}}
-				if current_page_url and match_url_with_domain_pattern(current_page_url, key, True):
-					placeholders.update(value.keys())
-			else:
-				# Old format: {key: value}
-				placeholders.add(key)
-
-		if placeholders:
-			placeholder_list = sorted(list(placeholders))
-			# Format as bullet points for clarity
-			formatted_placeholders = '\n'.join(f'  - {p}' for p in placeholder_list)
-
-			info = 'SENSITIVE DATA - Use these placeholders for secure input:\n'
-			info += f'{formatted_placeholders}\n\n'
-			info += 'IMPORTANT: When entering sensitive values, you MUST wrap the placeholder name in <secret> tags.\n'
-			info += f'Example: To enter the value for "{placeholder_list[0]}", use: <secret>{placeholder_list[0]}</secret>\n'
-			info += 'The system will automatically replace these tags with the actual secret values.'
-			return info
-
-		return ''
+		return get_sensitive_data_description(self.sensitive_data, current_page_url)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='create_state_messages')
 	@time_execution_sync('--create_state_messages')
@@ -431,25 +401,4 @@ class MessageManager:
 	@time_execution_sync('--filter_sensitive_data')
 	def _filter_sensitive_data(self, message: BaseMessage) -> BaseMessage:
 		"""Filter out sensitive data from the message"""
-
-		def replace_sensitive(value: str) -> str:
-			if not self.sensitive_data:
-				return value
-
-			sensitive_values = collect_sensitive_data_values(self.sensitive_data)
-
-			# If there are no valid sensitive data entries, just return the original value
-			if not sensitive_values:
-				logger.warning('No valid entries found in sensitive_data dictionary')
-				return value
-
-			return redact_sensitive_string(value, sensitive_values)
-
-		if isinstance(message.content, str):
-			message.content = replace_sensitive(message.content)
-		elif isinstance(message.content, list):
-			for i, item in enumerate(message.content):
-				if isinstance(item, ContentPartTextParam):
-					item.text = replace_sensitive(item.text)
-					message.content[i] = item
-		return message
+		return filter_sensitive_data_message(message, self.sensitive_data)
