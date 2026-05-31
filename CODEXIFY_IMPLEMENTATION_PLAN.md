@@ -96,38 +96,38 @@ Goal: replace message-manager string mutation with typed context items and deter
 
 Implement:
 
-- [ ] Represent task, user steering, browser state, tool calls, tool results, downloads, files, artifacts, warnings, and compaction as explicit context items.
-- [ ] Render model input from typed context deterministically.
-- [ ] Keep current browser state fresh every turn.
-- [ ] Compact or summarize old context, not the active page.
-- [ ] Preserve current runtime handles even if the model-visible context is compact.
+- [x] Represent task, user steering, browser state, tool calls, tool results, downloads, files, artifacts, warnings, and compaction as explicit context items.
+- [x] Render model input from typed context deterministically.
+- [x] Keep current browser state fresh every turn.
+- [x] Compact or summarize old context, not the active page.
+- [x] Preserve current runtime handles even if the model-visible context is compact.
 
 Suggested context items:
 
-- [ ] `TaskItem`
-- [ ] `UserSteerItem`
-- [ ] `BrowserStateItem`
-- [ ] `ToolCallItem`
-- [ ] `ToolResultItem`
-- [ ] `DownloadItem`
-- [ ] `FileArtifactItem`
-- [ ] `ExtractionArtifactItem`
-- [ ] `WarningItem`
-- [ ] `CompactionItem`
+- [x] `TaskItem`
+- [x] `UserSteerItem`
+- [x] `BrowserStateItem`
+- [x] `ToolCallItem`
+- [x] `ToolResultItem`
+- [x] `DownloadItem`
+- [x] `FileArtifactItem`
+- [x] `ExtractionArtifactItem`
+- [x] `WarningItem`
+- [x] `CompactionItem`
 
 Relevant context to inspect:
 
-- [ ] Current message manager.
-- [ ] Current prompt rendering.
-- [ ] `ActionResult` memory/read-state handling.
-- [ ] Browser state prompt.
-- [ ] Agent history models.
+- [x] Current message manager.
+- [x] Current prompt rendering.
+- [x] `ActionResult` memory/read-state handling.
+- [x] Browser state prompt.
+- [x] Agent history models.
 
 Exit criteria:
 
-- [ ] New context renderer can reproduce the important content of the old message manager.
-- [ ] Context rendering is testable with snapshots or focused assertions.
-- [ ] Old message manager can remain behind compatibility path.
+- [x] New context renderer can reproduce the important content of the old message manager.
+- [x] Context rendering is testable with snapshots or focused assertions.
+- [x] Old message manager can remain behind compatibility path.
 
 ## Phase 3: Native Tool Calls
 
