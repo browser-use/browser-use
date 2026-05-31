@@ -704,6 +704,24 @@ Results:
 - Pyright: `0 errors`.
 - Ruff format: passed.
 
+## Codexification Verification 35
+
+After making the legacy upload handler delegate to `UploadService`:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_upload_tool_uses_direct_service -q
+uv run ruff check browser_use/browser/watchdogs/default_action_watchdog.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/watchdogs/default_action_watchdog.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run ruff format --check browser_use/browser/watchdogs/default_action_watchdog.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Focused direct upload test: `1 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.
+
 ## Codexification Verification 27
 
 After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:

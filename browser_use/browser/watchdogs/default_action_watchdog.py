@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 from typing import Literal
 
 from cdp_use.cdp.input.commands import DispatchKeyEventParameters
@@ -2503,42 +2502,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise
 
 	async def on_UploadFileEvent(self, event: UploadFileEvent) -> None:
-		"""Handle file upload request with CDP."""
-		try:
-			# Use the provided node
-			element_node = event.node
-			index_for_logging = element_node.backend_node_id or 'unknown'
+		"""Compatibility adapter for legacy event-based upload requests."""
+		from browser_use.browser.services import UploadService
 
-			# Check if it's a file input
-			if not self.browser_session.is_file_input(element_node):
-				msg = f'Upload failed - element {index_for_logging} is not a file input.'
-				raise BrowserError(message=msg, long_term_memory=msg)
-
-			# Get CDP client and session
-			cdp_client = self.browser_session.cdp_client
-			session_id = await self._get_session_id_for_element(element_node)
-
-			# Validate file before upload
-			if os.path.exists(event.file_path):
-				file_size = os.path.getsize(event.file_path)
-				if file_size == 0:
-					msg = f'Upload failed - file {event.file_path} is empty (0 bytes).'
-					raise BrowserError(message=msg, long_term_memory=msg)
-				self.logger.debug(f'📎 File {event.file_path} validated ({file_size} bytes)')
-
-			# Set file(s) to upload
-			backend_node_id = element_node.backend_node_id
-			await cdp_client.send.DOM.setFileInputFiles(
-				params={
-					'files': [event.file_path],
-					'backendNodeId': backend_node_id,
-				},
-				session_id=session_id,
-			)
-
-			self.logger.info(f'📎 Uploaded file {event.file_path} to element {index_for_logging}')
-		except Exception as e:
-			raise
+		await UploadService(browser_session=self.browser_session).upload_file(event.node, event.file_path)
 
 	async def on_ScrollToTextEvent(self, event: ScrollToTextEvent) -> None:
 		"""Compatibility adapter for legacy event-based scroll-to-text requests."""
