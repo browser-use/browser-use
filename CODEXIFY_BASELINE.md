@@ -887,3 +887,27 @@ Results:
 - Focused scroll tests: `3 passed`.
 - Native router navigation/scroll test: `1 passed`.
 - Full browser service suite: `15 passed`.
+
+## Codexification Verification 42
+
+After extracting the shared `BrowserService` base class and shared CDP helper methods from `browser_use.browser.services` into `browser_use.browser.service_base` while preserving the public `browser_use.browser.services` imports:
+
+```bash
+uv run ruff check browser_use/browser/service_base.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/service_base.py browser_use/browser/services.py tests/ci/browser/test_browser_services.py
+uv run python - <<'PY'
+from browser_use.browser.services import BrowserService, BrowserServiceBundle, ClickService, TypeService
+from browser_use.browser.service_base import BrowserService as BaseBrowserService
+assert BrowserService is BaseBrowserService
+assert BrowserServiceBundle and ClickService and TypeService
+print('service imports ok')
+PY
+uv run pytest tests/ci/browser/test_browser_services.py::test_browser_service_bundle_exposes_lightweight_state tests/ci/browser/test_browser_services.py::test_direct_action_services_do_not_define_event_bus_fallbacks tests/ci/browser/test_browser_services.py::test_browser_services_can_click_and_type_index_without_event_dispatch -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Public service import compatibility: passed.
+- Focused browser service tests: `3 passed`.

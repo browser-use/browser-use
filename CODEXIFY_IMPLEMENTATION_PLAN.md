@@ -360,6 +360,7 @@ Implement:
 - [x] Remove per-call dynamic `ActionModel` creation from direct `Tools` action calls.
 - [x] Cache legacy action-list model generation for stable available action sets.
 - [x] Introduce one system-prompt renderer boundary around profile/template selection.
+- [x] Extract the shared browser service base into its own module.
 - [ ] Collapse prompt variants into one renderer with capability/mode blocks.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
