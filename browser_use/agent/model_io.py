@@ -272,7 +272,7 @@ class AgentModelIOMixin:
 		kwargs: dict[str, Any] = {
 			'output_format': None,
 			'tools': tool_schemas,
-			'tool_choice': 'auto',
+			'tool_choice': 'required',
 			'parallel_tool_calls': self.settings.max_actions_per_step > 1,
 			'session_id': self.session_id,
 		}
@@ -353,6 +353,7 @@ class AgentModelIOMixin:
 			next_goal='Execute the requested tool calls.',
 			action=actions,
 		)
+		parsed.set_native_tool_calls(response.tool_calls[: self.settings.max_actions_per_step])
 		if urls_replaced:
 			self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
 

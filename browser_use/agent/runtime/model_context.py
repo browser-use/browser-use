@@ -24,10 +24,12 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import (
+	AssistantMessage,
 	BaseMessage,
 	ContentPartImageParam,
 	ContentPartTextParam,
 	SystemMessage,
+	ToolMessage,
 )
 from browser_use.observability import observe_debug
 from browser_use.utils import (
@@ -144,6 +146,7 @@ class ModelContextManager:
 	) -> None:
 		"""Prepare state for the next LLM call without building the final state message."""
 		self.state.history.context_messages.clear()
+		self.state.history.native_tool_protocol_messages = self._native_tool_protocol_messages(model_output, result)
 		self._update_agent_history_description(model_output, result, step_info)
 
 		effective_sensitive_data = sensitive_data if sensitive_data is not None else self.sensitive_data
@@ -171,6 +174,37 @@ class ModelContextManager:
 
 	def _get_sensitive_data_description(self, current_page_url) -> str:
 		return get_sensitive_data_description(self.sensitive_data, current_page_url)
+
+	def _native_tool_protocol_messages(
+		self,
+		model_output: AgentOutput | None,
+		result: list[ActionResult] | None,
+	) -> list[BaseMessage]:
+		if model_output is None or result is None or not model_output.native_tool_calls:
+			return []
+
+		messages: list[BaseMessage] = [AssistantMessage(content=None, tool_calls=model_output.native_tool_calls)]
+		native_tool_results = model_output.native_tool_results
+		for index, tool_call in enumerate(model_output.native_tool_calls):
+			if index < len(native_tool_results):
+				native_result = native_tool_results[index]
+				content = (
+					native_result.model_dump_json(exclude_none=True)
+					if hasattr(native_result, 'model_dump_json')
+					else str(native_result)
+				)
+			else:
+				action_result = (
+					result[index] if index < len(result) else ActionResult(error='Tool call did not produce an action result.')
+				)
+				content = action_result.model_dump_json(exclude_none=True)
+			messages.append(
+				ToolMessage(
+					tool_call_id=tool_call.id,
+					content=content,
+				)
+			)
+		return messages
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='create_state_messages')
 	@time_execution_sync('--create_state_messages')

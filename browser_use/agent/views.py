@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Generic, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
@@ -26,6 +26,7 @@ from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES, DOMInteractedEleme
 # from browser_use.dom.views import SelectorMap
 from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import ToolCall
 from browser_use.tokens.views import UsageSummary
 from browser_use.tools.registry.views import ActionModel
 from browser_use.utils import collect_sensitive_data_values, redact_sensitive_string
@@ -84,6 +85,7 @@ class AgentSettings(BaseModel):
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
 	use_native_tool_calls: bool = False
+	legacy_action_output: bool = False
 	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
 	step_timeout: int = 180  # Timeout in seconds for each step
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
@@ -141,7 +143,8 @@ class AgentConfig(BaseModel):
 	calculate_cost: bool = False
 	pricing_url: str | None = None
 	include_tool_call_examples: bool = False
-	use_native_tool_calls: bool = False
+	use_native_tool_calls: bool | None = None
+	legacy_action_output: bool = False
 	llm_timeout: int | None = None
 	step_timeout: int = 180
 	final_response_after_failure: bool = True
@@ -471,6 +474,8 @@ class AgentBrain(BaseModel):
 
 class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
+	_native_tool_calls: list[ToolCall] = PrivateAttr(default_factory=list)
+	_native_tool_results: list[Any] = PrivateAttr(default_factory=list)
 
 	thinking: str | None = None
 	evaluation_previous_goal: str | None = None
@@ -498,6 +503,24 @@ class AgentOutput(BaseModel):
 			memory=self.memory if self.memory else '',
 			next_goal=self.next_goal if self.next_goal else '',
 		)
+
+	@property
+	def native_tool_calls(self) -> list[ToolCall]:
+		"""Provider-native tool calls that produced this output, if any."""
+		return self._native_tool_calls
+
+	def set_native_tool_calls(self, tool_calls: list[ToolCall]) -> None:
+		"""Store provider-native tool calls outside the legacy serialized output schema."""
+		self._native_tool_calls = tool_calls
+
+	@property
+	def native_tool_results(self) -> list[Any]:
+		"""Provider-native tool results produced while executing this output, if any."""
+		return self._native_tool_results
+
+	def set_native_tool_results(self, tool_results: list[Any]) -> None:
+		"""Store provider-native tool results outside the legacy serialized output schema."""
+		self._native_tool_results = tool_results
 
 	@staticmethod
 	@lru_cache(maxsize=256)

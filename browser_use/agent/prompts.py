@@ -1,4 +1,5 @@
 import importlib.resources
+import re
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, Optional
@@ -26,6 +27,11 @@ def _is_anthropic_4_5_model(model_name: str | None) -> bool:
 	is_opus_4_5 = 'opus' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
 	is_haiku_4_5 = 'haiku' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
 	return is_opus_4_5 or is_haiku_4_5
+
+
+def _strip_structured_output_contract(prompt: str) -> str:
+	"""Remove the legacy AgentOutput JSON contract when native tools are the model protocol."""
+	return re.sub(r'\n?<output>.*?</output>', '', prompt, flags=re.DOTALL).strip()
 
 
 class SystemPromptTemplateSource(str, Enum):
@@ -296,6 +302,7 @@ class SystemPrompt:
 			prompt += f'\n{extend_system_message}'
 
 		if use_native_tool_calls:
+			prompt = _strip_structured_output_contract(prompt)
 			prompt += (
 				'\n\n<native_tool_calling>\n'
 				'Use the provider-native tools for browser actions. Do not output JSON action objects. '

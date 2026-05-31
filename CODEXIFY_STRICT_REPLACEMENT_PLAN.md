@@ -27,12 +27,12 @@ Internally, each phase must make one simpler source of truth the default path. C
 
 Replace `AgentOutput(action=[...])` as the primary model action protocol.
 
-- [ ] Make provider-native tool calls the default for capable models.
-- [ ] Keep legacy action-list output behind an explicit compatibility flag.
-- [ ] Represent `done` as a real native tool result, not a fake action.
-- [ ] Return provider tool-result messages back to the model in the normal loop.
-- [ ] Remove prompt/schema assumptions that force models to emit Browser Use JSON when native tools are available.
-- [ ] Prove simple browser tasks work in native mode by default.
+- [x] Make provider-native tool calls the default for capable models.
+- [x] Keep legacy action-list output behind an explicit compatibility flag.
+- [x] Represent `done` as a real native tool result, not a fake action.
+- [x] Return provider tool-result messages back to the model in the normal loop.
+- [x] Remove prompt/schema assumptions that force models to emit Browser Use JSON when native tools are available.
+- [x] Prove simple browser tasks work in native mode by default.
 
 ## Phase 2: Replace Magic Tool Injection With `ToolContext`
 
@@ -130,6 +130,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [ ] Delete watchdog routing that has explicit service replacements.
 - [ ] Delete duplicated prompt variants that only support old action protocols.
 - [ ] Delete dead compatibility adapters after deprecation tests pass.
+
+## Phase 1 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
 
 ## Required Verification Per Phase
 

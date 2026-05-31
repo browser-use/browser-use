@@ -1,3 +1,4 @@
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 from browser_use import Agent, AgentConfig
@@ -53,3 +54,17 @@ def test_agent_config_only_emits_explicit_fields() -> None:
 	config = AgentConfig(use_judge=False)
 
 	assert config.to_agent_kwargs() == {'use_judge': False}
+
+
+def test_agent_from_config_can_force_legacy_action_output_for_native_capable_llm() -> None:
+	llm = _mock_llm()
+	cast(Any, llm).supports_native_tool_calling = True
+
+	agent = Agent.from_config(
+		'legacy output smoke',
+		llm=llm,
+		config=AgentConfig(legacy_action_output=True),
+	)
+
+	assert agent.settings.use_native_tool_calls is False
+	assert agent.settings.legacy_action_output is True

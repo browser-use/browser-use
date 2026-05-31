@@ -84,6 +84,58 @@ async def test_openai_ainvoke_returns_native_tool_calls(monkeypatch: pytest.Monk
 	assert response.tool_calls[0].function.arguments == '{"url":"https://example.com"}'
 
 
+@pytest.mark.asyncio
+async def test_openai_reasoning_models_omit_reasoning_effort_with_native_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+	create_kwargs: dict[str, Any] = {}
+
+	class FakeCompletions:
+		async def create(self, **kwargs: Any) -> Any:
+			create_kwargs.update(kwargs)
+			return SimpleNamespace(
+				choices=[
+					SimpleNamespace(
+						finish_reason='tool_calls',
+						message=SimpleNamespace(
+							content=None,
+							tool_calls=[
+								SimpleNamespace(
+									id='call_1',
+									type='function',
+									function=SimpleNamespace(name='browser_done', arguments='{"success":true,"text":"ok"}'),
+								)
+							],
+						),
+					)
+				],
+				usage=None,
+			)
+
+	class FakeClient:
+		chat = SimpleNamespace(completions=FakeCompletions())
+
+	chat = ChatOpenAI(model='gpt-5.4-mini', temperature=0)
+	monkeypatch.setattr(chat, 'get_client', lambda: FakeClient())
+
+	await chat.ainvoke(
+		[UserMessage(content='finish')],
+		tools=[
+			{
+				'type': 'function',
+				'function': {
+					'name': 'browser_done',
+					'description': 'Complete the task.',
+					'parameters': {'type': 'object', 'properties': {'text': {'type': 'string'}}},
+				},
+			}
+		],
+		tool_choice='auto',
+	)
+
+	assert 'reasoning_effort' not in create_kwargs
+	assert 'temperature' not in create_kwargs
+	assert create_kwargs['tools'][0]['function']['name'] == 'browser_done'
+
+
 class StructuredAnswer(BaseModel):
 	answer: str
 

@@ -187,7 +187,8 @@ class Agent(
 		pricing_url: str | None = None,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
-		use_native_tool_calls: bool = False,
+		use_native_tool_calls: bool | None = None,
+		legacy_action_output: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int | None = None,
 		step_timeout: int = 180,
@@ -230,6 +231,13 @@ class Agent(
 				llm = ChatBrowserUse()
 
 		self.model_capabilities = ModelCapabilities.from_llm(llm)
+		if legacy_action_output and use_native_tool_calls is True:
+			raise ValueError('Cannot set both legacy_action_output=True and use_native_tool_calls=True.')
+		if legacy_action_output:
+			use_native_tool_calls = False
+		elif use_native_tool_calls is None:
+			use_native_tool_calls = self.model_capabilities.native_tool_calling
+		use_native_tool_calls = bool(use_native_tool_calls)
 
 		# set flashmode = True if llm is ChatBrowserUse
 		if self.model_capabilities.prefers_flash_mode:
@@ -381,6 +389,7 @@ class Agent(
 			calculate_cost=calculate_cost,
 			include_tool_call_examples=include_tool_call_examples,
 			use_native_tool_calls=use_native_tool_calls,
+			legacy_action_output=legacy_action_output,
 			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
@@ -561,6 +570,7 @@ class Agent(
 				max_actions_per_step=self.settings.max_actions_per_step,
 				runtime_mode='legacy',
 				use_native_tool_calls=self.settings.use_native_tool_calls,
+				legacy_action_output=self.settings.legacy_action_output,
 				stream_events=True,
 			),
 			metadata={'agent_id': self.id, 'task_id': self.task_id},
@@ -831,7 +841,11 @@ class Agent(
 		if self.state.last_model_output is None:
 			raise ValueError('No model output to execute actions from')
 
-		result = await self.multi_act(self.state.last_model_output.action)
+		if self.settings.use_native_tool_calls and self.state.last_model_output.native_tool_calls:
+			result, native_results = await self.multi_act_native(self.state.last_model_output.native_tool_calls)
+			self.state.last_model_output.set_native_tool_results(native_results)
+		else:
+			result = await self.multi_act(self.state.last_model_output.action)
 		self.state.last_result = result
 
 	async def _post_process(self) -> None:

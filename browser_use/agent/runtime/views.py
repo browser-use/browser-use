@@ -195,6 +195,7 @@ class BrowserRunConfig(BaseModel):
 	max_actions_per_step: int = Field(default=3, ge=1)
 	runtime_mode: Literal['legacy', 'codex'] = 'legacy'
 	use_native_tool_calls: bool = False
+	legacy_action_output: bool = False
 	stream_events: bool = True
 	metadata: dict[str, Any] = Field(default_factory=dict)
 

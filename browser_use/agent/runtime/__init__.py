@@ -1,8 +1,7 @@
 """Codex-like runtime primitives for the browser agent.
 
-These objects are intentionally inert in Phase 1. They model sessions, turns,
-events, artifacts, and tool execution context without changing the existing
-`Agent` execution path.
+These objects model sessions, turns, events, artifacts, and explicit tool
+execution context for the codex-style runtime path.
 """
 
 from browser_use.agent.runtime.agent_bridge import AgentRuntimeEventBridge

@@ -75,3 +75,5 @@ def test_system_prompt_can_override_for_native_tool_calling() -> None:
 	assert isinstance(content, str)
 	assert '<native_tool_calling>' in content
 	assert 'Do not output JSON action objects' in content
+	assert 'AgentOutput tool' not in content
+	assert 'You must ALWAYS respond with a valid JSON' not in content

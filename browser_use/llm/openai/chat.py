@@ -64,6 +64,9 @@ class ChatOpenAI(BaseChatModel):
 
 	# Model configuration
 	model: ChatModel | str
+	supports_native_tool_calling: bool = True
+	supports_structured_output: bool = True
+	supports_parallel_tool_calls: bool = True
 
 	# Model params
 	temperature: float | None = 0.2
@@ -220,6 +223,11 @@ class ChatOpenAI(BaseChatModel):
 
 		try:
 			model_params: dict[str, Any] = {}
+			native_tool_params: dict[str, Any] = {}
+
+			for native_tool_param in ('tools', 'tool_choice', 'parallel_tool_calls'):
+				if native_tool_param in kwargs and kwargs[native_tool_param] is not None:
+					native_tool_params[native_tool_param] = kwargs[native_tool_param]
 
 			if self.temperature is not None:
 				model_params['temperature'] = self.temperature
@@ -240,13 +248,12 @@ class ChatOpenAI(BaseChatModel):
 				model_params['service_tier'] = self.service_tier
 
 			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
-				model_params['reasoning_effort'] = self.reasoning_effort
+				if 'tools' not in native_tool_params:
+					model_params['reasoning_effort'] = self.reasoning_effort
 				model_params.pop('temperature', None)
 				model_params.pop('frequency_penalty', None)
 
-			for native_tool_param in ('tools', 'tool_choice', 'parallel_tool_calls'):
-				if native_tool_param in kwargs and kwargs[native_tool_param] is not None:
-					model_params[native_tool_param] = kwargs[native_tool_param]
+			model_params.update(native_tool_params)
 
 			if output_format is None:
 				# Return string response

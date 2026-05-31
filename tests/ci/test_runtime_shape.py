@@ -11,6 +11,7 @@ from browser_use.agent.runtime import (
 	ModelCapabilities,
 	ToolContext,
 )
+from browser_use.llm.openai.chat import ChatOpenAI
 
 
 class ExperimentalLLM:
@@ -31,6 +32,17 @@ def test_model_capabilities_preserve_unknown_model_name() -> None:
 	assert capabilities.vision is True
 	assert capabilities.prefers_flash_mode is True
 	assert capabilities.uses_browser_use_prompt is False
+
+
+def test_openai_wrapper_advertises_native_tool_capabilities_without_model_rewrites() -> None:
+	llm = ChatOpenAI(model='gpt-5.4-mini')
+	capabilities = ModelCapabilities.from_llm(llm)
+
+	assert capabilities.provider == 'openai'
+	assert capabilities.model_name == 'gpt-5.4-mini'
+	assert capabilities.native_tool_calling is True
+	assert capabilities.structured_output is True
+	assert capabilities.parallel_tool_calls is True
 
 
 class ClaudeSonnetLLM:

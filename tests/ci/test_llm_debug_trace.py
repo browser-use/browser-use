@@ -128,7 +128,7 @@ async def test_native_tool_llm_debug_trace_captures_provider_tool_schemas(
 	result = trace_records[1]
 	assert start['event'] == 'llm_call_start'
 	assert start['invoke_kwargs']['output_format'] is None
-	assert start['invoke_kwargs']['tool_choice'] == 'auto'
+	assert start['invoke_kwargs']['tool_choice'] == 'required'
 	assert any(tool['function']['name'] == 'browser_done' for tool in start['native_tools'])
 	assert any(tool['function']['name'] == 'browser_done' for tool in start['invoke_kwargs']['tools'])
 

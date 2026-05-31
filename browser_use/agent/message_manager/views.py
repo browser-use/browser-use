@@ -67,6 +67,7 @@ class MessageHistory(BaseModel):
 	"""History of messages"""
 
 	system_message: BaseMessage | None = None
+	native_tool_protocol_messages: list[BaseMessage] = Field(default_factory=list)
 	state_message: BaseMessage | None = None
 	context_messages: list[BaseMessage] = Field(default_factory=list)
 	model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -76,6 +77,7 @@ class MessageHistory(BaseModel):
 		messages = []
 		if self.system_message:
 			messages.append(self.system_message)
+		messages.extend(self.native_tool_protocol_messages)
 		if self.state_message:
 			messages.append(self.state_message)
 		messages.extend(self.context_messages)
