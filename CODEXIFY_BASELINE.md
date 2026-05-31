@@ -2332,3 +2332,29 @@ Results:
 - Screenshot tests: `2 passed`.
 - Session start smoke: `1 passed`.
 - `browser_use/browser/session.py` reduced from `2464` to `2343` lines in this slice.
+
+## Codexification Verification 95
+
+After extracting highlight helpers into `browser_use/browser/session_highlights.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_highlights.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_highlights.py
+uv run pytest tests/ci/test_coordinate_clicking.py -q
+uv run pytest tests/ci/browser/test_cross_origin_click.py -q
+uv run pytest tests/ci/browser/test_screenshot.py -q
+uv run python - <<'PY'
+# Starts a local HTTP page with a button, resolves its backendNodeId,
+# calls get_element_coordinates(), highlight_coordinate_click(), and remove_highlights().
+PY
+```
+
+Results:
+
+- Ruff: passed after formatter/import cleanup.
+- Pyright: `0 errors`.
+- Coordinate-clicking tests: `33 passed`.
+- Cross-origin iframe click test: `1 passed`.
+- Screenshot tests: `2 passed`.
+- Direct headless Chromium highlight smoke: resolved a backend-node rectangle and ran coordinate highlight/removal.
+- `browser_use/browser/session.py` reduced from `2343` to `1753` lines in this slice.
