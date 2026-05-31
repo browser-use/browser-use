@@ -271,20 +271,20 @@ Implement:
 
 - [x] Add optional permission-gated file tools.
 - [x] Add optional permission-gated shell tools.
-- [ ] Connect downloads and generated artifacts to the workspace.
-- [ ] Keep outputs truncated and artifact-backed when large.
+- [x] Connect downloads and generated artifacts to the workspace.
+- [x] Keep outputs truncated and artifact-backed when large.
 
 Use cases:
 
-- [ ] Inspect downloaded files.
-- [ ] Transform CSV/JSON/HTML/PDF data.
+- [x] Inspect downloaded files.
+- [x] Transform CSV/JSON/HTML/PDF data.
 - [x] Run small helper scripts.
 - [x] Validate extracted results.
 - [x] Persist artifacts across turns.
 
 Exit criteria:
 
-- [ ] Browser tasks can work with downloaded/generated files.
+- [x] Browser tasks can work with downloaded/generated files.
 - [x] Shell/file tools are disabled or permission-gated where unsafe.
 
 ## Phase 8: Skills And Playbooks

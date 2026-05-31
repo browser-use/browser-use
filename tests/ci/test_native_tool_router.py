@@ -10,6 +10,7 @@ from browser_use.agent.runtime import (
 	NativeToolRouter,
 	click_coordinates_as_click_arguments,
 )
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
 
 
@@ -39,6 +40,7 @@ def test_native_tool_router_workspace_tools_are_opt_in() -> None:
 
 	assert 'workspace.read_file' not in default_router.definitions
 	assert 'workspace.read_file' in workspace_router.definitions
+	assert 'workspace.import_artifacts' in workspace_router.definitions
 	assert workspace_router.resolve('shell_run').name == 'shell.run'
 
 
@@ -342,11 +344,28 @@ async def test_native_tool_router_returns_structured_error_without_browser_sessi
 
 @pytest.mark.asyncio
 async def test_native_tool_router_executes_permission_gated_workspace_tools(tmp_path) -> None:
+	class BrowserSessionWithDownloads:
+		downloaded_files: list[str]
+
+		def __init__(self, downloaded_files: list[str]) -> None:
+			self.downloaded_files = downloaded_files
+
 	tools = Tools()
 	router = NativeToolRouter.from_tools(tools, include_workspace_tools=True)
 	session = BrowserAgentSession.create(task='Use workspace tools')
 	turn = session.start_turn(step_index=0)
-	denied_context = session.tool_context(turn, tools=tools, metadata={'workspace_root': str(tmp_path)})
+	workspace_root = tmp_path / 'workspace'
+	source_dir = tmp_path / 'source'
+	source_dir.mkdir()
+	available_csv = source_dir / 'available.csv'
+	available_csv.write_text('name,value\nalpha,1\n', encoding='utf-8')
+	downloaded_html = source_dir / 'downloaded.html'
+	downloaded_html.write_text('<html><body>downloaded artifact</body></html>', encoding='utf-8')
+	generated_json = source_dir / 'generated.json'
+	generated_json.write_text('{"generated": true}', encoding='utf-8')
+	session.artifact_store.add(kind='generated', path=generated_json, name='generated.json', media_type='application/json')
+
+	denied_context = session.tool_context(turn, tools=tools, metadata={'workspace_root': str(workspace_root)})
 
 	denied = await router.execute(
 		NativeToolCall(tool_name='workspace.write_file', arguments={'path': 'notes.txt', 'content': 'blocked'}),
@@ -358,8 +377,11 @@ async def test_native_tool_router_executes_permission_gated_workspace_tools(tmp_
 	context = session.tool_context(
 		turn,
 		tools=tools,
+		browser_session=BrowserSessionWithDownloads([str(downloaded_html)]),
+		available_file_paths=[str(available_csv)],
+		file_system=FileSystem(tmp_path / 'file-system', create_default_files=False),
 		metadata={
-			'workspace_root': str(tmp_path),
+			'workspace_root': str(workspace_root),
 			'allow_file_tools': True,
 			'allow_shell_tools': True,
 			'allowed_shell_commands': ['/bin/echo'],
@@ -373,19 +395,36 @@ async def test_native_tool_router_executes_permission_gated_workspace_tools(tmp_
 		context,
 	)
 	assert write_result.is_error is False
-	assert (tmp_path / 'reports' / 'notes.txt').read_text() == 'workspace-ok'
+	assert (workspace_root / 'reports' / 'notes.txt').read_text() == 'workspace-ok'
 
 	read_result = await router.execute(
 		NativeToolCall(tool_name='workspace.read_file', arguments={'path': 'reports/notes.txt'}), context
 	)
 	assert read_result.is_error is False
-	assert read_result.structured_content['content'] == 'workspace-ok'
+	assert 'workspace-ok' in read_result.structured_content['content']
+	assert read_result.artifact_ids
 
 	list_result = await router.execute(
 		NativeToolCall(tool_name='workspace.list_files', arguments={'path': '.', 'recursive': True}), context
 	)
 	assert list_result.is_error is False
 	assert any(entry['path'] == 'reports/notes.txt' for entry in list_result.structured_content['entries'])
+
+	import_result = await router.execute(
+		NativeToolCall(tool_name='workspace.import_artifacts', arguments={'destination_dir': 'artifacts'}), context
+	)
+	assert import_result.is_error is False
+	imported_paths = {item['workspace_path'] for item in import_result.structured_content['imported']}
+	assert {'artifacts/available.csv', 'artifacts/downloaded.html', 'artifacts/generated.json'} <= imported_paths
+	assert len(import_result.artifact_ids) == 3
+	assert len(context.artifact_store.artifacts) >= 4
+	assert BrowserRuntimeEventTypes.ARTIFACT_CREATED in [event.event_type for event in session.event_stream.events]
+
+	imported_read = await router.execute(
+		NativeToolCall(tool_name='workspace.read_file', arguments={'path': 'artifacts/available.csv'}), context
+	)
+	assert imported_read.is_error is False
+	assert 'alpha,1' in imported_read.structured_content['content']
 
 	escape_result = await router.execute(
 		NativeToolCall(tool_name='workspace.read_file', arguments={'path': '../outside.txt'}), context

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import re
+import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -128,6 +130,18 @@ class WorkspaceListFilesInput(BaseModel):
 	pattern: str = '*'
 	recursive: bool = False
 	max_entries: int = Field(default=200, ge=1, le=5000)
+
+
+class WorkspaceImportArtifactsInput(BaseModel):
+	"""Copy downloaded, generated, or explicitly listed files into the workspace."""
+
+	paths: list[str] = Field(default_factory=list, description='Explicit file paths to import')
+	include_available_file_paths: bool = True
+	include_downloads: bool = True
+	include_artifacts: bool = True
+	destination_dir: str = 'artifacts'
+	overwrite: bool = False
+	max_files: int = Field(default=100, ge=1, le=1000)
 
 
 class ShellRunInput(BaseModel):
@@ -331,6 +345,12 @@ def _workspace_definitions() -> list[NativeToolDefinition]:
 			executable=True,
 		),
 		NativeToolDefinition(
+			name='workspace.import_artifacts',
+			description='Copy available_file_paths, browser downloads, artifact-store paths, or explicit file paths into the workspace.',
+			input_model=WorkspaceImportArtifactsInput,
+			executable=True,
+		),
+		NativeToolDefinition(
 			name='shell.run',
 			description='Run an argv-style command in the configured workspace root. Requires allow_shell_tools metadata.',
 			input_model=ShellRunInput,
@@ -460,6 +480,12 @@ class NativeToolRouter(BaseModel):
 		if definition.name == 'workspace.list_files':
 			params = cast(WorkspaceListFilesInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._workspace_list_files(params, context))
+
+		if definition.name == 'workspace.import_artifacts':
+			params = cast(WorkspaceImportArtifactsInput, self.validate_call(call))
+			return await self._execute_direct_tool(
+				call, context, definition, lambda: self._workspace_import_artifacts(params, context)
+			)
 
 		if definition.name == 'shell.run':
 			params = cast(ShellRunInput, self.validate_call(call))
@@ -1056,13 +1082,39 @@ performance.getEntriesByType('resource').slice(-{params.max_entries}).map((entry
 				content=f'File not found: {params.path}',
 			)
 
-		content = path.read_text(encoding='utf-8', errors='replace')
+		read_structured = cast(
+			Callable[..., Awaitable[dict[str, Any]]] | None, getattr(context.file_system, 'read_file_structured', None)
+		)
+		if callable(read_structured):
+			structured_result = await read_structured(str(path), external_file=True)
+			content = str(structured_result.get('message', ''))
+		else:
+			structured_result = None
+			content = path.read_text(encoding='utf-8', errors='replace')
 		truncated = _truncate_text(content, params.max_chars)
+		artifact = context.artifact_store.add(
+			kind='workspace_file',
+			name=path.name,
+			path=path,
+			media_type=mimetypes.guess_type(path.name)[0],
+			metadata={'source': 'workspace.read_file', 'truncated': truncated['truncated']},
+		)
+		context.emit_tool_event(
+			BrowserRuntimeEventTypes.ARTIFACT_CREATED,
+			{'artifact_id': artifact.artifact_id, 'kind': artifact.kind, 'path': str(path)},
+		)
 		return NativeToolResult(
 			tool_name='workspace.read_file',
 			call_id='',
 			content=f'Read {truncated["returned_chars"]} characters from {params.path}',
-			structured_content={'path': str(path), 'content': truncated['text'], **truncated},
+			artifact_ids=[artifact.artifact_id],
+			structured_content={
+				'path': str(path),
+				'content': truncated['text'],
+				'images': structured_result.get('images') if structured_result else None,
+				'artifact_id': artifact.artifact_id,
+				**truncated,
+			},
 		)
 
 	async def _workspace_write_file(self, params: WorkspaceWriteFileInput, context: ToolContext) -> NativeToolResult:
@@ -1142,6 +1194,76 @@ performance.getEntriesByType('resource').slice(-{params.max_entries}).map((entry
 				'entries': entries,
 				'max_entries': params.max_entries,
 				'truncated': len(entries) >= params.max_entries,
+			},
+		)
+
+	async def _workspace_import_artifacts(self, params: WorkspaceImportArtifactsInput, context: ToolContext) -> NativeToolResult:
+		try:
+			root = _workspace_root(context, permission='file')
+			destination_dir = _resolve_workspace_path(root, params.destination_dir)
+		except ValueError as e:
+			return NativeToolResult(tool_name='workspace.import_artifacts', call_id='', is_error=True, content=str(e))
+
+		destination_dir.mkdir(parents=True, exist_ok=True)
+		candidates = _workspace_artifact_candidates(params, context)
+		imported = []
+		skipped = []
+		seen_sources: set[Path] = set()
+
+		for source in candidates:
+			if len(imported) >= params.max_files:
+				break
+			try:
+				source_path = Path(source).expanduser().resolve()
+				if source_path in seen_sources:
+					continue
+				seen_sources.add(source_path)
+				if not source_path.exists() or not source_path.is_file():
+					skipped.append({'path': str(source), 'reason': 'not_found_or_not_file'})
+					continue
+				if source_path == root or root in source_path.parents:
+					skipped.append({'path': str(source_path), 'reason': 'already_in_workspace'})
+					continue
+
+				destination = _unique_destination(destination_dir, source_path.name, overwrite=params.overwrite)
+				shutil.copy2(source_path, destination)
+				artifact = context.artifact_store.add(
+					kind='workspace_import',
+					name=destination.name,
+					path=destination,
+					media_type=mimetypes.guess_type(destination.name)[0],
+					metadata={'source_path': str(source_path)},
+				)
+				context.emit_tool_event(
+					BrowserRuntimeEventTypes.ARTIFACT_CREATED,
+					{'artifact_id': artifact.artifact_id, 'kind': artifact.kind, 'path': str(destination)},
+				)
+				imported.append(
+					{
+						'source_path': str(source_path),
+						'workspace_path': str(destination.relative_to(root)),
+						'absolute_workspace_path': str(destination),
+						'artifact_id': artifact.artifact_id,
+						'bytes': destination.stat().st_size,
+						'media_type': artifact.media_type,
+					}
+				)
+			except OSError as exc:
+				skipped.append({'path': str(source), 'reason': str(exc)})
+
+		return NativeToolResult(
+			tool_name='workspace.import_artifacts',
+			call_id='',
+			content=f'Imported {len(imported)} artifact file(s) into the workspace',
+			artifact_ids=[item['artifact_id'] for item in imported],
+			structured_content={
+				'root': str(root),
+				'destination_dir': str(destination_dir.relative_to(root)),
+				'imported': imported,
+				'skipped': skipped,
+				'candidate_count': len(candidates),
+				'max_files': params.max_files,
+				'truncated': len(imported) >= params.max_files and len(candidates) > len(imported),
 			},
 		)
 
@@ -1249,3 +1371,30 @@ def _resolve_workspace_path(root: Path, path: str) -> Path:
 	if candidate != root and root not in candidate.parents:
 		raise ValueError(f'Path escapes workspace root: {path}')
 	return candidate
+
+
+def _workspace_artifact_candidates(params: WorkspaceImportArtifactsInput, context: ToolContext) -> list[str | Path]:
+	candidates: list[str | Path] = list(params.paths)
+	if params.include_available_file_paths and context.available_file_paths:
+		candidates.extend(context.available_file_paths)
+	if params.include_downloads and context.browser_session is not None:
+		candidates.extend(getattr(context.browser_session, 'downloaded_files', []) or [])
+	if params.include_artifacts:
+		candidates.extend(artifact.path for artifact in context.artifact_store.artifacts if artifact.path is not None)
+	return candidates
+
+
+def _unique_destination(destination_dir: Path, file_name: str, *, overwrite: bool) -> Path:
+	clean_name = Path(file_name).name
+	destination = destination_dir / clean_name
+	if overwrite or not destination.exists():
+		return destination
+
+	stem = destination.stem
+	suffix = destination.suffix
+	counter = 1
+	while True:
+		candidate = destination_dir / f'{stem}-{counter}{suffix}'
+		if not candidate.exists():
+			return candidate
+		counter += 1
