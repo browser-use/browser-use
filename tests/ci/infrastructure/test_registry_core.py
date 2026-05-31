@@ -477,6 +477,34 @@ class TestRegistryEdgeCases:
 		assert result.extracted_content is not None
 		assert 'Should execute: test' in result.extracted_content
 
+	def test_create_action_model_reuses_cache_and_invalidates_on_registry_changes(self, registry):
+		"""Action model generation is cached for stable available action sets."""
+
+		@registry.action('Default action', param_model=NoParamsAction)
+		async def default_action(params: NoParamsAction):
+			return ActionResult(extracted_content=params.description or 'ok')
+
+		first = registry.create_action_model()
+		second = registry.create_action_model()
+
+		assert second is first
+
+		@registry.action('Example-only action', domains=['example.com'], param_model=NoParamsAction)
+		async def example_action(params: NoParamsAction):
+			return ActionResult(extracted_content=params.description or 'example')
+
+		after_registration = registry.create_action_model()
+		example_page_model = registry.create_action_model(page_url='https://example.com')
+
+		assert after_registration is not first
+		assert registry.create_action_model() is after_registration
+		assert registry.create_action_model(page_url='https://example.com') is example_page_model
+
+		registry.exclude_action('default_action')
+		after_exclusion = registry.create_action_model()
+
+		assert after_exclusion is not after_registration
+
 
 class TestExistingToolsActions:
 	"""Test that existing tools actions continue to work"""

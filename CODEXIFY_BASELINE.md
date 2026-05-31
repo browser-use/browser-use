@@ -441,3 +441,21 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Static check: no `DynamicActionModel` or `create_model(...)` remains in `browser_use/tools/service.py`.
+
+## Codexification Verification 16
+
+After caching legacy action-list model generation for stable available action sets:
+
+```bash
+uv run pytest tests/ci/infrastructure/test_registry_core.py::TestRegistryEdgeCases::test_create_action_model_reuses_cache_and_invalidates_on_registry_changes tests/ci/test_multi_act_guards.py::TestTerminatesSequenceMetadata::test_evaluate_terminates -q
+uv run pytest tests/ci/test_multi_act_guards.py -q
+uv run ruff check browser_use/tools/registry/service.py tests/ci/infrastructure/test_registry_core.py
+uv run pyright browser_use/tools/registry/service.py tests/ci/infrastructure/test_registry_core.py
+```
+
+Results:
+
+- Focused registry cache and metadata tests: `2 passed`.
+- Full `multi_act` guard suite: `13 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.

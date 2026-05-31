@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
-from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
+from typing import Any, Generic, Optional, TypeVar, Union, cast, get_args, get_origin
 
 import pyotp
 from pydantic import BaseModel, Field, RootModel, create_model
@@ -37,6 +37,7 @@ class Registry(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 		# Create a new list to avoid mutable default argument issues
 		self.exclude_actions = list(exclude_actions) if exclude_actions is not None else []
+		self._action_model_cache: dict[tuple[tuple[str, str, int, tuple[str, ...], bool], ...], type[ActionModel]] = {}
 
 	def exclude_action(self, action_name: str) -> None:
 		"""Exclude an action from the registry after initialization.
@@ -51,6 +52,7 @@ class Registry(Generic[Context]):
 		# Remove from registry if already registered
 		if action_name in self.registry.actions:
 			del self.registry.actions[action_name]
+			self._action_model_cache.clear()
 			logger.debug(f'Excluded action "{action_name}" from registry')
 
 	def _get_special_param_types(self) -> dict[str, type | UnionType | None]:
@@ -319,6 +321,7 @@ class Registry(Generic[Context]):
 				terminates_sequence=terminates_sequence,
 			)
 			self.registry.actions[func.__name__] = action
+			self._action_model_cache.clear()
 
 			# Return the normalized function so it can be called with kwargs
 			return normalized_func
@@ -535,26 +538,44 @@ class Registry(Generic[Context]):
 			if domain_is_allowed:
 				available_actions[name] = action
 
+		cache_key = tuple(
+			(
+				name,
+				action.description,
+				id(action.param_model),
+				tuple(action.domains or ()),
+				action.terminates_sequence,
+			)
+			for name, action in available_actions.items()
+		)
+		if cache_key in self._action_model_cache:
+			return self._action_model_cache[cache_key]
+
 		# Create individual action models for each action
-		individual_action_models: list[type[BaseModel]] = []
+		individual_action_models: list[type[ActionModel]] = []
 
 		for name, action in available_actions.items():
 			# Create an individual model for each action that contains only one field
-			individual_model = create_model(
-				f'{name.title().replace("_", "")}ActionModel',
-				__base__=ActionModel,
-				**{
-					name: (
-						action.param_model,
-						Field(description=action.description),
-					)  # type: ignore
-				},
+			individual_model = cast(
+				type[ActionModel],
+				create_model(
+					f'{name.title().replace("_", "")}ActionModel',
+					__base__=ActionModel,
+					**{
+						name: (
+							action.param_model,
+							Field(description=action.description),
+						)  # type: ignore
+					},
+				),
 			)
 			individual_action_models.append(individual_model)
 
 		# If no actions available, return empty ActionModel
 		if not individual_action_models:
-			return create_model('EmptyActionModel', __base__=ActionModel)
+			result_model = cast(type[ActionModel], create_model('EmptyActionModel', __base__=ActionModel))
+			self._action_model_cache[cache_key] = result_model
+			return result_model
 
 		# Create proper Union type that maintains ActionModel interface
 		if len(individual_action_models) == 1:
@@ -588,8 +609,9 @@ class Registry(Generic[Context]):
 			ActionModelUnion.__name__ = 'ActionModel'
 			ActionModelUnion.__qualname__ = 'ActionModel'
 
-			result_model = ActionModelUnion
+			result_model = cast(type[ActionModel], ActionModelUnion)
 
+		self._action_model_cache[cache_key] = result_model
 		return result_model  # type:ignore
 
 	def get_prompt_description(self, page_url: str | None = None) -> str:
