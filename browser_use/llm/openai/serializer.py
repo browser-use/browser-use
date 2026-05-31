@@ -8,6 +8,7 @@ from openai.types.chat import (
 	ChatCompletionMessageFunctionToolCallParam,
 	ChatCompletionMessageParam,
 	ChatCompletionSystemMessageParam,
+	ChatCompletionToolMessageParam,
 	ChatCompletionUserMessageParam,
 )
 from openai.types.chat.chat_completion_content_part_image_param import ImageURL
@@ -21,6 +22,7 @@ from browser_use.llm.messages import (
 	ContentPartTextParam,
 	SystemMessage,
 	ToolCall,
+	ToolMessage,
 	UserMessage,
 )
 
@@ -114,6 +116,10 @@ class OpenAIMessageSerializer:
 	@staticmethod
 	def serialize(message: AssistantMessage) -> ChatCompletionAssistantMessageParam: ...
 
+	@overload
+	@staticmethod
+	def serialize(message: ToolMessage) -> ChatCompletionToolMessageParam: ...
+
 	@staticmethod
 	def serialize(message: BaseMessage) -> ChatCompletionMessageParam:
 		"""Serialize a custom message to an OpenAI message param."""
@@ -156,6 +162,14 @@ class OpenAIMessageSerializer:
 				assistant_result['tool_calls'] = [OpenAIMessageSerializer._serialize_tool_call(tc) for tc in message.tool_calls]
 
 			return assistant_result
+
+		elif isinstance(message, ToolMessage):
+			tool_result: ChatCompletionToolMessageParam = {
+				'role': 'tool',
+				'content': message.content,
+				'tool_call_id': message.tool_call_id,
+			}
+			return tool_result
 
 		else:
 			raise ValueError(f'Unknown message type: {type(message)}')

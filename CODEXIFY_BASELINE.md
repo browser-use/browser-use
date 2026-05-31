@@ -632,6 +632,24 @@ Real `ChatBrowserUse` + headless local Chromium smoke after moving click and typ
 - Final result: `direct-service-smoke:codexify`
 - Notes: the task opened a local HTTP page, typed into an input, clicked a `Reveal` button, observed the revealed text, and completed through the public `Agent` path.
 
+## Codexification Verification 31
+
+After adding provider-facing tool result messages and OpenAI native tool-call response parsing:
+
+```bash
+uv run pytest browser_use/llm/tests/test_openai_native_tools.py tests/ci/test_native_tool_router.py::test_native_tool_router_exposes_api_safe_names -q
+uv run ruff check browser_use/llm/messages.py browser_use/llm/views.py browser_use/llm/openai/chat.py browser_use/llm/openai/serializer.py browser_use/llm/tests/test_openai_native_tools.py
+uv run pyright browser_use/llm/messages.py browser_use/llm/views.py browser_use/llm/openai/chat.py browser_use/llm/openai/serializer.py browser_use/llm/tests/test_openai_native_tools.py
+uv run ruff format --check browser_use/llm/messages.py browser_use/llm/views.py browser_use/llm/openai/chat.py browser_use/llm/openai/serializer.py browser_use/llm/tests/test_openai_native_tools.py
+```
+
+Results:
+
+- OpenAI native tool plumbing and native-router schema tests: `3 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.
+
 ## Codexification Verification 27
 
 After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:

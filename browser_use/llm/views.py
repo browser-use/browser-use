@@ -1,6 +1,8 @@
 from typing import Generic, TypeVar, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from browser_use.llm.messages import ToolCall
 
 T = TypeVar('T', bound=Union[BaseModel, str])
 
@@ -46,3 +48,6 @@ class ChatInvokeCompletion(BaseModel, Generic[T]):
 
 	stop_reason: str | None = None
 	"""The reason the model stopped generating. Common values: 'end_turn', 'max_tokens', 'stop_sequence'."""
+
+	tool_calls: list[ToolCall] = Field(default_factory=list)
+	"""Provider-native tool calls requested by the model, if any."""

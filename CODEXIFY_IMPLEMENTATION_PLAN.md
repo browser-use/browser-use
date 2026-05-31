@@ -146,6 +146,7 @@ Implement:
 - [x] Treat `done` and structured final output as proper native outputs, not fake actions.
 - [x] Execute native `browser.done` directly instead of routing completion through the registered action adapter.
 - [x] Keep `ActionResult`/tool result content structured and model-readable.
+- [x] Add provider-facing tool result messages and OpenAI native tool-call response parsing.
 
 Core tools:
 

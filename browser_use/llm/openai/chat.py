@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
@@ -141,6 +141,27 @@ class ChatOpenAI(BaseChatModel):
 
 		return usage
 
+	def _get_tool_calls(self, response: ChatCompletion) -> list[ToolCall]:
+		choice = response.choices[0] if response.choices else None
+		if choice is None or not choice.message.tool_calls:
+			return []
+
+		tool_calls: list[ToolCall] = []
+		for tool_call in choice.message.tool_calls:
+			if tool_call.type != 'function':
+				continue
+			tool_calls.append(
+				ToolCall(
+					id=tool_call.id,
+					function=Function(
+						name=tool_call.function.name,
+						arguments=tool_call.function.arguments or '{}',
+					),
+					type='function',
+				)
+			)
+		return tool_calls
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -191,6 +212,10 @@ class ChatOpenAI(BaseChatModel):
 				model_params.pop('temperature', None)
 				model_params.pop('frequency_penalty', None)
 
+			for native_tool_param in ('tools', 'tool_choice', 'parallel_tool_calls'):
+				if native_tool_param in kwargs and kwargs[native_tool_param] is not None:
+					model_params[native_tool_param] = kwargs[native_tool_param]
+
 			if output_format is None:
 				# Return string response
 				response = await self.get_client().chat.completions.create(
@@ -219,6 +244,7 @@ class ChatOpenAI(BaseChatModel):
 					completion=choice.message.content or '',
 					usage=usage,
 					stop_reason=choice.finish_reason,
+					tool_calls=self._get_tool_calls(response),
 				)
 
 			else:
