@@ -511,3 +511,13 @@ Results:
 - Typed context and prompt-cache suffix tests: `6 passed`.
 - Ruff: passed.
 - Pyright: `0 errors`.
+
+## Codexification Verification 20
+
+Real `ChatBrowserUse` + headless local Chromium smoke after centralizing typed context snapshots:
+
+- Success: `True`
+- Done: `True`
+- Steps: `4`
+- Final result: `codexify-context-smoke`
+- Notes: the task opened a local HTTP page, clicked a `Reveal` button, extracted the revealed text, and completed through the public `Agent` path.
