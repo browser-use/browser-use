@@ -196,9 +196,24 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
-		if parsed.scheme in ['data', 'blob']:
-			return True
+		# Allow data: and blob: URLs only when no domain restrictions are configured.
+		# When allowed_domains or prohibited_domains is set, data: URLs become an
+		# exfiltration vector (arbitrary HTML/JS content) and blob: URL origins
+		# must be validated against the domain allowlist.
+		if parsed.scheme in ('data', 'blob'):
+			if (
+				not self.browser_session.browser_profile.allowed_domains
+				and not self.browser_session.browser_profile.prohibited_domains
+			):
+				return True
+			# Block data: URLs when domain restrictions are active — they can
+			# carry arbitrary HTML/JS that exfiltrates data to external domains.
+			if parsed.scheme == 'data':
+				return False
+			# For blob: URLs, check if the embedded origin matches allowed domains.
+			# blob: URLs encode origin as blob:https://example.com/uuid
+			blob_inner = url.removeprefix('blob:')
+			return self._is_url_allowed(blob_inner)
 
 		# Get the actual host (domain)
 		host = parsed.hostname
