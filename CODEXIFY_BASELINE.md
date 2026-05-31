@@ -1576,3 +1576,78 @@ Results:
 - Pyright: `0 errors`.
 - Planning, budget-warning, and loop-detection tests: `68 passed`.
 - Python compile: passed.
+
+## Codexification Verification 73
+
+After moving judge trace evaluation and judge verdict logging into `browser_use.agent.judge.AgentJudgeMixin` beside the judge prompt builder:
+
+```bash
+uv run ruff check browser_use/agent/judge.py browser_use/agent/service.py browser_use/agent/views.py tests/ci/test_agent_runtime_events.py
+uv run pyright browser_use/agent/judge.py browser_use/agent/service.py browser_use/agent/views.py tests/ci/test_agent_runtime_events.py
+uv run pytest tests/ci/test_agent_runtime_events.py -q
+uv run python -m py_compile browser_use/agent/judge.py browser_use/agent/service.py
+uv run python - <<'PY'
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from browser_use import Agent
+from browser_use.agent.views import JudgementResult
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.views import ChatInvokeCompletion
+
+class FakeDoneResult:
+    is_done = True
+    success = True
+    judgement = None
+
+class FakeHistory:
+    def __init__(self):
+        self.done_result = FakeDoneResult()
+        self.history = [SimpleNamespace(result=[self.done_result])]
+
+    def final_result(self):
+        return 'final answer'
+
+    def agent_steps(self):
+        return ['Step 1: done']
+
+    def screenshot_paths(self):
+        return []
+
+async def main():
+    llm = AsyncMock(spec=BaseChatModel)
+    llm.provider = 'mock'
+    llm.model = 'mock-model'
+    llm.name = 'mock-model'
+
+    judgement = JudgementResult(reasoning='looks good', verdict=True, failure_reason='', impossible_task=False, reached_captcha=False)
+    judge_llm = AsyncMock(spec=BaseChatModel)
+    judge_llm.provider = 'mock'
+    judge_llm.model = 'judge-model'
+    judge_llm.name = 'judge-model'
+    ainvoke_mock = AsyncMock(return_value=ChatInvokeCompletion(completion=judgement, usage=None))
+    judge_llm.ainvoke = ainvoke_mock
+
+    agent = Agent(task='judge smoke', llm=llm, judge_llm=judge_llm, use_judge=True)
+    fake_history = FakeHistory()
+    agent.history = fake_history  # type: ignore[assignment]
+    traced = await agent._judge_trace()
+    assert traced == judgement
+    await agent._judge_and_log()
+    assert fake_history.done_result.judgement == judgement
+    assert ainvoke_mock.await_count == 2
+    print('judge smoke ok')
+    await agent.close()
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Runtime event test: `1 passed`.
+- Python compile: passed.
+- Direct fake-judge smoke: `_judge_trace` and `_judge_and_log` passed.
