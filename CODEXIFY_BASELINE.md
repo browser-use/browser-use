@@ -1773,3 +1773,56 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Variable detection/substitution tests: `40 passed`.
+
+## Codexification Verification 77
+
+After moving public lifecycle/control helpers into `browser_use.agent.lifecycle.AgentLifecycleMixin`:
+
+```bash
+uv run ruff check browser_use/agent/lifecycle.py browser_use/agent/service.py
+uv run pyright browser_use/agent/lifecycle.py browser_use/agent/service.py
+uv run python -m py_compile browser_use/agent/lifecycle.py browser_use/agent/service.py
+uv run python - <<'PY'
+import asyncio
+import tempfile
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+from browser_use import Agent
+from browser_use.llm.base import BaseChatModel
+
+async def main():
+    llm = AsyncMock(spec=BaseChatModel)
+    llm.provider = 'mock'
+    llm.model = 'mock-model'
+    llm.name = 'mock-model'
+
+    agent = Agent(task='lifecycle smoke', llm=llm, use_judge=False, directly_open_url=False)
+    agent.pause()
+    assert agent.state.paused
+    agent.resume()
+    assert not agent.state.paused
+    agent.stop()
+    assert agent.state.stopped
+    assert await agent.authenticate_cloud_sync() is False
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / 'history.json'
+        agent.save_history(path)
+        assert path.exists()
+
+    await agent.close()
+    print('lifecycle smoke ok')
+
+asyncio.run(main())
+PY
+uv run pytest tests/ci/test_rerun_ai_summary.py::test_rerun_cleanup_on_failure -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Python compile: passed.
+- Direct lifecycle smoke: pause/resume/stop/save-history/cloud-auth/close passed.
+- Rerun cleanup browser test: `1 passed`.

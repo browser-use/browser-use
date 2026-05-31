@@ -1,5 +1,4 @@
 import asyncio
-import gc
 import logging
 import tempfile
 import time
@@ -26,6 +25,7 @@ from browser_use import Browser, BrowserProfile, BrowserSession
 from browser_use.agent.files import AgentFileSystemMixin
 from browser_use.agent.initial_actions import AgentInitialActionsMixin
 from browser_use.agent.judge import AgentJudgeMixin
+from browser_use.agent.lifecycle import AgentLifecycleMixin
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
@@ -97,6 +97,7 @@ class Agent(
 	AgentRerunMixin,
 	AgentInitialActionsMixin,
 	AgentVariableMixin,
+	AgentLifecycleMixin,
 	Generic[Context, AgentStructuredOutput],
 ):
 	@time_execution_sync('--init')
@@ -2392,36 +2393,6 @@ class Agent(
 
 		return await self.rerun_history(history, **kwargs)
 
-	def save_history(self, file_path: str | Path | None = None) -> None:
-		"""Save the history to a file with sensitive data filtering"""
-		if not file_path:
-			file_path = 'AgentHistory.json'
-		self.history.save_to_file(file_path, sensitive_data=self.sensitive_data)
-
-	def pause(self) -> None:
-		"""Pause the agent before the next step"""
-		print('\n\n⏸️ Paused the agent and left the browser open.\n\tPress [Enter] to resume or [Ctrl+C] again to quit.')
-		self.state.paused = True
-		self._external_pause_event.clear()
-
-	def resume(self) -> None:
-		"""Resume the agent"""
-		# TODO: Locally the browser got closed
-		print('----------------------------------------------------------------------')
-		print('▶️  Resuming agent execution where it left off...\n')
-		self.state.paused = False
-		self._external_pause_event.set()
-
-	def stop(self) -> None:
-		"""Stop the agent"""
-		self.logger.info('⏹️ Agent stopping')
-		self.state.stopped = True
-
-		# Signal pause event to unblock any waiting code so it can check the stopped state
-		self._external_pause_event.set()
-
-		# Task stopped
-
 	def _verify_and_setup_llm(self):
 		"""
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
@@ -2436,52 +2407,6 @@ class Agent(
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
-
-	async def close(self):
-		"""Close all resources"""
-		try:
-			# Only close browser if keep_alive is False (or not set)
-			if self.browser_session is not None:
-				if not self.browser_session.browser_profile.keep_alive:
-					# Kill the browser session - this dispatches BrowserStopEvent,
-					# stops the EventBus with clear=True, and recreates a fresh EventBus
-					await self.browser_session.kill()
-				else:
-					# keep_alive=True sessions shouldn't keep the event loop alive after agent.run()
-					await self.browser_session.event_bus.stop(
-						clear=False,
-						timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
-					)
-					try:
-						self.browser_session.event_bus.event_queue = None
-						self.browser_session.event_bus._on_idle = None
-					except Exception:
-						pass
-
-			# Close skill service if configured
-			if self.skill_service is not None:
-				await self.skill_service.close()
-
-			# Force garbage collection
-			gc.collect()
-
-			# Debug: Log remaining threads and asyncio tasks
-			import threading
-
-			threads = threading.enumerate()
-			self.logger.debug(f'🧵 Remaining threads ({len(threads)}): {[t.name for t in threads]}')
-
-			# Get all asyncio tasks
-			tasks = asyncio.all_tasks(asyncio.get_event_loop())
-			# Filter out the current task (this close() coroutine)
-			other_tasks = [t for t in tasks if t != asyncio.current_task()]
-			if other_tasks:
-				self.logger.debug(f'⚡ Remaining asyncio tasks ({len(other_tasks)}):')
-				for task in other_tasks[:10]:  # Limit to first 10 to avoid spam
-					self.logger.debug(f'  - {task.get_name()}: {task}')
-
-		except Exception as e:
-			self.logger.error(f'Error during cleanup: {e}')
 
 	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update action models with page-specific actions"""
@@ -2503,30 +2428,3 @@ class Agent(
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
-
-	async def authenticate_cloud_sync(self, show_instructions: bool = True) -> bool:
-		"""
-		Authenticate with cloud service for future runs.
-
-		This is useful when users want to authenticate after a task has completed
-		so that future runs will sync to the cloud.
-
-		Args:
-			show_instructions: Whether to show authentication instructions to user
-
-		Returns:
-			bool: True if authentication was successful
-		"""
-		self.logger.warning('Cloud sync has been removed and is no longer available')
-		return False
-
-	def run_sync(
-		self,
-		max_steps: int = 500,
-		on_step_start: AgentHookFunc | None = None,
-		on_step_end: AgentHookFunc | None = None,
-	) -> AgentHistoryList[AgentStructuredOutput]:
-		"""Synchronous wrapper around the async run method for easier usage without asyncio."""
-		import asyncio
-
-		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
