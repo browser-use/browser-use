@@ -212,7 +212,7 @@ class SecurityWatchdog(BaseWatchdog):
 				return False
 			# For blob: URLs, check if the embedded origin matches allowed domains.
 			# blob: URLs encode origin as blob:https://example.com/uuid
-			blob_inner = url.removeprefix('blob:')
+			blob_inner = url.split(':', 1)[1]
 			return self._is_url_allowed(blob_inner)
 
 		# Get the actual host (domain)
