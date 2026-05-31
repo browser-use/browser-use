@@ -80,6 +80,8 @@ class ActionModel(BaseModel):
 		"""Overwrite the index of the action"""
 		# Get the action name and params
 		action_data = self.model_dump(exclude_unset=True)
+		if not action_data:
+			return
 		action_name = next(iter(action_data.keys()))
 		action_params = getattr(self, action_name)
 
