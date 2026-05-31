@@ -1,5 +1,5 @@
 """
-Export cookies and storage state from your real Chrome browser
+Export cookies and browser storage from your real Chrome browser
 
 This allows you to save your authenticated sessions for later use
 without needing to connect to the Chrome profile every time
@@ -40,8 +40,10 @@ async def main():
 	browser = Browser.from_system_chrome(profile_directory=profile)
 
 	await browser.start()
-	await browser.export_storage_state('storage_state.json')
-	await browser.stop()
+	try:
+		await browser.export_storage_state('storage_state.json', include_storage=True)
+	finally:
+		await browser.stop()
 	print('Storage state exported to storage_state.json')
 
 
