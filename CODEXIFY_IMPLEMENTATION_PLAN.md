@@ -44,8 +44,8 @@ Goal: make sure we know what must not break before changing architecture.
 
 Implement:
 
-- [ ] Identify current behavior that must not regress.
-- [ ] Add or collect tests for DOM ids, click/type, downloads, dialogs, tabs, uploads, extraction, screenshots, and `multi_act`.
+- [x] Identify current behavior that must not regress.
+- [x] Add or collect tests for DOM ids, click/type, downloads, dialogs, tabs, uploads, extraction, screenshots, and `multi_act`.
 - [ ] Capture baseline eval numbers for success rate, steps, speed, token usage, and common failure modes.
 - [ ] Run the current test suite and document known failures.
 
@@ -55,7 +55,7 @@ Relevant context to inspect:
 - [ ] DOM serializer and selector map.
 - [ ] Click/type action code.
 - [ ] Downloads/dialogs/tabs behavior.
-- [ ] Existing browser CI tests and task evals.
+- [x] Existing browser CI tests and task evals.
 
 Exit criteria:
 
@@ -427,7 +427,7 @@ set_goal:
 
 ## First Milestone
 
-- [ ] Add or identify baseline tests.
+- [x] Add or identify baseline tests.
 - [ ] Add runtime skeleton.
 - [ ] Add typed context item models.
 - [ ] Add a context renderer behind a feature flag.
