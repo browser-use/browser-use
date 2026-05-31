@@ -199,6 +199,7 @@ Implement:
 - [x] Move click safety, print, and download heuristics into `ClickService`.
 - [x] Move low-level click helpers into `ClickService` so direct clicks no longer call watchdog internals.
 - [x] Move text-entry fallback and sensitive logging policy into `TypeService`.
+- [x] Move low-level text-entry helpers into `TypeService` so direct typing no longer calls watchdog internals.
 - [x] Make legacy scroll and scroll-to-text handlers delegate to `ScrollService`.
 - [x] Make legacy upload handler delegate to `UploadService`.
 - [x] Make legacy navigation and keyboard handlers delegate to direct services.

@@ -845,3 +845,23 @@ Results:
 - Pyright: `0 errors`.
 - Focused click/coordinate/print/native tests: `4 passed`.
 - Public click/type and direct index smoke tests: `2 passed`.
+
+## Codexification Verification 40
+
+After moving low-level text-entry, clear/focus, direct value assignment, and framework-event helper implementations into `TypeService` while keeping old watchdog private helpers as wrappers:
+
+```bash
+uv run python -m py_compile browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_tools_click_and_type_use_direct_services tests/ci/browser/test_browser_services.py::test_browser_services_can_click_and_type_index_without_event_dispatch -q
+uv run pytest tests/ci/browser/test_browser_services.py -q
+```
+
+Results:
+
+- Python compile: passed.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Focused public/direct type tests: `2 passed`.
+- Full browser service suite: `15 passed`.
