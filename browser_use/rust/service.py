@@ -152,6 +152,36 @@ EVAL_SCREENSHOT_DIRECTIVE = (
 OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[None]]
 
 
+_MAX_TURNS_SUPPORT_CACHE: dict[str, bool] = {}
+
+
+def _binary_supports_max_turns(cli: 'Path', subcommand: str) -> bool:
+	"""Detect whether `<cli> <subcommand> --help` advertises `--max-turns`.
+
+	The flag was added to run-* subcommands in browser-use/terminal
+	magnus/eval-quality; older published binaries error with
+	"unexpected argument '--max-turns'" and exit 2 immediately. Probe once
+	per (cli, subcommand) pair and cache to avoid spamming `--help`.
+	"""
+	import subprocess
+	key = f'{cli}::{subcommand}'
+	cached = _MAX_TURNS_SUPPORT_CACHE.get(key)
+	if cached is not None:
+		return cached
+	try:
+		out = subprocess.run(
+			[str(cli), subcommand, '--help'],
+			capture_output=True,
+			text=True,
+			timeout=5,
+		)
+		supported = '--max-turns' in (out.stdout + out.stderr)
+	except Exception:
+		supported = False
+	_MAX_TURNS_SUPPORT_CACHE[key] = supported
+	return supported
+
+
 def _extract_message_text(payload: dict[str, Any]) -> str:
 	"""Pull the visible assistant text out of a `model.response.output_item`
 	payload. OpenAI/Codex shapes: `{type:"message", content:[{type:"output_text", text:"..."}]}`
@@ -851,9 +881,17 @@ class Agent:
 		# Forward --max-turns when caller specified or constructor stored it.
 		# Rust core default is 80; long research tasks (real_v8 #4 UniFi
 		# product table, #7 arxiv search) exceed that and crash with
-		# "agent exceeded maximum provider turns".
+		# "agent exceeded maximum provider turns". The flag was added to
+		# run-* subcommands in browser-use/terminal magnus/eval-quality —
+		# feature-detect first so we don't crash older binaries (e.g. the
+		# published release that the CI install.sh still pulls).
 		effective_turns = max_turns or self._ctor_max_steps
-		if effective_turns and subcommand != 'followup' and not any(a == '--max-turns' for a in self.extra_args):
+		if (
+			effective_turns
+			and subcommand != 'followup'
+			and not any(a == '--max-turns' for a in self.extra_args)
+			and _binary_supports_max_turns(cli, subcommand)
+		):
 			argv.extend(['--max-turns', str(int(effective_turns))])
 		argv.extend(self.extra_args)
 
