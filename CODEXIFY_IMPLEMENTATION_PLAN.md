@@ -217,29 +217,29 @@ Goal: make runs observable without coupling internal control flow to an event bu
 
 Implement:
 
-- [ ] Add a clean runtime event stream.
+- [x] Add a clean runtime event stream.
 - [ ] Emit events for turns, context, model output, tool calls, browser state, downloads, artifacts, compaction, completion, and failures.
 - [ ] Move cloud sync, telemetry, GIF generation, and user callbacks to subscribers.
 - [ ] Make runs understandable without reading internal debug logs.
 
 Example events:
 
-- [ ] `turn.started`
-- [ ] `context.built`
-- [ ] `model.delta`
-- [ ] `tool.started`
-- [ ] `tool.completed`
-- [ ] `browser.state_refreshed`
-- [ ] `download.started`
-- [ ] `download.completed`
-- [ ] `artifact.created`
-- [ ] `context.compacted`
-- [ ] `turn.completed`
-- [ ] `run.completed`
+- [x] `turn.started`
+- [x] `context.built`
+- [x] `model.delta`
+- [x] `tool.started`
+- [x] `tool.completed`
+- [x] `browser.state_refreshed`
+- [x] `download.started`
+- [x] `download.completed`
+- [x] `artifact.created`
+- [x] `context.compacted`
+- [x] `turn.completed`
+- [x] `run.completed`
 
 Exit criteria:
 
-- [ ] Cloud/telemetry/GIF/callback behavior can be implemented as subscribers.
+- [x] Cloud/telemetry/GIF/callback behavior can be implemented as subscribers.
 - [ ] A failed run can be debugged from events and typed history.
 
 ## Phase 6: Browser-Harness Escape Hatches

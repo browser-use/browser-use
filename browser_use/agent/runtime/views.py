@@ -1,11 +1,54 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 from uuid_extensions import uuid7str
+
+logger = logging.getLogger(__name__)
+
+
+RuntimeEventSubscriber = Callable[['BrowserRuntimeEvent'], None]
+
+
+class BrowserRuntimeEventTypes:
+	TURN_STARTED = 'turn.started'
+	CONTEXT_BUILT = 'context.built'
+	MODEL_DELTA = 'model.delta'
+	TOOL_STARTED = 'tool.started'
+	TOOL_COMPLETED = 'tool.completed'
+	TOOL_FAILED = 'tool.failed'
+	BROWSER_STATE_REFRESHED = 'browser.state_refreshed'
+	DOWNLOAD_STARTED = 'download.started'
+	DOWNLOAD_COMPLETED = 'download.completed'
+	ARTIFACT_CREATED = 'artifact.created'
+	CONTEXT_COMPACTED = 'context.compacted'
+	TURN_COMPLETED = 'turn.completed'
+	TURN_FAILED = 'turn.failed'
+	RUN_COMPLETED = 'run.completed'
+	RUN_FAILED = 'run.failed'
+
+	ALL = (
+		TURN_STARTED,
+		CONTEXT_BUILT,
+		MODEL_DELTA,
+		TOOL_STARTED,
+		TOOL_COMPLETED,
+		TOOL_FAILED,
+		BROWSER_STATE_REFRESHED,
+		DOWNLOAD_STARTED,
+		DOWNLOAD_COMPLETED,
+		ARTIFACT_CREATED,
+		CONTEXT_COMPACTED,
+		TURN_COMPLETED,
+		TURN_FAILED,
+		RUN_COMPLETED,
+		RUN_FAILED,
+	)
 
 
 def _utc_now() -> datetime:
@@ -96,7 +139,21 @@ class BrowserEventStream(BaseModel):
 	model_config = ConfigDict(validate_assignment=True)
 
 	events: list[BrowserRuntimeEvent] = Field(default_factory=list)
+	subscriber_errors: list[str] = Field(default_factory=list)
 	_next_sequence: int = PrivateAttr(default=1)
+	_subscribers: list[RuntimeEventSubscriber] = PrivateAttr(default_factory=list)
+
+	def subscribe(self, subscriber: RuntimeEventSubscriber, *, replay: bool = False) -> Callable[[], None]:
+		self._subscribers.append(subscriber)
+		if replay:
+			for event in self.events:
+				self._notify_subscriber(subscriber, event)
+
+		def unsubscribe() -> None:
+			if subscriber in self._subscribers:
+				self._subscribers.remove(subscriber)
+
+		return unsubscribe
 
 	def emit(
 		self,
@@ -115,11 +172,25 @@ class BrowserEventStream(BaseModel):
 		)
 		self._next_sequence += 1
 		self.events.append(event)
+		for subscriber in list(self._subscribers):
+			self._notify_subscriber(subscriber, event)
 		return event
+
+	def snapshot(self, *, after_sequence: int = 0) -> list[BrowserRuntimeEvent]:
+		return [event for event in self.events if event.sequence > after_sequence]
 
 	def clear(self) -> None:
 		self.events.clear()
+		self.subscriber_errors.clear()
 		self._next_sequence = 1
+
+	def _notify_subscriber(self, subscriber: RuntimeEventSubscriber, event: BrowserRuntimeEvent) -> None:
+		try:
+			subscriber(event)
+		except Exception as exc:
+			message = f'{subscriber!r} failed for {event.event_type}: {exc}'
+			self.subscriber_errors.append(message)
+			logger.debug(message)
 
 
 class ArtifactRef(BaseModel):
@@ -271,7 +342,7 @@ class BrowserAgentSession(BaseModel):
 		self.event_stream.emit(
 			run_id=self.run_id,
 			turn_id=turn.turn_id,
-			event_type='turn.started',
+			event_type=BrowserRuntimeEventTypes.TURN_STARTED,
 			payload={'step_index': step_index},
 		)
 		return turn

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from uuid_extensions import uuid7str
 
 from browser_use.agent.runtime.context import ToolResultItem
-from browser_use.agent.runtime.views import ToolContext
+from browser_use.agent.runtime.views import BrowserRuntimeEventTypes, ToolContext
 from browser_use.agent.views import ActionResult
 from browser_use.browser.views import BrowserError
 from browser_use.tools.registry.views import RegisteredAction
@@ -257,7 +257,7 @@ class NativeToolRouter(BaseModel):
 
 		params = self.validate_call(call)
 		context.emit_tool_event(
-			'tool.started',
+			BrowserRuntimeEventTypes.TOOL_STARTED,
 			{
 				'tool_name': definition.name,
 				'api_name': definition.api_name,
@@ -298,7 +298,7 @@ class NativeToolRouter(BaseModel):
 
 		native_result = NativeToolResult.from_action_result(call=call, result=result)
 		context.emit_tool_event(
-			'tool.completed' if not native_result.is_error else 'tool.failed',
+			BrowserRuntimeEventTypes.TOOL_COMPLETED if not native_result.is_error else BrowserRuntimeEventTypes.TOOL_FAILED,
 			{
 				'tool_name': definition.name,
 				'api_name': definition.api_name,
