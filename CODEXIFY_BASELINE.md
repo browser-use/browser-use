@@ -309,17 +309,17 @@ Real `ChatBrowserUse` + headless local Chromium smoke after routing public navig
 
 ## Codexification Verification 8
 
-After routing whole-page public scroll through `ScrollService`:
+After routing public page and element scroll through `ScrollService`:
 
 ```bash
 uv run pytest tests/ci/browser/test_browser_services.py -q
-uv run ruff check browser_use/tools/service.py tests/ci/browser/test_browser_services.py
-uv run pyright browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+uv run ruff check browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
 ```
 
 Results:
 
-- Browser services and public direct-service suite: `9 passed`.
+- Browser services and public direct-service suite: `10 passed`.
 - Ruff: passed.
 - Pyright: `0 errors`.
-- Notes: element-scoped scroll remains on the compatibility path until iframe/custom-scroll heuristics are extracted.
+- Notes: whole-page and element-scoped scroll now reject the old `ScrollEvent` control path in tests.

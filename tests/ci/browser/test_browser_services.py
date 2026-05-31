@@ -325,6 +325,52 @@ async def test_public_page_scroll_tool_uses_direct_service(browser_session, http
 
 
 @pytest.mark.asyncio
+async def test_public_element_scroll_tool_uses_direct_service(browser_session, httpserver, monkeypatch) -> None:
+	httpserver.expect_request('/direct-element-scroll').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<div id="scroller" tabindex="0" role="region"
+			style="height: 140px; width: 300px; overflow-y: auto; border: 1px solid black">
+			<div style="height: 1200px">scrollable content</div>
+		</div>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	tools = Tools()
+	services = BrowserServiceBundle.from_session(browser_session)
+	await services.navigation.navigate(httpserver.url_for('/direct-element-scroll'))
+	state = await services.state.get_state(include_screenshot=False)
+	scroll_index = next(
+		idx for idx, element in state.dom_state.selector_map.items() if getattr(element, 'attributes', {}).get('id') == 'scroller'
+	)
+
+	original_dispatch = browser_session.event_bus.dispatch
+
+	def fail_scroll_dispatch(event, *args, **kwargs):
+		if event.__class__.__name__ == 'ScrollEvent':
+			raise AssertionError('Public element scroll should use direct services, not ScrollEvent')
+		return original_dispatch(event, *args, **kwargs)
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_scroll_dispatch)
+
+	scroll_result = await tools.registry.execute_action(
+		action_name='scroll',
+		params={'down': True, 'pages': 1.0, 'index': scroll_index},
+		browser_session=browser_session,
+	)
+	assert scroll_result.error is None
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('scroller').scrollTop", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert readback.get('result', {}).get('value') > 0
+
+
+@pytest.mark.asyncio
 async def test_browser_download_service_downloads_and_tracks_without_event_dispatch(
 	browser_session, httpserver, monkeypatch
 ) -> None:

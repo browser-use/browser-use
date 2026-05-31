@@ -20,6 +20,7 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.views import BrowserError, BrowserStateSummary, TabInfo
+from browser_use.dom.service import EnhancedDOMTreeNode
 
 
 class BrowserService(BaseModel):
@@ -272,6 +273,15 @@ class ScrollService(BrowserService):
 			return fallback
 
 	async def scroll_pages(self, pages: float, *, direction: Literal['up', 'down'] = 'down') -> dict[str, Any]:
+		return await self.scroll_pages_with_node(pages, direction=direction, node=None)
+
+	async def scroll_pages_with_node(
+		self,
+		pages: float,
+		*,
+		direction: Literal['up', 'down'] = 'down',
+		node: EnhancedDOMTreeNode | None = None,
+	) -> dict[str, Any]:
 		viewport_height = await self.viewport_height()
 		completed_scrolls = 0.0
 		total_pixels = 0
@@ -280,18 +290,18 @@ class ScrollService(BrowserService):
 			num_full_pages = int(pages)
 			remaining_fraction = pages - num_full_pages
 			for _ in range(num_full_pages):
-				await self.scroll_page(viewport_height, direction=direction)
+				await self.scroll_page(viewport_height, direction=direction, node=node)
 				completed_scrolls += 1
 				total_pixels += viewport_height
 				await asyncio.sleep(0.15)
 			if remaining_fraction > 0:
 				pixels = int(remaining_fraction * viewport_height)
-				await self.scroll_page(pixels, direction=direction)
+				await self.scroll_page(pixels, direction=direction, node=node)
 				completed_scrolls += remaining_fraction
 				total_pixels += pixels
 		else:
 			pixels = int(pages * viewport_height)
-			await self.scroll_page(pixels, direction=direction)
+			await self.scroll_page(pixels, direction=direction, node=node)
 			completed_scrolls = pages
 			total_pixels = pixels
 
@@ -303,7 +313,22 @@ class ScrollService(BrowserService):
 			'pixels': total_pixels,
 		}
 
-	async def scroll_page(self, amount: int, *, direction: Literal['up', 'down', 'left', 'right'] = 'down') -> None:
+	async def scroll_page(
+		self,
+		amount: int,
+		*,
+		direction: Literal['up', 'down', 'left', 'right'] = 'down',
+		node: EnhancedDOMTreeNode | None = None,
+	) -> None:
+		if node is not None:
+			pixels = amount if direction in ('down', 'right') else -amount
+			if await self._scroll_element_container(node, pixels):
+				if self.browser_session._dom_watchdog:
+					self.browser_session._dom_watchdog.clear_cache()
+				if node.tag_name and node.tag_name.upper() == 'IFRAME':
+					await asyncio.sleep(0.2)
+				return
+
 		delta_x = 0
 		delta_y = 0
 		if direction == 'down':
@@ -320,6 +345,89 @@ class ScrollService(BrowserService):
 			params={'expression': f'window.scrollBy({delta_x}, {delta_y})', 'returnByValue': True},
 			session_id=cdp_session.session_id,
 		)
+		if self.browser_session._dom_watchdog:
+			self.browser_session._dom_watchdog.clear_cache()
+
+	async def _scroll_element_container(self, element_node: EnhancedDOMTreeNode, pixels: int) -> bool:
+		try:
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+
+			if element_node.tag_name and element_node.tag_name.upper() == 'IFRAME':
+				backend_node_id = element_node.backend_node_id
+				result = await cdp_session.cdp_client.send.DOM.resolveNode(
+					params={'backendNodeId': backend_node_id},
+					session_id=cdp_session.session_id,
+				)
+
+				if 'object' in result and 'objectId' in result['object']:
+					object_id = result['object']['objectId']
+					scroll_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': f"""
+								function() {{
+									try {{
+										const doc = this.contentDocument || this.contentWindow.document;
+										if (doc) {{
+											const scrollElement = doc.documentElement || doc.body;
+											if (scrollElement) {{
+												const oldScrollTop = scrollElement.scrollTop;
+												scrollElement.scrollTop += {pixels};
+												const newScrollTop = scrollElement.scrollTop;
+												return {{
+													success: true,
+													oldScrollTop: oldScrollTop,
+													newScrollTop: newScrollTop,
+													scrolled: newScrollTop - oldScrollTop
+												}};
+											}}
+										}}
+										return {{success: false, error: 'Could not access iframe content'}};
+									}} catch (e) {{
+										return {{success: false, error: e.toString()}};
+									}}
+								}}
+							""",
+							'objectId': object_id,
+							'returnByValue': True,
+						},
+						session_id=cdp_session.session_id,
+					)
+
+					result_value = scroll_result.get('result', {}).get('value')
+					if isinstance(result_value, dict) and result_value.get('success'):
+						self.browser_session.logger.debug(
+							f'Successfully scrolled iframe content by {result_value.get("scrolled", 0)}px'
+						)
+						return True
+					if isinstance(result_value, dict):
+						self.browser_session.logger.debug(
+							f'Failed to scroll iframe: {result_value.get("error", "Unknown error")}'
+						)
+
+			backend_node_id = element_node.backend_node_id
+			box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
+				params={'backendNodeId': backend_node_id}, session_id=cdp_session.session_id
+			)
+			content_quad = box_model['model']['content']
+
+			center_x = (content_quad[0] + content_quad[2] + content_quad[4] + content_quad[6]) / 4
+			center_y = (content_quad[1] + content_quad[3] + content_quad[5] + content_quad[7]) / 4
+
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseWheel',
+					'x': center_x,
+					'y': center_y,
+					'deltaX': 0,
+					'deltaY': pixels,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			return True
+		except Exception as e:
+			self.browser_session.logger.debug(f'Failed to scroll element container via CDP: {e}')
+			return False
 
 
 class KeyboardService(BrowserService):
