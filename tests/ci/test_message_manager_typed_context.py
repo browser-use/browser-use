@@ -106,6 +106,7 @@ def test_create_state_messages_stores_typed_context_snapshot(tmp_path) -> None:
 	assert '<available_file_paths>/tmp/result.csv' in rendered
 	assert '<step_info>Step1 maximum:5' in rendered
 	assert manager.last_state_message_text is not None
+	assert manager.last_state_message_text == rendered
 	assert '<runtime_skills>' not in manager.last_state_message_text
 
 
@@ -128,6 +129,7 @@ def test_create_state_messages_supports_prepared_step_state(tmp_path) -> None:
 
 	assert manager.last_typed_context is not None
 	assert manager.last_state_message_text is not None
+	assert manager.last_state_message_text == manager.last_typed_context.render()
 	assert '<page_specific_actions>' in manager.last_state_message_text
 	assert '<available_file_paths>/tmp/result.csv' in manager.last_state_message_text
 
@@ -149,5 +151,6 @@ def test_create_state_messages_includes_selected_runtime_skills_only_when_releva
 	assert manager.last_typed_context is not None
 	assert [item.kind for item in manager.last_typed_context.items].count('skill') == 1
 	assert manager.last_state_message_text is not None
-	assert '<runtime_skills>' in manager.last_state_message_text
+	assert manager.last_state_message_text == manager.last_typed_context.render()
+	assert '<runtime_skills>' not in manager.last_state_message_text
 	assert '<skill name="downloads" title="Downloads">' in manager.last_state_message_text

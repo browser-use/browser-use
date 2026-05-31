@@ -8,7 +8,13 @@ from typing import Any, cast
 import pytest
 
 from browser_use import Agent
-from browser_use.agent.llm_debug_trace import append_llm_debug_trace, llm_debug_trace_path
+from browser_use.agent.llm_debug_trace import (
+	append_llm_debug_trace,
+	llm_debug_trace_path,
+	model_input_snapshot_paths,
+	write_model_input_snapshot,
+)
+from browser_use.agent.runtime.context import BrowserContext, TaskItem
 from browser_use.llm.messages import Function, ToolCall, UserMessage
 from browser_use.llm.views import ChatInvokeCompletion
 
@@ -78,6 +84,38 @@ async def test_llm_debug_trace_is_not_written_outside_debug_mode(tmp_path: Path,
 	)
 
 	assert not llm_debug_trace_path(tmp_path).exists()
+
+
+@pytest.mark.asyncio
+async def test_model_input_snapshot_is_written_in_debug_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+	monkeypatch.setenv('BROWSER_USE_LOGGING_LEVEL', 'debug')
+	logger = logging.getLogger('browser_use.tests.llm_trace.snapshot')
+	context = BrowserContext(items=[TaskItem(text='Find the answer')])
+
+	await write_model_input_snapshot(
+		agent_directory=tmp_path,
+		logger=logger,
+		step=3,
+		session_id='session',
+		messages=[UserMessage(content='hello model')],
+		typed_context=context,
+	)
+
+	json_path, text_path = model_input_snapshot_paths(tmp_path, 3)
+	assert json_path.exists()
+	assert text_path.exists()
+
+	record = json.loads(json_path.read_text(encoding='utf-8'))
+	assert record['event'] == 'model_input_snapshot'
+	assert record['step'] == 3
+	assert record['messages'][0]['content'] == 'hello model'
+	assert record['rendered_typed_context'] == context.render()
+	assert record['typed_context']['items'][0]['kind'] == 'task'
+
+	text = text_path.read_text(encoding='utf-8')
+	assert 'role=user' in text
+	assert 'hello model' in text
+	assert '<user_request>' in text
 
 
 @pytest.mark.asyncio

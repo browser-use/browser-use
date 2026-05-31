@@ -28,7 +28,7 @@ from browser_use.agent.files import AgentFileSystemMixin
 from browser_use.agent.initial_actions import AgentInitialActionsMixin
 from browser_use.agent.judge import AgentJudgeMixin
 from browser_use.agent.lifecycle import AgentLifecycleMixin
-from browser_use.agent.llm_debug_trace import is_llm_debug_trace_enabled, llm_debug_trace_path
+from browser_use.agent.llm_debug_trace import is_llm_debug_trace_enabled, llm_debug_trace_path, write_model_input_snapshot
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
@@ -804,6 +804,14 @@ class Agent(
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
+		await write_model_input_snapshot(
+			agent_directory=self.agent_directory,
+			logger=self.logger,
+			step=self.state.n_steps,
+			session_id=self.session_id,
+			messages=input_messages,
+			typed_context=self.last_typed_context,
+		)
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)

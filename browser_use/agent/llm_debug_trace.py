@@ -13,6 +13,7 @@ from browser_use.config import CONFIG
 from browser_use.llm.messages import BaseMessage
 
 LLM_DEBUG_TRACE_FILENAME = 'llm_trace.jsonl'
+MODEL_INPUT_SNAPSHOTS_DIRNAME = 'model_inputs'
 
 
 def is_llm_debug_trace_enabled(logger: logging.Logger | None = None) -> bool:
@@ -25,6 +26,12 @@ def is_llm_debug_trace_enabled(logger: logging.Logger | None = None) -> bool:
 
 def llm_debug_trace_path(agent_directory: str | Path) -> Path:
 	return Path(agent_directory) / LLM_DEBUG_TRACE_FILENAME
+
+
+def model_input_snapshot_paths(agent_directory: str | Path, step: int) -> tuple[Path, Path]:
+	output_dir = Path(agent_directory) / MODEL_INPUT_SNAPSHOTS_DIRNAME
+	stem = f'step_{step:04d}'
+	return output_dir / f'{stem}.json', output_dir / f'{stem}.txt'
 
 
 def _jsonable(value: Any) -> Any:
@@ -74,6 +81,69 @@ def _tool_registry_snapshot(tools: Any) -> list[dict[str, Any]]:
 			}
 		)
 	return snapshot
+
+
+def _message_snapshot_text(messages: list[BaseMessage]) -> str:
+	sections = []
+	for index, message in enumerate(messages):
+		header = f'[{index}] role={message.role}'
+		if getattr(message, 'tool_call_id', None):
+			header += f' tool_call_id={getattr(message, "tool_call_id")}'
+		sections.append(header)
+		tool_calls = getattr(message, 'tool_calls', None)
+		if tool_calls:
+			sections.append('tool_calls:')
+			for tool_call in tool_calls:
+				sections.append(f'  - {tool_call.function.name} id={tool_call.id} args={tool_call.function.arguments}')
+		sections.append(message.text)
+	return '\n\n'.join(sections).strip() + '\n'
+
+
+async def write_model_input_snapshot(
+	*,
+	agent_directory: str | Path,
+	logger: logging.Logger | None,
+	step: int,
+	session_id: str,
+	messages: list[BaseMessage],
+	typed_context: Any | None = None,
+) -> None:
+	"""Write per-step model input snapshots in debug mode."""
+	if not is_llm_debug_trace_enabled(logger):
+		return
+
+	json_path, text_path = model_input_snapshot_paths(agent_directory, step)
+	json_path.parent.mkdir(parents=True, exist_ok=True)
+	rendered_typed_context = typed_context.render() if typed_context is not None else None
+	typed_context_snapshot = (
+		typed_context.model_dump(mode='json') if typed_context is not None and hasattr(typed_context, 'model_dump') else None
+	)
+
+	record: dict[str, Any] = {
+		'schema_version': 1,
+		'event': 'model_input_snapshot',
+		'timestamp': datetime.now(timezone.utc).isoformat(),
+		'step': step,
+		'session_id': session_id,
+		'messages': [message.model_dump(mode='json') for message in messages],
+		'typed_context': typed_context_snapshot,
+		'rendered_typed_context': rendered_typed_context,
+	}
+
+	async with await anyio.open_file(json_path, 'w', encoding='utf-8') as snapshot_file:
+		await snapshot_file.write(json.dumps(record, ensure_ascii=False, indent=2))
+
+	text_parts = [
+		f'step={step}',
+		f'session_id={session_id}',
+		'',
+		'# Messages',
+		_message_snapshot_text(messages),
+	]
+	if rendered_typed_context is not None:
+		text_parts.extend(['', '# Rendered Typed Context', rendered_typed_context])
+	async with await anyio.open_file(text_path, 'w', encoding='utf-8') as snapshot_file:
+		await snapshot_file.write('\n'.join(text_parts).rstrip() + '\n')
 
 
 async def append_llm_debug_trace(
