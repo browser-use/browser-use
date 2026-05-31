@@ -7,6 +7,16 @@ from browser_use.agent.message_manager.views import (
 	HistoryItem,
 )
 from browser_use.agent.prompts import AgentMessagePrompt
+from browser_use.agent.runtime.context import (
+	BrowserContext,
+	BrowserStateItem,
+	CompactionItem,
+	ExtractionArtifactItem,
+	TaskItem,
+	ToolResultItem,
+	UserSteerItem,
+	WarningItem,
+)
 from browser_use.agent.views import (
 	ActionResult,
 	AgentOutput,
@@ -33,6 +43,15 @@ from browser_use.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_known_xml_tag(text: str, tag: str) -> str:
+	prefix = f'<{tag}>'
+	suffix = f'</{tag}>'
+	text = text.strip()
+	if text.startswith(prefix) and text.endswith(suffix):
+		return text[len(prefix) : -len(suffix)].strip()
+	return text
 
 
 # ========== Logging Helper Functions ==========
@@ -192,6 +211,60 @@ class MessageManager:
 		self.task += '\n' + new_task
 		task_update_item = HistoryItem(system_message=new_task)
 		self.state.agent_history_items.append(task_update_item)
+
+	def build_typed_context(self, browser_state_summary: BrowserStateSummary | None = None) -> BrowserContext:
+		"""Build a typed mirror of the legacy message-manager state."""
+
+		context = BrowserContext()
+		context.append(TaskItem(text=self.task))
+		if self.state.compacted_memory:
+			context.append(CompactionItem(summary=self.state.compacted_memory))
+
+		for history_item in self.state.agent_history_items:
+			if history_item.system_message:
+				message = history_item.system_message.strip()
+				if message == 'Agent initialized':
+					context.append(WarningItem(code='agent_initialized', message=message))
+				elif '<follow_up_user_request>' in message:
+					context.append(UserSteerItem(text=_strip_known_xml_tag(message, 'follow_up_user_request')))
+				else:
+					context.append(WarningItem(code='legacy_system_message', message=message))
+				continue
+
+			context.append(
+				ToolResultItem(
+					tool_name='legacy.step',
+					content=history_item.to_string(),
+					structured_content=history_item.model_dump(exclude_none=True),
+				)
+			)
+
+		if self.state.read_state_description:
+			context.append(ExtractionArtifactItem(source='read_state', content=self.state.read_state_description))
+
+		if browser_state_summary is not None:
+			context.append(self._browser_state_context_item(browser_state_summary))
+
+		return context
+
+	def _browser_state_context_item(self, browser_state_summary: BrowserStateSummary) -> BrowserStateItem:
+		dom_text = ''
+		try:
+			dom_text = browser_state_summary.dom_state.llm_representation(include_attributes=self.include_attributes)
+		except Exception as e:
+			logger.debug(f'Failed to render DOM for typed context mirror: {e}')
+
+		runtime_handles = {
+			'tab_target_ids': [tab.target_id for tab in browser_state_summary.tabs],
+			'selector_backend_node_ids': list(browser_state_summary.dom_state.selector_map.keys()),
+		}
+		return BrowserStateItem(
+			url=browser_state_summary.url,
+			title=browser_state_summary.title,
+			text=dom_text or 'empty page',
+			runtime_handles=runtime_handles,
+			is_fresh=True,
+		)
 
 	def prepare_step_state(
 		self,

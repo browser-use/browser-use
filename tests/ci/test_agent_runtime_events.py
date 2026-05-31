@@ -33,6 +33,12 @@ async def test_agent_callbacks_are_routed_through_runtime_event_subscribers(brow
 	assert done_events == [True]
 	event_types = [event.event_type for event in agent.runtime_session.event_stream.events]
 	assert BrowserRuntimeEventTypes.RUN_STARTED in event_types
+	assert BrowserRuntimeEventTypes.CONTEXT_BUILT in event_types
 	assert BrowserRuntimeEventTypes.MODEL_DELTA in event_types
 	assert BrowserRuntimeEventTypes.TURN_COMPLETED in event_types
 	assert BrowserRuntimeEventTypes.RUN_COMPLETED in event_types
+	context_event = next(
+		event for event in agent.runtime_session.event_stream.events if event.event_type == BrowserRuntimeEventTypes.CONTEXT_BUILT
+	)
+	assert context_event.payload['item_count'] >= 2
+	assert context_event.payload['rendered_chars'] > 0

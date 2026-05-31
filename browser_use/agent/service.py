@@ -565,6 +565,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.runtime_events = AgentRuntimeEventBridge(agent=self, runtime_session=self.runtime_session)
 		self.runtime_events.attach()
+		self.last_typed_context = None
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
@@ -1117,6 +1118,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			unavailable_skills_info=unavailable_skills_info,
 			plan_description=plan_description,
 			skip_state_update=True,
+		)
+		self.last_typed_context = self._message_manager.build_typed_context(browser_state_summary)
+		rendered_typed_context = self.last_typed_context.render()
+		await self.runtime_events.emit_runtime_event(
+			BrowserRuntimeEventTypes.CONTEXT_BUILT,
+			payload={
+				'step': self.state.n_steps,
+				'item_count': len(self.last_typed_context.items),
+				'rendered_chars': len(rendered_typed_context),
+				'legacy_message_count': len(self._message_manager.state.history.get_messages()),
+			},
 		)
 
 		await self._inject_budget_warning(step_info)
