@@ -1,0 +1,34 @@
+# Browser Use Codexification Migration Notes
+
+These notes describe the current migration state after the codexification cleanup work.
+
+## Public API
+
+- `Agent(...)`, `Browser(...)`, `Tools(...)`, and existing action names remain compatible.
+- `ChatBrowserUse` remains the recommended default model for browser automation.
+- `Browser(use_cloud=True)` remains the recommended production browser path when remote browser performance, CAPTCHA resistance, profile sync, or low-latency hosted execution matters.
+- Native tool-call mode remains opt-in through `use_native_tool_calls=True`.
+- The legacy action-list output path remains supported.
+
+## Internal Runtime Shape
+
+- The main `Agent` service is now closer to an orchestrator. File handling, model I/O, run logging, skills, planning policy, judge handling, initial actions, lifecycle controls, variable substitution, action execution, rerun replay, and configuration helpers live in dedicated modules.
+- Browser tool implementations have been split out of the giant tools service into focused action modules.
+- Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
+- The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible renderer and state holder.
+
+## Migration Guidance
+
+- Existing users should not need code changes for normal `Agent(task=..., llm=...)` usage.
+- Users who want provider-native tool calls can opt in with `use_native_tool_calls=True`; old model-output parsing remains available.
+- Custom tools should continue returning structured `ActionResult` data where possible.
+- New internal changes should prefer adding focused modules or services rather than growing `agent/service.py`, `tools/service.py`, or `browser/session.py`.
+
+## Known Remaining Work
+
+- The public config surface is still broad and has not been simplified yet.
+- The old message manager is still part of the compatibility path.
+- The old structured-output action protocol is still supported and has not been removed.
+- Watchdog/event-bus code still exists for browser compatibility paths.
+- Local CDP validation needs follow-up: launching an external local Chrome CDP endpoint connected initially but dropped and entered reconnect cleanup during smoke testing.
+- Google judge-based task evals could not complete because the `GOOGLE_API_KEY` in the shared `.env` is expired.

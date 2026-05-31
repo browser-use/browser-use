@@ -14,7 +14,7 @@ This document is intentionally not a full implementation spec. Each implementati
 - [x] Give the model more freedom through screenshot, coordinate click, JS eval, raw CDP, HTML/markdown reads, accessibility tree, network inspection, and HTTP fetch.
 - [x] Replace heavy indirection with explicit runtime pieces.
 - [x] Keep old behavior working while the new runtime is introduced.
-- [ ] Use focused tests and evals to prove each simplification works.
+- [x] Use focused tests and evals to prove each simplification works.
 - [x] Avoid huge rewrites that remove hard-won browser heuristics.
 
 ## What To Keep
@@ -405,7 +405,7 @@ Exit criteria:
 
 - [x] Public API remains usable.
 - [ ] New API is simpler.
-- [ ] Internal modules have clearer ownership.
+- [x] Internal modules have clearer ownership.
 
 ## Phase 11: Prove It Works
 
@@ -415,12 +415,12 @@ Implement:
 
 - [x] Run unit tests.
 - [x] Run browser tests.
-- [ ] Run task evals with `ChatBrowserUse`.
-- [ ] Run task evals with at least one generic model.
+- [x] Run task evals with `ChatBrowserUse`.
+- [x] Run task evals with at least one generic model.
 - [ ] Compare against baseline success rate, speed, steps, token usage, and failure categories.
 - [ ] Validate local browser, remote CDP, and `Browser(use_cloud=True)`.
 - [x] Run pre-commit.
-- [ ] Update docs and migration notes.
+- [x] Update docs and migration notes.
 
 Exit criteria:
 
@@ -428,7 +428,7 @@ Exit criteria:
 - [ ] Speed is equal or better on common tasks.
 - [ ] Token usage is equal or better on common tasks.
 - [x] Failures are easier to debug.
-- [ ] Migration path is documented.
+- [x] Migration path is documented.
 
 ## Suggested PR Sequence
 

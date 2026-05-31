@@ -1933,3 +1933,56 @@ Results:
 - Python compile: passed.
 - Fallback/native tool-call tests: `16 passed`.
 - Direct configuration smoke: schema enhancement, public model properties, message manager property, and action model setup passed.
+
+## Codexification Verification 81
+
+End-to-end validation after the agent service/module split:
+
+```bash
+set -a; source /Users/greg/Documents/browser-use/core/library/browser-use/.env; set +a
+uv run python tests/ci/evaluate_tasks.py
+```
+
+Result:
+
+- The built-in task runner executed both YAML agent tasks, but the Google judge failed both judgments because the shared `GOOGLE_API_KEY` is expired (`API_KEY_INVALID`).
+- Agent debug output showed `browser_use_pip.yaml` completed in 8 steps and produced `pip install browser-use`.
+- Agent debug output showed `amazon_laptop.yaml` completed in 4 steps and returned the first laptop result.
+
+No-judge `ChatBrowserUse` task assertions:
+
+```bash
+set -a; source /Users/greg/Documents/browser-use/core/library/browser-use/.env; set +a
+uv run python - <<'PY'
+# Runs tests/agent_tasks/browser_use_pip.yaml and tests/agent_tasks/amazon_laptop.yaml
+# with ChatBrowserUse and explicit output assertions.
+PY
+```
+
+Results:
+
+- `browser_use_pip.yaml`: passed assertion, `7` steps, actions `['search', 'navigate', 'scroll', 'search_page', 'click', 'click', 'search_page', 'done']`.
+- `amazon_laptop.yaml`: passed assertion, `3` steps, actions `['navigate', 'input', 'click', 'done']`.
+
+Generic model validation:
+
+```bash
+set -a; source /Users/greg/Documents/browser-use/core/library/browser-use/.env; set +a
+uv run python - <<'PY'
+# ChatOpenAI(model='gpt-4.1-mini') example.com heading smoke.
+PY
+uv run python - <<'PY'
+# ChatOpenAI(model='gpt-4.1-mini') browser_use_pip.yaml task attempt.
+PY
+```
+
+Results:
+
+- `gpt-4.1-mini` completed the example.com heading task in `2` steps with actions `['navigate', 'done']`.
+- `gpt-4.1-mini` completed `browser_use_pip.yaml` in `7` steps, but semantically answered that the official repo does not provide a direct `pip install browser-use` command. This is a generic-model accuracy gap, not a runtime failure.
+
+Browser environment validation:
+
+- Local headed/headless browser path: repeatedly validated by browser-backed tests and live `ChatBrowserUse`/`ChatOpenAI` smokes.
+- `Browser(use_cloud=True)`: provisioned a cloud browser, navigated to `https://example.com/`, and cleaned up successfully.
+- Local external CDP smoke: blocked. The Homebrew `chromium` shim points to a missing app bundle; launching `/Applications/Google Chrome.app/...` with `--remote-debugging-port` connected initially but the CDP websocket dropped and cleanup entered reconnect handling. This needs follow-up before marking remote CDP fully validated.
