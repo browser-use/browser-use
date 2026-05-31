@@ -15,8 +15,6 @@ from pydantic import BaseModel, ConfigDict
 from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
 	FileDownloadedEvent,
-	GetDropdownOptionsEvent,
-	SelectDropdownOptionEvent,
 )
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.views import BrowserError, BrowserStateSummary, TabInfo
@@ -747,15 +745,13 @@ class DropdownService(BrowserService):
 	"""Dropdown option inspection and selection."""
 
 	async def get_options(self, node: EnhancedDOMTreeNode) -> dict[str, str]:
-		result = await self._default_action_watchdog().on_GetDropdownOptionsEvent(GetDropdownOptionsEvent(node=node))
+		result = await self._default_action_watchdog().get_dropdown_options(node)
 		if result is None:
 			raise RuntimeError('Dropdown options handler returned no data')
 		return result
 
 	async def select_option(self, node: EnhancedDOMTreeNode, text: str) -> dict[str, str]:
-		result = await self._default_action_watchdog().on_SelectDropdownOptionEvent(
-			SelectDropdownOptionEvent(node=node, text=text)
-		)
+		result = await self._default_action_watchdog().select_dropdown_option(node, text)
 		if result is None:
 			raise RuntimeError('Dropdown select handler returned no data')
 		return result

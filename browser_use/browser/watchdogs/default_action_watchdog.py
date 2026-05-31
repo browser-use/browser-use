@@ -2826,10 +2826,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
 
 	async def on_GetDropdownOptionsEvent(self, event: GetDropdownOptionsEvent) -> dict[str, str]:
-		"""Handle get dropdown options request with CDP."""
+		"""Compatibility adapter for legacy event-based dropdown option requests."""
+		return await self.get_dropdown_options(event.node)
+
+	async def get_dropdown_options(self, element_node: EnhancedDOMTreeNode) -> dict[str, str]:
+		"""Get dropdown options from native, ARIA, and custom dropdown elements."""
 		try:
-			# Use the provided node
-			element_node = event.node
 			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Get CDP session for this node
@@ -3291,12 +3293,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 		}
 
 	async def on_SelectDropdownOptionEvent(self, event: SelectDropdownOptionEvent) -> dict[str, str]:
-		"""Handle select dropdown option request with CDP."""
+		"""Compatibility adapter for legacy event-based dropdown selection requests."""
+		return await self.select_dropdown_option(event.node, event.text)
+
+	async def select_dropdown_option(self, element_node: EnhancedDOMTreeNode, target_text: str) -> dict[str, str]:
+		"""Select an option in native, ARIA, and custom dropdown elements."""
 		try:
-			# Use the provided node
-			element_node = event.node
 			index_for_logging = element_node.backend_node_id or 'unknown'
-			target_text = event.text
 
 			# Get CDP session for this node
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)

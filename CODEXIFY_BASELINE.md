@@ -621,3 +621,21 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Ruff format: passed.
+
+## Codexification Verification 27
+
+After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_dropdown_tools_use_direct_service tests/ci/test_tools.py::TestToolsIntegration::test_get_dropdown_options tests/ci/test_tools.py::TestToolsIntegration::test_select_dropdown_option -q
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py
+uv run ruff format --check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py tests/ci/test_tools.py
+```
+
+Results:
+
+- Focused direct dropdown/public tool tests: `3 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.
