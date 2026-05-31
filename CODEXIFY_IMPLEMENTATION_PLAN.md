@@ -314,7 +314,7 @@ Implement:
 
 Exit criteria:
 
-- [ ] Skills improve hard tasks without increasing prompt size for simple tasks.
+- [x] Skills improve hard tasks without increasing prompt size for simple tasks.
 - [x] Skills are discoverable and inspectable.
 
 ## Phase 9: Compaction

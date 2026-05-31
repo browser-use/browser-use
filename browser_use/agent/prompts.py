@@ -145,6 +145,7 @@ class AgentMessagePrompt:
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
+		runtime_skills_info: str | None = None,
 		plan_description: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
@@ -164,6 +165,7 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
+		self.runtime_skills_info: str | None = runtime_skills_info
 		self.plan_description: str | None = plan_description
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
@@ -434,6 +436,11 @@ Available tabs:
 			state_description += '<page_specific_actions>\n'
 			state_description += self.page_filtered_actions + '\n'
 			state_description += '</page_specific_actions>\n'
+
+		if self.runtime_skills_info:
+			state_description += '<runtime_skills>\n'
+			state_description += self.runtime_skills_info.strip('\n') + '\n'
+			state_description += '</runtime_skills>\n'
 
 		# Add unavailable skills information if any
 		if self.unavailable_skills_info:

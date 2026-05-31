@@ -1,5 +1,6 @@
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.views import HistoryItem
+from browser_use.agent.runtime import BrowserSkillRegistry
 from browser_use.agent.views import AgentStepInfo
 from browser_use.browser.views import BrowserStateSummary, PageInfo, TabInfo
 from browser_use.dom.views import SerializedDOMState
@@ -104,3 +105,26 @@ def test_create_state_messages_stores_typed_context_snapshot(tmp_path) -> None:
 	assert '<page_specific_actions>' in rendered
 	assert '<available_file_paths>/tmp/result.csv' in rendered
 	assert '<step_info>Step1 maximum:5' in rendered
+	assert manager.last_state_message_text is not None
+	assert '<runtime_skills>' not in manager.last_state_message_text
+
+
+def test_create_state_messages_includes_selected_runtime_skills_only_when_relevant(tmp_path) -> None:
+	manager = MessageManager(
+		task='Download the receipt PDF',
+		system_message=SystemMessage(content='system'),
+		file_system=FileSystem(tmp_path / 'files', create_default_files=False),
+	)
+	selected_skills = BrowserSkillRegistry.default().select(task='Download the receipt PDF', max_skills=1)
+
+	manager.create_state_messages(
+		_browser_state(),
+		selected_runtime_skills=selected_skills,
+		step_info=AgentStepInfo(step_number=0, max_steps=5),
+	)
+
+	assert manager.last_typed_context is not None
+	assert [item.kind for item in manager.last_typed_context.items].count('skill') == 1
+	assert manager.last_state_message_text is not None
+	assert '<runtime_skills>' in manager.last_state_message_text
+	assert '<skill name="downloads" title="Downloads">' in manager.last_state_message_text

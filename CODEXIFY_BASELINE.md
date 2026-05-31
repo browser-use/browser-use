@@ -537,3 +537,21 @@ Results:
 - System prompt profile/renderer tests: `11 passed`.
 - Ruff: passed.
 - Pyright: `0 errors`.
+
+## Codexification Verification 22
+
+After wiring runtime skills into the per-step context path only when selected:
+
+```bash
+uv run pytest tests/ci/test_runtime_skills.py tests/ci/test_message_manager_typed_context.py -q
+uv run ruff check browser_use/agent/prompts.py browser_use/agent/message_manager/service.py browser_use/agent/service.py tests/ci/test_runtime_skills.py tests/ci/test_message_manager_typed_context.py
+uv run pyright browser_use/agent/prompts.py browser_use/agent/message_manager/service.py browser_use/agent/service.py tests/ci/test_runtime_skills.py tests/ci/test_message_manager_typed_context.py
+uv run ruff format --check browser_use/agent/prompts.py browser_use/agent/message_manager/service.py browser_use/agent/service.py tests/ci/test_runtime_skills.py tests/ci/test_message_manager_typed_context.py
+```
+
+Results:
+
+- Runtime skill selection/context tests: `6 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.

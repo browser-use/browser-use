@@ -15,12 +15,14 @@ from browser_use.agent.runtime.context import (
 	CompactionItem,
 	ExtractionArtifactItem,
 	PageActionsItem,
+	SkillItem,
 	StepInfoItem,
 	TaskItem,
 	ToolResultItem,
 	UserSteerItem,
 	WarningItem,
 )
+from browser_use.agent.runtime.skills import BrowserSkill
 from browser_use.agent.views import (
 	ActionResult,
 	AgentOutput,
@@ -56,6 +58,12 @@ def _strip_known_xml_tag(text: str, tag: str) -> str:
 	if text.startswith(prefix) and text.endswith(suffix):
 		return text[len(prefix) : -len(suffix)].strip()
 	return text
+
+
+def _render_runtime_skills_info(skills: list[BrowserSkill]) -> str | None:
+	if not skills:
+		return None
+	return '\n'.join(f'<skill name="{skill.name}" title="{skill.title}">\n{skill.content.strip()}\n</skill>' for skill in skills)
 
 
 # ========== Logging Helper Functions ==========
@@ -224,6 +232,7 @@ class MessageManager:
 		page_filtered_actions: str | None = None,
 		available_file_paths: list[str] | None = None,
 		unavailable_skills_info: str | None = None,
+		selected_runtime_skills: list[BrowserSkill] | None = None,
 		plan_description: str | None = None,
 		step_info: AgentStepInfo | None = None,
 	) -> BrowserContext:
@@ -265,6 +274,9 @@ class MessageManager:
 
 		if self.state.read_state_description:
 			context.append(ExtractionArtifactItem(source='read_state', content=self.state.read_state_description))
+
+		for skill in selected_runtime_skills or []:
+			context.append(SkillItem(**skill.model_dump()))
 
 		if page_filtered_actions:
 			context.append(PageActionsItem(description=page_filtered_actions))
@@ -555,6 +567,7 @@ class MessageManager:
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
 		unavailable_skills_info: str | None = None,  # Information about skills that cannot be used yet
+		selected_runtime_skills: list[BrowserSkill] | None = None,  # Small task-relevant guidance snippets
 		plan_description: str | None = None,  # Rendered plan for injection into agent state
 		skip_state_update: bool = False,
 	) -> None:
@@ -574,6 +587,7 @@ class MessageManager:
 			page_filtered_actions=page_filtered_actions,
 			available_file_paths=available_file_paths,
 			unavailable_skills_info=unavailable_skills_info,
+			selected_runtime_skills=selected_runtime_skills,
 			plan_description=plan_description,
 			step_info=step_info,
 		)
@@ -630,6 +644,7 @@ class MessageManager:
 			read_state_images=self.state.read_state_images,
 			llm_screenshot_size=self.llm_screenshot_size,
 			unavailable_skills_info=unavailable_skills_info,
+			runtime_skills_info=_render_runtime_skills_info(selected_runtime_skills or []),
 			plan_description=plan_description,
 		).get_user_message(effective_use_vision)
 

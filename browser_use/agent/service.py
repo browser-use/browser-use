@@ -44,6 +44,8 @@ from browser_use.agent.runtime import (
 	BrowserAgentSession,
 	BrowserRunConfig,
 	BrowserRuntimeEventTypes,
+	BrowserSkill,
+	BrowserSkillRegistry,
 	ModelCapabilities,
 )
 from browser_use.agent.views import (
@@ -318,6 +320,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Skills integration - use injected service or create from skill_ids
 		self.skill_service = None
 		self._skills_registered = False
+		self.runtime_skill_registry = BrowserSkillRegistry.default()
 		if skill_service is not None:
 			self.skill_service = skill_service
 		elif skill_ids:
@@ -1093,6 +1096,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.skill_service is not None:
 			unavailable_skills_info = await self._get_unavailable_skills_info()
 
+		selected_runtime_skills = self._select_runtime_skills(browser_state_summary)
+
 		# Render plan description for injection into agent context
 		plan_description = self._render_plan_description()
 
@@ -1116,6 +1121,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			sensitive_data=self.sensitive_data,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 			unavailable_skills_info=unavailable_skills_info,
+			selected_runtime_skills=selected_runtime_skills,
 			plan_description=plan_description,
 			skip_state_update=True,
 		)
@@ -1130,6 +1136,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				'item_count': len(self.last_typed_context.items),
 				'rendered_chars': len(rendered_typed_context),
 				'legacy_message_count': len(self._message_manager.state.history.get_messages()),
+				'runtime_skill_count': len(selected_runtime_skills),
 			},
 		)
 
@@ -1141,6 +1148,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
+
+	def _select_runtime_skills(self, browser_state_summary: BrowserStateSummary) -> list[BrowserSkill]:
+		recent_failures = [
+			result.error for result in self.state.last_result or [] if result.error is not None and result.error.strip()
+		]
+		return self.runtime_skill_registry.select(
+			task=self.task,
+			url=browser_state_summary.url,
+			recent_failures=recent_failures,
+		)
 
 	async def _maybe_compact_messages(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Optionally compact message history to keep prompts small."""
