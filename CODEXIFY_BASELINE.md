@@ -1493,3 +1493,68 @@ Results:
 - Native tool-call, fallback LLM, and done-action tests: `17 passed`.
 - Python compile: passed.
 - Live `ChatBrowserUse` + local Chromium smoke: success `True`, steps `3`, actions included `navigate`, `evaluate`, and `done`, final result `The page title is 'Example Domain' and the main heading is 'Example Domain'.`
+
+## Codexification Verification 71
+
+After extracting external skill slugging, registration, and unavailable-cookie reporting into `browser_use.agent.skills.AgentSkillMixin`:
+
+```bash
+uv run ruff check browser_use/agent/skills.py browser_use/agent/service.py browser_use/skills/views.py tests/ci/test_message_manager_typed_context.py
+uv run pyright browser_use/agent/skills.py browser_use/agent/service.py browser_use/skills/views.py tests/ci/test_message_manager_typed_context.py
+uv run pytest tests/ci/test_message_manager_typed_context.py -q
+uv run python -m py_compile browser_use/agent/skills.py browser_use/agent/service.py
+uv run python - <<'PY'
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from browser_use import Agent
+from browser_use.llm.base import BaseChatModel
+from browser_use.skills.views import Skill
+
+class FakeSkillService:
+    def __init__(self, skills):
+        self.skills = skills
+
+    async def get_all_skills(self):
+        return self.skills
+
+    async def execute_skill(self, skill_id, parameters, cookies):
+        return SimpleNamespace(success=True, result={'skill_id': skill_id, 'parameters': parameters}, error=None)
+
+    async def close(self):
+        return None
+
+async def main():
+    llm = AsyncMock(spec=BaseChatModel)
+    llm.provider = 'mock'
+    llm.model = 'mock-model'
+    llm.name = 'mock-model'
+
+    skills = [
+        Skill(id='abcd1234', title='Get Weather Data', description='Get weather', parameters=[]),
+        Skill(id='wxyz9876', title='Get Weather Data', description='Get weather duplicate', parameters=[]),
+    ]
+    agent = Agent(task='skill smoke', llm=llm, skill_service=FakeSkillService(skills), use_judge=False)
+
+    assert agent._get_skill_slug(skills[0], skills) == 'get_weather_data_abcd'
+    assert agent._get_skill_slug(skills[1], skills) == 'get_weather_data_wxyz'
+    await agent._register_skills_as_actions()
+    registered = set(agent.tools.registry.registry.actions)
+    assert 'get_weather_data_abcd' in registered
+    assert 'get_weather_data_wxyz' in registered
+    assert agent._skills_registered is True
+    print('skill smoke ok', sorted(name for name in registered if name.startswith('get_weather_data_')))
+    await agent.close()
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Typed-context runtime skill tests: `3 passed`.
+- Python compile: passed.
+- Direct fake-skill smoke: duplicate skill slugs and skill action registration passed.
