@@ -279,12 +279,14 @@ def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | No
 	scheme = 'ws' if cdp_url.startswith('ws') else 'http'
 	flag = '--ws' if scheme == 'ws' else '--url'
 	preamble = (
-		'[BROWSER ATTACH — required first action]\n'
-		f'Before any page work, attach to the prepared external browser: '
-		f'`browser connect remote-cdp {flag} {cdp_url}`\n'
-		'Do not call `browser connect managed` — a real cloud browser with '
-		'proxy + stealth is already running at the URL above, launching a '
-		'local Chromium bypasses it.\n\n'
+		'[BROWSER ATTACH — required first and ONLY browser-connect action]\n'
+		f'Your first browser command MUST be: `browser connect remote-cdp {flag} {cdp_url}`\n'
+		'NEVER call `browser connect managed`, `browser connect local`, or '
+		'`browser connect cloud` — they spawn a fresh Chromium that bypasses '
+		'the cloud browser\'s proxy + stealth and IP. A real production '
+		'browser with proxy + stealth headers is already running at the URL '
+		'above; the only correct action is to attach to it. Skip the connect '
+		'step entirely on subsequent turns — it is already connected.\n\n'
 	)
 	return preamble + task
 
