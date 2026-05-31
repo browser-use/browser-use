@@ -47,13 +47,17 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_launch_event')
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> BrowserLaunchResult:
-		"""Launch a local browser process."""
+		"""Compatibility adapter for local browser launch events."""
+		return await self.launch_browser()
+
+	async def launch_browser(self, max_retries: int = 3) -> BrowserLaunchResult:
+		"""Launch a local browser process directly."""
 
 		try:
-			self.logger.debug('[LocalBrowserWatchdog] Received BrowserLaunchEvent, launching local browser...')
+			self.logger.debug('[LocalBrowserWatchdog] Launching local browser...')
 
 			# self.logger.debug('[LocalBrowserWatchdog] Calling _launch_browser...')
-			process, cdp_url = await self._launch_browser()
+			process, cdp_url = await self._launch_browser(max_retries=max_retries)
 			self._subprocess = process
 			# self.logger.debug(f'[LocalBrowserWatchdog] _launch_browser returned: process={process}, cdp_url={cdp_url}')
 

@@ -2565,6 +2565,30 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - Actions: `['navigate', 'extract', 'done']`.
 - Final: `The main heading of https://example.com is 'Example Domain'.`
 
+## Codexification Verification 108
+
+After directizing public `BrowserSession.start()` and local browser launch:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_lifecycle.py browser_use/browser/watchdogs/local_browser_watchdog.py tests/ci/browser/test_direct_lifecycle.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_lifecycle.py browser_use/browser/watchdogs/local_browser_watchdog.py tests/ci/browser/test_direct_lifecycle.py
+uv run pytest tests/ci/browser/test_direct_lifecycle.py -q
+uv run pytest tests/ci/browser/test_direct_lifecycle.py tests/ci/browser/test_session_start.py -q
+```
+
+Results:
+
+- Direct lifecycle tests: `4 passed`.
+- Direct lifecycle plus browser session startup suite: `13 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `2` steps.
+- Actions: `['navigate', 'done']`.
+- Final: `The main heading on https://example.com is 'Example Domain'.`
+
 ## Codexification Verification 106
 
 After directizing tab-close focus recovery:

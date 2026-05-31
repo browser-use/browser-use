@@ -31,7 +31,6 @@ from browser_use.browser.events import (
 	AgentFocusChangedEvent,
 	BrowserConnectedEvent,
 	BrowserErrorEvent,
-	BrowserLaunchEvent,
 	BrowserLaunchResult,
 	BrowserReconnectedEvent,
 	BrowserReconnectingEvent,
@@ -508,9 +507,13 @@ class BrowserSession(
 
 	_logger: Any = PrivateAttr(default=None)
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_event_handler')
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
-		"""Handle browser start request.
+		"""Compatibility adapter for browser start events."""
+		return await self.start_direct()
+
+	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_direct')
+	async def start_direct(self) -> dict[str, str]:
+		"""Start/connect to the browser.
 
 		Returns:
 			Dict with 'cdp_url' key containing the CDP URL
@@ -520,7 +523,7 @@ class BrowserSession(
 		- If you need to reset state, call stop() or kill() first
 		"""
 
-		# Initialize and attach all watchdogs FIRST so LocalBrowserWatchdog can handle BrowserLaunchEvent
+		# Initialize and attach all watchdogs FIRST so the local browser launcher is available.
 		await self.attach_all_watchdogs()
 
 		try:
@@ -540,14 +543,10 @@ class BrowserSession(
 					except CloudBrowserError as e:
 						raise CloudBrowserError(f'Failed to create cloud browser: {e}')
 				elif self.is_local:
-					# Launch local browser using event-driven approach
-					launch_event = self.event_bus.dispatch(BrowserLaunchEvent())
-					await launch_event
-
-					# Get the CDP URL from LocalBrowserWatchdog handler result
-					launch_result: BrowserLaunchResult = cast(
-						BrowserLaunchResult, await launch_event.event_result(raise_if_none=True, raise_if_any=True)
-					)
+					local_browser_watchdog = self._local_browser_watchdog
+					if local_browser_watchdog is None:
+						raise RuntimeError('Local browser launch service is not attached to this browser session.')
+					launch_result: BrowserLaunchResult = await local_browser_watchdog.launch_browser()
 					self.browser_profile.cdp_url = launch_result.cdp_url
 				else:
 					raise ValueError('Got BrowserSession(is_local=False) but no cdp_url was provided to connect to!')

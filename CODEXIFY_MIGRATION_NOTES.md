@@ -35,6 +35,7 @@ These notes describe the current migration state after the codexification cleanu
 - About:blank tab recovery now creates/focuses the replacement tab directly through CDP instead of dispatching a navigation request event.
 - Tab-close focus recovery now calls a direct tab switch helper; `SwitchTabEvent` remains as a compatibility adapter.
 - `BrowserSession.navigate_to()` now calls the direct navigation helper; `NavigateToUrlEvent` remains as a compatibility adapter.
+- `BrowserSession.start()` now calls a direct startup method, and local browser launch calls the local launch service directly; `BrowserStartEvent` and `BrowserLaunchEvent` remain as compatibility adapters.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
 - The typed runtime/context/event structures are present behind compatibility paths; the runtime model-context manager owns state around focused context/rendering helpers.
@@ -83,6 +84,30 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - `https://example.com` heading task: success `True`, done `True`, `3` steps.
 - Actions: `['navigate', 'extract', 'done']`.
 - Final: `The main heading of https://example.com is 'Example Domain'.`
+
+## Codexification Verification 108
+
+After directizing public `BrowserSession.start()` and local browser launch:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_lifecycle.py browser_use/browser/watchdogs/local_browser_watchdog.py tests/ci/browser/test_direct_lifecycle.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_lifecycle.py browser_use/browser/watchdogs/local_browser_watchdog.py tests/ci/browser/test_direct_lifecycle.py
+uv run pytest tests/ci/browser/test_direct_lifecycle.py -q
+uv run pytest tests/ci/browser/test_direct_lifecycle.py tests/ci/browser/test_session_start.py -q
+```
+
+Results:
+
+- Direct lifecycle tests: `4 passed`.
+- Direct lifecycle plus browser session startup suite: `13 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `2` steps.
+- Actions: `['navigate', 'done']`.
+- Final: `The main heading on https://example.com is 'Example Domain'.`
 
 ## Codexification Verification 102
 

@@ -59,9 +59,7 @@ class BrowserSessionLifecycleMixin:
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self: Any) -> None:
 		"""Start the browser session."""
-		start_event = self.event_bus.dispatch(BrowserStartEvent())
-		await start_event
-		await start_event.event_result(raise_if_any=True, raise_if_none=False)
+		await self.start_direct()
 
 	async def kill(self: Any) -> None:
 		"""Kill the browser session and reset all state."""
