@@ -204,7 +204,8 @@ Implement:
 - [x] Make legacy upload handler delegate to `UploadService`.
 - [x] Make legacy navigation and keyboard handlers delegate to direct services.
 - [x] Move dropdown option and selection policy into `DropdownService`.
-- [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
+- [x] Move remaining scroll/session helper implementations into direct services.
+- [x] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.
 

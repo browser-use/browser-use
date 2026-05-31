@@ -865,3 +865,25 @@ Results:
 - Pyright: `0 errors`.
 - Focused public/direct type tests: `2 passed`.
 - Full browser service suite: `15 passed`.
+
+## Codexification Verification 41
+
+After moving the remaining scroll gesture, scroll-container, and frame-session helper implementations into direct services while keeping old watchdog private helpers as wrappers:
+
+```bash
+uv run python -m py_compile browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_page_scroll_tool_uses_direct_service tests/ci/browser/test_browser_services.py::test_public_element_scroll_tool_uses_direct_service tests/ci/browser/test_browser_services.py::test_public_find_text_tool_uses_direct_service -q
+uv run pytest tests/ci/test_native_tool_router.py::test_native_tool_router_executes_direct_navigation_go_back_and_page_scroll -q
+uv run pytest tests/ci/browser/test_browser_services.py -q
+```
+
+Results:
+
+- Python compile: passed.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Focused scroll tests: `3 passed`.
+- Native router navigation/scroll test: `1 passed`.
+- Full browser service suite: `15 passed`.

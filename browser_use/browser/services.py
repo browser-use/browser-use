@@ -170,6 +170,29 @@ class BrowserService(BaseModel):
 			self.logger.debug(f'Occlusion check failed: {e}, assuming not occluded')
 			return False
 
+	async def _get_session_id_for_element(self, element_node: EnhancedDOMTreeNode) -> str | None:
+		"""Get the appropriate CDP session ID for an element based on its frame."""
+		if element_node.frame_id:
+			# Element is in an iframe, need to get session for that frame
+			try:
+				all_targets = self.browser_session.session_manager.get_all_targets()
+
+				# Find the target for this frame
+				for target_id, target in all_targets.items():
+					if target.target_type == 'iframe' and element_node.frame_id in str(target_id):
+						# Create temporary session for iframe target without switching focus
+						temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+						return temp_session.session_id
+
+				# If frame not found in targets, use main target session
+				self.logger.debug(f'Frame {element_node.frame_id} not found in targets, using main session')
+			except Exception as e:
+				self.logger.debug(f'Error getting frame session: {e}, using main session')
+
+		# Use main target session - get_or_create_cdp_session validates focus automatically
+		cdp_session = await self.browser_session.get_or_create_cdp_session()
+		return cdp_session.session_id
+
 
 class BrowserStateService(BrowserService):
 	"""Fresh browser state capture."""
@@ -2364,6 +2387,59 @@ class ScrollService(BrowserService):
 		)
 		if self.browser_session._dom_watchdog:
 			self.browser_session._dom_watchdog.clear_cache()
+
+	async def _scroll_with_cdp_gesture(self, pixels: int) -> bool:
+		"""
+		Scroll using CDP Input.synthesizeScrollGesture to simulate realistic scroll gesture.
+
+		Args:
+			pixels: Number of pixels to scroll (positive = down, negative = up)
+
+		Returns:
+			True if successful, False if failed
+		"""
+		try:
+			# Get focused CDP session using public API (validates and waits for recovery if needed)
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			cdp_client = cdp_session.cdp_client
+			session_id = cdp_session.session_id
+
+			# Get viewport dimensions from cached value if available
+			if self.browser_session._original_viewport_size:
+				viewport_width, viewport_height = self.browser_session._original_viewport_size
+			else:
+				# Fallback: query layout metrics
+				layout_metrics = await cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
+				viewport_width = layout_metrics['layoutViewport']['clientWidth']
+				viewport_height = layout_metrics['layoutViewport']['clientHeight']
+
+			# Calculate center of viewport
+			center_x = viewport_width / 2
+			center_y = viewport_height / 2
+
+			# For scroll gesture, positive yDistance scrolls up, negative scrolls down
+			# (opposite of mouseWheel deltaY convention)
+			y_distance = -pixels
+
+			# Synthesize scroll gesture - use very high speed for near-instant scrolling
+			await cdp_client.send.Input.synthesizeScrollGesture(
+				params={
+					'x': center_x,
+					'y': center_y,
+					'xDistance': 0,
+					'yDistance': y_distance,
+					'speed': 50000,  # pixels per second (high = near-instant scroll)
+				},
+				session_id=session_id,
+			)
+
+			self.logger.debug(f'📄 Scrolled via CDP gesture: {pixels}px')
+			return True
+
+		except Exception as e:
+			# Not critical - JavaScript fallback will handle scrolling
+			self.logger.debug(f'CDP gesture scroll failed ({type(e).__name__}: {e}), falling back to JS')
+			return False
 
 	async def _scroll_element_container(self, element_node: EnhancedDOMTreeNode, pixels: int) -> bool:
 		try:

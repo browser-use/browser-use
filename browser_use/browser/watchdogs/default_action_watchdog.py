@@ -259,170 +259,22 @@ class DefaultActionWatchdog(BaseWatchdog):
 		return await TypeService(browser_session=self.browser_session)._trigger_framework_events(object_id, cdp_session)
 
 	async def _scroll_with_cdp_gesture(self, pixels: int) -> bool:
-		"""
-		Scroll using CDP Input.synthesizeScrollGesture to simulate realistic scroll gesture.
+		"""Compatibility wrapper for old direct helper callers."""
+		from browser_use.browser.services import ScrollService
 
-		Args:
-			pixels: Number of pixels to scroll (positive = down, negative = up)
-
-		Returns:
-			True if successful, False if failed
-		"""
-		try:
-			# Get focused CDP session using public API (validates and waits for recovery if needed)
-			cdp_session = await self.browser_session.get_or_create_cdp_session()
-			cdp_client = cdp_session.cdp_client
-			session_id = cdp_session.session_id
-
-			# Get viewport dimensions from cached value if available
-			if self.browser_session._original_viewport_size:
-				viewport_width, viewport_height = self.browser_session._original_viewport_size
-			else:
-				# Fallback: query layout metrics
-				layout_metrics = await cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
-				viewport_width = layout_metrics['layoutViewport']['clientWidth']
-				viewport_height = layout_metrics['layoutViewport']['clientHeight']
-
-			# Calculate center of viewport
-			center_x = viewport_width / 2
-			center_y = viewport_height / 2
-
-			# For scroll gesture, positive yDistance scrolls up, negative scrolls down
-			# (opposite of mouseWheel deltaY convention)
-			y_distance = -pixels
-
-			# Synthesize scroll gesture - use very high speed for near-instant scrolling
-			await cdp_client.send.Input.synthesizeScrollGesture(
-				params={
-					'x': center_x,
-					'y': center_y,
-					'xDistance': 0,
-					'yDistance': y_distance,
-					'speed': 50000,  # pixels per second (high = near-instant scroll)
-				},
-				session_id=session_id,
-			)
-
-			self.logger.debug(f'📄 Scrolled via CDP gesture: {pixels}px')
-			return True
-
-		except Exception as e:
-			# Not critical - JavaScript fallback will handle scrolling
-			self.logger.debug(f'CDP gesture scroll failed ({type(e).__name__}: {e}), falling back to JS')
-			return False
+		return await ScrollService(browser_session=self.browser_session)._scroll_with_cdp_gesture(pixels)
 
 	async def _scroll_element_container(self, element_node, pixels: int) -> bool:
-		"""Try to scroll an element's container using CDP."""
-		try:
-			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+		"""Compatibility wrapper for old direct helper callers."""
+		from browser_use.browser.services import ScrollService
 
-			# Check if this is an iframe - if so, scroll its content directly
-			if element_node.tag_name and element_node.tag_name.upper() == 'IFRAME':
-				# For iframes, we need to scroll the content document, not the iframe element itself
-				# Use JavaScript to directly scroll the iframe's content
-				backend_node_id = element_node.backend_node_id
-
-				# Resolve the node to get an object ID
-				result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': backend_node_id},
-					session_id=cdp_session.session_id,
-				)
-
-				if 'object' in result and 'objectId' in result['object']:
-					object_id = result['object']['objectId']
-
-					# Scroll the iframe's content directly
-					scroll_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-						params={
-							'functionDeclaration': f"""
-								function() {{
-									try {{
-										const doc = this.contentDocument || this.contentWindow.document;
-										if (doc) {{
-											const scrollElement = doc.documentElement || doc.body;
-											if (scrollElement) {{
-												const oldScrollTop = scrollElement.scrollTop;
-												scrollElement.scrollTop += {pixels};
-												const newScrollTop = scrollElement.scrollTop;
-												return {{
-													success: true,
-													oldScrollTop: oldScrollTop,
-													newScrollTop: newScrollTop,
-													scrolled: newScrollTop - oldScrollTop
-												}};
-											}}
-										}}
-										return {{success: false, error: 'Could not access iframe content'}};
-									}} catch (e) {{
-										return {{success: false, error: e.toString()}};
-									}}
-								}}
-							""",
-							'objectId': object_id,
-							'returnByValue': True,
-						},
-						session_id=cdp_session.session_id,
-					)
-
-					if scroll_result and 'result' in scroll_result and 'value' in scroll_result['result']:
-						result_value = scroll_result['result']['value']
-						if result_value.get('success'):
-							self.logger.debug(f'Successfully scrolled iframe content by {result_value.get("scrolled", 0)}px')
-							return True
-						else:
-							self.logger.debug(f'Failed to scroll iframe: {result_value.get("error", "Unknown error")}')
-
-			# For non-iframe elements, use the standard mouse wheel approach
-			# Get element bounds to know where to scroll
-			backend_node_id = element_node.backend_node_id
-			box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
-				params={'backendNodeId': backend_node_id}, session_id=cdp_session.session_id
-			)
-			content_quad = box_model['model']['content']
-
-			# Calculate center point
-			center_x = (content_quad[0] + content_quad[2] + content_quad[4] + content_quad[6]) / 4
-			center_y = (content_quad[1] + content_quad[3] + content_quad[5] + content_quad[7]) / 4
-
-			# Dispatch mouse wheel event at element location
-			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-				params={
-					'type': 'mouseWheel',
-					'x': center_x,
-					'y': center_y,
-					'deltaX': 0,
-					'deltaY': pixels,
-				},
-				session_id=cdp_session.session_id,
-			)
-
-			return True
-		except Exception as e:
-			self.logger.debug(f'Failed to scroll element container via CDP: {e}')
-			return False
+		return await ScrollService(browser_session=self.browser_session)._scroll_element_container(element_node, pixels)
 
 	async def _get_session_id_for_element(self, element_node: EnhancedDOMTreeNode) -> str | None:
-		"""Get the appropriate CDP session ID for an element based on its frame."""
-		if element_node.frame_id:
-			# Element is in an iframe, need to get session for that frame
-			try:
-				all_targets = self.browser_session.session_manager.get_all_targets()
+		"""Compatibility wrapper for old direct helper callers."""
+		from browser_use.browser.services import ScrollService
 
-				# Find the target for this frame
-				for target_id, target in all_targets.items():
-					if target.target_type == 'iframe' and element_node.frame_id in str(target_id):
-						# Create temporary session for iframe target without switching focus
-						temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
-						return temp_session.session_id
-
-				# If frame not found in targets, use main target session
-				self.logger.debug(f'Frame {element_node.frame_id} not found in targets, using main session')
-			except Exception as e:
-				self.logger.debug(f'Error getting frame session: {e}, using main session')
-
-		# Use main target session - get_or_create_cdp_session validates focus automatically
-		cdp_session = await self.browser_session.get_or_create_cdp_session()
-		return cdp_session.session_id
+		return await ScrollService(browser_session=self.browser_session)._get_session_id_for_element(element_node)
 
 	async def on_GoBackEvent(self, event: GoBackEvent) -> None:
 		"""Compatibility adapter for legacy event-based back navigation."""
