@@ -34,8 +34,10 @@ from browser_use.agent.runtime.views import BrowserRuntimeEventTypes, ToolContex
 from browser_use.agent.views import ActionResult
 from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
+from browser_use.tools.error_handling import handle_browser_error
+from browser_use.tools.execution import _coerce_valid_action_timeout
 from browser_use.tools.registry.views import RegisteredAction
-from browser_use.tools.service import Tools, _coerce_valid_action_timeout, handle_browser_error
+from browser_use.tools.service import Tools
 from browser_use.tools.views import (
 	ClickElementAction,
 	DoneAction,

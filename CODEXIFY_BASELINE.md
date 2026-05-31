@@ -1349,3 +1349,21 @@ Results:
 - Pyright: `0 errors`.
 - Browser-backed click/type/scroll/text-scroll, coordinate-click, and autocomplete interaction tests: `15 passed`.
 - Python compile: passed.
+
+## Codexification Verification 66
+
+After extracting `Tools.act`, direct `tools.<action>(...)` wrappers, Laminar span handling, and per-action timeout parsing/coercion into `browser_use.tools.execution`:
+
+```bash
+uv run ruff check browser_use/tools/execution.py browser_use/tools/service.py browser_use/agent/runtime/tools.py tests/ci/test_action_timeout.py tests/ci/test_tools.py tests/ci/test_native_tool_router.py
+uv run pyright browser_use/tools/execution.py browser_use/tools/service.py browser_use/agent/runtime/tools.py tests/ci/test_action_timeout.py tests/ci/test_tools.py tests/ci/test_native_tool_router.py
+uv run pytest tests/ci/test_action_timeout.py tests/ci/test_tools.py::TestToolsIntegration::test_custom_action_registration tests/ci/test_native_tool_router.py::test_native_tool_router_executes_existing_action_without_fake_action_model tests/ci/test_native_tool_router.py::test_native_tool_router_executes_direct_navigation_go_back_and_page_scroll -q
+uv run python -m py_compile browser_use/tools/execution.py browser_use/tools/service.py browser_use/agent/runtime/tools.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Timeout, direct custom-action, and native-router execution tests: `8 passed`.
+- Python compile: passed.
