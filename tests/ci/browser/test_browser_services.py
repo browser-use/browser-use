@@ -298,6 +298,81 @@ async def test_public_navigation_and_keyboard_tools_use_direct_services(browser_
 
 
 @pytest.mark.asyncio
+async def test_navigation_service_clears_selector_cache_between_pages(browser_session, httpserver) -> None:
+	httpserver.expect_request('/cache-one').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<button id="old-action">Old Action</button>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	httpserver.expect_request('/cache-two').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<button id="new-action">New Action</button>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	services = BrowserServiceBundle.from_session(browser_session)
+
+	await services.navigation.navigate(httpserver.url_for('/cache-one'))
+	first_state = await services.state.get_state(include_screenshot=False)
+	assert any(node.attributes.get('id') == 'old-action' for node in first_state.dom_state.selector_map.values())
+	assert browser_session._cached_selector_map
+
+	await services.navigation.navigate(httpserver.url_for('/cache-two'), verify_not_empty=False)
+
+	assert browser_session._cached_selector_map == {}
+	second_state = await services.state.get_state(include_screenshot=False)
+	assert not any(node.attributes.get('id') == 'old-action' for node in second_state.dom_state.selector_map.values())
+	assert any(node.attributes.get('id') == 'new-action' for node in second_state.dom_state.selector_map.values())
+
+
+@pytest.mark.asyncio
+async def test_tab_service_switch_and_close_do_not_require_event_dispatch(browser_session, httpserver, monkeypatch) -> None:
+	httpserver.expect_request('/tab-one').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body><p id="page">one</p></body>
+</html>""",
+		content_type='text/html',
+	)
+	httpserver.expect_request('/tab-two').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body><p id="page">two</p></body>
+</html>""",
+		content_type='text/html',
+	)
+	services = BrowserServiceBundle.from_session(browser_session)
+
+	await services.navigation.navigate(httpserver.url_for('/tab-one'))
+	first_target = browser_session.agent_focus_target_id
+	assert first_target is not None
+	second_target = await browser_session._cdp_create_new_page(httpserver.url_for('/tab-two'))
+	await browser_session.get_or_create_cdp_session(target_id=second_target, focus=False)
+
+	def fail_dispatch(*args, **kwargs):
+		raise AssertionError('Tab service should not require event dispatch to switch or close tabs')
+
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_dispatch)
+
+	switched = await services.tabs.switch(second_target)
+	assert switched == second_target
+	assert browser_session.agent_focus_target_id == second_target
+
+	await services.tabs.close(second_target)
+	assert browser_session.agent_focus_target_id == first_target
+
+	state = await services.state.get_state(include_screenshot=False)
+	assert state.url.endswith('/tab-one')
+
+
+@pytest.mark.asyncio
 async def test_public_page_scroll_tool_uses_direct_service(browser_session, httpserver, monkeypatch) -> None:
 	httpserver.expect_request('/direct-public-scroll').respond_with_data(
 		"""<!doctype html>

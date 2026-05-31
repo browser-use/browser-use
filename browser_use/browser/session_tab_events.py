@@ -21,10 +21,14 @@ class BrowserSessionTabEventsMixin:
 
 	async def on_SwitchTabEvent(self: Any, event: SwitchTabEvent) -> TargetID:
 		"""Handle tab switching - core browser functionality."""
-		return await self.switch_tab_direct(event.target_id, require_existing_focus=True)
+		return await self.switch_tab_direct(event.target_id, require_existing_focus=True, emit_event=True)
 
 	async def switch_tab_direct(
-		self: Any, target_id: TargetID | None = None, *, require_existing_focus: bool = False
+		self: Any,
+		target_id: TargetID | None = None,
+		*,
+		require_existing_focus: bool = False,
+		emit_event: bool = False,
 	) -> TargetID:
 		"""Switch the active tab without routing through a request event."""
 
@@ -43,8 +47,8 @@ class BrowserSessionTabEventsMixin:
 				assert self._cdp_client_root is not None, 'CDP client root not initialized - browser may not be connected yet'
 				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
 				target_id = cast(TargetID, new_target['targetId'])
-				self.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=target_id))
-				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url='about:blank'))
+				await self._apply_viewport_to_target(target_id)
+				await self._set_agent_focus_direct(target_id=target_id, url='about:blank', emit_event=emit_event)
 				return target_id
 
 		selected_target_id = cast(TargetID, target_id)
@@ -54,12 +58,7 @@ class BrowserSessionTabEventsMixin:
 
 		target = self.session_manager.get_target(selected_target_id)
 
-		await self.event_bus.dispatch(
-			AgentFocusChangedEvent(
-				target_id=target.target_id,
-				url=target.url,
-			)
-		)
+		await self._set_agent_focus_direct(target_id=target.target_id, url=target.url, emit_event=emit_event)
 		return target.target_id
 
 	async def on_CloseTabEvent(self: Any, event: CloseTabEvent) -> None:
@@ -77,6 +76,10 @@ class BrowserSessionTabEventsMixin:
 
 	async def on_TabCreatedEvent(self: Any, event: TabCreatedEvent) -> None:
 		"""Handle tab creation - apply viewport settings to new tab."""
+		await self._apply_viewport_to_target(event.target_id)
+
+	async def _apply_viewport_to_target(self: Any, target_id: TargetID) -> None:
+		"""Apply configured viewport directly without relying on event-bus routing."""
 		if self.browser_profile.viewport and not self.browser_profile.no_viewport:
 			try:
 				viewport_width = self.browser_profile.viewport.width
@@ -86,11 +89,11 @@ class BrowserSessionTabEventsMixin:
 				self.logger.info(
 					f'Setting viewport to {viewport_width}x{viewport_height} with device scale factor {device_scale_factor} whereas original device scale factor was {self.browser_profile.device_scale_factor}'
 				)
-				await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
+				await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=target_id)
 
-				self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
+				self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {target_id[-8:]}')
 			except Exception as e:
-				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
+				self.logger.warning(f'Failed to set viewport for tab {target_id[-8:]}: {e}')
 
 	async def on_TabClosedEvent(self: Any, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
@@ -104,31 +107,36 @@ class BrowserSessionTabEventsMixin:
 
 	async def on_AgentFocusChangedEvent(self: Any, event: AgentFocusChangedEvent) -> None:
 		"""Handle agent focus change - update focus and clear cache."""
-		self.logger.debug(f'🔄 AgentFocusChangedEvent received: target_id=...{event.target_id[-4:]} url={event.url}')
+		await self._set_agent_focus_direct(target_id=event.target_id, url=event.url, emit_event=False)
 
+	def _clear_browser_state_cache_direct(self: Any, *, reason: str = 'browser state changed') -> None:
+		"""Clear DOM/browser-state caches without routing through focus events."""
 		if self._dom_watchdog:
 			self._dom_watchdog.clear_cache()
 
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
-		self.logger.debug('🔄 Cached browser state cleared')
+		self.logger.debug(f'🔄 Cached browser state cleared ({reason})')
 
-		if event.target_id:
-			await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
+	async def _set_agent_focus_direct(
+		self: Any,
+		*,
+		target_id: TargetID,
+		url: str | None = None,
+		emit_event: bool = True,
+	) -> None:
+		"""Set active tab state directly; optionally notify event subscribers."""
+		self.logger.debug(f'🔄 Agent focus direct set: target_id=...{target_id[-4:]} url={url}')
+		self._clear_browser_state_cache_direct(reason='agent focus changed')
 
-			if self.browser_profile.viewport and not self.browser_profile.no_viewport:
-				try:
-					viewport_width = self.browser_profile.viewport.width
-					viewport_height = self.browser_profile.viewport.height
-					device_scale_factor = self.browser_profile.device_scale_factor or 1.0
+		await self.get_or_create_cdp_session(target_id=target_id, focus=True)
+		await self._apply_viewport_to_target(target_id)
 
-					await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
-
-					self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
-				except Exception as e:
-					self.logger.warning(f'Failed to set viewport for tab {event.target_id[-8:]}: {e}')
-		else:
-			raise RuntimeError('AgentFocusChangedEvent received with no target_id for newly focused tab')
+		if emit_event:
+			try:
+				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=url or ''))
+			except Exception as e:
+				self.logger.debug(f'AgentFocusChangedEvent subscriber notification failed: {type(e).__name__}: {e}')
 
 	async def on_FileDownloadedEvent(self: Any, event: FileDownloadedEvent) -> None:
 		"""Track downloaded files during this session."""

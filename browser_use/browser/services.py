@@ -52,8 +52,10 @@ class NavigationService(BrowserService):
 
 	async def navigate(self, url: str, *, new_tab: bool = False, verify_not_empty: bool = True) -> None:
 		self._ensure_url_allowed(url)
+		self.browser_session._clear_browser_state_cache_direct(reason='navigation requested')
 		target_id = await self._target_for_navigation(new_tab=new_tab)
 		await self.browser_session._navigate_and_wait(url, target_id)
+		await self.browser_session._set_agent_focus_direct(target_id=target_id, url=url, emit_event=False)
 		await self.browser_session._close_extension_options_pages()
 		if verify_not_empty and not new_tab:
 			await self._ensure_page_not_empty(url)
@@ -110,7 +112,9 @@ class NavigationService(BrowserService):
 			return self.browser_session.agent_focus_target_id
 
 		target_id = await self.browser_session._cdp_create_new_page('about:blank')
-		await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
+		await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+		await self.browser_session._apply_viewport_to_target(target_id)
+		await self.browser_session._set_agent_focus_direct(target_id=target_id, url='about:blank', emit_event=False)
 		return target_id
 
 	def _ensure_url_allowed(self, url: str) -> None:
@@ -156,7 +160,27 @@ class TabService(BrowserService):
 		return await self.browser_session.switch_tab_direct(target_id)
 
 	async def close(self, target_id: TargetID) -> None:
+		next_focus = None
+		if target_id == self.browser_session.agent_focus_target_id:
+			page_targets = [
+				target.target_id
+				for target in self.browser_session.session_manager.get_all_page_targets()
+				if target.target_id != target_id
+			]
+			next_focus = page_targets[-1] if page_targets else None
+
 		await self.browser_session._cdp_close_page(target_id)
+		self.browser_session._clear_browser_state_cache_direct(reason='tab closed')
+
+		if target_id != self.browser_session.agent_focus_target_id:
+			return
+
+		if next_focus is None:
+			next_focus = await self.browser_session._cdp_create_new_page('about:blank')
+			await self.browser_session.get_or_create_cdp_session(target_id=next_focus, focus=False)
+			await self.browser_session._apply_viewport_to_target(next_focus)
+
+		await self.browser_session.switch_tab_direct(next_focus)
 
 
 def _page_appears_empty(state: BrowserStateSummary) -> bool:

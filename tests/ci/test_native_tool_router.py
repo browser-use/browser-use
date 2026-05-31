@@ -233,7 +233,11 @@ async def test_native_tool_router_can_drive_simple_browser_task(monkeypatch, bro
 	async def fail_execute_action(*args, **kwargs):
 		raise AssertionError('built-in native browser tools should not use the registered action adapter')
 
+	def fail_dispatch(*args, **kwargs):
+		raise AssertionError('built-in native browser tools should not require event dispatch')
+
 	monkeypatch.setattr(tools.registry, 'execute_action', fail_execute_action)
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_dispatch)
 
 	router = NativeToolRouter.from_tools(tools)
 	session = BrowserAgentSession.create(task='Reveal the answer')

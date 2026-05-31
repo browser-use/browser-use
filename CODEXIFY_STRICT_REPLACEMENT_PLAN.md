@@ -72,11 +72,11 @@ Not:
 tool -> event -> bubus -> watchdog -> CDP
 ```
 
-- [ ] Route all public browser actions through explicit services.
-- [ ] Keep events only for observability/subscribers.
-- [ ] Remove event-bus fallback dispatch from hot-path browser action execution.
-- [ ] Keep behavior parity for click, type, scroll, tabs, navigation, downloads, dialogs, uploads, and PDFs.
-- [ ] Add tests proving public tools no longer require bubus to execute.
+- [x] Route all public browser actions through explicit services.
+- [x] Keep events only for observability/subscribers.
+- [x] Remove event-bus fallback dispatch from hot-path browser action execution.
+- [x] Keep behavior parity for click, type, scroll, tabs, navigation, downloads, dialogs, uploads, and PDFs.
+- [x] Add tests proving public tools no longer require bubus to execute.
 
 ## Phase 5: Collapse Watchdogs Into Services
 
@@ -154,6 +154,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [x] `uv run pre-commit run --all-files`
 
 ## Phase 3 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
+
+## Phase 4 Verification
 
 - [x] Focused unit tests for the changed path.
 - [x] Existing compatibility tests for the public API.

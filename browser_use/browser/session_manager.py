@@ -581,8 +581,14 @@ class SessionManager:
 			if target_type in ('page', 'tab'):
 				from browser_use.browser.events import TabClosedEvent
 
-				self.browser_session.event_bus.dispatch(TabClosedEvent(target_id=target_id))
-				self.logger.debug(f'[SessionManager] Dispatched TabClosedEvent for page target {target_id[:8]}...')
+				try:
+					self.browser_session.event_bus.dispatch(TabClosedEvent(target_id=target_id))
+					self.logger.debug(f'[SessionManager] Dispatched TabClosedEvent for page target {target_id[:8]}...')
+				except Exception as e:
+					self.logger.debug(
+						f'[SessionManager] TabClosedEvent subscriber notification failed for {target_id[:8]}...: '
+						f'{type(e).__name__}: {e}'
+					)
 			elif target_type:
 				self.logger.debug(
 					f'[SessionManager] Target {target_id[:8]}... fully removed (type={target_type}) - not dispatching TabClosedEvent'
