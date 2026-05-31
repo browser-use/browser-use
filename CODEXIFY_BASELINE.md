@@ -2244,3 +2244,24 @@ Failure categories:
 - Google judge evals are still blocked by the expired shared `GOOGLE_API_KEY`.
 - The generic `gpt-4.1-mini` `browser_use_pip.yaml` run still has the previously documented semantic accuracy gap, but this is model behavior rather than a runtime regression.
 - Browser-backed tests continue to log expected judge-validation and mocked-CDP errors in specific tests while passing.
+
+## Codexification Verification 91
+
+After extracting actor-style page and storage helpers into `browser_use/browser/session_actor_api.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_actor_api.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_actor_api.py
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_cdp_headers.py -q
+uv run python - <<'PY'
+# Starts BrowserSession, calls new_page(), get_pages(), get_current_page(),
+# get_focused_target(), and export_storage_state().
+PY
+```
+
+Results:
+
+- Ruff: passed after import cleanup.
+- Pyright: `0 errors`.
+- Session start and CDP header tests: `6 passed`.
+- Direct headless Chromium smoke: actor page helpers returned page objects/targets and wrote `storage.json`.

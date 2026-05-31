@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
 from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
@@ -43,6 +43,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
+from browser_use.browser.session_actor_api import BrowserSessionActorAPIMixin
 from browser_use.browser.session_lifecycle import BrowserSessionLifecycleMixin
 from browser_use.browser.session_navigation import BrowserSessionNavigationMixin
 from browser_use.browser.session_state import BrowserSessionStateMixin
@@ -53,7 +54,6 @@ from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
 
 if TYPE_CHECKING:
-	from browser_use.actor.page import Page
 	from browser_use.browser.demo_mode import DemoMode
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
@@ -93,6 +93,7 @@ class CDPSession(BaseModel):
 
 
 class BrowserSession(
+	BrowserSessionActorAPIMixin,
 	BrowserSessionLifecycleMixin,
 	BrowserSessionNavigationMixin,
 	BrowserSessionTabEventsMixin,
@@ -620,149 +621,6 @@ class BrowserSession(
 					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=browser_launch_failure'
 				)
 			raise
-
-	# region - ========== CDP-based replacements for browser_context operations ==========
-	@property
-	def cdp_client(self) -> CDPClient:
-		"""Get the cached root CDP cdp_session.cdp_client. The client is created and started in self.connect()."""
-		assert self._cdp_client_root is not None, 'CDP client not initialized - browser may not be connected yet'
-		return self._cdp_client_root
-
-	async def new_page(self, url: str | None = None) -> 'Page':
-		"""Create a new page (tab)."""
-		from cdp_use.cdp.target.commands import CreateTargetParameters
-
-		params: CreateTargetParameters = {'url': url or 'about:blank'}
-		result = await self.cdp_client.send.Target.createTarget(params)
-
-		target_id = result['targetId']
-
-		# Import here to avoid circular import
-		from browser_use.actor.page import Page as Target
-
-		return Target(self, target_id)
-
-	async def get_current_page(self) -> 'Page | None':
-		"""Get the current page as an actor Page."""
-		target_info = await self.get_current_target_info()
-
-		if not target_info:
-			return None
-
-		from browser_use.actor.page import Page as Target
-
-		return Target(self, target_info['targetId'])
-
-	async def must_get_current_page(self) -> 'Page':
-		"""Get the current page as an actor Page."""
-		page = await self.get_current_page()
-		if not page:
-			raise RuntimeError('No current target found')
-
-		return page
-
-	async def get_pages(self) -> list['Page']:
-		"""Get all available pages using SessionManager (source of truth)."""
-		# Import here to avoid circular import
-		from browser_use.actor.page import Page as PageActor
-
-		page_targets = self.session_manager.get_all_page_targets() if self.session_manager else []
-
-		targets = []
-		for target in page_targets:
-			targets.append(PageActor(self, target.target_id))
-
-		return targets
-
-	def get_focused_target(self) -> 'Target | None':
-		"""Get the target that currently has agent focus.
-
-		Returns:
-			Target object if agent has focus, None otherwise.
-		"""
-		if not self.session_manager:
-			return None
-		return self.session_manager.get_focused_target()
-
-	def get_page_targets(self) -> list['Target']:
-		"""Get all page/tab targets (excludes iframes, workers, etc.).
-
-		Returns:
-			List of Target objects for all page/tab targets.
-		"""
-		if not self.session_manager:
-			return []
-		return self.session_manager.get_all_page_targets()
-
-	async def close_page(self, page: 'Union[Page, str]') -> None:
-		"""Close a page by Page object or target ID."""
-		from cdp_use.cdp.target.commands import CloseTargetParameters
-
-		# Import here to avoid circular import
-		from browser_use.actor.page import Page as Target
-
-		if isinstance(page, Target):
-			target_id = page._target_id
-		else:
-			target_id = str(page)
-
-		params: CloseTargetParameters = {'targetId': target_id}
-		await self.cdp_client.send.Target.closeTarget(params)
-
-	async def cookies(self) -> list['Cookie']:
-		"""Get cookies, optionally filtered by URLs."""
-
-		result = await self.cdp_client.send.Storage.getCookies()
-		return result['cookies']
-
-	async def clear_cookies(self) -> None:
-		"""Clear all cookies."""
-		await self.cdp_client.send.Network.clearBrowserCookies()
-
-	async def export_storage_state(self, output_path: str | Path | None = None) -> dict[str, Any]:
-		"""Export all browser cookies and storage to storage_state format.
-
-		Extracts decrypted cookies via CDP, bypassing keychain encryption.
-
-		Args:
-			output_path: Optional path to save storage_state.json. If None, returns dict only.
-
-		Returns:
-			Storage state dict with cookies in Playwright format.
-
-		"""
-		from pathlib import Path
-
-		# Get all cookies using Storage.getCookies (returns decrypted cookies from all domains)
-		cookies = await self._cdp_get_cookies()
-
-		# Convert CDP cookie format to Playwright storage_state format
-		storage_state = {
-			'cookies': [
-				{
-					'name': c['name'],
-					'value': c['value'],
-					'domain': c['domain'],
-					'path': c['path'],
-					'expires': c.get('expires', -1),
-					'httpOnly': c.get('httpOnly', False),
-					'secure': c.get('secure', False),
-					'sameSite': c.get('sameSite', 'Lax'),
-				}
-				for c in cookies
-			],
-			'origins': [],  # Could add localStorage/sessionStorage extraction if needed
-		}
-
-		if output_path:
-			import json
-
-			output_file = Path(output_path).expanduser().resolve()
-			output_file.parent.mkdir(parents=True, exist_ok=True)
-			output_file.write_text(json.dumps(storage_state, indent=2, ensure_ascii=False), encoding='utf-8')
-			self.logger.info(f'💾 Exported {len(cookies)} cookies to {output_file}')
-
-		return storage_state
 
 	async def get_or_create_cdp_session(self, target_id: TargetID | None = None, focus: bool = True) -> CDPSession:
 		"""Get CDP session for a target from the event-driven pool.
