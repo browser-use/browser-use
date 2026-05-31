@@ -555,3 +555,13 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Ruff format: passed.
+
+## Codexification Verification 23
+
+Real `ChatBrowserUse` + headless local Chromium download smoke after runtime skill injection:
+
+- Success: `True`
+- Done: `True`
+- Steps: `4`
+- Final result: `codexify,42`
+- Notes: the task opened a local HTTP page, downloaded `report.csv`, read the downloaded file through the public file tool path, and completed through the public `Agent` path.
