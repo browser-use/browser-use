@@ -622,6 +622,16 @@ Results:
 - Pyright: `0 errors`.
 - Ruff format: passed.
 
+## Codexification Verification 30
+
+Real `ChatBrowserUse` + headless local Chromium smoke after moving click and type policy into direct services:
+
+- Success: `True`
+- Done: `True`
+- Steps: `3`
+- Final result: `direct-service-smoke:codexify`
+- Notes: the task opened a local HTTP page, typed into an input, clicked a `Reveal` button, observed the revealed text, and completed through the public `Agent` path.
+
 ## Codexification Verification 27
 
 After making the public dropdown service call explicit dropdown handler methods while preserving the legacy event handlers as adapters:
