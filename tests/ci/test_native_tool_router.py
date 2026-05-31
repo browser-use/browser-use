@@ -13,6 +13,7 @@ from browser_use.agent.runtime import (
 )
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
+from browser_use.tools.views import StructuredOutputAction
 
 
 def test_native_tool_router_exposes_api_safe_names() -> None:
@@ -55,6 +56,23 @@ def test_native_tool_router_validates_with_existing_pydantic_models() -> None:
 
 	with pytest.raises(ValueError):
 		router.validate_call(NativeToolCall(tool_name='browser.navigate', arguments={'new_tab': False}))
+
+
+def test_native_tool_router_uses_native_structured_done_input() -> None:
+	class MyOutput(BaseModel):
+		answer: str
+
+	tools = Tools(output_model=MyOutput)
+	router = NativeToolRouter.from_tools(tools)
+	done_definition = router.resolve('browser.done')
+
+	assert done_definition.source_action == 'done'
+	assert done_definition.input_model is not tools.registry.registry.actions['done'].param_model
+	assert done_definition.input_model is not StructuredOutputAction[MyOutput]
+	assert 'StructuredDoneInput' in done_definition.input_model.__name__
+
+	params = router.validate_call(NativeToolCall(tool_name='browser.done', arguments={'data': {'answer': 'ok'}, 'success': True}))
+	assert params.model_dump(mode='json') == {'success': True, 'data': {'answer': 'ok'}, 'files_to_display': []}
 
 
 def test_native_tool_router_filters_page_specific_actions() -> None:

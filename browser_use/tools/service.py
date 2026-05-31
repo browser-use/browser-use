@@ -68,6 +68,7 @@ from browser_use.tools.views import (
 	SearchPageAction,
 	SelectDropdownOptionAction,
 	SendKeysAction,
+	StructuredDoneInput,
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
@@ -326,7 +327,7 @@ class Tools(ToolsExecutionMixin, Generic[Context]):
 
 	def build_done_result(
 		self,
-		params: DoneAction | StructuredOutputAction[Any],
+		params: DoneAction | StructuredDoneInput[Any],
 		*,
 		file_system: FileSystem,
 		browser_session: BrowserSession | None = None,

@@ -30,7 +30,7 @@ This document is intentionally not a full implementation spec. Each implementati
 ## What To Simplify
 
 - [x] Message manager.
-- [ ] Fake structured-output action protocol.
+- [x] Fake structured-output action protocol.
 - [x] Bubus/event bus in the hot action path.
 - [ ] Watchdog architecture.
 - [x] Giant agent/browser/tool files.

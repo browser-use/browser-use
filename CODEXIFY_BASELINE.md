@@ -2416,3 +2416,24 @@ Notes:
 
 - The pip task spent early steps on DuckDuckGo, Google, and Bing challenges before direct GitHub/docs navigation. It still completed successfully within the task budget.
 - The Amazon task stayed at the previous successful `4` step count.
+
+## Codexification Verification 98
+
+After separating provider-native structured completion from the legacy structured-output action wrapper:
+
+```bash
+uv run pytest tests/ci/test_native_tool_router.py::test_native_tool_router_uses_native_structured_done_input tests/ci/test_native_tool_router.py::test_native_tool_router_executes_structured_done_without_registered_action_adapter -q
+uv run pytest tests/ci/test_agent_native_tool_calls.py -q
+uv run pytest tests/ci/test_tools.py::TestStructuredOutputDoneWithFiles tests/ci/models/test_llm_schema_optimizer.py::test_optimizer_preserves_all_fields_in_structured_done_action -q
+uv run ruff check browser_use/tools/views.py browser_use/tools/done_result.py browser_use/tools/service.py browser_use/agent/runtime/tools.py browser_use/agent/model_io.py tests/ci/test_native_tool_router.py tests/ci/test_agent_native_tool_calls.py
+uv run pyright browser_use/tools/views.py browser_use/tools/done_result.py browser_use/tools/service.py browser_use/agent/runtime/tools.py browser_use/agent/model_io.py tests/ci/test_native_tool_router.py tests/ci/test_agent_native_tool_calls.py
+```
+
+Results:
+
+- Native router structured-done tests: `2 passed`.
+- Native tool-call agent adapter tests: `2 passed`.
+- Legacy structured-output done/file/schema optimizer tests: `7 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Provider-native `browser.done` now exposes `StructuredDoneInput[...]`; legacy `StructuredOutputAction[...]` remains supported by action-list mode.

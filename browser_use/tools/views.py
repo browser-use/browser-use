@@ -111,12 +111,23 @@ def _hide_internal_fields_from_schema(schema: dict) -> None:
 	props.pop('files_to_display', None)
 
 
-class StructuredOutputAction(BaseModel, Generic[T]):
+class StructuredDoneInput(BaseModel, Generic[T]):
+	"""Native structured completion payload.
+
+	This is the model-facing shape for provider-native `browser.done` calls. The
+	legacy action-list protocol keeps using `StructuredOutputAction` below for
+	backwards compatibility.
+	"""
+
 	model_config = ConfigDict(json_schema_extra=_hide_internal_fields_from_schema)
 
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	data: T = Field(description='The actual output data matching the requested schema')
 	files_to_display: list[str] | None = Field(default=[])
+
+
+class StructuredOutputAction(StructuredDoneInput[T], Generic[T]):
+	"""Compatibility wrapper for legacy action-list structured completion."""
 
 
 class SwitchTabAction(BaseModel):

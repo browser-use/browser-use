@@ -44,7 +44,7 @@ from browser_use.tools.views import (
 	NavigateAction,
 	ScrollAction,
 	SearchAction,
-	StructuredOutputAction,
+	StructuredDoneInput,
 )
 
 
@@ -95,6 +95,17 @@ class NativeToolDefinition(BaseModel):
 			input_model=action.param_model,
 			source_action=action.name,
 			terminates_sequence=action.terminates_sequence,
+			executable=True,
+		)
+
+	@classmethod
+	def from_structured_done_model(cls, *, output_model: type[BaseModel], source_action: str = 'done') -> NativeToolDefinition:
+		return cls(
+			name='browser.done',
+			description='Complete task with structured output.',
+			input_model=StructuredDoneInput[output_model],
+			source_action=source_action,
+			terminates_sequence=True,
 			executable=True,
 		)
 
@@ -290,7 +301,10 @@ class NativeToolRouter(BaseModel):
 				continue
 
 			native_name = _ACTION_TO_NATIVE_TOOL.get(action_name, f'browser.{action_name}')
-			definition = NativeToolDefinition.from_registered_action(native_name=native_name, action=action)
+			if action_name == 'done' and (output_model := tools.get_output_model()) is not None:
+				definition = NativeToolDefinition.from_structured_done_model(output_model=output_model)
+			else:
+				definition = NativeToolDefinition.from_registered_action(native_name=native_name, action=action)
 			definitions[definition.name] = definition
 
 		if include_experimental:
@@ -351,7 +365,7 @@ class NativeToolRouter(BaseModel):
 			return await self._execute_direct_tool(call, context, definition, lambda: self._wait(params))
 
 		if definition.name == 'browser.done':
-			params = cast(DoneAction | StructuredOutputAction[Any], self.validate_call(call))
+			params = cast(DoneAction | StructuredDoneInput[Any], self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._done(call, params, context))
 
 		if definition.name == 'browser.scroll':
@@ -633,7 +647,7 @@ class NativeToolRouter(BaseModel):
 	async def _done(
 		self,
 		call: NativeToolCall,
-		params: DoneAction | StructuredOutputAction[Any],
+		params: DoneAction | StructuredDoneInput[Any],
 		context: ToolContext,
 	) -> NativeToolResult:
 		if not isinstance(context.tools, Tools):

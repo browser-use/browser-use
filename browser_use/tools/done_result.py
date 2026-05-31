@@ -7,13 +7,13 @@ from typing import Any
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
-from browser_use.tools.views import DoneAction, StructuredOutputAction
+from browser_use.tools.views import DoneAction, StructuredDoneInput
 
 logger = logging.getLogger(__name__)
 
 
 def build_done_result(
-	params: DoneAction | StructuredOutputAction[Any],
+	params: DoneAction | StructuredDoneInput[Any],
 	*,
 	file_system: FileSystem,
 	browser_session: BrowserSession | None = None,
@@ -79,7 +79,7 @@ def build_text_done_result(
 
 
 def build_structured_done_result(
-	params: StructuredOutputAction[Any],
+	params: StructuredDoneInput[Any],
 	*,
 	file_system: FileSystem,
 	browser_session: BrowserSession,

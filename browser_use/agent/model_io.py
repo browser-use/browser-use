@@ -241,7 +241,7 @@ class AgentModelIOMixin:
 			if definition.source_action is None:
 				raise ValueError(f'Native tool {definition.name} cannot be adapted to the legacy action executor.')
 			validated_params = router.validate_call(call)
-			actions.append(self.ActionModel(**{definition.source_action: validated_params}))
+			actions.append(self.ActionModel(**{definition.source_action: validated_params.model_dump(mode='json')}))
 
 		parsed = self.AgentOutput(
 			evaluation_previous_goal='Received provider-native tool calls.',

@@ -26,6 +26,7 @@ These notes describe the current migration state after the codexification cleanu
 - Browser screenshot capture and element-bound lookup now live in `browser_use.browser.session_screenshots`.
 - Browser visual highlight overlays, coordinate-click highlights, and element-coordinate lookup now live in `browser_use.browser.session_highlights`.
 - Browser tab metadata, current-target lookup, DOM coordinate lookup, selector-map access, and file-input search now live in `browser_use.browser.session_dom`.
+- Provider-native `browser.done` schemas now use a native `StructuredDoneInput` model instead of reusing the legacy `StructuredOutputAction` action wrapper. The legacy structured-output action remains as a compatibility wrapper for action-list mode.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
 - The typed runtime/context/event structures are present behind compatibility paths; the old message manager still exists as the public-compatible renderer and state holder.
@@ -43,7 +44,7 @@ These notes describe the current migration state after the codexification cleanu
 
 - The legacy `Agent(...)` constructor is still broad for backwards compatibility, but new code has a grouped `AgentConfig` path.
 - The old message manager is still part of the compatibility path.
-- The old structured-output action protocol is still supported and has not been removed.
+- The old structured-output action protocol is still supported for legacy action-list compatibility, but provider-native structured completion no longer depends on it.
 - Watchdog/event-bus code still exists for browser compatibility paths.
 - Google judge-based task evals could not complete because the `GOOGLE_API_KEY` in the shared `.env` is expired.
 - External local CDP validation requires launching Chrome with `--remote-allow-origins=*`; with that flag, `Browser(cdp_url=...)` connected and navigated successfully.
