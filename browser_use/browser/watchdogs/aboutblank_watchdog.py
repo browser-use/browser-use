@@ -11,7 +11,6 @@ from browser_use.browser.events import (
 	BrowserStopEvent,
 	BrowserStoppedEvent,
 	CloseTabEvent,
-	NavigateToUrlEvent,
 	TabClosedEvent,
 	TabCreatedEvent,
 )
@@ -32,7 +31,6 @@ class AboutBlankWatchdog(BaseWatchdog):
 		TabClosedEvent,
 	]
 	EMITS: ClassVar[list[type[BaseEvent]]] = [
-		NavigateToUrlEvent,
 		CloseTabEvent,
 		AboutBlankDVDScreensaverShownEvent,
 	]
@@ -76,9 +74,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 			self.logger.debug(
 				'[AboutBlankWatchdog] Last tab closing, creating new about:blank tab to avoid closing entire browser'
 			)
-			# Create the animation tab since no tabs should remain
-			navigate_event = self.event_bus.dispatch(NavigateToUrlEvent(url='about:blank', new_tab=True))
-			await navigate_event
+			await self._open_about_blank_tab()
 			# Show DVD screensaver on the new tab
 			await self._show_dvd_screensaver_on_about_blank_tabs()
 		else:
@@ -102,14 +98,20 @@ class AboutBlankWatchdog(BaseWatchdog):
 			if len(page_targets) == 0:
 				# Only create a new tab if there are no tabs at all
 				self.logger.debug('[AboutBlankWatchdog] No tabs exist, creating new about:blank DVD screensaver tab')
-				navigate_event = self.event_bus.dispatch(NavigateToUrlEvent(url='about:blank', new_tab=True))
-				await navigate_event
+				await self._open_about_blank_tab()
 				# Show DVD screensaver on the new tab
 				await self._show_dvd_screensaver_on_about_blank_tabs()
 			# Otherwise there are tabs, don't create new ones to avoid interfering
 
 		except Exception as e:
 			self.logger.error(f'[AboutBlankWatchdog] Error ensuring about:blank tab: {e}')
+
+	async def _open_about_blank_tab(self) -> TargetID:
+		"""Create and focus an about:blank tab without routing through navigation events."""
+
+		target_id = await self.browser_session._cdp_create_new_page('about:blank')
+		await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
+		return target_id
 
 	async def _show_dvd_screensaver_on_about_blank_tabs(self) -> None:
 		"""Show DVD screensaver on all about:blank pages only."""

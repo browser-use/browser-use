@@ -2539,6 +2539,29 @@ Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
 - `https://example.com` heading task: success `True`, done `True`, `3` steps.
 - Actions: `['navigate', 'extract', 'done']`.
 
+## Codexification Verification 105
+
+After directizing about:blank tab recovery:
+
+```bash
+uv run pytest tests/ci/browser/test_aboutblank_watchdog.py tests/ci/browser/test_direct_storage_state.py -q
+uv run pytest tests/ci/browser/test_session_start.py -q
+uv run ruff check browser_use/browser/watchdogs/aboutblank_watchdog.py tests/ci/browser/test_aboutblank_watchdog.py
+uv run pyright browser_use/browser/watchdogs/aboutblank_watchdog.py tests/ci/browser/test_aboutblank_watchdog.py
+```
+
+Results:
+
+- About:blank and storage direct-call tests: `4 passed`.
+- Browser session lifecycle tests: `9 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse` and the main worktree `.env`:
+
+- `https://example.com` heading task: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+
 ## Codexification Verification 104
 
 After directizing storage-state load/save on browser lifecycle paths:

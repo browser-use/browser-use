@@ -32,6 +32,7 @@ These notes describe the current migration state after the codexification cleanu
 - State-message rendering now lives in `browser_use.agent.message_manager.state_message`.
 - The model-context manager now lives in `browser_use.agent.runtime.model_context`; `browser_use.agent.message_manager.service.MessageManager` is a compatibility shim for legacy imports.
 - Storage-state load/save now uses direct watchdog methods from browser lifecycle paths; the old storage request event handlers remain as adapters.
+- About:blank tab recovery now creates/focuses the replacement tab directly through CDP instead of dispatching a navigation request event.
 - Browser hot-path actions route through direct services where parity has been established, while event-bus/watchdog compatibility remains for behavior that has not been safely removed yet.
 - The largest browser, agent, and tools files have been split into focused modules while keeping the legacy public API intact.
 - The typed runtime/context/event structures are present behind compatibility paths; the runtime model-context manager owns state around focused context/rendering helpers.
@@ -76,6 +77,30 @@ Results:
 - Sensitive-data tests: `14 passed`.
 - File-system LLM integration tests: `11 passed`.
 - Planning, budget-warning, and loop-detection tests: `68 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+
+Real Chromium smoke with `ChatBrowserUse`:
+
+- Task: go to `https://example.com` and report the main heading.
+- Result: success `True`, done `True`, `3` steps.
+- Actions: `['navigate', 'extract', 'done']`.
+
+## Codexification Verification 105
+
+After directizing about:blank tab recovery:
+
+```bash
+uv run pytest tests/ci/browser/test_aboutblank_watchdog.py tests/ci/browser/test_direct_storage_state.py -q
+uv run pytest tests/ci/browser/test_session_start.py -q
+uv run ruff check browser_use/browser/watchdogs/aboutblank_watchdog.py tests/ci/browser/test_aboutblank_watchdog.py
+uv run pyright browser_use/browser/watchdogs/aboutblank_watchdog.py tests/ci/browser/test_aboutblank_watchdog.py
+```
+
+Results:
+
+- About:blank and storage direct-call tests: `4 passed`.
+- Browser session lifecycle tests: `9 passed`.
 - Ruff: passed.
 - Pyright: `0 errors`.
 
