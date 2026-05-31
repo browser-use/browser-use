@@ -2099,3 +2099,35 @@ Results:
 - CDP headers plus cloud-browser property tests: `6 passed`.
 - Browser-backed session start and multi-tab agent tests: `2 passed`.
 - Direct headless Chromium smoke: navigated to `https://example.com/`; `is_cdp_connected` was `True` before `kill()` and `False` after reset.
+
+## Codexification Verification 86
+
+After extracting browser session lifecycle wiring into `browser_use/browser/session_lifecycle.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_lifecycle.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_lifecycle.py
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_tabs.py::TestMultiTabOperations::test_create_and_switch_three_tabs tests/ci/browser/test_cdp_headers.py -q
+uv run python - <<'PY'
+import asyncio
+from browser_use.browser import BrowserSession
+from browser_use.browser.profile import BrowserProfile
+
+async def main():
+    session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+    await session.start()
+    await session.navigate_to('https://example.com')
+    assert await session.get_current_page_url() == 'https://example.com/'
+    await session.close()
+    assert session.is_cdp_connected is False
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Browser lifecycle, multi-tab, and CDP header tests: `7 passed`.
+- Direct headless Chromium smoke: navigated to `https://example.com/`; `close()` reset the session and left `is_cdp_connected` as `False`.

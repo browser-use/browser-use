@@ -400,6 +400,7 @@ Implement:
 - [x] Move history rerun, element rematching, retry, and menu-reopen heuristics into the rerun module.
 - [x] Extract agent configuration, model identity, schema-task enhancement, LLM verification, and action-model setup out of the giant agent service.
 - [x] Extract browser session state, logging, and reset helpers out of the giant browser session.
+- [x] Extract browser session lifecycle wiring and public start/stop helpers out of the giant browser session.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 
