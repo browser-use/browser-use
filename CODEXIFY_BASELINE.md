@@ -1868,3 +1868,23 @@ Results:
 - Pyright: `0 errors`.
 - Multi-action guard browser tests: `13 passed`.
 - Live `ChatBrowserUse` + local Chromium smoke: success `True`, steps `2`, actions `['navigate', 'done']`, final result `The main heading of the page is 'Example Domain'.`
+
+## Codexification Verification 79
+
+After moving history rerun replay, element rematching, retry handling, and menu-reopen heuristics into `browser_use.agent.rerun.AgentRerunMixin`:
+
+```bash
+uv run ruff check browser_use/agent/rerun.py browser_use/agent/service.py
+uv run pyright browser_use/agent/rerun.py browser_use/agent/service.py
+uv run python -m py_compile browser_use/agent/rerun.py browser_use/agent/service.py
+uv run pytest tests/ci/test_ai_step.py -q
+uv run pytest tests/ci/test_rerun_ai_summary.py tests/ci/test_ax_name_matching.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Python compile: passed.
+- AI-step tests: `3 passed`.
+- Rerun replay, cleanup, retry, AX-name rematching, and menu heuristic tests: `25 passed`.
