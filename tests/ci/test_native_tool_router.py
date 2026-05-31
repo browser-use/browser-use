@@ -23,7 +23,14 @@ def test_native_tool_router_exposes_api_safe_names() -> None:
 	assert click.name == 'browser.click'
 	assert 'browser.get_state' in router.definitions
 	assert 'browser.cdp' in router.definitions
+	assert 'browser.html' in router.definitions
+	assert 'browser.markdown' in router.definitions
+	assert 'browser.accessibility' in router.definitions
+	assert 'browser.inspect_element' in router.definitions
+	assert 'browser.network' in router.definitions
+	assert 'browser.http_fetch' in router.definitions
 	assert any(tool['function']['name'] == 'browser_navigate' for tool in router.tool_schemas())
+	assert 'browser.cdp only when lower-level CDP handles' in router.guidance()
 
 
 def test_native_tool_router_validates_with_existing_pydantic_models() -> None:
@@ -236,6 +243,78 @@ JSON.stringify({ x: Math.floor(rect.left + rect.width / 2), y: Math.floor(rect.t
 		context,
 	)
 	assert readback.structured_content['response']['result']['value'] == 'coordinate-ok'
+
+
+@pytest.mark.asyncio
+async def test_native_tool_router_executes_read_and_inspect_escape_hatches(browser_session, httpserver) -> None:
+	httpserver.expect_request('/api/page-data').respond_with_json({'page': 'loaded'})
+	httpserver.expect_request('/api/tool-data').respond_with_json({'tool': 'fetch-ok'})
+	httpserver.expect_request('/native-read').respond_with_data(
+		"""<!doctype html>
+<html>
+	<head><title>Read Tools</title></head>
+	<body>
+		<main>
+			<h1>Read Tools</h1>
+			<button id="inspect" aria-label="Inspect Button" data-kind="escape">Inspect Me</button>
+		</main>
+		<script>fetch('/api/page-data')</script>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+
+	tools = Tools()
+	router = NativeToolRouter.from_tools(tools)
+	session = BrowserAgentSession.create(task='Read page in multiple ways')
+	turn = session.start_turn(step_index=0)
+	context = session.tool_context(turn, tools=tools, browser_session=browser_session, action_timeout=30)
+
+	navigate_result = await router.execute(
+		NativeToolCall(tool_name='browser.navigate', arguments={'url': httpserver.url_for('/native-read')}), context
+	)
+	assert navigate_result.is_error is False
+
+	html_result = await router.execute(
+		NativeToolCall(tool_name='browser.html', arguments={'selector': '#inspect', 'max_chars': 2000}), context
+	)
+	assert html_result.is_error is False
+	assert 'Inspect Me' in html_result.structured_content['html']
+
+	markdown_result = await router.execute(NativeToolCall(tool_name='browser.markdown', arguments={'max_chars': 2000}), context)
+	assert markdown_result.is_error is False
+	assert 'Read Tools' in markdown_result.structured_content['markdown']
+
+	accessibility_result = await router.execute(
+		NativeToolCall(tool_name='browser.accessibility', arguments={'max_nodes': 50}), context
+	)
+	assert accessibility_result.is_error is False
+	assert accessibility_result.structured_content['returned_nodes'] > 0
+	assert len(accessibility_result.structured_content['session_id']) > 4
+
+	state = await browser_session.get_browser_state_summary(include_screenshot=False)
+	button_index = next(
+		idx for idx, element in state.dom_state.selector_map.items() if getattr(element, 'attributes', {}).get('id') == 'inspect'
+	)
+	inspect_result = await router.execute(
+		NativeToolCall(tool_name='browser.inspect_element', arguments={'index': button_index}), context
+	)
+	assert inspect_result.is_error is False
+	assert inspect_result.structured_content['backend_node_id'] == button_index
+	assert inspect_result.structured_content['target_id']
+	assert inspect_result.structured_content['html']['text'].startswith('<button')
+
+	network_result = await router.execute(NativeToolCall(tool_name='browser.network', arguments={'max_entries': 20}), context)
+	assert network_result.is_error is False
+	assert 'pending_requests' in network_result.structured_content
+	assert 'performance_entries' in network_result.structured_content
+
+	fetch_result = await router.execute(
+		NativeToolCall(tool_name='browser.http_fetch', arguments={'url': httpserver.url_for('/api/tool-data')}), context
+	)
+	assert fetch_result.is_error is False
+	assert fetch_result.structured_content['status'] == 200
+	assert 'fetch-ok' in fetch_result.structured_content['body']
 
 
 @pytest.mark.asyncio

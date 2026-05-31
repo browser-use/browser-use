@@ -248,19 +248,19 @@ Goal: give the model more freedom while keeping Browser Use's cleaned DOM state 
 
 Implement:
 
-- [ ] Add first-class tools for screenshot, coordinate click, JS eval, raw CDP, HTML, markdown, accessibility tree, element inspection, network requests, and HTTP fetch.
-- [ ] Let the model choose between DOM index actions, coordinate actions, JS/CDP, extraction, or HTTP depending on the situation.
-- [ ] Add guidance for when each tool style is appropriate.
+- [x] Add first-class tools for screenshot, coordinate click, JS eval, raw CDP, HTML, markdown, accessibility tree, element inspection, network requests, and HTTP fetch.
+- [x] Let the model choose between DOM index actions, coordinate actions, JS/CDP, extraction, or HTTP depending on the situation.
+- [x] Add guidance for when each tool style is appropriate.
 
 Important:
 
 - [ ] Do not remove the current DOM pipeline.
 - [x] Do not hide runtime handles needed for CDP.
-- [ ] Do not force the model to use a single representation of the page.
+- [x] Do not force the model to use a single representation of the page.
 
 Exit criteria:
 
-- [ ] The model can solve tasks using DOM, screenshot, coordinates, JS, CDP, and HTTP as appropriate.
+- [x] The model can solve tasks using DOM, screenshot, coordinates, JS, CDP, and HTTP as appropriate.
 - [ ] Simple tasks do not get slower or noisier.
 
 ## Phase 7: File And Shell Workspace

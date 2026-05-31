@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from uuid_extensions import uuid7str
@@ -44,6 +45,63 @@ class GetStateInput(BaseModel):
 
 	include_screenshot: bool = True
 	include_dom: bool = True
+
+
+class HtmlInput(BaseModel):
+	"""Read raw page HTML or one selected element's HTML."""
+
+	selector: str | None = Field(default=None, description='Optional CSS selector for a specific element')
+	max_chars: int = Field(default=50_000, ge=1, le=1_000_000, description='Maximum HTML characters to return')
+
+
+class MarkdownInput(BaseModel):
+	"""Read the current page as cleaned markdown."""
+
+	extract_links: bool = Field(default=False, description='Preserve link URLs in markdown')
+	extract_images: bool = Field(default=False, description='Preserve image source URLs in markdown')
+	max_chars: int = Field(default=50_000, ge=1, le=1_000_000, description='Maximum markdown characters to return')
+
+
+class AccessibilityTreeInput(BaseModel):
+	"""Read the Chrome accessibility tree for the focused page."""
+
+	max_nodes: int = Field(default=250, ge=1, le=5000, description='Maximum accessibility nodes to return')
+	include_ignored: bool = Field(default=False, description='Include ignored accessibility nodes')
+
+
+class InspectElementInput(BaseModel):
+	"""Inspect an element by Browser Use index, CSS selector, or backend node id."""
+
+	index: int | None = Field(default=None, description='Browser Use element index/backendNodeId')
+	selector: str | None = Field(default=None, description='CSS selector')
+	backend_node_id: int | None = Field(default=None, description='Raw CDP backendNodeId')
+	include_html: bool = True
+	max_html_chars: int = Field(default=20_000, ge=1, le=1_000_000)
+
+	@model_validator(mode='after')
+	def _exactly_one_locator(self) -> InspectElementInput:
+		locators = [self.index is not None, self.selector is not None, self.backend_node_id is not None]
+		if sum(locators) != 1:
+			raise ValueError('Provide exactly one of index, selector, or backend_node_id')
+		return self
+
+
+class NetworkStateInput(BaseModel):
+	"""Read pending and recent browser network activity."""
+
+	max_entries: int = Field(default=100, ge=1, le=1000, description='Maximum recent performance entries to return')
+	include_performance_entries: bool = True
+
+
+class HttpFetchInput(BaseModel):
+	"""Run a browser-context fetch request with page credentials available."""
+
+	url: str
+	method: str = 'GET'
+	headers: dict[str, str] = Field(default_factory=dict)
+	body: str | None = None
+	credentials: Literal['include', 'same-origin', 'omit'] = 'include'
+	max_chars: int = Field(default=100_000, ge=1, le=1_000_000, description='Maximum response body characters to return')
 
 
 class NativeToolDefinition(BaseModel):
@@ -178,6 +236,42 @@ def _experimental_definitions() -> list[NativeToolDefinition]:
 			input_model=GetStateInput,
 			executable=True,
 		),
+		NativeToolDefinition(
+			name='browser.html',
+			description='Read raw HTML for the full page or a CSS selector. Use when cleaned DOM/markdown omits needed structure.',
+			input_model=HtmlInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='browser.markdown',
+			description='Read the current page as cleaned markdown. Use for dense text extraction before reaching for raw HTML.',
+			input_model=MarkdownInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='browser.accessibility',
+			description='Read the accessibility tree. Use for roles/names when DOM indexes or screenshots are ambiguous.',
+			input_model=AccessibilityTreeInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='browser.inspect_element',
+			description='Inspect one element by Browser Use index/backendNodeId, CSS selector, or raw backendNodeId.',
+			input_model=InspectElementInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='browser.network',
+			description='Inspect pending and recent network requests for the current page.',
+			input_model=NetworkStateInput,
+			executable=True,
+		),
+		NativeToolDefinition(
+			name='browser.http_fetch',
+			description='Fetch a URL from inside the browser context with page credentials. Use for APIs or page-adjacent data.',
+			input_model=HttpFetchInput,
+			executable=True,
+		),
 	]
 
 
@@ -231,6 +325,16 @@ class NativeToolRouter(BaseModel):
 	def tool_schemas(self) -> list[dict[str, Any]]:
 		return [definition.as_function_tool() for definition in self.definitions.values()]
 
+	def guidance(self) -> str:
+		return (
+			'Prefer browser.click/type/scroll on DOM indexes for ordinary interaction. '
+			'Use browser.get_state to refresh DOM, screenshot, targetId, and sessionId handles. '
+			'Use browser.click_coordinates when visual placement is clearer than a DOM index. '
+			'Use browser.markdown for readable page text, browser.html for raw structure, and browser.inspect_element for one element. '
+			'Use browser.accessibility for roles/names, browser.network for request debugging, browser.http_fetch for API/data reads, '
+			'and browser.cdp only when lower-level CDP handles or browser primitives are needed.'
+		)
+
 	def validate_call(self, call: NativeToolCall) -> BaseModel:
 		definition = self.resolve(call.tool_name)
 		try:
@@ -251,6 +355,30 @@ class NativeToolRouter(BaseModel):
 		if definition.name == 'browser.get_state':
 			params = cast(GetStateInput, self.validate_call(call))
 			return await self._execute_direct_tool(call, context, definition, lambda: self._get_state(params, context))
+
+		if definition.name == 'browser.html':
+			params = cast(HtmlInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._get_html(params, context))
+
+		if definition.name == 'browser.markdown':
+			params = cast(MarkdownInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._get_markdown(params, context))
+
+		if definition.name == 'browser.accessibility':
+			params = cast(AccessibilityTreeInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._get_accessibility(params, context))
+
+		if definition.name == 'browser.inspect_element':
+			params = cast(InspectElementInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._inspect_element(params, context))
+
+		if definition.name == 'browser.network':
+			params = cast(NetworkStateInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._get_network(params, context))
+
+		if definition.name == 'browser.http_fetch':
+			params = cast(HttpFetchInput, self.validate_call(call))
+			return await self._execute_direct_tool(call, context, definition, lambda: self._http_fetch(params, context))
 
 		if not definition.executable or not definition.source_action:
 			return NativeToolResult(
@@ -485,6 +613,349 @@ class NativeToolRouter(BaseModel):
 			structured_content=structured_content,
 		)
 
+	async def _get_html(self, params: HtmlInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.html',
+				call_id='',
+				is_error=True,
+				content='browser.html requires ToolContext.browser_session.',
+			)
+
+		expression = (
+			f'(function(){{ const el = document.querySelector({json.dumps(params.selector)}); return el ? el.outerHTML : null; }})()'
+			if params.selector
+			else 'document.documentElement.outerHTML'
+		)
+		response = await self._runtime_evaluate(expression, context)
+		html = response.get('result', {}).get('value')
+		if html is None:
+			return NativeToolResult(
+				tool_name='browser.html',
+				call_id='',
+				is_error=True,
+				content=f'No element found for selector: {params.selector}' if params.selector else 'Could not read page HTML.',
+			)
+
+		truncated = _truncate_text(str(html), params.max_chars)
+		return NativeToolResult(
+			tool_name='browser.html',
+			call_id='',
+			content=f'Read {truncated["returned_chars"]} HTML characters',
+			structured_content={'selector': params.selector, 'html': truncated['text'], **truncated},
+		)
+
+	async def _get_markdown(self, params: MarkdownInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.markdown',
+				call_id='',
+				is_error=True,
+				content='browser.markdown requires ToolContext.browser_session.',
+			)
+
+		from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+		markdown, stats = await extract_clean_markdown(
+			browser_session=context.browser_session,
+			extract_links=params.extract_links,
+			extract_images=params.extract_images,
+		)
+		truncated = _truncate_text(markdown, params.max_chars)
+		return NativeToolResult(
+			tool_name='browser.markdown',
+			call_id='',
+			content=f'Read {truncated["returned_chars"]} markdown characters',
+			structured_content={
+				'markdown': truncated['text'],
+				'stats': stats,
+				'extract_links': params.extract_links,
+				'extract_images': params.extract_images,
+				**truncated,
+			},
+		)
+
+	async def _get_accessibility(self, params: AccessibilityTreeInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.accessibility',
+				call_id='',
+				is_error=True,
+				content='browser.accessibility requires ToolContext.browser_session.',
+			)
+
+		cdp_session = await context.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
+		response = await cdp_session.cdp_client.send_raw(
+			'Accessibility.getFullAXTree',
+			{},
+			session_id=cdp_session.session_id,
+		)
+		nodes = response.get('nodes', [])
+		if not params.include_ignored:
+			nodes = [node for node in nodes if not node.get('ignored')]
+		return NativeToolResult(
+			tool_name='browser.accessibility',
+			call_id='',
+			content=f'Read {min(len(nodes), params.max_nodes)} accessibility nodes',
+			structured_content={
+				'nodes': nodes[: params.max_nodes],
+				'total_nodes': len(nodes),
+				'returned_nodes': min(len(nodes), params.max_nodes),
+				'truncated': len(nodes) > params.max_nodes,
+				'target_id': str(cdp_session.target_id),
+				'session_id': cdp_session.session_id,
+			},
+		)
+
+	async def _inspect_element(self, params: InspectElementInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.inspect_element',
+				call_id='',
+				is_error=True,
+				content='browser.inspect_element requires ToolContext.browser_session.',
+			)
+
+		if params.index is not None:
+			node = await context.browser_session.get_element_by_index(params.index)
+			if node is None:
+				return NativeToolResult(
+					tool_name='browser.inspect_element',
+					call_id='',
+					is_error=True,
+					content=f'Element index {params.index} was not found.',
+				)
+			content: dict[str, Any] = {
+				'locator': {'index': params.index},
+				'tag_name': node.tag_name,
+				'backend_node_id': node.backend_node_id,
+				'node_id': node.node_id,
+				'attributes': node.attributes,
+				'text': node.get_all_children_text(max_depth=10),
+				'is_visible': node.is_visible,
+				'is_scrollable': node.is_scrollable,
+				'target_id': str(node.target_id),
+				'session_id': node.session_id,
+				'frame_id': node.frame_id,
+				'absolute_position': node.absolute_position.to_dict() if node.absolute_position else None,
+			}
+			if node.ax_node:
+				content['accessibility'] = {
+					'role': getattr(node.ax_node, 'role', None),
+					'name': getattr(node.ax_node, 'name', None),
+					'description': getattr(node.ax_node, 'description', None),
+				}
+			if params.include_html:
+				html_result = await self._html_for_backend_node(
+					node.backend_node_id, node.session_id, context, params.max_html_chars
+				)
+				content.update(html_result)
+			return NativeToolResult(
+				tool_name='browser.inspect_element',
+				call_id='',
+				content=f'Inspected element index {params.index}',
+				structured_content=content,
+			)
+
+		if params.selector is not None:
+			expression = f"""
+(function() {{
+	const el = document.querySelector({json.dumps(params.selector)});
+	if (!el) return null;
+	const rect = el.getBoundingClientRect();
+	const attrs = Object.fromEntries(Array.from(el.attributes || []).map((attr) => [attr.name, attr.value]));
+	return {{
+		tag_name: el.tagName.toLowerCase(),
+		attributes: attrs,
+		text: el.innerText || el.textContent || '',
+		absolute_position: {{ x: rect.x, y: rect.y, width: rect.width, height: rect.height }},
+		html: {str(params.include_html).lower()} ? el.outerHTML : null,
+	}};
+}})()
+"""
+			response = await self._runtime_evaluate(expression, context)
+			value = response.get('result', {}).get('value')
+			if value is None:
+				return NativeToolResult(
+					tool_name='browser.inspect_element',
+					call_id='',
+					is_error=True,
+					content=f'No element found for selector: {params.selector}',
+				)
+			if params.include_html and value.get('html') is not None:
+				value['html'] = _truncate_text(str(value['html']), params.max_html_chars)
+			return NativeToolResult(
+				tool_name='browser.inspect_element',
+				call_id='',
+				content=f'Inspected selector {params.selector}',
+				structured_content={'locator': {'selector': params.selector}, **value},
+			)
+
+		assert params.backend_node_id is not None
+		cdp_session = await context.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
+		response = await cdp_session.cdp_client.send_raw(
+			'DOM.describeNode',
+			{'backendNodeId': params.backend_node_id, 'depth': 1, 'pierce': True},
+			session_id=cdp_session.session_id,
+		)
+		content = {
+			'locator': {'backend_node_id': params.backend_node_id},
+			'target_id': str(cdp_session.target_id),
+			'session_id': cdp_session.session_id,
+			'node': response.get('node'),
+		}
+		if params.include_html:
+			content.update(
+				await self._html_for_backend_node(params.backend_node_id, cdp_session.session_id, context, params.max_html_chars)
+			)
+		return NativeToolResult(
+			tool_name='browser.inspect_element',
+			call_id='',
+			content=f'Inspected backendNodeId {params.backend_node_id}',
+			structured_content=content,
+		)
+
+	async def _get_network(self, params: NetworkStateInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.network',
+				call_id='',
+				is_error=True,
+				content='browser.network requires ToolContext.browser_session.',
+			)
+
+		state = await context.browser_session.get_browser_state_summary(include_screenshot=False)
+		pending = [
+			{
+				'url': request.url,
+				'method': request.method,
+				'resource_type': request.resource_type,
+				'loading_duration_ms': request.loading_duration_ms,
+			}
+			for request in state.pending_network_requests
+		]
+		performance_entries: list[dict[str, Any]] = []
+		if params.include_performance_entries:
+			expression = f"""
+performance.getEntriesByType('resource').slice(-{params.max_entries}).map((entry) => ({{
+	name: entry.name,
+	initiatorType: entry.initiatorType,
+	startTime: Math.round(entry.startTime),
+	duration: Math.round(entry.duration),
+	transferSize: entry.transferSize || 0,
+	encodedBodySize: entry.encodedBodySize || 0,
+	decodedBodySize: entry.decodedBodySize || 0
+}}))
+"""
+			response = await self._runtime_evaluate(expression, context)
+			performance_entries = response.get('result', {}).get('value') or []
+		return NativeToolResult(
+			tool_name='browser.network',
+			call_id='',
+			content=f'Read {len(pending)} pending requests and {len(performance_entries)} recent entries',
+			structured_content={
+				'pending_requests': pending,
+				'performance_entries': performance_entries,
+				'url': state.url,
+			},
+		)
+
+	async def _http_fetch(self, params: HttpFetchInput, context: ToolContext) -> NativeToolResult:
+		if context.browser_session is None:
+			return NativeToolResult(
+				tool_name='browser.http_fetch',
+				call_id='',
+				is_error=True,
+				content='browser.http_fetch requires ToolContext.browser_session.',
+			)
+
+		expression = f"""
+(async () => {{
+	const response = await fetch({json.dumps(params.url)}, {{
+		method: {json.dumps(params.method.upper())},
+		headers: {json.dumps(params.headers)},
+		body: {json.dumps(params.body)},
+		credentials: {json.dumps(params.credentials)}
+	}});
+	const body = await response.text();
+	return {{
+		url: response.url,
+		status: response.status,
+		statusText: response.statusText,
+		ok: response.ok,
+		headers: Object.fromEntries(response.headers.entries()),
+		body,
+	}};
+}})()
+"""
+		response = await self._runtime_evaluate(expression, context, await_promise=True)
+		value = response.get('result', {}).get('value')
+		if value is None:
+			return NativeToolResult(
+				tool_name='browser.http_fetch',
+				call_id='',
+				is_error=True,
+				content=f'Fetch failed for {params.url}',
+				structured_content={'cdp_response': response},
+			)
+
+		truncated = _truncate_text(str(value.get('body', '')), params.max_chars)
+		value['body'] = truncated['text']
+		value.update(truncated)
+		return NativeToolResult(
+			tool_name='browser.http_fetch',
+			call_id='',
+			is_error=not bool(value.get('ok')),
+			content=f'Fetched {value.get("status")} {value.get("url")}',
+			structured_content=value,
+		)
+
+	async def _runtime_evaluate(
+		self,
+		expression: str,
+		context: ToolContext,
+		*,
+		await_promise: bool = False,
+	) -> dict[str, Any]:
+		assert context.browser_session is not None
+		cdp_session = await context.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
+		return await cdp_session.cdp_client.send_raw(
+			'Runtime.evaluate',
+			{'expression': expression, 'returnByValue': True, 'awaitPromise': await_promise},
+			session_id=cdp_session.session_id,
+		)
+
+	async def _html_for_backend_node(
+		self,
+		backend_node_id: int,
+		session_id: str | None,
+		context: ToolContext,
+		max_chars: int,
+	) -> dict[str, Any]:
+		assert context.browser_session is not None
+		cdp_session = await context.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
+		resolved = await cdp_session.cdp_client.send_raw(
+			'DOM.resolveNode',
+			{'backendNodeId': backend_node_id},
+			session_id=session_id or cdp_session.session_id,
+		)
+		object_id = resolved.get('object', {}).get('objectId')
+		if object_id is None:
+			return {'html_error': f'Could not resolve backendNodeId {backend_node_id}'}
+		html_response = await cdp_session.cdp_client.send_raw(
+			'Runtime.callFunctionOn',
+			{
+				'objectId': object_id,
+				'functionDeclaration': 'function() { return this.outerHTML; }',
+				'returnByValue': True,
+			},
+			session_id=session_id or cdp_session.session_id,
+		)
+		html = html_response.get('result', {}).get('value')
+		if html is None:
+			return {'html_error': f'Could not read HTML for backendNodeId {backend_node_id}'}
+		return {'html': _truncate_text(str(html), max_chars)}
+
 
 def click_coordinates_as_click_arguments(params: ClickCoordinatesInput) -> dict[str, Any]:
 	"""Translate coordinate-only input to the current click action shape."""
@@ -493,3 +964,14 @@ def click_coordinates_as_click_arguments(params: ClickCoordinatesInput) -> dict[
 		coordinate_x=params.coordinate_x,
 		coordinate_y=params.coordinate_y,
 	).model_dump(exclude_none=True)
+
+
+def _truncate_text(value: str, max_chars: int) -> dict[str, Any]:
+	truncated = len(value) > max_chars
+	text = value[:max_chars]
+	return {
+		'text': text,
+		'original_chars': len(value),
+		'returned_chars': len(text),
+		'truncated': truncated,
+	}
