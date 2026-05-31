@@ -1,6 +1,5 @@
 import asyncio
 import gc
-import inspect
 import json
 import logging
 import re
@@ -44,7 +43,16 @@ from browser_use.agent.message_manager.service import (
 	MessageManager,
 )
 from browser_use.agent.prompts import SystemPrompt
-from browser_use.agent.runtime import ModelCapabilities
+from browser_use.agent.runtime import (
+	AgentDoneCallbackSubscriber,
+	AgentStepCallbackSubscriber,
+	BrowserAgentSession,
+	BrowserRunConfig,
+	BrowserRuntimeEvent,
+	BrowserRuntimeEventTypes,
+	FilteredAsyncRuntimeEventCallback,
+	ModelCapabilities,
+)
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -550,6 +558,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Default to ~/.config/browseruse/events/{agent_session_id}.jsonl
 		# wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
 		self.eventbus = EventBus(name=f'Agent_{str(self.id)[-4:]}')
+		self.runtime_session = BrowserAgentSession.create(
+			task=self.task,
+			llm=self.llm,
+			config=BrowserRunConfig(
+				run_id=self.session_id,
+				max_actions_per_step=self.settings.max_actions_per_step,
+				runtime_mode='legacy',
+				stream_events=True,
+			),
+			metadata={'agent_id': self.id, 'task_id': self.task_id},
+		)
+		self._setup_runtime_event_subscribers()
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
@@ -565,6 +585,132 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Event-based pause control (kept out of AgentState for serialization)
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
+
+	def _setup_runtime_event_subscribers(self) -> None:
+		"""Attach side-effect subscribers to the runtime stream."""
+
+		stream = self.runtime_session.event_stream
+		if self.register_new_step_callback is not None:
+			stream.subscribe_async(AgentStepCallbackSubscriber(callback=self.register_new_step_callback))
+		if self.register_done_callback is not None:
+			stream.subscribe_async(AgentDoneCallbackSubscriber(callback=self.register_done_callback))
+
+		stream.subscribe_async(
+			FilteredAsyncRuntimeEventCallback(
+				callback=self._dispatch_legacy_cloud_event,
+				event_types={
+					BrowserRuntimeEventTypes.RUN_STARTED,
+					BrowserRuntimeEventTypes.TURN_COMPLETED,
+					BrowserRuntimeEventTypes.RUN_COMPLETED,
+					BrowserRuntimeEventTypes.RUN_FAILED,
+				},
+			)
+		)
+		stream.subscribe_async(
+			FilteredAsyncRuntimeEventCallback(
+				callback=self._capture_telemetry_from_runtime_event,
+				event_types={BrowserRuntimeEventTypes.RUN_COMPLETED, BrowserRuntimeEventTypes.RUN_FAILED},
+			)
+		)
+		stream.subscribe_async(
+			FilteredAsyncRuntimeEventCallback(
+				callback=self._generate_gif_from_runtime_event,
+				event_types={BrowserRuntimeEventTypes.RUN_COMPLETED, BrowserRuntimeEventTypes.RUN_FAILED},
+			)
+		)
+
+	async def _emit_runtime_event(
+		self,
+		event_type: str,
+		*,
+		payload: dict[str, Any] | None = None,
+		turn_id: str | None = None,
+	) -> BrowserRuntimeEvent:
+		return await self.runtime_session.event_stream.emit_async(
+			run_id=self.runtime_session.run_id,
+			turn_id=turn_id,
+			event_type=event_type,
+			payload=payload,
+		)
+
+	async def _dispatch_legacy_cloud_event(self, event: BrowserRuntimeEvent) -> None:
+		"""Bridge observable runtime events to the legacy cloud/eventbus events."""
+
+		if event.payload.get('skip_cloud_events'):
+			return
+
+		if event.event_type == BrowserRuntimeEventTypes.RUN_STARTED:
+			if not self.state.session_initialized:
+				self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
+				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+				self.state.session_initialized = True
+
+			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
+			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+			return
+
+		if event.event_type == BrowserRuntimeEventTypes.TURN_COMPLETED:
+			step_event = event.payload.get('legacy_step_event')
+			if step_event is not None:
+				self.eventbus.dispatch(step_event)
+			return
+
+		if event.event_type in {BrowserRuntimeEventTypes.RUN_COMPLETED, BrowserRuntimeEventTypes.RUN_FAILED}:
+			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
+
+	async def _capture_telemetry_from_runtime_event(self, event: BrowserRuntimeEvent) -> None:
+		if event.payload.get('skip_telemetry'):
+			return
+		max_steps = event.payload.get('max_steps')
+		if not isinstance(max_steps, int):
+			return
+		agent_run_error = event.payload.get('agent_run_error')
+		self._log_agent_event(
+			max_steps=max_steps,
+			agent_run_error=agent_run_error if isinstance(agent_run_error, str) else None,
+		)
+
+	async def _generate_gif_from_runtime_event(self, event: BrowserRuntimeEvent) -> None:
+		if event.payload.get('skip_gif') or not self.settings.generate_gif:
+			return
+
+		output_path = 'agent_history.gif'
+		if isinstance(self.settings.generate_gif, str):
+			output_path = self.settings.generate_gif
+
+		from browser_use.agent.gif import create_history_gif
+
+		create_history_gif(task=self.task, history=self.history, output_path=output_path)
+
+		if not Path(output_path).exists() or event.payload.get('skip_cloud_events'):
+			return
+
+		output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
+		self.eventbus.dispatch(output_event)
+
+	async def _emit_run_terminal_event(
+		self,
+		*,
+		max_steps: int,
+		agent_run_error: str | None,
+		skip_telemetry: bool = False,
+		skip_cloud_events: bool = False,
+		skip_gif: bool = False,
+	) -> BrowserRuntimeEvent:
+		event_type = BrowserRuntimeEventTypes.RUN_FAILED if agent_run_error else BrowserRuntimeEventTypes.RUN_COMPLETED
+		return await self._emit_runtime_event(
+			event_type,
+			payload={
+				'max_steps': max_steps,
+				'agent_run_error': agent_run_error,
+				'history': self.history,
+				'success': self.history.is_successful(),
+				'notify_done_callback': agent_run_error is None and self.history.is_done(),
+				'skip_telemetry': skip_telemetry,
+				'skip_cloud_events': skip_cloud_events,
+				'skip_gif': skip_gif,
+			},
+		)
 
 	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
 		"""Enhance task description with output schema information if provided."""
@@ -955,6 +1101,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._message_manager.add_new_task(new_task)
 		# Mark as follow-up task and recreate eventbus (gets shut down after each run)
 		self.state.follow_up_task = True
+		self.runtime_session.task = new_task
 		# Reset control flags so agent can continue
 		self.state.stopped = False
 		self.state.paused = False
@@ -1362,7 +1509,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				actions_data,
 				browser_state_summary,
 			)
-			self.eventbus.dispatch(step_event)
+			await self._emit_runtime_event(
+				BrowserRuntimeEventTypes.TURN_COMPLETED,
+				payload={
+					'step': self.state.n_steps,
+					'actions': actions_data,
+					'legacy_step_event': step_event,
+				},
+			)
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
@@ -1662,19 +1816,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		input_messages: list[BaseMessage],
 	) -> None:
 		"""Handle callbacks and conversation saving after LLM interaction"""
-		if self.register_new_step_callback and self.state.last_model_output:
-			if inspect.iscoroutinefunction(self.register_new_step_callback):
-				await self.register_new_step_callback(
-					browser_state_summary,
-					self.state.last_model_output,
-					self.state.n_steps,
-				)
-			else:
-				self.register_new_step_callback(
-					browser_state_summary,
-					self.state.last_model_output,
-					self.state.n_steps,
-				)
+		if self.state.last_model_output:
+			await self._emit_runtime_event(
+				BrowserRuntimeEventTypes.MODEL_DELTA,
+				payload={
+					'browser_state_summary': browser_state_summary,
+					'model_output': self.state.last_model_output,
+					'step': self.state.n_steps,
+					'input_message_count': len(input_messages),
+				},
+			)
 
 		if self.settings.save_conversation_path and self.state.last_model_output:
 			# Treat save_conversation_path as a directory (consistent with other recording paths)
@@ -2229,11 +2380,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if self.settings.use_judge:
 				await self._judge_and_log()
 
-			if self.register_done_callback:
-				if inspect.iscoroutinefunction(self.register_done_callback):
-					await self.register_done_callback(self.history)
-				else:
-					self.register_done_callback(self.history)
+			await self._emit_run_terminal_event(
+				max_steps=step_info.max_steps if step_info is not None else self.state.n_steps,
+				agent_run_error=None,
+				skip_telemetry=True,
+				skip_cloud_events=True,
+				skip_gif=True,
+			)
 			return True, True
 
 		return False, False
@@ -2434,12 +2587,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if self.settings.use_judge:
 				await self._judge_and_log()
 
-			if self.register_done_callback:
-				if inspect.iscoroutinefunction(self.register_done_callback):
-					await self.register_done_callback(self.history)
-				else:
-					self.register_done_callback(self.history)
-
 			return True
 
 		return False
@@ -2458,6 +2605,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		agent_run_error: str | None = None  # Initialize error tracking variable
 		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
 		should_delay_close = False
+		self.runtime_session.config.max_steps = max_steps
 
 		# Set up the  signal handler with callbacks specific to this agent
 		from browser_use.utils import SignalHandler
@@ -2491,17 +2639,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._session_start_time = time.time()
 			self._task_start_time = self._session_start_time  # Initialize task start time
 
-			# Only dispatch session events if this is the first run
-			if not self.state.session_initialized:
-				self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
-				# Emit CreateAgentSessionEvent at the START of run()
-				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
-
-				self.state.session_initialized = True
-
-			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
-			# Emit CreateAgentTaskEvent at the START of run()
-			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+			await self._emit_runtime_event(BrowserRuntimeEventTypes.RUN_STARTED, payload={'max_steps': max_steps})
 
 			# Log startup message on first step (only if we haven't already done steps)
 			self._log_first_step_startup()
@@ -2630,37 +2768,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Unregister signal handlers before cleanup
 			signal_handler.unregister()
 
-			if not self._force_exit_telemetry_logged:  # MODIFIED: Check the flag
-				try:
-					self._log_agent_event(max_steps=max_steps, agent_run_error=agent_run_error)
-				except Exception as log_e:  # Catch potential errors during logging itself
-					self.logger.error(f'Failed to log telemetry event: {log_e}', exc_info=True)
-			else:
+			if self._force_exit_telemetry_logged:
 				# ADDED: Info message when custom telemetry for SIGINT was already logged
 				self.logger.debug('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
 
-			# NOTE: CreateAgentSessionEvent and CreateAgentTaskEvent are now emitted at the START of run()
-			# to match backend requirements for CREATE events to be fired when entities are created,
-			# not when they are completed
-
-			# Emit UpdateAgentTaskEvent at the END of run() with final task state
-			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
-
-			# Generate GIF if needed before stopping event bus
-			if self.settings.generate_gif:
-				output_path: str = 'agent_history.gif'
-				if isinstance(self.settings.generate_gif, str):
-					output_path = self.settings.generate_gif
-
-				# Lazy import gif module to avoid heavy startup cost
-				from browser_use.agent.gif import create_history_gif
-
-				create_history_gif(task=self.task, history=self.history, output_path=output_path)
-
-				# Only emit output file event if GIF was actually created
-				if Path(output_path).exists():
-					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
-					self.eventbus.dispatch(output_event)
+			await self._emit_run_terminal_event(
+				max_steps=max_steps,
+				agent_run_error=agent_run_error,
+				skip_telemetry=self._force_exit_telemetry_logged,
+			)
 
 			# Log final messages to user based on outcome
 			self._log_final_outcome_messages()

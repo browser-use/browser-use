@@ -1,9 +1,22 @@
+import pytest
+
 from browser_use.agent.runtime import (
+	AgentDoneCallbackSubscriber,
+	AgentStepCallbackSubscriber,
 	BrowserEventStream,
 	BrowserRuntimeEventTypes,
+	FilteredAsyncRuntimeEventCallback,
 	FilteredRuntimeEventCallback,
 	RuntimeEventRecorder,
 )
+
+
+class DoneHistory:
+	def __init__(self, done: bool) -> None:
+		self.done = done
+
+	def is_done(self) -> bool:
+		return self.done
 
 
 def test_runtime_event_recorder_builds_failure_report() -> None:
@@ -41,6 +54,61 @@ def test_filtered_runtime_event_callback_only_receives_selected_events() -> None
 	stream.emit(run_id='run-1', event_type=BrowserRuntimeEventTypes.TOOL_COMPLETED)
 
 	assert seen == [BrowserRuntimeEventTypes.TOOL_COMPLETED]
+
+
+@pytest.mark.asyncio
+async def test_filtered_async_runtime_event_callback_only_receives_selected_events() -> None:
+	stream = BrowserEventStream()
+	seen: list[str] = []
+	callback = FilteredAsyncRuntimeEventCallback(
+		callback=lambda event: seen.append(event.event_type),
+		event_types={BrowserRuntimeEventTypes.RUN_COMPLETED},
+	)
+	stream.subscribe_async(callback)
+
+	await stream.emit_async(run_id='run-1', event_type=BrowserRuntimeEventTypes.RUN_STARTED)
+	await stream.emit_async(run_id='run-1', event_type=BrowserRuntimeEventTypes.RUN_COMPLETED)
+
+	assert seen == [BrowserRuntimeEventTypes.RUN_COMPLETED]
+
+
+@pytest.mark.asyncio
+async def test_agent_step_callback_subscriber_receives_model_delta_payload() -> None:
+	stream = BrowserEventStream()
+	seen: list[tuple[object, object, int]] = []
+	stream.subscribe_async(AgentStepCallbackSubscriber(callback=lambda state, output, step: seen.append((state, output, step))))
+	state = object()
+	output = object()
+
+	await stream.emit_async(
+		run_id='run-1',
+		event_type=BrowserRuntimeEventTypes.MODEL_DELTA,
+		payload={'browser_state_summary': state, 'model_output': output, 'step': 3},
+	)
+
+	assert seen == [(state, output, 3)]
+
+
+@pytest.mark.asyncio
+async def test_agent_done_callback_subscriber_only_notifies_done_history() -> None:
+	stream = BrowserEventStream()
+	seen: list[DoneHistory] = []
+	stream.subscribe_async(AgentDoneCallbackSubscriber(callback=seen.append))
+	not_done = DoneHistory(done=False)
+	done = DoneHistory(done=True)
+
+	await stream.emit_async(
+		run_id='run-1',
+		event_type=BrowserRuntimeEventTypes.RUN_COMPLETED,
+		payload={'history': not_done, 'notify_done_callback': True},
+	)
+	await stream.emit_async(
+		run_id='run-1',
+		event_type=BrowserRuntimeEventTypes.RUN_COMPLETED,
+		payload={'history': done, 'notify_done_callback': True},
+	)
+
+	assert seen == [done]
 
 
 def test_recorder_timeline_can_hide_payloads() -> None:

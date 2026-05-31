@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -18,9 +18,11 @@ if TYPE_CHECKING:
 
 
 RuntimeEventSubscriber = Callable[['BrowserRuntimeEvent'], None]
+AsyncRuntimeEventSubscriber = Callable[['BrowserRuntimeEvent'], Awaitable[None]]
 
 
 class BrowserRuntimeEventTypes:
+	RUN_STARTED = 'run.started'
 	TURN_STARTED = 'turn.started'
 	CONTEXT_BUILT = 'context.built'
 	MODEL_DELTA = 'model.delta'
@@ -38,6 +40,7 @@ class BrowserRuntimeEventTypes:
 	RUN_FAILED = 'run.failed'
 
 	ALL = (
+		RUN_STARTED,
 		TURN_STARTED,
 		CONTEXT_BUILT,
 		MODEL_DELTA,
@@ -223,6 +226,7 @@ class BrowserEventStream(BaseModel):
 	subscriber_errors: list[str] = Field(default_factory=list)
 	_next_sequence: int = PrivateAttr(default=1)
 	_subscribers: list[RuntimeEventSubscriber] = PrivateAttr(default_factory=list)
+	_async_subscribers: list[AsyncRuntimeEventSubscriber] = PrivateAttr(default_factory=list)
 
 	def subscribe(self, subscriber: RuntimeEventSubscriber, *, replay: bool = False) -> Callable[[], None]:
 		self._subscribers.append(subscriber)
@@ -233,6 +237,15 @@ class BrowserEventStream(BaseModel):
 		def unsubscribe() -> None:
 			if subscriber in self._subscribers:
 				self._subscribers.remove(subscriber)
+
+		return unsubscribe
+
+	def subscribe_async(self, subscriber: AsyncRuntimeEventSubscriber) -> Callable[[], None]:
+		self._async_subscribers.append(subscriber)
+
+		def unsubscribe() -> None:
+			if subscriber in self._async_subscribers:
+				self._async_subscribers.remove(subscriber)
 
 		return unsubscribe
 
@@ -257,6 +270,19 @@ class BrowserEventStream(BaseModel):
 			self._notify_subscriber(subscriber, event)
 		return event
 
+	async def emit_async(
+		self,
+		*,
+		run_id: str,
+		event_type: str,
+		turn_id: str | None = None,
+		payload: dict[str, Any] | None = None,
+	) -> BrowserRuntimeEvent:
+		event = self.emit(run_id=run_id, turn_id=turn_id, event_type=event_type, payload=payload)
+		for subscriber in list(self._async_subscribers):
+			await self._notify_async_subscriber(subscriber, event)
+		return event
+
 	def snapshot(self, *, after_sequence: int = 0) -> list[BrowserRuntimeEvent]:
 		return [event for event in self.events if event.sequence > after_sequence]
 
@@ -268,6 +294,14 @@ class BrowserEventStream(BaseModel):
 	def _notify_subscriber(self, subscriber: RuntimeEventSubscriber, event: BrowserRuntimeEvent) -> None:
 		try:
 			subscriber(event)
+		except Exception as exc:
+			message = f'{subscriber!r} failed for {event.event_type}: {exc}'
+			self.subscriber_errors.append(message)
+			logger.debug(message)
+
+	async def _notify_async_subscriber(self, subscriber: AsyncRuntimeEventSubscriber, event: BrowserRuntimeEvent) -> None:
+		try:
+			await subscriber(event)
 		except Exception as exc:
 			message = f'{subscriber!r} failed for {event.event_type}: {exc}'
 			self.subscriber_errors.append(message)

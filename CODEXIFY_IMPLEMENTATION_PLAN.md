@@ -219,7 +219,7 @@ Implement:
 
 - [x] Add a clean runtime event stream.
 - [x] Emit events for turns, context, model output, tool calls, browser state, downloads, artifacts, compaction, completion, and failures.
-- [ ] Move cloud sync, telemetry, GIF generation, and user callbacks to subscribers.
+- [x] Move cloud sync, telemetry, GIF generation, and user callbacks to subscribers.
 - [x] Make runs understandable without reading internal debug logs.
 
 Example events:

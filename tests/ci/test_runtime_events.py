@@ -1,4 +1,28 @@
+import pytest
+
 from browser_use.agent.runtime import BrowserAgentSession, BrowserEventStream, BrowserRuntimeEventTypes
+
+
+@pytest.mark.asyncio
+async def test_event_stream_async_subscribers_receive_events_and_failures() -> None:
+	stream = BrowserEventStream()
+	received = []
+
+	async def collect(event):
+		received.append(event.event_type)
+
+	async def broken(_event):
+		raise RuntimeError('async subscriber failed')
+
+	stream.subscribe_async(collect)
+	stream.subscribe_async(broken)
+
+	event = await stream.emit_async(run_id='run-1', event_type=BrowserRuntimeEventTypes.RUN_STARTED)
+
+	assert event.event_type == BrowserRuntimeEventTypes.RUN_STARTED
+	assert received == [BrowserRuntimeEventTypes.RUN_STARTED]
+	assert len(stream.subscriber_errors) == 1
+	assert 'async subscriber failed' in stream.subscriber_errors[0]
 
 
 def test_event_stream_subscribers_receive_events_and_can_unsubscribe() -> None:
@@ -46,6 +70,7 @@ def test_event_stream_subscriber_failures_do_not_break_emit() -> None:
 
 
 def test_runtime_event_type_catalog_contains_expected_events() -> None:
+	assert BrowserRuntimeEventTypes.RUN_STARTED in BrowserRuntimeEventTypes.ALL
 	assert BrowserRuntimeEventTypes.TURN_STARTED in BrowserRuntimeEventTypes.ALL
 	assert BrowserRuntimeEventTypes.MODEL_DELTA in BrowserRuntimeEventTypes.ALL
 	assert BrowserRuntimeEventTypes.DOWNLOAD_COMPLETED in BrowserRuntimeEventTypes.ALL
