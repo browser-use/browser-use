@@ -306,3 +306,20 @@ Real `ChatBrowserUse` + headless local Chromium smoke after routing public navig
 - Steps: `3`
 - Final result: `codexify-real-service-ok`
 - Notes: the task opened a local HTTP page, typed into an input, clicked a button, and finished with the revealed text through the public `Agent` path.
+
+## Codexification Verification 8
+
+After routing whole-page public scroll through `ScrollService`:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run ruff check browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Browser services and public direct-service suite: `9 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Notes: element-scoped scroll remains on the compatibility path until iframe/custom-scroll heuristics are extracted.

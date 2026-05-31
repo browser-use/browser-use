@@ -180,6 +180,7 @@ Implement:
 - [x] Create explicit services for state capture, actions, downloads, dialogs, tabs, network, lifecycle, and storage.
 - [x] Route public click/type tools through direct services instead of event dispatch.
 - [x] Route public navigation, back, tab, and keyboard tools through direct services where parity is clear.
+- [x] Route public whole-page scroll through direct services; keep element scroll on compatibility path.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.

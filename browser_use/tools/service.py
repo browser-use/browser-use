@@ -1293,6 +1293,22 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				direction = 'down' if params.down else 'up'
 				target = f'element {params.index}' if params.index is not None and params.index != 0 else ''
 
+				if node is None:
+					scroll_metadata = await BrowserServiceBundle.from_session(browser_session).actions.scroll.scroll_pages(
+						params.pages,
+						direction=direction,
+					)
+					completed_pages = scroll_metadata['completed_pages']
+					viewport_height = scroll_metadata['viewport_height']
+					if params.pages == 1.0:
+						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
+					else:
+						long_term_memory = f'Scrolled {direction} {target} {completed_pages:.1f} pages'.replace('  ', ' ')
+
+					msg = f'🔍 {long_term_memory}'
+					logger.info(msg)
+					return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
+
 				# Get actual viewport height for more accurate scrolling
 				try:
 					cdp_session = await browser_session.get_or_create_cdp_session()
