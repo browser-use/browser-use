@@ -1002,3 +1002,23 @@ Results:
 - Typed context tests: `3 passed`.
 - Python compile: passed.
 - File-system and sensitive-data message tests: `25 passed`.
+
+## Codexification Verification 47
+
+After extracting message compaction into `MessageCompactionService` and fixing the shared default `MessageManagerState()` constructor bug:
+
+```bash
+uv run ruff check browser_use/agent/message_manager/compaction.py browser_use/agent/message_manager/service.py tests/ci/test_message_manager_compaction.py
+uv run pyright browser_use/agent/message_manager/compaction.py browser_use/agent/message_manager/service.py tests/ci/test_message_manager_compaction.py
+uv run pytest tests/ci/test_message_manager_compaction.py tests/ci/test_message_manager_typed_context.py -q
+uv run python -m py_compile browser_use/agent/message_manager/compaction.py browser_use/agent/message_manager/context_builder.py browser_use/agent/message_manager/service.py tests/ci/test_message_manager_compaction.py
+uv run pytest tests/ci/test_file_system_llm_integration.py tests/ci/security/test_sensitive_data.py -q
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Compaction and typed context tests: `5 passed`.
+- Python compile: passed.
+- File-system and sensitive-data message tests: `25 passed`.
