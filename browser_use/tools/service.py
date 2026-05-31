@@ -15,9 +15,6 @@ from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
-from browser_use.browser.events import (
-	GetDropdownOptionsEvent,
-)
 from browser_use.browser.services import BrowserServiceBundle
 from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
@@ -1481,10 +1478,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				logger.warning(f'⚠️ {msg}')
 				return ActionResult(extracted_content=msg)
 
-			# Dispatch GetDropdownOptionsEvent to the event handler
-
-			event = browser_session.event_bus.dispatch(GetDropdownOptionsEvent(node=node))
-			dropdown_data = await event.event_result(timeout=3.0, raise_if_none=True, raise_if_any=True)
+			dropdown_data = await BrowserServiceBundle.from_session(browser_session).actions.dropdown.get_options(node)
 
 			if not dropdown_data:
 				raise ValueError('Failed to get dropdown options - no data returned')
@@ -1509,11 +1503,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				logger.warning(f'⚠️ {msg}')
 				return ActionResult(extracted_content=msg)
 
-			# Dispatch SelectDropdownOptionEvent to the event handler
-			from browser_use.browser.events import SelectDropdownOptionEvent
-
-			event = browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=params.text))
-			selection_data = await event.event_result()
+			selection_data = await BrowserServiceBundle.from_session(browser_session).actions.dropdown.select_option(
+				node, params.text
+			)
 
 			if not selection_data:
 				raise ValueError('Failed to select dropdown option - no data returned')

@@ -460,6 +460,59 @@ async def test_public_find_text_tool_uses_direct_service(browser_session, httpse
 
 
 @pytest.mark.asyncio
+async def test_public_dropdown_tools_use_direct_service(browser_session, httpserver, monkeypatch) -> None:
+	httpserver.expect_request('/direct-dropdown').respond_with_data(
+		"""<!doctype html>
+<html>
+	<body>
+		<select id="choice" onchange="document.getElementById('answer').textContent = this.value">
+			<option value="alpha">Alpha</option>
+			<option value="beta">Beta</option>
+		</select>
+		<p id="answer">hidden</p>
+	</body>
+</html>""",
+		content_type='text/html',
+	)
+	tools = Tools()
+	services = BrowserServiceBundle.from_session(browser_session)
+	await services.navigation.navigate(httpserver.url_for('/direct-dropdown'))
+	state = await services.state.get_state(include_screenshot=False)
+	select_index = next(
+		idx for idx, element in state.dom_state.selector_map.items() if getattr(element, 'attributes', {}).get('id') == 'choice'
+	)
+
+	def fail_dropdown_dispatch(event, *args, **kwargs):
+		if event.__class__.__name__ in {'GetDropdownOptionsEvent', 'SelectDropdownOptionEvent'}:
+			raise AssertionError('Public dropdown tools should use direct services, not dropdown events')
+		return original_dispatch(event, *args, **kwargs)
+
+	original_dispatch = browser_session.event_bus.dispatch
+	monkeypatch.setattr(browser_session.event_bus, 'dispatch', fail_dropdown_dispatch)
+
+	options_result = await tools.registry.execute_action(
+		action_name='dropdown_options',
+		params={'index': select_index},
+		browser_session=browser_session,
+	)
+	select_result = await tools.registry.execute_action(
+		action_name='select_dropdown',
+		params={'index': select_index, 'text': 'Beta'},
+		browser_session=browser_session,
+	)
+	assert options_result.error is None
+	assert 'Beta' in (options_result.extracted_content or '')
+	assert select_result.error is None
+
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	readback = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': "document.getElementById('answer').textContent", 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	assert readback.get('result', {}).get('value') == 'beta'
+
+
+@pytest.mark.asyncio
 async def test_browser_download_service_downloads_and_tracks_without_event_dispatch(
 	browser_session, httpserver, monkeypatch
 ) -> None:

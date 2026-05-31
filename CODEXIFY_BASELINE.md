@@ -357,3 +357,20 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Notes: `browser_use/tools/service.py` now only dispatches old browser action events for dropdown options/select handling.
+
+## Codexification Verification 11
+
+After routing public dropdown options/select through `DropdownService`:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py -q
+uv run ruff check browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Browser services and public direct-service suite: `13 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Notes: `browser_use/tools/service.py` has no remaining direct `event_bus.dispatch(...)` calls. Some services still fall back to legacy event handlers when a direct watchdog instance is unavailable.

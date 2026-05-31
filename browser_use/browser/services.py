@@ -16,6 +16,8 @@ from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
 	ClickElementEvent,
 	FileDownloadedEvent,
+	GetDropdownOptionsEvent,
+	SelectDropdownOptionEvent,
 	TypeTextEvent,
 )
 from browser_use.browser.session import BrowserSession
@@ -788,6 +790,38 @@ class UploadService(BrowserService):
 		self.browser_session.logger.info(f'📎 Uploaded file {file_path} to element {index_for_logging}')
 
 
+class DropdownService(BrowserService):
+	"""Dropdown option inspection and selection."""
+
+	async def get_options(self, node: EnhancedDOMTreeNode) -> dict[str, str]:
+		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
+		if default_action_watchdog is not None:
+			result = await default_action_watchdog.on_GetDropdownOptionsEvent(GetDropdownOptionsEvent(node=node))
+			if result is None:
+				raise RuntimeError('Dropdown options handler returned no data')
+			return result
+
+		event = self.browser_session.event_bus.dispatch(GetDropdownOptionsEvent(node=node))
+		result = await event.event_result(timeout=3.0, raise_if_none=True, raise_if_any=True)
+		if result is None:
+			raise RuntimeError('Dropdown options event returned no data')
+		return result
+
+	async def select_option(self, node: EnhancedDOMTreeNode, text: str) -> dict[str, str]:
+		default_action_watchdog = getattr(self.browser_session, '_default_action_watchdog', None)
+		if default_action_watchdog is not None:
+			result = await default_action_watchdog.on_SelectDropdownOptionEvent(SelectDropdownOptionEvent(node=node, text=text))
+			if result is None:
+				raise RuntimeError('Dropdown select handler returned no data')
+			return result
+
+		event = self.browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=text))
+		result = await event.event_result(raise_if_none=True, raise_if_any=True)
+		if result is None:
+			raise RuntimeError('Dropdown select event returned no data')
+		return result
+
+
 def _page_appears_empty(state: BrowserStateSummary) -> bool:
 	return state.dom_state._root is None or not state.dom_state.llm_representation().strip()
 
@@ -989,6 +1023,7 @@ class ActionService(BaseModel):
 	scroll: ScrollService
 	keyboard: KeyboardService
 	upload: UploadService
+	dropdown: DropdownService
 	navigation: NavigationService
 	tabs: TabService
 
@@ -1000,6 +1035,7 @@ class ActionService(BaseModel):
 			scroll=ScrollService(browser_session=browser_session),
 			keyboard=KeyboardService(browser_session=browser_session),
 			upload=UploadService(browser_session=browser_session),
+			dropdown=DropdownService(browser_session=browser_session),
 			navigation=NavigationService(browser_session=browser_session),
 			tabs=TabService(browser_session=browser_session),
 		)

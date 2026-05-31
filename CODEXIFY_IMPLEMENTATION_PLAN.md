@@ -31,7 +31,7 @@ This document is intentionally not a full implementation spec. Each implementati
 
 - [ ] Message manager.
 - [ ] Fake structured-output action protocol.
-- [ ] Bubus/event bus in the hot action path.
+- [x] Bubus/event bus in the hot action path.
 - [ ] Watchdog architecture.
 - [ ] Giant agent/browser/tool files.
 - [ ] Dynamic tool/action model generation.
@@ -183,6 +183,7 @@ Implement:
 - [x] Route public page and element scroll through direct services, including scroll-container heuristics.
 - [x] Route public upload through direct services while preserving file safety checks.
 - [x] Route public scroll-to-text through direct services.
+- [x] Route public dropdown tools through a direct service wrapper.
 - [ ] Preserve useful watchdog heuristics by moving them into direct service methods.
 - [x] Keep event streaming for observability, not internal control flow.
 - [x] Keep compatibility path until direct services have parity.
