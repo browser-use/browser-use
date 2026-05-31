@@ -98,6 +98,7 @@ Implement:
 
 - [x] Represent task, user steering, browser state, tool calls, tool results, downloads, files, artifacts, warnings, and compaction as explicit context items.
 - [x] Render model input from typed context deterministically.
+- [x] Build and store the typed context snapshot inside the message manager each step.
 - [x] Keep current browser state fresh every turn.
 - [x] Compact or summarize old context, not the active page.
 - [x] Preserve current runtime handles even if the model-visible context is compact.

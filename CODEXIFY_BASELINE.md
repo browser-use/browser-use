@@ -495,3 +495,19 @@ Results:
 - Browser service and public direct-tool suite: `15 passed`.
 - Ruff: passed.
 - Pyright: `0 errors`.
+
+## Codexification Verification 19
+
+After making `MessageManager.create_state_messages(...)` own the typed context snapshot for each step:
+
+```bash
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_prompt_step_meta_suffix.py -q
+uv run ruff check browser_use/agent/message_manager/service.py browser_use/agent/service.py tests/ci/test_message_manager_typed_context.py
+uv run pyright browser_use/agent/message_manager/service.py browser_use/agent/service.py tests/ci/test_message_manager_typed_context.py
+```
+
+Results:
+
+- Typed context and prompt-cache suffix tests: `6 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.

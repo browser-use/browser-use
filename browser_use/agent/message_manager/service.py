@@ -165,6 +165,7 @@ class MessageManager:
 		self.sensitive_data = sensitive_data
 		self.last_input_messages = []
 		self.last_state_message_text: str | None = None
+		self.last_typed_context: BrowserContext | None = None
 		# Only initialize messages if state is empty
 		if len(self.state.history.get_messages()) == 0:
 			self._set_message_with_type(self.system_prompt, 'system')
@@ -567,6 +568,15 @@ class MessageManager:
 				step_info=step_info,
 				sensitive_data=sensitive_data,
 			)
+
+		self.last_typed_context = self.build_typed_context(
+			browser_state_summary,
+			page_filtered_actions=page_filtered_actions,
+			available_file_paths=available_file_paths,
+			unavailable_skills_info=unavailable_skills_info,
+			plan_description=plan_description,
+			step_info=step_info,
+		)
 
 		# Use only the current screenshot, but check if action results request screenshot inclusion
 		screenshots = []

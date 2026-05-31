@@ -1119,14 +1119,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			plan_description=plan_description,
 			skip_state_update=True,
 		)
-		self.last_typed_context = self._message_manager.build_typed_context(
-			browser_state_summary,
-			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
-			available_file_paths=self.available_file_paths,
-			unavailable_skills_info=unavailable_skills_info,
-			plan_description=plan_description,
-			step_info=step_info,
-		)
+		self.last_typed_context = self._message_manager.last_typed_context
+		if self.last_typed_context is None:
+			raise RuntimeError('MessageManager did not build typed context for the current step.')
 		rendered_typed_context = self.last_typed_context.render()
 		await self.runtime_events.emit_runtime_event(
 			BrowserRuntimeEventTypes.CONTEXT_BUILT,
