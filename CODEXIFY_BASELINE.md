@@ -585,3 +585,21 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Ruff format: passed.
+
+## Codexification Verification 25
+
+After making the public click service call explicit click handler methods while preserving legacy event handlers as adapters:
+
+```bash
+uv run pytest tests/ci/browser/test_browser_services.py::test_browser_service_bundle_navigates_and_clicks tests/ci/browser/test_browser_services.py::test_browser_services_can_navigate_and_click_coordinates_without_event_dispatch tests/ci/browser/test_browser_services.py::test_browser_services_can_click_and_type_index_without_event_dispatch tests/ci/test_native_tool_router.py::test_native_tool_router_executes_coordinate_click -q
+uv run ruff check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+uv run ruff format --check browser_use/browser/services.py browser_use/browser/watchdogs/default_action_watchdog.py tests/ci/browser/test_browser_services.py
+```
+
+Results:
+
+- Focused click service/native-router tests: `4 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Ruff format: passed.

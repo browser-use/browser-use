@@ -334,7 +334,17 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='click_element_event')
 	async def on_ClickElementEvent(self, event: ClickElementEvent) -> dict | None:
-		"""Handle click request with CDP. Automatically waits for file downloads if triggered."""
+		"""Compatibility adapter for legacy event-based click dispatch."""
+		return await self.click_element(event.node, button=event.button)
+
+	async def click_element(
+		self,
+		element_node: EnhancedDOMTreeNode,
+		*,
+		button: Literal['left', 'right', 'middle'] = 'left',
+	) -> dict | None:
+		"""Click an element with CDP and automatically wait for file downloads if triggered."""
+		_ = button  # Element clicking currently preserves the historical left-click behavior.
 		try:
 			# Check if session is alive before attempting any operations
 			if not self.browser_session.agent_focus_target_id:
@@ -342,8 +352,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.error(f'{error_msg}')
 				raise BrowserError(error_msg)
 
-			# Use the provided node
-			element_node = event.node
 			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Check if element is a file input (should not be clicked)
@@ -386,7 +394,23 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise
 
 	async def on_ClickCoordinateEvent(self, event: ClickCoordinateEvent) -> dict | None:
-		"""Handle click at coordinates with CDP. Automatically waits for file downloads if triggered."""
+		"""Compatibility adapter for legacy event-based coordinate click dispatch."""
+		return await self.click_coordinates(
+			event.coordinate_x,
+			event.coordinate_y,
+			button=event.button,
+			force=event.force,
+		)
+
+	async def click_coordinates(
+		self,
+		coordinate_x: int,
+		coordinate_y: int,
+		*,
+		button: Literal['left', 'right', 'middle'] = 'left',
+		force: bool = False,
+	) -> dict | None:
+		"""Click page coordinates with CDP and automatically wait for file downloads if triggered."""
 		try:
 			# Check if session is alive before attempting any operations
 			if not self.browser_session.agent_focus_target_id:
@@ -395,33 +419,33 @@ class DefaultActionWatchdog(BaseWatchdog):
 				raise BrowserError(error_msg)
 
 			# If force=True, skip safety checks and click directly (with download detection)
-			if event.force:
-				self.logger.debug(f'Force clicking at coordinates ({event.coordinate_x}, {event.coordinate_y})')
+			if force:
+				self.logger.debug(f'Force clicking at coordinates ({coordinate_x}, {coordinate_y})')
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True, button=event.button)
+					self._click_on_coordinate(coordinate_x, coordinate_y, force=True, button=button)
 				)
 
 			# Get element at coordinates for safety checks
-			element_node = await self.browser_session.get_dom_element_at_coordinates(event.coordinate_x, event.coordinate_y)
+			element_node = await self.browser_session.get_dom_element_at_coordinates(coordinate_x, coordinate_y)
 			if element_node is None:
 				# No element found, click directly (with download detection)
 				self.logger.debug(
-					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
+					f'No element found at coordinates ({coordinate_x}, {coordinate_y}), proceeding with click anyway'
 				)
 				return await self._execute_click_with_download_detection(
-					self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False, button=event.button)
+					self._click_on_coordinate(coordinate_x, coordinate_y, force=False, button=button)
 				)
 
 			# Safety check: file input
 			if self.browser_session.is_file_input(element_node):
-				msg = f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is a file input. To upload files please use upload_file action'
+				msg = f'Cannot click at ({coordinate_x}, {coordinate_y}) - element is a file input. To upload files please use upload_file action'
 				self.logger.info(f'{msg}')
 				return {'validation_error': msg}
 
 			# Safety check: select element
 			tag_name = element_node.tag_name.lower() if element_node.tag_name else ''
 			if tag_name == 'select':
-				msg = f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is a <select>. Use dropdown_options action instead.'
+				msg = f'Cannot click at ({coordinate_x}, {coordinate_y}) - element is a <select>. Use dropdown_options action instead.'
 				self.logger.info(f'{msg}')
 				return {'validation_error': msg}
 
@@ -429,7 +453,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			is_print_element = self._is_print_related_element(element_node)
 			if is_print_element:
 				self.logger.info(
-					f'🖨️ Detected print button at ({event.coordinate_x}, {event.coordinate_y}), generating PDF directly instead of opening dialog...'
+					f'🖨️ Detected print button at ({coordinate_x}, {coordinate_y}), generating PDF directly instead of opening dialog...'
 				)
 				click_metadata = await self._handle_print_button_click(element_node)
 				if click_metadata and click_metadata.get('pdf_generated'):
@@ -441,7 +465,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# All safety checks passed, click at coordinates (with download detection)
 			return await self._execute_click_with_download_detection(
-				self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False, button=event.button)
+				self._click_on_coordinate(coordinate_x, coordinate_y, force=False, button=button)
 			)
 
 		except Exception:

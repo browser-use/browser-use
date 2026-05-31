@@ -14,8 +14,6 @@ from pydantic import BaseModel, ConfigDict
 
 from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
-	ClickCoordinateEvent,
-	ClickElementEvent,
 	FileDownloadedEvent,
 	GetDropdownOptionsEvent,
 	SelectDropdownOptionEvent,
@@ -174,7 +172,7 @@ class ClickService(BrowserService):
 		node = await self.browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'No element found for index {index}')
-		return await self._default_action_watchdog().on_ClickElementEvent(ClickElementEvent(node=node, button=button))
+		return await self._default_action_watchdog().click_element(node, button=button)
 
 	async def click_coordinates(
 		self,
@@ -184,8 +182,11 @@ class ClickService(BrowserService):
 		button: Literal['left', 'right', 'middle'] = 'left',
 		force: bool = False,
 	) -> dict[str, Any] | None:
-		return await self._default_action_watchdog().on_ClickCoordinateEvent(
-			ClickCoordinateEvent(coordinate_x=coordinate_x, coordinate_y=coordinate_y, button=button, force=force)
+		return await self._default_action_watchdog().click_coordinates(
+			coordinate_x,
+			coordinate_y,
+			button=button,
+			force=force,
 		)
 
 
