@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Literal
 
 from browser_use.agent.message_manager.views import (
@@ -8,10 +9,13 @@ from browser_use.agent.message_manager.views import (
 )
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.runtime.context import (
+	AgentStateItem,
 	BrowserContext,
 	BrowserStateItem,
 	CompactionItem,
 	ExtractionArtifactItem,
+	PageActionsItem,
+	StepInfoItem,
 	TaskItem,
 	ToolResultItem,
 	UserSteerItem,
@@ -212,7 +216,16 @@ class MessageManager:
 		task_update_item = HistoryItem(system_message=new_task)
 		self.state.agent_history_items.append(task_update_item)
 
-	def build_typed_context(self, browser_state_summary: BrowserStateSummary | None = None) -> BrowserContext:
+	def build_typed_context(
+		self,
+		browser_state_summary: BrowserStateSummary | None = None,
+		*,
+		page_filtered_actions: str | None = None,
+		available_file_paths: list[str] | None = None,
+		unavailable_skills_info: str | None = None,
+		plan_description: str | None = None,
+		step_info: AgentStepInfo | None = None,
+	) -> BrowserContext:
 		"""Build a typed mirror of the legacy message-manager state."""
 
 		context = BrowserContext()
@@ -239,13 +252,52 @@ class MessageManager:
 				)
 			)
 
-		if self.state.read_state_description:
-			context.append(ExtractionArtifactItem(source='read_state', content=self.state.read_state_description))
+		context.append(
+			self._agent_state_context_item(
+				available_file_paths=available_file_paths,
+				plan_description=plan_description,
+			)
+		)
 
 		if browser_state_summary is not None:
 			context.append(self._browser_state_context_item(browser_state_summary))
 
+		if self.state.read_state_description:
+			context.append(ExtractionArtifactItem(source='read_state', content=self.state.read_state_description))
+
+		if page_filtered_actions:
+			context.append(PageActionsItem(description=page_filtered_actions))
+
+		if unavailable_skills_info:
+			context.append(WarningItem(code='unavailable_skills', message=unavailable_skills_info))
+
+		context.append(
+			StepInfoItem(
+				step_number=step_info.step_number if step_info else None,
+				max_steps=step_info.max_steps if step_info else None,
+				today=datetime.now().strftime('%Y-%m-%d'),
+			)
+		)
+
 		return context
+
+	def _agent_state_context_item(
+		self,
+		*,
+		available_file_paths: list[str] | None = None,
+		plan_description: str | None = None,
+	) -> AgentStateItem:
+		todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
+		if not todo_contents:
+			todo_contents = '[empty todo.md, fill it when applicable]'
+
+		return AgentStateItem(
+			file_system_description=self.file_system.describe() if self.file_system else 'No file system available',
+			todo_contents=todo_contents,
+			plan=plan_description,
+			sensitive_data_description=self.sensitive_data_description or None,
+			available_file_paths=available_file_paths or [],
+		)
 
 	def _browser_state_context_item(self, browser_state_summary: BrowserStateSummary) -> BrowserStateItem:
 		dom_text = ''

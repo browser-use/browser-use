@@ -78,6 +78,61 @@ class BrowserStateItem(BaseContextItem):
 		return f'<browser_state>\n{content}\n</browser_state>'
 
 
+class AgentStateItem(BaseContextItem):
+	"""Runtime state outside the browser page that the model can use."""
+
+	kind: Literal['agent_state'] = 'agent_state'
+	file_system_description: str | None = None
+	todo_contents: str | None = None
+	plan: str | None = None
+	sensitive_data_description: str | None = None
+	available_file_paths: list[str] = Field(default_factory=list)
+
+	def render(self) -> str:
+		sections = []
+		if self.file_system_description is not None:
+			sections.append(f'<file_system>\n{self.file_system_description.strip()}\n</file_system>')
+		if self.todo_contents is not None:
+			sections.append(f'<todo_contents>\n{self.todo_contents.strip()}\n</todo_contents>')
+		if self.plan:
+			sections.append(f'<plan>\n{self.plan.strip()}\n</plan>')
+		if self.sensitive_data_description:
+			sections.append(f'<sensitive_data>{self.sensitive_data_description.strip()}</sensitive_data>')
+		if self.available_file_paths:
+			files_text = '\n'.join(self.available_file_paths)
+			sections.append(f'<available_file_paths>{files_text}\nUse with absolute paths</available_file_paths>')
+		body = '\n'.join(sections).strip()
+		return f'<agent_state>\n{body}\n</agent_state>'
+
+
+class PageActionsItem(BaseContextItem):
+	"""Actions available only for the current page/domain."""
+
+	kind: Literal['page_actions'] = 'page_actions'
+	description: str
+
+	def render(self) -> str:
+		return f'<page_specific_actions>\n{self.description.strip()}\n</page_specific_actions>'
+
+
+class StepInfoItem(BaseContextItem):
+	"""Per-step metadata kept at the end of model context."""
+
+	kind: Literal['step_info'] = 'step_info'
+	step_number: int | None = None
+	max_steps: int | None = None
+	today: str | None = None
+
+	def render(self) -> str:
+		parts = []
+		if self.step_number is not None and self.max_steps is not None:
+			parts.append(f'Step{self.step_number + 1} maximum:{self.max_steps}')
+		if self.today:
+			parts.append(f'Today:{self.today}')
+		body = '\n'.join(parts)
+		return f'<step_info>{body}</step_info>'
+
+
 class ToolCallItem(BaseContextItem):
 	"""A tool call requested by the model."""
 
@@ -209,6 +264,9 @@ ContextItem = Annotated[
 	TaskItem
 	| UserSteerItem
 	| BrowserStateItem
+	| AgentStateItem
+	| PageActionsItem
+	| StepInfoItem
 	| ToolCallItem
 	| ToolResultItem
 	| DownloadItem

@@ -112,6 +112,9 @@ Suggested context items:
 - [x] `DownloadItem`
 - [x] `FileArtifactItem`
 - [x] `ExtractionArtifactItem`
+- [x] `AgentStateItem`
+- [x] `PageActionsItem`
+- [x] `StepInfoItem`
 - [x] `WarningItem`
 - [x] `CompactionItem`
 

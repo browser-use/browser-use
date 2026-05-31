@@ -279,3 +279,20 @@ Results:
 - Ruff: passed.
 - Pyright: `0 errors`.
 - Notes: browser/session events are still allowed for observability; the new test rejects the old action-control events for public navigation, back, and send-keys.
+
+## Codexification Verification 6
+
+After expanding the typed context mirror to include agent state, page-specific actions, unavailable skills, and step metadata:
+
+```bash
+uv run pytest tests/ci/test_message_manager_typed_context.py tests/ci/test_runtime_context.py tests/ci/test_agent_runtime_events.py -q
+uv run ruff check browser_use/agent/runtime/context.py browser_use/agent/message_manager/service.py browser_use/agent/service.py tests/ci/test_message_manager_typed_context.py
+uv run pyright browser_use/agent/runtime/context.py browser_use/agent/message_manager/service.py browser_use/agent/service.py tests/ci/test_message_manager_typed_context.py
+```
+
+Results:
+
+- Typed context and runtime event suite: `6 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Notes: the typed context now mirrors the important non-browser sections of the legacy state prompt, not only task/history/browser state.
