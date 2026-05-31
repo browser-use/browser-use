@@ -376,6 +376,7 @@ Implement:
 - [x] Cache dynamic `AgentOutput` model generation by action model and mode.
 - [x] Extract JavaScript `evaluate` execution and CDP result normalization out of the giant tools service.
 - [x] Extract file, screenshot, and PDF action implementations out of the giant tools service.
+- [x] Extract upload action path validation and file-input discovery out of the giant tools service.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

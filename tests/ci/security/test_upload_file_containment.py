@@ -81,7 +81,7 @@ async def test_traversal_in_agent_path_does_not_escape_filesystem_dir(
 		exists_calls.append(str(path))
 		return real_exists(path)
 
-	monkeypatch.setattr('browser_use.tools.service.os.path.exists', capturing_exists)
+	monkeypatch.setattr('browser_use.tools.upload.os.path.exists', capturing_exists)
 
 	tools = Tools()
 	result = await tools.registry.execute_action(
@@ -175,7 +175,7 @@ async def test_remote_session_does_not_rewrite_to_local_filesystem_on_basename_c
 		exists_calls.append(str(path))
 		return real_exists(path)
 
-	monkeypatch.setattr('browser_use.tools.service.os.path.exists', capturing_exists)
+	monkeypatch.setattr('browser_use.tools.upload.os.path.exists', capturing_exists)
 
 	tools = Tools()
 	await tools.registry.execute_action(

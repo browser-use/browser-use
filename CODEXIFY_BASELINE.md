@@ -1206,3 +1206,21 @@ Results:
 - Pyright: `0 errors`.
 - Browser-backed screenshot/PDF and direct file action tests: `11 passed`.
 - Python compile: passed.
+
+## Codexification Verification 58
+
+After extracting upload path validation and file-input discovery into `browser_use.tools.upload`:
+
+```bash
+uv run ruff check browser_use/tools/upload.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/security/test_upload_file_containment.py
+uv run pyright browser_use/tools/upload.py browser_use/tools/service.py tests/ci/browser/test_browser_services.py tests/ci/security/test_upload_file_containment.py
+uv run pytest tests/ci/browser/test_browser_services.py::test_public_upload_tool_uses_direct_service tests/ci/security/test_upload_file_containment.py -q
+uv run python -m py_compile browser_use/tools/upload.py browser_use/tools/service.py tests/ci/security/test_upload_file_containment.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Browser-backed upload plus upload-containment security tests: `4 passed`.
+- Python compile: passed.
