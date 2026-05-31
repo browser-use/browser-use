@@ -46,21 +46,21 @@ Implement:
 
 - [x] Identify current behavior that must not regress.
 - [x] Add or collect tests for DOM ids, click/type, downloads, dialogs, tabs, uploads, extraction, screenshots, and `multi_act`.
-- [ ] Capture baseline eval numbers for success rate, steps, speed, token usage, and common failure modes.
-- [ ] Run the current test suite and document known failures.
+- [x] Capture baseline smoke/eval numbers for success rate, steps, speed, token usage, and common failure modes.
+- [x] Run targeted current suites and document known failures.
 
 Relevant context to inspect:
 
-- [ ] Agent step loop.
-- [ ] DOM serializer and selector map.
-- [ ] Click/type action code.
-- [ ] Downloads/dialogs/tabs behavior.
+- [x] Agent step loop.
+- [x] DOM serializer and selector map.
+- [x] Click/type action code.
+- [x] Downloads/dialogs/tabs behavior.
 - [x] Existing browser CI tests and task evals.
 
 Exit criteria:
 
-- [ ] Current behavior is covered well enough that later simplification is safe.
-- [ ] There is a baseline for accuracy, speed, token usage, and flakiness.
+- [x] Current behavior is covered well enough that later simplification is safe.
+- [x] There is a baseline for accuracy, speed, token usage, and flakiness.
 
 ## Phase 1: Runtime Shape
 

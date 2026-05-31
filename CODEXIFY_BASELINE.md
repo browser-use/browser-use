@@ -79,34 +79,108 @@ Notes:
 - Clicks succeeded on regular DOM button, shadow DOM button, and same-origin iframe button.
 - Page click counter reached `3`.
 
-## Next Baseline Work
-
-- Run broader browser baseline:
-
 ```bash
 uv run pytest tests/ci/test_multi_act_guards.py tests/ci/browser/test_tabs.py tests/ci/browser/test_screenshot.py -q
 ```
 
-- Run interaction baseline:
+Result: `20 passed in 58.63s`.
+
+Notes:
+
+- Covered `multi_act`, tab creation/switching/closing, background tabs, rapid tabs, and screenshot capture with vision enabled.
+- Existing noisy baseline:
+  - Tab tests log `No TargetID found ending in tab_id=...` warnings while still passing.
+  - Mock judge trace logs a Pydantic validation error for a missing `verdict` field while still passing.
+  - Local favicon requests and page readiness timeout warnings are common.
 
 ```bash
 uv run pytest tests/ci/interactions -q
 ```
 
-- Run security/file baseline:
+Result: `14 passed, 10 skipped in 46.81s`.
+
+Notes:
+
+- Covered autocomplete rewrite detection, combobox/datalist handling, sticky input retry, sensitive input typing, and radio buttons.
+- Dropdown tests are skipped in the current suite.
 
 ```bash
 uv run pytest tests/ci/security/test_download_filename_sanitization.py tests/ci/security/test_upload_file_containment.py -q
 ```
 
-- Run task eval baseline when API keys are available:
+Result: `19 passed in 0.04s`.
+
+Notes:
+
+- Covered download filename sanitization, containment checks, and upload path containment.
+- Upload containment test intentionally logs an unavailable file path error before passing.
 
 ```bash
-uv run python tests/ci/evaluate_tasks.py
+uv run pytest tests/ci/infrastructure/test_registry_core.py tests/ci/infrastructure/test_registry_validation.py tests/ci/infrastructure/test_registry_action_parameter_injection.py tests/ci/test_structured_extraction.py tests/ci/test_search_find.py -q
 ```
+
+Result: `87 passed, 8 skipped in 203.30s`.
+
+Notes:
+
+- Covered current dynamic registry behavior, special parameter injection, schema validation, structured extraction, search, and find-elements actions.
+- Current suite logs errors for mocked browser session CDP access in `test_browser_session_double_kwarg`; the test expects this and passes.
+- Empty DOM detection currently waits, reloads, and continues instead of failing immediately.
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+from dotenv import load_dotenv
+import os
+import subprocess
+import sys
+
+load_dotenv(Path('../browser-use/.env'))
+completed = subprocess.run([sys.executable, 'tests/ci/evaluate_tasks.py'], env=os.environ.copy())
+raise SystemExit(completed.returncode)
+PY
+```
+
+Result: `0/2 PASSED`, exit code `1`.
+
+Notes:
+
+- `BROWSER_USE_API_KEY` and `GOOGLE_API_KEY` were both present in the main worktree `.env`.
+- Both browser tasks completed agent execution:
+  - `browser_use_pip.yaml`: 6 steps; final output found `pip install browser-use`.
+  - `amazon_laptop.yaml`: 5 steps; final output returned a first Amazon laptop result.
+- The judge failed both tasks because the Google API key is expired: `400 INVALID_ARGUMENT`, `API key expired. Please renew the API key.`
+- This is an eval infrastructure blocker, not evidence that the browser tasks failed.
+
+## Real Agent Smoke
+
+Used the main worktree `.env` and `ChatBrowserUse` against a local temporary HTTP page in headless Chromium.
+
+Task:
+
+```text
+Open the local page, click the Reveal Answer button, then return only the revealed answer text.
+```
+
+Result: passed.
+
+Metrics from the cost-tracked run:
+
+- Success: `True`
+- Steps: `5`
+- Duration: `19.67s`
+- Final result: `codexify-baseline-ok`
+- Model: `bu-2-0`
+- Total tokens: `18,197`
+- Prompt tokens: `17,815`
+- Cached prompt tokens: `6,113`
+- Completion tokens: `382`
+- Total cost: `$0.00909176`
 
 ## Phase 0 Assessment
 
 - Current targeted baseline is healthy.
 - Existing tests already cover many critical behaviors we need to preserve.
-- Full baseline is not complete yet: broader browser tests, interaction tests, security/file tests, and real task evals still need to be run or recorded.
+- Real `ChatBrowserUse` + Chromium smoke works and now has steps, duration, token usage, and cost recorded.
+- Full repository test suite was not run in one command; instead, targeted suites covering the risky browser/runtime surfaces were run.
+- Task eval judging is blocked by an expired Google API key, even though the agent executions produced plausible task outputs.
