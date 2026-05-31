@@ -1367,3 +1367,21 @@ Results:
 - Pyright: `0 errors`.
 - Timeout, direct custom-action, and native-router execution tests: `8 passed`.
 - Python compile: passed.
+
+## Codexification Verification 67
+
+After extracting browser watchdog construction/attachment into `browser_use.browser.watchdogs.attachment` while keeping `BrowserSession.attach_all_watchdogs()` as the public delegator:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/watchdogs/attachment.py tests/ci/browser/test_session_start.py tests/ci/browser/test_browser_services.py
+uv run pyright browser_use/browser/session.py browser_use/browser/watchdogs/attachment.py tests/ci/browser/test_session_start.py tests/ci/browser/test_browser_services.py
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionEventSystem::test_event_handlers_registration tests/ci/browser/test_browser_services.py::test_browser_service_bundle_navigates_and_clicks tests/ci/browser/test_browser_services.py::test_browser_dialog_service_records_auto_closed_dialogs_without_click_dispatch tests/ci/browser/test_browser_services.py::test_print_button_click_tracks_pdf_without_download_event_dispatch -q
+uv run python -m py_compile browser_use/browser/session.py browser_use/browser/watchdogs/attachment.py
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Session watchdog registration plus browser click, dialog, and print-PDF smoke tests: `4 passed`.
+- Python compile: passed.
