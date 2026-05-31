@@ -16,6 +16,7 @@ from browser_use.llm.messages import (
 	ContentPartRefusalParam,
 	ContentPartTextParam,
 	SystemMessage,
+	ToolMessage,
 	UserMessage,
 )
 
@@ -96,6 +97,10 @@ class ResponsesAPIMessageSerializer:
 	@staticmethod
 	def serialize(message: AssistantMessage) -> EasyInputMessageParam: ...
 
+	@overload
+	@staticmethod
+	def serialize(message: ToolMessage) -> EasyInputMessageParam: ...
+
 	@staticmethod
 	def serialize(message: BaseMessage) -> EasyInputMessageParam:
 		"""Serialize a custom message to an OpenAI Responses API input message param."""
@@ -131,6 +136,13 @@ class ResponsesAPIMessageSerializer:
 			return EasyInputMessageParam(
 				role='assistant',
 				content=content,
+			)
+
+		elif isinstance(message, ToolMessage):
+			tool_name = f' {message.name}' if message.name else ''
+			return EasyInputMessageParam(
+				role='user',
+				content=f'[Tool result{tool_name} for {message.tool_call_id}]\n{message.content}',
 			)
 
 		else:

@@ -2046,3 +2046,56 @@ Results:
 - Pyright: `0 errors`.
 - Agent config/fallback/native tool-call tests: `19 passed`.
 - Live `Agent.from_config(...)` + `ChatBrowserUse` + local Chromium smoke: success `True`, steps `2`, actions `['navigate', 'done']`.
+
+## Codexification Verification 84
+
+After adding provider serializer support for `ToolMessage`:
+
+```bash
+uv run ruff check browser_use/llm/anthropic/serializer.py browser_use/llm/aws/serializer.py browser_use/llm/cerebras/serializer.py browser_use/llm/deepseek/serializer.py browser_use/llm/groq/serializer.py browser_use/llm/ollama/serializer.py browser_use/llm/openai/responses_serializer.py examples/models/langchain/serializer.py tests/ci/models/test_tool_message_serializers.py
+uv run pyright browser_use/llm/anthropic/serializer.py browser_use/llm/aws/serializer.py browser_use/llm/cerebras/serializer.py browser_use/llm/deepseek/serializer.py browser_use/llm/groq/serializer.py browser_use/llm/ollama/serializer.py browser_use/llm/openai/responses_serializer.py examples/models/langchain/serializer.py tests/ci/models/test_tool_message_serializers.py
+uv run pytest tests/ci/models/test_tool_message_serializers.py tests/ci/models/test_azure_responses_api.py::TestResponsesAPIMessageSerializer -q
+uv run pre-commit run --all-files
+```
+
+Results:
+
+- Ruff: passed.
+- Pyright: `0 errors`.
+- Tool-message serializer and Responses API serializer tests: `10 passed`.
+- Pre-commit: passed.
+
+## Codexification Verification 85
+
+After extracting browser session state, logging, and reset helpers into `browser_use/browser/session_state.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_state.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_state.py
+uv run pytest tests/ci/browser/test_cdp_headers.py tests/ci/browser/test_cloud_browser.py::TestBrowserSessionCloudIntegration::test_cloud_browser_profile_property -q
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_tabs.py::TestMultiTabOperations::test_create_and_switch_three_tabs -q
+uv run python - <<'PY'
+import asyncio
+from browser_use.browser import BrowserSession
+from browser_use.browser.profile import BrowserProfile
+
+async def main():
+    session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+    await session.start()
+    await session.navigate_to('https://example.com')
+    assert await session.get_current_page_url() == 'https://example.com/'
+    assert session.is_cdp_connected is True
+    await session.kill()
+    assert session.is_cdp_connected is False
+
+asyncio.run(main())
+PY
+```
+
+Results:
+
+- Ruff: passed after import cleanup.
+- Pyright: `0 errors`.
+- CDP headers plus cloud-browser property tests: `6 passed`.
+- Browser-backed session start and multi-tab agent tests: `2 passed`.
+- Direct headless Chromium smoke: navigated to `https://example.com/`; `is_cdp_connected` was `True` before `kill()` and `False` after reset.

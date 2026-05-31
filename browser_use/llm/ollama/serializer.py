@@ -9,6 +9,7 @@ from browser_use.llm.messages import (
 	BaseMessage,
 	SystemMessage,
 	ToolCall,
+	ToolMessage,
 	UserMessage,
 )
 
@@ -91,6 +92,10 @@ class OllamaMessageSerializer:
 	@staticmethod
 	def serialize(message: AssistantMessage) -> Message: ...
 
+	@overload
+	@staticmethod
+	def serialize(message: ToolMessage) -> Message: ...
+
 	@staticmethod
 	def serialize(message: BaseMessage) -> Message:
 		"""Serialize a custom message to an Ollama Message."""
@@ -132,6 +137,12 @@ class OllamaMessageSerializer:
 			if message.tool_calls:
 				ollama_message.tool_calls = OllamaMessageSerializer._serialize_tool_calls(message.tool_calls)
 
+			return ollama_message
+
+		elif isinstance(message, ToolMessage):
+			ollama_message = Message(role='tool', content=message.content)
+			if message.name is not None:
+				ollama_message.tool_name = message.name
 			return ollama_message
 
 		else:

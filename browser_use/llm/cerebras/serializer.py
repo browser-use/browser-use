@@ -10,6 +10,7 @@ from browser_use.llm.messages import (
 	ContentPartTextParam,
 	SystemMessage,
 	ToolCall,
+	ToolMessage,
 	UserMessage,
 )
 
@@ -81,6 +82,10 @@ class CerebrasMessageSerializer:
 	@staticmethod
 	def serialize(message: AssistantMessage) -> MessageDict: ...
 
+	@overload
+	@staticmethod
+	def serialize(message: ToolMessage) -> MessageDict: ...
+
 	@staticmethod
 	def serialize(message: BaseMessage) -> MessageDict:
 		if isinstance(message, UserMessage):
@@ -100,6 +105,15 @@ class CerebrasMessageSerializer:
 			}
 			if message.tool_calls:
 				msg['tool_calls'] = CerebrasMessageSerializer._serialize_tool_calls(message.tool_calls)
+			return msg
+		if isinstance(message, ToolMessage):
+			msg: MessageDict = {
+				'role': 'tool',
+				'content': message.content,
+				'tool_call_id': message.tool_call_id,
+			}
+			if message.name is not None:
+				msg['name'] = message.name
 			return msg
 		raise ValueError(f'Unknown message type: {type(message)}')
 

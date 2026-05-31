@@ -4,7 +4,6 @@ import asyncio
 import logging
 import re
 import time
-from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
 from urllib.parse import urlparse, urlunparse
@@ -53,6 +52,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
+from browser_use.browser.session_state import BrowserSessionStateMixin
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
 from browser_use.observability import observe_debug
@@ -61,13 +61,8 @@ from browser_use.utils import _log_pretty_url, create_task_with_error_handling, 
 if TYPE_CHECKING:
 	from browser_use.actor.page import Page
 	from browser_use.browser.demo_mode import DemoMode
-	from browser_use.browser.watchdogs.captcha_watchdog import CaptchaWaitResult
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
-
-_LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
-red = '\033[91m'
-reset = '\033[0m'
 
 
 class Target(BaseModel):
@@ -103,7 +98,7 @@ class CDPSession(BaseModel):
 	_lifecycle_lock: Any = PrivateAttr(default=None)
 
 
-class BrowserSession(BaseModel):
+class BrowserSession(BrowserSessionStateMixin, BaseModel):
 	"""Event-driven browser session with backwards compatibility.
 
 	This class provides a 2-layer architecture:
@@ -458,65 +453,6 @@ class BrowserSession(BaseModel):
 
 		return list_chrome_profiles()
 
-	# Convenience properties for common browser settings
-	@property
-	def cdp_url(self) -> str | None:
-		"""CDP URL from browser profile."""
-		return self.browser_profile.cdp_url
-
-	@property
-	def is_local(self) -> bool:
-		"""Whether this is a local browser instance from browser profile."""
-		return self.browser_profile.is_local
-
-	@property
-	def is_cdp_connected(self) -> bool:
-		"""Check if the CDP WebSocket connection is alive and usable.
-
-		Returns True only if the root CDP client exists and its WebSocket is in OPEN state.
-		A dead/closing/closed WebSocket returns False, preventing handlers from dispatching
-		CDP commands that would hang until timeout on a broken connection.
-		"""
-		if self._cdp_client_root is None or self._cdp_client_root.ws is None:
-			return False
-		try:
-			from websockets.protocol import State
-
-			return self._cdp_client_root.ws.state is State.OPEN
-		except Exception:
-			return False
-
-	async def wait_if_captcha_solving(self, timeout: float | None = None) -> 'CaptchaWaitResult | None':
-		"""Wait if a captcha is currently being solved by the browser proxy.
-
-		Returns:
-			A CaptchaWaitResult if we had to wait, or None if no captcha was in progress.
-		"""
-		if self._captcha_watchdog is not None:
-			return await self._captcha_watchdog.wait_if_captcha_solving(timeout=timeout)
-		return None
-
-	@property
-	def is_reconnecting(self) -> bool:
-		"""Whether a WebSocket reconnection attempt is currently in progress."""
-		return self._reconnecting
-
-	@property
-	def cloud_browser(self) -> bool:
-		"""Whether to use cloud browser service from browser profile."""
-		return self.browser_profile.use_cloud
-
-	@property
-	def demo_mode(self) -> 'DemoMode | None':
-		"""Lazy init demo mode helper when enabled."""
-		if not self.browser_profile.demo_mode:
-			return None
-		if self._demo_mode is None:
-			from browser_use.browser.demo_mode import DemoMode
-
-			self._demo_mode = DemoMode(self)
-		return self._demo_mode
-
 	# Main shared event bus for all browser session + all watchdogs
 	event_bus: EventBus = Field(default_factory=EventBus)
 
@@ -564,98 +500,6 @@ class BrowserSession(BaseModel):
 	_intentional_stop: bool = PrivateAttr(default=False)
 
 	_logger: Any = PrivateAttr(default=None)
-
-	@property
-	def logger(self) -> Any:
-		"""Get instance-specific logger with session ID in the name"""
-		# **regenerate it every time** because our id and str(self) can change as browser connection state changes
-		# if self._logger is None or not self._cdp_client_root:
-		# 	self._logger = logging.getLogger(f'browser_use.{self}')
-		return logging.getLogger(f'browser_use.{self}')
-
-	@cached_property
-	def _id_for_logs(self) -> str:
-		"""Get human-friendly semi-unique identifier for differentiating different BrowserSession instances in logs"""
-		str_id = self.id[-4:]  # default to last 4 chars of truly random uuid, less helpful than cdp port but always unique enough
-		port_number = (self.cdp_url or 'no-cdp').rsplit(':', 1)[-1].split('/', 1)[0].strip()
-		port_is_random = not port_number.startswith('922')
-		port_is_unique_enough = port_number not in _LOGGED_UNIQUE_SESSION_IDS
-		if port_number and port_number.isdigit() and port_is_random and port_is_unique_enough:
-			# if cdp port is random/unique enough to identify this session, use it as our id in logs
-			_LOGGED_UNIQUE_SESSION_IDS.add(port_number)
-			str_id = port_number
-		return str_id
-
-	@property
-	def _tab_id_for_logs(self) -> str:
-		return self.agent_focus_target_id[-2:] if self.agent_focus_target_id else f'{red}--{reset}'
-
-	def __repr__(self) -> str:
-		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs} (cdp_url={self.cdp_url}, profile={self.browser_profile})'
-
-	def __str__(self) -> str:
-		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs}'
-
-	async def reset(self) -> None:
-		"""Clear all cached CDP sessions with proper cleanup."""
-
-		# Suppress auto-reconnect callback during teardown
-		self._intentional_stop = True
-		# Cancel any in-flight reconnection task
-		if self._reconnect_task and not self._reconnect_task.done():
-			self._reconnect_task.cancel()
-			self._reconnect_task = None
-		self._reconnecting = False
-		self._reconnect_event.set()  # unblock any waiters
-
-		cdp_status = 'connected' if self._cdp_client_root else 'not connected'
-		session_mgr_status = 'exists' if self.session_manager else 'None'
-		self.logger.debug(
-			f'🔄 Resetting browser session (CDP: {cdp_status}, SessionManager: {session_mgr_status}, '
-			f'focus: {self.agent_focus_target_id[-4:] if self.agent_focus_target_id else "None"})'
-		)
-
-		# Clear session manager (which owns _targets, _sessions, _target_sessions)
-		if self.session_manager:
-			await self.session_manager.clear()
-			self.session_manager = None
-
-		# Close CDP WebSocket before clearing to prevent stale event handlers
-		if self._cdp_client_root:
-			try:
-				await self._cdp_client_root.stop()
-				self.logger.debug('Closed CDP client WebSocket during reset')
-			except Exception as e:
-				self.logger.debug(f'Error closing CDP client during reset: {e}')
-
-		self._cdp_client_root = None  # type: ignore
-		self._cached_browser_state_summary = None
-		self._cached_selector_map.clear()
-		self._downloaded_files.clear()
-
-		self.agent_focus_target_id = None
-		if self.is_local:
-			self.browser_profile.cdp_url = None
-
-		self._crash_watchdog = None
-		self._downloads_watchdog = None
-		self._aboutblank_watchdog = None
-		self._security_watchdog = None
-		self._storage_state_watchdog = None
-		self._local_browser_watchdog = None
-		self._default_action_watchdog = None
-		self._dom_watchdog = None
-		self._screenshot_watchdog = None
-		self._permissions_watchdog = None
-		self._recording_watchdog = None
-		self._captcha_watchdog = None
-		self._watchdogs_attached = False
-		if self._demo_mode:
-			self._demo_mode.reset()
-			self._demo_mode = None
-
-		self._intentional_stop = False
-		self.logger.info('✅ Browser session reset complete')
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""

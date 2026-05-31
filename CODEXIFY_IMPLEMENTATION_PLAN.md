@@ -147,6 +147,7 @@ Implement:
 - [x] Execute native `browser.done` directly instead of routing completion through the registered action adapter.
 - [x] Keep `ActionResult`/tool result content structured and model-readable.
 - [x] Add provider-facing tool result messages and OpenAI native tool-call response parsing.
+- [x] Serialize tool result messages across provider adapters.
 - [x] Add an opt-in agent path that adapts provider-native tool calls to existing registered actions.
 - [x] Add native-tool-call prompt guidance when the opt-in path is enabled.
 
@@ -398,6 +399,7 @@ Implement:
 - [x] Extract guarded multi-action execution and action logging out of the giant agent service.
 - [x] Move history rerun, element rematching, retry, and menu-reopen heuristics into the rerun module.
 - [x] Extract agent configuration, model identity, schema-task enhancement, LLM verification, and action-model setup out of the giant agent service.
+- [x] Extract browser session state, logging, and reset helpers out of the giant browser session.
 - [ ] Split giant files into smaller modules once the new runtime owns the behavior.
 - [ ] Remove old message manager, bubus hot path, and watchdog control flow after compatibility is proven.
 

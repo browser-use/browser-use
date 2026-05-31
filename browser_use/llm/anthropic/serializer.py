@@ -7,6 +7,7 @@ from anthropic.types import (
 	ImageBlockParam,
 	MessageParam,
 	TextBlockParam,
+	ToolResultBlockParam,
 	ToolUseBlockParam,
 	URLImageSourceParam,
 )
@@ -18,10 +19,11 @@ from browser_use.llm.messages import (
 	ContentPartTextParam,
 	SupportedImageMediaType,
 	SystemMessage,
+	ToolMessage,
 	UserMessage,
 )
 
-NonSystemMessage = UserMessage | AssistantMessage
+NonSystemMessage = UserMessage | AssistantMessage | ToolMessage
 
 
 class AnthropicMessageSerializer:
@@ -169,6 +171,10 @@ class AnthropicMessageSerializer:
 	@staticmethod
 	def serialize(message: AssistantMessage) -> MessageParam: ...
 
+	@overload
+	@staticmethod
+	def serialize(message: ToolMessage) -> MessageParam: ...
+
 	@staticmethod
 	def serialize(message: BaseMessage) -> MessageParam | SystemMessage:
 		"""Serialize a custom message to an Anthropic MessageParam.
@@ -250,6 +256,20 @@ class AnthropicMessageSerializer:
 			return MessageParam(
 				role='assistant',
 				content=content,
+			)
+
+		elif isinstance(message, ToolMessage):
+			return MessageParam(
+				role='user',
+				content=[
+					ToolResultBlockParam(
+						tool_use_id=message.tool_call_id,
+						type='tool_result',
+						content=message.content,
+						is_error=False,
+						cache_control=AnthropicMessageSerializer._serialize_cache_control(message.cache),
+					)
+				],
 			)
 
 		else:

@@ -11,6 +11,7 @@ from browser_use.llm.messages import (
 	ContentPartTextParam,
 	SystemMessage,
 	ToolCall,
+	ToolMessage,
 	UserMessage,
 )
 
@@ -195,6 +196,10 @@ class AWSBedrockMessageSerializer:
 	@staticmethod
 	def serialize(message: AssistantMessage) -> dict[str, Any]: ...
 
+	@overload
+	@staticmethod
+	def serialize(message: ToolMessage) -> dict[str, Any]: ...
+
 	@staticmethod
 	def serialize(message: BaseMessage) -> dict[str, Any] | SystemMessage:
 		"""Serialize a custom message to AWS Bedrock format."""
@@ -228,6 +233,19 @@ class AWSBedrockMessageSerializer:
 			return {
 				'role': 'assistant',
 				'content': content_blocks,
+			}
+
+		elif isinstance(message, ToolMessage):
+			return {
+				'role': 'user',
+				'content': [
+					{
+						'toolResult': {
+							'toolUseId': message.tool_call_id,
+							'content': [{'text': message.content}],
+						}
+					}
+				],
 			}
 
 		else:

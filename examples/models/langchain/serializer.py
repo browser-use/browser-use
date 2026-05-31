@@ -9,6 +9,9 @@ from langchain_core.messages import (  # pyright: ignore
 from langchain_core.messages import (  # pyright: ignore
 	ToolCall as LangChainToolCall,
 )
+from langchain_core.messages import (  # pyright: ignore
+	ToolMessage as LangChainToolMessage,
+)
 from langchain_core.messages.base import BaseMessage as LangChainBaseMessage  # pyright: ignore
 
 from browser_use.llm.messages import (
@@ -18,6 +21,7 @@ from browser_use.llm.messages import (
 	ContentPartRefusalParam,
 	ContentPartTextParam,
 	ToolCall,
+	ToolMessage,
 	UserMessage,
 )
 from browser_use.llm.messages import (
@@ -117,6 +121,10 @@ class LangChainMessageSerializer:
 	@staticmethod
 	def serialize(message: AssistantMessage) -> AIMessage: ...
 
+	@overload
+	@staticmethod
+	def serialize(message: ToolMessage) -> LangChainToolMessage: ...
+
 	@staticmethod
 	def serialize(message: BaseMessage) -> LangChainBaseMessage:
 		"""Serialize a browser-use message to a LangChain message."""
@@ -137,6 +145,13 @@ class LangChainMessageSerializer:
 			# as requested by the user
 			return AIMessage(
 				content=content,
+				name=message.name,
+			)
+
+		elif isinstance(message, ToolMessage):
+			return LangChainToolMessage(
+				content=message.content,
+				tool_call_id=message.tool_call_id,
 				name=message.name,
 			)
 
