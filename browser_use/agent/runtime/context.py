@@ -177,6 +177,18 @@ class WarningItem(BaseContextItem):
 		return f'<warning{code}>\n{self.message.strip()}\n</warning>'
 
 
+class SkillItem(BaseContextItem):
+	"""Task-relevant interaction guidance loaded on demand."""
+
+	kind: Literal['skill'] = 'skill'
+	name: str
+	title: str
+	content: str
+
+	def render(self) -> str:
+		return f'<skill name="{self.name}" title="{self.title}">\n{self.content.strip()}\n</skill>'
+
+
 class CompactionItem(BaseContextItem):
 	"""Summary of older context that has been compacted out of active history."""
 
@@ -203,6 +215,7 @@ ContextItem = Annotated[
 	| FileArtifactItem
 	| ExtractionArtifactItem
 	| WarningItem
+	| SkillItem
 	| CompactionItem,
 	Field(discriminator='kind'),
 ]

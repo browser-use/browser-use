@@ -293,15 +293,15 @@ Goal: borrow the browser-harness idea of relevant domain/interaction skills with
 
 Implement:
 
-- [ ] Add optional domain and interaction skills.
-- [ ] Load skills only when relevant by URL, task, explicit mention, or repeated failure.
-- [ ] Keep skills out of the base prompt unless needed.
-- [ ] Start with interaction skills for downloads, dialogs, iframes, shadow DOM, dropdowns, and uploads.
+- [x] Add optional domain and interaction skills.
+- [x] Load skills only when relevant by URL, task, explicit mention, or repeated failure.
+- [x] Keep skills out of the base prompt unless needed.
+- [x] Start with interaction skills for downloads, dialogs, iframes, shadow DOM, dropdowns, and uploads.
 
 Exit criteria:
 
 - [ ] Skills improve hard tasks without increasing prompt size for simple tasks.
-- [ ] Skills are discoverable and inspectable.
+- [x] Skills are discoverable and inspectable.
 
 ## Phase 9: Compaction
 
