@@ -6,12 +6,15 @@ import pytest
 
 from browser_use import Browser
 from browser_use.browser.events import (
+	BrowserConnectedEvent,
 	BrowserKillEvent,
 	BrowserLaunchEvent,
 	BrowserLaunchResult,
 	BrowserStartEvent,
 	BrowserStopEvent,
+	BrowserStoppedEvent,
 )
+from browser_use.browser.services import DialogService
 from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 
 
@@ -97,6 +100,132 @@ async def test_start_direct_launches_local_browser_without_launch_event(monkeypa
 	assert result == {'cdp_url': 'http://127.0.0.1:9333'}
 	assert launch_calls == 1
 	assert connect_calls == ['http://127.0.0.1:9333']
+
+
+@pytest.mark.asyncio
+async def test_start_direct_initializes_connected_services_without_connected_event(monkeypatch) -> None:
+	browser = Browser(headless=True)
+	calls: list[str] = []
+
+	class FakeLocalBrowserWatchdog:
+		async def launch_browser(self) -> BrowserLaunchResult:
+			calls.append('launch')
+			return BrowserLaunchResult(cdp_url='http://127.0.0.1:9334')
+
+	class FakeDownloadsWatchdog:
+		async def initialize_downloads_directory(self) -> None:
+			calls.append('downloads')
+
+	class FakeStorageStateWatchdog:
+		async def initialize_storage_state(self) -> None:
+			calls.append('storage')
+
+	class FakePermissionsWatchdog:
+		async def grant_permissions(self) -> None:
+			calls.append('permissions')
+
+	class FakeRecordingWatchdog:
+		async def start_configured_recording(self) -> None:
+			calls.append('recording')
+
+	class FakeHarRecordingWatchdog:
+		async def start_configured_recording(self) -> None:
+			calls.append('har')
+
+	class FakeCaptchaWatchdog:
+		async def register_cdp_handlers(self) -> None:
+			calls.append('captcha')
+
+	async def fake_attach_all_watchdogs(self) -> None:
+		self._local_browser_watchdog = FakeLocalBrowserWatchdog()
+		self._downloads_watchdog = FakeDownloadsWatchdog()
+		self._storage_state_watchdog = FakeStorageStateWatchdog()
+		self._permissions_watchdog = FakePermissionsWatchdog()
+		self._recording_watchdog = FakeRecordingWatchdog()
+		self._har_recording_watchdog = FakeHarRecordingWatchdog()
+		self._captcha_watchdog = FakeCaptchaWatchdog()
+		self._watchdogs_attached = True
+
+	async def fake_connect(self, cdp_url: str | None = None):
+		calls.append(f'connect:{cdp_url}')
+		self._cdp_client_root = cast(Any, object())
+		return self
+
+	original_dispatch = browser.event_bus.dispatch
+
+	def guarded_dispatch(event, *args, **kwargs):
+		if isinstance(event, BrowserConnectedEvent):
+			raise RuntimeError('BrowserConnectedEvent must not own connected-service initialization')
+		return original_dispatch(event, *args, **kwargs)
+
+	monkeypatch.setattr(type(browser), 'attach_all_watchdogs', fake_attach_all_watchdogs)
+	monkeypatch.setattr(type(browser), 'connect', fake_connect)
+	monkeypatch.setattr(browser.event_bus, 'dispatch', guarded_dispatch)
+
+	try:
+		result = await browser.start_direct()
+	finally:
+		browser._cdp_client_root = None
+		await browser.event_bus.stop(clear=True, timeout=1)
+
+	assert result == {'cdp_url': 'http://127.0.0.1:9334'}
+	assert calls == [
+		'launch',
+		'connect:http://127.0.0.1:9334',
+		'downloads',
+		'storage',
+		'permissions',
+		'recording',
+		'har',
+		'captcha',
+	]
+
+
+@pytest.mark.asyncio
+async def test_target_services_initialize_without_tab_created_event(monkeypatch) -> None:
+	browser = Browser(headless=True)
+	calls: list[str] = []
+
+	class FakeSecurityWatchdog:
+		async def validate_new_tab(self, url: str, target_id: str) -> bool:
+			calls.append(f'security:{url}:{target_id}')
+			return True
+
+	class FakeAboutBlankWatchdog:
+		async def handle_tab_created(self, *, target_id: str, url: str) -> None:
+			calls.append(f'aboutblank:{url}:{target_id}')
+
+	class FakeDownloadsWatchdog:
+		async def attach_to_target(self, target_id: str) -> None:
+			calls.append(f'downloads:{target_id}')
+
+	class FakeCrashWatchdog:
+		async def attach_to_target(self, target_id: str) -> None:
+			calls.append(f'crash:{target_id}')
+
+	async def fake_apply_viewport(self, target_id: str) -> None:
+		calls.append(f'viewport:{target_id}')
+
+	async def fake_register_dialog_handlers(self, target_id: str) -> None:
+		calls.append(f'dialogs:{target_id}')
+
+	monkeypatch.setattr(type(browser), '_apply_viewport_to_target', fake_apply_viewport)
+	monkeypatch.setattr(DialogService, 'register_handlers', fake_register_dialog_handlers)
+	browser._security_watchdog = FakeSecurityWatchdog()
+	browser._aboutblank_watchdog = FakeAboutBlankWatchdog()
+	browser._downloads_watchdog = FakeDownloadsWatchdog()
+	browser._crash_watchdog = FakeCrashWatchdog()
+
+	await browser._initialize_target_services_direct('target-123', 'about:blank')
+
+	assert calls == [
+		'viewport:target-123',
+		'security:about:blank:target-123',
+		'aboutblank:about:blank:target-123',
+		'downloads:target-123',
+		'dialogs:target-123',
+		'crash:target-123',
+	]
 
 
 @pytest.mark.asyncio
@@ -188,20 +317,30 @@ async def test_stop_direct_notifies_watchdogs_without_stop_events(monkeypatch) -
 		async def save_har(self) -> None:
 			calls.append('har')
 
+	class FakeDownloadsWatchdog:
+		async def cleanup_after_stop(self) -> None:
+			calls.append('downloads')
+
+	class FakeCaptchaWatchdog:
+		def reset_state(self) -> None:
+			calls.append('captcha')
+
 	class FakeLocalBrowserWatchdog:
 		async def cleanup_browser(self) -> None:
 			calls.append('local')
 
 	browser._aboutblank_watchdog = FakeAboutBlankWatchdog()
+	browser._downloads_watchdog = FakeDownloadsWatchdog()
 	browser._storage_state_watchdog = FakeStorageStateWatchdog()
 	browser._recording_watchdog = FakeRecordingWatchdog()
 	browser._har_recording_watchdog = FakeHarRecordingWatchdog()
+	browser._captcha_watchdog = FakeCaptchaWatchdog()
 	browser._local_browser_watchdog = FakeLocalBrowserWatchdog()
 
 	original_dispatch = browser.event_bus.dispatch
 
 	def guarded_dispatch(event, *args, **kwargs):
-		assert not isinstance(event, (BrowserStopEvent, BrowserKillEvent))
+		assert not isinstance(event, (BrowserStopEvent, BrowserKillEvent, BrowserStoppedEvent))
 		return original_dispatch(event, *args, **kwargs)
 
 	monkeypatch.setattr(browser.event_bus, 'dispatch', guarded_dispatch)
@@ -211,4 +350,4 @@ async def test_stop_direct_notifies_watchdogs_without_stop_events(monkeypatch) -
 	finally:
 		await browser.event_bus.stop(clear=True, timeout=1)
 
-	assert calls == ['aboutblank', 'storage', 'recording', 'har', 'local']
+	assert calls == ['aboutblank', 'downloads', 'storage', 'recording', 'har', 'captcha', 'local']

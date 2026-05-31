@@ -45,9 +45,17 @@ class StorageStateWatchdog(BaseWatchdog):
 	_monitoring_task: asyncio.Task | None = PrivateAttr(default=None)
 	_last_cookie_state: list[dict] = PrivateAttr(default_factory=list)
 	_save_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
+	_storage_initialized: bool = PrivateAttr(default=False)
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""Start monitoring when browser starts."""
+		await self.initialize_storage_state()
+
+	async def initialize_storage_state(self) -> None:
+		"""Start storage monitoring and load configured state without an event round trip."""
+		if self._storage_initialized:
+			return
+
 		self.logger.debug('[StorageStateWatchdog] 🍪 Initializing auth/cookies sync <-> with storage_state.json file')
 
 		# Start monitoring
@@ -55,6 +63,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 		# Automatically load storage state after browser start without a request event round trip.
 		await self.load_storage_state()
+		self._storage_initialized = True
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Stop monitoring when browser stops."""
@@ -64,6 +73,7 @@ class StorageStateWatchdog(BaseWatchdog):
 		"""Stop storage-state monitoring directly."""
 		self.logger.debug('[StorageStateWatchdog] Stopping storage_state monitoring')
 		await self._stop_monitoring()
+		self._storage_initialized = False
 
 	async def on_SaveStorageStateEvent(self, event: SaveStorageStateEvent) -> None:
 		"""Handle storage state save request."""

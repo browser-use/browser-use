@@ -32,8 +32,14 @@ class RecordingWatchdog(BaseWatchdog):
 		"""
 		Starts video recording if it is configured in the browser profile.
 		"""
+		await self.start_configured_recording()
+
+	async def start_configured_recording(self) -> None:
+		"""Start configured video recording without relying on BrowserConnectedEvent."""
 		profile = self.browser_session.browser_profile
 		if not profile.record_video_dir:
+			return
+		if self._recorder is not None:
 			return
 
 		video_format = getattr(profile, 'record_video_format', 'mp4').strip('.')

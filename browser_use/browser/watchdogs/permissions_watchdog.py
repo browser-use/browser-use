@@ -22,6 +22,10 @@ class PermissionsWatchdog(BaseWatchdog):
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""Grant permissions when browser connects."""
+		await self.grant_permissions()
+
+	async def grant_permissions(self) -> None:
+		"""Grant configured browser permissions without relying on BrowserConnectedEvent."""
 		permissions = self.browser_session.browser_profile.permissions
 
 		if not permissions:

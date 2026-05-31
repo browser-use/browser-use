@@ -72,24 +72,31 @@ class SecurityWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Check if new tab URL is allowed."""
-		if not self._is_url_allowed(event.url):
-			self.logger.warning(f'⛔️ New tab created with disallowed URL: {event.url}')
+		await self.validate_new_tab(event.url, event.target_id)
+
+	async def validate_new_tab(self, url: str, target_id: str) -> bool:
+		"""Close a newly-created tab if it violates domain policy."""
+		if not self._is_url_allowed(url):
+			self.logger.warning(f'⛔️ New tab created with disallowed URL: {url}')
 
 			# Dispatch error and try to close the tab
 			self.event_bus.dispatch(
 				BrowserErrorEvent(
 					error_type='TabCreationBlocked',
-					message=f'Tab created with non-allowed URL: {event.url}',
-					details={'url': event.url, 'target_id': event.target_id},
+					message=f'Tab created with non-allowed URL: {url}',
+					details={'url': url, 'target_id': target_id},
 				)
 			)
 
 			# Try to close the offending tab
 			try:
-				await self.browser_session._cdp_close_page(event.target_id)
-				self.logger.info(f'⛔️ Closed new tab with non-allowed URL: {event.url}')
+				await self.browser_session._cdp_close_page(target_id)
+				self.logger.info(f'⛔️ Closed new tab with non-allowed URL: {url}')
 			except Exception as e:
 				self.logger.error(f'⛔️ Failed to close new tab with non-allowed URL: {type(e).__name__} {e}')
+			return False
+
+		return True
 
 	def _is_root_domain(self, domain: str) -> bool:
 		"""Check if a domain is a root domain (no subdomain present).

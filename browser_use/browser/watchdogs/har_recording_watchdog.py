@@ -156,6 +156,13 @@ class HarRecordingWatchdog(BaseWatchdog):
 		] = {}  # frameId -> {url, title, startedDateTime, monotonic_start, onContentLoad, onLoad}
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
+		await self.start_configured_recording()
+
+	async def start_configured_recording(self) -> None:
+		"""Start configured HAR recording without relying on BrowserConnectedEvent."""
+		if self._enabled:
+			return
+
 		profile = self.browser_session.browser_profile
 		if not profile.record_har_path:
 			return

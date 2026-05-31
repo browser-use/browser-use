@@ -126,6 +126,7 @@ class BrowserSessionStateMixin:
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
+		self._dialog_listeners_registered.clear()
 
 		self.agent_focus_target_id = None
 		if self.is_local:

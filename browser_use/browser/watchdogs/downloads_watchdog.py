@@ -112,7 +112,11 @@ class DownloadsWatchdog(BaseWatchdog):
 			self._download_complete_callbacks.remove(on_complete)
 
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> None:
-		self.logger.debug(f'[DownloadsWatchdog] Received BrowserLaunchEvent, EventBus ID: {id(self.event_bus)}')
+		await self.initialize_downloads_directory()
+
+	async def initialize_downloads_directory(self) -> None:
+		"""Prepare the downloads directory without relying on BrowserLaunchEvent."""
+		self.logger.debug(f'[DownloadsWatchdog] Initializing downloads directory, EventBus ID: {id(self.event_bus)}')
 		# Ensure downloads directory exists
 		downloads_path = self.browser_session.browser_profile.downloads_path
 		if downloads_path:
@@ -180,6 +184,10 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
 		"""Clean up when browser stops."""
+		await self.cleanup_after_stop()
+
+	async def cleanup_after_stop(self) -> None:
+		"""Clean up download tracking state without relying on BrowserStoppedEvent."""
 		# Cancel all CDP event handler tasks
 		for task in list(self._cdp_event_tasks):
 			if not task.done():

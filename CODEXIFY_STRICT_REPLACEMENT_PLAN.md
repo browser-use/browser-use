@@ -82,13 +82,13 @@ tool -> event -> bubus -> watchdog -> CDP
 
 Keep useful heuristics, delete the watchdog architecture where possible.
 
-- [ ] Move download behavior into `DownloadService`.
-- [ ] Move dialog behavior into `DialogService`.
-- [ ] Move lifecycle finalization into `LifecycleService`.
-- [ ] Move storage state behavior into `StorageStateService`.
-- [ ] Move page readiness and recovery policies into explicit services.
-- [ ] Keep recording/HAR code as explicit finalizers, not hidden watchdog receivers.
-- [ ] Delete watchdogs that only exist to receive events after service parity is proven.
+- [x] Move download behavior into `DownloadService`.
+- [x] Move dialog behavior into `DialogService`.
+- [x] Move lifecycle finalization into `LifecycleService`.
+- [x] Move storage state behavior into `StorageStateService`.
+- [x] Move page readiness and recovery policies into explicit services.
+- [x] Keep recording/HAR code as explicit finalizers, not hidden watchdog receivers.
+- [x] Delete watchdogs that only exist to receive events after service parity is proven.
 
 ## Phase 6: Codex-Style Debug Run Folder
 
@@ -165,6 +165,17 @@ After default native tools, typed context, and direct services are stable, remov
 - [x] `uv run pre-commit run --all-files`
 
 ## Phase 4 Verification
+
+- [x] Focused unit tests for the changed path.
+- [x] Existing compatibility tests for the public API.
+- [x] Chromium smoke using a simple local or stable web page.
+- [x] At least one real Browser Use task with the default recommended model when keys are available.
+- [x] If the phase changes model/tool/context behavior, inspect the debug run folder and confirm it explains the run clearly.
+- [x] `uv run ruff check ...`
+- [x] `uv run pyright ...`
+- [x] `uv run pre-commit run --all-files`
+
+## Phase 5 Verification
 
 - [x] Focused unit tests for the changed path.
 - [x] Existing compatibility tests for the public API.

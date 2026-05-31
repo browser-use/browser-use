@@ -674,11 +674,6 @@ class SessionManager:
 				new_target_id = await self.browser_session._cdp_create_new_page('about:blank')
 				self.logger.info(f'[SessionManager] Created new tab {new_target_id[:8]}... for agent')
 
-				# Dispatch TabCreatedEvent so watchdogs can initialize
-				from browser_use.browser.events import TabCreatedEvent
-
-				self.browser_session.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=new_target_id))
-
 			# Wait for CDP attach event to create session
 			# Note: This polling is necessary - waiting for external Chrome CDP event
 			# _handle_target_attached will add session to pool when Chrome fires attachedToTarget
@@ -692,6 +687,10 @@ class SessionManager:
 			if new_session:
 				self.browser_session.agent_focus_target_id = new_target_id
 				self.logger.info(f'[SessionManager] ✅ Agent focus recovered: {new_target_id[:8]}...')
+
+				if not is_existing_tab:
+					await self.browser_session._initialize_target_services_direct(new_target_id, 'about:blank')
+					await self.browser_session._notify_tab_created_compatibility(new_target_id, 'about:blank')
 
 				# Visually activate the tab in browser (only for existing tabs)
 				if is_existing_tab:
@@ -728,10 +727,11 @@ class SessionManager:
 				if fallback_session:
 					self.browser_session.agent_focus_target_id = fallback_target_id
 					self.logger.warning(f'[SessionManager] ⚠️ Agent focus set to emergency fallback: {fallback_target_id[:8]}...')
+					await self.browser_session._initialize_target_services_direct(fallback_target_id, 'about:blank')
+					await self.browser_session._notify_tab_created_compatibility(fallback_target_id, 'about:blank')
 
-					from browser_use.browser.events import AgentFocusChangedEvent, TabCreatedEvent
+					from browser_use.browser.events import AgentFocusChangedEvent
 
-					self.browser_session.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=fallback_target_id))
 					self.browser_session.event_bus.dispatch(
 						AgentFocusChangedEvent(target_id=fallback_target_id, url='about:blank')
 					)

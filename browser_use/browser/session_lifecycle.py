@@ -92,10 +92,11 @@ class BrowserSessionLifecycleMixin:
 	async def _save_storage_state_before_stop(self: Any) -> None:
 		"""Persist storage state directly when the storage watchdog is available."""
 
-		storage_state_watchdog = getattr(self, '_storage_state_watchdog', None)
-		if storage_state_watchdog is not None:
+		if getattr(self, '_storage_state_watchdog', None) is not None:
 			if self.is_cdp_connected:
-				await storage_state_watchdog.save_storage_state()
+				from browser_use.browser.services import StorageStateService
+
+				await StorageStateService(browser_session=self).save()
 			return
 
 		from browser_use.browser.events import SaveStorageStateEvent
@@ -122,7 +123,7 @@ class BrowserSessionLifecycleMixin:
 				await self._notify_watchdogs_before_stop()
 
 			if self.browser_profile.keep_alive and not force:
-				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
+				await self._notify_browser_stopped_compatibility('Kept alive due to keep_alive=True')
 				return
 
 			local_browser_watchdog = self._local_browser_watchdog
@@ -148,8 +149,7 @@ class BrowserSessionLifecycleMixin:
 			if notify_watchdogs and local_browser_watchdog is not None and self.is_local:
 				await local_browser_watchdog.cleanup_browser()
 
-			stop_event = self.event_bus.dispatch(BrowserStoppedEvent(reason='Stopped by request'))
-			await stop_event
+			await self._notify_browser_stopped_compatibility('Stopped by request')
 
 		except Exception as e:
 			self.event_bus.dispatch(
@@ -160,21 +160,38 @@ class BrowserSessionLifecycleMixin:
 				)
 			)
 
+	async def _notify_browser_stopped_compatibility(self: Any, reason: str) -> None:
+		"""Notify BrowserStoppedEvent listeners without making them control stop semantics."""
+
+		try:
+			stop_event = self.event_bus.dispatch(BrowserStoppedEvent(reason=reason))
+			await stop_event
+		except Exception as exc:
+			self.logger.debug(f'BrowserStoppedEvent compatibility notification failed: {type(exc).__name__}: {exc}')
+
 	async def _notify_watchdogs_before_stop(self: Any) -> None:
 		"""Finalize stop-aware watchdogs on the direct public stop path."""
+		from browser_use.browser.services import LifecycleService
 
-		aboutblank_watchdog = self._aboutblank_watchdog
-		if aboutblank_watchdog is not None:
-			aboutblank_watchdog.mark_stopping()
+		await LifecycleService(browser_session=self).finalize_before_stop()
 
-		storage_state_watchdog = self._storage_state_watchdog
-		if storage_state_watchdog is not None:
-			await storage_state_watchdog.stop_monitoring()
+	async def _initialize_browser_connected_services_direct(self: Any) -> None:
+		"""Initialize browser-connected services without relying on BrowserConnectedEvent."""
+		from browser_use.browser.services import LifecycleService
 
-		recording_watchdog = self._recording_watchdog
-		if recording_watchdog is not None:
-			await recording_watchdog.stop_recording()
+		await LifecycleService(browser_session=self).initialize_connected_services()
 
-		har_recording_watchdog = getattr(self, '_har_recording_watchdog', None)
-		if har_recording_watchdog is not None:
-			await har_recording_watchdog.save_har()
+	async def _initialize_target_services_direct(self: Any, target_id: str, url: str = '') -> None:
+		"""Initialize per-target services without relying on TabCreatedEvent subscribers."""
+		from browser_use.browser.services import LifecycleService
+
+		await LifecycleService(browser_session=self).initialize_target_services(target_id, url)
+
+	async def _notify_tab_created_compatibility(self: Any, target_id: str, url: str = '') -> None:
+		"""Notify TabCreatedEvent listeners without making them own target setup."""
+
+		try:
+			tab_event = self.event_bus.dispatch(TabCreatedEvent(url=url, target_id=target_id))
+			await tab_event
+		except Exception as exc:
+			self.logger.debug(f'TabCreatedEvent compatibility notification failed: {type(exc).__name__}: {exc}')

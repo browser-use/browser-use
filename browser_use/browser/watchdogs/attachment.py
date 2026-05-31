@@ -15,7 +15,6 @@ async def attach_all_watchdogs(browser_session: Any) -> None:
 	from browser_use.browser.watchdogs.har_recording_watchdog import HarRecordingWatchdog
 	from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 	from browser_use.browser.watchdogs.permissions_watchdog import PermissionsWatchdog
-	from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog
 	from browser_use.browser.watchdogs.recording_watchdog import RecordingWatchdog
 	from browser_use.browser.watchdogs.screenshot_watchdog import ScreenshotWatchdog
 	from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
@@ -69,13 +68,6 @@ async def attach_all_watchdogs(browser_session: Any) -> None:
 		browser_session=browser_session,
 	)
 	browser_session._aboutblank_watchdog.attach_to_session()
-
-	PopupsWatchdog.model_rebuild()
-	browser_session._popups_watchdog = PopupsWatchdog(
-		event_bus=browser_session.event_bus,
-		browser_session=browser_session,
-	)
-	browser_session._popups_watchdog.attach_to_session()
 
 	PermissionsWatchdog.model_rebuild()
 	browser_session._permissions_watchdog = PermissionsWatchdog(

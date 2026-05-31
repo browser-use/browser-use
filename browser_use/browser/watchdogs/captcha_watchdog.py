@@ -79,6 +79,10 @@ class CaptchaWatchdog(BaseWatchdog):
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""Register CDP event handlers for BrowserUse captcha solver events."""
+		await self.register_cdp_handlers()
+
+	async def register_cdp_handlers(self) -> None:
+		"""Register captcha solver CDP handlers without relying on BrowserConnectedEvent."""
 		if self._cdp_handlers_registered:
 			self.logger.debug('CaptchaWatchdog: CDP handlers already registered, skipping')
 			return
@@ -156,6 +160,10 @@ class CaptchaWatchdog(BaseWatchdog):
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
 		"""Clear captcha state when the browser disconnects so nothing hangs."""
+		self.reset_state()
+
+	def reset_state(self) -> None:
+		"""Clear captcha state so no waiter can remain blocked after browser stop."""
 		self._captcha_solving = False
 		self._captcha_result = 'unknown'
 		self._captcha_duration_ms = 0

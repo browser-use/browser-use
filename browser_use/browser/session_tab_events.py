@@ -47,7 +47,8 @@ class BrowserSessionTabEventsMixin:
 				assert self._cdp_client_root is not None, 'CDP client root not initialized - browser may not be connected yet'
 				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
 				target_id = cast(TargetID, new_target['targetId'])
-				await self._apply_viewport_to_target(target_id)
+				await self._initialize_target_services_direct(target_id, 'about:blank')
+				await self._notify_tab_created_compatibility(target_id, 'about:blank')
 				await self._set_agent_focus_direct(target_id=target_id, url='about:blank', emit_event=emit_event)
 				return target_id
 

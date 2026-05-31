@@ -35,7 +35,6 @@ from browser_use.browser.events import (
 	BrowserReconnectedEvent,
 	BrowserReconnectingEvent,
 	BrowserStartEvent,
-	TabCreatedEvent,
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.session_actor_api import BrowserSessionActorAPIMixin
@@ -476,6 +475,7 @@ class BrowserSession(
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
+	_dialog_listeners_registered: set[str] = PrivateAttr(default_factory=set)
 
 	# Watchdogs
 	_crash_watchdog: Any | None = PrivateAttr(default=None)
@@ -588,10 +588,13 @@ class BrowserSession(
 						)
 					assert self.cdp_client is not None
 
-					# Notify that browser is connected (single place)
-					# Ensure BrowserConnected handlers (storage_state restore) complete before
-					# start() returns so cookies/storage are applied before navigation.
-					await self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
+					# Browser-connected services are part of direct startup now. The event is
+					# retained as a compatibility notification for external listeners.
+					await self._initialize_browser_connected_services_direct()
+					try:
+						await self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
+					except Exception as exc:
+						self.logger.debug(f'BrowserConnectedEvent compatibility notification failed: {type(exc).__name__}: {exc}')
 
 					if self.browser_profile.demo_mode:
 						try:
@@ -940,11 +943,17 @@ class BrowserSession(
 				if target.title == 'Unknown title':
 					self.logger.warning('Target created but title is unknown (may be normal for about:blank)')
 
-			# Dispatch TabCreatedEvent for all initial tabs (so watchdogs can initialize)
-			for idx, target in enumerate(page_targets_from_manager):
-				target_url = target.url
-				self.logger.debug(f'Dispatching TabCreatedEvent for initial tab {idx}: {target_url}')
-				self.event_bus.dispatch(TabCreatedEvent(url=target_url, target_id=target.target_id))
+			# Initialize per-target services directly. The event remains a compatibility notification.
+			if page_targets_from_manager:
+				for idx, target in enumerate(page_targets_from_manager):
+					target_url = target.url
+					self.logger.debug(f'Initializing target services for initial tab {idx}: {target_url}')
+					await self._initialize_target_services_direct(target.target_id, target_url)
+					await self._notify_tab_created_compatibility(target.target_id, target_url)
+			else:
+				self.logger.debug('Initializing target services for newly-created initial about:blank tab')
+				await self._initialize_target_services_direct(target_id, 'about:blank')
+				await self._notify_tab_created_compatibility(target_id, 'about:blank')
 
 			# Dispatch initial focus event
 			if page_targets_from_manager:

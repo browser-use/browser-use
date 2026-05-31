@@ -51,10 +51,11 @@ class AboutBlankWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Check tabs when a new tab is created."""
-		# logger.debug(f'[AboutBlankWatchdog] ➕ New tab created: {event.url}')
+		await self.handle_tab_created(target_id=event.target_id, url=event.url)
 
-		# If an about:blank tab was created, show DVD screensaver on all about:blank tabs
-		if event.url == 'about:blank':
+	async def handle_tab_created(self, target_id: TargetID, url: str) -> None:
+		"""Apply about:blank handling without relying on TabCreatedEvent."""
+		if url == 'about:blank':
 			await self._show_dvd_screensaver_on_about_blank_tabs()
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:

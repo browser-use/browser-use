@@ -47,6 +47,105 @@ class BrowserStateService(BrowserService):
 		return await self.browser_session.get_state_as_text()
 
 
+class PageReadinessService(BrowserService):
+	"""Navigation readiness policy backed by CDP lifecycle events."""
+
+	async def navigate_and_wait(
+		self,
+		url: str,
+		target_id: str,
+		*,
+		timeout: float | None = None,
+		wait_until: str = 'load',
+		nav_timeout: float | None = None,
+	) -> None:
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+		if timeout is None:
+			target = self.browser_session.session_manager.get_target(target_id)
+			current_url = target.url
+			same_domain = (
+				url.split('/')[2] == current_url.split('/')[2]
+				if url.startswith('http') and current_url.startswith('http')
+				else False
+			)
+			timeout = 3.0 if same_domain else 8.0
+
+		nav_start_time = asyncio.get_event_loop().time()
+
+		if nav_timeout is None:
+			nav_timeout = 20.0
+		try:
+			nav_result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Page.navigate(
+					params={'url': url, 'transitionType': 'address_bar'},
+					session_id=cdp_session.session_id,
+				),
+				timeout=nav_timeout,
+			)
+		except TimeoutError:
+			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			raise RuntimeError(f'Page.navigate() timed out after {nav_timeout}s ({duration_ms:.0f}ms) for {url}')
+
+		if nav_result.get('errorText'):
+			raise RuntimeError(f'Navigation failed: {nav_result["errorText"]}')
+
+		if wait_until == 'commit':
+			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			self.logger.debug(f'✅ Page ready for {url} (commit, {duration_ms:.0f}ms)')
+			return
+
+		navigation_id = nav_result.get('loaderId')
+		start_time = asyncio.get_event_loop().time()
+		seen_events = []
+
+		if not hasattr(cdp_session, '_lifecycle_events'):
+			raise RuntimeError(
+				f'❌ Lifecycle monitoring not enabled for {cdp_session.target_id[:8]}! '
+				f'This is a bug - SessionManager should have initialized it. '
+				f'Session: {cdp_session}'
+			)
+
+		acceptable_events: set[str] = {'networkIdle'}
+		if wait_until in ('load', 'domcontentloaded'):
+			acceptable_events.add('load')
+		if wait_until == 'domcontentloaded':
+			acceptable_events.add('DOMContentLoaded')
+
+		poll_interval = 0.05
+		while (asyncio.get_event_loop().time() - start_time) < timeout:
+			try:
+				for event_data in list(cdp_session._lifecycle_events):
+					event_name = event_data.get('name')
+					event_loader_id = event_data.get('loaderId')
+
+					event_str = f'{event_name}(loader={event_loader_id[:8] if event_loader_id else "none"})'
+					if event_str not in seen_events:
+						seen_events.append(event_str)
+
+					if event_loader_id and navigation_id and event_loader_id != navigation_id:
+						continue
+
+					if event_name in acceptable_events:
+						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+						self.logger.debug(f'✅ Page ready for {url} ({event_name}, {duration_ms:.0f}ms)')
+						return
+
+			except Exception as exc:
+				self.logger.debug(f'Error polling lifecycle events: {exc}')
+
+			await asyncio.sleep(poll_interval)
+
+		duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+		if not seen_events:
+			self.logger.error(
+				f'❌ No lifecycle events received for {url} after {duration_ms:.0f}ms! '
+				f'Monitoring may have failed. Target: {cdp_session.target_id[:8]}'
+			)
+		else:
+			self.logger.warning(f'⚠️ Page readiness timeout ({timeout}s, {duration_ms:.0f}ms) for {url}')
+
+
 class NavigationService(BrowserService):
 	"""Page navigation operations."""
 
@@ -54,7 +153,7 @@ class NavigationService(BrowserService):
 		self._ensure_url_allowed(url)
 		self.browser_session._clear_browser_state_cache_direct(reason='navigation requested')
 		target_id = await self._target_for_navigation(new_tab=new_tab)
-		await self.browser_session._navigate_and_wait(url, target_id)
+		await PageReadinessService(browser_session=self.browser_session).navigate_and_wait(url, target_id)
 		await self.browser_session._set_agent_focus_direct(target_id=target_id, url=url, emit_event=False)
 		await self.browser_session._close_extension_options_pages()
 		if verify_not_empty and not new_tab:
@@ -113,7 +212,8 @@ class NavigationService(BrowserService):
 
 		target_id = await self.browser_session._cdp_create_new_page('about:blank')
 		await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
-		await self.browser_session._apply_viewport_to_target(target_id)
+		await self.browser_session._initialize_target_services_direct(target_id, 'about:blank')
+		await self.browser_session._notify_tab_created_compatibility(target_id, 'about:blank')
 		await self.browser_session._set_agent_focus_direct(target_id=target_id, url='about:blank', emit_event=False)
 		return target_id
 
@@ -139,7 +239,7 @@ class NavigationService(BrowserService):
 		if target_id is None:
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
 			target_id = cdp_session.target_id
-		await self.browser_session._navigate_and_wait(url, target_id)
+		await PageReadinessService(browser_session=self.browser_session).navigate_and_wait(url, target_id)
 		await asyncio.sleep(5.0)
 		state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
 		if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
@@ -178,7 +278,8 @@ class TabService(BrowserService):
 		if next_focus is None:
 			next_focus = await self.browser_session._cdp_create_new_page('about:blank')
 			await self.browser_session.get_or_create_cdp_session(target_id=next_focus, focus=False)
-			await self.browser_session._apply_viewport_to_target(next_focus)
+			await self.browser_session._initialize_target_services_direct(next_focus, 'about:blank')
+			await self.browser_session._notify_tab_created_compatibility(next_focus, 'about:blank')
 
 		await self.browser_session.switch_tab_direct(next_focus)
 
@@ -234,6 +335,21 @@ def _is_path_contained(path: str | Path, directory: str | Path) -> bool:
 
 class DownloadService(BrowserService):
 	"""Downloaded file access."""
+
+	async def prepare_directory(self) -> None:
+		downloads_watchdog = getattr(self.browser_session, '_downloads_watchdog', None)
+		if downloads_watchdog is not None:
+			await downloads_watchdog.initialize_downloads_directory()
+
+	async def attach_to_target(self, target_id: TargetID) -> None:
+		downloads_watchdog = getattr(self.browser_session, '_downloads_watchdog', None)
+		if downloads_watchdog is not None:
+			await downloads_watchdog.attach_to_target(target_id)
+
+	async def cleanup(self) -> None:
+		downloads_watchdog = getattr(self.browser_session, '_downloads_watchdog', None)
+		if downloads_watchdog is not None:
+			await downloads_watchdog.cleanup_after_stop()
 
 	def list_downloads(self) -> list[str]:
 		return self.browser_session.downloaded_files
@@ -330,6 +446,98 @@ class DownloadService(BrowserService):
 class DialogService(BrowserService):
 	"""Dialog state captured by popup handling."""
 
+	async def register_handlers(self, target_id: TargetID) -> None:
+		if target_id in self.browser_session._dialog_listeners_registered:
+			self.logger.debug(f'Already registered dialog handlers for target {target_id}')
+			return
+
+		self.logger.debug(f'📌 Starting dialog handler setup for target {target_id}')
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+			try:
+				await cdp_session.cdp_client.send.Page.enable(session_id=cdp_session.session_id)
+				self.logger.debug(f'✅ Enabled Page domain for session {cdp_session.session_id[-8:]}')
+			except Exception as exc:
+				self.logger.debug(f'Failed to enable Page domain: {exc}')
+
+			if self.browser_session._cdp_client_root:
+				self.logger.debug('📌 Also registering handler on root CDP client')
+				try:
+					await self.browser_session._cdp_client_root.send.Page.enable()
+					self.logger.debug('✅ Enabled Page domain on root CDP client')
+				except Exception as exc:
+					self.logger.debug(f'Failed to enable Page domain on root: {exc}')
+
+			async def handle_dialog(event_data, session_id: str | None = None):
+				try:
+					dialog_type = event_data.get('type', 'alert')
+					message = event_data.get('message', '')
+
+					if message:
+						formatted_message = f'[{dialog_type}] {message}'
+						self.browser_session._closed_popup_messages.append(formatted_message)
+						self.logger.debug(f'📝 Stored popup message: {formatted_message[:100]}')
+
+					should_accept = dialog_type in ('alert', 'confirm', 'beforeunload')
+					action_str = 'accepting (OK)' if should_accept else 'dismissing (Cancel)'
+					self.logger.info(f"🔔 JavaScript {dialog_type} dialog: '{message[:100]}' - {action_str}...")
+
+					dismissed = False
+					if self.browser_session._cdp_client_root and session_id:
+						try:
+							self.logger.debug(f'🔄 Approach 1: Using detecting session {session_id[-8:]}')
+							await asyncio.wait_for(
+								self.browser_session._cdp_client_root.send.Page.handleJavaScriptDialog(
+									params={'accept': should_accept},
+									session_id=session_id,
+								),
+								timeout=0.5,
+							)
+							dismissed = True
+							self.logger.info('✅ Dialog handled successfully via detecting session')
+						except (TimeoutError, Exception) as exc:
+							self.logger.debug(f'Approach 1 failed: {type(exc).__name__}')
+
+					if not dismissed and self.browser_session._cdp_client_root and self.browser_session.agent_focus_target_id:
+						try:
+							focused_session = await self.browser_session.get_or_create_cdp_session(
+								self.browser_session.agent_focus_target_id,
+								focus=False,
+							)
+							self.logger.debug(f'🔄 Approach 2: Using agent focus session {focused_session.session_id[-8:]}')
+							await asyncio.wait_for(
+								self.browser_session._cdp_client_root.send.Page.handleJavaScriptDialog(
+									params={'accept': should_accept},
+									session_id=focused_session.session_id,
+								),
+								timeout=0.5,
+							)
+							self.logger.info('✅ Dialog handled successfully via agent focus session')
+						except (TimeoutError, Exception) as exc:
+							self.logger.debug(f'Approach 2 failed: {type(exc).__name__}')
+
+				except Exception as exc:
+					self.logger.error(f'❌ Critical error in dialog handler: {type(exc).__name__}: {exc}')
+
+			cdp_session.cdp_client.register.Page.javascriptDialogOpening(handle_dialog)  # type: ignore[arg-type]
+			self.logger.debug(
+				f'Successfully registered Page.javascriptDialogOpening handler for session {cdp_session.session_id}'
+			)
+
+			if hasattr(self.browser_session._cdp_client_root, 'register'):
+				try:
+					self.browser_session._cdp_client_root.register.Page.javascriptDialogOpening(handle_dialog)  # type: ignore[arg-type]
+					self.logger.debug('Successfully registered dialog handler on root CDP client for all frames')
+				except Exception as root_error:
+					self.logger.warning(f'Failed to register on root CDP client: {root_error}')
+
+			self.browser_session._dialog_listeners_registered.add(target_id)
+			self.logger.debug(f'Set up JavaScript dialog handling for tab {target_id}')
+
+		except Exception as exc:
+			self.logger.warning(f'Failed to set up popup handling for tab {target_id}: {exc}')
+
 	def closed_messages(self) -> list[str]:
 		return list(self.browser_session._closed_popup_messages)
 
@@ -347,12 +555,98 @@ class NetworkService(BrowserService):
 class StorageStateService(BrowserService):
 	"""Storage state import/export helpers."""
 
+	async def initialize(self) -> None:
+		storage_state_watchdog = getattr(self.browser_session, '_storage_state_watchdog', None)
+		if storage_state_watchdog is not None:
+			await storage_state_watchdog.initialize_storage_state()
+
+	async def save(self, path: str | None = None) -> None:
+		storage_state_watchdog = getattr(self.browser_session, '_storage_state_watchdog', None)
+		if storage_state_watchdog is not None:
+			if path is None:
+				await storage_state_watchdog.save_storage_state()
+			else:
+				await storage_state_watchdog.save_storage_state(path)
+
+	async def load(self, path: str | None = None) -> None:
+		storage_state_watchdog = getattr(self.browser_session, '_storage_state_watchdog', None)
+		if storage_state_watchdog is not None:
+			if path is None:
+				await storage_state_watchdog.load_storage_state()
+			else:
+				await storage_state_watchdog.load_storage_state(path)
+
+	async def stop_monitoring(self) -> None:
+		storage_state_watchdog = getattr(self.browser_session, '_storage_state_watchdog', None)
+		if storage_state_watchdog is not None:
+			await storage_state_watchdog.stop_monitoring()
+
 	async def export(self, output_path: str | None = None) -> dict[str, Any]:
 		return await self.browser_session.export_storage_state(output_path=output_path)
 
 
 class LifecycleService(BrowserService):
 	"""Browser lifecycle operations."""
+
+	async def initialize_connected_services(self) -> None:
+		await DownloadService(browser_session=self.browser_session).prepare_directory()
+		await StorageStateService(browser_session=self.browser_session).initialize()
+
+		permissions_watchdog = getattr(self.browser_session, '_permissions_watchdog', None)
+		if permissions_watchdog is not None:
+			await permissions_watchdog.grant_permissions()
+
+		recording_watchdog = getattr(self.browser_session, '_recording_watchdog', None)
+		if recording_watchdog is not None:
+			await recording_watchdog.start_configured_recording()
+
+		har_recording_watchdog = getattr(self.browser_session, '_har_recording_watchdog', None)
+		if har_recording_watchdog is not None:
+			await har_recording_watchdog.start_configured_recording()
+
+		captcha_watchdog = getattr(self.browser_session, '_captcha_watchdog', None)
+		if captcha_watchdog is not None:
+			await captcha_watchdog.register_cdp_handlers()
+
+	async def initialize_target_services(self, target_id: TargetID, url: str = '') -> None:
+		await self.browser_session._apply_viewport_to_target(target_id)
+
+		security_watchdog = getattr(self.browser_session, '_security_watchdog', None)
+		if security_watchdog is not None:
+			target_allowed = await security_watchdog.validate_new_tab(url, target_id)
+			if not target_allowed:
+				return
+
+		aboutblank_watchdog = getattr(self.browser_session, '_aboutblank_watchdog', None)
+		if aboutblank_watchdog is not None:
+			await aboutblank_watchdog.handle_tab_created(target_id=target_id, url=url)
+
+		await DownloadService(browser_session=self.browser_session).attach_to_target(target_id)
+		await DialogService(browser_session=self.browser_session).register_handlers(target_id)
+
+		crash_watchdog = getattr(self.browser_session, '_crash_watchdog', None)
+		if crash_watchdog is not None:
+			await crash_watchdog.attach_to_target(target_id)
+
+	async def finalize_before_stop(self) -> None:
+		aboutblank_watchdog = getattr(self.browser_session, '_aboutblank_watchdog', None)
+		if aboutblank_watchdog is not None:
+			aboutblank_watchdog.mark_stopping()
+
+		await DownloadService(browser_session=self.browser_session).cleanup()
+		await StorageStateService(browser_session=self.browser_session).stop_monitoring()
+
+		recording_watchdog = getattr(self.browser_session, '_recording_watchdog', None)
+		if recording_watchdog is not None:
+			await recording_watchdog.stop_recording()
+
+		har_recording_watchdog = getattr(self.browser_session, '_har_recording_watchdog', None)
+		if har_recording_watchdog is not None:
+			await har_recording_watchdog.save_har()
+
+		captcha_watchdog = getattr(self.browser_session, '_captcha_watchdog', None)
+		if captcha_watchdog is not None:
+			captcha_watchdog.reset_state()
 
 	async def start(self) -> None:
 		await self.browser_session.start()
@@ -398,6 +692,7 @@ class BrowserServiceBundle(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	state: BrowserStateService
+	readiness: PageReadinessService
 	actions: ActionService
 	navigation: NavigationService
 	tabs: TabService
@@ -413,6 +708,7 @@ class BrowserServiceBundle(BaseModel):
 		tabs = TabService(browser_session=browser_session)
 		return cls(
 			state=BrowserStateService(browser_session=browser_session),
+			readiness=PageReadinessService(browser_session=browser_session),
 			actions=ActionService.from_session(browser_session),
 			navigation=navigation,
 			tabs=tabs,
