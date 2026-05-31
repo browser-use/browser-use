@@ -2358,3 +2358,32 @@ Results:
 - Screenshot tests: `2 passed`.
 - Direct headless Chromium highlight smoke: resolved a backend-node rectangle and ran coordinate highlight/removal.
 - `browser_use/browser/session.py` reduced from `2343` to `1753` lines in this slice.
+
+## Codexification Verification 96
+
+After extracting DOM/tab compatibility helpers into `browser_use/browser/session_dom.py`:
+
+```bash
+uv run ruff check browser_use/browser/session.py browser_use/browser/session_dom.py
+uv run pyright browser_use/browser/session.py browser_use/browser/session_dom.py
+uv run pytest tests/ci/browser/test_tabs.py -q
+uv run pytest tests/ci/browser/test_cross_origin_click.py -q
+uv run pytest tests/ci/test_coordinate_clicking.py -q
+uv run pytest tests/ci/browser/test_session_start.py::TestBrowserSessionStart::test_start_already_started_session tests/ci/browser/test_cdp_headers.py -q
+uv run python - <<'PY'
+# Starts a local HTTP page, calls navigate_to(), get_tabs(),
+# get_current_page_url(), get_current_page_title(),
+# get_dom_element_at_coordinates(), and get_target_id_from_url().
+PY
+```
+
+Results:
+
+- Ruff: passed after import cleanup.
+- Pyright: `0 errors`.
+- Tab operation tests: `5 passed`.
+- Cross-origin iframe click test: `1 passed`.
+- Coordinate-clicking tests: `33 passed`.
+- Session start and CDP header tests: `6 passed`.
+- Direct headless Chromium DOM smoke: resolved the button node at coordinates and target id from URL.
+- `browser_use/browser/session.py` reduced from `1753` to `1340` lines in this slice.

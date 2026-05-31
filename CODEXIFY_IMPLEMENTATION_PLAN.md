@@ -405,6 +405,7 @@ Implement:
 - [x] Extract frame hierarchy, frame-target lookup, and node CDP-session resolution out of the giant browser session.
 - [x] Extract screenshot capture and element-bound lookup out of the giant browser session.
 - [x] Extract visual highlight, coordinate-highlight, and element-coordinate helpers out of the giant browser session.
+- [x] Extract tab metadata, current-target lookup, DOM coordinate lookup, selector-map access, and file-input search out of the giant browser session.
 - [x] Extract browser session lifecycle wiring and public start/stop helpers out of the giant browser session.
 - [x] Move browser stop and cloud-session cleanup into the browser session lifecycle helper.
 - [x] Extract browser session navigation event handling and lifecycle waiting out of the giant browser session.
