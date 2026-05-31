@@ -521,3 +521,19 @@ Real `ChatBrowserUse` + headless local Chromium smoke after centralizing typed c
 - Steps: `4`
 - Final result: `codexify-context-smoke`
 - Notes: the task opened a local HTTP page, clicked a `Reveal` button, extracted the revealed text, and completed through the public `Agent` path.
+
+## Codexification Verification 21
+
+After introducing a dedicated system prompt renderer boundary:
+
+```bash
+uv run pytest tests/ci/test_system_prompt_profile.py -q
+uv run ruff check browser_use/agent/prompts.py tests/ci/test_system_prompt_profile.py
+uv run pyright browser_use/agent/prompts.py tests/ci/test_system_prompt_profile.py
+```
+
+Results:
+
+- System prompt profile/renderer tests: `11 passed`.
+- Ruff: passed.
+- Pyright: `0 errors`.

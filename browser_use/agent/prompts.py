@@ -59,6 +59,25 @@ class SystemPromptTemplateProfile(BaseModel):
 		return 'system_prompt_no_thinking.md'
 
 
+class SystemPromptRenderer(BaseModel):
+	"""Loads and renders system prompt templates for a selected profile."""
+
+	model_config = ConfigDict(frozen=True)
+
+	resource_package: str = 'browser_use.agent.system_prompts'
+
+	def render(self, profile: SystemPromptTemplateProfile) -> str:
+		template = self.load_template(profile.template_filename())
+		return template.format(max_actions=profile.max_actions_per_step)
+
+	def load_template(self, template_filename: str) -> str:
+		try:
+			with importlib.resources.files(self.resource_package).joinpath(template_filename).open('r', encoding='utf-8') as f:
+				return f.read()
+		except Exception as e:
+			raise RuntimeError(f'Failed to load system prompt template: {e}')
+
+
 class SystemPrompt:
 	def __init__(
 		self,
@@ -72,6 +91,7 @@ class SystemPrompt:
 		is_anthropic_4_5: bool | None = None,
 		model_name: str | None = None,
 	):
+		self.renderer = SystemPromptRenderer()
 		self.profile = SystemPromptTemplateProfile(
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
@@ -85,26 +105,12 @@ class SystemPrompt:
 		if override_system_message is not None:
 			prompt = override_system_message
 		else:
-			self._load_prompt_template(self.profile.template_filename())
-			prompt = self.prompt_template.format(max_actions=self.profile.max_actions_per_step)
+			prompt = self.renderer.render(self.profile)
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
 
 		self.system_message = SystemMessage(content=prompt, cache=True)
-
-	def _load_prompt_template(self, template_filename: str) -> None:
-		"""Load the prompt template from the markdown file."""
-		try:
-			# This works both in development and when installed as a package
-			with (
-				importlib.resources.files('browser_use.agent.system_prompts')
-				.joinpath(template_filename)
-				.open('r', encoding='utf-8') as f
-			):
-				self.prompt_template = f.read()
-		except Exception as e:
-			raise RuntimeError(f'Failed to load system prompt template: {e}')
 
 	def get_system_message(self) -> SystemMessage:
 		"""
