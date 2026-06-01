@@ -169,6 +169,51 @@ def test_rust_wrapper_moves_config_extra_args_before_headless_subcommand(monkeyp
 	assert seen_argv[-1] == '--some-subcmd-flag'
 
 
+def test_rust_wrapper_runs_headless_from_clean_runtime_cwd(monkeypatch, tmp_path):
+	from pathlib import Path
+
+	from browser_use.rust import service
+
+	seen_kwargs: dict[str, object] = {}
+
+	async def fake_subprocess_exec(*_argv, **kwargs):
+		seen_kwargs.update(kwargs)
+
+		class _Stream:
+			async def read(self, _n=-1):
+				return b''
+
+		class _Proc:
+			stdout = _Stream()
+			stderr = _Stream()
+			returncode = 0
+
+			async def wait(self):
+				return 0
+
+		return _Proc()
+
+	monkeypatch.delenv('BU_RUST_RUNTIME_CWD', raising=False)
+	monkeypatch.setattr(service, 'find_browser_use_terminal_binary', lambda: Path('/tmp/browser-use-terminal'))
+	monkeypatch.setattr(service, '_binary_supports_max_turns', lambda cli, subcommand: False)
+	monkeypatch.setattr(service.asyncio, 'create_subprocess_exec', fake_subprocess_exec)
+
+	state_dir = tmp_path / 'state'
+	asyncio.run(Agent(task='x', state_dir=state_dir)._run_headless('do work', attach_to_session=None))
+
+	assert seen_kwargs['cwd'] == state_dir / 'browser-agent-cwd'
+	assert (state_dir / 'browser-agent-cwd').is_dir()
+
+
+def test_rust_wrapper_runtime_cwd_env_override(monkeypatch, tmp_path):
+	from browser_use.rust.service import _runtime_cwd
+
+	override = tmp_path / 'browser-cwd'
+	monkeypatch.setenv('BU_RUST_RUNTIME_CWD', str(override))
+
+	assert _runtime_cwd(tmp_path / 'state') == override
+
+
 def test_browser_cdp_url_passes_through_to_env_for_rust_side():
 	class _Browser:
 		cdp_url = 'ws://127.0.0.1:9222/devtools/browser/abc'

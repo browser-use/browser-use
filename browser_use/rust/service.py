@@ -136,6 +136,7 @@ DEFAULT_POLL_INTERVAL_MS = 250
 GRACEFUL_CANCEL_TIMEOUT_S = 5.0
 DEFAULT_RUST_MAX_TURNS = 80
 SHELL_TOOL_OPT_IN_ENV = 'BU_RUST_ENABLE_SHELL_TOOL'
+RUNTIME_CWD_ENV = 'BU_RUST_RUNTIME_CWD'
 
 # Appended to the task text when BU_RUST_FORCE_SCREENSHOTS=1 (set by the
 # eval CI). The Rust core's default system prompt only *encourages*
@@ -305,6 +306,24 @@ def _split_global_config_args(args: list[str]) -> tuple[list[str], list[str]]:
 			remaining.append(arg)
 		i += 1
 	return global_args, remaining
+
+
+def _default_state_dir() -> Path:
+	return Path.home() / '.browser-use-terminal'
+
+
+def _runtime_cwd(state_dir: Path | None = None) -> Path:
+	"""Directory used as cwd for Rust browser-agent subprocesses.
+
+	Browser tasks should not inherit a caller's repository cwd: the Rust core
+	reads local workspace context from cwd, which is useful for coding agents
+	but wastes prompt tokens and can distract browser eval runs.
+	"""
+	override = os.environ.get(RUNTIME_CWD_ENV)
+	if override:
+		return Path(override).expanduser()
+	base = state_dir.expanduser() if state_dir else _default_state_dir()
+	return base / 'browser-agent-cwd'
 
 
 def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | None:
@@ -1004,6 +1023,8 @@ class Agent:
 		argv.extend(subcommand_extra_args)
 
 		env = {**os.environ, **self._env_overrides()}
+		runtime_cwd = _runtime_cwd(self.state_dir)
+		runtime_cwd.mkdir(parents=True, exist_ok=True)
 
 		started = time.monotonic()
 		state = _AgentSessionState()
@@ -1017,6 +1038,7 @@ class Agent:
 				stdout=asyncio.subprocess.PIPE,
 				stderr=asyncio.subprocess.PIPE,
 				env=env,
+				cwd=runtime_cwd,
 			)
 		except FileNotFoundError as err:
 			raise RuntimeError(f'browser-use-terminal not found: {err}') from err
@@ -1104,7 +1126,7 @@ class Agent:
 			diag = (
 				'\n========= rust Agent: subprocess returned no events =========\n'
 				f'argv:     {argv}\n'
-				f'cwd:      {os.getcwd()}\n'
+				f'cwd:      {runtime_cwd}\n'
 				f'exit:     {exit_code}\n'
 				f'duration: {(time.monotonic() - started):.2f}s\n'
 				f'session:  {state.session_id}\n'
