@@ -120,11 +120,14 @@ class AnthropicMessageSerializer:
 				return content
 
 		serialized_blocks: list[TextBlockParam | ImageBlockParam] = []
+		# Find the last text block index so cache_control targets the last *serializable* block,
+		# not the last element (which may be an image_url that cannot receive cache_control).
+		last_text_idx = max((i for i, p in enumerate(content) if p.type == 'text'), default=-1)
 		for i, part in enumerate(content):
-			is_last = i == len(content) - 1
+			is_last_text = i == last_text_idx
 			if part.type == 'text':
 				serialized_blocks.append(
-					AnthropicMessageSerializer._serialize_content_part_text(part, use_cache=use_cache and is_last)
+					AnthropicMessageSerializer._serialize_content_part_text(part, use_cache=use_cache and is_last_text)
 				)
 			elif part.type == 'image_url':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_image(part))

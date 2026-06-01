@@ -65,7 +65,7 @@ def _resolve_type(schema: dict, name: str) -> Any:
 	"""
 	_check_unsupported(schema)
 
-	json_type = schema.get('type', 'string')
+	json_type = _normalize_type(schema.get('type')) or 'string'
 
 	# Enums — constrain to str (Literal would be stricter but LLMs are flaky)
 	if 'enum' in schema:
@@ -127,7 +127,7 @@ def _build_model(schema: dict, name: str) -> type[BaseModel]:
 			# Use a type-appropriate zero value for primitives/arrays;
 			# fall back to None (with | None) for enums and nested objects
 			# where no in-set or constructible default exists.
-			json_type = prop_schema.get('type', 'string')
+			json_type = _normalize_type(prop_schema.get('type')) or 'string'
 			if 'enum' in prop_schema:
 				# Can't pick an arbitrary enum member as default — use None
 				# so absent fields serialize as null, not an out-of-set value.
