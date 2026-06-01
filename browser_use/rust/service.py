@@ -193,7 +193,9 @@ EVAL_SCREENSHOT_DIRECTIVE_TEMPLATE = (
 	'ThreadPoolExecutor in a SINGLE browser_script call for static pages and '
 	'explicit URLs/paths. If pages need JS, interaction, pagination, PDFs, '
 	'vendor disambiguation, or separate sites, spawn one focused sub-agent per '
-	'item/document/site with `spawn_agent`, then collect with `wait_agent`. '
+	'item/document/site with `spawn_agent` using a short snake_case `task_name`, '
+	'then collect with `wait_agent` without targets and read the returned '
+	'`agents` array for `agent_status.completed` values. '
 	'Serial browser walks burn 5-10 turns per item and exhaust the budget.'
 )
 
