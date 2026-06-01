@@ -139,7 +139,7 @@ GRACEFUL_CANCEL_TIMEOUT_S = 5.0
 # eval CI). The Rust core's default system prompt only *encourages*
 # screenshots; without them the eval judge has no visual evidence and
 # scores everything 0. The wrapper forwards this directive once per task.
-EVAL_SCREENSHOT_DIRECTIVE = (
+EVAL_SCREENSHOT_DIRECTIVE_TEMPLATE = (
 	'\n\n[EVAL MODE — automated test, no human will reply]'
 	'\nVerify on the live website (never from memory). Return every requested '
 	'data field inline in the final answer (never "see the file" — judge has '
@@ -147,11 +147,13 @@ EVAL_SCREENSHOT_DIRECTIVE = (
 	'browser_script with `screenshot("step")`. Do not ask clarifying questions '
 	'— finish with the best answer you can produce from the live page.'
 	'\n\n[BUDGET — read before your first tool call]'
-	'\nMax turns: 100. For multi-item tasks (N>=5 items), use http_get + '
-	'ThreadPoolExecutor in a SINGLE browser_script call to fetch all items in '
-	'parallel. Browser walks through each item serially burn 5-10 turns per '
-	'item and exhaust the budget. If the task explicitly names URLs/paths, '
-	'fetch them in parallel via Python requests (no browser needed).'
+	'\nMax turns: {max_turns}. For multi-item tasks (N>=5 items), do not walk '
+	'items one by one in the parent. First try http_get/requests + '
+	'ThreadPoolExecutor in a SINGLE browser_script call for static pages and '
+	'explicit URLs/paths. If pages need JS, interaction, pagination, PDFs, '
+	'vendor disambiguation, or separate sites, spawn one focused sub-agent per '
+	'item/document/site with `spawn_agent`, then collect with `wait_agent`. '
+	'Serial browser walks burn 5-10 turns per item and exhaust the budget.'
 )
 
 
@@ -249,7 +251,7 @@ def _looks_like_skip(result: Any) -> bool:
 	return True
 
 
-def _maybe_inject_eval_directive(task: str | None) -> str | None:
+def _maybe_inject_eval_directive(task: str | None, max_turns: int | None = None) -> str | None:
 	"""Prepend the eval-mode directive when explicitly enabled.
 
 	Gated by `BU_RUST_FORCE_SCREENSHOTS=1`; idempotent (won't re-add if the
@@ -262,7 +264,9 @@ def _maybe_inject_eval_directive(task: str | None) -> str | None:
 		return task
 	if '[EVAL MODE' in task:
 		return task
-	return EVAL_SCREENSHOT_DIRECTIVE.lstrip() + '\n\n' + task
+	budget = max_turns if max_turns and max_turns > 0 else 100
+	directive = EVAL_SCREENSHOT_DIRECTIVE_TEMPLATE.format(max_turns=budget)
+	return directive.lstrip() + '\n\n' + task
 
 
 def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | None:
@@ -644,9 +648,9 @@ class Agent:
 			if self.task is None:
 				raise ValueError('Agent.run(interactive=False) requires a task.')
 			task_text = _maybe_inject_cdp_connect(
-			_maybe_inject_eval_directive(self.task) or self.task,
-			_browser_cdp_url(self.browser),
-		)
+				_maybe_inject_eval_directive(self.task, effective_max) or self.task,
+				_browser_cdp_url(self.browser),
+			)
 			result = await self._run_headless(task_text, attach_to_session=None, max_turns=effective_max)
 
 			# Retry-on-skip safety net. When the agent finished without doing

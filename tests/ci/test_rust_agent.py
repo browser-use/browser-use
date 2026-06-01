@@ -387,11 +387,17 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	assert _maybe_inject_eval_directive('go to example.com') == 'go to example.com'
 
 	monkeypatch.setenv('BU_RUST_FORCE_SCREENSHOTS', '1')
-	out = _maybe_inject_eval_directive('go to example.com')
+	out = _maybe_inject_eval_directive('go to example.com', max_turns=150)
 	assert out is not None
 	assert '[EVAL MODE' in out
+	assert 'Max turns: 150' in out
+	assert 'spawn one focused sub-agent per item/document/site' in out
 	# Idempotent — re-injecting must not duplicate.
-	assert _maybe_inject_eval_directive(out) == out
+	assert _maybe_inject_eval_directive(out, max_turns=200) == out
+
+	default_budget = _maybe_inject_eval_directive('go to example.org')
+	assert default_budget is not None
+	assert 'Max turns: 100' in default_budget
 
 	# None passes through unchanged.
 	assert _maybe_inject_eval_directive(None) is None
