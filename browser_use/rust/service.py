@@ -233,7 +233,85 @@ def _structured_extracted_content(payload: dict[str, Any], *, limit: int = 8000)
 	subset = {key: payload[key] for key in STRUCTURED_EXTRACTED_CONTENT_KEYS if payload.get(key) not in (None, '', [], {})}
 	if not subset:
 		return None
-	return json.dumps(subset, ensure_ascii=False, sort_keys=True)[:limit]
+	return _bounded_json_for_extracted_content(subset, limit=limit)
+
+
+def _bounded_json_for_extracted_content(payload: dict[str, Any], *, limit: int) -> str:
+	full = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+	if len(full) <= limit:
+		return full
+	compact: dict[str, Any] = {'truncated': True}
+	for key in ('message', 'timed_out', 'status', 'ok'):
+		if key in payload:
+			compact[key] = payload[key]
+	if isinstance(payload.get('agents'), list):
+		compact['agents'] = [_compact_agent_status(agent) for agent in payload['agents']]
+	for key, value in payload.items():
+		if key in compact or key == 'agents':
+			continue
+		compact[key] = _truncate_structured_value(value, max_string_chars=500)
+	result = json.dumps(compact, ensure_ascii=False, sort_keys=True)
+	if len(result) <= limit:
+		return result
+	# Keep JSON valid even under pathological payloads. Agent names and compact
+	# status snippets are more useful to the judge than a raw broken JSON slice.
+	if isinstance(compact.get('agents'), list):
+		compact['agents'] = compact['agents'][:20]
+		for agent in compact['agents']:
+			if isinstance(agent.get('agent_status'), dict):
+				for status_key in ('completed', 'errored'):
+					if status_key in agent['agent_status']:
+						agent['agent_status'][status_key] = _truncate_text(
+							str(agent['agent_status'][status_key]), 240
+						)
+			if 'last_task_message' in agent:
+				agent['last_task_message'] = _truncate_text(str(agent['last_task_message']), 120)
+	result = json.dumps(compact, ensure_ascii=False, sort_keys=True)
+	if len(result) <= limit:
+		return result
+	return json.dumps({'truncated': True, 'keys': sorted(payload)}, ensure_ascii=False, sort_keys=True)
+
+
+def _compact_agent_status(agent: Any) -> Any:
+	if not isinstance(agent, dict):
+		return _truncate_structured_value(agent, max_string_chars=300)
+	compact: dict[str, Any] = {}
+	for key in ('agent_id', 'agent_name'):
+		if key in agent:
+			compact[key] = agent[key]
+	if 'last_task_message' in agent:
+		compact['last_task_message'] = _truncate_text(str(agent['last_task_message']), 200)
+	status = agent.get('agent_status')
+	if isinstance(status, dict):
+		status_compact: dict[str, Any] = {}
+		for key, value in status.items():
+			if key in ('completed', 'errored'):
+				status_compact[key] = _truncate_structured_value(value, max_string_chars=800)
+			else:
+				status_compact[key] = _truncate_structured_value(value, max_string_chars=300)
+		compact['agent_status'] = status_compact
+	elif status is not None:
+		compact['agent_status'] = _truncate_structured_value(status, max_string_chars=300)
+	return compact
+
+
+def _truncate_structured_value(value: Any, *, max_string_chars: int) -> Any:
+	if isinstance(value, str):
+		return _truncate_text(value, max_string_chars)
+	if isinstance(value, list):
+		return [_truncate_structured_value(item, max_string_chars=max_string_chars) for item in value[:20]]
+	if isinstance(value, dict):
+		return {
+			str(key): _truncate_structured_value(item, max_string_chars=max_string_chars)
+			for key, item in list(value.items())[:30]
+		}
+	return value
+
+
+def _truncate_text(text: str, limit: int) -> str:
+	if len(text) <= limit:
+		return text
+	return text[:limit] + f'… [truncated {len(text) - limit} chars]'
 
 
 def _merge_step_tool_output(step: StepRecord, payload: dict[str, Any]) -> None:

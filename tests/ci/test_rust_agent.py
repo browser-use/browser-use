@@ -751,6 +751,36 @@ def test_response_input_tool_output_attaches_wait_agent_results_to_step():
 	assert extracted['timed_out'] is False
 
 
+def test_large_wait_agent_result_extracted_content_remains_valid_json():
+	"""Large V2 fan-out waits should not produce sliced/invalid JSON."""
+	state = _AgentSessionState()
+	agents = [
+		{
+			'agent_name': f'/root/item_{idx}',
+			'agent_status': {'completed': f'answer {idx}: ' + ('x' * 1200)},
+			'last_task_message': f'inspect item {idx}',
+		}
+		for idx in range(12)
+	]
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'wait_agent', 'id': 'tc1'}, seq=1)))
+	state.absorb(parse_event(_event('model.response.input_item', {
+		'source': 'tool_output',
+		'name': 'wait_agent',
+		'call_id': 'tc1',
+		'item': {
+			'type': 'function_call_output',
+			'call_id': 'tc1',
+			'output': json.dumps({'message': 'Wait completed.', 'timed_out': False, 'agents': agents}),
+		},
+	}, seq=2)))
+	extracted = state.steps[0].tool_output['extracted_content']
+	assert len(extracted) <= 8000
+	parsed = json.loads(extracted)
+	assert parsed['truncated'] is True
+	assert parsed['agents'][0]['agent_status']['completed'].startswith('answer 0:')
+	assert parsed['agents'][-1]['agent_name'] == '/root/item_11'
+
+
 def test_response_output_item_message_text_attached_to_step():
 	"""LLM messages between tool calls (the agent's reasoning prose) should
 	land on the most recent step's model_text so the judge sees the chain
