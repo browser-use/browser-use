@@ -397,10 +397,18 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 
 	default_budget = _maybe_inject_eval_directive('go to example.org')
 	assert default_budget is not None
-	assert 'Max turns: 100' in default_budget
+	assert 'Max turns: 80' in default_budget
 
 	# None passes through unchanged.
 	assert _maybe_inject_eval_directive(None) is None
+
+
+def test_max_turns_extra_arg_detection_handles_equals_form():
+	from browser_use.rust.service import _has_max_turns_arg
+
+	assert _has_max_turns_arg(['--max-turns', '150']) is True
+	assert _has_max_turns_arg(['--max-turns=150']) is True
+	assert _has_max_turns_arg(['--model', 'claude-sonnet-4-6']) is False
 
 
 def test_laminar_trace_url_formats_hex_as_uuid():

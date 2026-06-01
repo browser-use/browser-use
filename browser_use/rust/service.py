@@ -134,6 +134,7 @@ class _MessageManagerStub:
 
 DEFAULT_POLL_INTERVAL_MS = 250
 GRACEFUL_CANCEL_TIMEOUT_S = 5.0
+DEFAULT_RUST_MAX_TURNS = 80
 
 # Appended to the task text when BU_RUST_FORCE_SCREENSHOTS=1 (set by the
 # eval CI). The Rust core's default system prompt only *encourages*
@@ -264,9 +265,13 @@ def _maybe_inject_eval_directive(task: str | None, max_turns: int | None = None)
 		return task
 	if '[EVAL MODE' in task:
 		return task
-	budget = max_turns if max_turns and max_turns > 0 else 100
+	budget = max_turns if max_turns and max_turns > 0 else DEFAULT_RUST_MAX_TURNS
 	directive = EVAL_SCREENSHOT_DIRECTIVE_TEMPLATE.format(max_turns=budget)
 	return directive.lstrip() + '\n\n' + task
+
+
+def _has_max_turns_arg(args: list[str]) -> bool:
+	return any(arg == '--max-turns' or arg.startswith('--max-turns=') for arg in args)
 
 
 def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | None:
@@ -953,7 +958,7 @@ class Agent:
 		if (
 			effective_turns
 			and subcommand != 'followup'
-			and not any(a == '--max-turns' for a in self.extra_args)
+			and not _has_max_turns_arg(self.extra_args)
 			and _binary_supports_max_turns(cli, subcommand)
 		):
 			argv.extend(['--max-turns', str(int(effective_turns))])
