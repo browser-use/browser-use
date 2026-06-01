@@ -716,6 +716,41 @@ def test_tool_output_structured_ready_signals_promoted_to_extracted_content():
 	assert extracted['result_file_candidates'][0]['path'] == '/tmp/result.json'
 
 
+def test_response_input_tool_output_attaches_wait_agent_results_to_step():
+	"""Generic JSON tool outputs are persisted as model.response.input_item events.
+	Attach them to the step so V2 wait_agent child results reach AgentHistory views."""
+	state = _AgentSessionState()
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'wait_agent', 'id': 'tc1'}, seq=1)))
+	state.absorb(parse_event(_event('tool.finished', {'name': 'wait_agent', 'tool_call_id': 'tc1'}, seq=2)))
+	state.absorb(parse_event(_event('model.response.input_item', {
+		'source': 'tool_output',
+		'name': 'wait_agent',
+		'call_id': 'tc1',
+		'item': {
+			'type': 'function_call_output',
+			'call_id': 'tc1',
+			'output': json.dumps({
+				'message': 'Wait completed.',
+				'timed_out': False,
+				'agents': [
+					{
+						'agent_name': '/root/item_1',
+						'agent_status': {'completed': 'child answer'},
+						'last_task_message': 'inspect item 1',
+					}
+				],
+			}),
+		},
+	}, seq=3)))
+	step = state.steps[0]
+	assert step.tool_output is not None
+	assert step.tool_output['message'] == 'Wait completed.'
+	assert step.tool_output['agents'][0]['agent_status'] == {'completed': 'child answer'}
+	extracted = json.loads(step.tool_output['extracted_content'])
+	assert extracted['agents'][0]['agent_status']['completed'] == 'child answer'
+	assert extracted['timed_out'] is False
+
+
 def test_response_output_item_message_text_attached_to_step():
 	"""LLM messages between tool calls (the agent's reasoning prose) should
 	land on the most recent step's model_text so the judge sees the chain

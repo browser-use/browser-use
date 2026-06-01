@@ -152,11 +152,15 @@ TOOL_OUTPUT_KEYS = (
 	'data',
 	'outputs',
 	'summary',
+	'message',
 	'status',
+	'timed_out',
 	'ok',
 	'next_observe_ms',
 	'error',
 	'diagnosis',
+	'agents',
+	'agent_status',
 	'final_candidate',
 	'completion_candidates',
 	'result_file_candidates',
@@ -174,6 +178,10 @@ STRUCTURED_EXTRACTED_CONTENT_KEYS = (
 	'artifact',
 	'artifacts',
 	'outputs',
+	'message',
+	'timed_out',
+	'agents',
+	'agent_status',
 )
 
 # Appended to the task text when BU_RUST_FORCE_SCREENSHOTS=1 (set by the
@@ -226,6 +234,65 @@ def _structured_extracted_content(payload: dict[str, Any], *, limit: int = 8000)
 	if not subset:
 		return None
 	return json.dumps(subset, ensure_ascii=False, sort_keys=True)[:limit]
+
+
+def _merge_step_tool_output(step: StepRecord, payload: dict[str, Any]) -> None:
+	"""Merge a structured tool payload into a history step."""
+	merged: dict[str, Any] = dict(step.tool_output or {})
+	for key in TOOL_OUTPUT_KEYS:
+		if key in payload and payload[key] is not None and merged.get(key) in (None, '', [], {}):
+			merged[key] = payload[key]
+	for key in ('name', 'tool_call_id', 'call_id'):
+		if key in payload and key not in merged:
+			merged[key] = payload[key]
+	# Derive a usable extracted_content the eval reformat_agent_history
+	# loop will surface. Priority: payload.text → payload.summary →
+	# string payload.data → compact structured completion/artifact hints.
+	if not merged.get('extracted_content'):
+		candidate = (
+			payload.get('text')
+			or payload.get('summary')
+			or (payload.get('data') if isinstance(payload.get('data'), str) else None)
+			or _structured_extracted_content(payload)
+		)
+		if candidate:
+			merged['extracted_content'] = candidate
+	step.tool_output = merged
+
+
+def _tool_output_payload_from_response_input_item(payload: dict[str, Any]) -> dict[str, Any] | None:
+	"""Extract a tool-output payload from Rust model.response.input_item events."""
+	if payload.get('source') != 'tool_output':
+		return None
+	item = payload.get('item')
+	if not isinstance(item, dict):
+		return None
+	output = item.get('output')
+	if isinstance(output, str):
+		try:
+			parsed = json.loads(output)
+		except Exception:
+			parsed = {'text': output}
+	elif isinstance(output, dict):
+		parsed = dict(output)
+	else:
+		parsed = {'output': output}
+	if not isinstance(parsed, dict):
+		parsed = {'output': parsed}
+	if payload.get('name') is not None:
+		parsed.setdefault('name', payload.get('name'))
+	if payload.get('call_id') is not None:
+		parsed.setdefault('tool_call_id', payload.get('call_id'))
+	return parsed
+
+
+def _attach_response_input_tool_output_to_step(state: '_AgentSessionState', payload: dict[str, Any]) -> None:
+	tool_payload = _tool_output_payload_from_response_input_item(payload)
+	if not tool_payload:
+		return
+	step = _step_for_call_id(state, str(tool_payload.get('tool_call_id') or ''), tool_payload)
+	if step is not None:
+		_merge_step_tool_output(step, tool_payload)
 
 
 def _binary_supports_max_turns(cli: 'Path', subcommand: str) -> bool:
@@ -510,6 +577,7 @@ class _AgentSessionState:
 		# LLM message items — feed agent.message_manager.last_input_messages.
 		if isinstance(event, ModelResponseInputItem):
 			self.input_messages.append(event.payload)
+			_attach_response_input_tool_output_to_step(self, event.payload)
 			return
 		# LLM output items — captured here AND mined for message-type text so
 		# the judge can see the agent's reasoning between tool calls. For
@@ -624,27 +692,8 @@ class _AgentSessionState:
 			for path in event.image_paths:
 				if path and path not in step.screenshot_paths:
 					step.screenshot_paths.append(path)
-			# Promote text/data/outputs into the step's tool_output for the
-			# judge to read. Don't blow away an already-populated tool_output
-			# (e.g. from tool.finished arriving first); merge instead.
-			merged: dict[str, Any] = dict(step.tool_output or {})
 			payload = event.payload if isinstance(event.payload, dict) else {}
-			for key in TOOL_OUTPUT_KEYS:
-				if key in payload and payload[key] is not None and merged.get(key) in (None, '', [], {}):
-					merged[key] = payload[key]
-			# Derive a usable extracted_content the eval reformat_agent_history
-			# loop will surface. Priority: payload.text → payload.summary →
-			# string payload.data → compact structured completion/artifact hints.
-			if not merged.get('extracted_content'):
-				candidate = (
-					payload.get('text')
-					or payload.get('summary')
-					or (payload.get('data') if isinstance(payload.get('data'), str) else None)
-					or _structured_extracted_content(payload)
-				)
-				if candidate:
-					merged['extracted_content'] = candidate
-			step.tool_output = merged
+			_merge_step_tool_output(step, payload)
 			return
 
 
