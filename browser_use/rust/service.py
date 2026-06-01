@@ -482,6 +482,33 @@ def _maybe_inject_eval_directive(task: str | None, max_turns: int | None = None)
 	return directive.lstrip() + '\n\n' + task
 
 
+def _initial_navigation_url(initial_actions: Any) -> str | None:
+	"""Extract classic browser-use initial navigation into Rust task text."""
+	if not isinstance(initial_actions, list):
+		return None
+	for action in initial_actions:
+		if not isinstance(action, dict):
+			continue
+		navigate = action.get('navigate')
+		if not isinstance(navigate, dict):
+			continue
+		url = navigate.get('url')
+		if isinstance(url, str) and url.strip():
+			return url.strip()
+	return None
+
+
+def _maybe_inject_initial_navigation(task: str | None, url: str | None) -> str | None:
+	if task is None or not url:
+		return task
+	if '[INITIAL NAVIGATION]' in task:
+		return task
+	return (
+		f'[INITIAL NAVIGATION]\nAfter any required browser attach, first navigate to: {url}\n\n'
+		+ task
+	)
+
+
 def _eval_mode_enabled() -> bool:
 	return os.environ.get('BU_RUST_FORCE_SCREENSHOTS') == '1'
 
@@ -850,6 +877,7 @@ class Agent:
 		self.output_model = output_model or _unsupported.pop('output_model_schema', None)
 		self.state_dir = Path(state_dir) if state_dir else None
 		self.extra_args: list[str] = list(extra_args or [])
+		self._initial_navigation_url = _initial_navigation_url(_unsupported.pop('initial_actions', None))
 		# Pull max_steps off the constructor so we can forward to --max-turns
 		# without waiting for .run(max_steps=...). Some eval paths pass it here.
 		ctor_max_steps = _unsupported.pop('max_steps', None) or _unsupported.pop('max_turns', None)
@@ -912,7 +940,11 @@ class Agent:
 			if self.task is None:
 				raise ValueError('Agent.run(interactive=False) requires a task.')
 			task_text = _maybe_inject_cdp_connect(
-				_maybe_inject_eval_directive(self.task, effective_max) or self.task,
+				_maybe_inject_initial_navigation(
+					_maybe_inject_eval_directive(self.task, effective_max) or self.task,
+					self._initial_navigation_url,
+				)
+				or self.task,
 				_browser_cdp_url(self.browser),
 			)
 			result = await self._run_headless(task_text, attach_to_session=None, max_turns=effective_max)

@@ -569,7 +569,7 @@ def test_history_view_reads_screenshot_b64_from_disk(tmp_path):
 
 def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	"""BU_RUST_FORCE_SCREENSHOTS=1 appends the directive; unset/anything else is a no-op."""
-	from browser_use.rust.service import _maybe_inject_eval_directive
+	from browser_use.rust.service import _maybe_inject_eval_directive, _maybe_inject_initial_navigation
 
 	monkeypatch.delenv('BU_RUST_FORCE_SCREENSHOTS', raising=False)
 	assert _maybe_inject_eval_directive('go to example.com') == 'go to example.com'
@@ -593,6 +593,52 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 
 	# None passes through unchanged.
 	assert _maybe_inject_eval_directive(None) is None
+
+	nav = _maybe_inject_initial_navigation('find the price', 'https://example.com/item')
+	assert nav is not None
+	assert nav.startswith('[INITIAL NAVIGATION]')
+	assert 'first navigate to: https://example.com/item' in nav
+	assert _maybe_inject_initial_navigation(nav, 'https://other.example') == nav
+
+
+def test_initial_actions_navigation_is_preserved_for_rust_task(monkeypatch):
+	class _Browser:
+		cdp_url = 'wss://unikraft.example/devtools/browser/eval'
+
+	calls: list[str] = []
+
+	async def fake_run_headless(self, text, *, attach_to_session, subcommand=None, max_turns=None):
+		calls.append(text)
+		from browser_use.rust import AgentRunResult
+		from browser_use.rust.views import StepRecord
+
+		return AgentRunResult(
+			exit_code=0,
+			steps=[
+				StepRecord(
+					seq=1,
+					tool='browser_script',
+					tool_input={'arguments': {'code': 'await page.goto("https://shop.example/product")'}},
+					tool_output={'ok': True},
+				)
+			],
+		)
+
+	monkeypatch.setenv('BU_RUST_FORCE_SCREENSHOTS', '1')
+	monkeypatch.setattr(Agent, '_run_headless', fake_run_headless)
+
+	agent = Agent(
+		task='Find the current listed price.',
+		browser_session=_Browser(),
+		initial_actions=[{'navigate': {'url': 'https://shop.example/product', 'new_tab': False}}],
+	)
+	asyncio.run(agent.run(max_steps=150))
+
+	assert len(calls) == 1
+	assert calls[0].startswith('[BROWSER ATTACH')
+	assert calls[0].index('[INITIAL NAVIGATION]') > calls[0].index('Skip the connect step')
+	assert calls[0].index('[EVAL MODE') > calls[0].index('[INITIAL NAVIGATION]')
+	assert 'first navigate to: https://shop.example/product' in calls[0]
 
 
 def test_skipped_browsing_retry_keeps_remote_cdp_attach_first(monkeypatch):
