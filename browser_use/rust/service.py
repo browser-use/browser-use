@@ -137,6 +137,12 @@ GRACEFUL_CANCEL_TIMEOUT_S = 5.0
 DEFAULT_RUST_MAX_TURNS = 80
 SHELL_TOOL_OPT_IN_ENV = 'BU_RUST_ENABLE_SHELL_TOOL'
 RUNTIME_CWD_ENV = 'BU_RUST_RUNTIME_CWD'
+BROWSER_TASK_DISABLED_FEATURES = (
+	'features.shell_tool',
+	'features.workspace_tools',
+	'features.plugins',
+	'features.image_generation',
+)
 
 # Appended to the task text when BU_RUST_FORCE_SCREENSHOTS=1 (set by the
 # eval CI). The Rust core's default system prompt only *encourages*
@@ -306,6 +312,14 @@ def _split_global_config_args(args: list[str]) -> tuple[list[str], list[str]]:
 			remaining.append(arg)
 		i += 1
 	return global_args, remaining
+
+
+def _has_config_override(args: list[str], key: str) -> bool:
+	prefixes = (f'{key}=', f'{key}.')
+	for arg in args:
+		if arg == key or arg.startswith(prefixes):
+			return True
+	return False
 
 
 def _default_state_dir() -> Path:
@@ -1297,11 +1311,11 @@ class Agent:
 		flags: list[str] = []
 		if self.state_dir:
 			flags.extend(['--state-dir', str(self.state_dir)])
-		if (
-			os.environ.get(SHELL_TOOL_OPT_IN_ENV) != '1'
-			and not any('features.shell_tool' in arg for arg in self.extra_args)
-		):
-			flags.extend(['-c', 'features.shell_tool=false'])
+		for feature in BROWSER_TASK_DISABLED_FEATURES:
+			if feature == 'features.shell_tool' and os.environ.get(SHELL_TOOL_OPT_IN_ENV) == '1':
+				continue
+			if not _has_config_override(self.extra_args, feature):
+				flags.extend(['-c', f'{feature}=false'])
 		mode = _browser_preference_mode(self.browser)
 		# Always set mode — see _env_overrides for the rationale. The
 		# Rust core's LLM_BROWSER_REMOTE_CDP_URL carve-out lets the

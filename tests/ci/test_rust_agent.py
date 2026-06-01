@@ -130,6 +130,41 @@ def test_rust_wrapper_respects_explicit_shell_tool_extra_arg(monkeypatch):
 	assert 'features.shell_tool=true' not in flags
 
 
+def test_rust_wrapper_disables_non_browser_tools_by_default(monkeypatch):
+	monkeypatch.delenv('BU_RUST_ENABLE_SHELL_TOOL', raising=False)
+
+	flags = Agent(task='x')._global_cli_flags()
+
+	for feature in [
+		'features.shell_tool=false',
+		'features.workspace_tools=false',
+		'features.plugins=false',
+		'features.image_generation=false',
+	]:
+		assert feature in flags
+
+
+def test_rust_wrapper_respects_explicit_non_browser_tool_extra_args(monkeypatch):
+	monkeypatch.delenv('BU_RUST_ENABLE_SHELL_TOOL', raising=False)
+
+	flags = Agent(
+		task='x',
+		extra_args=[
+			'-c',
+			'features.workspace_tools=true',
+			'-c',
+			'features.plugins=true',
+			'-c',
+			'features.image_generation=true',
+		],
+	)._global_cli_flags()
+
+	assert 'features.workspace_tools=false' not in flags
+	assert 'features.plugins=false' not in flags
+	assert 'features.image_generation=false' not in flags
+	assert 'features.shell_tool=false' in flags
+
+
 def test_rust_wrapper_moves_config_extra_args_before_headless_subcommand(monkeypatch):
 	from pathlib import Path
 
