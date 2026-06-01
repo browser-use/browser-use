@@ -134,8 +134,8 @@ class AgentRunResult(BaseModel):
 		return self.final_summary
 
 	def is_done(self) -> bool:
-		"""True once the agent emitted a session.result or exited cleanly."""
-		return self.exit_code == 0 and (self.final_summary is not None or self.failure is None)
+		"""True once the agent emitted a final result without process failure."""
+		return self.exit_code == 0 and self.failure is None and self.final_summary is not None
 
 	def is_successful(self) -> bool | None:
 		"""None when not done; otherwise True/False."""
@@ -520,10 +520,11 @@ def build_history_items(result) -> list[_HistoryItemView]:
 		items.append(_HistoryItemView(synthetic, is_last=True, final_summary=result.final_summary))
 		return items
 	for idx, step in enumerate(steps):
+		has_final_result = result.final_summary is not None
 		items.append(
 			_HistoryItemView(
 				step,
-				is_last=idx == len(steps) - 1,
+				is_last=idx == len(steps) - 1 and has_final_result,
 				final_summary=result.final_summary,
 			)
 		)

@@ -850,6 +850,28 @@ def test_final_summary_does_not_mark_non_done_step_successful():
 	assert last.success is None
 
 
+def test_clean_exit_without_final_result_is_not_successful_or_done():
+	from browser_use.rust import AgentRunResult
+	from browser_use.rust.views import StepRecord
+
+	result = AgentRunResult(
+		session_id='sess',
+		exit_code=0,
+		final_summary=None,
+		steps=[
+			StepRecord(seq=1, tool='browser_script', tool_output={'text': 'looked at page'}),
+		],
+	)
+
+	assert result.final_result() is None
+	assert result.is_done() is False
+	assert result.is_successful() is None
+	last = result.history[-1].result[0]
+	assert last.extracted_content == 'looked at page'
+	assert last.is_done is False
+	assert last.success is None
+
+
 def test_message_manager_stub_is_present_for_eval_harness_read():
 	from browser_use.rust import Agent
 
