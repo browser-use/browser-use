@@ -144,6 +144,9 @@ BROWSER_TASK_DISABLED_FEATURES = (
 	'features.plugins',
 	'features.image_generation',
 )
+EVAL_BROWSER_TASK_CONFIG = (
+	('features.multi_agent_v2.enabled', 'true'),
+)
 TOOL_OUTPUT_KEYS = (
 	'text',
 	'data',
@@ -327,6 +330,10 @@ def _maybe_inject_eval_directive(task: str | None, max_turns: int | None = None)
 	budget = max_turns if max_turns and max_turns > 0 else DEFAULT_RUST_MAX_TURNS
 	directive = EVAL_SCREENSHOT_DIRECTIVE_TEMPLATE.format(max_turns=budget)
 	return directive.lstrip() + '\n\n' + task
+
+
+def _eval_mode_enabled() -> bool:
+	return os.environ.get('BU_RUST_FORCE_SCREENSHOTS') == '1'
 
 
 def _has_max_turns_arg(args: list[str]) -> bool:
@@ -1359,6 +1366,10 @@ class Agent:
 				continue
 			if not _has_config_override(self.extra_args, feature):
 				flags.extend(['-c', f'{feature}=false'])
+		if _eval_mode_enabled():
+			for key, value in EVAL_BROWSER_TASK_CONFIG:
+				if not _has_config_override(self.extra_args, key):
+					flags.extend(['-c', f'{key}={value}'])
 		mode = _browser_preference_mode(self.browser)
 		# Always set mode — see _env_overrides for the rationale. The
 		# Rust core's LLM_BROWSER_REMOTE_CDP_URL carve-out lets the
