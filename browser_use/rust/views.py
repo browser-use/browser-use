@@ -434,7 +434,7 @@ class _HistoryItemView:
 		# counter agrees with the OnlineMind2Web judge. Without this, tasks
 		# the judge gives 1.0 still showed as "failures" (selfReportSuccess
 		# false because Rust's done tool doesn't set the legacy field).
-		if is_last and (step.tool == 'done' or final_summary) and results[0].success is None:
+		if is_last and step.tool == 'done' and results[0].success is None:
 			results[0].success = True
 			results[0].is_done = True
 		self.result = results

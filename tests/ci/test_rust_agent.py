@@ -741,6 +741,24 @@ def test_result_quacks_like_agent_history_list():
 	assert set(dump) >= {'input_tokens', 'output_tokens', 'cost', 'model'}
 
 
+def test_final_summary_does_not_mark_non_done_step_successful():
+	from browser_use.rust import AgentRunResult
+	from browser_use.rust.views import StepRecord
+
+	result = AgentRunResult(
+		session_id='sess',
+		exit_code=0,
+		final_summary='the answer is 42',
+		steps=[
+			StepRecord(seq=1, tool='browser_script', tool_output={'text': 'looked at page'}),
+		],
+	)
+	last = result.history[-1].result[0]
+	assert last.extracted_content == 'looked at page'
+	assert last.is_done is True
+	assert last.success is None
+
+
 def test_message_manager_stub_is_present_for_eval_harness_read():
 	from browser_use.rust import Agent
 
