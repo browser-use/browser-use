@@ -20,7 +20,6 @@ from browser_use.rust.events import RawEvent, SessionInput, SessionResult
 from browser_use.rust.runner import ButNotInstalledError, find_browser_use_terminal_binary
 from browser_use.rust.service import _AgentSessionState
 
-
 # ---------------------------------------------------------------------------
 # llm/browser introspection (the entire user-facing surface)
 # ---------------------------------------------------------------------------
@@ -513,6 +512,7 @@ def test_history_view_reads_screenshot_b64_from_disk(tmp_path):
 	"""AgentRunResult.history[i].state.get_screenshot() returns base64 PNG bytes
 	read from the path the Rust core emitted. This is what the eval judge consumes."""
 	import base64
+
 	from browser_use.rust.views import AgentRunResult, StepRecord
 
 	# Write a tiny PNG-ish blob to disk; the wrapper just base64-encodes
@@ -675,6 +675,28 @@ def test_tool_output_text_promoted_to_extracted_content():
 	assert step.tool_output.get('extracted_content') == 'Example Domain\n'
 
 
+def test_tool_output_structured_ready_signals_promoted_to_extracted_content():
+	"""Structured browser_script results can carry the ready answer/artifact
+	without a text transcript. Keep those visible to the judge/history view."""
+	state = _AgentSessionState()
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'id': 'tc1'}, seq=1)))
+	state.absorb(parse_event(_event('tool.output', {
+		'name': 'browser_script',
+		'tool_call_id': 'tc1',
+		'final_candidate': {'ready_for_done': True, 'answer': '42'},
+		'result_file_candidates': [{'path': '/tmp/result.json', 'bytes': 18}],
+		'status': 'finished',
+		'ok': True,
+	}, seq=2)))
+	step = state.steps[0]
+	assert step.tool_output is not None
+	assert step.tool_output.get('final_candidate') == {'ready_for_done': True, 'answer': '42'}
+	assert step.tool_output.get('result_file_candidates') == [{'path': '/tmp/result.json', 'bytes': 18}]
+	extracted = json.loads(step.tool_output['extracted_content'])
+	assert extracted['final_candidate']['ready_for_done'] is True
+	assert extracted['result_file_candidates'][0]['path'] == '/tmp/result.json'
+
+
 def test_response_output_item_message_text_attached_to_step():
 	"""LLM messages between tool calls (the agent's reasoning prose) should
 	land on the most recent step's model_text so the judge sees the chain
@@ -782,6 +804,7 @@ def test_history_view_returns_none_when_screenshot_path_missing():
 def test_compute_cost_usd_for_known_model(tmp_path):
 	"""TokenCost lookup should yield a non-zero $ cost for a priced model."""
 	import asyncio
+
 	from browser_use.rust.service import _compute_cost_usd
 
 	cost = asyncio.run(_compute_cost_usd('gpt-4o-mini', 100_000, 5_000))
@@ -792,6 +815,7 @@ def test_compute_cost_usd_for_known_model(tmp_path):
 def test_compute_cost_usd_returns_zero_for_unknown_or_empty():
 	"""Unknown model name or zero tokens must return 0.0, not raise."""
 	import asyncio
+
 	from browser_use.rust.service import _compute_cost_usd
 
 	assert asyncio.run(_compute_cost_usd(None, 1000, 100)) == 0.0

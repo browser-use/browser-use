@@ -21,6 +21,16 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+FINALIZATION_SIGNAL_KEYS = (
+	'final_candidate',
+	'completion_candidates',
+	'result_file_candidates',
+	'result_file',
+	'output_file',
+	'artifact',
+	'artifacts',
+)
+
 
 def _expand(path: str) -> Path:
 	return Path(path).expanduser()
@@ -74,6 +84,15 @@ def _payload_text_chars(payload: dict[str, Any]) -> int:
 		else:
 			total += len(json.dumps(value, ensure_ascii=False))
 	return total
+
+
+def _finalization_signals(payload: dict[str, Any]) -> dict[str, Any]:
+	signals = {key: payload[key] for key in FINALIZATION_SIGNAL_KEYS if payload.get(key) not in (None, '', [], {})}
+	if not signals:
+		data = payload.get('data')
+		if isinstance(data, dict):
+			signals = {key: data[key] for key in FINALIZATION_SIGNAL_KEYS if data.get(key) not in (None, '', [], {})}
+	return signals
 
 
 def _input_context_tokens(payload: dict[str, Any]) -> int | None:
@@ -169,6 +188,8 @@ def summarize(events: list[dict[str, Any]], artifacts: list[dict[str, Any]]) -> 
 	max_input_images = 0
 	screenshots = 0
 	observe_calls = 0
+	finalization_signals: list[dict[str, Any]] = []
+	done_events: list[dict[str, Any]] = []
 
 	for event in events:
 		payload = _event_payload(event)
@@ -187,6 +208,15 @@ def summarize(events: list[dict[str, Any]], artifacts: list[dict[str, Any]]) -> 
 			tool_text_chars[name] += chars
 			if chars:
 				largest_outputs.append((chars, int(event['seq']), name, _short(payload, 240)))
+			if signals := _finalization_signals(payload):
+				finalization_signals.append(
+					{
+						'seq': int(event['seq']),
+						'tool': name,
+						'keys': sorted(signals),
+						'preview': _short(signals, 320),
+					}
+				)
 		elif event_type == 'tool.image':
 			screenshots += 1
 		elif event_type == 'model.usage':
@@ -202,6 +232,14 @@ def summarize(events: list[dict[str, Any]], artifacts: list[dict[str, Any]]) -> 
 				max_context_tokens = max(max_context_tokens, context_tokens)
 			if image_count := _input_image_count(payload):
 				max_input_images = max(max_input_images, image_count)
+		elif event_type in {'session.result', 'session.done'}:
+			done_events.append(
+				{
+					'seq': int(event['seq']),
+					'type': event_type,
+					'preview': _short(payload.get('result') or payload.get('text') or payload, 320),
+				}
+			)
 
 	largest_outputs.sort(reverse=True)
 	return {
@@ -219,6 +257,8 @@ def summarize(events: list[dict[str, Any]], artifacts: list[dict[str, Any]]) -> 
 		'max_input_images': max_input_images,
 		'artifact_count': len(artifacts),
 		'artifact_kinds': dict(Counter(str(a.get('kind') or '?') for a in artifacts).most_common()),
+		'finalization_signals': finalization_signals,
+		'done_events': done_events,
 	}
 
 
@@ -297,6 +337,15 @@ def print_report(
 		print('== largest tool outputs ==')
 		for chars, seq, name, preview in summary['largest_outputs']:
 			print(f'  seq={seq:<5} {name:<16} chars={chars:<7} {preview}')
+		print()
+
+	if summary['finalization_signals'] or summary['done_events']:
+		print('== finalization ==')
+		for signal in summary['finalization_signals']:
+			keys = ','.join(signal['keys'])
+			print(f'  ready seq={signal["seq"]:<5} {signal["tool"]:<16} keys={keys} {signal["preview"]}')
+		for done in summary['done_events']:
+			print(f'  done  seq={done["seq"]:<5} {done["type"]:<16} {done["preview"]}')
 		print()
 
 	if artifacts:

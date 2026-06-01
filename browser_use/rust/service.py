@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import signal
 import time
@@ -143,6 +144,34 @@ BROWSER_TASK_DISABLED_FEATURES = (
 	'features.plugins',
 	'features.image_generation',
 )
+TOOL_OUTPUT_KEYS = (
+	'text',
+	'data',
+	'outputs',
+	'summary',
+	'status',
+	'ok',
+	'next_observe_ms',
+	'error',
+	'diagnosis',
+	'final_candidate',
+	'completion_candidates',
+	'result_file_candidates',
+	'result_file',
+	'output_file',
+	'artifact',
+	'artifacts',
+)
+STRUCTURED_EXTRACTED_CONTENT_KEYS = (
+	'final_candidate',
+	'completion_candidates',
+	'result_file_candidates',
+	'result_file',
+	'output_file',
+	'artifact',
+	'artifacts',
+	'outputs',
+)
 
 # Appended to the task text when BU_RUST_FORCE_SCREENSHOTS=1 (set by the
 # eval CI). The Rust core's default system prompt only *encourages*
@@ -179,6 +208,19 @@ OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[
 
 
 _MAX_TURNS_SUPPORT_CACHE: dict[str, bool] = {}
+
+
+def _structured_extracted_content(payload: dict[str, Any], *, limit: int = 8000) -> str | None:
+	"""Compact structured browser_script result hints for eval history.
+
+	Some helper scripts return machine-readable "ready result" or artifact
+	candidates rather than a plain text transcript. Surface those keys as
+	extracted_content so the judge/dashboard sees why the agent could finish.
+	"""
+	subset = {key: payload[key] for key in STRUCTURED_EXTRACTED_CONTENT_KEYS if payload.get(key) not in (None, '', [], {})}
+	if not subset:
+		return None
+	return json.dumps(subset, ensure_ascii=False, sort_keys=True)[:limit]
 
 
 def _binary_supports_max_turns(cli: 'Path', subcommand: str) -> bool:
@@ -578,17 +620,18 @@ class _AgentSessionState:
 			# (e.g. from tool.finished arriving first); merge instead.
 			merged: dict[str, Any] = dict(step.tool_output or {})
 			payload = event.payload if isinstance(event.payload, dict) else {}
-			for key in ('text', 'data', 'outputs', 'summary', 'status', 'ok', 'next_observe_ms', 'error', 'diagnosis'):
+			for key in TOOL_OUTPUT_KEYS:
 				if key in payload and payload[key] is not None and merged.get(key) in (None, '', [], {}):
 					merged[key] = payload[key]
 			# Derive a usable extracted_content the eval reformat_agent_history
 			# loop will surface. Priority: payload.text → payload.summary →
-			# payload.data → first artifact output.
+			# string payload.data → compact structured completion/artifact hints.
 			if not merged.get('extracted_content'):
 				candidate = (
 					payload.get('text')
 					or payload.get('summary')
 					or (payload.get('data') if isinstance(payload.get('data'), str) else None)
+					or _structured_extracted_content(payload)
 				)
 				if candidate:
 					merged['extracted_content'] = candidate
