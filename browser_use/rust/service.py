@@ -146,6 +146,7 @@ BROWSER_TASK_DISABLED_FEATURES = (
 )
 EVAL_BROWSER_TASK_CONFIG = (
 	('features.multi_agent_v2.enabled', 'true'),
+	('features.multi_agent_v2.max_concurrent_threads_per_session', '10'),
 )
 TOOL_OUTPUT_KEYS = (
 	'text',
