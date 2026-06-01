@@ -170,7 +170,7 @@ def test_rust_wrapper_enables_multi_agent_v2_in_eval_mode(monkeypatch):
 	flags = Agent(task='x')._global_cli_flags()
 
 	assert 'features.multi_agent_v2.enabled=true' in flags
-	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=10' in flags
+	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=11' in flags
 
 
 def test_rust_wrapper_respects_explicit_multi_agent_v2_eval_override(monkeypatch):
@@ -187,7 +187,7 @@ def test_rust_wrapper_respects_explicit_multi_agent_v2_eval_override(monkeypatch
 	)._global_cli_flags()
 
 	assert 'features.multi_agent_v2.enabled=true' not in flags
-	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=10' not in flags
+	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=11' not in flags
 
 
 def test_rust_wrapper_moves_config_extra_args_before_headless_subcommand(monkeypatch):
