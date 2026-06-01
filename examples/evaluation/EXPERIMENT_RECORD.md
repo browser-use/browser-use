@@ -201,37 +201,52 @@
 
 **Artifacts**：`tmp/daily_task_eval/agent_runs/github_clean_issue_audit/normal/` 下新增 9 个跑次归档，全部找到 issue #3912 + 标题 `browser-use Windows Issue - os.kill(pid, 0) - Fails on Windows`。
 
-**统计对比**（3 单元）：
+**统计对比（已补足至 n=5，2026-06-01 更新）**：
 
-| 维度 | C (n=4) | D⁺ (n=3, continuous) | D⁻ (n=2, 消融) |
+| 维度 | C (n=5) | D⁺ (n=5, continuous) | D⁻ (n=5, 消融) |
 |---|---|---|---|
-| 成功率 | 4/4 | 3/3 | 2/2 |
-| `number_of_steps` mean | 14.75 (±2.87) | **11.33 (±2.52)** | 12.00 (±4.24) |
-| `duration_seconds` mean | 472s (±144) | 313s (±55) | **274s** |
-| `total_tokens` mean | 305,909 (±75,307) | 252,309 (±54,778) | **216,578** |
-| `navigator_overhead_ratio` mean | 0 | 0.0240 | 0.0072 (仅 plan) |
+| 成功率 | 5/5 | 5/5 | 5/5 |
+| `number_of_steps` | raw [14,17,17,11,12] · mean **14.2** (±2.8) | raw [14,9,11,8,12] · mean **10.8** (±2.4) | raw [9,15,10,11,10] · mean **11.0** (±2.3) |
+| `duration_seconds` | mean 450.9s (±133) | mean 314.3s (±84) | mean 300.3s (±41) |
+| `total_tokens` | mean 293,935 (±70,500) | mean 231,603 (±54,340) | mean 214,338 (±20,104) |
+
+**Welch's t-test（双侧）**：
+
+| 对比 | mean 差 | t | df | p | 判定（α=0.05） |
+|---|---|---|---|---|---|
+| 步数 C vs D⁺ | -3.4（-24%） | 2.08 | 7.8 | **0.072** | 边缘显著（接近但未过线） |
+| 耗时 C vs D⁺ | -137s（-30%） | 1.94 | 6.8 | **0.095** | 边缘显著 |
+| token C vs D⁺ | -62k（-21%） | 1.57 | 7.5 | 0.158 | 不显著（C 方差大） |
+| 步数 D⁺ vs D⁻ | -0.2 | -0.13 | 8.0 | 0.900 | 不显著（几乎相同） |
+| token D⁺ vs D⁻ | +17k | 0.67 | 5.1 | 0.532 | 不显著 |
 
 **与前两个任务对照**（修复后均使用 EFFICIENCY RULES）：
 
-| 任务 | 任务类型 | C 步数 | D⁺ 步数 | D⁺ vs C | 一致性 |
+| 任务 | 任务类型 | C 步数 | D⁺ 步数 | D⁺ vs C（mean） | 显著性 |
 |---|---|---|---|---|---|
-| hospital | POI 列表 | 6.33 | 5.00 | **-21%** | ✅ |
-| paper | 搜索结果列表 | 11.33 | 7.00 | **-38%** | ✅ |
-| **github** | filter+sort+open | 14.75 | 11.33 | **-23%** | ✅ |
+| hospital | POI 列表 | 6.33 | 5.00 | -21% | 趋势（n=3，未检验） |
+| paper | 搜索结果列表 | 11.33 | 7.00 | **-38%** | 稳健（差异远超方差） |
+| **github** | filter+sort+open | 14.2 | 10.8 | -24% | **边缘显著（n=5, p=0.072）** |
 
-**关键结论**：
+**关键结论（n=5 后，按可信度分层）**：
 
-1. **任务无关性 ✅ 在修复后成立**：EFFICIENCY RULES 后，D⁺ 在三类完全不同的任务（POI 列表 / 学术搜索 / GitHub filter）上**均优于 C**（步数减少 21-38%）。先前阶段 ③ 的"任务无关性不成立"已被阶段 ④ 的修复 + 阶段 ⑤ 的扩展证伪。
+1. **D⁺ 优于 C：边缘显著，不能宣称统计显著**。补样本后步数 p=0.072、耗时 p=0.095，比 n=3 时的 p≈0.15 明显改善（方向稳定、效应一致），但严格按 α=0.05 **仍未跨过显著线**。诚实表述：**"D⁺ 相对 C 有边缘显著的步数/耗时优势趋势（-24%/-30%），需 n≥8 或配对设计进一步确认"**。token 差异最弱（p=0.158），因 C 的 token 方差大。
 
-2. **D⁻ 在 github 上意外接近 D⁺**：mean 12.00 vs 11.33（2 跑次 9/15），token 甚至更低 217k vs 252k。这继续验证「**周期领航边际贡献小，开场 plan 是 navigator 真正的杠杆点**」—— 这一现象在 paper 任务上也出现过。
+2. **D⁺ vs D⁻：统计上几乎完全相同（p=0.90）**。n=5+5 足以下结论：**周期领航对最终步数/token 没有统计可见的影响**——这与贯穿三任务的发现一致（navigator 的杠杆在开场 plan，不在周期领航）。⚠️ 注意：这是"**持平**"，**不是**先前 n=2 时误判的"D⁻ 比 D⁺ 还省"——那个说法已撤回，补样本后证明只是高方差假象。
 
-3. **D⁺ 方差仍小于 C**：std 2.52 vs 2.87，dur std 55 vs 144（D 是 C 的 1/3）—— navigator 加 plan 在所有三类任务上都带来更稳定的执行路径。
+3. **EFFICIENCY RULES 没有过度泛化**：D⁺ 全部跑次都正确规划了 filter→sort→click 路径，无 extract 误调用。这是**定性行为观察**，不依赖样本量，结论可靠。
 
-4. **navRatio 在 github 上稍高（2.4%）**：因为多步分支决策让周期 navigator 触发更多次（cycle 3.2-5k tok），但仍远低于 D⁺ 在 executor 端节省的开销。
+4. **navRatio 在 github 上约 2.4%**：多步分支决策让周期 navigator 触发更多次。描述性测量，不涉及显著性。
 
-5. **EFFICIENCY RULES 没有过度泛化**：原本担心规则会让 navigator 在"非列表任务"上误用 extract，实测 D⁺ 三次跑次都正确规划了 filter→sort→click 路径，没有出现 extract 误调用。
+**三任务整体定论**：修复后 navigator（D⁺）在三类任务上均**不再劣于** C，且呈现一致的步数/耗时优势趋势（paper 稳健、github 边缘显著、hospital 趋势）。"navigator 增益任务无关"这一命题获得**方向一致的支持**，但仅 paper 达到稳健显著；要写成强结论仍需 hospital/github 各补到 n≥8 或采用配对设计。
 
-**关于 D⁻ 在 github 上比 D⁺ 还稍低 token 的解释**：周期 navigator 每次触发会向 executor 上下文注入 ~5k token 的 advice + observation；在 github 这种"路径已经很明确"的任务上，这些注入是冗余的。这给出了一个**未来优化方向**：让 `_continuous_navigation_should_run` 增加"任务类型感知"判定，或者在 navigator 输出"plan 已经覆盖全部步骤"信号时跳过周期触发。
+---
+
+4. **navRatio 在 github 上约 2.4%**：多步分支决策让周期 navigator 触发更多次（cycle 3.2-5k tok）。这是描述性测量，不涉及显著性。
+
+5. **EFFICIENCY RULES 没有过度泛化**：D⁺ 三次跑次都正确规划了 filter→sort→click 路径，没有出现 extract 误调用——这是定性观察（行为模式），不依赖样本量，结论可靠。
+
+**待办（统计强化）**：github 的 C / D⁺ / D⁻ 各补至 n=5，跑 Welch's t-test，对 -23% 与"D⁻ 关系"重新判定显著性后再更新本节措辞。在此之前，github 结论保持"趋势、未显著"定性。
 
 ---
 
