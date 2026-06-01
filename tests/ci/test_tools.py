@@ -1,22 +1,19 @@
 import asyncio
+import json
+import os
 import tempfile
 import time
 
+import anyio
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pytest_httpserver import HTTPServer
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
-from browser_use.tools.views import (
-	DoneAction,
-	GoToUrlAction,
-	NoParamsAction,
-	SearchGoogleAction,
-)
 
 
 @pytest.fixture(scope='session')
@@ -96,14 +93,14 @@ class TestToolsIntegration:
 		"""Test that the registry contains the expected default actions."""
 		# Check that common actions are registered
 		common_actions = [
-			'go_to_url',
-			'search_google',
-			'click_element_by_index',
-			'input_text',
+			'navigate',
+			'search',
+			'click',
+			'input',
 			'scroll',
 			'go_back',
-			'switch_tab',
-			'close_tab',
+			'switch',
+			'close',
 			'wait',
 		]
 
@@ -125,21 +122,10 @@ class TestToolsIntegration:
 			return ActionResult(extracted_content=f'Custom action executed with: {params.text} on {current_url}')
 
 		# Navigate to a page first
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
+		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
-
-		# Create the custom action model
-		custom_action_data = {'custom_action': CustomParams(text='test_value')}
-
-		class CustomActionModel(ActionModel):
-			custom_action: CustomParams | None = None
-
-		# Execute the custom action
-		result = await tools.act(CustomActionModel(**custom_action_data), browser_session)
+		# Execute the custom action directly
+		result = await tools.custom_action(text='test_value', browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -163,17 +149,11 @@ class TestToolsIntegration:
 		schema = wait_action.param_model.model_json_schema()
 		assert schema['properties']['seconds']['default'] == 3
 
-		# Create wait action for 1 second - fix to use a dictionary
-		wait_action = {'wait': {'seconds': 1}}  # Corrected format
-
-		class WaitActionModel(ActionModel):
-			wait: dict | None = None
-
 		# Record start time
 		start_time = time.time()
 
 		# Execute wait action
-		result = await tools.act(WaitActionModel(**wait_action), browser_session)
+		result = await tools.wait(seconds=3, browser_session=browser_session)
 
 		# Record end time
 		end_time = time.time()
@@ -184,17 +164,14 @@ class TestToolsIntegration:
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
 		# Verify that approximately 1 second has passed (allowing some margin)
-		assert 0.8 <= end_time - start_time <= 1.5  # Allow some timing margin for 1 second wait
+		assert end_time - start_time <= 2.5  # We wait 3-1 seconds for LLM call
 
 		# longer wait
-		# Create wait action for 1 second - fix to use a dictionary
-		wait_action = {'wait': {'seconds': 5}}  # Corrected format
-
 		# Record start time
 		start_time = time.time()
 
 		# Execute wait action
-		result = await tools.act(WaitActionModel(**wait_action), browser_session)
+		result = await tools.wait(seconds=5, browser_session=browser_session)
 
 		# Record end time
 		end_time = time.time()
@@ -204,27 +181,19 @@ class TestToolsIntegration:
 		assert result.extracted_content is not None
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
-		# Verify that approximately 5 seconds have passed (allowing some margin)
-		assert 4.5 <= end_time - start_time <= 6.0  # Allow some timing margin for 5 second wait
-		assert end_time - start_time >= 1.9  # Allow some timing margin
+		assert 3.5 <= end_time - start_time <= 4.5  # We wait 5-1 seconds for LLM call
 
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
 		# Navigate to first page
-		goto_action1 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await tools.act(GoToUrlActionModel(**goto_action1), browser_session)
+		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
 
 		# Store the first page URL
 		first_url = await browser_session.get_current_page_url()
 		print(f'First page URL: {first_url}')
 
 		# Navigate to second page
-		goto_action2 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page2', new_tab=False)}
-		await tools.act(GoToUrlActionModel(**goto_action2), browser_session)
+		await tools.navigate(url=f'{base_url}/page2', new_tab=False, browser_session=browser_session)
 
 		# Verify we're on the second page
 		second_url = await browser_session.get_current_page_url()
@@ -232,12 +201,7 @@ class TestToolsIntegration:
 		assert f'{base_url}/page2' in second_url
 
 		# Execute go back action
-		go_back_action = {'go_back': NoParamsAction()}
-
-		class GoBackActionModel(ActionModel):
-			go_back: NoParamsAction | None = None
-
-		result = await tools.act(GoBackActionModel(**go_back_action), browser_session)
+		result = await tools.go_back(browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -261,12 +225,7 @@ class TestToolsIntegration:
 
 		# Navigate to each page in sequence
 		for url in urls:
-			action_data = {'go_to_url': GoToUrlAction(url=url, new_tab=False)}
-
-			class GoToUrlActionModel(ActionModel):
-				go_to_url: GoToUrlAction | None = None
-
-			await tools.act(GoToUrlActionModel(**action_data), browser_session)
+			await tools.navigate(url=url, new_tab=False, browser_session=browser_session)
 
 			# Verify current page
 			current_url = await browser_session.get_current_page_url()
@@ -274,12 +233,7 @@ class TestToolsIntegration:
 
 		# Go back twice and verify each step
 		for expected_url in reversed(urls[:-1]):
-			go_back_action = {'go_back': NoParamsAction()}
-
-			class GoBackActionModel(ActionModel):
-				go_back: NoParamsAction | None = None
-
-			await tools.act(GoBackActionModel(**go_back_action), browser_session)
+			await tools.go_back(browser_session=browser_session)
 			await asyncio.sleep(1)  # Wait for navigation to complete
 
 			current_url = await browser_session.get_current_page_url()
@@ -288,28 +242,23 @@ class TestToolsIntegration:
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered."""
 		# Create tools with excluded actions
-		excluded_tools = Tools(exclude_actions=['search_google', 'scroll'])
+		excluded_tools = Tools(exclude_actions=['search', 'scroll'])
 
 		# Verify excluded actions are not in the registry
-		assert 'search_google' not in excluded_tools.registry.registry.actions
+		assert 'search' not in excluded_tools.registry.registry.actions
 		assert 'scroll' not in excluded_tools.registry.registry.actions
 
 		# But other actions are still there
-		assert 'go_to_url' in excluded_tools.registry.registry.actions
-		assert 'click_element_by_index' in excluded_tools.registry.registry.actions
+		assert 'navigate' in excluded_tools.registry.registry.actions
+		assert 'click' in excluded_tools.registry.registry.actions
 
-	async def test_search_google_action(self, tools, browser_session, base_url):
-		"""Test the search_google action."""
+	async def test_search_action(self, tools, browser_session, base_url):
+		"""Test the search action."""
 
 		await browser_session.get_current_page_url()
 
-		# Execute search_google action - it will actually navigate to our search results page
-		search_action = {'search_google': SearchGoogleAction(query='Python web automation')}
-
-		class SearchGoogleActionModel(ActionModel):
-			search_google: SearchGoogleAction | None = None
-
-		result = await tools.act(SearchGoogleActionModel(**search_action), browser_session)
+		# Execute search action - it will actually navigate to our search results page
+		result = await tools.search(query='Python web automation', browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -327,23 +276,14 @@ class TestToolsIntegration:
 			file_system = FileSystem(temp_dir)
 
 			# First navigate to a page
-			goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
-
-			class GoToUrlActionModel(ActionModel):
-				go_to_url: GoToUrlAction | None = None
-
-			await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+			await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
 
 			success_done_message = 'Successfully completed task'
 
-			# Create done action with success
-			done_action = {'done': DoneAction(text=success_done_message, success=True)}
-
-			class DoneActionModel(ActionModel):
-				done: DoneAction | None = None
-
 			# Execute done action with file_system
-			result = await tools.act(DoneActionModel(**done_action), browser_session, file_system=file_system)
+			result = await tools.done(
+				text=success_done_message, success=True, browser_session=browser_session, file_system=file_system
+			)
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
@@ -355,11 +295,10 @@ class TestToolsIntegration:
 
 			failed_done_message = 'Failed to complete task'
 
-			# Test with failure case
-			failed_done_action = {'done': DoneAction(text=failed_done_message, success=False)}
-
 			# Execute failed done action with file_system
-			result = await tools.act(DoneActionModel(**failed_done_action), browser_session, file_system=file_system)
+			result = await tools.done(
+				text=failed_done_message, success=False, browser_session=browser_session, file_system=file_system
+			)
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
@@ -394,15 +333,10 @@ class TestToolsIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown1', new_tab=False)}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/dropdown1', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
-		cdp_session = browser_session.agent_focus
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		assert cdp_session is not None, 'CDP session not initialized'
 
 		# Wait for page load by checking document ready state
@@ -415,7 +349,7 @@ class TestToolsIntegration:
 			await asyncio.sleep(1.0)
 
 		# Initialize the DOM state to populate the selector map
-		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=True)
+		await browser_session.get_browser_state_summary()
 
 		# Get the selector map
 		selector_map = await browser_session.get_selector_map()
@@ -431,15 +365,8 @@ class TestToolsIntegration:
 			f'Could not find select element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
 		)
 
-		# Create a model for the standard get_dropdown_options action
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
-
 		# Execute the action with the dropdown index
-		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': dropdown_index}),
-			browser_session=browser_session,
-		)
+		result = await tools.dropdown_options(index=dropdown_index, browser_session=browser_session)
 
 		expected_options = [
 			{'index': 0, 'text': 'Please select', 'value': ''},
@@ -456,11 +383,8 @@ class TestToolsIntegration:
 		for option in expected_options[1:]:  # Skip the placeholder option
 			assert option['text'] in result.extracted_content, f"Option '{option['text']}' not found in result content"
 
-		# Verify the instruction for using the text in select_dropdown_option is included
-		assert (
-			'Use the exact text or value string' in result.extracted_content
-			and 'select_dropdown_option' in result.extracted_content
-		)
+		# Verify the instruction for using the text in select_dropdown is included
+		assert 'Use the exact text or value string' in result.extracted_content and 'select_dropdown' in result.extracted_content
 
 		# Verify the actual dropdown options in the DOM using CDP
 		dropdown_options_result = await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -521,15 +445,10 @@ class TestToolsIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown2', new_tab=False)}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/dropdown2', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
-		cdp_session = browser_session.agent_focus
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		assert cdp_session is not None, 'CDP session not initialized'
 
 		# Wait for page load by checking document ready state
@@ -542,7 +461,7 @@ class TestToolsIntegration:
 			await asyncio.sleep(1.0)
 
 		# populate the selector map with highlight indices
-		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=True)
+		await browser_session.get_browser_state_summary()
 
 		# Now get the selector map which should contain our dropdown
 		selector_map = await browser_session.get_selector_map()
@@ -558,15 +477,8 @@ class TestToolsIntegration:
 			f'Could not find select element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
 		)
 
-		# Create a model for the standard select_dropdown_option action
-		class SelectDropdownOptionModel(ActionModel):
-			select_dropdown_option: dict
-
 		# Execute the action with the dropdown index
-		result = await tools.act(
-			SelectDropdownOptionModel(select_dropdown_option={'index': dropdown_index, 'text': 'Second Option'}),
-			browser_session,
-		)
+		result = await tools.select_dropdown(index=dropdown_index, text='Second Option', browser_session=browser_session)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult)
@@ -582,3 +494,175 @@ class TestToolsIntegration:
 		)
 		selected_value = selected_value_result.get('result', {}).get('value')
 		assert selected_value == 'option2'  # Second Option has value "option2"
+
+
+class TestStructuredOutputDoneWithFiles:
+	"""Tests for file handling in structured output done action."""
+
+	async def test_structured_output_done_without_files(self, browser_session, base_url):
+		"""Structured output done action works without files (backward compat)."""
+
+		class MyOutput(BaseModel):
+			answer: str = Field(description='The answer')
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			result = await tools.done(
+				data={'answer': 'hello'},
+				success=True,
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			assert isinstance(result, ActionResult)
+			assert result.is_done is True
+			assert result.success is True
+			assert result.extracted_content is not None
+			output = json.loads(result.extracted_content)
+			assert output == {'answer': 'hello'}
+			assert result.attachments == []
+
+	async def test_structured_output_done_with_files_to_display(self, browser_session, base_url):
+		"""Structured output done action resolves files_to_display into attachments."""
+
+		class MyOutput(BaseModel):
+			summary: str
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			await file_system.write_file('report.txt', 'some report content')
+
+			result = await tools.done(
+				data={'summary': 'done'},
+				success=True,
+				files_to_display=['report.txt'],
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			assert isinstance(result, ActionResult)
+			assert result.is_done is True
+			assert result.success is True
+			assert result.extracted_content is not None
+			output = json.loads(result.extracted_content)
+			assert output == {'summary': 'done'}
+			assert result.attachments is not None
+			assert len(result.attachments) == 1
+			assert result.attachments[0].endswith('report.txt')
+
+	async def test_structured_output_done_auto_attaches_downloads(self, browser_session, base_url):
+		"""Session downloads are auto-attached even without files_to_display."""
+
+		class MyOutput(BaseModel):
+			url: str
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			# Simulate a CDP-tracked browser download
+			fake_download = os.path.join(temp_dir, 'tax-bill.pdf')
+			await anyio.Path(fake_download).write_bytes(b'%PDF-1.4 fake pdf content')
+
+			saved_downloads = browser_session._downloaded_files.copy()
+			browser_session._downloaded_files.append(fake_download)
+			try:
+				result = await tools.done(
+					data={'url': f'{base_url}/bill.pdf'},
+					success=True,
+					browser_session=browser_session,
+					file_system=file_system,
+				)
+
+				assert isinstance(result, ActionResult)
+				assert result.is_done is True
+				assert result.extracted_content is not None
+				output = json.loads(result.extracted_content)
+				assert output == {'url': f'{base_url}/bill.pdf'}
+				# The download should be auto-attached
+				assert result.attachments is not None
+				assert len(result.attachments) == 1
+				assert result.attachments[0] == fake_download
+			finally:
+				browser_session._downloaded_files = saved_downloads
+
+	async def test_structured_output_done_deduplicates_attachments(self, browser_session):
+		"""Downloads already covered by files_to_display are not duplicated."""
+
+		class MyOutput(BaseModel):
+			status: str
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			await file_system.write_file('report.txt', 'content here')
+
+			# The same file appears in both files_to_display and session downloads
+			fs_path = str(file_system.get_dir() / 'report.txt')
+
+			saved_downloads = browser_session._downloaded_files.copy()
+			browser_session._downloaded_files.append(fs_path)
+			try:
+				result = await tools.done(
+					data={'status': 'ok'},
+					success=True,
+					files_to_display=['report.txt'],
+					browser_session=browser_session,
+					file_system=file_system,
+				)
+
+				assert isinstance(result, ActionResult)
+				# Should have exactly 1 attachment, not 2
+				assert result.attachments is not None
+				assert len(result.attachments) == 1
+				assert result.attachments[0] == fs_path
+			finally:
+				browser_session._downloaded_files = saved_downloads
+
+	async def test_structured_output_done_nonexistent_file_ignored(self, browser_session):
+		"""Files that don't exist in FileSystem are not included via files_to_display."""
+
+		class MyOutput(BaseModel):
+			value: int
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			result = await tools.done(
+				data={'value': 42},
+				success=True,
+				files_to_display=['nonexistent.txt'],
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			assert isinstance(result, ActionResult)
+			assert result.is_done is True
+			assert result.extracted_content is not None
+			output = json.loads(result.extracted_content)
+			assert output == {'value': 42}
+			# nonexistent file should not appear in attachments
+			assert result.attachments == []
+
+	async def test_structured_output_schema_hides_internal_fields(self):
+		"""The JSON schema for StructuredOutputAction hides success and files_to_display."""
+		from browser_use.tools.views import StructuredOutputAction
+
+		class MyOutput(BaseModel):
+			name: str
+
+		schema = StructuredOutputAction[MyOutput].model_json_schema()
+		top_level_props = schema.get('properties', {})
+		assert 'success' not in top_level_props
+		assert 'files_to_display' not in top_level_props
+		# data should still be present
+		assert 'data' in top_level_props

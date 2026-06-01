@@ -11,7 +11,9 @@ class ModelProviderError(ModelError):
 		status_code: int = 502,
 		model: str | None = None,
 	):
-		super().__init__(message, status_code)
+		super().__init__(message)
+		self.message = message
+		self.status_code = status_code
 		self.model = model
 
 

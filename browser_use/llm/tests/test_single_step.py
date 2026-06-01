@@ -1,4 +1,5 @@
 import logging
+import os
 import tempfile
 
 import pytest
@@ -13,11 +14,33 @@ from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.groq.chat import ChatGroq
+
+# Optional OCI import
+try:
+	from browser_use.llm.oci_raw.chat import ChatOCIRaw
+
+	OCI_AVAILABLE = True
+except ImportError:
+	ChatOCIRaw = None
+	OCI_AVAILABLE = False
 from browser_use.llm.openai.chat import ChatOpenAI
 
 # Set logging level to INFO for this module
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def _check_oci_credentials() -> bool:
+	"""Check if OCI credentials are available."""
+	if not OCI_AVAILABLE:
+		return False
+	try:
+		import oci
+
+		oci.config.from_file('~/.oci/config', 'DEFAULT')
+		return True
+	except Exception:
+		return False
 
 
 def create_mock_state_message(temp_dir: str):
@@ -46,8 +69,8 @@ def create_mock_state_message(temp_dir: str):
 		snapshot_node=None,
 	)
 
-	# Create selector map
-	selector_map: DOMSelectorMap = {1: mock_button}
+	# Create selector map (keyed by backend_node_id)
+	selector_map: DOMSelectorMap = {mock_button.backend_node_id: mock_button}
 
 	# Create mock tab info with proper target_id
 	mock_tab = TabInfo(
@@ -61,7 +84,7 @@ def create_mock_state_message(temp_dir: str):
 			original_node=mock_button,
 			children=[],
 			should_display=True,
-			interactive_index=1,
+			is_interactive=True,
 		),
 		selector_map=selector_map,
 	)
@@ -112,11 +135,37 @@ def create_mock_state_message(temp_dir: str):
 		(ChatOpenAI, 'gpt-4.1-mini'),
 		(ChatAnthropic, 'claude-3-5-sonnet-latest'),
 		(ChatAzureOpenAI, 'gpt-4.1-mini'),
+		pytest.param(
+			ChatOCIRaw,
+			{
+				'model_id': os.getenv('OCI_MODEL_ID', 'placeholder'),
+				'service_endpoint': os.getenv(
+					'OCI_SERVICE_ENDPOINT', 'https://inference.generativeai.us-chicago-1.oci.oraclecloud.com'
+				),
+				'compartment_id': os.getenv('OCI_COMPARTMENT_ID', 'placeholder'),
+				'provider': 'meta',
+				'temperature': 0.7,
+				'max_tokens': 800,
+				'frequency_penalty': 0.0,
+				'presence_penalty': 0.0,
+				'top_p': 0.9,
+				'auth_type': 'API_KEY',
+				'auth_profile': 'DEFAULT',
+			},
+			marks=pytest.mark.skipif(
+				not _check_oci_credentials() or not os.getenv('OCI_MODEL_ID') or not os.getenv('OCI_COMPARTMENT_ID'),
+				reason='OCI credentials or environment variables not available',
+			),
+		),
 	],
 )
 async def test_single_step_parametrized(llm_class, model_name):
 	"""Test single step with different LLM providers using pytest parametrize."""
-	llm = llm_class(model=model_name)
+	if isinstance(model_name, dict):
+		# Handle ChatOCIRaw which requires keyword arguments
+		llm = llm_class(**model_name)
+	else:
+		llm = llm_class(model=model_name)
 
 	agent = Agent(task='Click the button on the page', llm=llm)
 
@@ -131,6 +180,12 @@ async def test_single_step_parametrized(llm_class, model_name):
 
 		# Test with simple question
 		response = await llm.ainvoke(messages, agent.AgentOutput)
+
+		# Additional validation for OCI Raw
+		if ChatOCIRaw is not None and isinstance(llm, ChatOCIRaw):
+			# Verify OCI Raw generates proper Agent actions
+			assert response.completion.action is not None
+			assert len(response.completion.action) > 0
 
 		# Basic assertions to ensure response is valid
 		assert response.completion is not None

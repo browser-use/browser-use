@@ -8,7 +8,7 @@ from bubus import BaseEvent
 from pydantic import Field, field_validator
 from uuid_extensions import uuid7str
 
-MAX_STRING_LENGTH = 100000  # 100K chars ~ 25k tokens should be enough
+MAX_STRING_LENGTH = 500000  # 100K chars ~ 25k tokens should be enough
 MAX_URL_LENGTH = 100000
 MAX_TASK_LENGTH = 100000
 MAX_COMMENT_LENGTH = 2000
@@ -38,6 +38,8 @@ class UpdateAgentTaskEvent(BaseEvent):
 			raise ValueError('Agent must have _task_start_time attribute')
 
 		done_output = agent.history.final_result() if agent.history else None
+		if done_output and len(done_output) > MAX_STRING_LENGTH:
+			done_output = done_output[:MAX_STRING_LENGTH]
 		return cls(
 			id=str(agent.task_id),
 			user_id='',  # To be filled by cloud handler
@@ -188,7 +190,7 @@ class CreateAgentTaskEvent(BaseEvent):
 	user_id: str = Field(max_length=255)  # Added for authorization checks
 	device_id: str | None = Field(None, max_length=255)  # Device ID for auth lookup
 	agent_session_id: str
-	llm_model: str = Field(max_length=100)  # LLMModel enum value as string
+	llm_model: str = Field(max_length=200)  # LLMModel enum value as string
 	stopped: bool = False
 	paused: bool = False
 	task: str = Field(max_length=MAX_TASK_LENGTH)
@@ -268,3 +270,15 @@ class CreateAgentSessionEvent(BaseEvent):
 				'allowed_domains': agent.browser_profile.allowed_domains if agent.browser_profile else [],
 			},
 		)
+
+
+class UpdateAgentSessionEvent(BaseEvent):
+	"""Event to update an existing agent session"""
+
+	# Model fields
+	id: str  # Session ID to update
+	user_id: str = Field(max_length=255)
+	device_id: str | None = Field(None, max_length=255)
+	browser_session_stopped: bool | None = None
+	browser_session_stopped_at: datetime | None = None
+	end_reason: str | None = Field(None, max_length=100)  # Why the session ended

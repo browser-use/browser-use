@@ -33,7 +33,7 @@ SERP_API_KEY = os.getenv('SERPER_API_KEY')
 if not SERP_API_KEY:
 	raise ValueError('SERPER_API_KEY is not set')
 
-tools = Tools(exclude_actions=['search_google'], output_model=PersonList)
+tools = Tools(exclude_actions=['search'], output_model=PersonList)
 
 
 @tools.registry.action('Search the web for a specific query. Returns a short description and links of the results.')

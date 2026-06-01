@@ -9,6 +9,7 @@ from browser_use.llm.aws.serializer import AWSBedrockMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 if TYPE_CHECKING:
@@ -30,6 +31,7 @@ class ChatAWSBedrock(BaseChatModel):
 	1. Set the following environment variables:
 	   - AWS_ACCESS_KEY_ID
 	   - AWS_SECRET_ACCESS_KEY
+	   - AWS_SESSION_TOKEN (only required when using temporary credentials)
 	   - AWS_REGION
 	2. Or provide a boto3 Session object
 	3. Or use AWS SSO authentication
@@ -46,6 +48,7 @@ class ChatAWSBedrock(BaseChatModel):
 	# AWS credentials and configuration
 	aws_access_key_id: str | None = None
 	aws_secret_access_key: str | None = None
+	aws_session_token: str | None = None
 	aws_region: str | None = None
 	aws_sso_auth: bool = False
 	session: 'Session | None' = None
@@ -73,6 +76,7 @@ class ChatAWSBedrock(BaseChatModel):
 		# Get credentials from environment or instance parameters
 		access_key = self.aws_access_key_id or getenv('AWS_ACCESS_KEY_ID')
 		secret_key = self.aws_secret_access_key or getenv('AWS_SECRET_ACCESS_KEY')
+		session_token = self.aws_session_token or getenv('AWS_SESSION_TOKEN')
 		region = self.aws_region or getenv('AWS_REGION') or getenv('AWS_DEFAULT_REGION')
 
 		if self.aws_sso_auth:
@@ -80,7 +84,7 @@ class ChatAWSBedrock(BaseChatModel):
 		else:
 			if not access_key or not secret_key:
 				raise ModelProviderError(
-					message='AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables or provide a boto3 session.',
+					message='AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables (and AWS_SESSION_TOKEN if using temporary credentials) or provide a boto3 session.',
 					model=self.name,
 				)
 
@@ -89,6 +93,7 @@ class ChatAWSBedrock(BaseChatModel):
 				region_name=region,
 				aws_access_key_id=access_key,
 				aws_secret_access_key=secret_key,
+				aws_session_token=session_token,
 			)
 
 	@property
@@ -112,27 +117,14 @@ class ChatAWSBedrock(BaseChatModel):
 
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:
 		"""Format a Pydantic model as a tool for structured output."""
-		schema = output_format.model_json_schema()
-
-		# Convert Pydantic schema to Bedrock tool format
-		properties = {}
-		required = []
-
-		for prop_name, prop_info in schema.get('properties', {}).items():
-			properties[prop_name] = {
-				'type': prop_info.get('type', 'string'),
-				'description': prop_info.get('description', ''),
-			}
-
-		# Add required fields
-		required = schema.get('required', [])
+		schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
 		return [
 			{
 				'toolSpec': {
 					'name': f'extract_{output_format.__name__.lower()}',
 					'description': f'Extract information in the format of {output_format.__name__}',
-					'inputSchema': {'json': {'type': 'object', 'properties': properties, 'required': required}},
+					'inputSchema': {'json': schema},
 				}
 			}
 		]
@@ -153,13 +145,15 @@ class ChatAWSBedrock(BaseChatModel):
 		)
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
+	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Invoke the AWS Bedrock model with the given messages.

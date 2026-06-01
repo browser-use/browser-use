@@ -14,9 +14,11 @@ from browser_use.browser.events import (
 	BrowserConnectedEvent,
 	BrowserErrorEvent,
 	BrowserStoppedEvent,
+	TabClosedEvent,
 	TabCreatedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
 	pass
@@ -41,6 +43,7 @@ class CrashWatchdog(BaseWatchdog):
 		BrowserConnectedEvent,
 		BrowserStoppedEvent,
 		TabCreatedEvent,
+		TabClosedEvent,
 	]
 	EMITS: ClassVar[list[type[BaseEvent]]] = [BrowserErrorEvent]
 
@@ -53,13 +56,15 @@ class CrashWatchdog(BaseWatchdog):
 	_monitoring_task: asyncio.Task | None = PrivateAttr(default=None)
 	_last_responsive_checks: dict[str, float] = PrivateAttr(default_factory=dict)  # target_url -> timestamp
 	_cdp_event_tasks: set[asyncio.Task] = PrivateAttr(default_factory=set)  # Track CDP event handler tasks
-	_sessions_with_listeners: set[str] = PrivateAttr(default_factory=set)  # Track sessions that already have event listeners
+	_targets_with_listeners: set[str] = PrivateAttr(default_factory=set)  # Track targets that already have event listeners
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""Start monitoring when browser is connected."""
 		# logger.debug('[CrashWatchdog] Browser connected event received, beginning monitoring')
 
-		asyncio.create_task(self._start_monitoring())
+		create_task_with_error_handling(
+			self._start_monitoring(), name='start_crash_monitoring', logger_instance=self.logger, suppress_exceptions=True
+		)
 		# logger.debug(f'[CrashWatchdog] Monitoring task started: {self._monitoring_task and not self._monitoring_task.done()}')
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
@@ -69,61 +74,48 @@ class CrashWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Attach to new tab."""
-		assert self.browser_session.agent_focus is not None, 'No current target ID'
-		await self.attach_to_target(self.browser_session.agent_focus.target_id)
+		assert self.browser_session.agent_focus_target_id is not None, 'No current target ID'
+		await self.attach_to_target(self.browser_session.agent_focus_target_id)
+
+	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
+		"""Clean up tracking when tab closes."""
+		# Remove target from listener tracking to prevent memory leak
+		if event.target_id in self._targets_with_listeners:
+			self._targets_with_listeners.discard(event.target_id)
+			self.logger.debug(f'[CrashWatchdog] Removed target {event.target_id[:8]}... from monitoring')
 
 	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up crash monitoring for a specific target using CDP."""
 		try:
+			# Check if we already have listeners for this target
+			if target_id in self._targets_with_listeners:
+				self.logger.debug(f'[CrashWatchdog] Event listeners already exist for target: {target_id[:8]}...')
+				return
+
 			# Create temporary session for monitoring without switching focus
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 
-			# Check if we already have listeners for this session
-			if cdp_session.session_id in self._sessions_with_listeners:
-				self.logger.debug(f'[CrashWatchdog] Event listeners already exist for session: {cdp_session.session_id}')
-				return
-
-			# Set up network event handlers
-			# def on_request_will_be_sent(event):
-			# 	# Create and track the task
-			# 	task = asyncio.create_task(self._on_request_cdp(event))
-			# 	self._cdp_event_tasks.add(task)
-			# 	# Remove from set when done
-			# 	task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
-
-			# def on_response_received(event):
-			# 	self._on_response_cdp(event)
-
-			# def on_loading_failed(event):
-			# 	self._on_request_failed_cdp(event)
-
-			# def on_loading_finished(event):
-			# 	self._on_request_finished_cdp(event)
-
-			# Register event handlers
-			# TEMPORARILY DISABLED: Network events causing too much logging
-			# cdp_client.on('Network.requestWillBeSent', on_request_will_be_sent, session_id=session_id)
-			# cdp_client.on('Network.responseReceived', on_response_received, session_id=session_id)
-			# cdp_client.on('Network.loadingFailed', on_loading_failed, session_id=session_id)
-			# cdp_client.on('Network.loadingFinished', on_loading_finished, session_id=session_id)
-
+			# Register crash event handler
 			def on_target_crashed(event: TargetCrashedEvent, session_id: SessionID | None = None):
 				# Create and track the task
-				task = asyncio.create_task(self._on_target_crash_cdp(target_id))
+				task = create_task_with_error_handling(
+					self._on_target_crash_cdp(target_id),
+					name='handle_target_crash',
+					logger_instance=self.logger,
+					suppress_exceptions=True,
+				)
 				self._cdp_event_tasks.add(task)
 				# Remove from set when done
 				task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
 
 			cdp_session.cdp_client.register.Target.targetCrashed(on_target_crashed)
 
-			# Track that we've added listeners to this session
-			self._sessions_with_listeners.add(cdp_session.session_id)
+			# Track that we've added listeners to this target
+			self._targets_with_listeners.add(target_id)
 
-			# Get target info for logging
-			targets = await cdp_session.cdp_client.send.Target.getTargets()
-			target_info = next((t for t in targets['targetInfos'] if t['targetId'] == target_id), None)
-			if target_info:
-				self.logger.debug(f'[CrashWatchdog] Added target to monitoring: {target_info.get("url", "unknown")}')
+			target = self.browser_session.session_manager.get_target(target_id)
+			if target:
+				self.logger.debug(f'[CrashWatchdog] Added target to monitoring: {target.url}')
 
 		except Exception as e:
 			self.logger.warning(f'[CrashWatchdog] Failed to attach to target {target_id}: {e}')
@@ -168,34 +160,28 @@ class CrashWatchdog(BaseWatchdog):
 
 	async def _on_target_crash_cdp(self, target_id: TargetID) -> None:
 		"""Handle target crash detected via CDP."""
-		# Remove crashed session from pool
-		if session := self.browser_session._cdp_session_pool.pop(target_id, None):
-			await session.disconnect()
-			self.logger.debug(f'[CrashWatchdog] Removed crashed session from pool: {target_id}')
+		self.logger.debug(f'[CrashWatchdog] Target crashed: {target_id[:8]}..., waiting for detach event')
 
-		# Get target info
-		cdp_client = self.browser_session.cdp_client
-		targets = await cdp_client.send.Target.getTargets()
-		target_info = next((t for t in targets['targetInfos'] if t['targetId'] == target_id), None)
-		if (
-			target_info
-			and self.browser_session.agent_focus
-			and target_info['targetId'] == self.browser_session.agent_focus.target_id
-		):
-			self.browser_session.agent_focus.target_id = None  # type: ignore
-			self.browser_session.agent_focus.session_id = None  # type: ignore
-			self.logger.error(
-				f'[CrashWatchdog] 💥 Target crashed, navigating Agent to a new tab: {target_info.get("url", "unknown")}'
-			)
+		target = self.browser_session.session_manager.get_target(target_id)
 
-		# Also emit generic browser error
+		is_agent_focus = (
+			target
+			and self.browser_session.agent_focus_target_id
+			and target.target_id == self.browser_session.agent_focus_target_id
+		)
+
+		if is_agent_focus:
+			self.logger.error(f'[CrashWatchdog] 💥 Agent focus tab crashed: {target.url} (SessionManager will auto-recover)')
+
+		# Emit browser error event
 		self.event_bus.dispatch(
 			BrowserErrorEvent(
 				error_type='TargetCrash',
 				message=f'Target crashed: {target_id}',
 				details={
-					# 'url': target_url,  # TODO: add url to details
+					'url': target.url if target else None,
 					'target_id': target_id,
+					'was_agent_focus': is_agent_focus,
 				},
 			)
 		)
@@ -208,11 +194,13 @@ class CrashWatchdog(BaseWatchdog):
 			# logger.info('[CrashWatchdog] Monitoring already running')
 			return
 
-		self._monitoring_task = asyncio.create_task(self._monitoring_loop())
+		self._monitoring_task = create_task_with_error_handling(
+			self._monitoring_loop(), name='crash_monitoring_loop', logger_instance=self.logger, suppress_exceptions=True
+		)
 		# logger.debug('[CrashWatchdog] Monitoring loop created and started')
 
 	async def _stop_monitoring(self) -> None:
-		"""Stop the monitoring loop."""
+		"""Stop the monitoring loop and clean up all tracking."""
 		if self._monitoring_task and not self._monitoring_task.done():
 			self._monitoring_task.cancel()
 			try:
@@ -230,9 +218,10 @@ class CrashWatchdog(BaseWatchdog):
 			await asyncio.gather(*self._cdp_event_tasks, return_exceptions=True)
 		self._cdp_event_tasks.clear()
 
-		# Clear tracking (CDP sessions are cached and managed by BrowserSession)
+		# Clear all tracking
 		self._active_requests.clear()
-		self._sessions_with_listeners.clear()
+		self._targets_with_listeners.clear()
+		self._last_responsive_checks.clear()
 
 	async def _monitoring_loop(self) -> None:
 		"""Main monitoring loop."""
@@ -293,27 +282,16 @@ class CrashWatchdog(BaseWatchdog):
 		"""Check if browser and targets are still responsive."""
 
 		try:
-			try:
-				self.logger.debug(f'[CrashWatchdog] Checking browser health for target {self.browser_session.agent_focus}')
-				cdp_session = await self.browser_session.get_or_create_cdp_session()
-			except Exception as e:
-				self.logger.debug(
-					f'[CrashWatchdog] Checking browser health for target {self.browser_session.agent_focus} error: {type(e).__name__}: {e}'
-				)
-				self.agent_focus = cdp_session = await self.browser_session.get_or_create_cdp_session(
-					target_id=self.agent_focus.target_id, new_socket=True, focus=True
-				)
+			self.logger.debug(f'[CrashWatchdog] Checking browser health for target {self.browser_session.agent_focus_target_id}')
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
 
-			for target in (await self.browser_session.cdp_client.send.Target.getTargets()).get('targetInfos', []):
-				if target.get('type') == 'page':
-					cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target.get('targetId'))
-					if self._is_new_tab_page(target.get('url')) and target.get('url') != 'about:blank':
-						self.logger.debug(
-							f'[CrashWatchdog] Redirecting chrome://new-tab-page/ to about:blank {target.get("url")}'
-						)
-						await cdp_session.cdp_client.send.Page.navigate(
-							params={'url': 'about:blank'}, session_id=cdp_session.session_id
-						)
+			for target in self.browser_session.session_manager.get_all_page_targets():
+				if self._is_new_tab_page(target.url) and target.url != 'about:blank':
+					self.logger.debug(f'[CrashWatchdog] Redirecting chrome://new-tab-page/ to about:blank {target.url}')
+					cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target.target_id)
+					await cdp_session.cdp_client.send.Page.navigate(
+						params={'url': 'about:blank'}, session_id=cdp_session.session_id
+					)
 
 			# Quick ping to check if session is alive
 			self.logger.debug(f'[CrashWatchdog] Attempting to run simple JS test expression in session {cdp_session} 1+1')
@@ -321,29 +299,23 @@ class CrashWatchdog(BaseWatchdog):
 				cdp_session.cdp_client.send.Runtime.evaluate(params={'expression': '1+1'}, session_id=cdp_session.session_id),
 				timeout=1.0,
 			)
-			self.logger.debug(f'[CrashWatchdog] Browser health check passed for target {self.browser_session.agent_focus}')
+			self.logger.debug(
+				f'[CrashWatchdog] Browser health check passed for target {self.browser_session.agent_focus_target_id}'
+			)
 		except Exception as e:
 			self.logger.error(
-				f'[CrashWatchdog] ❌ Crashed session detected for target {self.browser_session.agent_focus} error: {type(e).__name__}: {e}'
+				f'[CrashWatchdog] ❌ Crashed/unresponsive session detected for target {self.browser_session.agent_focus_target_id} '
+				f'error: {type(e).__name__}: {e} (Chrome will send detach event, SessionManager will auto-recover)'
 			)
-			# Remove crashed session from pool
-			if self.browser_session.agent_focus and (target_id := self.browser_session.agent_focus.target_id):
-				if session := self.browser_session._cdp_session_pool.pop(target_id, None):
-					await session.disconnect()
-					self.logger.debug(f'[CrashWatchdog] Removed crashed session from pool: {target_id}')
-			self.browser_session.agent_focus.target_id = None  # type: ignore
 
 		# Check browser process if we have PID
 		if self.browser_session._local_browser_watchdog and (proc := self.browser_session._local_browser_watchdog._subprocess):
 			try:
 				if proc.status() in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD):
 					self.logger.error(f'[CrashWatchdog] Browser process {proc.pid} has crashed')
-					# Clear all sessions from pool when browser crashes
-					for session in self.browser_session._cdp_session_pool.values():
-						await session.disconnect()
-					self.browser_session._cdp_session_pool.clear()
-					self.logger.debug('[CrashWatchdog] Cleared all sessions from pool due to browser crash')
 
+					# Browser process crashed - SessionManager will clean up via detach events
+					# Just dispatch error event and stop monitoring
 					self.event_bus.dispatch(
 						BrowserErrorEvent(
 							error_type='BrowserProcessCrashed',
@@ -351,6 +323,8 @@ class CrashWatchdog(BaseWatchdog):
 							details={'pid': proc.pid, 'status': proc.status()},
 						)
 					)
+
+					self.logger.warning('[CrashWatchdog] Browser process dead - stopping health monitoring')
 					await self._stop_monitoring()
 					return
 			except Exception:

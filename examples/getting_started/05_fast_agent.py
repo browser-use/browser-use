@@ -31,7 +31,7 @@ async def main():
 	)
 	# from browser_use import ChatGoogle
 
-	# llm = ChatGoogle(model='gemini-2.5-flash')
+	# llm = ChatGoogle(model='gemini-3.1-flash-lite')
 
 	# 2. Create speed-optimized browser profile
 	browser_profile = BrowserProfile(

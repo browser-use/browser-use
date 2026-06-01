@@ -65,6 +65,7 @@ class CachedPricingData(BaseModel):
 	"""Cached pricing data with timestamp"""
 
 	timestamp: datetime
+	source_url: str | None = None
 	data: dict[str, Any]
 
 
