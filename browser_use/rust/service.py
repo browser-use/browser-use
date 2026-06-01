@@ -1480,11 +1480,11 @@ def _browser_preference_mode(browser: Any) -> str | None:
 	We DELIBERATELY do not auto-pick `remote` from `BrowserSession.cdp_url`.
 	When a Python-side BrowserSession starts a local browser it populates
 	cdp_url with `ws://127.0.0.1:9222/...` — but the Rust agent owns its
-	own browser; connecting to the Python one would race two agents on
-	the same CDP target. To attach the Rust agent to a REMOTE CDP url
-	(e.g. cloud / Browserbase) pass it explicitly via
-	`extra_args=['-c', 'browser.preference.mode=cloud']` or set
-	`LLM_BROWSER_BROWSER_MODE=cloud` in your env.
+	own browser unless a wrapper/eval path explicitly passes a cloud CDP URL.
+	The wrapper publishes any provided cdp_url as `LLM_BROWSER_REMOTE_CDP_URL`
+	and injects the required `browser connect remote-cdp ...` first-action
+	directive; the Rust core's remote-CDP carve-out permits that attach even
+	while the browser-agent prompt stays enabled through managed-headless mode.
 	"""
 	headless = _browser_headless(browser)
 	if headless is False:

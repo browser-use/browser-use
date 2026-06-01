@@ -110,6 +110,23 @@ def test_browser_cdp_url_passes_through_to_env_for_rust_side():
 
 	env = Agent(task='x', browser=_Browser())._env_overrides()
 	assert env.get('BUT_BROWSER_CDP_URL') == 'ws://127.0.0.1:9222/devtools/browser/abc'
+	assert env.get('LLM_BROWSER_REMOTE_CDP_URL') == 'ws://127.0.0.1:9222/devtools/browser/abc'
+
+
+def test_browser_session_alias_drives_remote_cdp_attach_env():
+	"""Eval passes browser_session=BrowserSession(..., cdp_url=...). The Rust
+	wrapper must treat that as browser= so it attaches to the pre-provisioned
+	Unikraft/cloud browser instead of launching a fresh local Chromium."""
+
+	class _BrowserSession:
+		cdp_url = 'wss://unikraft.example/devtools/browser/eval'
+
+	agent = Agent(task='x', browser_session=_BrowserSession())
+	assert agent.browser is not None
+	env = agent._env_overrides()
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'managed-headless'
+	assert env['LLM_BROWSER_REMOTE_CDP_URL'] == 'wss://unikraft.example/devtools/browser/eval'
+	assert env['BUT_BROWSER_CDP_URL'] == 'wss://unikraft.example/devtools/browser/eval'
 
 
 def test_browser_proxy_and_headless_and_channel_forwarded_via_env():
