@@ -420,6 +420,54 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	assert _maybe_inject_eval_directive(None) is None
 
 
+def test_skipped_browsing_retry_keeps_remote_cdp_attach_first(monkeypatch):
+	from browser_use.rust import AgentRunResult
+	from browser_use.rust.views import StepRecord
+
+	class _Browser:
+		cdp_url = 'wss://unikraft.example/devtools/browser/eval'
+
+	calls: list[str] = []
+
+	async def fake_run_headless(self, text, *, attach_to_session, subcommand=None, max_turns=None):
+		calls.append(text)
+		if len(calls) == 1:
+			return AgentRunResult(
+				exit_code=0,
+				steps=[
+					StepRecord(
+						seq=1,
+						tool='browser',
+						tool_input={'arguments': {'command': 'status'}},
+						tool_output={'ok': True},
+					)
+				],
+			)
+		return AgentRunResult(
+			exit_code=0,
+			steps=[
+				StepRecord(
+					seq=2,
+					tool='browser_script',
+					tool_input={'arguments': {'code': 'await page.goto("https://example.com")'}},
+					tool_output={'ok': True},
+				)
+			],
+		)
+
+	monkeypatch.setenv('BU_RUST_FORCE_SCREENSHOTS', '1')
+	monkeypatch.setattr(Agent, '_run_headless', fake_run_headless)
+
+	agent = Agent(task='go to example.com and report the title', browser_session=_Browser())
+	asyncio.run(agent.run(max_steps=150))
+
+	assert len(calls) == 2
+	assert calls[0].startswith('[BROWSER ATTACH')
+	assert calls[1].startswith('[BROWSER ATTACH')
+	assert calls[1].index('[CRITICAL RETRY]') > calls[1].index('Skip the connect step')
+	assert 'After any required browser attach action' in calls[1]
+
+
 def test_max_turns_extra_arg_detection_handles_equals_form():
 	from browser_use.rust.service import _has_max_turns_arg
 

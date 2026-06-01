@@ -157,6 +157,15 @@ EVAL_SCREENSHOT_DIRECTIVE_TEMPLATE = (
 	'Serial browser walks burn 5-10 turns per item and exhaust the budget.'
 )
 
+RETRY_BROWSE_DIRECTIVE = (
+	'[CRITICAL RETRY] Your previous attempt at this task did NOT use '
+	'browser_script to open the page — that is failure. The grader '
+	'requires evidence of live navigation. After any required browser attach '
+	'action, your FIRST content action this time MUST be a browser_script call '
+	'that navigates to the URL referenced in the task, screenshots the loaded '
+	'page, and extracts the answer. Do not call `done` before that.\n\n'
+)
+
 
 OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[None]]
 
@@ -304,6 +313,17 @@ def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | No
 		'step entirely on subsequent turns — it is already connected.\n\n'
 	)
 	return preamble + task
+
+
+def _prepend_retry_browse_directive(task: str) -> str:
+	"""Add the skipped-browsing retry warning without outranking required CDP attach."""
+	attach_marker = '[BROWSER ATTACH'
+	if task.startswith(attach_marker):
+		preamble_end = task.find('\n\n')
+		if preamble_end != -1:
+			insert_at = preamble_end + 2
+			return task[:insert_at] + RETRY_BROWSE_DIRECTIVE + task[insert_at:]
+	return RETRY_BROWSE_DIRECTIVE + task
 
 
 class _AgentSessionState:
@@ -678,14 +698,7 @@ class Agent:
 					'Detected skipped-browsing on initial run (%d steps); retrying with explicit preamble',
 					len(result.steps),
 				)
-				retry_task = (
-					'[CRITICAL RETRY] Your previous attempt at this task did NOT use '
-					'browser_script to open the page — that is failure. The grader '
-					'requires evidence of live navigation. Your FIRST action this time '
-					'MUST be a browser_script call that navigates to the URL referenced '
-					'in the task, screenshots the loaded page, and extracts the answer. '
-					'Do not call `done` before that.\n\n'
-				) + task_text
+				retry_task = _prepend_retry_browse_directive(task_text)
 				retry = await self._run_headless(retry_task, attach_to_session=None, max_turns=effective_max)
 				# Only keep the retry if it's clearly better — i.e. actually browsed.
 				if not _looks_like_skip(retry):
