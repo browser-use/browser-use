@@ -284,6 +284,29 @@ def _has_max_turns_arg(args: list[str]) -> bool:
 	return any(arg == '--max-turns' or arg.startswith('--max-turns=') for arg in args)
 
 
+def _split_global_config_args(args: list[str]) -> tuple[list[str], list[str]]:
+	"""Move global Rust CLI `-c/--config` overrides before the subcommand."""
+	global_args: list[str] = []
+	remaining: list[str] = []
+	i = 0
+	while i < len(args):
+		arg = args[i]
+		if arg in ('-c', '--config'):
+			global_args.append(arg)
+			if i + 1 < len(args):
+				global_args.append(args[i + 1])
+				i += 2
+			else:
+				i += 1
+			continue
+		if arg.startswith('--config='):
+			global_args.append(arg)
+		else:
+			remaining.append(arg)
+		i += 1
+	return global_args, remaining
+
+
 def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | None:
 	"""When the Python BrowserSession owns a real remote CDP endpoint (Unikraft
 	cloud, Browserbase, anchor-browser etc.), tell the agent to attach to it
@@ -953,8 +976,10 @@ class Agent:
 		#   browser-use-terminal <global flags> <subcommand> <text> <subcmd flags>
 		# Global flags (--state-dir, --collaboration-mode) MUST precede the
 		# subcommand or clap errors out. Subcommand flags (--model) come after.
+		global_extra_args, subcommand_extra_args = _split_global_config_args(self.extra_args)
 		argv: list[str] = [str(cli)]
 		argv.extend(self._global_cli_flags())
+		argv.extend(global_extra_args)
 		argv.append(subcommand)
 		if attach_to_session and subcommand == 'followup':
 			argv.append(attach_to_session)
@@ -976,7 +1001,7 @@ class Agent:
 			and _binary_supports_max_turns(cli, subcommand)
 		):
 			argv.extend(['--max-turns', str(int(effective_turns))])
-		argv.extend(self.extra_args)
+		argv.extend(subcommand_extra_args)
 
 		env = {**os.environ, **self._env_overrides()}
 
@@ -1277,7 +1302,9 @@ class Agent:
 			flags.extend(['--browser', browser_label])
 		if self._model:
 			flags.extend(['--model', self._model])
-		flags.extend(self.extra_args)
+		global_extra_args, remaining_extra_args = _split_global_config_args(self.extra_args)
+		flags.extend(global_extra_args)
+		flags.extend(remaining_extra_args)
 		return flags
 
 	def _env_overrides(self) -> dict[str, str]:

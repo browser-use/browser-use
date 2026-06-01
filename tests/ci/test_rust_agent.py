@@ -130,6 +130,45 @@ def test_rust_wrapper_respects_explicit_shell_tool_extra_arg(monkeypatch):
 	assert 'features.shell_tool=true' not in flags
 
 
+def test_rust_wrapper_moves_config_extra_args_before_headless_subcommand(monkeypatch):
+	from pathlib import Path
+
+	from browser_use.rust import service
+	from browser_use.rust.views import AgentRunResult
+
+	seen_argv: list[str] = []
+
+	async def fake_subprocess_exec(*argv, **kwargs):
+		seen_argv.extend(str(arg) for arg in argv)
+
+		class _Stream:
+			async def read(self, _n=-1):
+				return b''
+
+		class _Proc:
+			stdout = _Stream()
+			stderr = _Stream()
+			returncode = 0
+
+			async def wait(self):
+				return 0
+
+		return _Proc()
+
+	monkeypatch.setattr(service, 'find_browser_use_terminal_binary', lambda: Path('/tmp/browser-use-terminal'))
+	monkeypatch.setattr(service, '_binary_supports_max_turns', lambda cli, subcommand: False)
+	monkeypatch.setattr(service.asyncio, 'create_subprocess_exec', fake_subprocess_exec)
+
+	agent = Agent(task='x', extra_args=['-c', 'features.shell_tool=true', '--some-subcmd-flag'])
+	result = asyncio.run(agent._run_headless('do work', attach_to_session=None))
+
+	assert isinstance(result, AgentRunResult)
+	subcommand_index = seen_argv.index('run-openai')
+	assert seen_argv[0] == '/tmp/browser-use-terminal'
+	assert seen_argv[subcommand_index - 2 : subcommand_index] == ['-c', 'features.shell_tool=true']
+	assert seen_argv[-1] == '--some-subcmd-flag'
+
+
 def test_browser_cdp_url_passes_through_to_env_for_rust_side():
 	class _Browser:
 		cdp_url = 'ws://127.0.0.1:9222/devtools/browser/abc'
