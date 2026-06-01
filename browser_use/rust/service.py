@@ -146,6 +146,16 @@ EVAL_SCREENSHOT_DIRECTIVE = (
 	'no filesystem). Dismiss cookie banners before extracting. End each '
 	'browser_script with `screenshot("step")`. Do not ask clarifying questions '
 	'— finish with the best answer you can produce from the live page.'
+	'\n\n[STRUCTURED-LIST DETECTOR — read before your first tool call]'
+	'\nCount the items in the task RIGHT NOW. If the task lists N>=5 explicitly '
+	'named items, OR says "for each ..." over 5+ entries, OR cascades A→B→C '
+	'(find X, then for each X find Y), OR compares 3+ sites: your FIRST tool '
+	'call after browser attach MUST be `spawn_agent` per item (cap 10 in '
+	'parallel). Sequential walk in one rollout hits the 150-turn budget around '
+	'item 6-8 and DIES — that is the single biggest source of eval failures. '
+	'Each sub-agent gets ONE item, returns one-line answer via done(result=...), '
+	'parent calls wait_agent and assembles. Do not iterate sequentially through '
+	'a list — that is a guaranteed budget exhaustion failure.'
 )
 
 
