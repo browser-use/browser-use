@@ -135,6 +135,7 @@ class _MessageManagerStub:
 DEFAULT_POLL_INTERVAL_MS = 250
 GRACEFUL_CANCEL_TIMEOUT_S = 5.0
 DEFAULT_RUST_MAX_TURNS = 80
+SHELL_TOOL_OPT_IN_ENV = 'BU_RUST_ENABLE_SHELL_TOOL'
 
 # Appended to the task text when BU_RUST_FORCE_SCREENSHOTS=1 (set by the
 # eval CI). The Rust core's default system prompt only *encourages*
@@ -1249,6 +1250,11 @@ class Agent:
 		flags: list[str] = []
 		if self.state_dir:
 			flags.extend(['--state-dir', str(self.state_dir)])
+		if (
+			os.environ.get(SHELL_TOOL_OPT_IN_ENV) != '1'
+			and not any('features.shell_tool' in arg for arg in self.extra_args)
+		):
+			flags.extend(['-c', 'features.shell_tool=false'])
 		mode = _browser_preference_mode(self.browser)
 		# Always set mode — see _env_overrides for the rationale. The
 		# Rust core's LLM_BROWSER_REMOTE_CDP_URL carve-out lets the

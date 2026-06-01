@@ -104,6 +104,32 @@ def test_browser_name_passes_through_to_cli_flag():
 	assert 'Local Chrome' in flags
 
 
+def test_rust_wrapper_disables_shell_tool_by_default(monkeypatch):
+	monkeypatch.delenv('BU_RUST_ENABLE_SHELL_TOOL', raising=False)
+
+	flags = Agent(task='x')._global_cli_flags()
+
+	assert '-c' in flags
+	assert 'features.shell_tool=false' in flags
+
+
+def test_rust_wrapper_shell_tool_can_be_explicitly_enabled(monkeypatch):
+	monkeypatch.setenv('BU_RUST_ENABLE_SHELL_TOOL', '1')
+
+	flags = Agent(task='x')._global_cli_flags()
+
+	assert 'features.shell_tool=false' not in flags
+
+
+def test_rust_wrapper_respects_explicit_shell_tool_extra_arg(monkeypatch):
+	monkeypatch.delenv('BU_RUST_ENABLE_SHELL_TOOL', raising=False)
+
+	flags = Agent(task='x', extra_args=['-c', 'features.shell_tool=true'])._global_cli_flags()
+
+	assert flags.count('features.shell_tool=false') == 0
+	assert 'features.shell_tool=true' not in flags
+
+
 def test_browser_cdp_url_passes_through_to_env_for_rust_side():
 	class _Browser:
 		cdp_url = 'ws://127.0.0.1:9222/devtools/browser/abc'
