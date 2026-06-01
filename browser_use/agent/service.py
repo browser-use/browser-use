@@ -1602,6 +1602,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Only pass request_type for ChatBrowserUse (other providers don't support it)
 		if self.judge_llm.provider == 'browser-use':
 			kwargs['request_type'] = 'judge'
+			kwargs['session_id'] = self.session_id
 
 		try:
 			response = await self.judge_llm.ainvoke(input_messages, **kwargs)
