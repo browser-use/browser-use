@@ -144,9 +144,27 @@ BROWSER_TASK_DISABLED_FEATURES = (
 	'features.plugins',
 	'features.image_generation',
 )
+EVAL_ROOT_AGENT_USAGE_HINT = (
+	'Eval browser/data fan-out policy: if the task has 5+ independent items, '
+	'3+ independent sites, or a cascade where each discovered item needs the '
+	'same follow-up lookup, do not walk the items sequentially in the parent. '
+	'Spawn one focused helper per item/document/site with spawn_agent before '
+	'doing item-by-item browser work, continue any shared discovery locally, '
+	'then collect helper results with wait_agent and assemble the final answer. '
+	'Sequential browser walks are the known failure mode for real_v8.'
+)
+EVAL_SUBAGENT_USAGE_HINT = (
+	'Eval helper policy: complete only the single item/document/site assigned '
+	'by the parent. Use the live website or direct HTTP discovered from it, '
+	'return the requested fields concisely with done(result=...), and avoid '
+	'spawning more helpers unless your assigned subtask itself contains 5+ '
+	'independent items.'
+)
 EVAL_BROWSER_TASK_CONFIG = (
 	('features.multi_agent_v2.enabled', 'true'),
 	('features.multi_agent_v2.max_concurrent_threads_per_session', '11'),
+	('features.multi_agent_v2.root_agent_usage_hint_text', json.dumps(EVAL_ROOT_AGENT_USAGE_HINT)),
+	('features.multi_agent_v2.subagent_usage_hint_text', json.dumps(EVAL_SUBAGENT_USAGE_HINT)),
 )
 TOOL_OUTPUT_KEYS = (
 	'text',
@@ -543,7 +561,8 @@ def _split_global_config_args(args: list[str]) -> tuple[list[str], list[str]]:
 def _has_config_override(args: list[str], key: str) -> bool:
 	prefixes = (f'{key}=', f'{key}.')
 	for arg in args:
-		if arg == key or arg.startswith(prefixes):
+		candidate = arg.removeprefix('--config=')
+		if candidate == key or candidate.startswith(prefixes):
 			return True
 	return False
 

@@ -171,6 +171,16 @@ def test_rust_wrapper_enables_multi_agent_v2_in_eval_mode(monkeypatch):
 
 	assert 'features.multi_agent_v2.enabled=true' in flags
 	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=11' in flags
+	root_hint = next(
+		flag for flag in flags if flag.startswith('features.multi_agent_v2.root_agent_usage_hint_text=')
+	)
+	subagent_hint = next(
+		flag for flag in flags if flag.startswith('features.multi_agent_v2.subagent_usage_hint_text=')
+	)
+	assert 'Spawn one focused helper per item/document/site' in root_hint
+	assert 'Sequential browser walks are the known failure mode for real_v8' in root_hint
+	assert 'complete only the single item/document/site assigned' in subagent_hint
+	assert 'done(result=...)' in subagent_hint
 
 
 def test_rust_wrapper_respects_explicit_multi_agent_v2_eval_override(monkeypatch):
@@ -183,11 +193,18 @@ def test_rust_wrapper_respects_explicit_multi_agent_v2_eval_override(monkeypatch
 			'features.multi_agent_v2.enabled=false',
 			'-c',
 			'features.multi_agent_v2.max_concurrent_threads_per_session=6',
+			'--config=features.multi_agent_v2.root_agent_usage_hint_text="custom root"',
+			'-c',
+			'features.multi_agent_v2.subagent_usage_hint_text="custom child"',
 		],
 	)._global_cli_flags()
 
 	assert 'features.multi_agent_v2.enabled=true' not in flags
 	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=11' not in flags
+	assert not any(
+		'Sequential browser walks are the known failure mode for real_v8' in flag for flag in flags
+	)
+	assert not any('complete only the single item/document/site assigned' in flag for flag in flags)
 
 
 def test_rust_wrapper_moves_config_extra_args_before_headless_subcommand(monkeypatch):
