@@ -1133,6 +1133,37 @@ def test_result_quacks_like_agent_history_list():
 	assert set(dump) >= {'input_tokens', 'output_tokens', 'cost', 'model'}
 
 
+def test_history_view_surfaces_completion_candidates_without_extracted_content():
+	from browser_use.rust import AgentRunResult
+	from browser_use.rust.views import StepRecord
+
+	result = AgentRunResult(
+		session_id='sess',
+		exit_code=0,
+		steps=[
+			StepRecord(
+				seq=1,
+				tool='browser_script',
+				tool_output={
+					'completion_candidates': [
+						{
+							'ready_for_done': True,
+							'record_count': 3,
+							'result_file': '/tmp/packages.json',
+						}
+					],
+				},
+			),
+		],
+	)
+
+	extracted = result.history[0].result[0].extracted_content
+	assert extracted is not None
+	parsed = json.loads(extracted)
+	assert parsed[0]['ready_for_done'] is True
+	assert parsed[0]['result_file'] == '/tmp/packages.json'
+
+
 def test_final_summary_does_not_mark_non_done_step_successful():
 	from browser_use.rust import AgentRunResult
 	from browser_use.rust.views import StepRecord
