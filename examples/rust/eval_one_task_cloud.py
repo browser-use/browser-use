@@ -180,6 +180,10 @@ async def run_one(args: argparse.Namespace) -> int:
 		if result.session_id:
 			print(f'  events       : browser-use-terminal events {result.session_id}')
 			print(f'  show         : browser-use-terminal show {result.session_id}')
+			print(
+				'  inspect      : uv run python examples/rust/inspect_rust_trace.py '
+				f'{_state_db_hint(args.state_dir)} {result.session_id}'
+			)
 		print()
 
 		print('== final ==')

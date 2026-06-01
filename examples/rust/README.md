@@ -33,6 +33,7 @@ through a Python `Agent` interface that mirrors the classic
 | `06_output_model.py` | Hand a Pydantic class via `output_model=` and get a typed final result. |
 | `eval_one_task.py` | Fetch and run one eval task locally with the Rust wrapper. |
 | `eval_one_task_cloud.py` | Fetch and run one eval task through the Rust wrapper attached to a Browser Use Cloud browser. |
+| `inspect_rust_trace.py` | Inspect a Rust state.db session: turns, tools, screenshots, tokens, artifacts, and large outputs. |
 
 ## Run
 
