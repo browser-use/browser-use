@@ -573,6 +573,7 @@ def test_eval_screenshot_directive_appends_only_when_env_set(monkeypatch):
 	assert 'short snake_case `task_name`' in out
 	assert 'collect with `wait_agent` without targets' in out
 	assert '`agent_status.completed` values' in out
+	assert 'finish_and_close_children=true' in out
 	# Idempotent — re-injecting must not duplicate.
 	assert _maybe_inject_eval_directive(out, max_turns=200) == out
 

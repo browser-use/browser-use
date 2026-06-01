@@ -203,7 +203,9 @@ EVAL_SCREENSHOT_DIRECTIVE_TEMPLATE = (
 	'vendor disambiguation, or separate sites, spawn one focused sub-agent per '
 	'item/document/site with `spawn_agent` using a short snake_case `task_name`, '
 	'then collect with `wait_agent` without targets and read the returned '
-	'`agents` array for `agent_status.completed` values. '
+	'`agents` array for `agent_status.completed` values. If you have enough '
+	'helper results while some helpers are still running, finish with '
+	'`done(result=..., finish_and_close_children=true)`. '
 	'Serial browser walks burn 5-10 turns per item and exhaust the budget.'
 )
 
