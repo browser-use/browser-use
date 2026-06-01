@@ -31,6 +31,8 @@ through a Python `Agent` interface that mirrors the classic
 | `04_stream_events.py` | Live typed-event stream (`run_streaming()`) while the agent runs. |
 | `05_cancellation.py` | Cancel after 3s; cooperative `cancel <id>` → SIGINT → terminate ladder. |
 | `06_output_model.py` | Hand a Pydantic class via `output_model=` and get a typed final result. |
+| `eval_one_task.py` | Fetch and run one eval task locally with the Rust wrapper. |
+| `eval_one_task_cloud.py` | Fetch and run one eval task through the Rust wrapper attached to a Browser Use Cloud browser. |
 
 ## Run
 
