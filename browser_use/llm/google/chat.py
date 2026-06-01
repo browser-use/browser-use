@@ -4,8 +4,9 @@ import json
 import logging
 import random
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeVar, overload
+from typing import Any, Literal, TypeVar, cast, overload
 
 from google import genai
 from google.auth.credentials import Credentials
@@ -16,7 +17,7 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
@@ -88,6 +89,8 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
+	supports_native_tool_calling: bool = True
+	supports_parallel_tool_calls: bool = True
 	temperature: float | None = None
 	top_p: float | None = None
 	seed: int | None = None
@@ -217,6 +220,126 @@ class ChatGoogle(BaseChatModel):
 
 		return usage
 
+	def _get_native_tool_params(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+		"""Convert OpenAI-compatible function tools into Gemini function declarations."""
+		raw_tools = kwargs.get('tools')
+		if not raw_tools:
+			return {}
+
+		function_declarations: list[types.FunctionDeclaration] = []
+		for raw_tool in raw_tools:
+			if not isinstance(raw_tool, dict):
+				continue
+			function = raw_tool.get('function', raw_tool)
+			if not isinstance(function, dict):
+				continue
+			name = function.get('name')
+			if not name:
+				continue
+			function_declarations.append(
+				types.FunctionDeclaration(
+					name=str(name),
+					description=str(function.get('description') or ''),
+					parameters_json_schema=function.get('parameters') or {'type': 'object', 'properties': {}},
+				)
+			)
+
+		if not function_declarations:
+			return {}
+
+		native_params: dict[str, Any] = {'tools': [types.Tool(function_declarations=function_declarations)]}
+		tool_choice = kwargs.get('tool_choice')
+		mode: types.FunctionCallingConfigMode | None = None
+		allowed_function_names: list[str] | None = None
+		if tool_choice == 'required':
+			mode = types.FunctionCallingConfigMode.ANY
+		elif tool_choice == 'auto':
+			mode = types.FunctionCallingConfigMode.AUTO
+		elif tool_choice == 'none':
+			mode = types.FunctionCallingConfigMode.NONE
+		elif isinstance(tool_choice, dict):
+			function = tool_choice.get('function')
+			name = function.get('name') if isinstance(function, dict) else None
+			if tool_choice.get('type') == 'function' and name:
+				mode = types.FunctionCallingConfigMode.ANY
+				allowed_function_names = [str(name)]
+			elif tool_choice.get('type') == 'required':
+				mode = types.FunctionCallingConfigMode.ANY
+			elif tool_choice.get('type') == 'auto':
+				mode = types.FunctionCallingConfigMode.AUTO
+			elif tool_choice.get('type') == 'none':
+				mode = types.FunctionCallingConfigMode.NONE
+
+		if mode is not None:
+			native_params['tool_config'] = types.ToolConfig(
+				function_calling_config=types.FunctionCallingConfig(
+					mode=mode,
+					allowed_function_names=allowed_function_names,
+				)
+			)
+
+		return native_params
+
+	def _json_tool_arguments(self, args: Any) -> str:
+		if isinstance(args, str):
+			return args
+		payload = dict(args) if isinstance(args, Mapping) else {'arguments': args}
+		return json.dumps(payload, default=str)
+
+	def _iter_function_calls(self, response: types.GenerateContentResponse) -> list[Any]:
+		calls: list[Any] = []
+		for candidate in getattr(response, 'candidates', None) or []:
+			content = getattr(candidate, 'content', None)
+			for part in getattr(content, 'parts', None) or []:
+				function_call = getattr(part, 'function_call', None)
+				if function_call is not None:
+					calls.append(function_call)
+		if calls:
+			return calls
+
+		try:
+			function_calls = getattr(response, 'function_calls', None)
+		except Exception:
+			function_calls = None
+		return list(function_calls) if function_calls else []
+
+	def _get_tool_calls(self, response: types.GenerateContentResponse) -> list[ToolCall]:
+		tool_calls: list[ToolCall] = []
+		for index, function_call in enumerate(self._iter_function_calls(response)):
+			name = getattr(function_call, 'name', None)
+			if not name:
+				continue
+			tool_calls.append(
+				ToolCall(
+					id=str(getattr(function_call, 'id', None) or f'gemini_call_{index}_{name}'),
+					function=Function(
+						name=str(name),
+						arguments=self._json_tool_arguments(getattr(function_call, 'args', {}) or {}),
+					),
+					type='function',
+				)
+			)
+		return tool_calls
+
+	def _get_text_response(self, response: types.GenerateContentResponse) -> str:
+		text_parts: list[str] = []
+		saw_parts = False
+		for candidate in getattr(response, 'candidates', None) or []:
+			content = getattr(candidate, 'content', None)
+			for part in getattr(content, 'parts', None) or []:
+				saw_parts = True
+				if getattr(part, 'function_call', None) is not None:
+					continue
+				text = getattr(part, 'text', None)
+				if text:
+					text_parts.append(text)
+		if saw_parts:
+			return '\n'.join(text_parts)
+		try:
+			return response.text or ''
+		except Exception:
+			return ''
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -321,6 +444,9 @@ class ChatGoogle(BaseChatModel):
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
 
+		if output_format is None:
+			config.update(cast(types.GenerateContentConfigDict, self._get_native_tool_params(kwargs)))
+
 		async def _make_api_call():
 			start_time = time.time()
 			self.logger.debug(f'🚀 Starting API call to {self.model}')
@@ -340,8 +466,9 @@ class ChatGoogle(BaseChatModel):
 					self.logger.debug(f'✅ Got text response in {elapsed:.2f}s')
 
 					# Handle case where response.text might be None
-					text = response.text or ''
-					if not text:
+					text = self._get_text_response(response)
+					tool_calls = self._get_tool_calls(response)
+					if not text and not tool_calls:
 						self.logger.warning('⚠️ Empty text response received')
 
 					usage = self._get_usage(response)
@@ -350,6 +477,7 @@ class ChatGoogle(BaseChatModel):
 						completion=text,
 						usage=usage,
 						stop_reason=self._get_stop_reason(response),
+						tool_calls=tool_calls,
 					)
 
 				else:

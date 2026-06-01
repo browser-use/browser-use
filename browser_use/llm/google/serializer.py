@@ -1,17 +1,37 @@
 import base64
+import json
 
+from google.genai import types
 from google.genai.types import Content, ContentListUnion, Part
 
 from browser_use.llm.messages import (
 	AssistantMessage,
 	BaseMessage,
 	SystemMessage,
+	ToolCall,
+	ToolMessage,
 	UserMessage,
 )
 
 
 class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
+
+	@staticmethod
+	def _parse_tool_arguments(tool_call: ToolCall) -> dict:
+		try:
+			arguments = json.loads(tool_call.function.arguments or '{}')
+		except json.JSONDecodeError:
+			return {'arguments': tool_call.function.arguments}
+		return arguments if isinstance(arguments, dict) else {'arguments': arguments}
+
+	@staticmethod
+	def _parse_tool_result(content: str) -> dict:
+		try:
+			result = json.loads(content)
+		except json.JSONDecodeError:
+			return {'content': content}
+		return result if isinstance(result, dict) else {'content': result}
 
 	@staticmethod
 	def serialize_messages(
@@ -39,6 +59,7 @@ class GoogleMessageSerializer:
 		formatted_messages: ContentListUnion = []
 		system_message: str | None = None
 		system_parts: list[str] = []
+		tool_call_names: dict[str, str] = {}
 
 		for i, message in enumerate(messages):
 			role = message.role if hasattr(message, 'role') else None
@@ -69,6 +90,8 @@ class GoogleMessageSerializer:
 				role = 'user'
 			elif isinstance(message, AssistantMessage):
 				role = 'model'
+			elif isinstance(message, ToolMessage):
+				role = 'user'
 			else:
 				# Default to user for any unknown message types
 				role = 'user'
@@ -77,7 +100,18 @@ class GoogleMessageSerializer:
 			message_parts: list[Part] = []
 
 			# If this is the first user message and we have system parts, prepend them
-			if include_system_in_user and system_parts and role == 'user' and not formatted_messages:
+			if isinstance(message, ToolMessage):
+				tool_name = message.name or tool_call_names.get(message.tool_call_id) or message.tool_call_id
+				message_parts.append(
+					Part(
+						function_response=types.FunctionResponse(
+							id=message.tool_call_id,
+							name=tool_name,
+							response=GoogleMessageSerializer._parse_tool_result(message.content),
+						)
+					)
+				)
+			elif include_system_in_user and system_parts and role == 'user' and not formatted_messages:
 				system_text = '\n\n'.join(system_parts)
 				if isinstance(message.content, str):
 					message_parts.append(Part.from_text(text=f'{system_text}\n\n{message.content}'))
@@ -113,6 +147,19 @@ class GoogleMessageSerializer:
 							image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
 
 							message_parts.append(image_part)
+
+			if isinstance(message, AssistantMessage) and message.tool_calls:
+				for tool_call in message.tool_calls:
+					tool_call_names[tool_call.id] = tool_call.function.name
+					message_parts.append(
+						Part(
+							function_call=types.FunctionCall(
+								id=tool_call.id,
+								name=tool_call.function.name,
+								args=GoogleMessageSerializer._parse_tool_arguments(tool_call),
+							)
+						)
+					)
 
 			# Create the Content object
 			if message_parts:

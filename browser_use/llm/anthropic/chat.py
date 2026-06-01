@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
@@ -37,6 +37,8 @@ class ChatAnthropic(BaseChatModel):
 
 	# Model configuration
 	model: str | ModelParam
+	supports_native_tool_calling: bool = True
+	supports_parallel_tool_calls: bool = True
 	max_tokens: int = 8192
 	temperature: float | None = None
 	top_p: float | None = None
@@ -126,6 +128,84 @@ class ChatAnthropic(BaseChatModel):
 		)
 		return usage
 
+	def _get_native_tool_params(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+		"""Convert OpenAI-compatible function tools into Anthropic tool params."""
+		raw_tools = kwargs.get('tools')
+		if not raw_tools:
+			return {}
+
+		tools: list[ToolParam] = []
+		for raw_tool in raw_tools:
+			if not isinstance(raw_tool, dict):
+				continue
+			function = raw_tool.get('function', raw_tool)
+			if not isinstance(function, dict):
+				continue
+			name = function.get('name')
+			if not name:
+				continue
+			input_schema = function.get('parameters') or {'type': 'object', 'properties': {}}
+			if isinstance(input_schema, dict):
+				input_schema = dict(input_schema)
+				input_schema.pop('title', None)
+			tools.append(
+				ToolParam(
+					name=str(name),
+					description=str(function.get('description') or ''),
+					input_schema=input_schema,
+				)
+			)
+
+		if not tools:
+			return {}
+
+		native_params: dict[str, Any] = {'tools': tools}
+		tool_choice = kwargs.get('tool_choice')
+		if tool_choice == 'required':
+			native_params['tool_choice'] = {'type': 'any'}
+		elif tool_choice == 'auto':
+			native_params['tool_choice'] = {'type': 'auto'}
+		elif tool_choice == 'none':
+			native_params['tool_choice'] = {'type': 'none'}
+		elif isinstance(tool_choice, dict):
+			function = tool_choice.get('function')
+			name = function.get('name') if isinstance(function, dict) else None
+			if tool_choice.get('type') == 'function' and name:
+				native_params['tool_choice'] = ToolChoiceToolParam(type='tool', name=str(name))
+			elif tool_choice.get('type') in {'auto', 'any', 'none'}:
+				native_params['tool_choice'] = {'type': tool_choice['type']}
+
+		return native_params
+
+	def _get_tool_calls(self, response: Message) -> list[ToolCall]:
+		tool_calls: list[ToolCall] = []
+		for index, content_block in enumerate(response.content):
+			if getattr(content_block, 'type', None) != 'tool_use':
+				continue
+			raw_input = getattr(content_block, 'input', {})
+			if isinstance(raw_input, str):
+				arguments = raw_input
+			else:
+				arguments = json.dumps(raw_input)
+			tool_calls.append(
+				ToolCall(
+					id=str(getattr(content_block, 'id', None) or f'toolu_{index}'),
+					function=Function(
+						name=str(getattr(content_block, 'name', '')),
+						arguments=arguments,
+					),
+					type='function',
+				)
+			)
+		return tool_calls
+
+	def _get_text_response(self, response: Message) -> str:
+		text_parts: list[str] = []
+		for content_block in response.content:
+			if isinstance(content_block, TextBlock):
+				text_parts.append(content_block.text)
+		return '\n'.join(text_parts)
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -146,6 +226,7 @@ class ChatAnthropic(BaseChatModel):
 					model=self.model,
 					messages=anthropic_messages,
 					system=system_prompt or omit,
+					**self._get_native_tool_params(kwargs),
 					**self._get_client_params_for_invoke(),
 				)
 
@@ -159,18 +240,11 @@ class ChatAnthropic(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				# Extract text from the first content block
-				first_content = response.content[0]
-				if isinstance(first_content, TextBlock):
-					response_text = first_content.text
-				else:
-					# If it's not a text block, convert to string
-					response_text = str(first_content)
-
 				return ChatInvokeCompletion(
-					completion=response_text,
+					completion=self._get_text_response(response),
 					usage=usage,
 					stop_reason=response.stop_reason,
+					tool_calls=self._get_tool_calls(response),
 				)
 
 			else:
