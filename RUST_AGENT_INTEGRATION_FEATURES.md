@@ -34,6 +34,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - `examples/rust_agent/basic.py` runs a Rust-backed Agent through the Browser Use-style API.
    - It accepts `BU_CDP_URL` or `BROWSER_USE_CDP_URL` for external CDP attachment.
    - Proof: managed-headless smoke returned `Example Domain` for `https://example.com`.
+   - Proof: remote-CDP smoke against an externally launched Chromium DevTools endpoint returned `Example Domain`.
 
 ## Current Verification
 
@@ -44,9 +45,12 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
+- Remote-CDP end-to-end:
+  - Launch external Chromium with `--remote-debugging-port=49333`.
+  - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
+  - Output: `Example Domain`
 
 ## Not Verified Yet
 
-- Browser Use cloud remote browser end-to-end was not run because `browser-use-terminal auth status` reports `Browser Use cloud key: not connected`, and no `BU_CDP_URL` or `BROWSER_USE_CDP_URL` is set.
+- Browser Use cloud remote browser end-to-end was not run because `browser-use-terminal auth status` reports `Browser Use cloud key: not connected`. The remote-CDP path has been verified against an external CDP browser.
 - Real v8 eval smoke was not rerun after this reset because the current objective prioritizes the latest-main integration branch and the VM has no connected Browser Use cloud key.
-
