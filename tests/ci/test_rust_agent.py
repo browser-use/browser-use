@@ -134,6 +134,43 @@ def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
 
+def test_rust_agent_translates_browser_profile_headless(monkeypatch):
+	from browser_use.rust import Agent
+
+	class HeadedProfile:
+		headless = False
+
+	class HeadlessProfile:
+		headless = True
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+
+	headed = Agent(task='report title', browser_profile=HeadedProfile())
+	headless = Agent(task='report title', browser_profile=HeadlessProfile())
+
+	assert 'browser_mode="managed-headed"' in headed._run_argv(max_steps=4)
+	assert headed._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'managed-headed'
+	assert 'browser_mode="managed-headless"' in headless._run_argv(max_steps=4)
+	assert headless._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'managed-headless'
+
+
+def test_rust_agent_browser_mode_env_overrides_profile_headless(monkeypatch):
+	from browser_use.rust import Agent
+
+	class HeadedProfile:
+		headless = False
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.setenv('BROWSER_USE_BROWSER_MODE', 'cloud')
+
+	agent = Agent(task='report title', browser_profile=HeadedProfile())
+
+	assert 'browser_mode="cloud"' in agent._run_argv(max_steps=4)
+	assert agent._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'cloud'
+
+
 def test_rust_agent_mirrors_direct_url_startup():
 	from browser_use.rust import Agent
 

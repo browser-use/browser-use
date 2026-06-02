@@ -83,6 +83,18 @@ def _extract_profile_cdp_url(browser_profile: BrowserProfile | None) -> str | No
 	return None
 
 
+def _extract_headless_preference(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> bool | None:
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile):
+		value = getattr(profile, 'headless', None)
+		if isinstance(value, bool):
+			return value
+	value = getattr(browser_session, 'headless', None)
+	if isinstance(value, bool):
+		return value
+	return None
+
+
 def _initial_navigation_url(initial_actions: Any) -> str | None:
 	if not isinstance(initial_actions, list):
 		return None
@@ -824,7 +836,15 @@ class Agent(Generic[AgentStructuredOutput]):
 		value = os.environ.get('BROWSER_USE_RUST_BROWSER_MODE')
 		if value:
 			return value
-		return os.environ.get('BROWSER_USE_BROWSER_MODE', 'managed-headless')
+		value = os.environ.get('BROWSER_USE_BROWSER_MODE')
+		if value:
+			return value
+		headless = _extract_headless_preference(self.browser_session, self.browser_profile)
+		if headless is False:
+			return 'managed-headed'
+		if headless is True:
+			return 'managed-headless'
+		return 'managed-headless'
 
 	def _run_env(self) -> dict[str, str]:
 		env = os.environ.copy()
