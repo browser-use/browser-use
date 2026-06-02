@@ -4,17 +4,18 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import shutil
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Generic
+from typing import Any, Generic, Literal
 
 from pydantic import BaseModel
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
-from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentState, StepMetadata
+from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentSettings, AgentState, StepMetadata
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
@@ -107,6 +108,93 @@ def _task_with_schema(task: str, output_model_schema: type[BaseModel] | None) ->
 		return task
 	schema = json.dumps(output_model_schema.model_json_schema(), indent=2)
 	return f'{task}\n\nExpected output JSON schema for the final answer:\n{schema}'
+
+
+def _extract_start_url(task: str) -> str | None:
+	task_without_emails = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', task)
+	patterns = [
+		r'https?://[^\s<>"\']+',
+		r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',
+	]
+	excluded_extensions = {
+		'pdf',
+		'doc',
+		'docx',
+		'xls',
+		'xlsx',
+		'ppt',
+		'pptx',
+		'odt',
+		'ods',
+		'odp',
+		'txt',
+		'md',
+		'csv',
+		'json',
+		'xml',
+		'yaml',
+		'yml',
+		'zip',
+		'rar',
+		'7z',
+		'tar',
+		'gz',
+		'bz2',
+		'xz',
+		'jpg',
+		'jpeg',
+		'png',
+		'gif',
+		'bmp',
+		'svg',
+		'webp',
+		'ico',
+		'mp3',
+		'mp4',
+		'avi',
+		'mkv',
+		'mov',
+		'wav',
+		'flac',
+		'ogg',
+		'py',
+		'js',
+		'css',
+		'java',
+		'cpp',
+		'bib',
+		'bibtex',
+		'tex',
+		'latex',
+		'cls',
+		'sty',
+		'exe',
+		'msi',
+		'dmg',
+		'pkg',
+		'deb',
+		'rpm',
+		'iso',
+	}
+	excluded_words = {'never', 'dont', 'not', "don't"}
+
+	found_urls = []
+	for pattern in patterns:
+		for match in re.finditer(pattern, task_without_emails):
+			url = re.sub(r'[.,;:!?()\[\]]+$', '', match.group(0))
+			url_lower = url.lower()
+			if any(f'.{ext}' in url_lower for ext in excluded_extensions):
+				continue
+			context_start = max(0, match.start() - 20)
+			context_text = task_without_emails[context_start : match.start()]
+			if any(word in context_text.lower() for word in excluded_words):
+				continue
+			if not url.startswith(('http://', 'https://')):
+				url = 'https://' + url
+			found_urls.append(url)
+
+	unique_urls = list(set(found_urls))
+	return unique_urls[0] if len(unique_urls) == 1 else None
 
 
 def _event_type(event: dict[str, Any]) -> str:
@@ -260,13 +348,40 @@ class Agent(Generic[AgentStructuredOutput]):
 		controller: Any | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
+		register_new_step_callback: Callable[..., Awaitable[None] | None] | None = None,
 		register_done_callback: AgentDoneCallback | None = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		register_should_stop_callback: Callable[[], Awaitable[bool]] | None = None,
 		output_model_schema: type[AgentStructuredOutput] | None = None,
+		use_vision: bool | Literal['auto'] = 'auto',
+		save_conversation_path: str | Path | None = None,
+		save_conversation_path_encoding: str | None = 'utf-8',
+		max_failures: int = 3,
+		override_system_message: str | None = None,
+		extend_system_message: str | None = None,
+		generate_gif: bool | str = False,
+		available_file_paths: list[str] | None = None,
+		include_attributes: list[str] | None = None,
+		max_actions_per_step: int = 10,
+		use_thinking: bool = True,
+		flash_mode: bool = False,
+		max_history_items: int | None = None,
+		page_extraction_llm: Any | None = None,
 		injected_agent_state: AgentState | None = None,
 		task_id: str | None = None,
+		calculate_cost: bool = False,
+		display_files_in_done_text: bool = True,
+		include_tool_call_examples: bool = False,
+		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
+		llm_timeout: int | None = None,
+		step_timeout: int = 120,
+		directly_open_url: bool = True,
+		include_recent_events: bool = False,
+		sample_images: list[Any] | None = None,
+		final_response_after_failure: bool = True,
+		file_system_path: str | None = None,
 		source: str | None = None,
+		_url_shortening_limit: int = 25,
 		**kwargs: Any,
 	) -> None:
 		if browser and browser_session:
@@ -275,12 +390,12 @@ class Agent(Generic[AgentStructuredOutput]):
 			raise ValueError('Cannot specify both "tools" and "controller".')
 		self.id = task_id or uuid7str()
 		self.task_id = self.id
-		self.task = _task_with_schema(_task_with_initial_navigation(task, initial_actions), output_model_schema)
 		self.llm = llm
 		self.browser_profile = browser_profile
 		self.browser_session = browser or browser_session
 		self.tools = controller or tools
 		self.sensitive_data = sensitive_data
+		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
 		self.register_should_stop_callback = register_should_stop_callback
@@ -289,6 +404,41 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.kwargs = kwargs
 		self.model = _model_name(llm)
 		self.state = injected_agent_state or AgentState(agent_id=self.id)
+		self.settings = AgentSettings(
+			use_vision=use_vision,
+			vision_detail_level=vision_detail_level,
+			save_conversation_path=save_conversation_path,
+			save_conversation_path_encoding=save_conversation_path_encoding,
+			max_failures=max_failures,
+			override_system_message=override_system_message,
+			extend_system_message=extend_system_message,
+			generate_gif=generate_gif,
+			include_attributes=include_attributes,
+			max_actions_per_step=max_actions_per_step,
+			use_thinking=use_thinking,
+			flash_mode=flash_mode,
+			max_history_items=max_history_items,
+			page_extraction_llm=page_extraction_llm,
+			calculate_cost=calculate_cost,
+			include_tool_call_examples=include_tool_call_examples,
+			llm_timeout=llm_timeout or 60,
+			step_timeout=step_timeout,
+			final_response_after_failure=final_response_after_failure,
+		)
+		self.available_file_paths = available_file_paths or []
+		self.display_files_in_done_text = display_files_in_done_text
+		self.file_system_path = file_system_path
+		self.directly_open_url = directly_open_url
+		self.include_recent_events = include_recent_events
+		self.sample_images = sample_images
+		self._url_shortening_limit = _url_shortening_limit
+		self.initial_url = None
+		if self.directly_open_url and not self.state.follow_up_task and not initial_actions:
+			self.initial_url = _extract_start_url(task)
+			if self.initial_url:
+				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
+		self.initial_actions = initial_actions
+		self.task = _task_with_schema(_task_with_initial_navigation(task, initial_actions), output_model_schema)
 		self.session_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None

@@ -126,6 +126,50 @@ def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
 
+def test_rust_agent_mirrors_direct_url_startup():
+	from browser_use.rust import Agent
+
+	agent = Agent(task='Open example.com and report the title.')
+
+	assert agent.initial_url == 'https://example.com'
+	assert agent.initial_actions == [{'navigate': {'url': 'https://example.com', 'new_tab': False}}]
+	assert "First navigate to 'https://example.com'" in agent.task
+
+
+def test_rust_agent_skips_ambiguous_or_excluded_direct_urls():
+	from browser_use.rust import Agent
+
+	ambiguous = Agent(task='Compare example.com and browser-use.com.')
+	document = Agent(task='Open https://example.com/report.pdf and summarize it.')
+
+	assert ambiguous.initial_url is None
+	assert 'First navigate to' not in ambiguous.task
+	assert document.initial_url is None
+	assert 'First navigate to' not in document.task
+
+
+def test_rust_agent_exposes_browser_use_settings():
+	from browser_use.rust import Agent
+
+	agent = Agent(
+		task='Open example.com',
+		use_vision=False,
+		max_actions_per_step=2,
+		directly_open_url=False,
+		available_file_paths=['/tmp/report.txt'],
+		file_system_path='/tmp/browser-use-files',
+		include_recent_events=True,
+	)
+
+	assert agent.initial_url is None
+	assert agent.settings.use_vision is False
+	assert agent.settings.max_actions_per_step == 2
+	assert agent.directly_open_url is False
+	assert agent.available_file_paths == ['/tmp/report.txt']
+	assert agent.file_system_path == '/tmp/browser-use-files'
+	assert agent.include_recent_events is True
+
+
 def test_rust_agent_default_codex_model_matches_chatgpt_account(monkeypatch):
 	from browser_use.rust import Agent
 
