@@ -508,6 +508,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
+		self._sync_state_from_history()
+		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
@@ -540,6 +542,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
+		self._sync_state_from_history()
+		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_done_callback()
 		return self.history
@@ -716,6 +720,43 @@ class Agent(Generic[AgentStructuredOutput]):
 		result = self.register_new_step_callback(history_item.state, None, step_number)
 		if inspect.isawaitable(result):
 			await result
+
+	def _sync_state_from_history(self) -> None:
+		if not self.history.history:
+			return
+		metadata = self.history.history[-1].metadata
+		if metadata is not None:
+			self.state.n_steps = metadata.step_number
+
+	async def _save_conversation_if_requested(self) -> None:
+		if not self.settings.save_conversation_path:
+			return
+		conversation_dir = Path(self.settings.save_conversation_path).expanduser()
+		conversation_dir.mkdir(parents=True, exist_ok=True)
+		target = conversation_dir / f'conversation_{self.id}_{self.state.n_steps}.json'
+		target.write_text(
+			json.dumps(self._conversation_snapshot(), indent=2, default=str),
+			encoding=self.settings.save_conversation_path_encoding or 'utf-8',
+		)
+
+	def _conversation_snapshot(self) -> dict[str, Any]:
+		return {
+			'agent': 'browser_use.rust.Agent',
+			'task_id': self.task_id,
+			'session_id': self.session_id,
+			'model': self.model,
+			'browser_mode': self._browser_mode(),
+			'task': self.task,
+			'final_result': self.history.final_result(),
+			'is_done': self.history.is_done(),
+			'is_successful': self.history.is_successful(),
+			'errors': self.history.errors(),
+			'urls': self.history.urls(),
+			'usage': self.history.usage.model_dump() if self.history.usage else None,
+			'events': self.last_events,
+			'stdout': self.last_stdout,
+			'stderr': self.last_stderr,
+		}
 
 	async def _should_stop_before_run(self) -> bool:
 		if self.state.stopped:

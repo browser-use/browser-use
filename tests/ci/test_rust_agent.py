@@ -332,6 +332,41 @@ async def test_rust_agent_trace_and_cloud_auth_helpers():
 	assert 'trace answer' in trace_object['trace_details']['complete_history']
 
 
+async def test_rust_agent_saves_terminal_conversation(tmp_path, monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(
+		task='start',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		task_id='task-1',
+		save_conversation_path=tmp_path,
+	)
+
+	async def fake_run_process(argv):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [
+			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+			{'event_type': 'session.done', 'payload': {'result': 'saved transcript'}},
+		]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=3)
+	files = list(tmp_path.glob('conversation_task-1_*.json'))
+
+	assert len(files) == 1
+	snapshot = json.loads(files[0].read_text(encoding='utf-8'))
+	assert snapshot['task_id'] == 'task-1'
+	assert snapshot['session_id'] == '12345678-1234-1234-1234-123456789abc'
+	assert snapshot['final_result'] == 'saved transcript'
+	assert snapshot['events'][0]['event_type'] == 'browser.state'
+	assert agent.state.n_steps == 2
+
+
 def test_rust_history_marks_process_failure_not_done():
 	from browser_use.rust.service import _history_from_events
 

@@ -60,10 +60,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - `get_trace_object()` returns Browser Use-style `trace` and `trace_details` dictionaries from the reconstructed history.
    - Proof: `test_rust_agent_invokes_new_step_callback` and `test_rust_agent_trace_and_cloud_auth_helpers`.
 
+11. Rust terminal conversation transcript
+   - `save_conversation_path` now writes a structured Rust terminal transcript under the configured directory after a run.
+   - The transcript includes task/session metadata, final result, errors, URLs, token usage, stdout/stderr, and raw terminal events.
+   - Proof: `test_rust_agent_saves_terminal_conversation`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (18 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (19 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:
