@@ -771,7 +771,12 @@ https://rss.nytimes.com/services/xml/rss/nyt/World.xml
 
 - Source: `C:/Users/nzengou/Documents/programming/test_programming/resume-site/`
 - Deployed via Vercel (project: `dnzengous-projects/resume-site`)
-- 3 resume tabs: Business Dev · Tech/Product · Startup/Innovation
+- 3 resume tabs: **BD/Space Tech · Tech/Product · Startup/Innovation**
+- Content sourced from 3 master CVs in `C:/Users/nzengou/Documents/Perso/`:
+  - `CV_Nzengou_BD_SpaceTech_2026.pdf` (379KB)
+  - `CV_Nzengou_TechProduct_2026.pdf` (356KB)
+  - `CV_Nzengou_StartupInnovation_2026.pdf` (954KB)
+- Each tab has a per-tab PDF download button (PDFs served from same domain)
 - Dark mode + print-to-PDF per tab
 - ATS-safe layout, no tables
 
