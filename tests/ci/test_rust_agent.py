@@ -95,6 +95,20 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert env['BU_CDP_URL'] == 'wss://browser.example/devtools/browser/1'
 
 
+def test_rust_agent_translates_followup_to_existing_terminal_session(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='start', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.session_id = '12345678-1234-1234-1234-123456789abc'
+
+	argv = agent._run_existing_argv(max_steps=9)
+
+	assert argv[0] == '/tmp/browser-use-terminal'
+	assert argv[-4:] == ['run-codex-session', agent.session_id, '--model', 'gpt-test']
+	assert 'max_turns=9' in argv
+
+
 def test_rust_history_marks_process_failure_not_done():
 	from browser_use.rust.service import _history_from_events
 
@@ -111,4 +125,3 @@ def test_rust_history_marks_process_failure_not_done():
 	assert history.is_done() is False
 	assert history.is_successful() is None
 	assert history.errors() == ['terminal failed']
-

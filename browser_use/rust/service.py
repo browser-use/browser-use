@@ -311,6 +311,7 @@ class Agent(Generic[AgentStructuredOutput]):
 	async def follow_up(self, task: str) -> AgentHistoryList[AgentStructuredOutput]:
 		if not self.session_id:
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
+		started = time.time()
 		binary = find_browser_use_terminal_binary()
 		proc = await asyncio.create_subprocess_exec(
 			binary,
@@ -325,7 +326,28 @@ class Agent(Generic[AgentStructuredOutput]):
 		stdout, stderr = await proc.communicate()
 		if proc.returncode:
 			raise RustAgentError(stderr.decode(errors='replace') or stdout.decode(errors='replace'))
-		return await self.run(max_steps=self.kwargs.get('max_steps', 100))
+		proc = await asyncio.create_subprocess_exec(
+			*self._run_existing_argv(self.kwargs.get('max_steps', 100)),
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+			env=self._run_env(),
+		)
+		stdout, stderr = await proc.communicate()
+		finished = time.time()
+		process_error = None
+		if proc.returncode:
+			process_error = stderr.decode(errors='replace').strip() or f'browser-use-terminal exited with code {proc.returncode}'
+		self.last_events = await self._load_events()
+		self.result = _history_from_events(
+			self.last_events,
+			model=self.model,
+			started=started,
+			finished=finished,
+			output_model_schema=self.output_model_schema,
+			process_error=process_error,
+		)
+		self.history = self.result
+		return self.history
 
 	follow_up_task = follow_up
 
@@ -344,6 +366,23 @@ class Agent(Generic[AgentStructuredOutput]):
 			f'browser_mode="{self._browser_mode()}"',
 			'run-codex',
 			self.task,
+			'--model',
+			self.model,
+		]
+
+	def _run_existing_argv(self, max_steps: int) -> list[str]:
+		if not self.session_id:
+			raise RustAgentError('No active Rust session. Call run() before rerunning an existing session.')
+		binary = find_browser_use_terminal_binary()
+		return [
+			binary,
+			*self._state_dir_args(),
+			'-c',
+			f'max_turns={int(max_steps)}',
+			'-c',
+			f'browser_mode="{self._browser_mode()}"',
+			'run-codex-session',
+			self.session_id,
 			'--model',
 			self.model,
 		]
@@ -400,4 +439,3 @@ class Agent(Generic[AgentStructuredOutput]):
 			if isinstance(parsed, dict):
 				events.append(parsed)
 		return events
-
