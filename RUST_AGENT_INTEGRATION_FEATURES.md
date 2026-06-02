@@ -211,6 +211,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The terminal helper layer enforces exact hosts, root-domain `www` variants, wildcard subdomains, scheme globs, and prohibited-domain blocking for `goto_url`, raw `Page.navigate`, and `http_get`.
    - Proof: `test_rust_agent_adds_browser_profile_domain_constraints` and `browser_script_helpers_enforce_domain_constraints_env`.
 
+41. Browser-script navigation snapshot helper
+   - Terminal browser scripts now expose `navigation_snapshot(keywords=None, limit=80)`.
+   - The helper returns visible route links and menu-like controls with selectors, stable attributes, relevance scores, and keyword matches so Rust-backed agents can find hidden listings, document sections, and route/menu targets without broad planner changes.
+   - Proof: `browser_script_navigation_snapshot_surfaces_menu_and_route_links`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -229,6 +234,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_helpers_read_wait_timing_env -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_helpers_block_ip_address_env -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_helpers_enforce_domain_constraints_env -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_navigation_snapshot_surfaces_menu_and_route_links -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
