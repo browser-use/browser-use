@@ -497,7 +497,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			self.state.follow_up_task = False
 			return await self.follow_up(self.task, max_steps=max_steps)
 
-		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps))
+		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps), timeout_seconds=self.settings.step_timeout)
 		finished = time.time()
 		self.last_stdout = stdout_text
 		self.last_stderr = stderr_text
@@ -531,12 +531,14 @@ class Agent(Generic[AgentStructuredOutput]):
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
 		returncode, stdout_text, stderr_text = await self._run_process(
-			[binary, *self._state_dir_args(), 'followup', self.session_id, task]
+			[binary, *self._state_dir_args(), 'followup', self.session_id, task],
+			timeout_seconds=self.settings.step_timeout,
 		)
 		if returncode:
 			raise RustAgentError(stderr_text or stdout_text)
 		returncode, _stdout_text, stderr_text = await self._run_process(
-			self._run_existing_argv(max_steps if max_steps is not None else self.kwargs.get('max_steps', 100))
+			self._run_existing_argv(max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)),
+			timeout_seconds=self.settings.step_timeout,
 		)
 		finished = time.time()
 		process_error = None
@@ -698,14 +700,22 @@ class Agent(Generic[AgentStructuredOutput]):
 			self.model,
 		]
 
-	async def _run_process(self, argv: list[str]) -> tuple[int, str, str]:
+	async def _run_process(self, argv: list[str], timeout_seconds: int | None = None) -> tuple[int, str, str]:
 		proc = await asyncio.create_subprocess_exec(
 			*argv,
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 			env=self._run_env(),
 		)
-		stdout, stderr = await proc.communicate()
+		try:
+			stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
+		except TimeoutError:
+			proc.kill()
+			stdout, stderr = await proc.communicate()
+			stdout_text = stdout.decode(errors='replace')
+			stderr_text = stderr.decode(errors='replace')
+			timeout_error = f'browser-use-terminal timed out after {timeout_seconds} seconds'
+			return 124, stdout_text, '\n'.join(part for part in (stderr_text.strip(), timeout_error) if part)
 		return proc.returncode or 0, stdout.decode(errors='replace'), stderr.decode(errors='replace')
 
 	async def _call_callback(self, callback: AgentHookFunc | None, *args: Any) -> None:

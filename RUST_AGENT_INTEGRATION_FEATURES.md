@@ -70,10 +70,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - This preserves the Browser Use constructor argument and gives the Rust core enough information to inspect user-provided files when needed.
    - Proof: `test_rust_agent_adds_available_files_to_task_context`.
 
+13. Terminal subprocess timeout
+   - Browser Use `step_timeout` is now enforced for Rust terminal subprocess runs.
+   - A timed-out terminal run is killed and surfaced as a normal history error instead of hanging the Python wrapper indefinitely.
+   - Proof: `test_rust_agent_terminal_process_timeout`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (20 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (21 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

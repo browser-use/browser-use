@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -217,7 +218,8 @@ async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
 
 	agent = Agent(task='start', llm=type('LLM', (), {'model': 'gpt-test'})(), register_done_callback=done_callback)
 
-	async def fake_run_process(argv):
+	async def fake_run_process(argv, timeout_seconds=None):
+		assert timeout_seconds == agent.settings.step_timeout
 		seen.append(('argv', argv[-4]))
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
@@ -259,7 +261,8 @@ async def test_rust_agent_invokes_new_step_callback(monkeypatch):
 		register_new_step_callback=new_step_callback,
 	)
 
-	async def fake_run_process(argv):
+	async def fake_run_process(argv, timeout_seconds=None):
+		assert timeout_seconds == agent.settings.step_timeout
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
 	async def fake_load_events():
@@ -357,7 +360,8 @@ async def test_rust_agent_saves_terminal_conversation(tmp_path, monkeypatch):
 		save_conversation_path=tmp_path,
 	)
 
-	async def fake_run_process(argv):
+	async def fake_run_process(argv, timeout_seconds=None):
+		assert timeout_seconds == agent.settings.step_timeout
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
 	async def fake_load_events():
@@ -379,6 +383,21 @@ async def test_rust_agent_saves_terminal_conversation(tmp_path, monkeypatch):
 	assert snapshot['final_result'] == 'saved transcript'
 	assert snapshot['events'][0]['event_type'] == 'browser.state'
 	assert agent.state.n_steps == 2
+
+
+async def test_rust_agent_terminal_process_timeout():
+	from browser_use.rust import Agent
+
+	agent = Agent(task='slow', step_timeout=1)
+
+	returncode, stdout, stderr = await agent._run_process(
+		[sys.executable, '-c', 'import time; time.sleep(5)'],
+		timeout_seconds=0.01,
+	)
+
+	assert returncode == 124
+	assert stdout == ''
+	assert 'timed out after 0.01 seconds' in stderr
 
 
 def test_rust_history_marks_process_failure_not_done():
