@@ -847,14 +847,32 @@ jobs-radar/
 
 Word-boundary regex for acronyms (≤3 chars or `[A-Z]{2,4}`) prevents false positives like "EO" matching "video". Score 0-100; threshold 20% for non-seed jobs.
 
-### Notifications
-- **ntfy.sh** push: free, no auth, topic `nzengou-jobs-7xq9z2k`
-- Triggered when score ≥70% and ID not in `seen.json`
-- Subscribe via web (`https://ntfy.sh/nzengou-jobs-7xq9z2k`) or mobile app
+### Notifications — 4 redundant channels
+All channels fire on score ≥`ALERT_FLOOR` (default 70) when ID not in `seen.json`. Each channel skips gracefully if its secret isn't set.
+
+| Channel | Setup | Env var |
+|---------|-------|---------|
+| **ntfy.sh** | Subscribe to topic on mobile or web | `NTFY_TOPIC` (default `nzengou-jobs-7xq9z2k`) |
+| **Slack** | Create incoming webhook in any workspace | `SLACK_WEBHOOK_URL` |
+| **Discord** | Create webhook in any server | `DISCORD_WEBHOOK_URL` |
+| **GitHub Issues** | Watch the `jobs-radar` repo → GitHub emails you | auto-set `GITHUB_TOKEN` in Actions |
+
+Discord uses rich embeds (color-coded by score: green ≥90, cyan ≥70, amber else). Slack uses block kit. GitHub Issues are labelled `auto-alert,jobs-radar`.
+
+### LinkedIn / Google Deep-Link Sources
+Stored in `data/linkedin-searches.json`. **12 LinkedIn live-search URLs** (Innovation/Space/EUSPA/CASSINI/GeoAI/Stockholm/Antler/etc.) rendered in dashboard sidebar with tier pills (T1/T2/T3) — clicking opens a pre-filtered LinkedIn job search. Plus 2 Google site-search shortcuts (ESA careers, Sifted funding).
+
+LinkedIn has no public API and blocks scraping. Deep links bypass that — they always reflect *current* LinkedIn results when clicked.
 
 ### Pending User Actions
 - [ ] DNS at Name.com: `CNAME jobs → cname.vercel-dns.com`
-- [ ] Run `gh auth refresh -s workflow` then `git push` workflow file to enable cron (currently runnable locally only)
-- [ ] Subscribe to ntfy.sh topic on mobile
+- [ ] DNS at Name.com: `CNAME cv → cname.vercel-dns.com`
+- [ ] Enable cron — run in `jobs-radar/` dir:
+  ```bash
+  gh auth refresh -s workflow
+  git add .github/workflows/cron.yml && git commit -m "feat: enable cron" && git push
+  ```
+- [ ] (Optional) Add Slack/Discord webhook secrets in repo `Settings → Secrets → Actions`
+- [ ] Subscribe to ntfy.sh topic on mobile (search "ntfy" in app store)
 - [ ] Tune `data/profile.json` keywords / `exclude` list as needed
 
