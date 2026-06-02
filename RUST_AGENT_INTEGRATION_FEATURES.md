@@ -236,6 +236,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper identifies table/grid/list row selectors and extracts row-scoped cells, headers, description fields, links, buttons, file/document actions, and element coordinates so actions remain associated with the correct row.
    - Proof: `browser_script_grid_row_helpers_surface_row_scoped_actions`.
 
+46. Browser-script batch HTTP fetch helper
+   - Terminal browser scripts now expose `http_get_many(urls, headers=None, timeout=20.0, binary=False, max_workers=8)`.
+   - The helper fetches static page/API URLs concurrently while preserving input order and returning compact per-URL success, status, headers, text/content, and error records so one blocked URL does not discard the whole batch.
+   - Proof: `browser_script_http_get_many_preserves_order_errors_and_binary`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -259,6 +264,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_read_document_text_extracts_common_document_formats -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_arxiv_query_normalizes_atom_metadata -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_grid_row_helpers_surface_row_scoped_actions -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_http_get_many_preserves_order_errors_and_binary -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
