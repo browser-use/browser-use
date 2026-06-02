@@ -230,6 +230,38 @@ async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
 	]
 
 
+async def test_rust_agent_invokes_new_step_callback(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	seen = []
+
+	def new_step_callback(browser_state, model_output, step_number):
+		seen.append((browser_state.url, model_output, step_number))
+
+	agent = Agent(
+		task='start',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		register_new_step_callback=new_step_callback,
+	)
+
+	async def fake_run_process(argv):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [
+			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+			{'event_type': 'session.done', 'payload': {'result': 'ok'}},
+		]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=3)
+
+	assert seen == [('https://example.com', None, 2)]
+
+
 def test_rust_agent_run_sync_delegates_to_async_run(monkeypatch):
 	from browser_use.rust import Agent
 
@@ -269,6 +301,35 @@ def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
 	agent.save_history(history_file)
 
 	assert 'saved answer' in history_file.read_text(encoding='utf-8')
+
+
+async def test_rust_agent_trace_and_cloud_auth_helpers():
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(task='Open example.com', llm=type('LLM', (), {'model': 'gpt-test'})(), task_id='task-1')
+	agent.history = _history_from_events(
+		[
+			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+			{'event_type': 'session.done', 'payload': {'result': 'trace answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=3.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	trace_object = agent.get_trace_object()
+
+	assert await agent.authenticate_cloud_sync() is False
+	assert set(trace_object) == {'trace', 'trace_details'}
+	assert trace_object['trace']['model'] == 'gpt-test'
+	assert trace_object['trace']['task_id'] == 'task-1'
+	assert trace_object['trace']['final_result_response_truncated'] == 'trace answer'
+	assert trace_object['trace']['self_report_completed'] == 1
+	assert trace_object['trace_details']['final_result_response'] == 'trace answer'
+	assert 'trace answer' in trace_object['trace_details']['complete_history']
 
 
 def test_rust_history_marks_process_failure_not_done():

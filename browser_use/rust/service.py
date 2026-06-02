@@ -8,6 +8,7 @@ import re
 import shutil
 import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
 
@@ -507,6 +508,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
+		await self._call_new_step_callback()
 		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
 		return self.history
@@ -538,6 +540,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
+		await self._call_new_step_callback()
 		await self._call_done_callback()
 		return self.history
 
@@ -593,6 +596,79 @@ class Agent(Generic[AgentStructuredOutput]):
 		"""Synchronous wrapper around the async run method."""
 		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
 
+	async def authenticate_cloud_sync(self, show_instructions: bool = True) -> bool:
+		"""Browser Use-compatible cloud-sync hook.
+
+		The upstream Python Agent currently reports cloud sync as unavailable.
+		The Rust wrapper mirrors that contract.
+		"""
+		_ = show_instructions
+		return False
+
+	def get_trace_object(self) -> dict[str, Any]:
+		"""Get Browser Use-style trace and trace_details data for the Rust-backed run."""
+
+		def extract_task_website(task_text: str) -> str | None:
+			match = re.search(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', task_text, re.IGNORECASE)
+			return match.group(0) if match else None
+
+		def json_default(value: Any) -> str:
+			return str(value)
+
+		def complete_history_without_screenshots() -> str:
+			history_data = self.history.model_dump(sensitive_data=self.sensitive_data)
+			for item in history_data.get('history', []):
+				state = item.get('state')
+				if isinstance(state, dict) and 'screenshot' in state:
+					state['screenshot'] = None
+			return json.dumps(history_data, default=json_default)
+
+		trace_id = uuid7str()
+		timestamp = datetime.now().isoformat()
+		structured_output = self.history.structured_output
+		structured_output_json = json.dumps(structured_output.model_dump(), default=json_default) if structured_output else None
+		final_result = self.history.final_result()
+		action_history = self.history.action_history()
+		action_errors = self.history.errors()
+		urls = self.history.urls()
+		usage = self.history.usage
+
+		return {
+			'trace': {
+				'trace_id': trace_id,
+				'timestamp': timestamp,
+				'browser_use_version': None,
+				'git_info': None,
+				'model': self.model,
+				'settings': json.dumps(self.settings.model_dump(), default=json_default) if self.settings else None,
+				'task_id': self.task_id,
+				'task_truncated': self.task[:20000] if len(self.task) > 20000 else self.task,
+				'task_website': extract_task_website(self.task),
+				'structured_output_truncated': (
+					structured_output_json[:20000]
+					if structured_output_json and len(structured_output_json) > 20000
+					else structured_output_json
+				),
+				'action_history_truncated': json.dumps(action_history, default=json_default) if action_history else None,
+				'action_errors': json.dumps(action_errors, default=json_default) if action_errors else None,
+				'urls': json.dumps(urls, default=json_default) if urls else None,
+				'final_result_response_truncated': final_result[:20000] if final_result and len(final_result) > 20000 else final_result,
+				'self_report_completed': 1 if self.history.is_done() else 0,
+				'self_report_success': 1 if self.history.is_successful() else 0,
+				'duration': self.history.total_duration_seconds(),
+				'steps_taken': self.history.number_of_steps(),
+				'usage': json.dumps(usage.model_dump(), default=json_default) if usage else None,
+			},
+			'trace_details': {
+				'trace_id': trace_id,
+				'timestamp': timestamp,
+				'task': self.task,
+				'structured_output': structured_output_json,
+				'final_result_response': final_result,
+				'complete_history': complete_history_without_screenshots(),
+			},
+		}
+
 	def _run_argv(self, max_steps: int) -> list[str]:
 		binary = find_browser_use_terminal_binary()
 		return [
@@ -629,6 +705,15 @@ class Agent(Generic[AgentStructuredOutput]):
 		if self.register_done_callback is None or not self.history.is_done():
 			return
 		result = self.register_done_callback(self.history)
+		if inspect.isawaitable(result):
+			await result
+
+	async def _call_new_step_callback(self) -> None:
+		if self.register_new_step_callback is None or not self.history.history:
+			return
+		history_item = self.history.history[-1]
+		step_number = history_item.metadata.step_number if history_item.metadata else len(self.history.history)
+		result = self.register_new_step_callback(history_item.state, None, step_number)
 		if inspect.isawaitable(result):
 			await result
 
