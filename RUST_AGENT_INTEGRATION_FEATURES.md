@@ -150,10 +150,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Dict-style and tuple-style position values are accepted by the Rust-backed wrapper.
    - Proof: `test_rust_agent_translates_browser_profile_window_position`.
 
+29. BrowserProfile devtools bridge
+   - `BrowserProfile(devtools=True)` is serialized into `--auto-open-devtools-for-tabs` for terminal managed Chromium runs.
+   - This preserves Browser Use's headed-browser devtools launch option through the Rust managed browser path.
+   - Proof: `test_rust_agent_translates_browser_profile_devtools`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (38 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (39 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

@@ -169,6 +169,8 @@ def _managed_browser_launch_args(browser_session: BrowserSession | None, browser
 		if getattr(profile, 'chromium_sandbox', None) is False:
 			for arg in CHROME_DOCKER_ARGS:
 				_append_unique(args, seen, arg)
+		if getattr(profile, 'devtools', False) is True:
+			_append_unique(args, seen, '--auto-open-devtools-for-tabs')
 		_append_unique(args, seen, _window_size_arg(getattr(profile, 'window_size', None)))
 		_append_unique(args, seen, _window_position_arg(getattr(profile, 'window_position', None)))
 		proxy = getattr(profile, 'proxy', None)

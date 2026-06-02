@@ -310,6 +310,25 @@ def test_rust_agent_translates_browser_profile_window_position(monkeypatch):
 	assert '--window-position=12,24' in json.loads(tuple_agent._run_env()['BU_MANAGED_BROWSER_ARGS'])
 
 
+def test_rust_agent_translates_browser_profile_devtools(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		headless = False
+		devtools = True
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+	launch_args = json.loads(env['BU_MANAGED_BROWSER_ARGS'])
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'managed-headed'
+	assert '--auto-open-devtools-for-tabs' in launch_args
+
+
 def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.rust import Agent
 
