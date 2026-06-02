@@ -385,6 +385,44 @@ def test_rust_agent_translates_browser_profile_downloads(monkeypatch, tmp_path):
 	assert env['BU_BROWSER_DOWNLOADS_PATH'] == str(profile_downloads_path)
 
 
+def test_rust_agent_translates_browser_profile_viewport(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		viewport = {'width': 1024, 'height': 768}
+		screen = (1440, 900)
+		device_scale_factor = 2
+		no_viewport = False
+		cdp_url = 'http://127.0.0.1:9222'
+
+	class NoViewportProfile:
+		viewport = {'width': 1024, 'height': 768}
+		no_viewport = True
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+	viewport = json.loads(env['BU_BROWSER_VIEWPORT'])
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert env['BU_BROWSER_NO_VIEWPORT'] == 'false'
+	assert viewport == {
+		'width': 1024,
+		'height': 768,
+		'deviceScaleFactor': 2,
+		'screenWidth': 1440,
+		'screenHeight': 900,
+	}
+
+	no_viewport_agent = Agent(task='report title', browser_profile=NoViewportProfile())
+	no_viewport_env = no_viewport_agent._run_env()
+
+	assert no_viewport_env['BU_BROWSER_NO_VIEWPORT'] == 'true'
+	assert 'BU_BROWSER_VIEWPORT' not in no_viewport_env
+
+
 def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.rust import Agent
 

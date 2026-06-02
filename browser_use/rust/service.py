@@ -265,6 +265,59 @@ def _extract_browser_downloads(
 	return accept_downloads, downloads_path
 
 
+def _viewport_size(value: Any) -> tuple[int, int] | None:
+	if value is None:
+		return None
+	if isinstance(value, (list, tuple)) and len(value) >= 2:
+		width, height = value[0], value[1]
+	else:
+		width = _value_from_object(value, 'width')
+		height = _value_from_object(value, 'height')
+	if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
+		return None
+	return width, height
+
+
+def _extract_browser_viewport(
+	browser_session: BrowserSession | None, browser_profile: BrowserProfile | None
+) -> tuple[bool | None, dict[str, int | float] | None]:
+	no_viewport: bool | None = None
+	viewport_size: tuple[int, int] | None = None
+	screen_size: tuple[int, int] | None = None
+	device_scale_factor: int | float | None = None
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		if no_viewport is None:
+			value = getattr(profile, 'no_viewport', None)
+			if isinstance(value, bool):
+				no_viewport = value
+		if viewport_size is None:
+			viewport_size = _viewport_size(getattr(profile, 'viewport', None))
+		if screen_size is None:
+			screen_size = _viewport_size(getattr(profile, 'screen', None))
+		if device_scale_factor is None:
+			value = getattr(profile, 'device_scale_factor', None)
+			if isinstance(value, (int, float)) and value >= 0:
+				device_scale_factor = value
+	if no_viewport is True:
+		return no_viewport, None
+	if viewport_size is None and no_viewport is False:
+		viewport_size = screen_size
+	if viewport_size is None:
+		return no_viewport, None
+	width, height = viewport_size
+	viewport: dict[str, int | float] = {
+		'width': width,
+		'height': height,
+		'deviceScaleFactor': 1 if device_scale_factor is None else device_scale_factor,
+	}
+	if screen_size is not None:
+		screen_width, screen_height = screen_size
+		viewport['screenWidth'] = screen_width
+		viewport['screenHeight'] = screen_height
+	return no_viewport, viewport
+
+
 def _is_managed_browser_mode(mode: str) -> bool:
 	normalized = mode.strip().lower().replace('_', '-').replace(' ', '-')
 	return normalized in {'managed-headless', 'headless', 'headless-chromium', 'managed-headed', 'managed', 'headed'}
@@ -799,6 +852,9 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.browser_accept_downloads, self.browser_downloads_path = _extract_browser_downloads(
 			self.browser_session, self.browser_profile
 		)
+		self.browser_no_viewport, self.browser_viewport = _extract_browser_viewport(
+			self.browser_session, self.browser_profile
+		)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
@@ -1250,6 +1306,10 @@ class Agent(Generic[AgentStructuredOutput]):
 			env['BU_BROWSER_ACCEPT_DOWNLOADS'] = 'true' if self.browser_accept_downloads else 'false'
 		if self.browser_downloads_path:
 			env['BU_BROWSER_DOWNLOADS_PATH'] = self.browser_downloads_path
+		if self.browser_no_viewport is not None:
+			env['BU_BROWSER_NO_VIEWPORT'] = 'true' if self.browser_no_viewport else 'false'
+		if self.browser_viewport:
+			env['BU_BROWSER_VIEWPORT'] = json.dumps(self.browser_viewport)
 		if self.managed_browser_env and _is_managed_browser_mode(browser_mode):
 			env.update(self.managed_browser_env)
 		if self.managed_browser_args and _is_managed_browser_mode(browser_mode):

@@ -171,16 +171,22 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The terminal core applies those settings with CDP `Browser.setDownloadBehavior` after connecting to managed, local, remote-CDP, or cloud browsers.
    - Proof: `test_rust_agent_translates_browser_profile_downloads`, `browser_download_behavior_env_allows_downloads_path`, and `browser_download_behavior_env_denies_disabled_downloads`.
 
+33. BrowserProfile viewport bridge
+   - `BrowserProfile.viewport`, `screen`, `device_scale_factor`, and `no_viewport` are serialized into `BU_BROWSER_VIEWPORT` and `BU_BROWSER_NO_VIEWPORT`.
+   - The terminal core applies viewport metrics with CDP `Emulation.setDeviceMetricsOverride`, and the headless screenshot helper reuses those settings instead of forcing its default 1280x720 viewport.
+   - Proof: `test_rust_agent_translates_browser_profile_viewport`, `browser_viewport_env_parses_device_metrics`, and `browser_viewport_env_honors_no_viewport`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (42 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (43 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_profile_dir -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_permissions_env_parses_json_array -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_download_behavior_env_ -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_viewport_env_ -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
