@@ -140,10 +140,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Values are stringified for process-env compatibility, unsupported nested values are ignored, and cloud/CDP runs do not receive managed browser launch env overrides.
    - Proof: `test_rust_agent_translates_browser_profile_env`.
 
+27. BrowserProfile chromium sandbox bridge
+   - `BrowserProfile(chromium_sandbox=False)` now emits the same standard Chromium sandbox-disable flags Browser Use applies for local managed launches.
+   - The flags are passed through `BU_MANAGED_BROWSER_ARGS` and deduped with caller-provided `BrowserProfile.args`.
+   - Proof: `test_rust_agent_translates_browser_profile_chromium_sandbox`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (36 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (37 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

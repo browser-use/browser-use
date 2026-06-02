@@ -267,6 +267,27 @@ def test_rust_agent_translates_browser_profile_managed_launch_args(monkeypatch):
 	assert '--user-agent=BrowserUseTest/1.0' in launch_args
 
 
+def test_rust_agent_translates_browser_profile_chromium_sandbox(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		headless = True
+		chromium_sandbox = False
+		args = ['--no-sandbox']
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	launch_args = json.loads(agent._run_env()['BU_MANAGED_BROWSER_ARGS'])
+
+	assert launch_args.count('--no-sandbox') == 1
+	assert '--disable-gpu-sandbox' in launch_args
+	assert '--disable-setuid-sandbox' in launch_args
+	assert '--disable-dev-shm-usage' in launch_args
+
+
 def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.rust import Agent
 

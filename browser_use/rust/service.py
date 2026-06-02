@@ -18,7 +18,7 @@ from uuid_extensions import uuid7str
 
 from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentSettings, AgentState, StepMetadata
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS
+from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 
@@ -152,6 +152,9 @@ def _managed_browser_launch_args(browser_session: BrowserSession | None, browser
 				_append_unique(args, seen, arg)
 		if getattr(profile, 'deterministic_rendering', False) is True:
 			for arg in CHROME_DETERMINISTIC_RENDERING_ARGS:
+				_append_unique(args, seen, arg)
+		if getattr(profile, 'chromium_sandbox', None) is False:
+			for arg in CHROME_DOCKER_ARGS:
 				_append_unique(args, seen, arg)
 		_append_unique(args, seen, _window_size_arg(getattr(profile, 'window_size', None)))
 		proxy = getattr(profile, 'proxy', None)
