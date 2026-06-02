@@ -243,6 +243,15 @@ def _extract_cdp_headers(browser_session: BrowserSession | None, browser_profile
 	return headers
 
 
+def _extract_user_agent(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> str | None:
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		value = getattr(profile, 'user_agent', None)
+		if isinstance(value, str) and value:
+			return value
+	return None
+
+
 def _extract_highlight_settings(
 	browser_session: BrowserSession | None, browser_profile: BrowserProfile | None
 ) -> tuple[bool | None, str | None, int | None]:
@@ -918,6 +927,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.managed_browser_executable_path = _managed_browser_executable_path(self.browser_session, self.browser_profile)
 		self.managed_browser_env = _managed_browser_env(self.browser_session, self.browser_profile)
 		self.cdp_headers = _extract_cdp_headers(self.browser_session, self.browser_profile)
+		self.browser_user_agent = _extract_user_agent(self.browser_session, self.browser_profile)
 		self.highlight_enabled, self.highlight_color, self.highlight_duration_ms = _extract_highlight_settings(
 			self.browser_session, self.browser_profile
 		)
@@ -1376,6 +1386,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			env['BU_CDP_URL'] = cdp_url
 		if self.cdp_headers:
 			env['BU_CDP_HEADERS'] = json.dumps(self.cdp_headers)
+		if self.browser_user_agent:
+			env['BU_BROWSER_USER_AGENT'] = self.browser_user_agent
 		if self.highlight_enabled is not None:
 			env['BROWSER_USE_TERMINAL_AUTO_HIGHLIGHT'] = 'true' if self.highlight_enabled else 'false'
 		if self.highlight_color:

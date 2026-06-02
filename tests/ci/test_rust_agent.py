@@ -201,6 +201,23 @@ def test_rust_agent_translates_browser_profile_cdp_headers(monkeypatch):
 	assert json.loads(env['BU_CDP_HEADERS']) == agent.cdp_headers
 
 
+def test_rust_agent_translates_browser_profile_remote_user_agent(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		cdp_url = 'http://127.0.0.1:9222'
+		user_agent = 'BrowserUseRemote/2.0'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert agent.browser_user_agent == 'BrowserUseRemote/2.0'
+	assert env['BU_BROWSER_USER_AGENT'] == 'BrowserUseRemote/2.0'
+
+
 def test_rust_agent_translates_browser_profile_highlights(monkeypatch):
 	from browser_use.rust import Agent
 
@@ -311,6 +328,8 @@ def test_rust_agent_translates_browser_profile_managed_launch_args(monkeypatch):
 
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'managed-headless'
 	assert agent.managed_browser_args == launch_args
+	assert agent.browser_user_agent == 'BrowserUseTest/1.0'
+	assert env['BU_BROWSER_USER_AGENT'] == 'BrowserUseTest/1.0'
 	assert '--lang=en-US' in launch_args
 	assert '--window-size=1440,900' in launch_args
 	assert '--proxy-server=http://proxy.example:8080' in launch_args

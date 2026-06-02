@@ -191,10 +191,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The terminal core now supports configurable highlight duration in addition to its existing highlight enable and color controls.
    - Proof: `test_rust_agent_translates_browser_profile_highlights` and `browser_highlight_env_controls_color_and_duration`.
 
+37. BrowserProfile user agent CDP bridge
+   - `BrowserProfile.user_agent` is serialized into `BU_BROWSER_USER_AGENT`.
+   - The terminal core applies it with CDP `Network.setUserAgentOverride`, covering remote-CDP and cloud browsers in addition to the existing managed Chromium `--user-agent` launch arg.
+   - Proof: `test_rust_agent_translates_browser_profile_remote_user_agent`, `test_rust_agent_translates_browser_profile_managed_launch_args`, and `browser_user_agent_env_builds_override_params`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (46 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (47 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
@@ -205,6 +210,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_storage_state_env_parses_cookies_and_storage_scripts -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser cdp_headers_env_builds_websocket_request_headers -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_highlight_env_controls_color_and_duration -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_user_agent_env_builds_override_params -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
