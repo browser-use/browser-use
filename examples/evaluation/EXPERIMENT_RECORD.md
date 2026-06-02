@@ -242,14 +242,6 @@
 
 ---
 
-4. **navRatio 在 github 上约 2.4%**：多步分支决策让周期 navigator 触发更多次（cycle 3.2-5k tok）。这是描述性测量，不涉及显著性。
-
-5. **EFFICIENCY RULES 没有过度泛化**：D⁺ 三次跑次都正确规划了 filter→sort→click 路径，没有出现 extract 误调用——这是定性观察（行为模式），不依赖样本量，结论可靠。
-
-**待办（统计强化）**：github 的 C / D⁺ / D⁻ 各补至 n=5，跑 Welch's t-test，对 -23% 与"D⁻ 关系"重新判定显著性后再更新本节措辞。在此之前，github 结论保持"趋势、未显著"定性。
-
----
-
 ## A — 无领航 · ChatBrowserUse 执行
 
 | 日期 (UTC) | Task | Scenario | 持续领航 | 墙钟 | 步数 | 摘要 |
