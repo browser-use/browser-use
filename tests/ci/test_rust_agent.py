@@ -188,6 +188,25 @@ def test_rust_agent_translates_browser_profile_cloud(monkeypatch):
 	assert agent._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'cloud'
 
 
+def test_rust_agent_adds_browser_profile_domain_constraints():
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		allowed_domains = ['example.com', '*.browser-use.com']
+		prohibited_domains = {'ads.example.com'}
+
+	agent = Agent(task='Open the allowed site.', browser_profile=BrowserProfile())
+
+	assert agent.allowed_domains == ['example.com', '*.browser-use.com']
+	assert agent.prohibited_domains == ['ads.example.com']
+	assert 'Browser profile navigation constraints:' in agent.task
+	assert 'Allowed domains:' in agent.task
+	assert '- example.com' in agent.task
+	assert '- *.browser-use.com' in agent.task
+	assert 'Prohibited domains:' in agent.task
+	assert '- ads.example.com' in agent.task
+
+
 def test_rust_agent_mirrors_direct_url_startup():
 	from browser_use.rust import Agent
 

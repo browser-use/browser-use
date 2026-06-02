@@ -105,6 +105,35 @@ def _extract_cloud_preference(browser_session: BrowserSession | None, browser_pr
 	return False
 
 
+def _domain_list(value: Any) -> list[str]:
+	if value is None or isinstance(value, str):
+		return []
+	if isinstance(value, set):
+		items = sorted(value)
+	elif isinstance(value, list):
+		items = value
+	else:
+		return []
+	return [item for item in items if isinstance(item, str) and item]
+
+
+def _extract_profile_domains(
+	browser_session: BrowserSession | None,
+	browser_profile: BrowserProfile | None,
+	attr: str,
+) -> list[str]:
+	values: list[str] = []
+	seen: set[str] = set()
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile):
+		for domain in _domain_list(getattr(profile, attr, None)):
+			if domain in seen:
+				continue
+			values.append(domain)
+			seen.add(domain)
+	return values
+
+
 def _navigation_url_from_action(action: Any) -> str | None:
 	if not isinstance(action, dict):
 		return None
@@ -149,6 +178,20 @@ def _task_with_available_files(task: str, available_file_paths: list[str] | None
 		return task
 	files = '\n'.join(f'- {Path(path).expanduser()}' for path in available_file_paths)
 	return f'{task}\n\nAvailable local files:\n{files}'
+
+
+def _task_with_domain_constraints(task: str, allowed_domains: list[str], prohibited_domains: list[str]) -> str:
+	if not allowed_domains and not prohibited_domains:
+		return task
+	sections = ['Browser profile navigation constraints:']
+	if allowed_domains:
+		sections.append('Allowed domains:')
+		sections.extend(f'- {domain}' for domain in allowed_domains)
+	if prohibited_domains:
+		sections.append('Prohibited domains:')
+		sections.extend(f'- {domain}' for domain in prohibited_domains)
+	sections.append('Respect these BrowserProfile domain constraints when navigating.')
+	return f'{task}\n\n' + '\n'.join(sections)
 
 
 def _extract_start_url(task: str) -> str | None:
@@ -467,6 +510,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			final_response_after_failure=final_response_after_failure,
 		)
 		self.available_file_paths = available_file_paths or []
+		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
+		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
 		self.directly_open_url = directly_open_url
@@ -480,7 +525,14 @@ class Agent(Generic[AgentStructuredOutput]):
 				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
 		self.initial_actions = initial_actions
 		self.task = _task_with_schema(
-			_task_with_available_files(_task_with_initial_actions(task, initial_actions), self.available_file_paths),
+			_task_with_available_files(
+				_task_with_domain_constraints(
+					_task_with_initial_actions(task, initial_actions),
+					self.allowed_domains,
+					self.prohibited_domains,
+				),
+				self.available_file_paths,
+			),
 			output_model_schema,
 		)
 		self.session_id: str | None = None

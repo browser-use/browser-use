@@ -95,10 +95,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - CDP URLs still select `remote-cdp`, and explicit browser mode environment variables still override profile preferences.
    - Proof: `test_rust_agent_translates_browser_profile_cloud`.
 
+18. BrowserProfile domain constraints bridge
+   - `BrowserProfile.allowed_domains` and `BrowserProfile.prohibited_domains` are now preserved on the Rust-backed agent and passed into the Rust terminal task as explicit navigation constraints.
+   - Domain lists preserve caller order, set values are made deterministic, and duplicate profile entries are ignored.
+   - Proof: `test_rust_agent_adds_browser_profile_domain_constraints`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (26 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (27 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:
