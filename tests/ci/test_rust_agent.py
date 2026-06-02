@@ -89,6 +89,32 @@ def test_rust_history_supports_structured_output():
 	assert history.structured_output.answer == 'ok'
 
 
+def test_rust_history_exposes_result_file_attachments():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'session.done',
+				'payload': {
+					'result': 'Saved structured report.',
+					'result_file': {'url': 'file:///tmp/report.json', 'path': '/tmp/report.json', 'bytes': 123},
+				},
+			}
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	results = history.action_results()
+
+	assert history.final_result() == 'Saved structured report.'
+	assert results[0].attachments == ['file:///tmp/report.json']
+
+
 def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	from browser_use.rust import Agent
 

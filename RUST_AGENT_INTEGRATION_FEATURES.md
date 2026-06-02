@@ -110,10 +110,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Global and domain-scoped placeholder names are exposed, but raw secret values are not added to the task text.
    - Proof: `test_rust_agent_adds_sensitive_data_placeholders_without_values`.
 
+21. Result file attachment bridge
+   - Terminal `session.done` result files are now exposed as Browser Use `ActionResult.attachments`.
+   - Nested `result_file` payloads from the Rust core and flat legacy result-file fields are both supported.
+   - Proof: `test_rust_history_exposes_result_file_attachments`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (30 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (31 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

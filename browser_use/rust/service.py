@@ -325,6 +325,22 @@ def _event_payload(event: dict[str, Any]) -> dict[str, Any]:
 	return payload if isinstance(payload, dict) else {}
 
 
+def _result_file_pointer(payload: dict[str, Any]) -> str | None:
+	result_file = payload.get('result_file')
+	if isinstance(result_file, dict):
+		for key in ('url', 'path'):
+			value = result_file.get(key)
+			if isinstance(value, str) and value:
+				return value
+	if isinstance(result_file, str) and result_file:
+		return result_file
+	for key in ('result_file_url', 'result_file_path', 'result_file'):
+		value = payload.get(key)
+		if isinstance(value, str) and value:
+			return value
+	return None
+
+
 def _result_from_events(events: list[dict[str, Any]]) -> str | None:
 	for event in reversed(events):
 		if _event_type(event) != 'session.done':
@@ -333,10 +349,21 @@ def _result_from_events(events: list[dict[str, Any]]) -> str | None:
 		result = payload.get('result')
 		if isinstance(result, str) and result.strip():
 			return result.strip()
-		result_file = payload.get('result_file_url') or payload.get('result_file_path') or payload.get('result_file')
-		if isinstance(result_file, str) and result_file:
+		result_file = _result_file_pointer(payload)
+		if result_file:
 			return f'Saved result file.\n\nFile:\n{result_file}'
 	return None
+
+
+def _attachments_from_events(events: list[dict[str, Any]]) -> list[str] | None:
+	attachments: list[str] = []
+	for event in events:
+		if _event_type(event) != 'session.done':
+			continue
+		result_file = _result_file_pointer(_event_payload(event))
+		if result_file and result_file not in attachments:
+			attachments.append(result_file)
+	return attachments or None
 
 
 def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
@@ -437,6 +464,7 @@ def _history_from_events(
 		is_done=is_done,
 		success=True if is_done else None,
 		error=failure,
+		attachments=_attachments_from_events(events),
 		extracted_content=final_result,
 	)
 	history = AgentHistory(
