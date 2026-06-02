@@ -363,6 +363,28 @@ def test_rust_agent_translates_browser_profile_permissions(monkeypatch):
 	assert json.loads(env['BU_BROWSER_PERMISSIONS']) == ['clipboardReadWrite', 'notifications']
 
 
+def test_rust_agent_translates_browser_profile_downloads(monkeypatch, tmp_path):
+	from browser_use.rust import Agent
+
+	profile_downloads_path = tmp_path / 'downloads'
+
+	class BrowserProfile:
+		accept_downloads = True
+		downloads_path = profile_downloads_path
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert agent.browser_accept_downloads is True
+	assert agent.browser_downloads_path == str(profile_downloads_path)
+	assert env['BU_BROWSER_ACCEPT_DOWNLOADS'] == 'true'
+	assert env['BU_BROWSER_DOWNLOADS_PATH'] == str(profile_downloads_path)
+
+
 def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.rust import Agent
 

@@ -247,6 +247,24 @@ def _extract_profile_permissions(browser_session: BrowserSession | None, browser
 	return values
 
 
+def _extract_browser_downloads(
+	browser_session: BrowserSession | None, browser_profile: BrowserProfile | None
+) -> tuple[bool | None, str | None]:
+	accept_downloads: bool | None = None
+	downloads_path: str | None = None
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		if accept_downloads is None:
+			value = getattr(profile, 'accept_downloads', None)
+			if isinstance(value, bool):
+				accept_downloads = value
+		if downloads_path is None:
+			value = getattr(profile, 'downloads_path', None)
+			if isinstance(value, (str, os.PathLike)) and str(value):
+				downloads_path = str(Path(value).expanduser())
+	return accept_downloads, downloads_path
+
+
 def _is_managed_browser_mode(mode: str) -> bool:
 	normalized = mode.strip().lower().replace('_', '-').replace(' ', '-')
 	return normalized in {'managed-headless', 'headless', 'headless-chromium', 'managed-headed', 'managed', 'headed'}
@@ -778,6 +796,9 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.managed_browser_executable_path = _managed_browser_executable_path(self.browser_session, self.browser_profile)
 		self.managed_browser_env = _managed_browser_env(self.browser_session, self.browser_profile)
 		self.browser_permissions = _extract_profile_permissions(self.browser_session, self.browser_profile)
+		self.browser_accept_downloads, self.browser_downloads_path = _extract_browser_downloads(
+			self.browser_session, self.browser_profile
+		)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
@@ -1225,6 +1246,10 @@ class Agent(Generic[AgentStructuredOutput]):
 			env['BU_CDP_URL'] = cdp_url
 		if self.browser_permissions:
 			env['BU_BROWSER_PERMISSIONS'] = json.dumps(self.browser_permissions)
+		if self.browser_accept_downloads is not None:
+			env['BU_BROWSER_ACCEPT_DOWNLOADS'] = 'true' if self.browser_accept_downloads else 'false'
+		if self.browser_downloads_path:
+			env['BU_BROWSER_DOWNLOADS_PATH'] = self.browser_downloads_path
 		if self.managed_browser_env and _is_managed_browser_mode(browser_mode):
 			env.update(self.managed_browser_env)
 		if self.managed_browser_args and _is_managed_browser_mode(browser_mode):

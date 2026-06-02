@@ -165,15 +165,22 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The terminal core parses that JSON permission list and calls CDP `Browser.grantPermissions` after connecting to managed, local, remote-CDP, or cloud browsers.
    - Proof: `test_rust_agent_translates_browser_profile_permissions` and `browser_permissions_env_parses_json_array`.
 
+32. BrowserProfile downloads bridge
+   - `BrowserProfile.accept_downloads` is serialized into `BU_BROWSER_ACCEPT_DOWNLOADS`.
+   - `BrowserProfile.downloads_path` is serialized into `BU_BROWSER_DOWNLOADS_PATH`.
+   - The terminal core applies those settings with CDP `Browser.setDownloadBehavior` after connecting to managed, local, remote-CDP, or cloud browsers.
+   - Proof: `test_rust_agent_translates_browser_profile_downloads`, `browser_download_behavior_env_allows_downloads_path`, and `browser_download_behavior_env_denies_disabled_downloads`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (41 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (42 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_profile_dir -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_permissions_env_parses_json_array -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_download_behavior_env_ -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
