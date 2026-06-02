@@ -267,6 +267,28 @@ def test_rust_agent_translates_browser_profile_managed_launch_args(monkeypatch):
 	assert '--user-agent=BrowserUseTest/1.0' in launch_args
 
 
+def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
+	from browser_use.rust import Agent
+
+	profile_dir = tmp_path / 'browser profile'
+
+	class BrowserProfile:
+		headless = False
+		user_data_dir = profile_dir
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BU_MANAGED_BROWSER_PROFILE', raising=False)
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'managed-headed'
+	assert agent.managed_browser_profile_dir == str(profile_dir)
+	assert env['BU_MANAGED_BROWSER_PROFILE'] == str(profile_dir)
+
+
 def test_rust_agent_adds_browser_profile_domain_constraints():
 	from browser_use.rust import Agent
 

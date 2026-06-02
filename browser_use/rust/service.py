@@ -167,6 +167,15 @@ def _managed_browser_launch_args(browser_session: BrowserSession | None, browser
 	return args
 
 
+def _managed_browser_profile_dir(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> str | None:
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		value = getattr(profile, 'user_data_dir', None)
+		if isinstance(value, (str, os.PathLike)) and str(value):
+			return str(Path(value).expanduser())
+	return None
+
+
 def _is_managed_browser_mode(mode: str) -> bool:
 	normalized = mode.strip().lower().replace('_', '-').replace(' ', '-')
 	return normalized in {'managed-headless', 'headless', 'headless-chromium', 'managed-headed', 'managed', 'headed'}
@@ -694,6 +703,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
 		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
 		self.managed_browser_args = _managed_browser_launch_args(self.browser_session, self.browser_profile)
+		self.managed_browser_profile_dir = _managed_browser_profile_dir(self.browser_session, self.browser_profile)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
@@ -1141,6 +1151,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			env['BU_CDP_URL'] = cdp_url
 		if self.managed_browser_args and _is_managed_browser_mode(browser_mode):
 			env['BU_MANAGED_BROWSER_ARGS'] = json.dumps(self.managed_browser_args)
+		if self.managed_browser_profile_dir and _is_managed_browser_mode(browser_mode):
+			env['BU_MANAGED_BROWSER_PROFILE'] = self.managed_browser_profile_dir
 		return env
 
 	def _session_id_from_stdout(self, stdout: str) -> str | None:
