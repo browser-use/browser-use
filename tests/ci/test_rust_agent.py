@@ -423,6 +423,42 @@ def test_rust_agent_translates_browser_profile_viewport(monkeypatch):
 	assert 'BU_BROWSER_VIEWPORT' not in no_viewport_env
 
 
+def test_rust_agent_translates_browser_profile_storage_state(monkeypatch, tmp_path):
+	from browser_use.rust import Agent
+
+	profile_storage_state_path = tmp_path / 'storage_state.json'
+	storage_state = {
+		'cookies': [
+			{
+				'name': 'sid',
+				'value': 'secret',
+				'domain': '.example.com',
+				'path': '/',
+			}
+		],
+		'origins': [
+			{
+				'origin': 'https://example.com',
+				'localStorage': [{'name': 'theme', 'value': 'dark'}],
+			}
+		],
+	}
+	profile_storage_state_path.write_text(json.dumps(storage_state))
+
+	class BrowserProfile:
+		storage_state = profile_storage_state_path
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert agent.browser_storage_state == storage_state
+	assert json.loads(env['BU_BROWSER_STORAGE_STATE']) == storage_state
+
+
 def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.rust import Agent
 

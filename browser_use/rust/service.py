@@ -318,6 +318,35 @@ def _extract_browser_viewport(
 	return no_viewport, viewport
 
 
+def _storage_state_value(value: Any) -> dict[str, Any] | None:
+	if isinstance(value, dict):
+		return value
+	if hasattr(value, 'model_dump'):
+		dumped = value.model_dump()
+		return dumped if isinstance(dumped, dict) else None
+	if isinstance(value, (str, os.PathLike)) and str(value):
+		path = Path(value).expanduser()
+		if not path.exists():
+			return None
+		try:
+			loaded = json.loads(path.read_text())
+		except (OSError, json.JSONDecodeError):
+			return None
+		return loaded if isinstance(loaded, dict) else None
+	return None
+
+
+def _extract_browser_storage_state(
+	browser_session: BrowserSession | None, browser_profile: BrowserProfile | None
+) -> dict[str, Any] | None:
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		value = _storage_state_value(getattr(profile, 'storage_state', None))
+		if value is not None:
+			return value
+	return None
+
+
 def _is_managed_browser_mode(mode: str) -> bool:
 	normalized = mode.strip().lower().replace('_', '-').replace(' ', '-')
 	return normalized in {'managed-headless', 'headless', 'headless-chromium', 'managed-headed', 'managed', 'headed'}
@@ -855,6 +884,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.browser_no_viewport, self.browser_viewport = _extract_browser_viewport(
 			self.browser_session, self.browser_profile
 		)
+		self.browser_storage_state = _extract_browser_storage_state(self.browser_session, self.browser_profile)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
@@ -1310,6 +1340,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			env['BU_BROWSER_NO_VIEWPORT'] = 'true' if self.browser_no_viewport else 'false'
 		if self.browser_viewport:
 			env['BU_BROWSER_VIEWPORT'] = json.dumps(self.browser_viewport)
+		if self.browser_storage_state:
+			env['BU_BROWSER_STORAGE_STATE'] = json.dumps(self.browser_storage_state)
 		if self.managed_browser_env and _is_managed_browser_mode(browser_mode):
 			env.update(self.managed_browser_env)
 		if self.managed_browser_args and _is_managed_browser_mode(browser_mode):
