@@ -1,6 +1,21 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+from pathlib import Path
+
+import pytest
 from pydantic import BaseModel
+
+
+def _load_real_v8_smoke_module():
+	path = Path(__file__).parents[2] / 'examples' / 'rust_agent' / 'real_v8_smoke.py'
+	spec = importlib.util.spec_from_file_location('real_v8_smoke', path)
+	assert spec is not None
+	assert spec.loader is not None
+	module = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(module)
+	return module
 
 
 def test_top_level_agent_uses_rust_wrapper():
@@ -151,3 +166,24 @@ def test_rust_history_marks_missing_terminal_result_as_error():
 	assert history.final_result() is None
 	assert history.is_done() is False
 	assert history.errors() == ['Rust terminal session did not produce a final result.']
+
+
+def test_real_v8_smoke_selects_case_by_index_and_task_id(tmp_path):
+	module = _load_real_v8_smoke_module()
+	dataset = tmp_path / 'real_v8.json'
+	dataset.write_text(
+		json.dumps(
+			[
+				{'task_id': '1', 'confirmed_task': 'first task'},
+				{'task_id': '2', 'confirmed_task': 'second task'},
+			]
+		),
+		encoding='utf-8',
+	)
+
+	cases = module.load_cases(dataset)
+
+	assert module.select_case(cases, index=1, task_id=None)['confirmed_task'] == 'second task'
+	assert module.select_case(cases, index=None, task_id='1')['confirmed_task'] == 'first task'
+	with pytest.raises(ValueError, match='Select by index or task_id'):
+		module.select_case(cases, index=0, task_id='1')

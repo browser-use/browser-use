@@ -36,9 +36,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Proof: managed-headless smoke returned `Example Domain` for `https://example.com`.
    - Proof: remote-CDP smoke against an externally launched Chromium DevTools endpoint returned `Example Domain`.
 
+7. real_v8 smoke runner
+   - `examples/rust_agent/real_v8_smoke.py` loads `terminal/datasets/real_v8.json`, selects one benchmark case by zero-based index or `task_id`, and runs it through the same Rust-backed `Agent` API.
+   - It accepts `BU_CDP_URL` or `BROWSER_USE_CDP_URL` so the same script can target a Browser Use cloud browser CDP endpoint when credentials are available.
+   - Proof: `test_real_v8_smoke_selects_case_by_index_and_task_id`.
+   - Proof: remote-CDP e2e smoke on real_v8 `task_id=18` returned `Paramjit Uppal, Founder`.
+
 ## Current Verification
 
-- `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py`
+- `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py`
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -49,8 +55,12 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
+- real_v8 remote-CDP end-to-end:
+  - Launch external Chromium with `--remote-debugging-port=49333`.
+  - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 timeout 600 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30`
+  - Output: `{"task_id": "18", "successful": true, "final_result": "Paramjit Uppal, Founder"}`
 
 ## Not Verified Yet
 
 - Browser Use cloud remote browser end-to-end was not run because `browser-use-terminal auth status` reports `Browser Use cloud key: not connected`. The remote-CDP path has been verified against an external CDP browser.
-- Real v8 eval smoke was not rerun after this reset because the current objective prioritizes the latest-main integration branch and the VM has no connected Browser Use cloud key.
+- real_v8 was verified through remote CDP against an external local Chromium endpoint, not a Browser Use cloud browser, because the VM has no connected Browser Use cloud key.
