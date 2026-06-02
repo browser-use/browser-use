@@ -95,25 +95,36 @@ def _extract_headless_preference(browser_session: BrowserSession | None, browser
 	return None
 
 
+def _navigation_url_from_action(action: Any) -> str | None:
+	if not isinstance(action, dict):
+		return None
+	for name, payload in action.items():
+		if name in ('open_tab', 'go_to_url', 'navigate') and isinstance(payload, dict):
+			url = payload.get('url')
+			if isinstance(url, str) and url:
+				return url
+	return None
+
+
 def _initial_navigation_url(initial_actions: Any) -> str | None:
 	if not isinstance(initial_actions, list):
 		return None
 	for action in initial_actions:
-		if not isinstance(action, dict):
-			continue
-		for name, payload in action.items():
-			if name in ('open_tab', 'go_to_url', 'navigate') and isinstance(payload, dict):
-				url = payload.get('url')
-				if isinstance(url, str) and url:
-					return url
+		url = _navigation_url_from_action(action)
+		if url:
+			return url
 	return None
 
 
-def _task_with_initial_navigation(task: str, initial_actions: Any) -> str:
-	url = _initial_navigation_url(initial_actions)
-	if not url:
+def _task_with_initial_actions(task: str, initial_actions: Any) -> str:
+	if not isinstance(initial_actions, list) or not initial_actions:
 		return task
-	return f'First navigate to {url!r}, then complete the task.\n\n{task}'
+	if len(initial_actions) == 1:
+		url = _navigation_url_from_action(initial_actions[0])
+		if url:
+			return f'First navigate to {url!r}, then complete the task.\n\n{task}'
+	actions = json.dumps(initial_actions, indent=2, default=str)
+	return f'Before the task, perform these Browser Use initial actions in order:\n{actions}\n\nThen complete the task.\n\n{task}'
 
 
 def _task_with_schema(task: str, output_model_schema: type[BaseModel] | None) -> str:
@@ -459,7 +470,7 @@ class Agent(Generic[AgentStructuredOutput]):
 				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
 		self.initial_actions = initial_actions
 		self.task = _task_with_schema(
-			_task_with_available_files(_task_with_initial_navigation(task, initial_actions), self.available_file_paths),
+			_task_with_available_files(_task_with_initial_actions(task, initial_actions), self.available_file_paths),
 			output_model_schema,
 		)
 		self.session_id: str | None = None

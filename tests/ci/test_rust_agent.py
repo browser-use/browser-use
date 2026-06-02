@@ -181,6 +181,24 @@ def test_rust_agent_mirrors_direct_url_startup():
 	assert "First navigate to 'https://example.com'" in agent.task
 
 
+def test_rust_agent_preserves_ordered_initial_actions_context():
+	from browser_use.rust import Agent
+
+	agent = Agent(
+		task='Report what is visible after setup.',
+		initial_actions=[
+			{'navigate': {'url': 'https://example.com', 'new_tab': False}},
+			{'click_element_by_index': {'index': 3}},
+		],
+	)
+
+	assert 'Browser Use initial actions in order' in agent.task
+	assert '"navigate"' in agent.task
+	assert '"click_element_by_index"' in agent.task
+	assert 'https://example.com' in agent.task
+	assert 'Then complete the task.' in agent.task
+
+
 def test_rust_agent_skips_ambiguous_or_excluded_direct_urls():
 	from browser_use.rust import Agent
 
