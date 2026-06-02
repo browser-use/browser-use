@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import shutil
@@ -11,15 +12,17 @@ from typing import Any, Generic
 
 from pydantic import BaseModel
 from typing_extensions import TypeVar
+from uuid_extensions import uuid7str
 
-from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, StepMetadata
+from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentState, StepMetadata
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 
 
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
-AgentHookFunc = Callable[[AgentHistoryList], Awaitable[None] | None]
+AgentHookFunc = Callable[[Any], Awaitable[None] | None]
+AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None] | None]
 
 
 class RustAgentError(RuntimeError):
@@ -246,8 +249,13 @@ class Agent(Generic[AgentStructuredOutput]):
 		browser: BrowserSession | None = None,
 		tools: Any | None = None,
 		controller: Any | None = None,
+		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
+		register_done_callback: AgentDoneCallback | None = None,
+		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
+		register_should_stop_callback: Callable[[], Awaitable[bool]] | None = None,
 		output_model_schema: type[AgentStructuredOutput] | None = None,
+		injected_agent_state: AgentState | None = None,
 		task_id: str | None = None,
 		source: str | None = None,
 		**kwargs: Any,
@@ -256,22 +264,30 @@ class Agent(Generic[AgentStructuredOutput]):
 			raise ValueError('Cannot specify both "browser" and "browser_session".')
 		if tools is not None and controller is not None:
 			raise ValueError('Cannot specify both "tools" and "controller".')
+		self.id = task_id or uuid7str()
+		self.task_id = self.id
 		self.task = _task_with_schema(_task_with_initial_navigation(task, initial_actions), output_model_schema)
 		self.llm = llm
 		self.browser_profile = browser_profile
 		self.browser_session = browser or browser_session
 		self.tools = controller or tools
+		self.sensitive_data = sensitive_data
+		self.register_done_callback = register_done_callback
+		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
+		self.register_should_stop_callback = register_should_stop_callback
 		self.output_model_schema = output_model_schema
-		self.task_id = task_id
 		self.source = source
 		self.kwargs = kwargs
 		self.model = _model_name(llm)
+		self.state = injected_agent_state or AgentState(agent_id=self.id)
 		self.session_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None
 		self.last_events: list[dict[str, Any]] = []
 		self.last_stdout = ''
 		self.last_stderr = ''
+		self._external_pause_event = asyncio.Event()
+		self._external_pause_event.set()
 
 	async def run(
 		self,
@@ -279,25 +295,47 @@ class Agent(Generic[AgentStructuredOutput]):
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
-		_ = on_step_start
+		await self._call_callback(on_step_start, self)
 		started = time.time()
-		proc = await asyncio.create_subprocess_exec(
-			*self._run_argv(max_steps),
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE,
-			env=self._run_env(),
-		)
-		stdout, stderr = await proc.communicate()
+		if await self._should_stop_before_run():
+			finished = time.time()
+			self.result = _history_from_events(
+				[],
+				model=self.model,
+				started=started,
+				finished=finished,
+				output_model_schema=self.output_model_schema,
+				process_error='Rust agent stopped before terminal run.',
+			)
+			self.history = self.result
+			await self._call_callback(on_step_end, self)
+			return self.history
+		if self.state.paused:
+			finished = time.time()
+			self.result = _history_from_events(
+				[],
+				model=self.model,
+				started=started,
+				finished=finished,
+				output_model_schema=self.output_model_schema,
+				process_error='Rust agent is paused before terminal run.',
+			)
+			self.history = self.result
+			await self._call_callback(on_step_end, self)
+			return self.history
+		if self.state.follow_up_task and self.session_id:
+			self.state.follow_up_task = False
+			return await self.follow_up(self.task, max_steps=max_steps)
+
+		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps))
 		finished = time.time()
-		stdout_text = stdout.decode(errors='replace')
-		stderr_text = stderr.decode(errors='replace')
 		self.last_stdout = stdout_text
 		self.last_stderr = stderr_text
 		self.session_id = self._session_id_from_stdout(stdout_text)
 		events = await self._load_events()
 		process_error = None
-		if proc.returncode:
-			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {proc.returncode}'
+		if returncode:
+			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
 		elif not self.session_id:
 			process_error = 'browser-use-terminal did not print a session id.'
 		self.last_events = events
@@ -310,41 +348,27 @@ class Agent(Generic[AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
-		if on_step_end is not None:
-			maybe_awaitable = on_step_end(self.history)
-			if maybe_awaitable is not None:
-				await maybe_awaitable
+		await self._call_callback(on_step_end, self)
+		await self._call_done_callback()
 		return self.history
 
-	async def follow_up(self, task: str) -> AgentHistoryList[AgentStructuredOutput]:
+	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
 		if not self.session_id:
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
-		proc = await asyncio.create_subprocess_exec(
-			binary,
-			*self._state_dir_args(),
-			'followup',
-			self.session_id,
-			task,
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE,
-			env=self._run_env(),
+		returncode, stdout_text, stderr_text = await self._run_process(
+			[binary, *self._state_dir_args(), 'followup', self.session_id, task]
 		)
-		stdout, stderr = await proc.communicate()
-		if proc.returncode:
-			raise RustAgentError(stderr.decode(errors='replace') or stdout.decode(errors='replace'))
-		proc = await asyncio.create_subprocess_exec(
-			*self._run_existing_argv(self.kwargs.get('max_steps', 100)),
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE,
-			env=self._run_env(),
+		if returncode:
+			raise RustAgentError(stderr_text or stdout_text)
+		returncode, _stdout_text, stderr_text = await self._run_process(
+			self._run_existing_argv(max_steps if max_steps is not None else self.kwargs.get('max_steps', 100))
 		)
-		stdout, stderr = await proc.communicate()
 		finished = time.time()
 		process_error = None
-		if proc.returncode:
-			process_error = stderr.decode(errors='replace').strip() or f'browser-use-terminal exited with code {proc.returncode}'
+		if returncode:
+			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
 		self.last_events = await self._load_events()
 		self.result = _history_from_events(
 			self.last_events,
@@ -355,6 +379,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
+		await self._call_done_callback()
 		return self.history
 
 	follow_up_task = follow_up
@@ -362,6 +387,52 @@ class Agent(Generic[AgentStructuredOutput]):
 	@property
 	def usage(self) -> UsageSummary | None:
 		return self.history.usage
+
+	def add_new_task(self, new_task: str) -> None:
+		"""Add a follow-up task while keeping the same Browser Use-style agent object."""
+		self.task = _task_with_schema(new_task, self.output_model_schema)
+		self.state.follow_up_task = True
+		self.state.stopped = False
+		self.state.paused = False
+		self._external_pause_event.set()
+
+	def save_history(self, file_path: str | Path | None = None) -> None:
+		"""Save the current Browser Use history to disk."""
+		if not file_path:
+			file_path = 'AgentHistory.json'
+		self.history.save_to_file(file_path, sensitive_data=self.sensitive_data)
+
+	def pause(self) -> None:
+		"""Pause the Rust-backed agent before the next terminal run."""
+		self.state.paused = True
+		self._external_pause_event.clear()
+
+	def resume(self) -> None:
+		"""Resume a paused Rust-backed agent."""
+		self.state.paused = False
+		self._external_pause_event.set()
+
+	def stop(self) -> None:
+		"""Stop the Rust-backed agent before the next terminal run."""
+		self.state.stopped = True
+		self._external_pause_event.set()
+
+	async def close(self) -> None:
+		"""Browser Use-compatible close hook.
+
+		The Rust terminal owns browser lifecycle for managed modes, and remote CDP
+		browsers are owned by the caller, so the Python wrapper has nothing to close.
+		"""
+		return None
+
+	def run_sync(
+		self,
+		max_steps: int = 100,
+		on_step_start: AgentHookFunc | None = None,
+		on_step_end: AgentHookFunc | None = None,
+	) -> AgentHistoryList[AgentStructuredOutput]:
+		"""Synchronous wrapper around the async run method."""
+		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
 
 	def _run_argv(self, max_steps: int) -> list[str]:
 		binary = find_browser_use_terminal_binary()
@@ -377,6 +448,49 @@ class Agent(Generic[AgentStructuredOutput]):
 			'--model',
 			self.model,
 		]
+
+	async def _run_process(self, argv: list[str]) -> tuple[int, str, str]:
+		proc = await asyncio.create_subprocess_exec(
+			*argv,
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+			env=self._run_env(),
+		)
+		stdout, stderr = await proc.communicate()
+		return proc.returncode or 0, stdout.decode(errors='replace'), stderr.decode(errors='replace')
+
+	async def _call_callback(self, callback: AgentHookFunc | None, *args: Any) -> None:
+		if callback is None:
+			return
+		result = callback(*args)
+		if inspect.isawaitable(result):
+			await result
+
+	async def _call_done_callback(self) -> None:
+		if self.register_done_callback is None or not self.history.is_done():
+			return
+		result = self.register_done_callback(self.history)
+		if inspect.isawaitable(result):
+			await result
+
+	async def _should_stop_before_run(self) -> bool:
+		if self.state.stopped:
+			return True
+		if self.register_should_stop_callback is not None:
+			should_stop = self.register_should_stop_callback()
+			if inspect.isawaitable(should_stop):
+				should_stop = await should_stop
+			if should_stop:
+				self.state.stopped = True
+				return True
+		if self.register_external_agent_status_raise_error_callback is not None:
+			should_stop = self.register_external_agent_status_raise_error_callback()
+			if inspect.isawaitable(should_stop):
+				should_stop = await should_stop
+			if should_stop:
+				self.state.stopped = True
+				return True
+		return False
 
 	def _run_existing_argv(self, max_steps: int) -> list[str]:
 		if not self.session_id:

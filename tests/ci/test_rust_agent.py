@@ -133,6 +133,85 @@ def test_rust_agent_translates_followup_to_existing_terminal_session(monkeypatch
 	assert 'max_turns=9' in argv
 
 
+async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	seen = []
+
+	def done_callback(history):
+		seen.append(('done', history.final_result()))
+
+	agent = Agent(task='start', llm=type('LLM', (), {'model': 'gpt-test'})(), register_done_callback=done_callback)
+
+	async def fake_run_process(argv):
+		seen.append(('argv', argv[-4]))
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'ok'}}]
+
+	async def on_step_start(callback_agent):
+		seen.append(('start', callback_agent is agent))
+
+	def on_step_end(callback_agent):
+		seen.append(('end', callback_agent is agent))
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=3, on_step_start=on_step_start, on_step_end=on_step_end)
+
+	assert history.final_result() == 'ok'
+	assert seen == [
+		('start', True),
+		('argv', 'run-codex'),
+		('end', True),
+		('done', 'ok'),
+	]
+
+
+def test_rust_agent_run_sync_delegates_to_async_run(monkeypatch):
+	from browser_use.rust import Agent
+
+	agent = Agent(task='start')
+
+	async def fake_run(max_steps=100, on_step_start=None, on_step_end=None):
+		agent.kwargs['seen_max_steps'] = max_steps
+		return agent.history
+
+	agent.run = fake_run
+
+	assert agent.run_sync(max_steps=7) is agent.history
+	assert agent.kwargs['seen_max_steps'] == 7
+
+
+def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(task='start')
+	agent.pause()
+	assert agent.state.paused is True
+	agent.resume()
+	assert agent.state.paused is False
+	agent.stop()
+	assert agent.state.stopped is True
+
+	agent.history = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'saved answer'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+	history_file = tmp_path / 'history.json'
+	agent.save_history(history_file)
+
+	assert 'saved answer' in history_file.read_text(encoding='utf-8')
+
+
 def test_rust_history_marks_process_failure_not_done():
 	from browser_use.rust.service import _history_from_events
 
