@@ -130,10 +130,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The terminal core maps that value to `browser connect managed --profile ...`, preserving persistent browser state without passing `--user-data-dir` as a raw Chromium arg.
    - Proof: `test_rust_agent_translates_browser_profile_user_data_dir` and `bare_browser_connect_resolves_to_selected_managed_mode_with_profile_dir`.
 
+25. BrowserProfile managed executable path bridge
+   - `BrowserProfile.executable_path` is serialized into `CHROME_PATH` for terminal managed Chromium runs.
+   - The terminal core already tries `CHROME_PATH` first when launching managed Chromium, so custom Browser Use browser binaries are preserved without changing the Rust launcher.
+   - Proof: `test_rust_agent_translates_browser_profile_executable_path`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (34 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (35 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

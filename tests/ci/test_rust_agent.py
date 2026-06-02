@@ -289,6 +289,35 @@ def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_pa
 	assert env['BU_MANAGED_BROWSER_PROFILE'] == str(profile_dir)
 
 
+def test_rust_agent_translates_browser_profile_executable_path(monkeypatch, tmp_path):
+	from browser_use.rust import Agent
+
+	chrome_path = tmp_path / 'custom chrome'
+
+	class BrowserProfile:
+		headless = True
+		executable_path = chrome_path
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.setenv('CHROME_PATH', '/usr/bin/existing-chrome')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'managed-headless'
+	assert agent.managed_browser_executable_path == str(chrome_path)
+	assert env['CHROME_PATH'] == str(chrome_path)
+
+	monkeypatch.setenv('BROWSER_USE_BROWSER_MODE', 'cloud')
+	cloud_agent = Agent(task='report title', browser_profile=BrowserProfile())
+	cloud_env = cloud_agent._run_env()
+
+	assert cloud_env['LLM_BROWSER_BROWSER_MODE'] == 'cloud'
+	assert cloud_env['CHROME_PATH'] == '/usr/bin/existing-chrome'
+
+
 def test_rust_agent_adds_browser_profile_domain_constraints():
 	from browser_use.rust import Agent
 
