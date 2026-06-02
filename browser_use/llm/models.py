@@ -82,10 +82,9 @@ cerebras_qwen_3_235b_a22b_instruct_2507: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_thinking_2507: 'BaseChatModel'
 cerebras_qwen_3_coder_480b: 'BaseChatModel'
 
+minimax_m3: 'BaseChatModel'
 minimax_m2_7: 'BaseChatModel'
 minimax_m2_7_highspeed: 'BaseChatModel'
-minimax_m2_5: 'BaseChatModel'
-minimax_m2_5_highspeed: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
@@ -214,10 +213,9 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('MINIMAX_API_KEY')
 		base_url = os.getenv('MINIMAX_BASE_URL', 'https://api.minimax.io/v1')
 		minimax_map = {
+			'm3': 'MiniMax-M3',
 			'm2-7': 'MiniMax-M2.7',
 			'm2-7-highspeed': 'MiniMax-M2.7-highspeed',
-			'm2-5': 'MiniMax-M2.5',
-			'm2-5-highspeed': 'MiniMax-M2.5-highspeed',
 		}
 		normalized = model.replace('_', '-')
 		resolved_model = minimax_map.get(normalized, model)
@@ -333,10 +331,9 @@ __all__ += [
 	'cerebras_qwen_3_235b_a22b_thinking_2507',
 	'cerebras_qwen_3_coder_480b',
 	# MiniMax instances - created on demand
+	'minimax_m3',
 	'minimax_m2_7',
 	'minimax_m2_7_highspeed',
-	'minimax_m2_5',
-	'minimax_m2_5_highspeed',
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',

@@ -76,8 +76,9 @@ if TYPE_CHECKING:
 	google_gemini_2_5_flash: ChatGoogle
 	google_gemini_2_5_flash_lite: ChatGoogle
 
-	minimax_m2_5: ChatMiniMax
-	minimax_m2_5_highspeed: ChatMiniMax
+	minimax_m3: ChatMiniMax
+	minimax_m2_7: ChatMiniMax
+	minimax_m2_7_highspeed: ChatMiniMax
 
 # Models are imported on-demand via __getattr__
 
