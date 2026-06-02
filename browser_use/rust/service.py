@@ -278,6 +278,32 @@ def _extract_highlight_settings(
 	return enabled, color, duration_ms
 
 
+def _seconds_to_ms(value: Any) -> int | None:
+	if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+		return None
+	return int(value * 1000)
+
+
+def _extract_wait_timing_settings(
+	browser_session: BrowserSession | None, browser_profile: BrowserProfile | None
+) -> dict[str, str]:
+	settings: dict[str, str] = {}
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	mappings = (
+		('minimum_wait_page_load_time', 'BU_BROWSER_MINIMUM_WAIT_PAGE_LOAD_MS'),
+		('wait_for_network_idle_page_load_time', 'BU_BROWSER_NETWORK_IDLE_PAGE_LOAD_MS'),
+		('wait_between_actions', 'BU_BROWSER_WAIT_BETWEEN_ACTIONS_MS'),
+	)
+	for profile in (session_profile, browser_profile, browser_session):
+		for attr, env_name in mappings:
+			if env_name in settings:
+				continue
+			value_ms = _seconds_to_ms(getattr(profile, attr, None))
+			if value_ms is not None:
+				settings[env_name] = str(value_ms)
+	return settings
+
+
 def _extract_profile_permissions(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> list[str]:
 	values: list[str] = []
 	seen: set[str] = set()
@@ -931,6 +957,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.highlight_enabled, self.highlight_color, self.highlight_duration_ms = _extract_highlight_settings(
 			self.browser_session, self.browser_profile
 		)
+		self.wait_timing_env = _extract_wait_timing_settings(self.browser_session, self.browser_profile)
 		self.browser_permissions = _extract_profile_permissions(self.browser_session, self.browser_profile)
 		self.browser_accept_downloads, self.browser_downloads_path = _extract_browser_downloads(
 			self.browser_session, self.browser_profile
@@ -1394,6 +1421,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			env['BROWSER_USE_TERMINAL_HIGHLIGHT_COLOR'] = self.highlight_color
 		if self.highlight_duration_ms is not None:
 			env['BROWSER_USE_TERMINAL_HIGHLIGHT_DURATION_MS'] = str(self.highlight_duration_ms)
+		env.update(self.wait_timing_env)
 		if self.browser_permissions:
 			env['BU_BROWSER_PERMISSIONS'] = json.dumps(self.browser_permissions)
 		if self.browser_accept_downloads is not None:

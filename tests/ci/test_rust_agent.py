@@ -249,6 +249,30 @@ def test_rust_agent_translates_browser_profile_highlights(monkeypatch):
 	assert dom_env['BROWSER_USE_TERMINAL_AUTO_HIGHLIGHT'] == 'false'
 
 
+def test_rust_agent_translates_browser_profile_wait_timings(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		minimum_wait_page_load_time = 0.25
+		wait_for_network_idle_page_load_time = 0.75
+		wait_between_actions = 0.125
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert agent.wait_timing_env == {
+		'BU_BROWSER_MINIMUM_WAIT_PAGE_LOAD_MS': '250',
+		'BU_BROWSER_NETWORK_IDLE_PAGE_LOAD_MS': '750',
+		'BU_BROWSER_WAIT_BETWEEN_ACTIONS_MS': '125',
+	}
+	assert env['BU_BROWSER_MINIMUM_WAIT_PAGE_LOAD_MS'] == '250'
+	assert env['BU_BROWSER_NETWORK_IDLE_PAGE_LOAD_MS'] == '750'
+	assert env['BU_BROWSER_WAIT_BETWEEN_ACTIONS_MS'] == '125'
+
+
 def test_rust_agent_translates_browser_profile_headless(monkeypatch):
 	from browser_use.rust import Agent
 
