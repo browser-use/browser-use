@@ -105,10 +105,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Saved Rust histories can be loaded, and reruns execute through the Rust terminal core while returning Browser Use-style `ActionResult` lists.
    - Proof: `test_rust_agent_rerun_history_delegates_to_rust_run` and `test_rust_agent_load_and_rerun_loads_saved_rust_history`.
 
+20. Sensitive data placeholder bridge
+   - `sensitive_data` is now converted into sanitized placeholder context for the Rust-backed task.
+   - Global and domain-scoped placeholder names are exposed, but raw secret values are not added to the task text.
+   - Proof: `test_rust_agent_adds_sensitive_data_placeholders_without_values`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (29 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (30 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

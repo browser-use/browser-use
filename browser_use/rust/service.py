@@ -134,6 +134,24 @@ def _extract_profile_domains(
 	return values
 
 
+def _sensitive_data_context(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, Any]:
+	if not sensitive_data:
+		return {'global_placeholders': [], 'domain_placeholders': {}}
+	global_placeholders: list[str] = []
+	domain_placeholders: dict[str, list[str]] = {}
+	for key, value in sensitive_data.items():
+		if isinstance(value, dict):
+			placeholders = sorted(name for name, secret in value.items() if isinstance(name, str) and name and secret)
+			if placeholders:
+				domain_placeholders[key] = placeholders
+		elif isinstance(value, str) and value:
+			global_placeholders.append(key)
+	return {
+		'global_placeholders': sorted(global_placeholders),
+		'domain_placeholders': domain_placeholders,
+	}
+
+
 def _navigation_url_from_action(action: Any) -> str | None:
 	if not isinstance(action, dict):
 		return None
@@ -191,6 +209,23 @@ def _task_with_domain_constraints(task: str, allowed_domains: list[str], prohibi
 		sections.append('Prohibited domains:')
 		sections.extend(f'- {domain}' for domain in prohibited_domains)
 	sections.append('Respect these BrowserProfile domain constraints when navigating.')
+	return f'{task}\n\n' + '\n'.join(sections)
+
+
+def _task_with_sensitive_data_context(task: str, sensitive_context: dict[str, Any]) -> str:
+	global_placeholders = sensitive_context.get('global_placeholders') or []
+	domain_placeholders = sensitive_context.get('domain_placeholders') or {}
+	if not global_placeholders and not domain_placeholders:
+		return task
+	sections = ['Sensitive data placeholders are available. Use <secret>placeholder</secret> when a matching secret is needed.']
+	if global_placeholders:
+		sections.append('Global placeholders:')
+		sections.extend(f'- {placeholder}' for placeholder in global_placeholders)
+	if domain_placeholders:
+		sections.append('Domain-scoped placeholders:')
+		for domain, placeholders in domain_placeholders.items():
+			sections.append(f'- {domain}: {", ".join(placeholders)}')
+	sections.append('Do not reveal placeholder values in the final answer.')
 	return f'{task}\n\n' + '\n'.join(sections)
 
 
@@ -526,6 +561,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.available_file_paths = available_file_paths or []
 		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
 		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
+		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
 		self.directly_open_url = directly_open_url
@@ -540,10 +576,13 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.initial_actions = initial_actions
 		self.task = _task_with_schema(
 			_task_with_available_files(
-				_task_with_domain_constraints(
-					_task_with_initial_actions(task, initial_actions),
-					self.allowed_domains,
-					self.prohibited_domains,
+				_task_with_sensitive_data_context(
+					_task_with_domain_constraints(
+						_task_with_initial_actions(task, initial_actions),
+						self.allowed_domains,
+						self.prohibited_domains,
+					),
+					self.sensitive_data_context,
 				),
 				self.available_file_paths,
 			),

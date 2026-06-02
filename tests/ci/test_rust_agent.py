@@ -207,6 +207,29 @@ def test_rust_agent_adds_browser_profile_domain_constraints():
 	assert '- ads.example.com' in agent.task
 
 
+def test_rust_agent_adds_sensitive_data_placeholders_without_values():
+	from browser_use.rust import Agent
+
+	agent = Agent(
+		task='Log in to the portal.',
+		sensitive_data={
+			'username': 'alice@example.com',
+			'https://example.com': {'password': 'super-secret-password'},
+		},
+	)
+
+	assert agent.sensitive_data_context == {
+		'global_placeholders': ['username'],
+		'domain_placeholders': {'https://example.com': ['password']},
+	}
+	assert 'Sensitive data placeholders are available.' in agent.task
+	assert '- username' in agent.task
+	assert '- https://example.com: password' in agent.task
+	assert '<secret>placeholder</secret>' in agent.task
+	assert 'alice@example.com' not in agent.task
+	assert 'super-secret-password' not in agent.task
+
+
 def test_rust_agent_mirrors_direct_url_startup():
 	from browser_use.rust import Agent
 
