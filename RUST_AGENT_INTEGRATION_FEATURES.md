@@ -120,12 +120,18 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Candidates are accepted only if they validate against the requested Pydantic schema.
    - Proof: `test_rust_history_extracts_fenced_structured_output`.
 
+23. BrowserProfile managed launch args bridge
+   - `BrowserProfile.args`, `proxy`, `window_size`, `user_agent`, `disable_security`, and `deterministic_rendering` are serialized into `BU_MANAGED_BROWSER_ARGS` for terminal managed Chromium runs.
+   - The terminal core converts those JSON args into repeated `browser connect managed --arg ...` flags for both selected-mode connect and auto-ensure before browser actions.
+   - Proof: `test_rust_agent_translates_browser_profile_managed_launch_args` and `bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (32 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (33 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`

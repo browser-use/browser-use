@@ -18,6 +18,7 @@ from uuid_extensions import uuid7str
 
 from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentSettings, AgentState, StepMetadata
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 
@@ -103,6 +104,72 @@ def _extract_cloud_preference(browser_session: BrowserSession | None, browser_pr
 			if isinstance(value, bool) and value:
 				return True
 	return False
+
+
+def _value_from_object(value: Any, key: str) -> Any:
+	if value is None:
+		return None
+	if isinstance(value, dict):
+		return value.get(key)
+	return getattr(value, key, None)
+
+
+def _append_unique(items: list[str], seen: set[str], value: Any) -> None:
+	if not isinstance(value, str) or not value:
+		return
+	if value in seen:
+		return
+	items.append(value)
+	seen.add(value)
+
+
+def _window_size_arg(window_size: Any) -> str | None:
+	if window_size is None:
+		return None
+	if isinstance(window_size, (list, tuple)) and len(window_size) >= 2:
+		width, height = window_size[0], window_size[1]
+	else:
+		width = _value_from_object(window_size, 'width')
+		height = _value_from_object(window_size, 'height')
+	if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
+		return None
+	return f'--window-size={width},{height}'
+
+
+def _managed_browser_launch_args(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> list[str]:
+	args: list[str] = []
+	seen: set[str] = set()
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile):
+		raw_args = getattr(profile, 'args', None)
+		if isinstance(raw_args, set):
+			raw_args = sorted(raw_args)
+		if isinstance(raw_args, (list, tuple)):
+			for arg in raw_args:
+				_append_unique(args, seen, arg)
+		if getattr(profile, 'disable_security', False) is True:
+			for arg in CHROME_DISABLE_SECURITY_ARGS:
+				_append_unique(args, seen, arg)
+		if getattr(profile, 'deterministic_rendering', False) is True:
+			for arg in CHROME_DETERMINISTIC_RENDERING_ARGS:
+				_append_unique(args, seen, arg)
+		_append_unique(args, seen, _window_size_arg(getattr(profile, 'window_size', None)))
+		proxy = getattr(profile, 'proxy', None)
+		proxy_server = _value_from_object(proxy, 'server')
+		if isinstance(proxy_server, str) and proxy_server:
+			_append_unique(args, seen, f'--proxy-server={proxy_server}')
+			proxy_bypass = _value_from_object(proxy, 'bypass')
+			if isinstance(proxy_bypass, str) and proxy_bypass:
+				_append_unique(args, seen, f'--proxy-bypass-list={proxy_bypass}')
+		user_agent = getattr(profile, 'user_agent', None)
+		if isinstance(user_agent, str) and user_agent:
+			_append_unique(args, seen, f'--user-agent={user_agent}')
+	return args
+
+
+def _is_managed_browser_mode(mode: str) -> bool:
+	normalized = mode.strip().lower().replace('_', '-').replace(' ', '-')
+	return normalized in {'managed-headless', 'headless', 'headless-chromium', 'managed-headed', 'managed', 'headed'}
 
 
 def _domain_list(value: Any) -> list[str]:
@@ -626,6 +693,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.available_file_paths = available_file_paths or []
 		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
 		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
+		self.managed_browser_args = _managed_browser_launch_args(self.browser_session, self.browser_profile)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
@@ -1066,10 +1134,13 @@ class Agent(Generic[AgentStructuredOutput]):
 
 	def _run_env(self) -> dict[str, str]:
 		env = os.environ.copy()
-		env['LLM_BROWSER_BROWSER_MODE'] = self._browser_mode()
+		browser_mode = self._browser_mode()
+		env['LLM_BROWSER_BROWSER_MODE'] = browser_mode
 		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)
 		if cdp_url:
 			env['BU_CDP_URL'] = cdp_url
+		if self.managed_browser_args and _is_managed_browser_mode(browser_mode):
+			env['BU_MANAGED_BROWSER_ARGS'] = json.dumps(self.managed_browser_args)
 		return env
 
 	def _session_id_from_stdout(self, stdout: str) -> str | None:

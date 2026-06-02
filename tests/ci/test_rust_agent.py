@@ -234,6 +234,39 @@ def test_rust_agent_translates_browser_profile_cloud(monkeypatch):
 	assert agent._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'cloud'
 
 
+def test_rust_agent_translates_browser_profile_managed_launch_args(monkeypatch):
+	from browser_use.rust import Agent
+
+	class Proxy:
+		server = 'http://proxy.example:8080'
+		bypass = 'localhost,127.0.0.1'
+
+	class BrowserProfile:
+		headless = True
+		args = ['--lang=en-US']
+		disable_security = True
+		proxy = Proxy()
+		window_size = {'width': 1440, 'height': 900}
+		user_agent = 'BrowserUseTest/1.0'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+	launch_args = json.loads(env['BU_MANAGED_BROWSER_ARGS'])
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'managed-headless'
+	assert agent.managed_browser_args == launch_args
+	assert '--lang=en-US' in launch_args
+	assert '--window-size=1440,900' in launch_args
+	assert '--proxy-server=http://proxy.example:8080' in launch_args
+	assert '--proxy-bypass-list=localhost,127.0.0.1' in launch_args
+	assert '--disable-web-security' in launch_args
+	assert '--user-agent=BrowserUseTest/1.0' in launch_args
+
+
 def test_rust_agent_adds_browser_profile_domain_constraints():
 	from browser_use.rust import Agent
 
