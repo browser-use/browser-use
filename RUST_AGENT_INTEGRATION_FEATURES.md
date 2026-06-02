@@ -231,6 +231,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper queries arXiv's Atom API directly and normalizes paper titles, authors and affiliations, summaries, abs/pdf URLs, categories, DOI, journal/comment metadata, and timestamps.
    - Proof: `browser_script_arxiv_query_normalizes_atom_metadata`.
 
+45. Browser-script row-scoped grid extraction helper
+   - Terminal browser scripts now expose `rows_snapshot(limit=8)` and `extract_grid_rows(selector=None, limit=50, include_html=False)`, plus compatibility aliases `grid_rows_snapshot` and `extract_rows`.
+   - The helper identifies table/grid/list row selectors and extracts row-scoped cells, headers, description fields, links, buttons, file/document actions, and element coordinates so actions remain associated with the correct row.
+   - Proof: `browser_script_grid_row_helpers_surface_row_scoped_actions`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -253,6 +258,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_embedded_data_snapshot_extracts_hydration_records -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_read_document_text_extracts_common_document_formats -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_arxiv_query_normalizes_atom_metadata -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_grid_row_helpers_surface_row_scoped_actions -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
