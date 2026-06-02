@@ -90,10 +90,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Multi-step or non-navigation `initial_actions` are now passed to the Rust terminal task as an ordered Browser Use action list instead of being silently stored and dropped.
    - Proof: `test_rust_agent_preserves_ordered_initial_actions_context`.
 
+17. BrowserProfile cloud bridge
+   - `BrowserProfile(use_cloud=True)` and compatible `cloud_browser=True` profiles now select terminal `browser_mode="cloud"`.
+   - CDP URLs still select `remote-cdp`, and explicit browser mode environment variables still override profile preferences.
+   - Proof: `test_rust_agent_translates_browser_profile_cloud`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (25 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (26 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

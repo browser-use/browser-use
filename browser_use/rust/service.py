@@ -95,6 +95,16 @@ def _extract_headless_preference(browser_session: BrowserSession | None, browser
 	return None
 
 
+def _extract_cloud_preference(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> bool:
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		for attr in ('use_cloud', 'cloud_browser'):
+			value = getattr(profile, attr, None)
+			if isinstance(value, bool) and value:
+				return True
+	return False
+
+
 def _navigation_url_from_action(action: Any) -> str | None:
 	if not isinstance(action, dict):
 		return None
@@ -850,6 +860,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		value = os.environ.get('BROWSER_USE_BROWSER_MODE')
 		if value:
 			return value
+		if _extract_cloud_preference(self.browser_session, self.browser_profile):
+			return 'cloud'
 		headless = _extract_headless_preference(self.browser_session, self.browser_profile)
 		if headless is False:
 			return 'managed-headed'
