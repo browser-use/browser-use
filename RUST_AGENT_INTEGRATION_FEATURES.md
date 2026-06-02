@@ -75,10 +75,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - A timed-out terminal run is killed and surfaced as a normal history error instead of hanging the Python wrapper indefinitely.
    - Proof: `test_rust_agent_terminal_process_timeout`.
 
+14. Agent package import path
+   - `from browser_use.agent import Agent` now lazily resolves to the same Rust-backed wrapper as `from browser_use import Agent`.
+   - The export is lazy to avoid circular imports with `browser_use.agent.views`.
+   - Proof: `test_agent_package_export_uses_rust_wrapper`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (21 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (22 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

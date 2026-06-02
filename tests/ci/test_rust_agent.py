@@ -26,6 +26,13 @@ def test_top_level_agent_uses_rust_wrapper():
 	assert TopLevelAgent is RustAgent
 
 
+def test_agent_package_export_uses_rust_wrapper():
+	from browser_use.agent import Agent as AgentPackageAgent
+	from browser_use.rust import Agent as RustAgent
+
+	assert AgentPackageAgent is RustAgent
+
+
 def test_rust_events_reconstruct_browser_use_history():
 	from browser_use.rust.service import _history_from_events
 
