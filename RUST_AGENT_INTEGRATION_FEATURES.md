@@ -256,6 +256,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper finds repeated visible cards/list items using stable selectors and extracts actionable records with attributes, headings, labels, prices, row/cell headers, links/buttons, and image/lazy-load metadata.
    - Proof: `browser_script_repeated_item_helpers_surface_actionable_records`.
 
+50. Browser-script pricing card snapshot helper
+   - Terminal browser scripts now expose `pricing_cards_snapshot(limit=50)`.
+   - The helper surfaces visible commercial product/plan/package cards with normalized price amounts, currency and billing period, speed/data/network signals, contract terms, offer labels, provider candidates, links, images, and stable selectors.
+   - Proof: `browser_script_pricing_cards_snapshot_surfaces_commercial_signals`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -283,6 +288,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_browser_fetch_uses_page_context_credentials -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_browser_fetch_many_preserves_order_errors_and_binary -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_repeated_item_helpers_surface_actionable_records -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_pricing_cards_snapshot_surfaces_commercial_signals -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
