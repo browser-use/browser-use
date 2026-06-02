@@ -260,7 +260,7 @@ browser-use open https://abc.trycloudflare.com
 
 ## Profile Management
 
-The `profile` subcommand delegates to the [profile-use](https://github.com/browser-use/profile-use) Go binary, which syncs local browser cookies to Browser-Use cloud.
+The `profile` subcommand delegates to the [profile-use](https://github.com/browser-use/profile-use-releases) Go binary, which syncs local browser cookies to Browser-Use cloud.
 
 The binary is managed at `~/.browser-use/bin/profile-use` and auto-downloaded on first use.
 
