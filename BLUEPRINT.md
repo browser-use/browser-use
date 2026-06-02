@@ -798,8 +798,63 @@ https://rss.nytimes.com/services/xml/rss/nyt/World.xml
 | jobs-for-ai-agents | HR Tech | — | AI job-search Claude Code tool |
 
 ### Next Actions §12
-- [ ] Add custom domain (e.g. `cv.desiredsolutions.me`) via Vercel DNS settings
-- [ ] Enrich with LinkedIn-scraped experience bullets (requires manual review)
-- [ ] Generate PDF versions per tab for email attachments
-- [ ] Apply `deeptechx.xyz` or `desiredsolutions.me` subdomain
+- [x] Custom domain `cv.desiredsolutions.space` attached to Vercel (DNS record pending at Name.com)
+- [x] Site v2 with real CV content + per-tab PDF downloads ✅
+- [ ] **User action:** add CNAME at Name.com — `cv` → `cname.vercel-dns.com`
+- [ ] Enrich with LinkedIn-scraped experience bullets (manual review)
+
+---
+
+## §13. Jobs Radar — Auto-Refreshed Dashboard (2026-05-30)
+
+### Live URLs
+- **Production:** `https://jobs-radar-six.vercel.app` (public)
+- **Custom domain pending:** `https://jobs.desiredsolutions.space` (DNS at Name.com required)
+
+### Repo
+- GitHub: `https://github.com/dnzengou/jobs-radar`
+- Local: `C:/Users/nzengou/Documents/programming/test_programming/jobs-radar/`
+
+### Architecture (KafCa + RRSS + ARM)
+
+```
+jobs-radar/
+├── index.html              # Dashboard UI (vanilla JS, no framework)
+├── data/
+│   ├── profile.json        # Match scoring keywords per tier
+│   ├── seed.json           # Hand-curated high-value picks
+│   ├── jobs.json           # Output: scored + filtered jobs
+│   └── seen.json           # Dedup state (new-match detection)
+├── scripts/fetch.mjs       # Aggregator (Remotive + Himalayas APIs)
+├── .github/workflows/cron.yml  # Every 6h refresh
+├── vercel.json             # Static + cache headers
+└── package.json
+```
+
+### Data Sources
+| Source | Type | Volume | Notes |
+|--------|------|--------|-------|
+| **Remotive API** | JSON | ~70 jobs/run | 4 search queries: innovation, space, AI product, GeoAI |
+| **Himalayas API** | JSON | ~20 jobs/run | Innovation-focused query |
+| **Seed file** | Manual | 7 picks | EWOR, Gartner 110514, EIT Health, ESA, etc. — always shown |
+
+### Match Scoring
+4-tier weighted keyword matching against `profile.json`:
+- T1 Space/EO/GeoAI (weight 1.0)
+- T2 AI/Deep Tech/Innovation (0.9)
+- T3 Geography — Remote/EU/Nordic (0.6)
+- T4 Seniority (0.5)
+
+Word-boundary regex for acronyms (≤3 chars or `[A-Z]{2,4}`) prevents false positives like "EO" matching "video". Score 0-100; threshold 20% for non-seed jobs.
+
+### Notifications
+- **ntfy.sh** push: free, no auth, topic `nzengou-jobs-7xq9z2k`
+- Triggered when score ≥70% and ID not in `seen.json`
+- Subscribe via web (`https://ntfy.sh/nzengou-jobs-7xq9z2k`) or mobile app
+
+### Pending User Actions
+- [ ] DNS at Name.com: `CNAME jobs → cname.vercel-dns.com`
+- [ ] Run `gh auth refresh -s workflow` then `git push` workflow file to enable cron (currently runnable locally only)
+- [ ] Subscribe to ntfy.sh topic on mobile
+- [ ] Tune `data/profile.json` keywords / `exclude` list as needed
 
