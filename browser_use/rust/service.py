@@ -1434,6 +1434,10 @@ class Agent(Generic[AgentStructuredOutput]):
 		env.update(self.wait_timing_env)
 		if self.block_ip_addresses is not None:
 			env['BU_BROWSER_BLOCK_IP_ADDRESSES'] = 'true' if self.block_ip_addresses else 'false'
+		if self.allowed_domains:
+			env['BU_BROWSER_ALLOWED_DOMAINS'] = json.dumps(self.allowed_domains)
+		if self.prohibited_domains:
+			env['BU_BROWSER_PROHIBITED_DOMAINS'] = json.dumps(self.prohibited_domains)
 		if self.browser_permissions:
 			env['BU_BROWSER_PERMISSIONS'] = json.dumps(self.browser_permissions)
 		if self.browser_accept_downloads is not None:

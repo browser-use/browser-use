@@ -669,9 +669,12 @@ def test_rust_agent_adds_browser_profile_domain_constraints():
 		prohibited_domains = {'ads.example.com'}
 
 	agent = Agent(task='Open the allowed site.', browser_profile=BrowserProfile())
+	env = agent._run_env()
 
 	assert agent.allowed_domains == ['example.com', '*.browser-use.com']
 	assert agent.prohibited_domains == ['ads.example.com']
+	assert json.loads(env['BU_BROWSER_ALLOWED_DOMAINS']) == ['example.com', '*.browser-use.com']
+	assert json.loads(env['BU_BROWSER_PROHIBITED_DOMAINS']) == ['ads.example.com']
 	assert 'Browser profile navigation constraints:' in agent.task
 	assert 'Allowed domains:' in agent.task
 	assert '- example.com' in agent.task
