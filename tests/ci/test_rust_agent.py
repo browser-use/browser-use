@@ -90,9 +90,10 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert argv[-4:] == ['run-codex', agent.task, '--model', 'gpt-test']
 	assert '-c' in argv
 	assert 'max_turns=12' in argv
-	assert 'browser_mode="managed-headless"' in argv
+	assert 'browser_mode="remote-cdp"' in argv
 	assert "First navigate to 'https://example.com'" in agent.task
 	assert env['BU_CDP_URL'] == 'wss://browser.example/devtools/browser/1'
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
 
 def test_rust_agent_default_codex_model_matches_chatgpt_account(monkeypatch):

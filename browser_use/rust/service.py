@@ -401,7 +401,7 @@ class Agent(Generic[AgentStructuredOutput]):
 
 	def _browser_mode(self) -> str:
 		if _extract_cdp_url(self.browser_session):
-			return 'managed-headless'
+			return 'remote-cdp'
 		value = os.environ.get('BROWSER_USE_RUST_BROWSER_MODE')
 		if value:
 			return value
@@ -411,6 +411,7 @@ class Agent(Generic[AgentStructuredOutput]):
 
 	def _run_env(self) -> dict[str, str]:
 		env = os.environ.copy()
+		env['LLM_BROWSER_BROWSER_MODE'] = self._browser_mode()
 		cdp_url = _extract_cdp_url(self.browser_session)
 		if cdp_url:
 			env['BU_CDP_URL'] = cdp_url
