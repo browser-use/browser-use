@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, field_validator, model_validator
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
@@ -283,6 +283,72 @@ class AgentStepInfo:
 	def is_last_step(self) -> bool:
 		"""Check if this is the last step"""
 		return self.step_number >= self.max_steps - 1
+
+
+class PauseResult(BaseModel):
+	"""Result returned by a tool to request external human/operator input.
+
+	Tools should return this object quickly instead of awaiting a human response
+	inside the tool coroutine. The Agent runtime owns the pending pause token,
+	timeout, cancellation, and eventual conversion back into an ActionResult so
+	the human response can be shown to the next LLM step without weakening normal
+	action/step timeout guards.
+	"""
+
+	prompt: str = Field(description='Prompt shown to the external human/operator')
+	reason: str | None = Field(default=None, description='Machine-readable reason for the pause')
+	# None means "wait until resume/cancel/stop". Production integrations should
+	# usually provide a finite timeout or guarantee an external cancel/stop path.
+	timeout: float | None = Field(default=None, description='Optional per-pause timeout in seconds')
+	pause_timeout_action: Literal['stop', 'continue', 'error'] = Field(
+		default='error',
+		description='What to do when the external wait times out',
+	)
+	# Integration metadata must be non-sensitive. The runtime may expose this via
+	# get_pending_tool_pause(), so callers should not put secrets or raw human input here.
+	metadata: dict[str, Any] | None = Field(default=None, description='Non-sensitive integration metadata')
+	context: dict[str, Any] | None = Field(
+		default=None,
+		description=(
+			'Non-sensitive context explaining why the pause was requested. '
+			'This may be surfaced to the next LLM turn, so it must not contain '
+			'secrets, credentials, tokens, or raw human input.'
+		),
+	)
+
+	@field_validator('timeout')
+	@classmethod
+	def validate_timeout(cls, value: float | None) -> float | None:
+		if value is not None and value <= 0:
+			raise ValueError('PauseResult.timeout must be greater than 0 seconds')
+		return value
+
+
+class ToolPauseState(BaseModel):
+	"""Serializable summary of a pending tool-level pause for external integrations.
+
+	This model intentionally contains no asyncio.Future or other runtime-only
+	objects. External systems can read it to render approval/clarification UI and
+	then call resume_tool_pause() or cancel_tool_pause() with the secret token.
+	"""
+
+	# Secret bearer token used to authorize resume/cancel. It should only be
+	# returned by get_pending_tool_pause(), and must never be written to logs,
+	# history, trace files, metadata, or cloud/event payloads.
+	token: str
+	# Public correlation id. Safe to place in resolved action metadata and logs so
+	# pending/resolved lifecycle events can be joined without exposing the token.
+	pause_id: str
+	step: int
+	action_index: int
+	tool_name: str
+	prompt: str
+	reason: str | None = None
+	created_at: float
+	timeout: float | None = None
+	pause_timeout_action: Literal['stop', 'continue', 'error'] = 'error'
+	metadata: dict[str, Any] | None = None
+	context: dict[str, Any] | None = None
 
 
 class JudgementResult(BaseModel):

@@ -4,9 +4,11 @@ import inspect
 import json
 import logging
 import re
+import secrets
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
@@ -58,8 +60,10 @@ from browser_use.agent.views import (
 	DetectedVariable,
 	JudgementResult,
 	MessageCompactionSettings,
+	PauseResult,
 	PlanItem,
 	StepMetadata,
+	ToolPauseState,
 )
 from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
@@ -126,6 +130,34 @@ Context = TypeVar('Context')
 
 
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
+
+
+@dataclass
+class PendingToolPause:
+	"""Runtime-only state for one tool-level human-in-the-loop pause.
+
+	This intentionally lives on the Agent instance rather than in AgentState:
+	the future and event loop are runtime objects and must not be serialized into
+	history, checkpoints, traces, or cloud payloads. Public correlation should use
+	pause_id; token is a secret bearer token for resume/cancel only.
+	"""
+
+	token: str
+	pause_id: str
+	step: int
+	action_index: int
+	tool_name: str
+	prompt: str
+	reason: str | None
+	created_at: float
+	timeout: float | None
+	pause_timeout_action: Literal['stop', 'continue', 'error']
+	metadata: dict[str, Any] | None
+	context: dict[str, Any] | None
+	loop: asyncio.AbstractEventLoop
+	future: asyncio.Future[ActionResult]
+	completed: bool = False
+	cancelled: bool = False
 
 
 class Agent(Generic[Context, AgentStructuredOutput]):
@@ -600,6 +632,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Event-based pause control (kept out of AgentState for serialization)
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
+
+		# Tool-level HITL pause state is runtime-only. It stores the pending future
+		# and secret resume/cancel token outside AgentState so these values never get
+		# serialized into history, checkpoints, traces, or cloud/event payloads.
+		self._pending_tool_pause: PendingToolPause | None = None
 
 	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
 		"""Enhance task description with output schema information if provided."""
@@ -2255,7 +2292,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			except Exception as e:
 				raise e
 
-		await self.step(step_info)
+		try:
+			await self._run_step_with_suspendable_timeout(step_info)
+		except TimeoutError:
+			error_msg = f'Step timed out after {self.settings.step_timeout} seconds'
+			self.logger.error(f'⏰ {error_msg}')
+			self.state.consecutive_failures += 1
+			self.state.last_result = [ActionResult(error=error_msg)]
 
 		if self.history.is_done():
 			await self.log_completion()
@@ -2416,6 +2459,58 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return None
 
+	async def _run_step_with_suspendable_timeout(self, step_info: AgentStepInfo | None) -> None:
+		"""Run one step while excluding tool-pause external wait from step_timeout.
+
+		The step coroutine can enter a HITL suspended sub-state by registering
+		``self._pending_tool_pause`` and awaiting its future inside ``multi_act()``.
+		While such a pause is pending, this outer guard parks the active step timer
+		instead of cancelling the step task at wall-clock ``step_timeout``.
+		"""
+
+		step_timeout = self.settings.step_timeout
+		step_task = asyncio.create_task(self.step(step_info))
+		active_started_at = time.monotonic()
+		active_elapsed = 0.0
+
+		try:
+			while not step_task.done():
+				pause = self._pending_tool_pause
+				if pause is not None and not pause.completed and not pause.cancelled:
+					active_elapsed += time.monotonic() - active_started_at
+					if active_elapsed >= step_timeout:
+						raise TimeoutError
+					wait_set: set[asyncio.Future | asyncio.Task] = {step_task, pause.future}
+					await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED)
+					active_started_at = time.monotonic()
+					continue
+
+				remaining = step_timeout - active_elapsed
+				if remaining <= 0:
+					raise TimeoutError
+
+				poll_interval = min(remaining, 0.05)
+				done, _pending = await asyncio.wait({step_task}, timeout=poll_interval)
+				if done:
+					break
+				active_elapsed += time.monotonic() - active_started_at
+				active_started_at = time.monotonic()
+
+			await step_task
+		except BaseException:
+			self._cancel_pending_tool_pause('step execution cancelled')
+			if self._pending_tool_pause is not None and (
+				self._pending_tool_pause.completed or self._pending_tool_pause.cancelled
+			):
+				self._pending_tool_pause = None
+			if not step_task.done():
+				step_task.cancel()
+				try:
+					await step_task
+				except asyncio.CancelledError:
+					pass
+			raise
+
 	async def _execute_step(
 		self,
 		step: int,
@@ -2442,10 +2537,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 
 		try:
-			await asyncio.wait_for(
-				self.step(step_info),
-				timeout=self.settings.step_timeout,
-			)
+			await self._run_step_with_suspendable_timeout(step_info)
 			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 		except TimeoutError:
 			# Handle step timeout gracefully
@@ -2655,6 +2747,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise e
 
 		finally:
+			self._cancel_pending_tool_pause('agent run finished')
+			if self._pending_tool_pause is not None and (
+				self._pending_tool_pause.completed or self._pending_tool_pause.cancelled
+			):
+				self._pending_tool_pause = None
+
 			if should_delay_close and self._demo_mode_enabled and agent_run_error is None:
 				await asyncio.sleep(30)
 			if agent_run_error:
@@ -2708,7 +2806,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
-	async def multi_act(self, actions: list[ActionModel]) -> list[ActionResult]:
+	async def multi_act(
+		self,
+		actions: list[ActionModel],
+		allow_tool_pause: bool = True,
+		tool_pause_unsupported_error: str = 'Tool pause is not supported in this action execution path in Phase 1',
+	) -> list[ActionResult]:
 		"""Execute multiple actions with page-change guards.
 
 		Two layers of protection prevent executing actions against stale DOM:
@@ -2716,6 +2819,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		     automatically abort remaining queued actions.
 		  2. Runtime detection: after every action, the current URL and focused target are compared
 		     to pre-action values. Any change aborts the remaining queue.
+
+		Tool-level HITL pauses are only supported from Agent-managed action
+		execution paths. Unsupported callers pass allow_tool_pause=False so a
+		PauseResult becomes a clear ActionResult error instead of a dangling pause.
 		"""
 		results: list[ActionResult] = []
 		total_actions = len(actions)
@@ -2769,6 +2876,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
 				)
+				if isinstance(result, PauseResult):
+					if not allow_tool_pause:
+						result = ActionResult(error=tool_pause_unsupported_error)
+					else:
+						result = await self._resolve_pause_result_for_action(result, action_name, i)
 
 				if result.error:
 					await self._demo_mode_log(
@@ -3266,7 +3378,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Execute initial actions if provided
 		if self.initial_actions and not self.state.follow_up_task:
 			self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
-			result = await self.multi_act(self.initial_actions)
+			result = await self.multi_act(
+				self.initial_actions,
+				allow_tool_pause=False,
+				tool_pause_unsupported_error='Tool pause is not supported in initial_actions in Phase 1',
+			)
 			# update result 1 to mention that its was automatically loaded
 			if result and self.initial_url and result[0].long_term_memory:
 				result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
@@ -3440,7 +3556,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Execute any pending actions first to maintain correct order
 				# (e.g., if step is [click, extract], click must happen before extract)
 				if pending_actions:
-					batch_results = await self.multi_act(pending_actions)
+					batch_results = await self.multi_act(
+						pending_actions,
+						allow_tool_pause=False,
+						tool_pause_unsupported_error='Tool pause is not supported during history rerun in Phase 1',
+					)
 					results.extend(batch_results)
 					pending_actions = []
 
@@ -3502,7 +3622,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Execute any remaining pending actions
 		if pending_actions:
-			batch_results = await self.multi_act(pending_actions)
+			batch_results = await self.multi_act(
+				pending_actions,
+				allow_tool_pause=False,
+				tool_pause_unsupported_error='Tool pause is not supported during history rerun in Phase 1',
+			)
 			results.extend(batch_results)
 
 		return results
@@ -3892,6 +4016,313 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.paused = True
 		self._external_pause_event.clear()
 
+	def _pending_tool_pause_to_state(self, pause: PendingToolPause) -> ToolPauseState:
+		"""Return the serializable external view of a pending tool pause."""
+
+		return ToolPauseState(
+			token=pause.token,
+			pause_id=pause.pause_id,
+			step=pause.step,
+			action_index=pause.action_index,
+			tool_name=pause.tool_name,
+			prompt=pause.prompt,
+			reason=pause.reason,
+			created_at=pause.created_at,
+			timeout=pause.timeout,
+			pause_timeout_action=pause.pause_timeout_action,
+			metadata=pause.metadata,
+			context=pause.context,
+		)
+
+	def get_pending_tool_pause(self) -> ToolPauseState | None:
+		"""Return the current pending tool pause, if it is still awaiting input.
+
+		Completed/cancelled pauses are hidden from callers even if the owning action has
+		not cleared the runtime object yet. This prevents late external
+		integrations from treating an already-resolved pause token as still valid.
+		"""
+
+		pause = self._pending_tool_pause
+		if pause is None or pause.completed or pause.cancelled:
+			return None
+		return self._pending_tool_pause_to_state(pause)
+
+	def _request_tool_pause(
+		self,
+		pause_result: PauseResult,
+		tool_name: str,
+		action_index: int = 0,
+	) -> ActionResult | None:
+		"""Register a pending tool pause for the current action.
+
+		Returns an ActionResult only when registration fails. On success,
+		_resolve_pause_result_for_action() awaits the external resolution and turns it
+		into this action's ActionResult.
+		"""
+
+		if self._pending_tool_pause is not None:
+			return ActionResult(error='Another tool pause is already pending')
+
+		loop = asyncio.get_running_loop()
+		pause = PendingToolPause(
+			token=secrets.token_urlsafe(32),
+			pause_id=uuid7str(),
+			step=self.state.n_steps,
+			action_index=action_index,
+			tool_name=tool_name,
+			prompt=pause_result.prompt,
+			reason=pause_result.reason,
+			created_at=time.time(),
+			timeout=pause_result.timeout,
+			pause_timeout_action=pause_result.pause_timeout_action,
+			metadata=pause_result.metadata,
+			context=pause_result.context,
+			loop=loop,
+			future=loop.create_future(),
+		)
+		self._pending_tool_pause = pause
+		self.logger.info(
+			'pause_requested pause_id=%s step=%s action_index=%s tool_name=%s reason=%s timeout=%s pause_timeout_action=%s',
+			pause.pause_id,
+			pause.step,
+			pause.action_index,
+			pause.tool_name,
+			pause.reason,
+			pause.timeout,
+			pause.pause_timeout_action,
+		)
+		return None
+
+	def _resolve_tool_pause_future_threadsafe(self, pause: PendingToolPause, result: ActionResult) -> None:
+		"""Resolve a pending tool pause future from the owning loop or another thread."""
+
+		def _set_result() -> None:
+			if not pause.future.done():
+				pause.future.set_result(result)
+
+		if pause.future.done():
+			return
+
+		try:
+			running_loop = asyncio.get_running_loop()
+		except RuntimeError:
+			running_loop = None
+
+		if running_loop is pause.loop:
+			_set_result()
+		elif pause.loop.is_running():
+			pause.loop.call_soon_threadsafe(_set_result)
+		else:
+			_set_result()
+
+	def _sanitize_tool_pause_log_source(self, source: str | None) -> str | None:
+		"""Return a privacy-safe source marker for pause lifecycle logs."""
+
+		return 'provided' if source else None
+
+	def _format_tool_pause_context(self, context: dict[str, Any] | None) -> str | None:
+		"""Format non-sensitive pause context for LLM-visible action memory."""
+
+		if not context:
+			return None
+		try:
+			context_text = json.dumps(context, ensure_ascii=False, sort_keys=True, default=str)
+		except Exception:
+			context_text = str(context)
+		return context_text[:1000]
+
+	def _tool_pause_metadata(
+		self,
+		pause: PendingToolPause,
+		*,
+		resolved: bool = False,
+		timeout: bool = False,
+	) -> dict[str, Any]:
+		"""Build privacy-safe pause correlation metadata for resolved action results."""
+
+		metadata: dict[str, Any] = {
+			'tool_pause_id': pause.pause_id,
+			'tool_name': pause.tool_name,
+			'reason': pause.reason,
+			'pause_context': pause.context,
+		}
+		if resolved:
+			metadata['tool_pause_resolved'] = True
+		if timeout:
+			metadata.update(
+				{
+					'tool_pause_timeout': True,
+					'pause_timeout_action': pause.pause_timeout_action,
+				}
+			)
+		return metadata
+
+	def _tool_pause_memory(self, pause: PendingToolPause, prefix: str) -> str:
+		"""Append formatted pause context to a LLM-visible memory string."""
+
+		context_summary = self._format_tool_pause_context(pause.context)
+		if context_summary:
+			return f'{prefix} Pause context: {context_summary}'
+		return prefix
+
+	async def _resolve_pause_result_for_action(
+		self,
+		pause_result: PauseResult,
+		tool_name: str,
+		action_index: int,
+	) -> ActionResult:
+		"""Resolve a PauseResult inside the current action without finalizing the step."""
+
+		registration_result = self._request_tool_pause(pause_result, tool_name, action_index=action_index)
+		pause = self._pending_tool_pause
+		if registration_result is not None:
+			return registration_result
+		if pause is None:
+			return ActionResult(error='Tool pause registration failed')
+
+		try:
+			if pause.timeout is None:
+				result = await pause.future
+			else:
+				result = await asyncio.wait_for(asyncio.shield(pause.future), timeout=pause.timeout)
+		except TimeoutError:
+			if pause.future.done():
+				result = pause.future.result()
+			else:
+				timeout_text = f'{pause.timeout:g}' if pause.timeout is not None else 'unknown'
+				metadata = self._tool_pause_metadata(pause, timeout=True)
+				if pause.pause_timeout_action == 'continue':
+					memory = self._tool_pause_memory(
+						pause, f'No external input received for tool {pause.tool_name} before timeout.'
+					)
+					result = ActionResult(extracted_content=memory, long_term_memory=memory, metadata=metadata)
+				else:
+					result = ActionResult(error=f'Tool pause timed out after {timeout_text} seconds', metadata=metadata)
+				pause.cancelled = True
+				pause.completed = True
+				self._resolve_tool_pause_future_threadsafe(pause, result)
+				elapsed_wait_time = time.time() - pause.created_at
+				self.logger.info(
+					'pause_timeout pause_id=%s step=%s action_index=%s tool_name=%s reason=%s elapsed_wait_time=%.3f timeout=%s pause_timeout_action=%s',
+					pause.pause_id,
+					pause.step,
+					pause.action_index,
+					pause.tool_name,
+					pause.reason,
+					elapsed_wait_time,
+					pause.timeout,
+					pause.pause_timeout_action,
+				)
+				if pause.pause_timeout_action == 'stop':
+					self.state.stopped = True
+		finally:
+			if self._pending_tool_pause is pause:
+				self._pending_tool_pause = None
+
+		return result
+
+	async def resume_tool_pause(self, token: str, result: str | ActionResult, source: str | None = None) -> bool:
+		"""Resume a pending tool-level HITL pause with external input.
+
+		The secret token must match the current pending pause. Raw string input is
+		placed only in extracted_content for the next LLM step and is not copied into
+		long-term memory, metadata, or logs by default.
+		"""
+
+		pause = self._pending_tool_pause
+		if pause is None or pause.token != token or pause.completed or pause.cancelled:
+			return False
+
+		if isinstance(result, str):
+			action_result = ActionResult(
+				extracted_content=result,
+				include_extracted_content_only_once=True,
+				long_term_memory=self._tool_pause_memory(pause, f'External input received for tool {pause.tool_name}.'),
+				metadata=self._tool_pause_metadata(pause, resolved=True),
+			)
+		elif result.is_done:
+			return False
+		else:
+			pause_metadata = self._tool_pause_metadata(pause, resolved=True)
+			merged_metadata = {**(result.metadata or {}), **pause_metadata}
+			memory_prefix = result.long_term_memory or f'External input received for tool {pause.tool_name}.'
+			action_result = result.model_copy(
+				update={
+					'metadata': merged_metadata,
+					'long_term_memory': self._tool_pause_memory(pause, memory_prefix),
+				}
+			)
+
+		pause.completed = True
+		self._resolve_tool_pause_future_threadsafe(pause, action_result)
+		elapsed_wait_time = time.time() - pause.created_at
+		log_source = self._sanitize_tool_pause_log_source(source)
+		self.logger.info(
+			'pause_resumed pause_id=%s step=%s action_index=%s tool_name=%s reason=%s elapsed_wait_time=%.3f source=%s status=resolved',
+			pause.pause_id,
+			pause.step,
+			pause.action_index,
+			pause.tool_name,
+			pause.reason,
+			elapsed_wait_time,
+			log_source,
+		)
+		return True
+
+	def _cancel_pending_tool_pause(self, reason: str) -> None:
+		"""Resolve the current pending tool pause with a cancellation error."""
+
+		pause = self._pending_tool_pause
+		if pause is None:
+			return
+		if pause.completed or pause.cancelled:
+			if self._pending_tool_pause is pause:
+				self._pending_tool_pause = None
+			return
+
+		pause.cancelled = True
+		pause.completed = True
+		self._resolve_tool_pause_future_threadsafe(pause, ActionResult(error=f'Tool pause cancelled because {reason}'))
+		elapsed_wait_time = time.time() - pause.created_at
+		self.logger.info(
+			'pause_cancelled pause_id=%s step=%s action_index=%s tool_name=%s reason=%s elapsed_wait_time=%.3f cancel_reason=%s status=cancelled',
+			pause.pause_id,
+			pause.step,
+			pause.action_index,
+			pause.tool_name,
+			pause.reason,
+			elapsed_wait_time,
+			reason,
+		)
+		if self._pending_tool_pause is pause:
+			self._pending_tool_pause = None
+
+	async def cancel_tool_pause(self, token: str, reason: str | None = None) -> bool:
+		"""Cancel a pending tool-level HITL pause with its secret token."""
+
+		pause = self._pending_tool_pause
+		if pause is None or pause.token != token or pause.completed or pause.cancelled:
+			return False
+
+		pause.cancelled = True
+		pause.completed = True
+		cancel_reason = reason or 'cancelled'
+		self._resolve_tool_pause_future_threadsafe(pause, ActionResult(error=f'Tool pause cancelled: {cancel_reason}'))
+		elapsed_wait_time = time.time() - pause.created_at
+		self.logger.info(
+			'pause_cancelled pause_id=%s step=%s action_index=%s tool_name=%s reason=%s elapsed_wait_time=%.3f cancel_reason=%s status=cancelled',
+			pause.pause_id,
+			pause.step,
+			pause.action_index,
+			pause.tool_name,
+			pause.reason,
+			elapsed_wait_time,
+			cancel_reason,
+		)
+		if self._pending_tool_pause is pause:
+			self._pending_tool_pause = None
+		return True
+
 	def resume(self) -> None:
 		"""Resume the agent"""
 		# TODO: Locally the browser got closed
@@ -3904,6 +4335,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Stop the agent"""
 		self.logger.info('⏹️ Agent stopping')
 		self.state.stopped = True
+		self._cancel_pending_tool_pause('agent stopped')
 
 		# Signal pause event to unblock any waiting code so it can check the stopped state
 		self._external_pause_event.set()
@@ -3950,6 +4382,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def close(self):
 		"""Close all resources"""
 		try:
+			self._cancel_pending_tool_pause('agent closed')
+
 			# Only close browser if keep_alive is False (or not set)
 			if self.browser_session is not None:
 				if not self.browser_session.browser_profile.keep_alive:

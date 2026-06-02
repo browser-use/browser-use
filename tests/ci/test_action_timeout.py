@@ -12,12 +12,13 @@ with an ActionResult(error=...) instead of hanging.
 """
 
 import asyncio
+import logging
 import time
 from typing import Any
 
 import pytest
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionModel, ActionResult, PauseResult
 from browser_use.tools.service import Tools
 
 
@@ -30,6 +31,25 @@ class _StubActionModel(ActionModel):
 
 	hung_action: dict[str, Any] | None = None
 	fast_action: dict[str, Any] | None = None
+
+
+@pytest.fixture(autouse=True)
+def _suppress_expected_tools_logs():
+	"""Keep this regression test quiet while it intentionally exercises error paths.
+
+	Several tests below deliberately trigger action timeout and malformed timeout
+	configuration branches. Those branches should log in production, but with
+	pytest log_cli enabled they look like test failures even when assertions pass.
+	Suppress only the tools service logger for this file so CI output stays clear.
+	"""
+
+	tools_logger = logging.getLogger('browser_use.tools.service')
+	previous_disabled = tools_logger.disabled
+	tools_logger.disabled = True
+	try:
+		yield
+	finally:
+		tools_logger.disabled = previous_disabled
 
 
 @pytest.mark.asyncio
@@ -91,6 +111,44 @@ async def test_act_passes_through_fast_handler():
 
 
 @pytest.mark.asyncio
+async def test_act_passes_through_pause_result():
+	"""PauseResult must reach Agent.multi_act() without being converted to ActionResult."""
+	tools = Tools()
+	pause_result = PauseResult(prompt='Approve?', reason='approval', timeout=1.0)
+
+	async def _pause_execute_action(**_kwargs):
+		return pause_result
+
+	tools.registry.execute_action = _pause_execute_action  # type: ignore[assignment]
+
+	action = _StubActionModel(fast_action={'x': 1})
+	result = await tools.act(action=action, browser_session=None, action_timeout=5.0)  # type: ignore[arg-type]
+
+	assert isinstance(result, PauseResult)
+	assert result is pause_result
+	assert result.prompt == 'Approve?'
+	assert result.reason == 'approval'
+	assert result.timeout == 1.0
+
+
+@pytest.mark.asyncio
+async def test_direct_action_helper_passes_through_pause_result():
+	"""tools.some_action(...) helpers inherit Tools.act() behaviour and do not create Agent pending pauses."""
+	tools = Tools()
+	pause_result = PauseResult(prompt='Approve direct helper?', reason='approval', timeout=1.0)
+
+	@tools.action('Ask for direct helper approval')
+	async def direct_pause_action() -> PauseResult:
+		return pause_result
+
+	result = await tools.direct_pause_action(browser_session=None)  # type: ignore[arg-type]
+
+	assert isinstance(result, PauseResult)
+	assert result is pause_result
+	assert result.prompt == 'Approve direct helper?'
+
+
+@pytest.mark.asyncio
 async def test_act_rejects_invalid_action_timeout_override():
 	"""An invalid action_timeout override (nan / inf / <=0) must fall back to
 	the default, not silently defeat the timeout (nan → immediate timeout,
@@ -111,12 +169,14 @@ async def test_act_rejects_invalid_action_timeout_override():
 	action = _StubActionModel(fast_action={'x': 1})
 	result = await tools.act(action=action, browser_session=None, action_timeout=float('nan'))  # type: ignore[arg-type]
 	assert calls['n'] == 1
+	assert isinstance(result, ActionResult)
 	assert result.error is None
 	assert result.extracted_content == 'done'
 
 	# inf / non-positive values also fall back cleanly.
 	for bad in (float('inf'), 0.0, -5.0):
 		result = await tools.act(action=action, browser_session=None, action_timeout=bad)  # type: ignore[arg-type]
+		assert isinstance(result, ActionResult)
 		assert result.error is None, f'override {bad!r} should have fallen back'
 
 

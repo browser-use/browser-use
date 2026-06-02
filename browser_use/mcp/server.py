@@ -90,7 +90,7 @@ _configure_mcp_server_logging()
 logging.disable(logging.CRITICAL)
 
 # Import browser_use modules
-from browser_use import ActionModel, Agent
+from browser_use import ActionModel, Agent, PauseResult
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
@@ -1019,6 +1019,8 @@ class BrowserUseServer:
 			page_extraction_llm=self.llm,
 			file_system=self.file_system,
 		)
+		if isinstance(action_result, PauseResult):
+			return 'Error: Tool pause is not supported by direct MCP tool execution in Phase 1'
 
 		return action_result.extracted_content or 'No content extracted'
 
