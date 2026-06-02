@@ -52,7 +52,7 @@ def _model_name(llm: Any | None) -> str:
 		value = getattr(llm, attr, None)
 		if isinstance(value, str) and value:
 			return value
-	return os.environ.get('BROWSER_USE_RUST_MODEL', 'gpt-5.1-codex')
+	return os.environ.get('BROWSER_USE_RUST_MODEL', 'gpt-5.3-codex-spark')
 
 
 def _extract_cdp_url(browser_session: BrowserSession | None) -> str | None:
@@ -211,6 +211,8 @@ def _history_from_events(
 ) -> AgentHistoryList[AgentStructuredOutput]:
 	final_result = _result_from_events(events)
 	failure = process_error or _failure_from_events(events)
+	if final_result is None and failure is None:
+		failure = 'Rust terminal session did not produce a final result.'
 	is_done = final_result is not None and failure is None
 	result = ActionResult(
 		is_done=is_done,
@@ -268,6 +270,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None
 		self.last_events: list[dict[str, Any]] = []
+		self.last_stdout = ''
+		self.last_stderr = ''
 
 	async def run(
 		self,
@@ -287,11 +291,15 @@ class Agent(Generic[AgentStructuredOutput]):
 		finished = time.time()
 		stdout_text = stdout.decode(errors='replace')
 		stderr_text = stderr.decode(errors='replace')
+		self.last_stdout = stdout_text
+		self.last_stderr = stderr_text
 		self.session_id = self._session_id_from_stdout(stdout_text)
 		events = await self._load_events()
 		process_error = None
 		if proc.returncode:
 			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {proc.returncode}'
+		elif not self.session_id:
+			process_error = 'browser-use-terminal did not print a session id.'
 		self.last_events = events
 		self.result = _history_from_events(
 			events,

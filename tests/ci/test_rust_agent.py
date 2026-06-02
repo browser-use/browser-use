@@ -95,6 +95,14 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert env['BU_CDP_URL'] == 'wss://browser.example/devtools/browser/1'
 
 
+def test_rust_agent_default_codex_model_matches_chatgpt_account(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.delenv('BROWSER_USE_RUST_MODEL', raising=False)
+
+	assert Agent(task='report title').model == 'gpt-5.3-codex-spark'
+
+
 def test_rust_agent_translates_followup_to_existing_terminal_session(monkeypatch):
 	from browser_use.rust import Agent
 
@@ -125,3 +133,20 @@ def test_rust_history_marks_process_failure_not_done():
 	assert history.is_done() is False
 	assert history.is_successful() is None
 	assert history.errors() == ['terminal failed']
+
+
+def test_rust_history_marks_missing_terminal_result_as_error():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.final_result() is None
+	assert history.is_done() is False
+	assert history.errors() == ['Rust terminal session did not produce a final result.']
