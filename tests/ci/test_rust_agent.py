@@ -201,6 +201,37 @@ def test_rust_agent_translates_browser_profile_cdp_headers(monkeypatch):
 	assert json.loads(env['BU_CDP_HEADERS']) == agent.cdp_headers
 
 
+def test_rust_agent_translates_browser_profile_highlights(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		highlight_elements = True
+		dom_highlight_elements = False
+		interaction_highlight_color = 'rgb(255, 127, 39)'
+		interaction_highlight_duration = 1.75
+		cdp_url = 'http://127.0.0.1:9222'
+
+	class DomHighlightProfile:
+		highlight_elements = True
+		dom_highlight_elements = True
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['BROWSER_USE_TERMINAL_AUTO_HIGHLIGHT'] == 'true'
+	assert env['BROWSER_USE_TERMINAL_HIGHLIGHT_COLOR'] == 'rgb(255, 127, 39)'
+	assert env['BROWSER_USE_TERMINAL_HIGHLIGHT_DURATION_MS'] == '1750'
+
+	dom_agent = Agent(task='report title', browser_profile=DomHighlightProfile())
+	dom_env = dom_agent._run_env()
+
+	assert dom_agent.highlight_enabled is False
+	assert dom_env['BROWSER_USE_TERMINAL_AUTO_HIGHLIGHT'] == 'false'
+
+
 def test_rust_agent_translates_browser_profile_headless(monkeypatch):
 	from browser_use.rust import Agent
 

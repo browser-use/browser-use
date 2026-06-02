@@ -243,6 +243,32 @@ def _extract_cdp_headers(browser_session: BrowserSession | None, browser_profile
 	return headers
 
 
+def _extract_highlight_settings(
+	browser_session: BrowserSession | None, browser_profile: BrowserProfile | None
+) -> tuple[bool | None, str | None, int | None]:
+	enabled: bool | None = None
+	color: str | None = None
+	duration_ms: int | None = None
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		if enabled is None:
+			if getattr(profile, 'dom_highlight_elements', None) is True:
+				enabled = False
+			else:
+				value = getattr(profile, 'highlight_elements', None)
+				if isinstance(value, bool):
+					enabled = value
+		if color is None:
+			value = getattr(profile, 'interaction_highlight_color', None)
+			if isinstance(value, str) and value:
+				color = value
+		if duration_ms is None:
+			value = getattr(profile, 'interaction_highlight_duration', None)
+			if isinstance(value, (int, float)) and value >= 0:
+				duration_ms = int(value * 1000)
+	return enabled, color, duration_ms
+
+
 def _extract_profile_permissions(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> list[str]:
 	values: list[str] = []
 	seen: set[str] = set()
@@ -892,6 +918,9 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.managed_browser_executable_path = _managed_browser_executable_path(self.browser_session, self.browser_profile)
 		self.managed_browser_env = _managed_browser_env(self.browser_session, self.browser_profile)
 		self.cdp_headers = _extract_cdp_headers(self.browser_session, self.browser_profile)
+		self.highlight_enabled, self.highlight_color, self.highlight_duration_ms = _extract_highlight_settings(
+			self.browser_session, self.browser_profile
+		)
 		self.browser_permissions = _extract_profile_permissions(self.browser_session, self.browser_profile)
 		self.browser_accept_downloads, self.browser_downloads_path = _extract_browser_downloads(
 			self.browser_session, self.browser_profile
@@ -1347,6 +1376,12 @@ class Agent(Generic[AgentStructuredOutput]):
 			env['BU_CDP_URL'] = cdp_url
 		if self.cdp_headers:
 			env['BU_CDP_HEADERS'] = json.dumps(self.cdp_headers)
+		if self.highlight_enabled is not None:
+			env['BROWSER_USE_TERMINAL_AUTO_HIGHLIGHT'] = 'true' if self.highlight_enabled else 'false'
+		if self.highlight_color:
+			env['BROWSER_USE_TERMINAL_HIGHLIGHT_COLOR'] = self.highlight_color
+		if self.highlight_duration_ms is not None:
+			env['BROWSER_USE_TERMINAL_HIGHLIGHT_DURATION_MS'] = str(self.highlight_duration_ms)
 		if self.browser_permissions:
 			env['BU_BROWSER_PERMISSIONS'] = json.dumps(self.browser_permissions)
 		if self.browser_accept_downloads is not None:
