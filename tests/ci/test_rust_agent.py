@@ -346,6 +346,23 @@ def test_rust_agent_translates_browser_profile_profile_directory(monkeypatch):
 	assert '--profile-directory=Profile 7' in launch_args
 
 
+def test_rust_agent_translates_browser_profile_permissions(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		permissions = ['clipboardReadWrite', 'notifications', 'clipboardReadWrite']
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert agent.browser_permissions == ['clipboardReadWrite', 'notifications']
+	assert json.loads(env['BU_BROWSER_PERMISSIONS']) == ['clipboardReadWrite', 'notifications']
+
+
 def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.rust import Agent
 

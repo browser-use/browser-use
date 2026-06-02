@@ -160,14 +160,20 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - This works with the managed `user_data_dir` bridge so callers can target a named Chrome profile inside the persistent profile root.
    - Proof: `test_rust_agent_translates_browser_profile_profile_directory`.
 
+31. BrowserProfile permissions bridge
+   - `BrowserProfile.permissions` is serialized into `BU_BROWSER_PERMISSIONS`.
+   - The terminal core parses that JSON permission list and calls CDP `Browser.grantPermissions` after connecting to managed, local, remote-CDP, or cloud browsers.
+   - Proof: `test_rust_agent_translates_browser_profile_permissions` and `browser_permissions_env_parses_json_array`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (40 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (41 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_profile_dir -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_permissions_env_parses_json_array -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
