@@ -72,6 +72,15 @@ def _extract_cdp_url(browser_session: BrowserSession | None) -> str | None:
 	return None
 
 
+def _extract_profile_cdp_url(browser_profile: BrowserProfile | None) -> str | None:
+	if browser_profile is None:
+		return None
+	value = getattr(browser_profile, 'cdp_url', None)
+	if isinstance(value, str) and value:
+		return value
+	return None
+
+
 def _initial_navigation_url(initial_actions: Any) -> str | None:
 	if not isinstance(initial_actions, list):
 		return None
@@ -514,19 +523,17 @@ class Agent(Generic[AgentStructuredOutput]):
 		return ['--state-dir', state_dir] if state_dir else []
 
 	def _browser_mode(self) -> str:
-		if _extract_cdp_url(self.browser_session):
+		if _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile):
 			return 'remote-cdp'
 		value = os.environ.get('BROWSER_USE_RUST_BROWSER_MODE')
 		if value:
 			return value
-		if self.browser_profile and getattr(self.browser_profile, 'cdp_url', None):
-			return 'managed-headless'
 		return os.environ.get('BROWSER_USE_BROWSER_MODE', 'managed-headless')
 
 	def _run_env(self) -> dict[str, str]:
 		env = os.environ.copy()
 		env['LLM_BROWSER_BROWSER_MODE'] = self._browser_mode()
-		cdp_url = _extract_cdp_url(self.browser_session)
+		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)
 		if cdp_url:
 			env['BU_CDP_URL'] = cdp_url
 		return env

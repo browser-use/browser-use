@@ -24,7 +24,8 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 4. Browser mode bridge
    - The wrapper sets `LLM_BROWSER_BROWSER_MODE` so terminal browser selection follows Browser Use wrapper settings.
    - `BrowserSession(cdp_url=...)` selects `remote-cdp` and forwards `BU_CDP_URL`.
-   - Proof: `test_rust_agent_translates_browser_use_args_to_terminal`.
+   - `BrowserProfile(cdp_url=...)` also selects `remote-cdp` and forwards `BU_CDP_URL`.
+   - Proof: `test_rust_agent_translates_browser_use_args_to_terminal` and `test_rust_agent_translates_browser_profile_cdp_url`.
 
 5. Remote CDP terminal mode
    - Terminal browser handling now accepts locked `remote-cdp` mode instead of rejecting `browser connect remote-cdp`.
@@ -50,7 +51,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (12 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (13 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

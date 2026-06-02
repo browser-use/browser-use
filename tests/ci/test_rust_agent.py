@@ -111,6 +111,21 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
 
+def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert 'browser_mode="remote-cdp"' in agent._run_argv(max_steps=4)
+	assert env['BU_CDP_URL'] == 'http://127.0.0.1:9222'
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+
+
 def test_rust_agent_default_codex_model_matches_chatgpt_account(monkeypatch):
 	from browser_use.rust import Agent
 
