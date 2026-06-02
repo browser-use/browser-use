@@ -115,10 +115,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Nested `result_file` payloads from the Rust core and flat legacy result-file fields are both supported.
    - Proof: `test_rust_history_exposes_result_file_attachments`.
 
+22. Structured output JSON extraction
+   - When `output_model_schema` is provided, fenced or prose-wrapped JSON in the Rust terminal final result is normalized before `AgentHistoryList.structured_output` is read.
+   - Candidates are accepted only if they validate against the requested Pydantic schema.
+   - Proof: `test_rust_history_extracts_fenced_structured_output`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (31 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (32 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

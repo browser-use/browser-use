@@ -89,6 +89,26 @@ def test_rust_history_supports_structured_output():
 	assert history.structured_output.answer == 'ok'
 
 
+def test_rust_history_extracts_fenced_structured_output():
+	from browser_use.rust.service import _history_from_events
+
+	class Answer(BaseModel):
+		answer: str
+
+	history = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'Here is the answer:\n```json\n{"answer": "ok"}\n```'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=Answer,
+		process_error=None,
+	)
+
+	assert history.final_result() == '{"answer": "ok"}'
+	assert isinstance(history.structured_output, Answer)
+	assert history.structured_output.answer == 'ok'
+
+
 def test_rust_history_exposes_result_file_attachments():
 	from browser_use.rust.service import _history_from_events
 

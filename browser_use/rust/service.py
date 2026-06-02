@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
@@ -366,6 +366,43 @@ def _attachments_from_events(events: list[dict[str, Any]]) -> list[str] | None:
 	return attachments or None
 
 
+def _json_result_candidates(text: str) -> list[str]:
+	candidates = [text.strip()]
+	candidates.extend(match.group(1).strip() for match in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.IGNORECASE | re.DOTALL))
+	decoder = json.JSONDecoder()
+	for index, char in enumerate(text):
+		if char not in '{[':
+			continue
+		try:
+			parsed, _end = decoder.raw_decode(text[index:])
+		except json.JSONDecodeError:
+			continue
+		candidates.append(json.dumps(parsed))
+	seen = set()
+	unique = []
+	for candidate in candidates:
+		if not candidate or candidate in seen:
+			continue
+		seen.add(candidate)
+		unique.append(candidate)
+	return unique
+
+
+def _structured_result_text(
+	result: str | None,
+	output_model_schema: type[BaseModel] | None,
+) -> str | None:
+	if result is None or output_model_schema is None:
+		return result
+	for candidate in _json_result_candidates(result):
+		try:
+			output_model_schema.model_validate_json(candidate)
+		except (ValidationError, ValueError):
+			continue
+		return candidate
+	return result
+
+
 def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 	for event in reversed(events):
 		if _event_type(event) == 'session.failed':
@@ -455,7 +492,7 @@ def _history_from_events(
 	output_model_schema: type[AgentStructuredOutput] | None,
 	process_error: str | None,
 ) -> AgentHistoryList[AgentStructuredOutput]:
-	final_result = _result_from_events(events)
+	final_result = _structured_result_text(_result_from_events(events), output_model_schema)
 	failure = process_error or _failure_from_events(events)
 	if final_result is None and failure is None:
 		failure = 'Rust terminal session did not produce a final result.'
