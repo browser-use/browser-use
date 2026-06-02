@@ -183,6 +183,9 @@ def _managed_browser_launch_args(browser_session: BrowserSession | None, browser
 		user_agent = getattr(profile, 'user_agent', None)
 		if isinstance(user_agent, str) and user_agent:
 			_append_unique(args, seen, f'--user-agent={user_agent}')
+		profile_directory = getattr(profile, 'profile_directory', None)
+		if isinstance(profile_directory, str) and profile_directory:
+			_append_unique(args, seen, f'--profile-directory={profile_directory}')
 	return args
 
 
