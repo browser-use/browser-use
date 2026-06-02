@@ -288,6 +288,28 @@ def test_rust_agent_translates_browser_profile_chromium_sandbox(monkeypatch):
 	assert '--disable-dev-shm-usage' in launch_args
 
 
+def test_rust_agent_translates_browser_profile_window_position(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		headless = False
+		window_position = {'width': 32, 'height': 64}
+
+	class TuplePositionProfile:
+		headless = False
+		window_position = (12, 24)
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	tuple_agent = Agent(task='report title', browser_profile=TuplePositionProfile())
+
+	assert '--window-position=32,64' in json.loads(agent._run_env()['BU_MANAGED_BROWSER_ARGS'])
+	assert '--window-position=12,24' in json.loads(tuple_agent._run_env()['BU_MANAGED_BROWSER_ARGS'])
+
+
 def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
 	from browser_use.rust import Agent
 

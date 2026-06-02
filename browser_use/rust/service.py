@@ -136,6 +136,19 @@ def _window_size_arg(window_size: Any) -> str | None:
 	return f'--window-size={width},{height}'
 
 
+def _window_position_arg(window_position: Any) -> str | None:
+	if window_position is None:
+		return None
+	if isinstance(window_position, (list, tuple)) and len(window_position) >= 2:
+		x, y = window_position[0], window_position[1]
+	else:
+		x = _value_from_object(window_position, 'width')
+		y = _value_from_object(window_position, 'height')
+	if not isinstance(x, int) or not isinstance(y, int):
+		return None
+	return f'--window-position={x},{y}'
+
+
 def _managed_browser_launch_args(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> list[str]:
 	args: list[str] = []
 	seen: set[str] = set()
@@ -157,6 +170,7 @@ def _managed_browser_launch_args(browser_session: BrowserSession | None, browser
 			for arg in CHROME_DOCKER_ARGS:
 				_append_unique(args, seen, arg)
 		_append_unique(args, seen, _window_size_arg(getattr(profile, 'window_size', None)))
+		_append_unique(args, seen, _window_position_arg(getattr(profile, 'window_position', None)))
 		proxy = getattr(profile, 'proxy', None)
 		proxy_server = _value_from_object(proxy, 'server')
 		if isinstance(proxy_server, str) and proxy_server:
