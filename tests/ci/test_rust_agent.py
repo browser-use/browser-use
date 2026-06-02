@@ -170,6 +170,20 @@ def test_rust_agent_exposes_browser_use_settings():
 	assert agent.include_recent_events is True
 
 
+def test_rust_agent_adds_available_files_to_task_context():
+	from browser_use.rust import Agent
+
+	agent = Agent(
+		task='Summarize the provided report.',
+		available_file_paths=['/tmp/report.txt', '~/notes.md'],
+	)
+
+	assert agent.available_file_paths == ['/tmp/report.txt', '~/notes.md']
+	assert 'Available local files:' in agent.task
+	assert '- /tmp/report.txt' in agent.task
+	assert '- ' in agent.task and 'notes.md' in agent.task
+
+
 def test_rust_agent_default_codex_model_matches_chatgpt_account(monkeypatch):
 	from browser_use.rust import Agent
 

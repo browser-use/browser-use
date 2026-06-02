@@ -65,10 +65,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The transcript includes task/session metadata, final result, errors, URLs, token usage, stdout/stderr, and raw terminal events.
    - Proof: `test_rust_agent_saves_terminal_conversation`.
 
+12. Available file path context
+   - `available_file_paths` are now passed into the Rust terminal task as concise local-file context.
+   - This preserves the Browser Use constructor argument and gives the Rust core enough information to inspect user-provided files when needed.
+   - Proof: `test_rust_agent_adds_available_files_to_task_context`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (19 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (20 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

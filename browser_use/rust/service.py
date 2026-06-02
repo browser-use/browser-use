@@ -111,6 +111,13 @@ def _task_with_schema(task: str, output_model_schema: type[BaseModel] | None) ->
 	return f'{task}\n\nExpected output JSON schema for the final answer:\n{schema}'
 
 
+def _task_with_available_files(task: str, available_file_paths: list[str] | None) -> str:
+	if not available_file_paths:
+		return task
+	files = '\n'.join(f'- {Path(path).expanduser()}' for path in available_file_paths)
+	return f'{task}\n\nAvailable local files:\n{files}'
+
+
 def _extract_start_url(task: str) -> str | None:
 	task_without_emails = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', task)
 	patterns = [
@@ -439,7 +446,10 @@ class Agent(Generic[AgentStructuredOutput]):
 			if self.initial_url:
 				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
 		self.initial_actions = initial_actions
-		self.task = _task_with_schema(_task_with_initial_navigation(task, initial_actions), output_model_schema)
+		self.task = _task_with_schema(
+			_task_with_available_files(_task_with_initial_navigation(task, initial_actions), self.available_file_paths),
+			output_model_schema,
+		)
 		self.session_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None
