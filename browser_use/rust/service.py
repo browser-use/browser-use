@@ -418,6 +418,20 @@ def _history_from_events(
 	return history_list
 
 
+def _load_rust_history(file_path: str | Path) -> AgentHistoryList:
+	with open(file_path, encoding='utf-8') as history_file:
+		data = json.load(history_file)
+	if not isinstance(data, dict):
+		raise RustAgentError(f'Invalid Browser Use history file: {file_path}')
+	for item in data.get('history', []):
+		if isinstance(item, dict):
+			item['model_output'] = None
+			state = item.get('state')
+			if isinstance(state, dict) and 'interacted_element' not in state:
+				state['interacted_element'] = None
+	return AgentHistoryList.model_validate(data)
+
+
 class Agent(Generic[AgentStructuredOutput]):
 	"""Browser Use-style Agent backed by the Rust browser-use-terminal core."""
 
@@ -664,6 +678,31 @@ class Agent(Generic[AgentStructuredOutput]):
 		if not file_path:
 			file_path = 'AgentHistory.json'
 		self.history.save_to_file(file_path, sensitive_data=self.sensitive_data)
+
+	async def rerun_history(
+		self,
+		history: AgentHistoryList,
+		max_retries: int = 3,
+		skip_failures: bool = True,
+		delay_between_actions: float = 2.0,
+	) -> list[ActionResult]:
+		"""Rerun through the Rust core and return Browser Use-style action results.
+
+		The Python Agent replays serialized Python action models. Rust terminal
+		histories do not expose those action models, so this compatibility path
+		reruns the current task through the Rust core and returns reconstructed
+		action results.
+		"""
+		_ = (history, max_retries, skip_failures, delay_between_actions)
+		result = await self.run(max_steps=self.kwargs.get('max_steps', 100))
+		return result.action_results()
+
+	async def load_and_rerun(self, history_file: str | Path | None = None, **kwargs: Any) -> list[ActionResult]:
+		"""Load a saved Rust-backed Browser Use history and rerun the task."""
+		if not history_file:
+			history_file = 'AgentHistory.json'
+		history = _load_rust_history(history_file)
+		return await self.rerun_history(history, **kwargs)
 
 	def pause(self) -> None:
 		"""Pause the Rust-backed agent before the next terminal run."""

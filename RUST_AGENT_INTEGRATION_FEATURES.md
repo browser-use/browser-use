@@ -100,10 +100,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - Domain lists preserve caller order, set values are made deterministic, and duplicate profile entries are ignored.
    - Proof: `test_rust_agent_adds_browser_profile_domain_constraints`.
 
+19. Rust-compatible history rerun helpers
+   - `Agent.rerun_history()` and `Agent.load_and_rerun()` are now available on the Rust-backed wrapper.
+   - Saved Rust histories can be loaded, and reruns execute through the Rust terminal core while returning Browser Use-style `ActionResult` lists.
+   - Proof: `test_rust_agent_rerun_history_delegates_to_rust_run` and `test_rust_agent_load_and_rerun_loads_saved_rust_history`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (27 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (29 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - Managed-headless end-to-end:

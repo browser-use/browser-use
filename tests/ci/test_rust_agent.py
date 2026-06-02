@@ -418,6 +418,70 @@ def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
 	assert 'saved answer' in history_file.read_text(encoding='utf-8')
 
 
+async def test_rust_agent_rerun_history_delegates_to_rust_run():
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(task='rerun start', max_steps=8)
+	previous = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'previous answer'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+	seen = []
+
+	async def fake_run(max_steps=100, on_step_start=None, on_step_end=None):
+		seen.append(max_steps)
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': 'rerun answer'}}],
+			model='gpt-test',
+			started=3.0,
+			finished=4.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent.run = fake_run
+
+	results = await agent.rerun_history(previous)
+
+	assert seen == [8]
+	assert len(results) == 1
+	assert results[0].extracted_content == 'rerun answer'
+
+
+async def test_rust_agent_load_and_rerun_loads_saved_rust_history(tmp_path):
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(task='rerun saved')
+	history = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'loaded answer'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+	history_file = tmp_path / 'history.json'
+	history.save_to_file(history_file)
+	seen = []
+
+	async def fake_rerun_history(loaded_history, **kwargs):
+		seen.append((loaded_history.final_result(), kwargs))
+		return loaded_history.action_results()
+
+	agent.rerun_history = fake_rerun_history
+
+	results = await agent.load_and_rerun(history_file, max_retries=2)
+
+	assert seen == [('loaded answer', {'max_retries': 2})]
+	assert results[0].extracted_content == 'loaded answer'
+
+
 async def test_rust_agent_trace_and_cloud_auth_helpers():
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events
