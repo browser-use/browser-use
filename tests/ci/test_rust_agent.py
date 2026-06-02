@@ -180,6 +180,27 @@ def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
 
+def test_rust_agent_translates_browser_profile_cdp_headers(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		cdp_url = 'http://127.0.0.1:9222'
+		headers = {'Authorization': 'Bearer test-token', 'X-Browser-Use': 'rust', 'Retries': 3}
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert agent.cdp_headers == {
+		'Authorization': 'Bearer test-token',
+		'X-Browser-Use': 'rust',
+		'Retries': '3',
+	}
+	assert json.loads(env['BU_CDP_HEADERS']) == agent.cdp_headers
+
+
 def test_rust_agent_translates_browser_profile_headless(monkeypatch):
 	from browser_use.rust import Agent
 

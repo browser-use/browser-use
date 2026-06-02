@@ -229,6 +229,20 @@ def _managed_browser_env(browser_session: BrowserSession | None, browser_profile
 	return env
 
 
+def _extract_cdp_headers(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> dict[str, str]:
+	headers: dict[str, str] = {}
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		raw_headers = getattr(profile, 'headers', None)
+		if not isinstance(raw_headers, dict):
+			continue
+		for key, value in raw_headers.items():
+			header_value = _env_value_to_str(value)
+			if isinstance(key, str) and key and header_value is not None:
+				headers[key] = header_value
+	return headers
+
+
 def _extract_profile_permissions(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> list[str]:
 	values: list[str] = []
 	seen: set[str] = set()
@@ -877,6 +891,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.managed_browser_profile_dir = _managed_browser_profile_dir(self.browser_session, self.browser_profile)
 		self.managed_browser_executable_path = _managed_browser_executable_path(self.browser_session, self.browser_profile)
 		self.managed_browser_env = _managed_browser_env(self.browser_session, self.browser_profile)
+		self.cdp_headers = _extract_cdp_headers(self.browser_session, self.browser_profile)
 		self.browser_permissions = _extract_profile_permissions(self.browser_session, self.browser_profile)
 		self.browser_accept_downloads, self.browser_downloads_path = _extract_browser_downloads(
 			self.browser_session, self.browser_profile
@@ -1330,6 +1345,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)
 		if cdp_url:
 			env['BU_CDP_URL'] = cdp_url
+		if self.cdp_headers:
+			env['BU_CDP_HEADERS'] = json.dumps(self.cdp_headers)
 		if self.browser_permissions:
 			env['BU_BROWSER_PERMISSIONS'] = json.dumps(self.browser_permissions)
 		if self.browser_accept_downloads is not None:
