@@ -251,6 +251,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper fetches multiple URLs concurrently in the loaded page context, preserves input order, returns per-URL JSON/text/binary records, and converts BrowserProfile-blocked absolute URLs into per-row errors without sending them to page JavaScript.
    - Proof: `browser_script_browser_fetch_many_preserves_order_errors_and_binary`.
 
+49. Browser-script repeated item extraction helper
+   - Terminal browser scripts now expose `repeated_items_snapshot(min_count=3, limit=8, include_prices=True)` and `extract_repeated_items(selector, limit=50, include_html=False)`.
+   - The helper finds repeated visible cards/list items using stable selectors and extracts actionable records with attributes, headings, labels, prices, row/cell headers, links/buttons, and image/lazy-load metadata.
+   - Proof: `browser_script_repeated_item_helpers_surface_actionable_records`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -277,6 +282,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_http_get_many_preserves_order_errors_and_binary -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_browser_fetch_uses_page_context_credentials -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_browser_fetch_many_preserves_order_errors_and_binary -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_repeated_item_helpers_surface_actionable_records -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
