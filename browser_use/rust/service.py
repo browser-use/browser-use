@@ -185,6 +185,28 @@ def _managed_browser_executable_path(browser_session: BrowserSession | None, bro
 	return None
 
 
+def _env_value_to_str(value: Any) -> str | None:
+	if isinstance(value, bool):
+		return 'true' if value else 'false'
+	if isinstance(value, (str, int, float, os.PathLike)):
+		return str(value)
+	return None
+
+
+def _managed_browser_env(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> dict[str, str]:
+	env: dict[str, str] = {}
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		raw_env = getattr(profile, 'env', None)
+		if not isinstance(raw_env, dict):
+			continue
+		for key, value in raw_env.items():
+			env_value = _env_value_to_str(value)
+			if isinstance(key, str) and key and env_value is not None:
+				env[key] = env_value
+	return env
+
+
 def _is_managed_browser_mode(mode: str) -> bool:
 	normalized = mode.strip().lower().replace('_', '-').replace(' ', '-')
 	return normalized in {'managed-headless', 'headless', 'headless-chromium', 'managed-headed', 'managed', 'headed'}
@@ -714,6 +736,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.managed_browser_args = _managed_browser_launch_args(self.browser_session, self.browser_profile)
 		self.managed_browser_profile_dir = _managed_browser_profile_dir(self.browser_session, self.browser_profile)
 		self.managed_browser_executable_path = _managed_browser_executable_path(self.browser_session, self.browser_profile)
+		self.managed_browser_env = _managed_browser_env(self.browser_session, self.browser_profile)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.file_system_path = file_system_path
@@ -1159,6 +1182,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)
 		if cdp_url:
 			env['BU_CDP_URL'] = cdp_url
+		if self.managed_browser_env and _is_managed_browser_mode(browser_mode):
+			env.update(self.managed_browser_env)
 		if self.managed_browser_args and _is_managed_browser_mode(browser_mode):
 			env['BU_MANAGED_BROWSER_ARGS'] = json.dumps(self.managed_browser_args)
 		if self.managed_browser_profile_dir and _is_managed_browser_mode(browser_mode):

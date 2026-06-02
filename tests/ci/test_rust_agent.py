@@ -318,6 +318,46 @@ def test_rust_agent_translates_browser_profile_executable_path(monkeypatch, tmp_
 	assert cloud_env['CHROME_PATH'] == '/usr/bin/existing-chrome'
 
 
+def test_rust_agent_translates_browser_profile_env(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		headless = True
+		env = {
+			'BU_BROWSER_FLAG': 'enabled',
+			'BU_BROWSER_BOOL': True,
+			'BU_BROWSER_RETRIES': 3,
+			'IGNORED_NESTED': {'nested': 'value'},
+		}
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.setenv('BU_BROWSER_FLAG', 'outer')
+	monkeypatch.delenv('BROWSER_USE_RUST_BROWSER_MODE', raising=False)
+	monkeypatch.delenv('BROWSER_USE_BROWSER_MODE', raising=False)
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert env['LLM_BROWSER_BROWSER_MODE'] == 'managed-headless'
+	assert agent.managed_browser_env == {
+		'BU_BROWSER_FLAG': 'enabled',
+		'BU_BROWSER_BOOL': 'true',
+		'BU_BROWSER_RETRIES': '3',
+	}
+	assert env['BU_BROWSER_FLAG'] == 'enabled'
+	assert env['BU_BROWSER_BOOL'] == 'true'
+	assert env['BU_BROWSER_RETRIES'] == '3'
+	assert 'IGNORED_NESTED' not in env
+
+	monkeypatch.setenv('BROWSER_USE_BROWSER_MODE', 'cloud')
+	cloud_agent = Agent(task='report title', browser_profile=BrowserProfile())
+	cloud_env = cloud_agent._run_env()
+
+	assert cloud_env['LLM_BROWSER_BROWSER_MODE'] == 'cloud'
+	assert cloud_env['BU_BROWSER_FLAG'] == 'outer'
+	assert 'BU_BROWSER_BOOL' not in cloud_env
+
+
 def test_rust_agent_adds_browser_profile_domain_constraints():
 	from browser_use.rust import Agent
 

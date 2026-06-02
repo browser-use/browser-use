@@ -135,10 +135,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The terminal core already tries `CHROME_PATH` first when launching managed Chromium, so custom Browser Use browser binaries are preserved without changing the Rust launcher.
    - Proof: `test_rust_agent_translates_browser_profile_executable_path`.
 
+26. BrowserProfile managed launch environment bridge
+   - `BrowserProfile.env` scalar values are serialized into the terminal subprocess environment for managed Chromium runs.
+   - Values are stringified for process-env compatibility, unsupported nested values are ignored, and cloud/CDP runs do not receive managed browser launch env overrides.
+   - Proof: `test_rust_agent_translates_browser_profile_env`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (35 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (36 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
