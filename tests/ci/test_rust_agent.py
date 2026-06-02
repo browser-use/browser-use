@@ -273,6 +273,22 @@ def test_rust_agent_translates_browser_profile_wait_timings(monkeypatch):
 	assert env['BU_BROWSER_WAIT_BETWEEN_ACTIONS_MS'] == '125'
 
 
+def test_rust_agent_translates_browser_profile_block_ip_addresses(monkeypatch):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		block_ip_addresses = True
+		cdp_url = 'http://127.0.0.1:9222'
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	agent = Agent(task='report title', browser_profile=BrowserProfile())
+	env = agent._run_env()
+
+	assert agent.block_ip_addresses is True
+	assert env['BU_BROWSER_BLOCK_IP_ADDRESSES'] == 'true'
+
+
 def test_rust_agent_translates_browser_profile_headless(monkeypatch):
 	from browser_use.rust import Agent
 

@@ -304,6 +304,15 @@ def _extract_wait_timing_settings(
 	return settings
 
 
+def _extract_block_ip_addresses(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> bool | None:
+	session_profile = getattr(browser_session, 'browser_profile', None)
+	for profile in (session_profile, browser_profile, browser_session):
+		value = getattr(profile, 'block_ip_addresses', None)
+		if isinstance(value, bool):
+			return value
+	return None
+
+
 def _extract_profile_permissions(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> list[str]:
 	values: list[str] = []
 	seen: set[str] = set()
@@ -958,6 +967,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			self.browser_session, self.browser_profile
 		)
 		self.wait_timing_env = _extract_wait_timing_settings(self.browser_session, self.browser_profile)
+		self.block_ip_addresses = _extract_block_ip_addresses(self.browser_session, self.browser_profile)
 		self.browser_permissions = _extract_profile_permissions(self.browser_session, self.browser_profile)
 		self.browser_accept_downloads, self.browser_downloads_path = _extract_browser_downloads(
 			self.browser_session, self.browser_profile
@@ -1422,6 +1432,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		if self.highlight_duration_ms is not None:
 			env['BROWSER_USE_TERMINAL_HIGHLIGHT_DURATION_MS'] = str(self.highlight_duration_ms)
 		env.update(self.wait_timing_env)
+		if self.block_ip_addresses is not None:
+			env['BU_BROWSER_BLOCK_IP_ADDRESSES'] = 'true' if self.block_ip_addresses else 'false'
 		if self.browser_permissions:
 			env['BU_BROWSER_PERMISSIONS'] = json.dumps(self.browser_permissions)
 		if self.browser_accept_downloads is not None:
