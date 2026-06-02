@@ -93,3 +93,39 @@ def test_save_trace_to_file_writes_compact_json(tmp_path):
 	assert data['success'] is True
 	assert data['steps'][0]['step_outcome'] == 'done'
 	assert data['steps'][0]['url'] == 'https://example.com'
+
+
+def test_to_run_trace_redacts_sensitive_data_from_shareable_fields():
+	secret_email = 'ritwij@example.com'
+	model_output = AgentOutput(
+		evaluation_previous_goal=f'Opened account for {secret_email}',
+		memory=f'Need to verify {secret_email}',
+		next_goal='Submit the form',
+		action=[TraceAction(input=InputParams(index=4, text=secret_email))],
+	)
+	history = AgentHistoryList(
+		history=[
+			AgentHistory(
+				model_output=model_output,
+				result=[
+					ActionResult(
+						long_term_memory=f'Confirmation page showed {secret_email}',
+						error=f'Validation mentioned {secret_email}',
+					)
+				],
+				state=BrowserStateHistory(
+					url=f'https://example.com/users/{secret_email}',
+					title=f'Profile for {secret_email}',
+					tabs=[],
+					interacted_element=[None],
+				),
+				metadata=StepMetadata(step_number=1, step_start_time=10.0, step_end_time=11.0),
+			)
+		]
+	)
+
+	trace = history.to_run_trace(sensitive_data={'email': secret_email})
+	trace_json = json.dumps(trace.model_dump(mode='json'))
+
+	assert secret_email not in trace_json
+	assert '<secret>email</secret>' in trace_json

@@ -683,10 +683,8 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				llm_thought = brain.model_dump(exclude_none=True)
 				actions = [action.model_dump(exclude_none=True, mode='json') for action in history_item.model_output.action]
 				if sensitive_data:
-					actions = [
-						history_item._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
-						for action in actions
-					]
+					llm_thought = history_item._filter_sensitive_data_from_dict(llm_thought, sensitive_data)
+					actions = [history_item._filter_sensitive_data_from_dict(action, sensitive_data) for action in actions]
 
 			results = history_item.result or []
 			row_count = max(len(actions), len(results), 1)
@@ -703,6 +701,11 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				if result:
 					error = result.error
 					result_text = result.long_term_memory or result.extracted_content
+					if sensitive_data:
+						if error:
+							error = history_item._filter_sensitive_data_from_string(error, sensitive_data)
+						if result_text:
+							result_text = history_item._filter_sensitive_data_from_string(result_text, sensitive_data)
 					if result.error:
 						step_outcome = 'error'
 					elif result.is_done:
@@ -715,8 +718,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 						step_index=step_number,
 						action_index=action_index if action else None,
 						timestamp=timestamp,
-						url=history_item.state.url,
-						title=history_item.state.title,
+						url=history_item._filter_sensitive_data_from_string(history_item.state.url, sensitive_data)
+						if history_item.state.url
+						else history_item.state.url,
+						title=history_item._filter_sensitive_data_from_string(history_item.state.title, sensitive_data)
+						if history_item.state.title
+						else history_item.state.title,
 						action_type=action_type,
 						action_payload=action_payload,
 						llm_thought=llm_thought,
