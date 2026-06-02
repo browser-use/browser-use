@@ -226,6 +226,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper reads local paths or HTTP(S) document URLs and extracts bounded text from text/HTML, DOCX, and PDF sources using available Python PDF libraries, `pdftotext`, or a PDF byte-string fallback.
    - Proof: `browser_script_read_document_text_extracts_common_document_formats`.
 
+44. Browser-script arXiv query helper
+   - Terminal browser scripts now expose `arxiv_query(search_query="cat:cs.AI", start=0, max_results=20, sort_by="submittedDate", sort_order="descending", timeout=20.0)`.
+   - The helper queries arXiv's Atom API directly and normalizes paper titles, authors and affiliations, summaries, abs/pdf URLs, categories, DOI, journal/comment metadata, and timestamps.
+   - Proof: `browser_script_arxiv_query_normalizes_atom_metadata`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -247,6 +252,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_navigation_snapshot_surfaces_menu_and_route_links -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_embedded_data_snapshot_extracts_hydration_records -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_read_document_text_extracts_common_document_formats -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_arxiv_query_normalizes_atom_metadata -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
