@@ -1013,6 +1013,32 @@ def _append_streaming_text_delta(current: str, incoming: str) -> str:
 	return current + incoming
 
 
+def _response_output_item_text(payload: dict[str, Any]) -> str | None:
+	item = payload.get('item')
+	if not isinstance(item, dict):
+		return None
+	if item.get('type') != 'message':
+		return None
+	if item.get('role', 'user') != 'assistant':
+		return None
+	content = item.get('content')
+	if isinstance(content, str) and content.strip():
+		return content
+	if not isinstance(content, list):
+		return None
+	text_parts = []
+	for part in content:
+		if not isinstance(part, dict):
+			continue
+		if part.get('type') not in ('output_text', 'text', 'input_text'):
+			continue
+		text = part.get('text')
+		if isinstance(text, str):
+			text_parts.append(text)
+	text = ''.join(text_parts)
+	return text if text.strip() else None
+
+
 def _streaming_text_from_events(events: list[dict[str, Any]], stream_event_types: tuple[str, ...]) -> str | None:
 	text = ''
 	for event in events:
@@ -1020,10 +1046,13 @@ def _streaming_text_from_events(events: list[dict[str, Any]], stream_event_types
 		if event_type in ('model.turn.request', 'model.turn.retry', 'model.turn.error'):
 			text = ''
 			continue
-		if event_type not in stream_event_types:
-			continue
 		payload = _event_payload(event)
-		incoming = payload.get('text') or payload.get('delta')
+		if event_type == 'model.response.output_item' and event_type in stream_event_types:
+			incoming = _response_output_item_text(payload)
+		elif event_type in stream_event_types:
+			incoming = payload.get('text') or payload.get('delta')
+		else:
+			continue
 		if isinstance(incoming, str):
 			text = _append_streaming_text_delta(text, incoming)
 	return text if text.strip() else None
@@ -1046,7 +1075,7 @@ def _model_output_from_tool_calls(tool_calls: list[dict[str, Any]], events: list
 			continue
 	if not actions:
 		return None
-	streamed_text = _streaming_text_from_events(events, ('model.delta', 'model.stream_delta'))
+	streamed_text = _streaming_text_from_events(events, ('model.delta', 'model.stream_delta', 'model.response.output_item'))
 	thinking_text = _streaming_text_from_events(events, ('model.thinking_delta',))
 	return recovered_output_model(
 		thinking=thinking_text,

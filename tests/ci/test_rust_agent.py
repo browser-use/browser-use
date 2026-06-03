@@ -615,6 +615,58 @@ def test_rust_history_reconstructs_terminal_streamed_model_thoughts():
 	assert 'stale' not in (thought.thinking or '')
 
 
+def test_rust_history_reconstructs_terminal_response_item_model_text():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'payload': {'text': 'I will '}},
+			{
+				'event_type': 'model.response.output_item',
+				'payload': {
+					'item': {
+						'type': 'message',
+						'role': 'assistant',
+						'content': [
+							{'type': 'output_text', 'text': 'I will inspect the page, '},
+							{'type': 'text', 'text': 'then report the title.'},
+						],
+					}
+				},
+			},
+			{
+				'type': 'model.tool_call',
+				'payload': {
+					'id': 'call-browser',
+					'name': 'browser_script',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'text': 'Opened Example Domain',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	output = history.model_outputs()[0]
+
+	assert output.memory == 'I will inspect the page, then report the title.'
+	assert output.current_state.memory == 'I will inspect the page, then report the title.'
+	assert history.action_history()[0][0]['result'] == 'Opened Example Domain'
+
+
 def test_rust_history_reconstructs_terminal_token_count_usage():
 	from browser_use.rust.service import _history_from_events
 
