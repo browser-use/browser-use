@@ -3719,6 +3719,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Execute configured Browser Use initial actions through the Rust-backed action path."""
 		if not self.initial_actions or self.state.follow_up_task:
 			return
+		self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
 		result = await self.multi_act(self.initial_actions)
 		if result and self.initial_url and result[0].long_term_memory:
 			result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
@@ -3759,6 +3760,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				metadata=metadata,
 			)
 		)
+		self.logger.debug('📝 Saved initial actions to history as step 0')
+		self.logger.debug('Initial actions completed')
 
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Replay a Browser Use history step when Python action models are available."""

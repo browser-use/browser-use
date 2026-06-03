@@ -5385,11 +5385,24 @@ async def test_rust_agent_multi_act_ignores_later_done_actions():
 	assert results[0].extracted_content == 'clicked only'
 
 
-async def test_rust_agent_exposes_action_replay_helper_methods():
+async def test_rust_agent_exposes_action_replay_helper_methods(monkeypatch):
 	from types import SimpleNamespace
 
 	from browser_use.agent.views import ActionResult
 	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.debugs = []
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def info(self, message, *args, **kwargs):
+			pass
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
 
 	class BrowserProfile:
 		downloads_path = None
@@ -5436,6 +5449,11 @@ async def test_rust_agent_exposes_action_replay_helper_methods():
 	assert agent.history.history[0].metadata.step_number == 0
 	assert agent.history.history[0].state.url == 'https://example.com'
 	assert agent.history.history[0].model_output.action == agent.initial_actions
+	assert logger.debugs == [
+		'⚡ Executing 1 initial actions...',
+		'📝 Saved initial actions to history as step 0',
+		'Initial actions completed',
+	]
 
 	action = FakeAction()
 	replay_calls = []

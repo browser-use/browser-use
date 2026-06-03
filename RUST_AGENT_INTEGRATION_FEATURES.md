@@ -966,6 +966,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The helpers also emit the same debug markers before switching `AgentOutput` to `DoneAgentOutput`.
    - Proof: `test_rust_agent_done_only_guidance_matches_browser_use`.
 
+191. Rust Agent initial-action logging parity
+   - Rust-backed `_execute_initial_actions(...)` now emits the same Browser Use debug markers for executing configured initial actions, saving them as step 0, and completing initial-action processing.
+   - Step-0 history recording, long-term-memory annotation, and action replay behavior remain unchanged.
+   - Proof: `test_rust_agent_exposes_action_replay_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
