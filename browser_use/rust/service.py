@@ -1699,8 +1699,12 @@ class Agent(Generic[AgentStructuredOutput]):
 			result = result.replace(shortened_url, original_url)
 		return result
 
-	def _setup_action_models(self, page_url: str | None = None) -> None:
+	def _setup_action_models(self) -> None:
 		"""Expose Browser Use-style action model classes from the configured tools."""
+		self._setup_action_models_for_page(page_url=None)
+
+	def _setup_action_models_for_page(self, page_url: str | None) -> None:
+		"""Create action model classes, optionally filtered for a specific page."""
 		registry = getattr(self.tools, 'registry', None)
 		create_action_model = getattr(registry, 'create_action_model', None)
 		if not callable(create_action_model):
@@ -1725,7 +1729,7 @@ class Agent(Generic[AgentStructuredOutput]):
 
 	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update Browser Use-style action model classes for page-filtered tools."""
-		self._setup_action_models(page_url=page_url)
+		self._setup_action_models_for_page(page_url)
 
 	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[Any]:
 		"""Convert dictionary initial actions to Browser Use action model instances when possible."""

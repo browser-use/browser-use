@@ -898,6 +898,29 @@ def test_rust_agent_initializes_tools_and_action_models():
 	assert 'done' in str(done_schema)
 
 
+def test_rust_agent_setup_action_models_signature_matches_browser_use():
+	from browser_use.agent.service import Agent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	browser_use_signature = inspect.signature(BrowserUseAgent._setup_action_models)
+	rust_signature = inspect.signature(RustAgent._setup_action_models)
+
+	assert list(rust_signature.parameters) == list(browser_use_signature.parameters) == ['self']
+
+	agent = RustAgent(task='Rebuild action models.')
+	agent.ActionModel = None
+	agent.DoneActionModel = None
+	agent.AgentOutput = None
+	agent.DoneAgentOutput = None
+
+	agent._setup_action_models()
+
+	assert agent.ActionModel is not None
+	assert agent.DoneActionModel is not None
+	assert agent.AgentOutput is not None
+	assert agent.DoneAgentOutput is not None
+
+
 async def test_rust_agent_updates_action_models_for_page(monkeypatch):
 	from browser_use.rust import Agent
 
