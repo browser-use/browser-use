@@ -788,7 +788,38 @@ def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 			error = payload.get('error') or payload.get('message')
 			if isinstance(error, str) and error:
 				return error
+		if event_type in ('agent.failed', 'agent.cancelled'):
+			payload = _event_payload(event)
+			inner_payload = payload.get('payload')
+			if not isinstance(inner_payload, dict):
+				inner_payload = payload
+			error = inner_payload.get('error') or inner_payload.get('reason')
+			if isinstance(error, str) and error.strip():
+				return error.strip()
 	return None
+
+
+def _recoverable_failure_from_events(events: list[dict[str, Any]]) -> str | None:
+	for event in reversed(events):
+		event_type = _event_type(event)
+		payload = _event_payload(event)
+		if event_type == 'tool.failed':
+			error = _tool_failure_message(payload)
+			if error:
+				return error
+		if event_type in ('model.turn.error', 'model.turn.context_overflow'):
+			error = payload.get('error') or payload.get('message') or payload.get('reason')
+			if isinstance(error, str) and error.strip():
+				return error.strip()
+	return None
+
+
+def _tool_failure_message(payload: dict[str, Any]) -> str | None:
+	error = payload.get('error')
+	if not isinstance(error, str) or not error.strip():
+		return None
+	name = payload.get('name')
+	return f'{name} failed: {error.strip()}' if isinstance(name, str) and name else error.strip()
 
 
 def _safe_tool_action_name(value: Any) -> str | None:
@@ -953,10 +984,10 @@ def _action_results_from_tool_calls(
 	for tool_call in tool_calls:
 		event_type, payload = tool_results.get(str(tool_call.get('tool_call_id')), ('', {}))
 		text = _tool_result_text(payload)
-		error = payload.get('error') if event_type == 'tool.failed' else None
+		error = _tool_failure_message(payload) if event_type == 'tool.failed' else None
 		action_results.append(
 			ActionResult(
-				error=str(error).strip() if isinstance(error, str) and error.strip() else None,
+				error=error,
 				extracted_content=text if event_type == 'tool.output' else None,
 				long_term_memory=text if event_type == 'tool.output' else None,
 			)
@@ -1148,6 +1179,8 @@ def _history_from_events(
 ) -> AgentHistoryList[AgentStructuredOutput]:
 	final_result = _structured_result_text(_result_from_events(events), output_model_schema)
 	failure = process_error or _failure_from_events(events)
+	if final_result is None and failure is None:
+		failure = _recoverable_failure_from_events(events)
 	if final_result is None and failure is None:
 		failure = 'Rust terminal session did not produce a final result.'
 	is_done = final_result is not None and failure is None

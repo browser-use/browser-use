@@ -644,10 +644,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The reducer mirrors terminal current-main retry semantics by clearing stale streamed text after `model.turn.request`, `model.turn.retry`, and `model.turn.error`, and de-duplicates prefix-style deltas before exposing `history.model_outputs()` and `history.model_thoughts()`.
    - Proof: `test_rust_history_reconstructs_terminal_streamed_model_thoughts`.
 
+127. Rust terminal tool-failure error reconstruction
+   - Terminal `tool.failed` events now surface their concrete tool name and error message in Rust-backed Browser Use histories when no final `session.done` result is available.
+   - This keeps `history.errors()` and final action errors actionable instead of falling back to the generic "Rust terminal session did not produce a final result" message after the terminal core already recorded the failure.
+   - Proof: `test_rust_history_surfaces_terminal_tool_failure_message`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (98 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (99 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
