@@ -777,6 +777,71 @@ def test_rust_history_reconstructs_terminal_response_item_model_text():
 	assert history.action_history()[0][0]['result'] == 'Opened Example Domain'
 
 
+def test_rust_history_reconstructs_terminal_response_item_reasoning():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.thinking_delta', 'payload': {'text': 'stale thinking'}},
+			{'event_type': 'model.turn.retry', 'payload': {'attempt': 1, 'max_retries': 3}},
+			{
+				'event_type': 'model.response.output_item',
+				'payload': {
+					'item': {
+						'type': 'reasoning',
+						'summary': [
+							{'type': 'summary_text', 'text': 'checking '},
+							{'type': 'summary_text', 'text': 'page'},
+						],
+					}
+				},
+			},
+			{
+				'event_type': 'model.response.output_item',
+				'payload': {
+					'item': {
+						'type': 'message',
+						'role': 'assistant',
+						'content': [{'type': 'output_text', 'text': 'I will inspect the page.'}],
+					}
+				},
+			},
+			{
+				'type': 'model.tool_call',
+				'payload': {
+					'id': 'call-browser',
+					'name': 'browser_script',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'text': 'Opened Example Domain',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	output = history.model_outputs()[0]
+	thought = history.model_thoughts()[0]
+
+	assert output.thinking == 'checking page'
+	assert output.memory == 'I will inspect the page.'
+	assert thought.thinking == 'checking page'
+	assert 'stale' not in (thought.thinking or '')
+	assert history.action_history()[0][0]['result'] == 'Opened Example Domain'
+
+
 def test_rust_history_reconstructs_terminal_token_count_usage():
 	from browser_use.rust.service import _history_from_events
 

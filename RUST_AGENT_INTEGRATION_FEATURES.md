@@ -694,10 +694,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves prompt, cached prompt, completion, cost, and invocation data for replay/import logs that use terminal's nested usage shape instead of the older flat usage payload.
    - Proof: `test_rust_history_reconstructs_terminal_nested_model_usage`.
 
+137. Rust terminal response-item reasoning reconstruction
+   - Terminal `model.response.output_item` reasoning records now populate Browser Use `AgentOutput.thinking`.
+   - This preserves provider replay/import reasoning summaries, including OpenAI Responses `summary_text` parts, while keeping assistant message response items on the existing memory surface.
+   - Proof: `test_rust_history_reconstructs_terminal_response_item_reasoning`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (108 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (109 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

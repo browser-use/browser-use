@@ -1060,6 +1060,26 @@ def _append_streaming_text_delta(current: str, incoming: str) -> str:
 	return current + incoming
 
 
+def _response_content_text(content: Any, part_types: tuple[str, ...]) -> str | None:
+	if isinstance(content, str) and content.strip():
+		return content
+	if not isinstance(content, list):
+		return None
+	text_parts = []
+	for part in content:
+		if isinstance(part, str):
+			text_parts.append(part)
+			continue
+		if isinstance(part, dict):
+			part_type = part.get('type')
+			if part_type in part_types or (part_type is None and 'text' in part):
+				text = part.get('text')
+				if isinstance(text, str):
+					text_parts.append(text)
+	text = ''.join(text_parts)
+	return text if text.strip() else None
+
+
 def _response_output_item_text(payload: dict[str, Any]) -> str | None:
 	item = payload.get('item')
 	if not isinstance(item, dict):
@@ -1068,25 +1088,32 @@ def _response_output_item_text(payload: dict[str, Any]) -> str | None:
 		return None
 	if item.get('role', 'user') != 'assistant':
 		return None
-	content = item.get('content')
-	if isinstance(content, str) and content.strip():
-		return content
-	if not isinstance(content, list):
+	return _response_content_text(item.get('content'), ('output_text', 'text', 'input_text'))
+
+
+def _response_output_item_reasoning_text(payload: dict[str, Any]) -> str | None:
+	item = payload.get('item')
+	if not isinstance(item, dict):
 		return None
-	text_parts = []
-	for part in content:
-		if not isinstance(part, dict):
-			continue
-		if part.get('type') not in ('output_text', 'text', 'input_text'):
-			continue
-		text = part.get('text')
-		if isinstance(text, str):
-			text_parts.append(text)
-	text = ''.join(text_parts)
-	return text if text.strip() else None
+	for key in ('reasoning_content', 'thinking', 'reasoning'):
+		text = item.get(key)
+		if isinstance(text, str) and text.strip():
+			return text
+	if item.get('type') != 'reasoning':
+		return None
+	for key in ('text', 'content', 'summary'):
+		text = _response_content_text(item.get(key), ('summary_text', 'text', 'output_text', 'input_text'))
+		if text:
+			return text
+	return None
 
 
-def _streaming_text_from_events(events: list[dict[str, Any]], stream_event_types: tuple[str, ...]) -> str | None:
+def _streaming_text_from_events(
+	events: list[dict[str, Any]],
+	stream_event_types: tuple[str, ...],
+	*,
+	response_item_extractor: Callable[[dict[str, Any]], str | None] = _response_output_item_text,
+) -> str | None:
 	text = ''
 	for event in events:
 		event_type = _event_type(event)
@@ -1095,7 +1122,7 @@ def _streaming_text_from_events(events: list[dict[str, Any]], stream_event_types
 			continue
 		payload = _event_payload(event)
 		if event_type == 'model.response.output_item' and event_type in stream_event_types:
-			incoming = _response_output_item_text(payload)
+			incoming = response_item_extractor(payload)
 		elif event_type in stream_event_types:
 			incoming = payload.get('text') or payload.get('delta')
 		else:
@@ -1123,7 +1150,11 @@ def _model_output_from_tool_calls(tool_calls: list[dict[str, Any]], events: list
 	if not actions:
 		return None
 	streamed_text = _streaming_text_from_events(events, ('model.delta', 'model.stream_delta', 'model.response.output_item'))
-	thinking_text = _streaming_text_from_events(events, ('model.thinking_delta',))
+	thinking_text = _streaming_text_from_events(
+		events,
+		('model.thinking_delta', 'model.response.output_item'),
+		response_item_extractor=_response_output_item_reasoning_text,
+	)
 	return recovered_output_model(
 		thinking=thinking_text,
 		evaluation_previous_goal='',
