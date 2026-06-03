@@ -4249,6 +4249,116 @@ async def test_rust_agent_run_finalizes_after_cancellation(monkeypatch):
 	assert logger.errors == []
 
 
+async def test_rust_agent_run_finalizes_after_startup_cancellation(monkeypatch):
+	import asyncio
+
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	events = []
+	dispatched = []
+	captured_events = []
+
+	class FakeSignalHandler:
+		def __init__(self, **kwargs):
+			events.append('init_signal')
+
+		def register(self):
+			events.append('register_signal')
+
+		def unregister(self):
+			events.append('unregister_signal')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+			self.warnings = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+		def warning(self, message, *args, **kwargs):
+			self.warnings.append(message)
+
+	class EventBus:
+		def dispatch(self, event):
+			dispatched.append(event)
+			return event
+
+	class BrowserProfile:
+		keep_alive = False
+		viewport = {'width': 1280, 'height': 720}
+		user_agent = None
+		headless = True
+		allowed_domains = []
+
+	class BrowserSession:
+		id = 'browser-session-1234'
+		browser_profile = BrowserProfile()
+		cdp_url = None
+
+		def __init__(self):
+			self.kill_calls = 0
+
+		async def kill(self):
+			events.append('kill_browser')
+			self.kill_calls += 1
+
+	class TokenCostService:
+		async def log_usage_summary(self):
+			events.append('usage_summary')
+
+	class Telemetry:
+		def capture(self, event):
+			captured_events.append(event)
+
+	session = BrowserSession()
+	logger = RecordingLogger()
+	monkeypatch.setattr(rust_service, 'SignalHandler', FakeSignalHandler)
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Cancel during startup.', llm=type('LLM', (), {'model': 'gpt-test'})(), browser_session=session)
+	agent.eventbus = EventBus()
+	agent.token_cost_service = TokenCostService()
+	agent.telemetry = Telemetry()
+
+	async def fake_log_agent_run():
+		events.append('log_agent_run')
+		raise asyncio.CancelledError
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		raise AssertionError('terminal process should not start')
+
+	agent._log_agent_run = fake_log_agent_run
+	agent._run_process = fake_run_process
+
+	with pytest.raises(asyncio.CancelledError):
+		await agent.run(max_steps=7)
+
+	assert events == ['init_signal', 'register_signal', 'log_agent_run', 'usage_summary', 'unregister_signal', 'kill_browser']
+	assert [type(event).__name__ for event in dispatched] == [
+		'CreateAgentSessionEvent',
+		'CreateAgentTaskEvent',
+		'UpdateAgentTaskEvent',
+	]
+	assert agent.state.session_initialized is True
+	assert agent._task_start_time == agent._session_start_time
+	assert session.kill_calls == 1
+	assert getattr(agent, '_run_signal_handler') is None
+	assert len(captured_events) == 1
+	assert captured_events[0].max_steps == 7
+	assert captured_events[0].error_message == 'CancelledError'
+	assert logger.errors == []
+
+
 async def test_rust_agent_follow_up_finalizes_after_terminal_exception(monkeypatch):
 	import browser_use.rust.service as rust_service
 	from browser_use.rust import Agent

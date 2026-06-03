@@ -3015,6 +3015,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _finalize_exceptional_run(self, max_steps: int, agent_run_error: str) -> None:
 		"""Mirror Browser Use run finalization for exceptions that escape Rust execution."""
+		if not hasattr(self, '_task_start_time') or not hasattr(self, '_session_start_time'):
+			self._initialize_run_lifecycle_state()
 		await self._log_run_usage_summary()
 		self._record_run_telemetry(max_steps=max_steps, agent_run_error=agent_run_error)
 		self._dispatch_run_update_event()

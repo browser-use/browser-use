@@ -1176,12 +1176,19 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The Rust-backed implementation is now opt-in via `from browser_use.rust import Agent`, preserving Browser Use's existing package behavior while keeping the Rust wrapper's constructor/signature metadata aligned with the Python service surface.
    - Proof: `test_top_level_agent_preserves_python_service`, `test_agent_package_export_preserves_python_service`, `test_agent_service_export_preserves_python_service`, `test_rust_agent_class_metadata_matches_browser_use_service_surface`, `test_rust_agent_generic_subscription_matches_browser_use`, and `test_rust_agent_constructor_signature_matches_browser_use_order`; live managed-headless opt-in smoke below completed with `agents_are_distinct=true`, `successful=true`, `final_result` containing `Example Domain`, and no history errors.
 
+233. Rust Agent startup-cancellation finalization parity
+   - Exceptional Rust-agent finalization now initializes Browser Use lifecycle timing/session state when cancellation or startup failure happens before the normal run lifecycle setup.
+   - This prevents a secondary `UpdateAgentTaskEvent.from_agent(...)` failure from masking the original cancellation/error when a parallel caller cancels an agent during startup.
+   - Proof: `test_rust_agent_run_finalizes_after_startup_cancellation` and `test_rust_agent_run_finalizes_after_cancellation`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run python -m py_compile browser_use/__init__.py browser_use/agent/__init__.py browser_use/agent/service.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py tests/ci/test_rust_agent.py`
+- `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (previous full run before latest focused additions: 186 tests)
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service or rust_agent_class_metadata_matches_browser_use_service_surface or rust_agent_generic_subscription_matches_browser_use or rust_agent_constructor_signature_matches_browser_use_order'`
+- `uv run pytest -q tests/ci/test_rust_agent.py -k 'run_finalizes_after_startup_cancellation or run_finalizes_after_cancellation or top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service'`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k prefers_done_tool_text`
 - `uv run pytest -q tests/ci/models/test_llm_model_factory.py`
 - `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (28 tests)
