@@ -281,6 +281,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper fetches JSON/API candidates, recursively finds record arrays, supports explicit dot-path selection, flattens nested scalar fields, reports candidate array paths/fields, and can run through page-context `browser_fetch` when cookies/session access are needed.
    - Proof: `browser_script_json_api_records_extracts_nested_record_arrays`.
 
+55. Browser-script tabular export extraction helper
+   - Terminal browser scripts now expose `tabular_data_records(source, delimiter=None, limit=500, use_browser_fetch=False, table_index=0, timeout=20.0)`.
+   - The helper fetches or reads CSV, TSV, and simple HTML table sources, normalizes duplicate/missing headers, returns fields and records, and can use page-context `browser_fetch` for cookie-protected exports.
+   - Proof: `browser_script_tabular_data_records_normalizes_exports`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -313,6 +318,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_route_candidates_snapshot_discovers_spa_routes -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_network_resources_snapshot_surfaces_api_candidates -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_json_api_records_extracts_nested_record_arrays -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_tabular_data_records_normalizes_exports -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
