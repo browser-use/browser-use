@@ -3414,8 +3414,8 @@ async def test_rust_agent_run_logs_browser_use_run_metadata(monkeypatch):
 	agent = Agent(task='Log run metadata.', llm=type('LLM', (), {'model': 'gpt-test'})())
 
 	async def fake_run_process(argv, timeout_seconds=None):
-		assert any(message.endswith('Task: Log run metadata.\033[0m') for message in logger.infos)
-		assert any('Browser-Use Library Version' in message for message in logger.debugs)
+		assert any(message == '\033[34m🎯 Task: Log run metadata.\033[0m' for message in logger.infos)
+		assert any(message.startswith('🤖 Browser-Use Library Version') for message in logger.debugs)
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
 	async def fake_load_events():
@@ -3428,6 +3428,67 @@ async def test_rust_agent_run_logs_browser_use_run_metadata(monkeypatch):
 
 	assert history.final_result() == 'logged metadata'
 	assert logger.errors == []
+
+
+async def test_rust_agent_run_metadata_logs_match_browser_use(monkeypatch):
+	import browser_use.agent.service as agent_service
+	import browser_use.rust.service as rust_service
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+	async def latest_version():
+		return '99.99.99'
+
+	browser_use_logger = RecordingLogger()
+	rust_logger = RecordingLogger()
+	monkeypatch.setattr(agent_service, 'check_latest_browser_use_version', latest_version)
+	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', latest_version)
+	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
+	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+
+	browser_use_agent = BrowserUseAgent(
+		task='Log run metadata parity.',
+		llm=LLM(),
+		task_id='runmetadatabu',
+		directly_open_url=False,
+	)
+	rust_agent = RustAgent(
+		task='Log run metadata parity.',
+		llm=LLM(),
+		task_id='runmetadatars',
+		directly_open_url=False,
+	)
+	browser_use_logger.infos.clear()
+	browser_use_logger.debugs.clear()
+	rust_logger.infos.clear()
+	rust_logger.debugs.clear()
+
+	await browser_use_agent._log_agent_run()
+	await rust_agent._log_agent_run()
+
+	assert rust_logger.infos == browser_use_logger.infos
+	assert rust_logger.debugs == browser_use_logger.debugs
+	assert rust_logger.infos[0] == '\033[34m🎯 Task: Log run metadata parity.\033[0m'
+	assert rust_logger.debugs[0].startswith('🤖 Browser-Use Library Version')
+	assert rust_logger.infos[1].startswith('📦 Newer version available: 99.99.99')
 
 
 async def test_rust_agent_run_logs_first_step_startup(monkeypatch):

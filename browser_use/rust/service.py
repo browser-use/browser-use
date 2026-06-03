@@ -2729,12 +2729,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _log_agent_run(self) -> None:
 		"""Log Browser Use run metadata for the Rust-backed wrapper."""
-		self.logger.info(f'\033[34mTask: {self.task}\033[0m')
-		self.logger.debug(f'Browser-Use Library Version {self.version} ({self.source})')
+		self.logger.info(f'\033[34m🎯 Task: {self.task}\033[0m')
+		self.logger.debug(f'🤖 Browser-Use Library Version {self.version} ({self.source})')
 		latest_version = await check_latest_browser_use_version()
 		if latest_version and latest_version != self.version:
 			self.logger.info(
-				f'Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use@{latest_version}'
+				f'📦 Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use@{latest_version}'
 			)
 
 	def _log_agent_setup(self) -> None:
