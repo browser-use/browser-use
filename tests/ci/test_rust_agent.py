@@ -751,6 +751,59 @@ def test_rust_history_surfaces_terminal_exec_command_end_failure():
 	assert history.action_results()[-1].error == error
 
 
+def test_rust_history_reconstructs_terminal_command_waiting_result():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'arguments': {'cmd': 'sleep 60 && echo done', 'yield_time_ms': 250},
+				},
+			},
+			{
+				'type': 'tool.output_delta',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'process_id': '1000',
+					'session_id': 1000,
+					'stream': 'stdout',
+					'text': 'started\n',
+				},
+			},
+			{
+				'type': 'command.waiting',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'process_id': '1000',
+					'session_id': 1000,
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'command is still running'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_result = history.action_results()[0]
+	waiting_result = 'started\n\nProcess running with session ID 1000'
+
+	assert history.action_names() == ['exec_command', 'done']
+	assert first_result.extracted_content == waiting_result
+	assert first_result.long_term_memory == waiting_result
+	assert first_result.error is None
+	assert history.action_history()[0][0]['result'] == waiting_result
+	assert history.final_result() == 'command is still running'
+
+
 def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
 	from browser_use.rust.service import _history_from_events
 

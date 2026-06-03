@@ -1003,6 +1003,33 @@ def _exec_command_end_failure_message(payload: dict[str, Any]) -> str | None:
 	return f'{tool_name} failed: {detail}'
 
 
+def _command_waiting_text(payload: dict[str, Any]) -> str:
+	session_id = payload.get('session_id') or payload.get('process_id')
+	if session_id is not None and str(session_id):
+		return f'Process running with session ID {session_id}'
+	return 'Process running'
+
+
+def _command_waiting_payload(payload: dict[str, Any], previous_payload: dict[str, Any] | None) -> dict[str, Any]:
+	waiting_text = _command_waiting_text(payload)
+	previous_text = _tool_result_text(previous_payload) if previous_payload is not None else None
+	if previous_text and waiting_text not in previous_text:
+		waiting_text = f'{previous_text}\n\n{waiting_text}'
+	next_payload = dict(payload)
+	next_payload['text'] = waiting_text
+	return next_payload
+
+
+_TEXTUAL_TOOL_RESULT_EVENTS = (
+	'tool.output',
+	'tool.output_delta',
+	'command.waiting',
+	'exec_command.end',
+	'tool.finished',
+	'model.response.input_item',
+)
+
+
 def _tool_result_key(payload: dict[str, Any]) -> tuple[str, str] | None:
 	call_id = payload.get('tool_call_id') or payload.get('call_id')
 	if call_id:
@@ -1137,6 +1164,7 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 		if event_type not in (
 			'tool.output',
 			'tool.output_delta',
+			'command.waiting',
 			'exec_command.end',
 			'tool.failed',
 			'tool.aborted',
@@ -1168,6 +1196,17 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 				merged_payload['text'] = f'{previous_text if isinstance(previous_text, str) else ""}{delta_text}'
 				results[key] = (event_type, merged_payload)
 				continue
+			if event_type == 'command.waiting':
+				if previous is not None and previous[0] in (
+					'tool.output',
+					'tool.failed',
+					'tool.aborted',
+					'exec_command.end',
+					'model.response.input_item',
+				):
+					continue
+				results[key] = (event_type, _command_waiting_payload(payload, previous[1] if previous is not None else None))
+				continue
 			if event_type == 'exec_command.end' and previous is not None and previous[0] in (
 				'tool.output',
 				'tool.failed',
@@ -1190,6 +1229,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 		if event_type not in (
 			'tool.output',
 			'tool.output_delta',
+			'command.waiting',
 			'exec_command.end',
 			'tool.failed',
 			'tool.aborted',
@@ -1240,6 +1280,25 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 			if previous_delta_index is not None and payload.get('stream') is not True:
 				results[previous_delta_index] = (event_type, payload)
 				continue
+		elif event_type == 'command.waiting':
+			name = payload.get('name')
+			previous_result_index = next(
+				(
+					index
+					for index in range(len(results) - 1, -1, -1)
+					if isinstance(name, str)
+					and name
+					and results[index][1].get('name') == name
+				),
+				None,
+			)
+			if previous_result_index is not None:
+				previous_event_type, previous_payload = results[previous_result_index]
+				if previous_event_type in ('tool.output', 'tool.failed', 'tool.aborted', 'exec_command.end', 'model.response.input_item'):
+					continue
+				results[previous_result_index] = (event_type, _command_waiting_payload(payload, previous_payload))
+				continue
+			payload = _command_waiting_payload(payload, None)
 		elif event_type == 'exec_command.end':
 			if not _tool_result_text(payload):
 				continue
@@ -1551,12 +1610,8 @@ def _action_results_from_tool_calls(
 		action_results.append(
 			ActionResult(
 				error=error,
-				extracted_content=text
-				if event_type in ('tool.output', 'tool.output_delta', 'exec_command.end', 'tool.finished', 'model.response.input_item')
-				else None,
-				long_term_memory=text
-				if event_type in ('tool.output', 'tool.output_delta', 'exec_command.end', 'tool.finished', 'model.response.input_item')
-				else None,
+				extracted_content=text if event_type in _TEXTUAL_TOOL_RESULT_EVENTS else None,
+				long_term_memory=text if event_type in _TEXTUAL_TOOL_RESULT_EVENTS else None,
 			)
 		)
 
