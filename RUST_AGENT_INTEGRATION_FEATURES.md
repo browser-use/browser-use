@@ -734,10 +734,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves interrupted subagent/session lifecycle outcomes on Python-visible `errors()`, `is_done()`, and final `ActionResult.error` surfaces.
    - Proof: `test_rust_history_surfaces_terminal_session_interrupted_message`.
 
+145. Rust terminal browser live-URL reconstruction
+   - Terminal `browser.live_url` events are now reconstructed into Browser Use `BrowserStateHistory`.
+   - This preserves Rust current-main live browser URLs on Python-visible `AgentHistoryList.urls()`, step state, telemetry, callbacks, and saved conversation snapshots even when no `browser.state` event is present.
+   - Proof: `test_rust_history_reconstructs_terminal_browser_live_url`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (116 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (117 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

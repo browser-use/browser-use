@@ -1561,10 +1561,17 @@ def _browser_state_from_events(events: list[dict[str, Any]]) -> BrowserStateHist
 				title = candidate_title or title
 				tabs = [TabInfo(url=url, title=title, target_id=candidate_target_id)]
 			continue
-		if event_type not in ('browser.connected', 'browser.reconnected', 'browser.target_changed', 'browser.page', 'browser.state'):
+		if event_type not in (
+			'browser.connected',
+			'browser.reconnected',
+			'browser.target_changed',
+			'browser.live_url',
+			'browser.page',
+			'browser.state',
+		):
 			continue
 		payload = _event_payload(event)
-		url = _browser_url(payload.get('url')) or url
+		url = _browser_url(payload.get('live_url')) or _browser_url(payload.get('url')) or url
 		title = str(payload.get('title') or title)
 		raw_tabs = payload.get('tabs')
 		if isinstance(raw_tabs, list):

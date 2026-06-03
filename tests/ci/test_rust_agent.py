@@ -318,6 +318,32 @@ def test_rust_history_reconstructs_terminal_browser_script_urls():
 	assert navigation_history.urls() == ['https://example.com']
 
 
+def test_rust_history_reconstructs_terminal_browser_live_url():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'browser.live_url',
+				'payload': {
+					'live_url': 'https://live.browser-use.com/watch/session-123',
+					'url': 'https://live.browser-use.com/watch/session-123',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.urls() == ['https://live.browser-use.com/watch/session-123']
+	assert history.history[0].state.url == 'https://live.browser-use.com/watch/session-123'
+	assert history.history[0].state.tabs[0].url == 'https://live.browser-use.com/watch/session-123'
+
+
 def test_rust_history_reconstructs_terminal_screenshot_paths(tmp_path):
 	import base64
 
