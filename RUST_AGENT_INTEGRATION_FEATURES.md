@@ -1116,11 +1116,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Configured profile directories are preserved during cleanup, while worker-created temporary profiles are still removed.
    - Proof: terminal `test_managed_browser_profile_env_uses_configured_user_data_dir`.
 
+221. Rust Agent managed BrowserProfile viewport runtime parity
+   - Terminal managed Chrome startup now honors wrapper-exported `BU_BROWSER_VIEWPORT` with `--window-size` and device-scale launch flags.
+   - `BU_BROWSER_NO_VIEWPORT=true` suppresses viewport-derived launch flags so no-viewport BrowserProfile mode remains distinct.
+   - Proof: terminal `test_managed_browser_viewport_env_controls_worker_launch`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
-- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (21 tests)
+- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (22 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
