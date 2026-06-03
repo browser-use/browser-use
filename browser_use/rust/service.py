@@ -2829,6 +2829,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await result
 		self._eventbus_stopped = True
 
+	async def _finalize_run_cleanup(self) -> None:
+		"""Mirror Browser Use run cleanup ordering."""
+		await self._stop_eventbus_after_run()
+		await self.close()
+
 	def _initialize_run_lifecycle_state(self) -> None:
 		"""Initialize Browser Use run timing and session state."""
 		self._session_start_time = time.time()
@@ -2878,7 +2883,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
-			await self._stop_eventbus_after_run()
+			await self._finalize_run_cleanup()
 			return self.history
 		if self.state.paused:
 			finished = time.time()
@@ -2894,7 +2899,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent is paused before terminal run.')
 			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
-			await self._stop_eventbus_after_run()
+			await self._finalize_run_cleanup()
 			return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
@@ -2930,7 +2935,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
 		await self._generate_gif_if_requested()
-		await self._stop_eventbus_after_run()
+		await self._finalize_run_cleanup()
 		return self.history
 
 	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
@@ -2972,7 +2977,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._call_new_step_callback()
 		await self._call_done_callback()
 		await self._generate_gif_if_requested()
-		await self._stop_eventbus_after_run()
+		await self._finalize_run_cleanup()
 		return self.history
 
 	follow_up_task = follow_up
