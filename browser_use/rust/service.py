@@ -3426,6 +3426,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get model output, retrying once when the model returns no usable action."""
 		model_output = await self.get_model_output(input_messages)
+		action_count = len(model_output.action) if getattr(model_output, 'action', None) else 0
+		self.logger.debug(f'✅ Step {self.state.n_steps}: Got LLM response with {action_count} actions')
 
 		def has_empty_actions(output: AgentOutput) -> bool:
 			actions = getattr(output, 'action', None)
@@ -3436,11 +3438,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if has_empty_actions(model_output):
 			from browser_use.llm.messages import UserMessage
 
+			self.logger.warning('Model returned empty action. Retrying...')
 			clarification_message = UserMessage(
 				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
 			)
 			model_output = await self.get_model_output(input_messages + [clarification_message])
 			if has_empty_actions(model_output):
+				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
 				try:
 					done_action = self.DoneActionModel(done={'success': False, 'text': 'No next action returned by LLM!'})
 				except Exception:

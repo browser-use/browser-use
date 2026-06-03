@@ -5479,12 +5479,32 @@ async def test_rust_agent_exposes_action_replay_helper_methods(monkeypatch):
 	) is None
 
 
-async def test_rust_agent_exposes_model_output_helper_methods(tmp_path):
+async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_path):
 	from types import SimpleNamespace
 
 	from browser_use.agent.views import ActionResult
 	from browser_use.llm.messages import UserMessage
 	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.debugs = []
+			self.warnings = []
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def warning(self, message, *args, **kwargs):
+			self.warnings.append(message)
+
+		def info(self, message, *args, **kwargs):
+			pass
+
+		def isEnabledFor(self, level):
+			return True
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
 
 	original_url = 'https://example.com/path?abcdefghijklmnopqrstuvwxyz#section'
 
@@ -5578,10 +5598,43 @@ async def test_rust_agent_exposes_model_output_helper_methods(tmp_path):
 	retry_llm = RetryLLM()
 	retry_agent = Agent(task='Retry LLM helpers.', llm=retry_llm)
 	retry_llm.agent = retry_agent
+	logger.debugs.clear()
+	logger.warnings.clear()
 	retry_output = await retry_agent._get_model_output_with_retry([UserMessage(content='Retry with an action.')])
 
 	assert len(retry_llm.calls) == 2
 	assert retry_output.action
+	assert logger.debugs[0] == '✅ Step 1: Got LLM response with 0 actions'
+	assert any('Next actions: done' in message for message in logger.debugs)
+	assert logger.warnings == ['Model returned empty action. Retrying...']
+
+	class EmptyRetryLLM(LLM):
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			self.calls.append((messages, output_format))
+			return SimpleNamespace(
+				usage=None,
+				completion=self.agent.AgentOutput(
+					evaluation_previous_goal='empty',
+					memory='none',
+					next_goal='retry',
+					action=[],
+				),
+			)
+
+	empty_retry_llm = EmptyRetryLLM()
+	empty_retry_agent = Agent(task='Retry empty LLM helpers.', llm=empty_retry_llm)
+	empty_retry_llm.agent = empty_retry_agent
+	logger.debugs.clear()
+	logger.warnings.clear()
+	empty_retry_output = await empty_retry_agent._get_model_output_with_retry([UserMessage(content='Retry empty action.')])
+
+	assert len(empty_retry_llm.calls) == 2
+	assert empty_retry_output.action[0].model_dump(exclude_unset=True)['done']['text'] == 'No next action returned by LLM!'
+	assert logger.debugs == ['✅ Step 1: Got LLM response with 0 actions']
+	assert logger.warnings == [
+		'Model returned empty action. Retrying...',
+		'Model still returned empty after retry. Inserting safe noop action.',
+	]
 
 
 async def test_rust_agent_exposes_prepare_context_helper_method(monkeypatch):

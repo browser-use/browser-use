@@ -971,6 +971,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Step-0 history recording, long-term-memory annotation, and action replay behavior remain unchanged.
    - Proof: `test_rust_agent_exposes_action_replay_helper_methods`.
 
+192. Rust Agent empty-model-action retry logging parity
+   - Rust-backed `_get_model_output_with_retry(...)` now logs Browser Use's LLM response action count, empty-action retry warning, and safe-noop fallback warning.
+   - The helper still retries once with the Browser Use clarification message and inserts the same failed `done` action when the retry also returns no usable action.
+   - Proof: `test_rust_agent_exposes_model_output_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
