@@ -351,6 +351,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helpers surface visible buttons, submit/reset/button inputs, links, role buttons/links, and onclick elements with text/selectors/rects, then click the matched rendered action by text, aria-label, name, or selector using real mouse events.
    - Proof: `browser_script_action_helpers_click_named_controls`.
 
+69. Browser-script overlay dismissal helper
+   - Terminal browser scripts now expose `overlay_actions_snapshot(limit=20)` and `dismiss_overlay(prefer="accept", timeout=1.0)`.
+   - The helpers score visible cookie, consent, privacy, GDPR, modal, dialog, popup, and banner actions with overlay context and centers, then click an accept/reject/close/dismiss action by preference using real mouse events.
+   - Proof: `browser_script_overlay_helpers_dismiss_cookie_actions`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -397,6 +402,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_form_field_helpers_match_labels_and_fill_semantically -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_autocomplete_helpers_select_visible_suggestions -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_action_helpers_click_named_controls -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_overlay_helpers_dismiss_cookie_actions -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
