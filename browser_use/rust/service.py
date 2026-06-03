@@ -971,6 +971,9 @@ def _recoverable_failure_from_events(events: list[dict[str, Any]]) -> str | None
 			error = payload.get('error') or payload.get('message') or payload.get('reason')
 			if isinstance(error, str) and error.strip():
 				return error.strip()
+		error = _terminal_operational_failure_message(event_type, payload)
+		if error:
+			return error
 	return None
 
 
@@ -1001,6 +1004,40 @@ def _exec_command_end_failure_message(payload: dict[str, Any]) -> str | None:
 	if text:
 		detail = f'{detail}: {text}'
 	return f'{tool_name} failed: {detail}'
+
+
+def _payload_failure_detail(payload: dict[str, Any]) -> str | None:
+	for key in ('error', 'message', 'reason', 'detail', 'details'):
+		value = payload.get(key)
+		if isinstance(value, str) and value.strip():
+			return value.strip()
+	if isinstance(payload.get('errors'), list):
+		errors = [str(error).strip() for error in payload['errors'] if str(error).strip()]
+		if errors:
+			return '; '.join(errors)
+	return None
+
+
+def _terminal_operational_failure_message(event_type: str, payload: dict[str, Any]) -> str | None:
+	if event_type == 'session.final_answer_not_ready_at_max_turns':
+		return _payload_failure_detail(payload) or 'final answer artifact is not ready'
+	if event_type == 'browser.cleanup_timed_out':
+		timeout_ms = _int_value(payload.get('timeout_ms'))
+		if timeout_ms:
+			return f'browser cleanup timed out after {timeout_ms}ms'
+		return 'browser cleanup timed out'
+	labels = {
+		'browser.cloud_shutdown_failed': 'browser cloud shutdown failed',
+		'browser.cleanup_failed': 'browser cleanup failed',
+		'browser.bridge_errors': 'browser bridge failed',
+		'command.write_error': 'command write failed',
+		'session.compaction_failed': 'session compaction failed',
+	}
+	label = labels.get(event_type)
+	if label is None:
+		return None
+	detail = _payload_failure_detail(payload)
+	return f'{label}: {detail}' if detail else label
 
 
 def _command_waiting_text(payload: dict[str, Any]) -> str:

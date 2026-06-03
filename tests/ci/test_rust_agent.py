@@ -3968,6 +3968,59 @@ def test_rust_history_surfaces_terminal_stream_error_message():
 	assert history.errors() == ['provider error']
 
 
+def test_rust_history_surfaces_terminal_operational_failure_events():
+	from browser_use.rust.service import _history_from_events
+
+	failed = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'browser.cloud_shutdown_failed', 'payload': {'error': 'cloud browser shutdown failed'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	final_not_ready = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'session.final_answer_not_ready_at_max_turns', 'payload': {}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	successful_with_cleanup_warning = _history_from_events(
+		[
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+			{'event_type': 'browser.cleanup_failed', 'payload': {'error': 'cleanup panicked'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert failed.final_result() is None
+	assert failed.is_done() is False
+	assert failed.errors() == ['browser cloud shutdown failed: cloud browser shutdown failed']
+	assert failed.action_results()[-1].error == 'browser cloud shutdown failed: cloud browser shutdown failed'
+
+	assert final_not_ready.final_result() is None
+	assert final_not_ready.is_done() is False
+	assert final_not_ready.errors() == ['final answer artifact is not ready']
+
+	assert successful_with_cleanup_warning.final_result() == 'final answer'
+	assert successful_with_cleanup_warning.is_done() is True
+	assert successful_with_cleanup_warning.errors() == [None]
+
+
 def test_rust_history_surfaces_terminal_tool_failure_message():
 	from browser_use.rust.service import _history_from_events
 
