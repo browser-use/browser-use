@@ -1181,6 +1181,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This prevents a secondary `UpdateAgentTaskEvent.from_agent(...)` failure from masking the original cancellation/error when a parallel caller cancels an agent during startup.
    - Proof: `test_rust_agent_run_finalizes_after_startup_cancellation` and `test_rust_agent_run_finalizes_after_cancellation`.
 
+234. Anthropic error tool-result protocol parity
+   - Terminal commit `255145b` flattens Anthropic `is_error=true` tool-result content to text-only blocks during provider lowering, while preserving rich media/tool content for successful tool results.
+   - This matches Anthropic's Messages API constraint that error tool-result content blocks must all be `text`, and prevents provider 400s when browser-script failures include rich content.
+   - Proof: terminal `build_body_flattens_error_tool_result_content_to_text_blocks`, terminal `anthropic_messages` protocol tests, `cargo check -q -p browser-use-llm`, and rerunning the previously failing explicit Rust real_v8-2 task `1` now returns `successful=true` with no history errors.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1198,6 +1203,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `cargo test -q -p browser-use-browser browser_profile_runtime_setup_calls_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_domain_constraints_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_domain_constraints_are_passive_without_env -- --nocapture`
+- `cargo fmt --check -p browser-use-llm` on terminal branch `magnus/browser-use-rust-main-integration`
+- `cargo test -q -p browser-use-llm build_body_flattens_error_tool_result_content_to_text_blocks -- --nocapture`
+- `cargo test -q -p browser-use-llm build_body_maps_tool_use_and_tool_result -- --nocapture`
+- `cargo test -q -p browser-use-llm anthropic_messages -- --nocapture`
+- `cargo check -q -p browser-use-llm`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k browser_profile_domain_constraints`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -1289,6 +1299,10 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - `DEFAULT_LLM=anthropic_claude_sonnet_4_0 REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8-2.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 1 --max-steps 30 --step-timeout 600`
   - Output: `{"task_id":"1","successful":true,"errors":[],"final_result":"I have completed comprehensive research on the 2024 Nobel Prize in Physics..."}`.
   - Generated artifact check before cleanup: `final_nobel_report_2024.txt` and `comprehensive_nobel_report.json` were created and contained 17 `nobelprize.org` links each.
+- Explicit Rust opt-in three-task real_v8 cloud gate:
+  - Source `/home/exedev/.evaluation_tool_env`, use `from browser_use.rust import Agent` via `examples/rust_agent/real_v8_smoke.py`, set `DEFAULT_LLM=anthropic_claude_sonnet_4_0`, `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, and `BROWSER_USE_RUST_BROWSER_MODE=cloud`.
+  - Subprocess gate run root `/tmp/rust-explicit-realv8-subprocess-gate-20260603175317`: real_v8 `18` clean (`Paramjit Uppal, Founder`) and real_v8 `20` clean (`papers.md`, 32,585 bytes reported), while real_v8-2 `1` exposed the Anthropic error-tool-result provider 400 fixed by terminal commit `255145b`.
+  - Post-fix rerun root `/tmp/rust-explicit-realv8-2-task1-anthropic-fix-20260603180347`: real_v8-2 task `1` returned `successful=true`, no history errors, and a Nobel Physics final result.
 - Existing-session follow-up end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BROWSER_USE_RUST_STATE_DIR=/tmp/browser-use-rust-followup-smoke timeout 420 uv run python - <<'PY' ...`
   - Output: first run `Example Domain`; follow-up `example.com`.
