@@ -911,10 +911,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The log includes the follow-up run's resolved max-step budget, matching the run-start debug metadata emitted by normal terminal-backed runs.
    - Proof: `test_rust_agent_run_follow_up_logs_main_execution_start`.
 
+180. Rust Agent single-step non-final status parity
+   - Terminal-backed `Agent.take_step()` now returns Browser Use's `(False, False)` status for non-final single-step results, even when the reconstructed Rust history has no process errors.
+   - Completed single-step results continue to return `(True, True)`, matching Browser Use's done-step contract.
+   - Proof: `test_rust_agent_take_step_matches_browser_use_non_final_status`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (151 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (152 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

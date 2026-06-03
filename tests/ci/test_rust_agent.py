@@ -4676,6 +4676,32 @@ async def test_rust_agent_take_step_runs_one_terminal_turn():
 	assert is_valid is True
 
 
+async def test_rust_agent_take_step_matches_browser_use_non_final_status():
+	from browser_use.rust import Agent
+
+	agent = Agent(task='step once without finishing')
+	seen = []
+
+	class NonFinalHistory:
+		def is_done(self):
+			return False
+
+		def has_errors(self):
+			return False
+
+	async def fake_run(max_steps=100, on_step_start=None, on_step_end=None):
+		seen.append(max_steps)
+		return NonFinalHistory()
+
+	agent.run = fake_run
+
+	is_done, is_valid = await agent.take_step()
+
+	assert seen == [1]
+	assert is_done is False
+	assert is_valid is False
+
+
 async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monkeypatch):
 	from browser_use.rust import Agent
 

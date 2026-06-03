@@ -3617,8 +3617,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if step_info is not None:
 			self.state.n_steps = max(self.state.n_steps, step_info.step_number)
 		history = await self.run(max_steps=1)
-		is_valid = not history.has_errors()
-		return history.is_done(), is_valid
+		if history.is_done():
+			return True, True
+		return False, False
 
 	async def _execute_step(
 		self,
