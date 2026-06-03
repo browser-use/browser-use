@@ -536,10 +536,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Explicit `task_id` still controls `agent.id` and `agent.task_id`, while injected `AgentState` objects remain preserved for restored runs.
    - Proof: `test_rust_agent_state_id_defaults_like_browser_use`.
 
+106. Rust Agent Browser Use LLM flash-mode parity
+   - The Rust-backed Agent now mirrors Browser Use's constructor behavior that enables `settings.flash_mode` when the supplied LLM has `provider == 'browser-use'`.
+   - Non-Browser Use providers retain the caller's flash-mode setting, and Browser Use-provider models build the same flash-mode action output class family.
+   - Proof: `test_rust_agent_enables_flash_mode_for_browser_use_llm_provider`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (79 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (80 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

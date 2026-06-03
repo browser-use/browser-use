@@ -913,6 +913,35 @@ def test_rust_agent_defaults_page_extraction_llm_to_main_llm():
 	assert str(id(extraction_llm)) in override_agent.token_cost_service.registered_llms
 
 
+def test_rust_agent_enables_flash_mode_for_browser_use_llm_provider():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class BrowserUseLLM:
+		model = 'browser-use-test'
+		provider = 'browser-use'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class OtherLLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	browser_use_llm = BrowserUseLLM()
+	browser_use_agent = BrowserUseAgent(task='Use Browser Use model.', llm=browser_use_llm, directly_open_url=False)
+	rust_browser_use_agent = RustAgent(task='Use Browser Use model.', llm=browser_use_llm, directly_open_url=False)
+	rust_other_agent = RustAgent(task='Use another model.', llm=OtherLLM(), directly_open_url=False)
+
+	assert browser_use_agent.settings.flash_mode is True
+	assert rust_browser_use_agent.settings.flash_mode is True
+	assert rust_other_agent.settings.flash_mode is False
+	assert rust_browser_use_agent.AgentOutput.__name__ == browser_use_agent.AgentOutput.__name__
+
+
 def test_rust_agent_state_id_defaults_like_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.agent.views import AgentState
