@@ -2992,7 +2992,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
 			return await self._follow_up_terminal(
-				self.task, max_steps=max_steps, resolved_max_steps=max_steps, initialize_lifecycle=False
+				self.task,
+				max_steps=max_steps,
+				resolved_max_steps=max_steps,
+				initialize_lifecycle=False,
+				on_step_end=on_step_end,
 			)
 
 		self._log_main_execution_start(max_steps)
@@ -3053,6 +3057,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_steps: int | None,
 		resolved_max_steps: int,
 		initialize_lifecycle: bool = True,
+		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		if initialize_lifecycle:
 			self._initialize_run_lifecycle_state()
@@ -3089,6 +3094,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._check_and_update_downloads('follow_up')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
+		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
 		await self._generate_gif_if_requested()
 		self._log_final_outcome_messages()

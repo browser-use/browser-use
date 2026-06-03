@@ -3763,6 +3763,51 @@ async def test_rust_agent_run_follow_up_dispatches_single_task_lifecycle(monkeyp
 	assert dispatched[1].done_output == 'lifecycle follow-up 2'
 
 
+async def test_rust_agent_run_follow_up_invokes_on_step_end(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	callbacks = []
+	process_calls = []
+	load_count = 0
+	agent = Agent(task='Start follow-up callbacks.', llm=type('LLM', (), {'model': 'gpt-test'})())
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		process_calls.append(argv)
+		if len(process_calls) == 1:
+			return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+		return 0, '', ''
+
+	async def fake_load_events():
+		nonlocal load_count
+		load_count += 1
+		return [{'event_type': 'session.done', 'payload': {'result': f'callback follow-up {load_count}'}}]
+
+	async def on_step_start(callback_agent):
+		callbacks.append(('start', callback_agent.task))
+
+	def on_step_end(callback_agent):
+		callbacks.append(('end', callback_agent.history.final_result()))
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=4, on_step_start=on_step_start, on_step_end=on_step_end)
+
+	assert history.final_result() == 'callback follow-up 1'
+	assert callbacks == [('start', 'Start follow-up callbacks.'), ('end', 'callback follow-up 1')]
+
+	callbacks.clear()
+	agent.add_new_task('Continue follow-up callbacks.')
+
+	history = await agent.run(max_steps=4, on_step_start=on_step_start, on_step_end=on_step_end)
+
+	assert history.final_result() == 'callback follow-up 2'
+	assert callbacks == [('start', 'Continue follow-up callbacks.'), ('end', 'callback follow-up 2')]
+	assert len(process_calls) == 3
+	assert process_calls[1][-3] == 'followup'
+
+
 async def test_rust_agent_run_logs_browser_use_lifecycle_dispatch(monkeypatch):
 	from browser_use.rust import Agent
 

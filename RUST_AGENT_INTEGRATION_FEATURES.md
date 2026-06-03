@@ -901,10 +901,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Run-delegated follow-ups emit one `CreateAgentTaskEvent` and one `UpdateAgentTaskEvent`, matching the single task lifecycle expected by Browser Use callers.
    - Proof: `test_rust_agent_run_follow_up_dispatches_single_task_lifecycle`.
 
+178. Rust Agent run-delegated follow-up end-hook parity
+   - Browser Use-style `Agent.add_new_task(...); Agent.run(..., on_step_end=...)` follow-ups now invoke the supplied end hook after reconstructed Rust history is available.
+   - Run-delegated follow-ups preserve the normal callback order: step-start hook, terminal execution, new-step callback, step-end hook, done callback.
+   - Proof: `test_rust_agent_run_follow_up_invokes_on_step_end`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (149 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (150 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
