@@ -581,10 +581,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - `_prepare_context(...)`, `_get_next_action(...)`, `_log_step_context(...)`, `_make_history_item(...)`, and `_finalize(...)` now resolve to the same Browser Use browser-state annotations instead of loose `Any` metadata.
    - Proof: `test_rust_agent_browser_state_helper_type_hints_match_browser_use`.
 
+115. Rust Agent LLM-message helper type-hint parity
+   - The Rust-backed LLM helper methods now expose Browser Use's `BaseMessage` metadata for callers that introspect model-output and URL-shortening helpers.
+   - `get_model_output(...)`, `_get_model_output_with_retry(...)`, `_handle_post_llm_processing(...)`, and `_process_messsages_and_replace_long_urls_shorter_ones(...)` now resolve to Browser Use's message-list annotations instead of loose `Any` metadata.
+   - Proof: `test_rust_agent_llm_message_helper_type_hints_match_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (88 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (89 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

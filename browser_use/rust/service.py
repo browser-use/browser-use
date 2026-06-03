@@ -42,7 +42,7 @@ from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary, 
 from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam
+from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
@@ -1651,7 +1651,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return URL_PATTERN.sub(replace_url, text), replaced_urls
 
-	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[Any]) -> dict[str, str]:
+	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[BaseMessage]) -> dict[str, str]:
 		"""Replace long URLs in Browser Use LLM messages in place."""
 		from browser_use.llm.messages import AssistantMessage, ContentPartTextParam, UserMessage
 
@@ -1860,7 +1860,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_failure()
 		return browser_state_summary
 
-	async def get_model_output(self, input_messages: list[Any]) -> AgentOutput:
+	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next Browser Use action output from the configured Python LLM."""
 		if self.llm is None or not hasattr(self.llm, 'ainvoke'):
 			raise ValueError('A Browser Use-compatible llm with ainvoke(...) is required for get_model_output().')
@@ -1879,7 +1879,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._log_next_action_summary(parsed)
 		return parsed
 
-	async def _get_model_output_with_retry(self, input_messages: list[Any]) -> AgentOutput:
+	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get model output, retrying once when the model returns no usable action."""
 		model_output = await self.get_model_output(input_messages)
 
@@ -1906,7 +1906,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return model_output
 
-	async def _handle_post_llm_processing(self, browser_state_summary: Any, input_messages: list[Any]) -> None:
+	async def _handle_post_llm_processing(
+		self,
+		browser_state_summary: BrowserStateSummary,
+		input_messages: list[BaseMessage],
+	) -> None:
 		"""Handle Browser Use callbacks and conversation saving after an LLM response."""
 		if self.register_new_step_callback and self.state.last_model_output:
 			if inspect.iscoroutinefunction(self.register_new_step_callback):
