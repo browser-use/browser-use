@@ -659,10 +659,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This covers `tool.output` artifact lists, duplicate `artifact.created` records, spilled tool-output artifacts, and terminal `session.done` result files while keeping image artifacts on the screenshot path surface.
    - Proof: `test_rust_history_reconstructs_terminal_artifact_attachments`.
 
+130. Rust terminal model-turn step reconstruction
+   - Current-main terminal runs are now reconstructed into one Browser Use `AgentHistory` item per `model.turn.request` block instead of collapsing every run into a single synthetic step.
+   - This makes `number_of_steps()`, `model_outputs()`, `model_thoughts()`, `action_history()`, `urls()`, screenshot paths, and final done state follow Browser Use step semantics while preserving collapsed behavior for event logs without terminal model-turn boundaries.
+   - Proof: `test_rust_history_reconstructs_terminal_model_turn_steps`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (101 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (102 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

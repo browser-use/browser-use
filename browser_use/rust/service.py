@@ -1012,6 +1012,7 @@ def _action_results_from_tool_calls(
 	attachments: list[str] | None,
 	failure: str | None,
 	is_done: bool,
+	append_terminal_result: bool = True,
 ) -> list[ActionResult]:
 	tool_results = _tool_results_by_call_id(events)
 	action_results: list[ActionResult] = []
@@ -1027,6 +1028,9 @@ def _action_results_from_tool_calls(
 			)
 		)
 
+	if not append_terminal_result:
+		return action_results
+
 	final_action = ActionResult(
 		is_done=is_done,
 		success=True if is_done else None,
@@ -1040,6 +1044,76 @@ def _action_results_from_tool_calls(
 	else:
 		action_results.append(final_action)
 	return action_results
+
+
+def _terminal_turn_spans(events: list[dict[str, Any]]) -> list[tuple[int, int]]:
+	starts = [index for index, event in enumerate(events) if _event_type(event) == 'model.turn.request']
+	if len(starts) <= 1:
+		return []
+	return [(start, starts[index + 1] if index + 1 < len(starts) else len(events)) for index, start in enumerate(starts)]
+
+
+def _event_time_seconds(event: dict[str, Any], fallback: float) -> float:
+	ts_ms = event.get('ts_ms')
+	if isinstance(ts_ms, (int, float)):
+		return float(ts_ms) / 1000.0
+	ts = event.get('timestamp') or event.get('time')
+	if isinstance(ts, (int, float)):
+		return float(ts)
+	return fallback
+
+
+def _history_items_from_terminal_turns(
+	events: list[dict[str, Any]],
+	*,
+	started: float,
+	finished: float,
+	final_result: str | None,
+	attachments: list[str] | None,
+	failure: str | None,
+	is_done: bool,
+) -> list[AgentHistory] | None:
+	spans = _terminal_turn_spans(events)
+	if not spans:
+		return None
+	history: list[AgentHistory] = []
+	for step_number, (start_index, end_index) in enumerate(spans, start=1):
+		step_events = events[start_index:end_index]
+		if not step_events:
+			continue
+		is_final_step = step_number == len(spans)
+		step_final_result = final_result if is_final_step else None
+		step_failure = failure if is_final_step else None
+		step_is_done = is_done if is_final_step else False
+		step_attachments = attachments if is_final_step else None
+		tool_calls = _tool_calls_with_final_done(
+			_tool_started_calls(step_events),
+			final_result=step_final_result,
+			attachments=step_attachments,
+			is_done=step_is_done,
+		)
+		if not tool_calls and step_final_result is None and step_failure is None:
+			continue
+		state_events = events[:end_index]
+		step_start = _event_time_seconds(step_events[0], started)
+		step_end = _event_time_seconds(step_events[-1], finished if is_final_step else step_start)
+		history.append(
+			AgentHistory(
+				model_output=_model_output_from_tool_calls(tool_calls, step_events),
+				result=_action_results_from_tool_calls(
+					tool_calls,
+					step_events,
+					final_result=step_final_result,
+					attachments=step_attachments,
+					failure=step_failure,
+					is_done=step_is_done,
+					append_terminal_result=is_final_step,
+				),
+				state=_browser_state_from_events(state_events),
+				metadata=StepMetadata(step_start_time=step_start, step_end_time=step_end, step_number=step_number),
+			)
+		)
+	return history or None
 
 
 def _browser_url(value: Any) -> str:
@@ -1259,6 +1333,22 @@ def _history_from_events(
 		failure = 'Rust terminal session did not produce a final result.'
 	is_done = final_result is not None and failure is None
 	attachments = _attachments_from_events(events)
+	history_items = _history_items_from_terminal_turns(
+		events,
+		started=started,
+		finished=finished,
+		final_result=final_result,
+		attachments=attachments,
+		failure=failure,
+		is_done=is_done,
+	)
+	if history_items is not None:
+		history_list: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(
+			history=history_items,
+			usage=_usage_from_events(events, model),
+		)
+		history_list._output_model_schema = output_model_schema
+		return history_list
 	tool_calls = _tool_calls_with_final_done(
 		_tool_started_calls(events),
 		final_result=final_result,

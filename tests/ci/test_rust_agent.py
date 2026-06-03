@@ -448,6 +448,73 @@ def test_rust_history_synthesizes_done_action_from_terminal_completion():
 	assert history.action_history()[0][-1]['result'] == 'Example Domain'
 
 
+def test_rust_history_reconstructs_terminal_model_turn_steps():
+	from browser_use.rust.service import _history_from_events
+
+	events = [
+		{'type': 'session.created', 'ts_ms': 1_000, 'payload': {}},
+		{'type': 'model.turn.request', 'ts_ms': 2_000, 'payload': {'model': 'gpt-test', 'attempt': 0}},
+		{'type': 'model.stream_delta', 'ts_ms': 2_010, 'payload': {'text': 'Connect the browser.'}},
+		{
+			'type': 'tool.started',
+			'ts_ms': 2_020,
+			'payload': {
+				'name': 'browser',
+				'tool_call_id': 'call-browser',
+				'arguments': {'cmd': 'connect managed --headless'},
+			},
+		},
+		{
+			'type': 'tool.output',
+			'ts_ms': 2_030,
+			'payload': {'name': 'browser', 'tool_call_id': 'call-browser', 'text': 'Connected browser'},
+		},
+		{
+			'type': 'browser.state',
+			'ts_ms': 2_040,
+			'payload': {'url': 'https://example.com', 'title': 'Example Domain'},
+		},
+		{'type': 'model.turn.request', 'ts_ms': 3_000, 'payload': {'model': 'gpt-test', 'attempt': 0}},
+		{'type': 'model.stream_delta', 'ts_ms': 3_010, 'payload': {'text': 'Return the page title.'}},
+		{
+			'type': 'tool.started',
+			'ts_ms': 3_020,
+			'payload': {
+				'name': 'done',
+				'tool_call_id': 'call-done',
+				'arguments': {'text': 'Example Domain', 'success': True},
+			},
+		},
+		{
+			'type': 'tool.output',
+			'ts_ms': 3_030,
+			'payload': {'name': 'done', 'tool_call_id': 'call-done', 'text': 'done:Example Domain'},
+		},
+		{'type': 'session.done', 'ts_ms': 3_040, 'payload': {'result': 'Example Domain'}},
+	]
+
+	history = _history_from_events(
+		events,
+		model='gpt-test',
+		started=1.0,
+		finished=4.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	action_history = history.action_history()
+
+	assert history.number_of_steps() == 2
+	assert history.urls() == ['https://example.com', 'https://example.com']
+	assert history.action_names() == ['browser', 'done']
+	assert history.model_outputs()[0].memory == 'Connect the browser.'
+	assert history.model_outputs()[1].memory == 'Return the page title.'
+	assert action_history[0][0]['result'] == 'Connected browser'
+	assert action_history[1][0]['result'] == 'Example Domain'
+	assert history.final_result() == 'Example Domain'
+	assert history.is_done() is True
+
+
 def test_rust_history_reconstructs_terminal_streamed_model_thoughts():
 	from browser_use.rust.service import _history_from_events
 
