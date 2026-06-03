@@ -4496,6 +4496,63 @@ async def test_rust_agent_post_process_logs_browser_use_result_messages(monkeypa
 	assert download_checks == ['after executing actions', 'after executing actions', 'after executing actions']
 
 
+async def test_rust_agent_handle_step_error_logs_browser_use_failure_prefix(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.errors = []
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def info(self, message, *args, **kwargs):
+			pass
+
+		def warning(self, message, *args, **kwargs):
+			pass
+
+		def isEnabledFor(self, level):
+			return False
+
+	class LLM:
+		model = 'gpt-test'
+
+	agent_logger = RecordingLogger()
+	module_logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: agent_logger))
+	monkeypatch.setattr(rust_service, 'logger', module_logger)
+
+	agent = Agent(task='Handle normal step error.', llm=LLM())
+	await agent._handle_step_error(ValueError('bad step'))
+	assert agent.state.consecutive_failures == 1
+	assert agent.state.last_result is not None
+	assert agent.state.last_result[-1].error == 'bad step'
+	assert agent_logger.errors == ['❌ Result failed 1/4 times:\n bad step']
+
+	agent_logger.errors.clear()
+	agent.state.last_result = None
+	await agent._handle_step_error(InterruptedError('paused'))
+	assert agent_logger.errors == ['The agent was interrupted mid-step - paused']
+	assert agent.state.last_result is None
+
+	parse_agent = Agent(task='Handle parse step error.', llm=LLM())
+	agent_logger.errors.clear()
+	module_logger.errors.clear()
+	await parse_agent._handle_step_error(ValueError('Could not parse response: missing action'))
+	assert parse_agent.state.consecutive_failures == 1
+	assert parse_agent.state.last_result[-1].error == 'Could not parse response: missing action'
+	assert agent_logger.errors == []
+	assert module_logger.errors == [
+		'Model: gpt-test failed',
+		'❌ Result failed 1/4 times:\n Could not parse response: missing action',
+	]
+
+
 def test_rust_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
 	from browser_use.rust import Agent

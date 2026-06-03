@@ -68,6 +68,7 @@ AgentNewStepCallback = (
 	| Callable[[BrowserStateSummary, AgentOutput, int], Awaitable[None]]
 )
 AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None]] | Callable[[AgentHistoryList], None]
+logger = logging.getLogger(__name__)
 
 
 class RustAgentError(RuntimeError):
@@ -3573,10 +3574,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
+		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n '
 		self.state.consecutive_failures += 1
-		self.logger.error(
-			f'Result failed {self.state.consecutive_failures}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n {error_msg}'
-		)
+		if 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
+			logger.error(f'Model: {getattr(self.llm, "model", None)} failed')
+			logger.error(f'{prefix}{error_msg}')
+		else:
+			self.logger.error(f'{prefix}{error_msg}')
 		self.state.last_result = [ActionResult(error=error_msg)]
 
 	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
