@@ -331,6 +331,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helpers surface visible checkbox, radio, and switch controls with labels/state/rects, then set a matched rendered control by label, name, or selector using a real click.
    - Proof: `browser_script_form_control_helpers_toggle_labeled_controls`.
 
+65. Browser-script select control helper
+   - Terminal browser scripts now expose `select_controls_snapshot(limit=20, option_limit=30)` and `select_option(label_or_placeholder, option_text_or_value, timeout=1.0)`.
+   - The helpers surface native selects and combobox-like controls with labels/current values/options/rects, then choose native select options by label/value via focus plus keyboard navigation or use click/type/Enter for comboboxes.
+   - Proof: `browser_script_select_helpers_choose_native_select_options`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -373,6 +378,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_contact_details_snapshot_normalizes_candidates -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_location_records_snapshot_normalizes_directory_records -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_form_control_helpers_toggle_labeled_controls -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_select_helpers_choose_native_select_options -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
