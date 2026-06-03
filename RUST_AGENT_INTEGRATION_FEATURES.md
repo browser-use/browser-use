@@ -861,10 +861,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - SIGINT handling is wired to the wrapper's `pause()`, `resume()`, force-exit telemetry, telemetry flush, and cleanup-time unregister path.
    - Proof: `test_rust_agent_run_registers_browser_use_signal_handler`.
 
+170. Rust Agent run exception-finalization parity
+   - Terminal-backed `Agent.run()` now finalizes Browser Use run lifecycle state when Rust terminal execution raises before producing history.
+   - Exceptional runs log usage summaries, record telemetry with the exception text, dispatch the final task update, log final guidance, unregister signal handlers, close browser resources, and then re-raise the original exception.
+   - Proof: `test_rust_agent_run_finalizes_after_terminal_exception`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (141 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (142 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

@@ -3148,6 +3148,96 @@ async def test_rust_agent_run_registers_browser_use_signal_handler(monkeypatch):
 	assert captured_events[0].error_message == 'SIGINT: Cancelled by user'
 
 
+async def test_rust_agent_run_finalizes_after_terminal_exception(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	events = []
+	captured_events = []
+
+	class FakeSignalHandler:
+		def __init__(self, **kwargs):
+			events.append('init_signal')
+
+		def register(self):
+			events.append('register_signal')
+
+		def unregister(self):
+			events.append('unregister_signal')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+			self.warnings = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+		def warning(self, message, *args, **kwargs):
+			self.warnings.append(message)
+
+	class BrowserProfile:
+		keep_alive = False
+		viewport = {'width': 1280, 'height': 720}
+		user_agent = None
+		headless = True
+		allowed_domains = []
+
+	class BrowserSession:
+		id = 'browser-session-1234'
+		browser_profile = BrowserProfile()
+		cdp_url = None
+
+		def __init__(self):
+			self.kill_calls = 0
+
+		async def kill(self):
+			events.append('kill_browser')
+			self.kill_calls += 1
+
+	class TokenCostService:
+		async def log_usage_summary(self):
+			events.append('usage_summary')
+
+	class Telemetry:
+		def capture(self, event):
+			captured_events.append(event)
+
+	session = BrowserSession()
+	logger = RecordingLogger()
+	monkeypatch.setattr(rust_service, 'SignalHandler', FakeSignalHandler)
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Clean up failed terminal run.', llm=type('LLM', (), {'model': 'gpt-test'})(), browser_session=session)
+	agent.token_cost_service = TokenCostService()
+	agent.telemetry = Telemetry()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		events.append('run_process')
+		raise RuntimeError('terminal exploded')
+
+	agent._run_process = fake_run_process
+
+	with pytest.raises(RuntimeError, match='terminal exploded'):
+		await agent.run(max_steps=7)
+
+	assert events == ['init_signal', 'register_signal', 'run_process', 'usage_summary', 'unregister_signal', 'kill_browser']
+	assert session.kill_calls == 1
+	assert getattr(agent, '_run_signal_handler') is None
+	assert len(captured_events) == 1
+	assert captured_events[0].max_steps == 7
+	assert captured_events[0].error_message == 'terminal exploded'
+	assert logger.errors[0] == 'Agent run failed with exception: terminal exploded'
+
+
 async def test_rust_agent_run_logs_token_usage_summary(monkeypatch):
 	from browser_use.rust import Agent
 

@@ -2873,6 +2873,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._stop_eventbus_after_run()
 		await self.close()
 
+	async def _finalize_exceptional_run(self, max_steps: int, agent_run_error: str) -> None:
+		"""Mirror Browser Use run finalization for exceptions that escape Rust execution."""
+		await self._log_run_usage_summary()
+		self._record_run_telemetry(max_steps=max_steps, agent_run_error=agent_run_error)
+		self._dispatch_run_update_event()
+		self._log_final_outcome_messages()
+		await self._finalize_run_cleanup()
+
 	def _initialize_run_lifecycle_state(self) -> None:
 		"""Initialize Browser Use run timing and session state."""
 		self._session_start_time = time.time()
@@ -2906,6 +2914,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		self._register_run_signal_handler(max_steps)
+		try:
+			return await self._run_terminal(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end)
+		except KeyboardInterrupt:
+			self.logger.debug('Got KeyboardInterrupt during execution, returning current history')
+			await self._finalize_exceptional_run(max_steps=max_steps, agent_run_error='KeyboardInterrupt')
+			return self.history
+		except Exception as exc:
+			self.logger.error(f'Agent run failed with exception: {exc}', exc_info=True)
+			await self._finalize_exceptional_run(max_steps=max_steps, agent_run_error=str(exc))
+			raise
+
+	async def _run_terminal(
+		self,
+		max_steps: int,
+		on_step_start: AgentHookFunc | None,
+		on_step_end: AgentHookFunc | None,
+	) -> AgentHistoryList[AgentStructuredOutput]:
 		await self._log_agent_run()
 		await self._call_callback(on_step_start, self)
 		self._initialize_run_lifecycle_state()
