@@ -366,6 +366,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `14
    - The helpers search or fetch a target paper through the Semantic Scholar Graph API, normalize selected-paper metadata, authors, venues, external IDs, open-access PDF URLs, abstracts, and paginated citation/reference records with optional year filtering.
    - Proof: `browser_script_semantic_scholar_helpers_normalize_paper_graphs`.
 
+72. Browser-script OpenReview notes helper
+   - Terminal browser scripts now expose `openreview_notes(endpoint="search", params=None, limit=100, offset=0, timeout=20.0)`.
+   - The helper calls OpenReview `notes/search` or `notes`, preserves note/forum/invitation/domain metadata, and unwraps nested `content.value` / `content.values` payloads into normal Python values for search, decision, review, and author-note tasks.
+   - Proof: `browser_script_openreview_notes_normalizes_content_values`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -415,6 +420,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `14
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_overlay_helpers_dismiss_cookie_actions -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_extract_paginated_grid_rows_collects_pages -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_semantic_scholar_helpers_normalize_paper_graphs -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_openreview_notes_normalizes_content_values -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
