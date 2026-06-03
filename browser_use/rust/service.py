@@ -1777,6 +1777,30 @@ class Agent(Generic[AgentStructuredOutput]):
 			'stderr': self.last_stderr,
 		}
 
+	async def _check_stop_or_pause(self) -> None:
+		"""Check Browser Use-style stop/pause controls and raise when interrupted."""
+		if self.register_should_stop_callback is not None:
+			should_stop = self.register_should_stop_callback()
+			if inspect.isawaitable(should_stop):
+				should_stop = await should_stop
+			if should_stop:
+				self.logger.info('External callback requested stop')
+				self.state.stopped = True
+				raise InterruptedError
+
+		if self.register_external_agent_status_raise_error_callback is not None:
+			should_stop = self.register_external_agent_status_raise_error_callback()
+			if inspect.isawaitable(should_stop):
+				should_stop = await should_stop
+			if should_stop:
+				raise InterruptedError
+
+		if self.state.stopped:
+			raise InterruptedError
+
+		if self.state.paused:
+			raise InterruptedError
+
 	async def _should_stop_before_run(self) -> bool:
 		if self.state.stopped:
 			return True

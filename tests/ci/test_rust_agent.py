@@ -1249,6 +1249,32 @@ def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
 	assert 'saved answer' in history_file.read_text(encoding='utf-8')
 
 
+async def test_rust_agent_check_stop_or_pause_matches_browser_use_lifecycle():
+	from browser_use.rust import Agent
+
+	seen = []
+
+	async def should_stop():
+		seen.append('should_stop')
+		return True
+
+	agent = Agent(task='check controls', register_should_stop_callback=should_stop)
+
+	with pytest.raises(InterruptedError):
+		await agent._check_stop_or_pause()
+
+	assert seen == ['should_stop']
+	assert agent.state.stopped is True
+
+	paused_agent = Agent(task='check pause')
+	paused_agent.pause()
+
+	with pytest.raises(InterruptedError):
+		await paused_agent._check_stop_or_pause()
+
+	assert paused_agent.state.paused is True
+
+
 async def test_rust_agent_rerun_history_delegates_to_rust_run():
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events

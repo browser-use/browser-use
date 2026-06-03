@@ -466,10 +466,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The wrapper keeps a fallback initial profile for lightweight custom sessions while reflecting later browser-session profile changes through the public property.
    - Proof: `test_rust_agent_browser_profile_property_tracks_session_profile`.
 
+92. Rust Agent stop/pause lifecycle helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's async `_check_stop_or_pause(...)` helper.
+   - The helper evaluates external stop callbacks, sets stopped state for should-stop callbacks, and raises `InterruptedError` for stopped or paused agents.
+   - Proof: `test_rust_agent_check_stop_or_pause_matches_browser_use_lifecycle`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (65 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (66 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
