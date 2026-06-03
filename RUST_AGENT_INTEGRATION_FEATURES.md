@@ -704,10 +704,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This keeps rolled-back model outputs, tool actions, tool results, usage, attachments, and final results off Python-visible surfaces such as `action_names()`, `model_outputs()`, `action_history()`, and `final_result()`.
    - Proof: `test_rust_history_applies_terminal_session_rollback`.
 
+139. Rust terminal session-compaction replay boundary reconstruction
+   - Terminal `session.compacted` events now establish the Browser Use history replay boundary before action/result reconstruction.
+   - This keeps pre-compaction model outputs, tool actions, tool results, usage, attachments, and final results off Python-visible history surfaces while preserving post-compaction run data.
+   - Proof: `test_rust_history_applies_terminal_session_compaction_boundary`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (110 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (111 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

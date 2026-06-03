@@ -762,6 +762,74 @@ def test_rust_history_applies_terminal_session_rollback():
 	assert 'rolled-back.example' not in serialized_actions
 
 
+def test_rust_history_applies_terminal_session_compaction_boundary():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'session.input', 'seq': 1, 'payload': {'text': 'old task'}},
+			{'event_type': 'model.turn.request', 'seq': 2, 'ts_ms': 2_000, 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'seq': 3, 'payload': {'text': 'Old turn'}},
+			{
+				'event_type': 'tool.started',
+				'seq': 4,
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-old',
+					'arguments': {'code': "goto_url('https://old.example')"},
+				},
+			},
+			{
+				'event_type': 'tool.output',
+				'seq': 5,
+				'payload': {'name': 'browser_script', 'tool_call_id': 'call-old', 'text': 'Old removed'},
+			},
+			{'event_type': 'session.done', 'seq': 6, 'payload': {'result': 'Old result'}},
+			{
+				'event_type': 'session.compacted',
+				'seq': 7,
+				'payload': {
+					'replacement_messages': [{'role': 'user', 'content': 'compacted summary'}],
+				},
+			},
+			{'event_type': 'session.followup', 'seq': 8, 'payload': {'text': 'post-compaction task'}},
+			{'event_type': 'model.turn.request', 'seq': 9, 'ts_ms': 3_000, 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'seq': 10, 'payload': {'text': 'Post compaction turn'}},
+			{
+				'event_type': 'tool.started',
+				'seq': 11,
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-post',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'event_type': 'tool.output',
+				'seq': 12,
+				'payload': {'name': 'browser_script', 'tool_call_id': 'call-post', 'text': 'Post kept'},
+			},
+			{'event_type': 'session.done', 'seq': 13, 'payload': {'result': 'Post result'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=4.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	serialized_actions = json.dumps(history.model_actions(), sort_keys=True)
+
+	assert history.number_of_steps() == 1
+	assert history.action_names() == ['browser_script', 'done']
+	assert history.model_outputs()[0].memory == 'Post compaction turn'
+	assert history.action_history()[0][0]['result'] == 'Post kept'
+	assert history.final_result() == 'Post result'
+	assert 'Old turn' not in serialized_actions
+	assert 'old.example' not in serialized_actions
+	assert 'Old result' not in (history.final_result() or '')
+
+
 def test_rust_history_reconstructs_terminal_streamed_model_thoughts():
 	from browser_use.rust.service import _history_from_events
 

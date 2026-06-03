@@ -747,6 +747,33 @@ def _contextual_event_targets_turn(event: dict[str, Any], target_seq: int | None
 	return isinstance(before_seq, int) and before_seq == target_seq
 
 
+def _compaction_replay_start_seq(event: dict[str, Any]) -> int | None:
+	replay_from_seq = _event_payload(event).get('replay_from_seq')
+	if isinstance(replay_from_seq, bool):
+		return None
+	if isinstance(replay_from_seq, int):
+		return replay_from_seq
+	return _event_seq(event)
+
+
+def _events_after_terminal_compaction(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	compaction_index = next((index for index in range(len(events) - 1, -1, -1) if _event_type(events[index]) == 'session.compacted'), None)
+	if compaction_index is None:
+		return events
+	replay_start_seq = _compaction_replay_start_seq(events[compaction_index])
+	if replay_start_seq is None:
+		return events[compaction_index + 1 :]
+	replay_events: list[dict[str, Any]] = []
+	for index, event in enumerate(events):
+		seq = _event_seq(event)
+		if seq is not None:
+			if seq > replay_start_seq:
+				replay_events.append(event)
+		elif index > compaction_index:
+			replay_events.append(event)
+	return replay_events
+
+
 def _rollback_last_terminal_user_turn(events: list[dict[str, Any]]) -> bool:
 	user_pos = next((index for index in range(len(events) - 1, -1, -1) if _is_terminal_user_turn_event(events[index])), None)
 	if user_pos is None:
@@ -1570,7 +1597,7 @@ def _history_from_events(
 	output_model_schema: type[AgentStructuredOutput] | None,
 	process_error: str | None,
 ) -> AgentHistoryList[AgentStructuredOutput]:
-	events = _events_after_terminal_rollbacks(events)
+	events = _events_after_terminal_rollbacks(_events_after_terminal_compaction(events))
 	final_result = _structured_result_text(_result_from_events(events), output_model_schema)
 	failure = process_error or _failure_from_events(events)
 	if final_result is None and failure is None:
