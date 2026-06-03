@@ -1172,6 +1172,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `cargo test -q -p browser-use-browser browser_profile_runtime_setup_calls_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_domain_constraints_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_domain_constraints_are_passive_without_env -- --nocapture`
+- `uv run pytest -q tests/ci/test_rust_agent.py -k browser_profile_domain_constraints`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
@@ -1266,6 +1267,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - BrowserProfile runtime + structured-output Python API end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, and construct `Agent(..., llm=ChatOpenAI(model="gpt-4.1-mini"), browser_profile=BrowserProfile(user_agent="BrowserUseProfileSmoke/5.0", viewport={"width": 960, "height": 720}, permissions=[...], accept_downloads=True, downloads_path=..., allowed_domains=["example.com"], prohibited_domains=["iana.org"], block_ip_addresses=True, wait timings...), output_model_schema=ProfileSmoke)`.
   - Output: `{"downloads_path_exists":true,"errors":[],"ok":true,"output":{"host":"example.com","title":"Example Domain","user_agent_contains":true,"viewport_width":960},"smoke":"profile_runtime_python_agent_openai"}`.
+  - 2026-06-03 post-passive-constraint smoke: same rebuilt terminal binary, `BrowserProfile(user_agent="BrowserUsePassiveGuardSmoke/1.0", viewport={"width": 900, "height": 700}, accept_downloads=True, downloads_path=...)`, and `output_model_schema=PageAnswer` returned `{"host":"example.com","ok":true,"title":"Example Domain"}`, preserved `BU_BROWSER_USER_AGENT`/`BU_BROWSER_VIEWPORT`, and created the downloads directory. The run recorded one generated browser-script `await outside function` error before successful completion, so it is a runability/structured-output proof rather than an error-free benchmark proof.
   - Follow-up/callback smoke note: an OpenAI-backed follow-up/callback smoke currently completes the first run but does not keep the browser usable for the follow-up interaction in managed-headless mode; do not count it as a green proof until fixed or retested in a different browser mode.
 - Multi-feature Python API cloud end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`, unset browser-mode overrides, and construct `Agent(..., browser_profile=BrowserProfile(use_cloud=True), register_new_step_callback=..., register_done_callback=..., save_conversation_path=..., step_timeout=300)`.
