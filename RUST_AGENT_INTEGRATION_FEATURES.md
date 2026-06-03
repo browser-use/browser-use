@@ -496,10 +496,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The helpers preserve failure bookkeeping, done-result logging, screenshot-backed history item creation, file-system state persistence, step counting, and done-only output switching for Rust-backed helper execution.
    - Proof: `test_rust_agent_exposes_step_finalization_helper_methods`.
 
+98. Rust Agent action replay helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's `_execute_initial_actions()`, `_execute_history_step(...)`, and `_update_action_indices(...)` replay helpers.
+   - Initial actions execute through `multi_act` and are recorded as step 0, while history replay remaps moved DOM indices by element hash before routing actions through the Rust-backed action path.
+   - Proof: `test_rust_agent_exposes_action_replay_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (71 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (72 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

@@ -1964,6 +1964,102 @@ class Agent(Generic[AgentStructuredOutput]):
 			self.task = original_task
 		return history.action_results()
 
+	async def _execute_initial_actions(self) -> None:
+		"""Execute configured Browser Use initial actions through the Rust-backed action path."""
+		if not self.initial_actions or self.state.follow_up_task:
+			return
+		result = await self.multi_act(self.initial_actions)
+		if result and self.initial_url and result[0].long_term_memory:
+			result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
+		self.state.last_result = result
+
+		if self.settings.flash_mode:
+			model_output = self.AgentOutput(
+				evaluation_previous_goal=None,
+				memory='Initial navigation',
+				next_goal=None,
+				action=self.initial_actions,
+			)
+		else:
+			model_output = self.AgentOutput(
+				evaluation_previous_goal='Start',
+				memory=None,
+				next_goal='Initial navigation',
+				action=self.initial_actions,
+			)
+
+		metadata = StepMetadata(
+			step_number=0,
+			step_start_time=time.time(),
+			step_end_time=time.time(),
+		)
+		state_history = BrowserStateHistory(
+			url=self.initial_url or '',
+			title='Initial Actions',
+			tabs=[],
+			interacted_element=[None] * len(self.initial_actions),
+			screenshot_path=None,
+		)
+		self.history.add_item(
+			AgentHistory(
+				model_output=model_output,
+				result=result,
+				state=state_history,
+				metadata=metadata,
+			)
+		)
+
+	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
+		"""Replay a Browser Use history step when Python action models are available."""
+		if self.browser_session is None:
+			raise ValueError('BrowserSession is not set up')
+		get_state = getattr(self.browser_session, 'get_browser_state_summary', None)
+		if not callable(get_state):
+			raise ValueError('BrowserSession does not expose get_browser_state_summary')
+		state = await get_state(include_screenshot=False)
+		if not state or not history_item.model_output:
+			raise ValueError('Invalid state or model output')
+
+		updated_actions = []
+		for index, action in enumerate(history_item.model_output.action):
+			historical_element = history_item.state.interacted_element[index]
+			updated_action = await self._update_action_indices(historical_element, action, state)
+			if updated_action is None:
+				raise ValueError(f'Could not find matching element {index} in current page')
+			updated_actions.append(updated_action)
+
+		result = await self.multi_act(updated_actions)
+		await asyncio.sleep(delay)
+		return result
+
+	async def _update_action_indices(
+		self,
+		historical_element: Any | None,
+		action: Any,
+		browser_state_summary: Any,
+	) -> Any | None:
+		"""Update an action index when a historical DOM element moved."""
+		selector_map = getattr(getattr(browser_state_summary, 'dom_state', None), 'selector_map', {})
+		if not historical_element or not selector_map:
+			return action
+		historical_hash = getattr(historical_element, 'element_hash', None)
+		highlight_index = None
+		for candidate_index, element in selector_map.items():
+			if getattr(element, 'element_hash', None) == historical_hash:
+				highlight_index = candidate_index
+				break
+		if highlight_index is None:
+			return None
+
+		get_index = getattr(action, 'get_index', None)
+		set_index = getattr(action, 'set_index', None)
+		if callable(get_index) and callable(set_index):
+			old_index = get_index()
+			if old_index != highlight_index:
+				set_index(highlight_index)
+				self.logger.info(f'Element moved in DOM, updated index from {old_index} to {highlight_index}')
+		return action
+
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a follow-up task while keeping the same Browser Use-style agent object."""
 		self.task = _task_with_schema(new_task, self.output_model_schema)

@@ -1732,6 +1732,82 @@ async def test_rust_agent_multi_act_routes_actions_to_followup():
 	assert results[0].extracted_content == 'actions applied'
 
 
+async def test_rust_agent_exposes_action_replay_helper_methods():
+	from types import SimpleNamespace
+
+	from browser_use.agent.views import ActionResult
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		downloads_path = None
+
+	class BrowserSession:
+		browser_profile = BrowserProfile()
+
+		async def get_browser_state_summary(self, include_screenshot=False):
+			assert include_screenshot is False
+			return SimpleNamespace(
+				dom_state=SimpleNamespace(selector_map={7: SimpleNamespace(element_hash='matching-hash')})
+			)
+
+	class FakeAction:
+		def __init__(self):
+			self.index = 2
+
+		def get_index(self):
+			return self.index
+
+		def set_index(self, index):
+			self.index = index
+
+		def model_dump(self, **kwargs):
+			return {'click_element': {'index': self.index}}
+
+	agent = Agent(
+		task='Replay actions.',
+		browser_session=BrowserSession(),
+		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
+	)
+	agent.initial_url = 'https://example.com'
+	initial_calls = []
+
+	async def fake_initial_multi_act(actions):
+		initial_calls.append(actions)
+		return [ActionResult(long_term_memory='loaded')]
+
+	agent.multi_act = fake_initial_multi_act
+	await agent._execute_initial_actions()
+
+	assert initial_calls == [agent.initial_actions]
+	assert agent.state.last_result[0].long_term_memory == 'Found initial url and automatically loaded it. loaded'
+	assert agent.history.history[0].metadata.step_number == 0
+	assert agent.history.history[0].state.url == 'https://example.com'
+	assert agent.history.history[0].model_output.action == agent.initial_actions
+
+	action = FakeAction()
+	replay_calls = []
+
+	async def fake_replay_multi_act(actions):
+		replay_calls.append(actions)
+		return [ActionResult(extracted_content='replayed')]
+
+	agent.multi_act = fake_replay_multi_act
+	history_item = SimpleNamespace(
+		model_output=SimpleNamespace(action=[action]),
+		state=SimpleNamespace(interacted_element=[SimpleNamespace(element_hash='matching-hash')]),
+	)
+	results = await agent._execute_history_step(history_item, delay=0)
+
+	assert action.index == 7
+	assert replay_calls == [[action]]
+	assert results[0].extracted_content == 'replayed'
+	assert await agent._update_action_indices(
+		SimpleNamespace(element_hash='missing-hash'),
+		FakeAction(),
+		SimpleNamespace(dom_state=SimpleNamespace(selector_map={1: SimpleNamespace(element_hash='other-hash')})),
+	) is None
+
+
 async def test_rust_agent_trace_and_cloud_auth_helpers():
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events
