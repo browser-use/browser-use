@@ -22,6 +22,7 @@ from pydantic import BaseModel, ValidationError, create_model
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
+from browser_use.agent.cloud_events import CreateAgentSessionEvent, CreateAgentTaskEvent, UpdateAgentTaskEvent
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
@@ -2308,6 +2309,20 @@ def _eventbus_name(agent_id: str, prefix: str = 'Agent') -> str:
 	return f'{prefix}_{suffix or "agent"}'
 
 
+class _CloudEventLLMProxy:
+	def __init__(self, model_name: str):
+		self.model_name = model_name
+
+
+class _CloudEventAgentProxy:
+	def __init__(self, agent: 'Agent'):
+		self._agent = agent
+		self.llm = _CloudEventLLMProxy(getattr(agent, 'model', None) or _model_name(getattr(agent, 'llm', None)))
+
+	def __getattr__(self, name: str) -> Any:
+		return getattr(self._agent, name)
+
+
 def _unique_eventbus_name(agent_id: str, prefix: str = 'Agent') -> str:
 	unique_suffix = re.sub(r'\W', '_', uuid7str()[-8:])
 	return f'{_eventbus_name(agent_id, prefix)}_{unique_suffix}'
@@ -2502,6 +2517,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		_register_llm_for_usage(self.token_cost_service, page_extraction_llm)
 		self.telemetry = ProductTelemetry()
 		self.eventbus = EventBus(name=_eventbus_name(self.id))
+		self._eventbus_stopped = False
 		self.available_file_paths = available_file_paths or []
 		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
 		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
@@ -2769,12 +2785,50 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except Exception as exc:
 			self.logger.error(f'Failed to log telemetry event: {exc}', exc_info=True)
 
+	def _cloud_event_agent(self):
+		llm_model_name = getattr(getattr(self, 'llm', None), 'model_name', None)
+		if isinstance(llm_model_name, str) and llm_model_name:
+			return self
+		return _CloudEventAgentProxy(self)
+
+	def _ensure_eventbus(self) -> None:
+		if getattr(self, '_eventbus_stopped', False):
+			self.eventbus = EventBus(name=_unique_eventbus_name(self.id))
+			self._eventbus_stopped = False
+
+	def _dispatch_run_start_events(self) -> None:
+		"""Emit Browser Use cloud lifecycle create events for a Rust-backed run."""
+		self._ensure_eventbus()
+		event_agent = self._cloud_event_agent()
+		if not self.state.session_initialized:
+			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(event_agent))
+			self.state.session_initialized = True
+		self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(event_agent))
+
+	def _dispatch_run_update_event(self) -> None:
+		"""Emit Browser Use cloud lifecycle update event for a completed Rust-backed run."""
+		self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self._cloud_event_agent()))
+
+	async def _stop_eventbus_after_run(self) -> None:
+		"""Stop the eventbus after run-level events have been dispatched."""
+		stop = getattr(self.eventbus, 'stop', None)
+		if not callable(stop):
+			return
+		handlers = getattr(self.eventbus, 'handlers', None)
+		has_handlers = any(handlers.values()) if isinstance(handlers, dict) else True
+		try:
+			result = stop(timeout=3.0, clear=not has_handlers)
+		except TypeError:
+			result = stop(timeout=3.0)
+		if inspect.isawaitable(result):
+			await result
+		self._eventbus_stopped = True
+
 	def _initialize_run_lifecycle_state(self) -> None:
 		"""Initialize Browser Use run timing and session state."""
 		self._session_start_time = time.time()
 		self._task_start_time = self._session_start_time
-		if not self.state.session_initialized:
-			self.state.session_initialized = True
+		self._dispatch_run_start_events()
 
 	def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
 		"""Log an action before execution with Browser Use-style structure."""
@@ -2817,7 +2871,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 			self.history = self.result
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
+			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
+			await self._stop_eventbus_after_run()
 			return self.history
 		if self.state.paused:
 			finished = time.time()
@@ -2831,7 +2887,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 			self.history = self.result
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent is paused before terminal run.')
+			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
+			await self._stop_eventbus_after_run()
 			return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
@@ -2860,12 +2918,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.history = self.result
 		self._sync_state_from_history()
 		self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
+		self._dispatch_run_update_event()
 		await self._check_and_update_downloads('run')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
 		self._generate_gif_if_requested()
+		await self._stop_eventbus_after_run()
 		return self.history
 
 	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
@@ -2901,11 +2961,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._sync_state_from_history()
 		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
 		self._record_run_telemetry(max_steps=resolved_max_steps, agent_run_error=process_error)
+		self._dispatch_run_update_event()
 		await self._check_and_update_downloads('follow_up')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_done_callback()
 		self._generate_gif_if_requested()
+		await self._stop_eventbus_after_run()
 		return self.history
 
 	follow_up_task = follow_up
@@ -3578,6 +3640,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.stopped = False
 		self.state.paused = False
 		self.eventbus = EventBus(name=_unique_eventbus_name(self.id))
+		self._eventbus_stopped = False
 		self._external_pause_event.set()
 
 	def save_history(self, file_path: str | Path | None = None) -> None:

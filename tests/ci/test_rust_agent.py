@@ -3043,6 +3043,55 @@ async def test_rust_agent_run_initializes_browser_use_session_state(monkeypatch)
 	assert agent._task_start_time == agent._session_start_time
 
 
+async def test_rust_agent_run_dispatches_browser_use_lifecycle_events(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	dispatched = []
+	run_count = 0
+
+	class EventBus:
+		def dispatch(self, event):
+			dispatched.append(event)
+			return event
+
+	agent = Agent(task='Dispatch lifecycle events.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.eventbus = EventBus()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		nonlocal run_count
+		run_count += 1
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': f'dispatched {run_count}'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=4)
+
+	assert history.final_result() == 'dispatched 1'
+	assert [type(event).__name__ for event in dispatched] == [
+		'CreateAgentSessionEvent',
+		'CreateAgentTaskEvent',
+		'UpdateAgentTaskEvent',
+	]
+	assert dispatched[0].id == str(agent.session_id)
+	assert dispatched[1].id == str(agent.task_id)
+	assert dispatched[1].llm_model == 'gpt-test'
+	assert dispatched[2].id == str(agent.task_id)
+	assert dispatched[2].done_output == 'dispatched 1'
+
+	dispatched.clear()
+	history = await agent.run(max_steps=4)
+
+	assert history.final_result() == 'dispatched 2'
+	assert [type(event).__name__ for event in dispatched] == ['CreateAgentTaskEvent', 'UpdateAgentTaskEvent']
+	assert dispatched[0].llm_model == 'gpt-test'
+	assert dispatched[1].done_output == 'dispatched 2'
+
+
 async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	import base64
 	import time

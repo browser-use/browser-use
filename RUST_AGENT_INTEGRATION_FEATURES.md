@@ -825,10 +825,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The wrapper sets `_session_start_time`, `_task_start_time`, and flips `state.session_initialized`, matching the observable Python Agent state callers can inspect around completed runs.
    - Proof: `test_rust_agent_run_initializes_browser_use_session_state`.
 
+163. Rust Agent event-bus run lifecycle parity
+   - Terminal-backed `Agent.run()` and `Agent.follow_up()` now dispatch Browser Use cloud event-bus lifecycle events around Rust core execution.
+   - The wrapper emits `CreateAgentSessionEvent` once per Browser Use session, `CreateAgentTaskEvent` at each run start, and `UpdateAgentTaskEvent` after reconstructed terminal history is available.
+   - Run event buses are stopped after completion and recreated before later runs when needed, matching Browser Use's per-run eventbus lifecycle without leaving pending no-handler events in local tests.
+   - Proof: `test_rust_agent_run_dispatches_browser_use_lifecycle_events`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (134 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (135 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
