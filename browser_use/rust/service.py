@@ -3578,6 +3578,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not self.state.last_result:
 			return
 		step_start_time = getattr(self, 'step_start_time', step_end_time)
+		step_event = None
 		if browser_state_summary is not None:
 			metadata = StepMetadata(
 				step_number=self.state.n_steps,
@@ -3592,7 +3593,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				metadata,
 				state_message=state_message,
 			)
-			self._log_step_completion_summary(step_start_time, self.state.last_result)
 			if self.state.last_model_output:
 				actions_data = []
 				for action in self.state.last_model_output.action or []:
@@ -3605,9 +3605,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					actions_data,
 					browser_state_summary,
 				)
-				self.eventbus.dispatch(step_event)
 		self._log_step_completion_summary(step_start_time, self.state.last_result)
 		self.save_file_system_state()
+		if step_event is not None:
+			self.eventbus.dispatch(step_event)
 		self.state.n_steps += 1
 
 	async def _force_done_after_last_step(self, step_info: AgentStepInfo | None = None) -> None:

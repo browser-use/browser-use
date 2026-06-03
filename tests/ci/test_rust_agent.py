@@ -4357,6 +4357,61 @@ async def test_rust_agent_finalize_logs_step_completion_without_browser_state(mo
 	assert any('Ran 1 action' in message and 'success=1' in message for message in logger.debugs)
 
 
+async def test_rust_agent_finalize_orders_summary_save_before_step_event(monkeypatch, tmp_path):
+	import base64
+	import time
+
+	from browser_use.agent.views import ActionResult
+	from browser_use.rust import Agent
+
+	calls = []
+
+	class RecordingLogger:
+		def debug(self, message, *args, **kwargs):
+			if 'Ran 1 action' in message:
+				calls.append('summary')
+
+	class DomState:
+		selector_map = {}
+
+	class BrowserStateSummary:
+		url = 'https://example.com/finalize-order'
+		title = 'Finalize Order'
+		tabs = []
+		screenshot = base64.b64encode(b'png-bytes').decode('utf-8')
+		dom_state = DomState()
+
+	class EventBus:
+		def __init__(self):
+			self.dispatched = []
+
+		def dispatch(self, event):
+			calls.append('dispatch')
+			self.dispatched.append(event)
+			return event
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Finalize order parity.', file_system_path=str(tmp_path / 'agent-files'))
+	agent.eventbus = EventBus()
+	agent.state.last_result = [ActionResult(is_done=True, success=True, extracted_content='final answer')]
+	agent.state.last_model_output = agent.AgentOutput(
+		evaluation_previous_goal='Need answer',
+		memory='Have answer',
+		next_goal='Finish',
+		action=[agent.ActionModel(done={'text': 'final answer', 'success': True})],
+	)
+	agent.step_start_time = time.time() - 0.1
+	monkeypatch.setattr(agent, 'save_file_system_state', lambda: calls.append('save'))
+	starting_steps = agent.state.n_steps
+
+	await agent._finalize(BrowserStateSummary())
+
+	assert calls == ['summary', 'save', 'dispatch']
+	assert agent.state.n_steps == starting_steps + 1
+	assert [type(event).__name__ for event in agent.eventbus.dispatched] == ['CreateAgentStepEvent']
+
+
 def test_rust_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
 	from browser_use.rust import Agent
