@@ -406,10 +406,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f0
    - The wrapper also exposes `save_file_system_state()` so callers can persist the Browser Use `FileSystem` state back onto the agent state.
    - Proof: `test_rust_agent_tracks_downloaded_files_and_saves_file_system_state`.
 
+80. Rust Agent tools/action-model parity
+   - The Rust-backed `Agent` now initializes Browser Use default `Tools` when callers do not provide tools/controller, including `use_vision=False` screenshot exclusion and structured-output `done` action registration.
+   - The wrapper now exposes Browser Use-style `ActionModel`, `DoneActionModel`, and `AgentOutput` classes from the configured tools registry so custom callers can inspect and build action models against the same interface.
+   - Proof: `test_rust_agent_initializes_tools_and_action_models`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (54 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (55 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

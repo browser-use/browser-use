@@ -768,6 +768,31 @@ def test_rust_agent_exposes_browser_use_settings():
 	assert agent.include_recent_events is True
 
 
+def test_rust_agent_initializes_tools_and_action_models():
+	from browser_use.rust import Agent
+	from browser_use.tools.service import Tools
+
+	class Answer(BaseModel):
+		answer: str
+
+	agent = Agent(
+		task='Return structured answer.',
+		output_model_schema=Answer,
+		use_vision=False,
+	)
+
+	action_names = set(agent.tools.registry.registry.actions)
+	done_schema = agent.DoneActionModel.model_json_schema()
+
+	assert isinstance(agent.tools, Tools)
+	assert 'done' in action_names
+	assert 'screenshot' not in action_names
+	assert agent.ActionModel is not None
+	assert agent.DoneActionModel is not None
+	assert agent.AgentOutput is not None
+	assert 'done' in str(done_schema)
+
+
 def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.rust import Agent

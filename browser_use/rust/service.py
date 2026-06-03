@@ -17,12 +17,22 @@ from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
-from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentSettings, AgentState, AgentStepInfo, StepMetadata
+from browser_use.agent.views import (
+	ActionResult,
+	AgentHistory,
+	AgentHistoryList,
+	AgentOutput,
+	AgentSettings,
+	AgentState,
+	AgentStepInfo,
+	StepMetadata,
+)
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
+from browser_use.tools.service import Tools
 
 
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
@@ -907,6 +917,22 @@ def _init_file_system(
 	return file_system, str(agent_directory)
 
 
+def _resolve_tools(
+	tools: Any | None,
+	controller: Any | None,
+	output_model_schema: type[BaseModel] | None,
+	use_vision: bool | Literal['auto'],
+	display_files_in_done_text: bool,
+) -> Any:
+	resolved_tools = controller or tools
+	if resolved_tools is None:
+		exclude_actions = ['screenshot'] if use_vision is False else []
+		resolved_tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+	if output_model_schema is not None and hasattr(resolved_tools, 'use_structured_output_action'):
+		resolved_tools.use_structured_output_action(output_model_schema)
+	return resolved_tools
+
+
 def _action_payload(action: Any) -> dict[str, Any]:
 	"""Serialize a Browser Use action model into JSON-like data for Rust task context."""
 	if isinstance(action, dict):
@@ -1020,7 +1046,13 @@ class Agent(Generic[AgentStructuredOutput]):
 			browser_session,
 			browser,
 		)
-		self.tools = controller or tools
+		self.tools = _resolve_tools(
+			tools,
+			controller,
+			output_model_schema,
+			use_vision,
+			display_files_in_done_text,
+		)
 		self.sensitive_data = sensitive_data
 		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
@@ -1055,6 +1087,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 		)
+		self._setup_action_models()
 		self.available_file_paths = available_file_paths or []
 		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
 		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
@@ -1222,6 +1255,24 @@ class Agent(Generic[AgentStructuredOutput]):
 	@property
 	def usage(self) -> UsageSummary | None:
 		return self.history.usage
+
+	def _setup_action_models(self, page_url: str | None = None) -> None:
+		"""Expose Browser Use-style action model classes from the configured tools."""
+		registry = getattr(self.tools, 'registry', None)
+		create_action_model = getattr(registry, 'create_action_model', None)
+		if not callable(create_action_model):
+			self.ActionModel = None
+			self.DoneActionModel = None
+			self.AgentOutput = AgentOutput
+			return
+		self.ActionModel = create_action_model(page_url=page_url)
+		if self.settings.flash_mode:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+		elif self.settings.use_thinking:
+			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
+		else:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
+		self.DoneActionModel = create_action_model(include_actions=['done'], page_url=page_url)
 
 	async def _check_and_update_downloads(self, context: str = '') -> None:
 		"""Mirror Browser Use's downloaded-file tracking for supplied sessions."""
