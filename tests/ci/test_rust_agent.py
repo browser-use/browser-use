@@ -1032,6 +1032,51 @@ def test_rust_history_reconstructs_terminal_token_count_usage():
 	assert history.usage.by_model['gpt-test'].completion_tokens == 31
 
 
+def test_rust_history_reconstructs_terminal_reasoning_token_usage():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'token_count',
+				'payload': {
+					'info': {
+						'last_token_usage': {
+							'cached_input_tokens': 2,
+							'input_tokens': 50,
+							'output_tokens': 20,
+							'reasoning_output_tokens': 5,
+							'total_tokens': 75,
+						},
+						'total_token_usage': {
+							'cached_input_tokens': 10,
+							'input_tokens': 100,
+							'output_tokens': 40,
+							'reasoning_output_tokens': 15,
+							'total_tokens': 155,
+						},
+					}
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 100
+	assert history.usage.total_prompt_cached_tokens == 10
+	assert history.usage.total_completion_tokens == 55
+	assert history.usage.total_tokens == 155
+	assert history.usage.entry_count == 1
+	assert history.usage.by_model['gpt-test'].completion_tokens == 55
+	assert history.usage.by_model['gpt-test'].total_tokens == 155
+
+
 def test_rust_history_reconstructs_terminal_nested_model_usage():
 	from browser_use.rust.service import _history_from_events
 

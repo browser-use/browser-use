@@ -1533,10 +1533,32 @@ def _model_usage_payload(payload: dict[str, Any]) -> dict[str, Any]:
 	return usage if isinstance(usage, dict) else payload
 
 
+def _reasoning_output_tokens(usage: dict[str, Any]) -> int:
+	return _int_value(
+		usage.get('reasoning_output_tokens')
+		or usage.get('output_reasoning_tokens')
+		or usage.get('reasoning_tokens')
+	)
+
+
+def _usage_completion_tokens(usage: dict[str, Any]) -> int:
+	return _int_value(usage.get('output_tokens')) + _reasoning_output_tokens(usage)
+
+
+def _usage_total_tokens(usage: dict[str, Any], input_tokens: int, completion_tokens: int) -> int:
+	reported_total = usage.get('total_tokens')
+	if reported_total is not None:
+		total_tokens = _int_value(reported_total)
+		if total_tokens > 0 or input_tokens + completion_tokens == 0:
+			return total_tokens
+	return input_tokens + completion_tokens
+
+
 def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary:
 	input_tokens = 0
 	cached_input_tokens = 0
-	output_tokens = 0
+	completion_tokens = 0
+	total_tokens = 0
 	cost = 0.0
 	invocations = 0
 	token_count_invocations = 0
@@ -1546,9 +1568,12 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 		payload = _event_payload(event)
 		if event_type == 'model.usage':
 			usage = _model_usage_payload(payload)
-			input_tokens += _int_value(usage.get('input_tokens'))
+			event_input_tokens = _int_value(usage.get('input_tokens'))
+			event_completion_tokens = _usage_completion_tokens(usage)
+			input_tokens += event_input_tokens
 			cached_input_tokens += _int_value(usage.get('input_cached_tokens') or usage.get('cached_input_tokens'))
-			output_tokens += _int_value(usage.get('output_tokens'))
+			completion_tokens += event_completion_tokens
+			total_tokens += _usage_total_tokens(usage, event_input_tokens, event_completion_tokens)
 			cost += _float_value(usage.get('cost_usd') or usage.get('cost') or payload.get('cost_usd') or payload.get('cost'))
 			invocations += 1
 			continue
@@ -1558,17 +1583,16 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 				continue
 			input_tokens = _int_value(token_usage.get('input_tokens'))
 			cached_input_tokens = _int_value(token_usage.get('cached_input_tokens') or token_usage.get('input_cached_tokens'))
-			output_tokens = _int_value(token_usage.get('output_tokens'))
+			completion_tokens = _usage_completion_tokens(token_usage)
+			total_tokens = _usage_total_tokens(token_usage, input_tokens, completion_tokens)
 			token_count_invocations += 1
 
 	invocations = max(invocations, token_count_invocations)
-
-	total_tokens = input_tokens + output_tokens
 	by_model = {
 		model: ModelUsageStats(
 			model=model,
 			prompt_tokens=input_tokens,
-			completion_tokens=output_tokens,
+			completion_tokens=completion_tokens,
 			total_tokens=total_tokens,
 			cost=cost,
 			invocations=invocations,
@@ -1579,7 +1603,7 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 		total_prompt_cost=0.0,
 		total_prompt_cached_tokens=cached_input_tokens,
 		total_prompt_cached_cost=0.0,
-		total_completion_tokens=output_tokens,
+		total_completion_tokens=completion_tokens,
 		total_completion_cost=0.0,
 		total_tokens=total_tokens,
 		total_cost=cost,
