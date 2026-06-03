@@ -886,6 +886,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Available-file Python API end-to-end:
   - Construct `Agent(..., available_file_paths=[/tmp/.../input-note.txt], step_timeout=240)` with a temp file containing `secret answer: file-bridge-ok`.
   - Output: final result `file-bridge-ok`, no history errors, and the agent preserves the supplied file path in `agent.available_file_paths`.
+- Initial-actions Python API end-to-end:
+  - Construct `Agent(task="Report only the current page title.", initial_actions=[{"go_to_url": {"url": "https://example.com"}}], directly_open_url=False, step_timeout=240)`.
+  - Output: final result `Example Domain`, no history errors, converted initial action `navigate(url="https://example.com")`, and history URLs include `https://example.com`.
 - real_v8 remote-CDP end-to-end:
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 timeout 600 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30`
