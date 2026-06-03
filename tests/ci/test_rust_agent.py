@@ -719,6 +719,24 @@ def test_rust_agent_mirrors_direct_url_startup():
 	assert "First navigate to 'https://example.com'" in agent.task
 
 
+def test_rust_agent_exposes_task_helper_methods():
+	from browser_use.rust import Agent
+
+	class Answer(BaseModel):
+		answer: str
+
+	agent = Agent(task='Open example.com and report the title.')
+
+	enhanced = agent._enhance_task_with_schema('Return the answer.', Answer)
+
+	assert agent._enhance_task_with_schema('Return the answer.', None) == 'Return the answer.'
+	assert 'Expected output format: Answer' in enhanced
+	assert '"answer"' in enhanced
+	assert agent._extract_start_url('Open example.com and report the title.') == 'https://example.com'
+	assert agent._extract_start_url('Email support@example.com only.') is None
+	assert agent._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
+
+
 def test_rust_agent_preserves_ordered_initial_actions_context():
 	from browser_use.rust import Agent
 

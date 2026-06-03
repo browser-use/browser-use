@@ -1364,6 +1364,21 @@ class Agent(Generic[AgentStructuredOutput]):
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
 
+	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
+		"""Enhance task description with Browser Use-style output schema information."""
+		if output_model_schema is None:
+			return task
+		try:
+			schema_json = json.dumps(output_model_schema.model_json_schema(), indent=2)
+			return f'{task}\nExpected output format: {output_model_schema.__name__}\n{schema_json}'
+		except Exception as exc:
+			self.logger.debug(f'Could not parse output schema: {exc}')
+			return task
+
+	def _extract_start_url(self, task: str) -> str | None:
+		"""Extract Browser Use-style direct startup URL from a task string."""
+		return _extract_start_url(task)
+
 	def _setup_action_models(self, page_url: str | None = None) -> None:
 		"""Expose Browser Use-style action model classes from the configured tools."""
 		registry = getattr(self.tools, 'registry', None)

@@ -471,10 +471,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The helper evaluates external stop callbacks, sets stopped state for should-stop callbacks, and raises `InterruptedError` for stopped or paused agents.
    - Proof: `test_rust_agent_check_stop_or_pause_matches_browser_use_lifecycle`.
 
+93. Rust Agent task helper method parity
+   - The Rust-backed `Agent` now exposes Browser Use's `_enhance_task_with_schema(...)` and `_extract_start_url(...)` helper methods.
+   - The helpers preserve Browser Use-style schema text formatting and direct-start URL filtering for domains, email addresses, ambiguous tasks, and document URLs.
+   - Proof: `test_rust_agent_exposes_task_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (66 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (67 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
