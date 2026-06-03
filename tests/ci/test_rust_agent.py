@@ -5198,6 +5198,43 @@ async def test_rust_agent_multi_act_routes_actions_to_followup():
 	assert results[0].extracted_content == 'actions applied'
 
 
+async def test_rust_agent_multi_act_ignores_later_done_actions():
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(task='act without premature done')
+	agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
+	seen = []
+
+	async def fake_follow_up(task, max_steps=None):
+		seen.append((task, max_steps))
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': 'clicked only'}}],
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent.follow_up = fake_follow_up
+
+	results = await agent.multi_act(
+		[
+			{'click_element': {'index': 2}},
+			{'done': {'text': 'should not execute', 'success': True}},
+			{'input_text': {'index': 3, 'text': 'should not execute'}},
+		]
+	)
+
+	assert seen[0][1] == 1
+	assert '"click_element"' in seen[0][0]
+	assert '"done"' not in seen[0][0]
+	assert 'should not execute' not in seen[0][0]
+	assert '"input_text"' not in seen[0][0]
+	assert results[0].extracted_content == 'clicked only'
+
+
 async def test_rust_agent_exposes_action_replay_helper_methods():
 	from types import SimpleNamespace
 

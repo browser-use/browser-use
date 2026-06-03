@@ -3666,7 +3666,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		serialized as a follow-up instruction for the active Rust session. A
 		standalone `done` action preserves Browser Use's local completion semantics.
 		"""
-		payloads = [_action_payload(action) for action in actions]
+		payloads = []
+		total_actions = len(actions)
+		for index, action in enumerate(actions):
+			payload = _action_payload(action)
+			if index > 0 and payload.get('done') is not None:
+				self.logger.debug(
+					f'Done action is allowed only as a single action - stopped after action {index} / {total_actions}.'
+				)
+				break
+			payloads.append(payload)
+			if payload.get('done') is not None:
+				break
 		if not payloads:
 			return []
 		if len(payloads) == 1:
