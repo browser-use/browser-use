@@ -1256,10 +1256,20 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - `DEFAULT_LLM=anthropic_claude_sonnet_4_0 REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30 --step-timeout 600`
   - Live output before final-result reconstruction fix: `provider=anthropic`, `model=claude-sonnet-4-0`, no history errors, terminal `done` tool text `Paramjit Uppal, Founder`; Python summary still exposed a narrative session summary.
   - Post-fix replay of the same stored terminal event stream through `_history_from_events(...)`: `{"errors":[],"final_result":"Paramjit Uppal, Founder","successful":true}`.
+- real_v8 Anthropic arXiv cloud-browser end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`.
+  - `DEFAULT_LLM=anthropic_claude_sonnet_4_0 REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 20 --max-steps 30 --step-timeout 600`
+  - Output: `{"task_id":"20","successful":true,"errors":[],"final_result":"Successfully completed the task! ... saved all the information in a properly formatted papers.md file."}`.
+  - Generated artifact check before cleanup: `papers.md` was 30,838 bytes, had 20 paper headings, and included 22 `abstract` mentions.
 - real_v8-2 cloud-browser end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`.
   - `REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8-2.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 1 --max-steps 25 --step-timeout 600`
   - Output: `{"task_id": "1", "successful": true, "final_result": "The 2024 Nobel Prize in Physics ..."}`
+- real_v8-2 Anthropic Nobel cloud-browser end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`.
+  - `DEFAULT_LLM=anthropic_claude_sonnet_4_0 REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8-2.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 1 --max-steps 30 --step-timeout 600`
+  - Output: `{"task_id":"1","successful":true,"errors":[],"final_result":"I have completed comprehensive research on the 2024 Nobel Prize in Physics..."}`.
+  - Generated artifact check before cleanup: `final_nobel_report_2024.txt` and `comprehensive_nobel_report.json` were created and contained 17 `nobelprize.org` links each.
 - Existing-session follow-up end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BROWSER_USE_RUST_STATE_DIR=/tmp/browser-use-rust-followup-smoke timeout 420 uv run python - <<'PY' ...`
   - Output: first run `Example Domain`; follow-up `example.com`.
@@ -1323,6 +1333,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - real_v8 `20` with `DEFAULT_LLM=openai_gpt_4_1_mini`: reached arXiv and recorded page info, then timed out after the configured 300-second terminal subprocess timeout.
   - real_v8-2 `1` with `DEFAULT_LLM=openai_gpt_4_1_mini`: returned `successful=true`, but stopped after summary links and asked whether to continue instead of extracting the requested counts/names/official biography links.
   - This gate still did not justify starting the 50+50 parallel sweep.
+- 2026-06-03 Anthropic cloud gate: real_v8 `18`, real_v8 `20`, and real_v8-2 `1` all completed with `successful=true` and no history errors, but this is still only a small three-task proof, not the requested 50+50 large parallel sweep.
 - Non-passing sweep data points so far:
   - real_v8 `11`: repository paths in the task appear stale for current `openai/codex`, and the run later hit the model context window while trying to retrieve large source contents.
   - real_v8 `13`: provider/tool-call decode error, `EOF while parsing an object`, before a final result.
