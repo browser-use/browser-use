@@ -2934,6 +2934,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._log_agent_run()
 		await self._call_callback(on_step_start, self)
 		self._initialize_run_lifecycle_state()
+		self._log_first_step_startup()
 		started = time.time()
 		if await self._should_stop_before_run():
 			finished = time.time()
