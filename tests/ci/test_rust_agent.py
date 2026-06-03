@@ -712,7 +712,10 @@ def test_rust_agent_mirrors_direct_url_startup():
 	agent = Agent(task='Open example.com and report the title.')
 
 	assert agent.initial_url == 'https://example.com'
-	assert agent.initial_actions == [{'navigate': {'url': 'https://example.com', 'new_tab': False}}]
+	assert agent.initial_action_payloads == [{'navigate': {'url': 'https://example.com', 'new_tab': False}}]
+	assert agent.initial_actions[0].model_dump(exclude_unset=True) == {
+		'navigate': {'url': 'https://example.com', 'new_tab': False}
+	}
 	assert "First navigate to 'https://example.com'" in agent.task
 
 
@@ -726,7 +729,16 @@ def test_rust_agent_preserves_ordered_initial_actions_context():
 			{'click_element_by_index': {'index': 3}},
 		],
 	)
+	converted = [action.model_dump(exclude_unset=True) for action in agent.initial_actions]
 
+	assert agent.initial_action_payloads == [
+		{'navigate': {'url': 'https://example.com', 'new_tab': False}},
+		{'click_element_by_index': {'index': 3}},
+	]
+	assert converted == [
+		{'navigate': {'url': 'https://example.com', 'new_tab': False}},
+		{'click': {'index': 3}},
+	]
 	assert 'Browser Use initial actions in order' in agent.task
 	assert '"navigate"' in agent.task
 	assert '"click_element_by_index"' in agent.task

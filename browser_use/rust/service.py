@@ -983,6 +983,21 @@ def _actions_instruction(payloads: list[dict[str, Any]]) -> str:
 	)
 
 
+def _normalize_initial_action(action_name: str, params: Any) -> tuple[str, Any]:
+	if not isinstance(params, dict):
+		return action_name, params
+	if action_name in ('go_to_url', 'open_tab'):
+		normalized = dict(params)
+		if action_name == 'open_tab' and 'new_tab' not in normalized:
+			normalized['new_tab'] = True
+		return 'navigate', normalized
+	if action_name == 'click_element_by_index':
+		return 'click', params
+	if action_name == 'input_text':
+		return 'input', params
+	return action_name, params
+
+
 class Agent(Generic[AgentStructuredOutput]):
 	"""Browser Use-style Agent backed by the Rust browser-use-terminal core."""
 
@@ -1123,12 +1138,13 @@ class Agent(Generic[AgentStructuredOutput]):
 			self.initial_url = _extract_start_url(task)
 			if self.initial_url:
 				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
-		self.initial_actions = initial_actions
+		self.initial_action_payloads = list(initial_actions or [])
+		self.initial_actions = self._convert_initial_actions(self.initial_action_payloads) if self.initial_action_payloads else None
 		self.task = _task_with_schema(
 			_task_with_available_files(
 				_task_with_sensitive_data_context(
 					_task_with_domain_constraints(
-						_task_with_initial_actions(task, initial_actions),
+						_task_with_initial_actions(task, self.initial_action_payloads),
 						self.allowed_domains,
 						self.prohibited_domains,
 					),
@@ -1273,6 +1289,32 @@ class Agent(Generic[AgentStructuredOutput]):
 		else:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 		self.DoneActionModel = create_action_model(include_actions=['done'], page_url=page_url)
+
+	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[Any]:
+		"""Convert dictionary initial actions to Browser Use action model instances when possible."""
+		converted_actions: list[Any] = []
+		registry = getattr(getattr(self.tools, 'registry', None), 'registry', None)
+		registry_actions = getattr(registry, 'actions', {})
+		action_model = getattr(self, 'ActionModel', None)
+		if action_model is None:
+			return list(actions)
+		for action_dict in actions:
+			if not isinstance(action_dict, dict) or not action_dict:
+				converted_actions.append(action_dict)
+				continue
+			action_name = next(iter(action_dict))
+			params = action_dict[action_name]
+			normalized_name, normalized_params = _normalize_initial_action(action_name, params)
+			action_info = registry_actions.get(normalized_name)
+			if action_info is None:
+				converted_actions.append(action_dict)
+				continue
+			try:
+				validated_params = action_info.param_model(**(normalized_params if isinstance(normalized_params, dict) else {}))
+				converted_actions.append(action_model(**{normalized_name: validated_params}))
+			except (TypeError, ValueError, ValidationError):
+				converted_actions.append(action_dict)
+		return converted_actions
 
 	async def _check_and_update_downloads(self, context: str = '') -> None:
 		"""Mirror Browser Use's downloaded-file tracking for supplied sessions."""

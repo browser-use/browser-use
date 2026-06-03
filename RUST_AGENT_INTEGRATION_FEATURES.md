@@ -2,7 +2,7 @@
 
 Branch: `magnus/browser-use-rust-core-integration`
 
-Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f036761` plus small CLI/browser-mode support commits.
+Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee3ce69` plus small CLI/browser-mode support commits.
 
 ## Built Features
 
@@ -410,6 +410,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f0
    - The Rust-backed `Agent` now initializes Browser Use default `Tools` when callers do not provide tools/controller, including `use_vision=False` screenshot exclusion and structured-output `done` action registration.
    - The wrapper now exposes Browser Use-style `ActionModel`, `DoneActionModel`, and `AgentOutput` classes from the configured tools registry so custom callers can inspect and build action models against the same interface.
    - Proof: `test_rust_agent_initializes_tools_and_action_models`.
+
+81. Rust Agent initial action model conversion
+   - The Rust-backed `Agent` now converts dictionary `initial_actions` into Browser Use registry-backed action model instances while keeping ordered raw `initial_action_payloads` for Rust task context.
+   - Common Browser Use legacy aliases such as `go_to_url`, `open_tab`, `click_element_by_index`, and `input_text` normalize to the current `navigate`, `click`, and `input` actions when the local registry can validate them.
+   - Proof: `test_rust_agent_preserves_ordered_initial_actions_context` and `test_rust_agent_mirrors_direct_url_startup`.
 
 ## Current Verification
 
