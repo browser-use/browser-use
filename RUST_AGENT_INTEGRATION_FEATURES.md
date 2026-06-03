@@ -870,6 +870,10 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Source `/home/exedev/.evaluation_tool_env`.
   - `REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30 --step-timeout 600`
   - Output: `{"task_id": "18", "successful": true, "final_result": "Paramjit Uppal, Founder"}`
+- real_v8-2 cloud-browser end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`.
+  - `REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8-2.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 1 --max-steps 25 --step-timeout 600`
+  - Output: `{"task_id": "1", "successful": true, "final_result": "The 2024 Nobel Prize in Physics ..."}`
 - Existing-session follow-up end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BROWSER_USE_RUST_STATE_DIR=/tmp/browser-use-rust-followup-smoke timeout 420 uv run python - <<'PY' ...`
   - Output: first run `Example Domain`; follow-up `example.com`.
@@ -880,4 +884,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
-- A broader multi-task real_v8 cloud-browser sweep is not complete yet. The current proof covers one live benchmark task through Browser Use cloud and the Python Rust-backed Agent interface.
+- A broader real_v8 cloud-browser sweep is in progress. Passing live benchmark tasks: real_v8 `18`, real_v8-2 `1`.
+- Non-passing sweep data points so far:
+  - real_v8 `11`: repository paths in the task appear stale for current `openai/codex`, and the run later hit the model context window while trying to retrieve large source contents.
+  - real_v8 `13`: provider/tool-call decode error, `EOF while parsing an object`, before a final result.
