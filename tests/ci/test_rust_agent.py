@@ -1324,6 +1324,55 @@ async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monke
 	assert agent.state.last_result[-1].extracted_content == 'step answer'
 
 
+async def test_rust_agent_execute_step_runs_one_turn_with_callbacks(monkeypatch):
+	from browser_use.agent.views import AgentStepInfo
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	seen = []
+
+	def done_callback(history):
+		seen.append(('done', history.final_result()))
+
+	agent = Agent(
+		task='execute one step',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		register_done_callback=done_callback,
+	)
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		seen.append(('argv', argv[-4], timeout_seconds))
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'execute step answer'}}]
+
+	async def on_step_start(callback_agent):
+		seen.append(('start', callback_agent is agent))
+
+	def on_step_end(callback_agent):
+		seen.append(('end', callback_agent is agent))
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	is_done = await agent._execute_step(
+		step=0,
+		max_steps=1,
+		step_info=AgentStepInfo(step_number=0, max_steps=1),
+		on_step_start=on_step_start,
+		on_step_end=on_step_end,
+	)
+
+	assert is_done is True
+	assert seen == [
+		('start', True),
+		('argv', 'run-codex', agent.settings.step_timeout),
+		('end', True),
+		('done', 'execute step answer'),
+	]
+
+
 async def test_rust_agent_multi_act_preserves_done_action():
 	from browser_use.rust import Agent
 

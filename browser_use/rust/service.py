@@ -1456,6 +1456,27 @@ class Agent(Generic[AgentStructuredOutput]):
 		is_valid = not history.has_errors()
 		return history.is_done(), is_valid
 
+	async def _execute_step(
+		self,
+		step: int,
+		max_steps: int,
+		step_info: AgentStepInfo,
+		on_step_start: AgentHookFunc | None = None,
+		on_step_end: AgentHookFunc | None = None,
+	) -> bool:
+		"""Execute one Browser Use-style run step through the Rust terminal core."""
+		self.state.n_steps = max(self.state.n_steps, step_info.step_number)
+		try:
+			history = await self.run(max_steps=1, on_step_start=on_step_start, on_step_end=on_step_end)
+		except TimeoutError:
+			error_msg = f'Step {step + 1} timed out after {self.settings.step_timeout} seconds'
+			self.state.consecutive_failures += 1
+			self.state.last_result = [ActionResult(error=error_msg)]
+			await self._call_callback(on_step_end, self)
+			return False
+		_ = max_steps
+		return history.is_done()
+
 	async def multi_act(self, actions: list[Any]) -> list[ActionResult]:
 		"""Execute Browser Use action models through the Rust-backed session.
 

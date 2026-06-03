@@ -451,10 +451,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Rust terminal session identity is tracked separately as `agent.terminal_session_id` and is used for `run-codex-session`, event loading, follow-ups, and transcript metadata.
    - Proof: `test_rust_agent_keeps_browser_use_session_id_separate_from_terminal_session`.
 
+89. Rust Agent execute-step helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's async `_execute_step(...)` helper and routes it through a single Rust terminal turn.
+   - The helper preserves Browser Use-style step start/end callbacks, returns the done state, and records timeout errors in `state.last_result`.
+   - Proof: `test_rust_agent_execute_step_runs_one_turn_with_callbacks`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (62 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (63 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
