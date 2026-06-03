@@ -1001,10 +1001,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Terminal conversation snapshots continue to write under the resolved directory while preserving the configured file encoding.
    - Proof: `test_rust_agent_resolves_conversation_path_like_browser_use`.
 
+198. Rust Agent direct follow-up state parity
+   - Direct `Agent.follow_up(...)` now updates Browser Use-facing task state through the same follow-up task path as `add_new_task(...)` while clearing the pending follow-up flag because the direct call executes immediately.
+   - Follow-up terminal stdout/stderr from both the append and rerun subprocesses are now preserved on the agent and in saved conversation snapshots.
+   - Proof: `test_rust_agent_direct_follow_up_updates_task_state_and_transcript`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (166 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (167 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

@@ -3054,9 +3054,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not self.terminal_session_id:
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
 		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
+		self.add_new_task(task)
+		self.state.follow_up_task = False
 		self._register_run_signal_handler(resolved_max_steps)
 		try:
-			return await self._follow_up_terminal(task, max_steps=max_steps, resolved_max_steps=resolved_max_steps)
+			return await self._follow_up_terminal(self.task, max_steps=max_steps, resolved_max_steps=resolved_max_steps)
 		except asyncio.CancelledError:
 			await self._finalize_exceptional_run(max_steps=resolved_max_steps, agent_run_error='CancelledError')
 			raise
@@ -3085,16 +3087,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			[binary, *self._state_dir_args(), 'followup', self.terminal_session_id, task],
 			timeout_seconds=self.settings.step_timeout,
 		)
+		self.last_stdout = stdout_text
+		self.last_stderr = stderr_text
 		if returncode:
 			raise RustAgentError(stderr_text or stdout_text)
-		returncode, _stdout_text, stderr_text = await self._run_process(
+		returncode, run_stdout_text, run_stderr_text = await self._run_process(
 			self._run_existing_argv(resolved_max_steps),
 			timeout_seconds=self.settings.step_timeout,
 		)
+		self.last_stdout = '\n'.join(part for part in (stdout_text.strip(), run_stdout_text.strip()) if part)
+		self.last_stderr = '\n'.join(part for part in (stderr_text.strip(), run_stderr_text.strip()) if part)
 		finished = time.time()
 		process_error = None
 		if returncode:
-			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
+			process_error = run_stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
 		self.last_events = await self._load_events()
 		self.result = _history_from_events(
 			self.last_events,

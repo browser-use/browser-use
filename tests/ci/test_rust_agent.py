@@ -4184,6 +4184,59 @@ async def test_rust_agent_run_follow_up_invokes_on_step_end(monkeypatch):
 	assert process_calls[1][-3] == 'followup'
 
 
+async def test_rust_agent_direct_follow_up_updates_task_state_and_transcript(tmp_path, monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	process_calls = []
+	load_count = 0
+	agent = Agent(
+		task='Start direct follow-up state.',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		task_id='direct-followup',
+		save_conversation_path=tmp_path,
+	)
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		process_calls.append(argv)
+		if len(process_calls) == 1:
+			return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+		if len(process_calls) == 2:
+			return 0, 'followup accepted\n', 'followup stderr\n'
+		return 0, 'rerun stdout\n', 'rerun stderr\n'
+
+	async def fake_load_events():
+		nonlocal load_count
+		load_count += 1
+		return [{'event_type': 'session.done', 'payload': {'result': f'direct follow-up {load_count}'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	initial = await agent.run(max_steps=3)
+	history = await agent.follow_up('Direct raw follow-up task.', max_steps=4)
+
+	assert initial.final_result() == 'direct follow-up 1'
+	assert history.final_result() == 'direct follow-up 2'
+	assert agent.task == 'Direct raw follow-up task.'
+	assert agent.state.follow_up_task is False
+	assert '<follow_up_user_request> Direct raw follow-up task. </follow_up_user_request>' in agent.message_manager.task
+	assert process_calls[1][-3:] == [
+		'followup',
+		'12345678-1234-1234-1234-123456789abc',
+		'Direct raw follow-up task.',
+	]
+	assert agent.last_stdout == 'followup accepted\nrerun stdout'
+	assert agent.last_stderr == 'followup stderr\nrerun stderr'
+
+	files = list(tmp_path.glob('conversation_direct-followup_*.json'))
+	assert len(files) == 1
+	snapshot = json.loads(files[0].read_text(encoding='utf-8'))
+	assert snapshot['task'] == 'Direct raw follow-up task.'
+	assert snapshot['stdout'] == 'followup accepted\nrerun stdout'
+	assert snapshot['stderr'] == 'followup stderr\nrerun stderr'
+
+
 async def test_rust_agent_run_logs_browser_use_lifecycle_dispatch(monkeypatch):
 	from browser_use.rust import Agent
 
