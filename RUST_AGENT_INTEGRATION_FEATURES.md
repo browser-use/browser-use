@@ -1091,6 +1091,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves the visible run-start metadata and upgrade prompt formatting for direct helper calls and normal Rust-backed runs.
    - Proof: `test_rust_agent_run_metadata_logs_match_browser_use`.
 
+216. Rust Agent terminal cost-calculation env parity
+   - Rust-backed runs now export `BU_USE_CALCULATE_COST=true` to the terminal subprocess when Browser Use callers pass `calculate_cost=True`.
+   - This lets terminal current-main provider usage/cost recording honor the same public Agent setting while leaving default runs unchanged.
+   - Proof: `test_rust_agent_initializes_runtime_metadata_and_observability`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`

@@ -4334,6 +4334,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def _run_env(self) -> dict[str, str]:
 		env = os.environ.copy()
 		env.update(_llm_env_overrides(self.llm))
+		if self.settings.calculate_cost:
+			env['BU_USE_CALCULATE_COST'] = 'true'
 		browser_mode = self._browser_mode()
 		env['LLM_BROWSER_BROWSER_MODE'] = browser_mode
 		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)

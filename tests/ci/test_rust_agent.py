@@ -3139,9 +3139,11 @@ async def test_rust_agent_updates_action_models_for_page(monkeypatch):
 	assert agent.DoneAgentOutput is not None
 
 
-def test_rust_agent_initializes_runtime_metadata_and_observability():
+def test_rust_agent_initializes_runtime_metadata_and_observability(monkeypatch):
 	from browser_use.rust import Agent
 	from browser_use.tokens.service import TokenCost
+
+	monkeypatch.delenv('BU_USE_CALCULATE_COST', raising=False)
 
 	class LLM:
 		model = 'gpt-test'
@@ -3170,6 +3172,10 @@ def test_rust_agent_initializes_runtime_metadata_and_observability():
 	assert agent.token_cost_service.include_cost is True
 	assert str(id(llm)) in agent.token_cost_service.registered_llms
 	assert agent.DoneAgentOutput is not None
+	assert agent._run_env()['BU_USE_CALCULATE_COST'] == 'true'
+
+	default_agent = Agent(task='Inspect default metadata.', llm=LLM())
+	assert 'BU_USE_CALCULATE_COST' not in default_agent._run_env()
 
 
 async def test_rust_agent_logger_name_matches_browser_use(monkeypatch):
