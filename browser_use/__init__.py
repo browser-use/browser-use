@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.vercel.chat import ChatVercel
 	from browser_use.sandbox import sandbox
+	from browser_use.tools.policy import ActionPolicy, ActionPolicyDecision
 	from browser_use.tools.service import Controller, Tools
 
 	# Lazy imports mapping - only import when actually accessed
@@ -85,6 +86,8 @@ _LAZY_IMPORTS = {
 	# Tools (moderate weight)
 	'Tools': ('browser_use.tools.service', 'Tools'),
 	'Controller': ('browser_use.tools.service', 'Controller'),  # alias
+	'ActionPolicy': ('browser_use.tools.policy', 'ActionPolicy'),
+	'ActionPolicyDecision': ('browser_use.tools.policy', 'ActionPolicyDecision'),
 	# DOM service (moderate weight)
 	'DomService': ('browser_use.dom.service', 'DomService'),
 	# Chat models (very heavy imports)
@@ -139,6 +142,8 @@ __all__ = [
 	'ActionResult',
 	'ActionModel',
 	'AgentHistoryList',
+	'ActionPolicy',
+	'ActionPolicyDecision',
 	# Chat models
 	'ChatOpenAI',
 	'ChatGoogle',
