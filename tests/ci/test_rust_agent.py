@@ -3162,7 +3162,7 @@ def test_rust_agent_initializes_runtime_metadata_and_observability():
 
 	assert agent.version
 	assert agent.source == 'ci'
-	assert agent.logger.name.endswith('1234 Target --')
+	assert agent.logger.name.endswith('1234 ⇢ 🅑 1234 🅣 --')
 	assert agent.eventbus is not None
 	assert callable(agent.telemetry.capture)
 	assert callable(agent.telemetry.flush)
@@ -3170,6 +3170,59 @@ def test_rust_agent_initializes_runtime_metadata_and_observability():
 	assert agent.token_cost_service.include_cost is True
 	assert str(id(llm)) in agent.token_cost_service.registered_llms
 	assert agent.DoneAgentOutput is not None
+
+
+async def test_rust_agent_logger_name_matches_browser_use(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.browser import BrowserProfile, BrowserSession
+	from browser_use.rust import Agent as RustAgent
+
+	class TestEventBus:
+		def __init__(self, name):
+			self.name = name
+
+		def stop(self, *args, **kwargs):
+			return None
+
+	monkeypatch.setattr(rust_service, 'EventBus', TestEventBus)
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	async def stop_eventbus(eventbus):
+		try:
+			result = eventbus.stop(timeout=0.1, clear=True)
+		except TypeError:
+			result = eventbus.stop(timeout=0.1)
+		if inspect.isawaitable(result):
+			await result
+
+	browser_use_agent = BrowserUseAgent(
+		task='Inspect logger name.',
+		llm=LLM(),
+		browser_session=BrowserSession(browser_profile=BrowserProfile(), id='browser-abcd'),
+		task_id='task-1234',
+		directly_open_url=False,
+	)
+	browser_use_logger_name = browser_use_agent.logger.name
+	await stop_eventbus(browser_use_agent.eventbus)
+
+	rust_agent = RustAgent(
+		task='Inspect logger name.',
+		llm=LLM(),
+		browser_session=BrowserSession(browser_profile=BrowserProfile(), id='browser-abcd'),
+		task_id='task-1234',
+		directly_open_url=False,
+	)
+
+	assert rust_agent.logger.name == browser_use_logger_name
+	assert rust_agent.logger.name == 'browser_use.Agent🅰 1234 ⇢ 🅑 abcd 🅣 --'
+	await stop_eventbus(rust_agent.eventbus)
 
 
 async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):

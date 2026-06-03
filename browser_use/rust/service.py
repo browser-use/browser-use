@@ -3230,9 +3230,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		focus_target_id = getattr(agent_focus, 'target_id', None)
 		if isinstance(focus_target_id, str) and focus_target_id:
 			target_id = focus_target_id[-2:]
-		return logging.getLogger(
-			f'browser_use.rust.Agent {self.task_id[-4:]} -> BrowserSession {str(browser_session_id)[-4:]} Target {target_id}'
-		)
+		return logging.getLogger(f'browser_use.Agent🅰 {self.task_id[-4:]} ⇢ 🅑 {str(browser_session_id)[-4:]} 🅣 {target_id}')
 
 	@property
 	def browser_profile(self) -> Any:
