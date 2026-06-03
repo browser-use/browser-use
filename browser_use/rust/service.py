@@ -22,7 +22,12 @@ from pydantic import BaseModel, ValidationError, create_model
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
-from browser_use.agent.cloud_events import CreateAgentSessionEvent, CreateAgentTaskEvent, UpdateAgentTaskEvent
+from browser_use.agent.cloud_events import (
+	CreateAgentOutputFileEvent,
+	CreateAgentSessionEvent,
+	CreateAgentTaskEvent,
+	UpdateAgentTaskEvent,
+)
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
@@ -2924,7 +2929,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._call_new_step_callback()
 		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
-		self._generate_gif_if_requested()
+		await self._generate_gif_if_requested()
 		await self._stop_eventbus_after_run()
 		return self.history
 
@@ -2966,7 +2971,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_done_callback()
-		self._generate_gif_if_requested()
+		await self._generate_gif_if_requested()
 		await self._stop_eventbus_after_run()
 		return self.history
 
@@ -3876,7 +3881,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			encoding=self.settings.save_conversation_path_encoding or 'utf-8',
 		)
 
-	def _generate_gif_if_requested(self) -> None:
+	async def _generate_gif_if_requested(self) -> None:
 		if not self.settings.generate_gif:
 			return
 		output_path = 'agent_history.gif'
@@ -3886,6 +3891,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		from browser_use.agent.gif import create_history_gif
 
 		create_history_gif(task=self.task, history=self.history, output_path=output_path)
+		if Path(output_path).exists():
+			output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
+			self.eventbus.dispatch(output_event)
 
 	def _conversation_snapshot(self) -> dict[str, Any]:
 		return {

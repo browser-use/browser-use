@@ -3494,6 +3494,56 @@ async def test_rust_agent_generates_gif_after_done_callback(monkeypatch, tmp_pat
 	]
 
 
+async def test_rust_agent_dispatches_gif_output_file_event(monkeypatch, tmp_path):
+	import base64
+
+	from browser_use.agent import gif as gif_module
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	output_path = tmp_path / 'rust-agent.gif'
+	dispatched = []
+
+	class EventBus:
+		def dispatch(self, event):
+			dispatched.append(event)
+			return event
+
+	def fake_create_history_gif(task, history, output_path):
+		Path(output_path).write_bytes(b'GIF89a')
+
+	monkeypatch.setattr(gif_module, 'create_history_gif', fake_create_history_gif)
+	agent = Agent(
+		task='Create a visual trace output event.',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		generate_gif=str(output_path),
+	)
+	agent.eventbus = EventBus()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'gif output event'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=1)
+
+	assert [type(event).__name__ for event in dispatched] == [
+		'CreateAgentSessionEvent',
+		'CreateAgentTaskEvent',
+		'UpdateAgentTaskEvent',
+		'CreateAgentOutputFileEvent',
+	]
+	output_event = dispatched[-1]
+	assert output_event.task_id == str(agent.task_id)
+	assert output_event.file_name == output_path.name
+	assert output_event.content_type == 'image/gif'
+	assert base64.b64decode(output_event.file_content) == b'GIF89a'
+
+
 async def test_rust_agent_invokes_new_step_callback(monkeypatch):
 	from browser_use.rust import Agent
 
