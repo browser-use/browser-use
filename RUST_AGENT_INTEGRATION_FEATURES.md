@@ -880,6 +880,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Multi-feature Python API cloud end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`, unset browser-mode overrides, and construct `Agent(..., browser_profile=BrowserProfile(use_cloud=True), register_new_step_callback=..., register_done_callback=..., save_conversation_path=..., step_timeout=300)`.
   - Output: first run `Example Domain`; follow-up `example.com`; callback sequence `step, done, step, done`; two conversation JSON snapshots written; terminal session id present.
+- Structured-output Python API cloud end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`, unset browser-mode overrides, and construct `Agent(..., browser_profile=BrowserProfile(use_cloud=True), output_model_schema=PageAnswer, step_timeout=300)`.
+  - Output: final result `{"title":"Example Domain","host":"example.com","ok":true}` and `history.structured_output` is a `PageAnswer(title="Example Domain", host="example.com", ok=True)`.
 - real_v8 remote-CDP end-to-end:
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 timeout 600 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30`
