@@ -1020,14 +1020,41 @@ def _command_waiting_payload(payload: dict[str, Any], previous_payload: dict[str
 	return next_payload
 
 
+_TOOL_OUTPUT_DELTA_EVENTS = ('tool.output_delta', 'exec_command.output_delta')
+
+
 _TEXTUAL_TOOL_RESULT_EVENTS = (
 	'tool.output',
 	'tool.output_delta',
+	'exec_command.output_delta',
 	'command.waiting',
 	'exec_command.end',
 	'tool.finished',
 	'model.response.input_item',
 )
+
+
+def _is_redundant_paired_output_delta(
+	previous_event_type: str,
+	previous_payload: dict[str, Any],
+	event_type: str,
+	payload: dict[str, Any],
+	delta_text: str,
+) -> bool:
+	if previous_event_type not in _TOOL_OUTPUT_DELTA_EVENTS or previous_event_type == event_type:
+		return False
+	previous_text = previous_payload.get('text')
+	if not isinstance(previous_text, str) or not previous_text.endswith(delta_text):
+		return False
+	previous_stream = previous_payload.get('stream')
+	stream = payload.get('stream')
+	if previous_stream is not None and stream is not None and previous_stream != stream:
+		return False
+	previous_session_id = previous_payload.get('session_id') or previous_payload.get('process_id')
+	session_id = payload.get('session_id') or payload.get('process_id')
+	if previous_session_id is not None and session_id is not None and str(previous_session_id) != str(session_id):
+		return False
+	return True
 
 
 def _tool_result_key(payload: dict[str, Any]) -> tuple[str, str] | None:
@@ -1164,6 +1191,7 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 		if event_type not in (
 			'tool.output',
 			'tool.output_delta',
+			'exec_command.output_delta',
 			'command.waiting',
 			'exec_command.end',
 			'tool.failed',
@@ -1175,7 +1203,7 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 		payload = _event_payload(event)
 		if event_type == 'model.response.input_item':
 			payload = _response_input_item_tool_payload(payload)
-		if event_type == 'tool.output_delta':
+		if event_type in _TOOL_OUTPUT_DELTA_EVENTS:
 			delta_text = _tool_output_delta_text(payload)
 			if not delta_text:
 				continue
@@ -1185,11 +1213,17 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 		if call_id:
 			key = str(call_id)
 			previous = results.get(key)
-			if event_type == 'tool.output_delta':
-				if previous is not None and previous[0] not in ('tool.output_delta', 'tool.finished'):
+			if event_type in _TOOL_OUTPUT_DELTA_EVENTS:
+				if previous is not None and previous[0] not in (*_TOOL_OUTPUT_DELTA_EVENTS, 'tool.finished'):
 					continue
-				merged_payload = dict(previous[1]) if previous is not None and previous[0] == 'tool.output_delta' else dict(payload)
-				previous_text = merged_payload.get('text') if previous is not None and previous[0] == 'tool.output_delta' else ''
+				if (
+					previous is not None
+					and delta_text
+					and _is_redundant_paired_output_delta(previous[0], previous[1], event_type, payload, delta_text)
+				):
+					continue
+				merged_payload = dict(previous[1]) if previous is not None and previous[0] in _TOOL_OUTPUT_DELTA_EVENTS else dict(payload)
+				previous_text = merged_payload.get('text') if previous is not None and previous[0] in _TOOL_OUTPUT_DELTA_EVENTS else ''
 				for payload_key, payload_value in payload.items():
 					if payload_key != 'text':
 						merged_payload[payload_key] = payload_value
@@ -1229,6 +1263,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 		if event_type not in (
 			'tool.output',
 			'tool.output_delta',
+			'exec_command.output_delta',
 			'command.waiting',
 			'exec_command.end',
 			'tool.failed',
@@ -1242,7 +1277,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 			payload = _response_input_item_tool_payload(payload)
 		if payload.get('tool_call_id') or payload.get('call_id'):
 			continue
-		if event_type == 'tool.output_delta':
+		if event_type in _TOOL_OUTPUT_DELTA_EVENTS:
 			delta_text = _tool_output_delta_text(payload)
 			if not delta_text:
 				continue
@@ -1253,7 +1288,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 					for result in reversed(results)
 					if isinstance(name, str)
 					and name
-					and result[0] == 'tool.output_delta'
+					and result[0] in _TOOL_OUTPUT_DELTA_EVENTS
 					and result[1].get('name') == name
 				),
 				None,
@@ -1272,7 +1307,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 					for index in range(len(results) - 1, -1, -1)
 					if isinstance(name, str)
 					and name
-					and results[index][0] == 'tool.output_delta'
+					and results[index][0] in _TOOL_OUTPUT_DELTA_EVENTS
 					and results[index][1].get('name') == name
 				),
 				None,

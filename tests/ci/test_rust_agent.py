@@ -660,6 +660,69 @@ def test_rust_history_reconstructs_terminal_tool_output_deltas():
 	assert history.final_result() == 'final answer'
 
 
+def test_rust_history_reconstructs_terminal_exec_command_output_deltas():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'arguments': {'cmd': "printf 'hello world'"},
+				},
+			},
+			{
+				'type': 'tool.output_delta',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'process_id': '1000',
+					'session_id': 1000,
+					'stream': 'stdout',
+					'text': 'hello ',
+				},
+			},
+			{
+				'type': 'exec_command.output_delta',
+				'payload': {
+					'call_id': 'call-exec',
+					'process_id': '1000',
+					'session_id': 1000,
+					'stream': 'stdout',
+					'chunk': 'hello ',
+				},
+			},
+			{
+				'type': 'exec_command.output_delta',
+				'payload': {
+					'call_id': 'call-exec',
+					'process_id': '1000',
+					'session_id': 1000,
+					'stream': 'stdout',
+					'chunk': 'world\n',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_result = history.action_results()[0]
+
+	assert history.action_names() == ['exec_command', 'done']
+	assert history.model_actions()[0]['exec_command']['cmd'] == "printf 'hello world'"
+	assert first_result.extracted_content == 'hello world'
+	assert first_result.long_term_memory == 'hello world'
+	assert history.action_history()[0][0]['result'] == 'hello world'
+	assert history.final_result() == 'final answer'
+
+
 def test_rust_history_reconstructs_terminal_exec_command_end_output():
 	from browser_use.rust.service import _history_from_events
 
