@@ -820,6 +820,43 @@ def test_rust_history_reconstructs_terminal_token_count_usage():
 	assert history.usage.by_model['gpt-test'].completion_tokens == 31
 
 
+def test_rust_history_reconstructs_terminal_nested_model_usage():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'model.usage',
+				'payload': {
+					'usage': {
+						'input_tokens': 17,
+						'cached_input_tokens': 5,
+						'output_tokens': 11,
+					},
+					'cost_usd': 0.0123,
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 17
+	assert history.usage.total_prompt_cached_tokens == 5
+	assert history.usage.total_completion_tokens == 11
+	assert history.usage.total_tokens == 28
+	assert history.usage.total_cost == 0.0123
+	assert history.usage.entry_count == 1
+	assert history.usage.by_model['gpt-test'].prompt_tokens == 17
+	assert history.usage.by_model['gpt-test'].completion_tokens == 11
+	assert history.usage.by_model['gpt-test'].cost == 0.0123
+
+
 def test_rust_history_supports_structured_output():
 	from browser_use.rust.service import _history_from_events
 

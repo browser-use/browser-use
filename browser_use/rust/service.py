@@ -1399,6 +1399,11 @@ def _token_count_usage(payload: dict[str, Any]) -> dict[str, Any] | None:
 	return raw_usage if isinstance(raw_usage, dict) else None
 
 
+def _model_usage_payload(payload: dict[str, Any]) -> dict[str, Any]:
+	usage = payload.get('usage')
+	return usage if isinstance(usage, dict) else payload
+
+
 def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary:
 	input_tokens = 0
 	cached_input_tokens = 0
@@ -1411,10 +1416,11 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 		event_type = _event_type(event)
 		payload = _event_payload(event)
 		if event_type == 'model.usage':
-			input_tokens += _int_value(payload.get('input_tokens'))
-			cached_input_tokens += _int_value(payload.get('input_cached_tokens') or payload.get('cached_input_tokens'))
-			output_tokens += _int_value(payload.get('output_tokens'))
-			cost += _float_value(payload.get('cost_usd') or payload.get('cost'))
+			usage = _model_usage_payload(payload)
+			input_tokens += _int_value(usage.get('input_tokens'))
+			cached_input_tokens += _int_value(usage.get('input_cached_tokens') or usage.get('cached_input_tokens'))
+			output_tokens += _int_value(usage.get('output_tokens'))
+			cost += _float_value(usage.get('cost_usd') or usage.get('cost') or payload.get('cost_usd') or payload.get('cost'))
 			invocations += 1
 			continue
 		if event_type == 'token_count':
