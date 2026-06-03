@@ -392,8 +392,6 @@ class DomService:
 			)
 		except Exception as e:
 			pass  # Page might not be ready yet
-		# DEBUG: Log before capturing snapshot
-		self.logger.debug(f'🔍 DEBUG: Capturing DOM snapshot for target {target_id}')
 
 		# Get actual scroll positions for all iframes before capturing snapshot
 		start_iframe_scroll = time.time()
@@ -427,10 +425,6 @@ class DomService:
 			)
 			if scroll_result and 'result' in scroll_result and 'value' in scroll_result['result']:
 				iframe_scroll_positions = scroll_result['result']['value']
-				for idx, scroll_data in iframe_scroll_positions.items():
-					self.logger.debug(
-						f'🔍 DEBUG: Iframe {idx} actual scroll position - scrollTop={scroll_data.get("scrollTop", 0)}, scrollLeft={scroll_data.get("scrollLeft", 0)}'
-					)
 		except Exception as e:
 			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 		iframe_scroll_ms = (time.time() - start_iframe_scroll) * 1000
@@ -623,7 +617,6 @@ class DomService:
 		# Calculate total time for _get_all_trees and overhead
 		start_snapshot_processing = time.time()
 
-		# DEBUG: Log snapshot info and limit documents to prevent explosion
 		if snapshot and 'documents' in snapshot:
 			original_doc_count = len(snapshot['documents'])
 			# Limit to max_iframes documents to prevent iframe explosion
@@ -634,13 +627,6 @@ class DomService:
 				snapshot['documents'] = snapshot['documents'][: self.max_iframes]
 
 			total_nodes = sum(len(doc.get('nodes', [])) for doc in snapshot['documents'])
-			self.logger.debug(f'🔍 DEBUG: Snapshot contains {len(snapshot["documents"])} frames with {total_nodes} total nodes')
-			# Log iframe-specific info
-			for doc_idx, doc in enumerate(snapshot['documents']):
-				if doc_idx > 0:  # Not the main document
-					self.logger.debug(
-						f'🔍 DEBUG: Iframe #{doc_idx} {doc.get("frameId", "no-frame-id")} {doc.get("url", "no-url")} has {len(doc.get("nodes", []))} nodes'
-					)
 
 		snapshot_processing_ms = (time.time() - start_snapshot_processing) * 1000
 
@@ -839,10 +825,6 @@ class DomService:
 				if snapshot_data and snapshot_data.scrollRects:
 					total_frame_offset.x -= snapshot_data.scrollRects.x
 					total_frame_offset.y -= snapshot_data.scrollRects.y
-					# DEBUG: Log iframe scroll information
-					self.logger.debug(
-						f'🔍 DEBUG: HTML frame scroll - scrollY={snapshot_data.scrollRects.y}, scrollX={snapshot_data.scrollRects.x}, frameId={node.get("frameId")}, nodeId={node["nodeId"]}'
-					)
 
 			# Calculate new iframe offset for content documents, accounting for iframe scroll
 			if (
@@ -893,23 +875,6 @@ class DomService:
 			dom_tree_node.is_visible = self.is_element_visible_according_to_all_parents(
 				dom_tree_node, updated_html_frames, self.viewport_threshold
 			)
-
-			# DEBUG: Log visibility info for form elements in iframes
-			if dom_tree_node.tag_name and dom_tree_node.tag_name.upper() in ['INPUT', 'SELECT', 'TEXTAREA', 'LABEL']:
-				attrs = dom_tree_node.attributes or {}
-				elem_id = attrs.get('id', '')
-				elem_name = attrs.get('name', '')
-				if (
-					'city' in elem_id.lower()
-					or 'city' in elem_name.lower()
-					or 'state' in elem_id.lower()
-					or 'state' in elem_name.lower()
-					or 'zip' in elem_id.lower()
-					or 'zip' in elem_name.lower()
-				):
-					self.logger.debug(
-						f"🔍 DEBUG: Form element {dom_tree_node.tag_name} id='{elem_id}' name='{elem_name}' - visible={dom_tree_node.is_visible}, bounds={dom_tree_node.snapshot_node.bounds if dom_tree_node.snapshot_node else 'NO_SNAPSHOT'}"
-					)
 
 			# handle cross origin iframe (just recursively call the main function with the proper target if it exists in iframes)
 			# only do this if the iframe is visible (otherwise it's not worth it)
