@@ -6271,6 +6271,30 @@ async def test_rust_agent_trace_and_cloud_auth_helpers():
 	assert 'trace answer' in trace_object['trace_details']['complete_history']
 
 
+def test_rust_agent_trace_metadata_matches_browser_use_helpers(monkeypatch):
+	from browser_use.rust import Agent
+	import browser_use.rust.service as rust_service
+	from browser_use.rust.service import _history_from_events
+
+	monkeypatch.setattr(rust_service, 'get_browser_use_version', lambda: '9.9.9-test')
+	monkeypatch.setattr(rust_service, 'get_git_info', lambda: {'branch': 'trace-branch', 'commit_hash': 'abc123'})
+
+	agent = Agent(task='Trace metadata.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.history = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'trace metadata answer'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	trace = agent.get_trace_object()['trace']
+
+	assert trace['browser_use_version'] == '9.9.9-test'
+	assert json.loads(trace['git_info']) == {'branch': 'trace-branch', 'commit_hash': 'abc123'}
+
+
 async def test_rust_agent_saves_terminal_conversation(tmp_path, monkeypatch):
 	from browser_use.rust import Agent
 

@@ -58,7 +58,14 @@ from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
-from browser_use.utils import SignalHandler, URL_PATTERN, _log_pretty_path, check_latest_browser_use_version, get_browser_use_version
+from browser_use.utils import (
+	SignalHandler,
+	URL_PATTERN,
+	_log_pretty_path,
+	check_latest_browser_use_version,
+	get_browser_use_version,
+	get_git_info,
+)
 
 
 Context = TypeVar('Context')
@@ -4036,6 +4043,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		trace_id = uuid7str()
 		timestamp = datetime.now().isoformat()
+		git_info = get_git_info()
 		structured_output = self.history.structured_output
 		structured_output_json = json.dumps(structured_output.model_dump(), default=json_default) if structured_output else None
 		final_result = self.history.final_result()
@@ -4048,8 +4056,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'trace': {
 				'trace_id': trace_id,
 				'timestamp': timestamp,
-				'browser_use_version': None,
-				'git_info': None,
+				'browser_use_version': get_browser_use_version(),
+				'git_info': json.dumps(git_info, default=json_default) if git_info else None,
 				'model': self.model,
 				'settings': json.dumps(self.settings.model_dump(), default=json_default) if self.settings else None,
 				'task_id': self.task_id,

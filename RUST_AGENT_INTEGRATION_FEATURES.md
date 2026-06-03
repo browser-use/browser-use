@@ -1026,10 +1026,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Repeated step-end hook dispatch for the same history object is idempotent, preserving the run/follow-up finalization path while matching Browser Use's per-step hook cardinality.
    - Proof: `test_rust_agent_invokes_on_step_end_for_each_terminal_turn`.
 
+203. Rust Agent trace metadata parity
+   - Rust-backed `get_trace_object()` now populates `browser_use_version` with Browser Use's version helper instead of leaving it empty.
+   - Trace payloads now include serialized `get_git_info()` metadata, matching Browser Use's trace contract while preserving the existing Rust-backed history and structured-output trace fields.
+   - Proof: `test_rust_agent_trace_metadata_matches_browser_use_helpers`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (171 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (172 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
