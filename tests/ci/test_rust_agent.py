@@ -4901,6 +4901,51 @@ async def test_rust_agent_take_step_matches_browser_use_non_final_status():
 	assert is_valid is False
 
 
+async def test_rust_agent_take_step_executes_initial_actions_on_first_step():
+	from browser_use.agent.views import AgentStepInfo
+	from browser_use.rust import Agent
+
+	agent = Agent(
+		task='step once after initial action',
+		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
+	)
+	seen = []
+
+	class DoneHistory:
+		def is_done(self):
+			return True
+
+	async def fake_execute_initial_actions():
+		seen.append('initial_actions')
+
+	async def fake_run(max_steps=100, on_step_start=None, on_step_end=None):
+		seen.append(('run', max_steps))
+		return DoneHistory()
+
+	agent._execute_initial_actions = fake_execute_initial_actions
+	agent.run = fake_run
+
+	is_done, is_valid = await agent.take_step(AgentStepInfo(step_number=0, max_steps=3))
+
+	assert seen == ['initial_actions', ('run', 1)]
+	assert is_done is True
+	assert is_valid is True
+
+	seen.clear()
+
+	async def fake_interrupted_initial_actions():
+		seen.append('interrupted_initial_actions')
+		raise InterruptedError
+
+	agent._execute_initial_actions = fake_interrupted_initial_actions
+
+	is_done, is_valid = await agent.take_step(AgentStepInfo(step_number=0, max_steps=3))
+
+	assert seen == ['interrupted_initial_actions', ('run', 1)]
+	assert is_done is True
+	assert is_valid is True
+
+
 async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monkeypatch):
 	from browser_use.rust import Agent
 

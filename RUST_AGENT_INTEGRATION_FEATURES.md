@@ -926,10 +926,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - `on_step_start` now fires only when the Rust terminal execution or run-delegated follow-up path is about to execute, so stopped or paused-before-run paths do not report a step start that never happened.
    - Proof: `test_rust_agent_run_initializes_lifecycle_before_start_callback_error`.
 
+183. Rust Agent first-step initial-actions parity
+   - Direct `Agent.take_step(AgentStepInfo(step_number=0, ...))` now invokes configured Browser Use initial actions before the one-step Rust terminal run.
+   - Interrupted initial actions are swallowed like Browser Use's first-step path, allowing the caller's one-step execution to continue with current agent state.
+   - Proof: `test_rust_agent_take_step_executes_initial_actions_on_first_step`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (154 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (155 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

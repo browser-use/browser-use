@@ -3623,6 +3623,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Take one Rust terminal turn and return Browser Use-style step status."""
 		if step_info is not None:
 			self.state.n_steps = max(self.state.n_steps, step_info.step_number)
+			if step_info.step_number == 0:
+				try:
+					await self._execute_initial_actions()
+				except InterruptedError:
+					pass
 		history = await self.run(max_steps=1)
 		if history.is_done():
 			return True, True
