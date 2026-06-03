@@ -369,6 +369,45 @@ def test_rust_history_reconstructs_terminal_tool_call_actions():
 	assert history.action_results()[-1].is_done is True
 
 
+def test_rust_history_synthesizes_done_action_from_terminal_completion():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'text': 'Opened Example Domain',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.is_done() is True
+	assert history.action_names() == ['browser_script', 'done']
+	assert history.last_action() == {'done': {'text': 'Example Domain', 'success': True}}
+	assert history.model_actions_filtered(['done']) == [
+		{'done': {'text': 'Example Domain', 'success': True}, 'interacted_element': None}
+	]
+	assert history.action_history()[0][-1]['result'] == 'Example Domain'
+
+
 def test_rust_history_reconstructs_terminal_token_count_usage():
 	from browser_use.rust.service import _history_from_events
 
@@ -1537,7 +1576,7 @@ async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
 	assert captured_events[0].model == 'gpt-test'
 	assert captured_events[0].model_provider == 'test-provider'
 	assert captured_events[0].cdp_url == 'browser.example'
-	assert captured_events[0].action_history == [None]
+	assert captured_events[0].action_history == [[{'done': {'text': 'done', 'success': True}}]]
 	assert captured_events[0].urls_visited == ['https://example.com']
 	assert captured_events[0].total_input_tokens == 11
 	assert captured_events[0].total_output_tokens == 7

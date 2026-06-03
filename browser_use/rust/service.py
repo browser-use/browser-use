@@ -828,6 +828,30 @@ def _tool_started_calls(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	return tool_calls
 
 
+def _tool_calls_with_final_done(
+	tool_calls: list[dict[str, Any]],
+	*,
+	final_result: str | None,
+	attachments: list[str] | None,
+	is_done: bool,
+) -> list[dict[str, Any]]:
+	if not is_done or final_result is None:
+		return tool_calls
+	if tool_calls and tool_calls[-1].get('name') == 'done':
+		return tool_calls
+	done_arguments: dict[str, Any] = {'text': final_result, 'success': True}
+	if attachments:
+		done_arguments['files_to_display'] = attachments
+	return [
+		*tool_calls,
+		{
+			'name': 'done',
+			'tool_call_id': 'session.done',
+			'arguments': done_arguments,
+		},
+	]
+
+
 def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[str, dict[str, Any]]]:
 	results: dict[str, tuple[str, dict[str, Any]]] = {}
 	for event in events:
@@ -1095,7 +1119,12 @@ def _history_from_events(
 		failure = 'Rust terminal session did not produce a final result.'
 	is_done = final_result is not None and failure is None
 	attachments = _attachments_from_events(events)
-	tool_calls = _tool_started_calls(events)
+	tool_calls = _tool_calls_with_final_done(
+		_tool_started_calls(events),
+		final_result=final_result,
+		attachments=attachments,
+		is_done=is_done,
+	)
 	history = AgentHistory(
 		model_output=_model_output_from_tool_calls(tool_calls),
 		result=_action_results_from_tool_calls(

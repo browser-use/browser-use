@@ -634,10 +634,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This makes `history.model_actions()`, `history.action_names()`, `history.last_action()`, and `history.action_history()` reflect terminal tool calls instead of staying empty when the Rust core ran browser tools.
    - Proof: `test_rust_history_reconstructs_terminal_tool_call_actions`.
 
+125. Rust terminal completion done-action reconstruction
+   - Successful terminal `session.done` events now synthesize a Browser Use `done` action when the terminal model did not emit one explicitly.
+   - This keeps completed Rust-backed histories consistent for `history.last_action()`, `history.action_names()`, `history.model_actions_filtered(['done'])`, and action-history consumers that expect a final Browser Use completion action.
+   - Proof: `test_rust_history_synthesizes_done_action_from_terminal_completion`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (96 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (97 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
