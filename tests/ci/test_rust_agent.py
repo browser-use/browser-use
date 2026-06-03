@@ -805,6 +805,39 @@ def test_rust_agent_initializes_tools_and_action_models():
 	assert 'done' in str(done_schema)
 
 
+def test_rust_agent_initializes_runtime_metadata_and_observability():
+	from browser_use.rust import Agent
+	from browser_use.tokens.service import TokenCost
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	llm = LLM()
+	agent = Agent(
+		task='Inspect metadata.',
+		llm=llm,
+		task_id='task-1234',
+		source='ci',
+		calculate_cost=True,
+		use_thinking=False,
+	)
+
+	assert agent.version
+	assert agent.source == 'ci'
+	assert agent.logger.name.endswith('1234 Target --')
+	assert agent.eventbus is not None
+	assert callable(agent.telemetry.capture)
+	assert callable(agent.telemetry.flush)
+	assert isinstance(agent.token_cost_service, TokenCost)
+	assert agent.token_cost_service.include_cost is True
+	assert str(id(llm)) in agent.token_cost_service.registered_llms
+	assert agent.DoneAgentOutput is not None
+
+
 def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.rust import Agent

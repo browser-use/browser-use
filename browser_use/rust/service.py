@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import os
 import re
 import shutil
@@ -13,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
 
+from bubus import EventBus
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
@@ -31,8 +33,11 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.telemetry.service import ProductTelemetry
+from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.service import Tools
+from browser_use.utils import get_browser_use_version
 
 
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
@@ -933,6 +938,28 @@ def _resolve_tools(
 	return resolved_tools
 
 
+def _browser_use_version_and_source(source_override: str | None = None) -> tuple[str | None, str]:
+	version = get_browser_use_version()
+	try:
+		package_root = Path(__file__).parent.parent.parent
+		repo_files = ['.git', 'README.md', 'docs', 'examples']
+		source = 'git' if all((package_root / file).exists() for file in repo_files) else 'pip'
+	except Exception:
+		source = 'unknown'
+	if source_override is not None:
+		source = source_override
+	return version, source
+
+
+def _register_llm_for_usage(token_cost_service: TokenCost, llm: Any | None) -> None:
+	if llm is None or not hasattr(llm, 'ainvoke'):
+		return
+	try:
+		token_cost_service.register_llm(llm)
+	except Exception:
+		return
+
+
 def _action_payload(action: Any) -> dict[str, Any]:
 	"""Serialize a Browser Use action model into JSON-like data for Rust task context."""
 	if isinstance(action, dict):
@@ -1074,7 +1101,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
 		self.register_should_stop_callback = register_should_stop_callback
 		self.output_model_schema = output_model_schema
-		self.source = source
+		self.version, self.source = _browser_use_version_and_source(source)
 		self.kwargs = kwargs
 		self.model = _model_name(llm)
 		self.state = injected_agent_state or AgentState(agent_id=self.id)
@@ -1103,6 +1130,12 @@ class Agent(Generic[AgentStructuredOutput]):
 			final_response_after_failure=final_response_after_failure,
 		)
 		self._setup_action_models()
+		self.token_cost_service = TokenCost(include_cost=calculate_cost)
+		_register_llm_for_usage(self.token_cost_service, llm)
+		_register_llm_for_usage(self.token_cost_service, page_extraction_llm)
+		self.telemetry = ProductTelemetry()
+		eventbus_suffix = re.sub(r'\W', '_', str(self.id)[-8:])
+		self.eventbus = EventBus(name=f'RustAgent_{eventbus_suffix}')
 		self.available_file_paths = available_file_paths or []
 		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
 		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
@@ -1272,6 +1305,18 @@ class Agent(Generic[AgentStructuredOutput]):
 	def usage(self) -> UsageSummary | None:
 		return self.history.usage
 
+	@property
+	def logger(self) -> logging.Logger:
+		browser_session_id = getattr(self.browser_session, 'id', '----') or '----'
+		target_id = '--'
+		agent_focus = getattr(self.browser_session, 'agent_focus', None)
+		focus_target_id = getattr(agent_focus, 'target_id', None)
+		if isinstance(focus_target_id, str) and focus_target_id:
+			target_id = focus_target_id[-2:]
+		return logging.getLogger(
+			f'browser_use.rust.Agent {self.task_id[-4:]} -> BrowserSession {str(browser_session_id)[-4:]} Target {target_id}'
+		)
+
 	def _setup_action_models(self, page_url: str | None = None) -> None:
 		"""Expose Browser Use-style action model classes from the configured tools."""
 		registry = getattr(self.tools, 'registry', None)
@@ -1289,6 +1334,12 @@ class Agent(Generic[AgentStructuredOutput]):
 		else:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 		self.DoneActionModel = create_action_model(include_actions=['done'], page_url=page_url)
+		if self.settings.flash_mode:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
+		elif self.settings.use_thinking:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+		else:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
 
 	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[Any]:
 		"""Convert dictionary initial actions to Browser Use action model instances when possible."""

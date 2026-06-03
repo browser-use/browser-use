@@ -416,10 +416,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Common Browser Use legacy aliases such as `go_to_url`, `open_tab`, `click_element_by_index`, and `input_text` normalize to the current `navigate`, `click`, and `input` actions when the local registry can validate them.
    - Proof: `test_rust_agent_preserves_ordered_initial_actions_context` and `test_rust_agent_mirrors_direct_url_startup`.
 
+82. Rust Agent runtime metadata and observability parity
+   - The Rust-backed `Agent` now exposes Browser Use-style `version`, `source`, `logger`, `eventbus`, `telemetry`, and `token_cost_service` attributes.
+   - The wrapper registers supplied LLMs with token-cost tracking when they expose `ainvoke`, creates a valid Bubus event bus name for arbitrary task IDs, and exposes `DoneAgentOutput` alongside `DoneActionModel`.
+   - Proof: `test_rust_agent_initializes_runtime_metadata_and_observability`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (55 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (56 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
