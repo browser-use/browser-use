@@ -953,9 +953,12 @@ def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 			inner_payload = payload.get('payload')
 			if not isinstance(inner_payload, dict):
 				inner_payload = payload
-			error = inner_payload.get('error') or inner_payload.get('reason')
-			if isinstance(error, str) and error.strip():
-				return error.strip()
+			detail = _payload_failure_detail(inner_payload)
+			if detail:
+				return detail
+			if event_type == 'agent.cancelled':
+				return 'Subagent was cancelled.'
+			return 'Subagent failed.'
 	return None
 
 
@@ -1016,7 +1019,7 @@ def _exec_command_end_failure_message(payload: dict[str, Any]) -> str | None:
 
 
 def _payload_failure_detail(payload: dict[str, Any]) -> str | None:
-	for key in ('error', 'message', 'reason', 'detail', 'details'):
+	for key in ('error', 'failure', 'message', 'reason', 'detail', 'details'):
 		value = payload.get(key)
 		if isinstance(value, str) and value.strip():
 			return value.strip()

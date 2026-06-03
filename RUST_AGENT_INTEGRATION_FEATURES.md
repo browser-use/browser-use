@@ -789,10 +789,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This matches terminal protocol result reconstruction for parent/subagent completion histories while preserving `session.done` precedence when both results exist.
    - Proof: `test_rust_history_reconstructs_terminal_agent_completed_result`.
 
+156. Rust terminal subagent-failure reconstruction
+   - Terminal `agent.failed` and `agent.cancelled` events now surface nested subagent failure and cancellation details on Python-visible history errors.
+   - This preserves current-main child-agent failure payloads that store error text under nested `payload.failure`, plus sensible cancellation/failure fallbacks when no text is present.
+   - Proof: `test_rust_history_surfaces_terminal_subagent_failure_events`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (127 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (128 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

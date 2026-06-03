@@ -4068,6 +4068,63 @@ def test_rust_history_surfaces_terminal_operational_failure_events():
 	assert successful_with_cleanup_warning.errors() == [None]
 
 
+def test_rust_history_surfaces_terminal_subagent_failure_events():
+	from browser_use.rust.service import _history_from_events
+
+	failed = _history_from_events(
+		[
+			{
+				'event_type': 'agent.failed',
+				'payload': {
+					'child_session_id': 'child-1',
+					'status': 'failed',
+					'payload': {
+						'child_session_id': 'child-1',
+						'status': 'failed',
+						'failure': 'child task failed',
+					},
+				},
+			}
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	cancelled = _history_from_events(
+		[
+			{
+				'event_type': 'agent.cancelled',
+				'payload': {
+					'child_session_id': 'child-2',
+					'status': 'cancelled',
+					'payload': {
+						'child_session_id': 'child-2',
+						'status': 'cancelled',
+					},
+				},
+			}
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert failed.final_result() is None
+	assert failed.is_done() is False
+	assert failed.errors() == ['child task failed']
+	assert failed.action_results()[-1].error == 'child task failed'
+
+	assert cancelled.final_result() is None
+	assert cancelled.is_done() is False
+	assert cancelled.errors() == ['Subagent was cancelled.']
+	assert cancelled.action_results()[-1].error == 'Subagent was cancelled.'
+
+
 def test_rust_history_surfaces_terminal_tool_failure_message():
 	from browser_use.rust.service import _history_from_events
 
