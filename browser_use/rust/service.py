@@ -1222,7 +1222,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
 		)
-		self.session_id: str | None = None
+		self.session_id: str = uuid7str()
+		self.terminal_session_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None
 		self.last_events: list[dict[str, Any]] = []
@@ -1265,7 +1266,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			self.history = self.result
 			await self._call_callback(on_step_end, self)
 			return self.history
-		if self.state.follow_up_task and self.session_id:
+		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
 			return await self.follow_up(self.task, max_steps=max_steps)
 
@@ -1273,12 +1274,12 @@ class Agent(Generic[AgentStructuredOutput]):
 		finished = time.time()
 		self.last_stdout = stdout_text
 		self.last_stderr = stderr_text
-		self.session_id = self._session_id_from_stdout(stdout_text)
+		self.terminal_session_id = self._session_id_from_stdout(stdout_text)
 		events = await self._load_events()
 		process_error = None
 		if returncode:
 			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
-		elif not self.session_id:
+		elif not self.terminal_session_id:
 			process_error = 'browser-use-terminal did not print a session id.'
 		self.last_events = events
 		self.result = _history_from_events(
@@ -1300,12 +1301,12 @@ class Agent(Generic[AgentStructuredOutput]):
 		return self.history
 
 	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
-		if not self.session_id:
+		if not self.terminal_session_id:
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
 		returncode, stdout_text, stderr_text = await self._run_process(
-			[binary, *self._state_dir_args(), 'followup', self.session_id, task],
+			[binary, *self._state_dir_args(), 'followup', self.terminal_session_id, task],
 			timeout_seconds=self.settings.step_timeout,
 		)
 		if returncode:
@@ -1471,7 +1472,7 @@ class Agent(Generic[AgentStructuredOutput]):
 				return [done_result]
 		instruction = _actions_instruction(payloads)
 		max_steps = max(1, len(payloads))
-		if self.session_id:
+		if self.terminal_session_id:
 			history = await self.follow_up(instruction, max_steps=max_steps)
 			return history.action_results()
 		original_task = self.task
@@ -1731,6 +1732,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			'agent': 'browser_use.rust.Agent',
 			'task_id': self.task_id,
 			'session_id': self.session_id,
+			'terminal_session_id': self.terminal_session_id,
 			'model': self.model,
 			'browser_mode': self._browser_mode(),
 			'task': self.task,
@@ -1765,7 +1767,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		return False
 
 	def _run_existing_argv(self, max_steps: int) -> list[str]:
-		if not self.session_id:
+		if not self.terminal_session_id:
 			raise RustAgentError('No active Rust session. Call run() before rerunning an existing session.')
 		binary = find_browser_use_terminal_binary()
 		return [
@@ -1776,7 +1778,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			'-c',
 			f'browser_mode="{self._browser_mode()}"',
 			'run-codex-session',
-			self.session_id,
+			self.terminal_session_id,
 			'--model',
 			self.model,
 		]
@@ -1858,14 +1860,14 @@ class Agent(Generic[AgentStructuredOutput]):
 		return None
 
 	async def _load_events(self) -> list[dict[str, Any]]:
-		if not self.session_id:
+		if not self.terminal_session_id:
 			return []
 		binary = find_browser_use_terminal_binary()
 		proc = await asyncio.create_subprocess_exec(
 			binary,
 			*self._state_dir_args(),
 			'events',
-			self.session_id,
+			self.terminal_session_id,
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 			env=self._run_env(),

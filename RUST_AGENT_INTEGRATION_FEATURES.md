@@ -446,10 +446,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - GIF creation uses Browser Use's `create_history_gif(...)` with the same default `agent_history.gif` output path or caller-provided string path.
    - Proof: `test_rust_agent_generates_gif_after_done_callback`.
 
+88. Rust Agent session identity parity
+   - The Rust-backed `Agent` now initializes `agent.session_id` during construction as a Browser Use agent session id, matching the Python Agent public interface.
+   - Rust terminal session identity is tracked separately as `agent.terminal_session_id` and is used for `run-codex-session`, event loading, follow-ups, and transcript metadata.
+   - Proof: `test_rust_agent_keeps_browser_use_session_id_separate_from_terminal_session`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (61 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (62 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

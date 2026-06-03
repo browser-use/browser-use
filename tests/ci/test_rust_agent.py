@@ -964,13 +964,40 @@ def test_rust_agent_translates_followup_to_existing_terminal_session(monkeypatch
 
 	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
 	agent = Agent(task='start', llm=type('LLM', (), {'model': 'gpt-test'})())
-	agent.session_id = '12345678-1234-1234-1234-123456789abc'
+	agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
 
 	argv = agent._run_existing_argv(max_steps=9)
 
 	assert argv[0] == '/tmp/browser-use-terminal'
-	assert argv[-4:] == ['run-codex-session', agent.session_id, '--model', 'gpt-test']
+	assert argv[-4:] == ['run-codex-session', agent.terminal_session_id, '--model', 'gpt-test']
 	assert 'max_turns=9' in argv
+
+
+async def test_rust_agent_keeps_browser_use_session_id_separate_from_terminal_session(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='start', task_id='task-1', llm=type('LLM', (), {'model': 'gpt-test'})())
+	browser_use_session_id = agent.session_id
+
+	assert isinstance(browser_use_session_id, str)
+	assert browser_use_session_id
+	assert agent.terminal_session_id is None
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'session answer'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=1)
+
+	assert agent.session_id == browser_use_session_id
+	assert agent.terminal_session_id == '12345678-1234-1234-1234-123456789abc'
+	assert agent.session_id != agent.terminal_session_id
 
 
 async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
@@ -1316,7 +1343,7 @@ async def test_rust_agent_multi_act_routes_actions_to_followup():
 	from browser_use.rust.service import _history_from_events
 
 	agent = Agent(task='act on current page')
-	agent.session_id = '12345678-1234-1234-1234-123456789abc'
+	agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
 	seen = []
 
 	async def fake_follow_up(task, max_steps=None):
@@ -1405,7 +1432,8 @@ async def test_rust_agent_saves_terminal_conversation(tmp_path, monkeypatch):
 	assert len(files) == 1
 	snapshot = json.loads(files[0].read_text(encoding='utf-8'))
 	assert snapshot['task_id'] == 'task-1'
-	assert snapshot['session_id'] == '12345678-1234-1234-1234-123456789abc'
+	assert snapshot['session_id'] == agent.session_id
+	assert snapshot['terminal_session_id'] == '12345678-1234-1234-1234-123456789abc'
 	assert snapshot['final_result'] == 'saved transcript'
 	assert snapshot['events'][0]['event_type'] == 'browser.state'
 	assert agent.state.n_steps == 2
