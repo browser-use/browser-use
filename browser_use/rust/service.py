@@ -1087,15 +1087,37 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 	results: dict[str, tuple[str, dict[str, Any]]] = {}
 	for event in events:
 		event_type = _event_type(event)
-		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted', 'tool.finished', 'model.response.input_item'):
+		if event_type not in (
+			'tool.output',
+			'tool.output_delta',
+			'tool.failed',
+			'tool.aborted',
+			'tool.finished',
+			'model.response.input_item',
+		):
 			continue
 		payload = _event_payload(event)
 		if event_type == 'model.response.input_item':
 			payload = _response_input_item_tool_payload(payload)
+		if event_type == 'tool.output_delta':
+			delta_text = _tool_output_delta_text(payload)
+			if not delta_text:
+				continue
 		call_id = payload.get('tool_call_id') or payload.get('call_id')
 		if call_id:
 			key = str(call_id)
 			previous = results.get(key)
+			if event_type == 'tool.output_delta':
+				if previous is not None and previous[0] not in ('tool.output_delta', 'tool.finished'):
+					continue
+				merged_payload = dict(previous[1]) if previous is not None and previous[0] == 'tool.output_delta' else dict(payload)
+				previous_text = merged_payload.get('text') if previous is not None and previous[0] == 'tool.output_delta' else ''
+				for payload_key, payload_value in payload.items():
+					if payload_key != 'text':
+						merged_payload[payload_key] = payload_value
+				merged_payload['text'] = f'{previous_text if isinstance(previous_text, str) else ""}{delta_text}'
+				results[key] = (event_type, merged_payload)
+				continue
 			if event_type == 'tool.finished' and previous is not None and previous[0] != 'tool.finished':
 				continue
 			results[key] = (event_type, payload)
@@ -1106,13 +1128,58 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 	results: list[tuple[str, dict[str, Any]]] = []
 	for event in events:
 		event_type = _event_type(event)
-		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted', 'tool.finished', 'model.response.input_item'):
+		if event_type not in (
+			'tool.output',
+			'tool.output_delta',
+			'tool.failed',
+			'tool.aborted',
+			'tool.finished',
+			'model.response.input_item',
+		):
 			continue
 		payload = _event_payload(event)
 		if event_type == 'model.response.input_item':
 			payload = _response_input_item_tool_payload(payload)
 		if payload.get('tool_call_id') or payload.get('call_id'):
 			continue
+		if event_type == 'tool.output_delta':
+			delta_text = _tool_output_delta_text(payload)
+			if not delta_text:
+				continue
+			name = payload.get('name')
+			previous = next(
+				(
+					result
+					for result in reversed(results)
+					if isinstance(name, str)
+					and name
+					and result[0] == 'tool.output_delta'
+					and result[1].get('name') == name
+				),
+				None,
+			)
+			if previous is not None:
+				previous_text = previous[1].get('text')
+				previous[1]['text'] = f'{previous_text if isinstance(previous_text, str) else ""}{delta_text}'
+				continue
+			payload = dict(payload)
+			payload['text'] = delta_text
+		elif event_type == 'tool.output':
+			name = payload.get('name')
+			previous_delta_index = next(
+				(
+					index
+					for index in range(len(results) - 1, -1, -1)
+					if isinstance(name, str)
+					and name
+					and results[index][0] == 'tool.output_delta'
+					and results[index][1].get('name') == name
+				),
+				None,
+			)
+			if previous_delta_index is not None and payload.get('stream') is not True:
+				results[previous_delta_index] = (event_type, payload)
+				continue
 		if event_type == 'tool.output' and payload.get('stream') is True:
 			continue
 		if event_type == 'tool.finished':
@@ -1187,6 +1254,14 @@ def _tool_output_text(value: Any) -> str | None:
 		return text or None
 	if isinstance(value, dict):
 		return json.dumps(value, ensure_ascii=False, default=str)
+	return None
+
+
+def _tool_output_delta_text(payload: dict[str, Any]) -> str | None:
+	for key in ('text', 'delta', 'chunk'):
+		value = payload.get(key)
+		if isinstance(value, str) and value:
+			return value
 	return None
 
 
@@ -1379,8 +1454,12 @@ def _action_results_from_tool_calls(
 		action_results.append(
 			ActionResult(
 				error=error,
-				extracted_content=text if event_type in ('tool.output', 'tool.finished', 'model.response.input_item') else None,
-				long_term_memory=text if event_type in ('tool.output', 'tool.finished', 'model.response.input_item') else None,
+				extracted_content=text
+				if event_type in ('tool.output', 'tool.output_delta', 'tool.finished', 'model.response.input_item')
+				else None,
+				long_term_memory=text
+				if event_type in ('tool.output', 'tool.output_delta', 'tool.finished', 'model.response.input_item')
+				else None,
 			)
 		)
 

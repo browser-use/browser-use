@@ -603,6 +603,63 @@ def test_rust_history_reconstructs_terminal_tool_finished_results():
 	assert history.final_result() == 'Example Domain'
 
 
+def test_rust_history_reconstructs_terminal_tool_output_deltas():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'python',
+					'tool_call_id': 'call-python',
+					'arguments': {'code': "print('hello world')"},
+				},
+			},
+			{
+				'type': 'tool.output_delta',
+				'payload': {
+					'name': 'python',
+					'tool_call_id': 'call-python',
+					'stream': 'stdout',
+					'text': 'hello',
+				},
+			},
+			{
+				'type': 'tool.output_delta',
+				'payload': {
+					'name': 'python',
+					'tool_call_id': 'call-python',
+					'stream': 'stdout',
+					'text': ' world\n',
+				},
+			},
+			{
+				'type': 'tool.finished',
+				'payload': {
+					'name': 'python',
+					'tool_call_id': 'call-python',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_result = history.action_results()[0]
+
+	assert history.action_names() == ['python', 'done']
+	assert history.model_actions()[0]['python']['code'] == "print('hello world')"
+	assert first_result.extracted_content == 'hello world'
+	assert first_result.long_term_memory == 'hello world'
+	assert history.action_history()[0][0]['result'] == 'hello world'
+	assert history.final_result() == 'final answer'
+
+
 def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
 	from browser_use.rust.service import _history_from_events
 
