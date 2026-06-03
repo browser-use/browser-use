@@ -1033,6 +1033,40 @@ def _browser_state_candidates(value: Any) -> list[tuple[str, str, str]]:
 	return candidates
 
 
+def _image_path(value: Any) -> str | None:
+	if not isinstance(value, dict):
+		return None
+	path = value.get('path')
+	if isinstance(path, str) and path:
+		return path
+	url = value.get('url')
+	if isinstance(url, str) and url.startswith('file://'):
+		return url.removeprefix('file://')
+	return None
+
+
+def _screenshot_path_from_events(events: list[dict[str, Any]]) -> str | None:
+	screenshot_path = None
+	for event in events:
+		event_type = _event_type(event)
+		payload = _event_payload(event)
+		if event_type == 'tool.image':
+			image_path = _image_path(payload.get('image'))
+			if image_path:
+				screenshot_path = image_path
+			continue
+		if event_type not in ('tool.output', 'tool.failed'):
+			continue
+		images = payload.get('images')
+		if not isinstance(images, list):
+			continue
+		for image in images:
+			image_path = _image_path(image)
+			if image_path:
+				screenshot_path = image_path
+	return screenshot_path
+
+
 def _browser_script_navigation_candidates(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
 	if payload.get('name') != 'browser_script':
 		return []
@@ -1088,7 +1122,13 @@ def _browser_state_from_events(events: list[dict[str, Any]]) -> BrowserStateHist
 				tabs = next_tabs
 	if not tabs and (url or title):
 		tabs = [TabInfo(url=url, title=title, target_id='tab-0')]
-	return BrowserStateHistory(url=url, title=title, tabs=tabs, interacted_element=[])
+	return BrowserStateHistory(
+		url=url,
+		title=title,
+		tabs=tabs,
+		interacted_element=[],
+		screenshot_path=_screenshot_path_from_events(events),
+	)
 
 
 def _int_value(value: Any) -> int:

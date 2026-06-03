@@ -649,10 +649,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This keeps `history.errors()` and final action errors actionable instead of falling back to the generic "Rust terminal session did not produce a final result" message after the terminal core already recorded the failure.
    - Proof: `test_rust_history_surfaces_terminal_tool_failure_message`.
 
+128. Rust terminal screenshot path reconstruction
+   - Terminal browser-script image events now populate Browser Use `BrowserStateHistory.screenshot_path`.
+   - This makes `history.screenshot_paths()` and `history.screenshots()` work for Rust-backed histories when terminal current-main records `tool.image` events or image paths on `tool.output`.
+   - Proof: `test_rust_history_reconstructs_terminal_screenshot_paths`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (99 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (100 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

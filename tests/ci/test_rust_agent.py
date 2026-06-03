@@ -318,6 +318,46 @@ def test_rust_history_reconstructs_terminal_browser_script_urls():
 	assert navigation_history.urls() == ['https://example.com']
 
 
+def test_rust_history_reconstructs_terminal_screenshot_paths(tmp_path):
+	import base64
+
+	from browser_use.rust.service import _history_from_events
+
+	screenshot_path = tmp_path / 'terminal-shot.png'
+	screenshot_bytes = b'\x89PNG\r\n\x1a\nterminal-shot'
+	screenshot_path.write_bytes(screenshot_bytes)
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'images': [{'path': str(screenshot_path), 'mime_type': 'image/png'}],
+				},
+			},
+			{
+				'type': 'tool.image',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'image': {'path': str(screenshot_path), 'mime_type': 'image/png'},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.screenshot_paths() == [str(screenshot_path)]
+	assert history.screenshots() == [base64.b64encode(screenshot_bytes).decode('utf-8')]
+
+
 def test_rust_history_reconstructs_terminal_tool_call_actions():
 	from browser_use.rust.service import _history_from_events
 
