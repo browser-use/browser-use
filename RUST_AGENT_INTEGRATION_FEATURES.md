@@ -946,6 +946,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - When `done` appears after earlier actions, the Rust wrapper stops before serializing that `done` payload into terminal follow-up/run instructions.
    - Proof: `test_rust_agent_multi_act_ignores_later_done_actions`.
 
+187. Rust Agent step-event finalization parity
+   - Rust-backed `_finalize(...)` now dispatches Browser Use `CreateAgentStepEvent` when a browser state and model output are available.
+   - The event uses Browser Use's `CreateAgentStepEvent.from_agent_step(...)` factory, preserving action data, step metadata, URL, and screenshot payload semantics.
+   - Proof: `test_rust_agent_exposes_step_finalization_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`

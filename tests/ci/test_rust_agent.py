@@ -4263,7 +4263,16 @@ async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 		screenshot = base64.b64encode(b'png-bytes').decode('utf-8')
 		dom_state = DomState()
 
+	class EventBus:
+		def __init__(self):
+			self.dispatched = []
+
+		def dispatch(self, event):
+			self.dispatched.append(event)
+			return event
+
 	agent = Agent(task='Finalize helper parity.', file_system_path=str(tmp_path / 'agent-files'))
+	agent.eventbus = EventBus()
 
 	await agent._handle_step_error(ValueError('bad step'))
 	assert agent.state.consecutive_failures == 1
@@ -4279,6 +4288,12 @@ async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	await agent._post_process()
 	assert agent.state.consecutive_failures == 0
 
+	agent.state.last_model_output = agent.AgentOutput(
+		evaluation_previous_goal='Need answer',
+		memory='Have answer',
+		next_goal='Finish',
+		action=[agent.ActionModel(done={'text': 'final answer', 'success': True})],
+	)
 	agent.step_start_time = time.time() - 0.1
 	await agent._finalize(BrowserStateSummary())
 
@@ -4287,6 +4302,13 @@ async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	assert agent.history.final_result() == 'final answer'
 	assert agent.history.urls() == ['https://example.com/final']
 	assert Path(agent.history.history[0].state.screenshot_path).read_bytes() == b'png-bytes'
+	assert [type(event).__name__ for event in agent.eventbus.dispatched] == ['CreateAgentStepEvent']
+	assert agent.eventbus.dispatched[0].agent_task_id == str(agent.task_id)
+	assert agent.eventbus.dispatched[0].actions == [
+		{'done': {'text': 'final answer', 'success': True, 'files_to_display': []}}
+	]
+	assert agent.eventbus.dispatched[0].url == 'https://example.com/final'
+	assert agent.eventbus.dispatched[0].screenshot_url.startswith('data:image/jpeg;base64,')
 
 	await agent._force_done_after_last_step(AgentStepInfo(step_number=2, max_steps=3))
 	assert agent.AgentOutput is agent.DoneAgentOutput

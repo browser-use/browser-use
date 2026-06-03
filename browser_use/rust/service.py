@@ -25,6 +25,7 @@ from uuid_extensions import uuid7str
 from browser_use.agent.cloud_events import (
 	CreateAgentOutputFileEvent,
 	CreateAgentSessionEvent,
+	CreateAgentStepEvent,
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
@@ -3592,6 +3593,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				state_message=state_message,
 			)
 			self._log_step_completion_summary(step_start_time, self.state.last_result)
+			if self.state.last_model_output:
+				actions_data = []
+				for action in self.state.last_model_output.action or []:
+					action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
+					actions_data.append(action_dict)
+				step_event = CreateAgentStepEvent.from_agent_step(
+					self,
+					self.state.last_model_output,
+					self.state.last_result,
+					actions_data,
+					browser_state_summary,
+				)
+				self.eventbus.dispatch(step_event)
 		self.save_file_system_state()
 		self.state.n_steps += 1
 
