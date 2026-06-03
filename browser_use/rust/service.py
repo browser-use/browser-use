@@ -2932,6 +2932,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._register_run_signal_handler(max_steps)
 		try:
 			return await self._run_terminal(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end)
+		except asyncio.CancelledError:
+			await self._finalize_exceptional_run(max_steps=max_steps, agent_run_error='CancelledError')
+			raise
 		except KeyboardInterrupt:
 			self.logger.debug('Got KeyboardInterrupt during execution, returning current history')
 			await self._finalize_exceptional_run(max_steps=max_steps, agent_run_error='KeyboardInterrupt')
@@ -3043,6 +3046,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._register_run_signal_handler(resolved_max_steps)
 		try:
 			return await self._follow_up_terminal(task, max_steps=max_steps, resolved_max_steps=resolved_max_steps)
+		except asyncio.CancelledError:
+			await self._finalize_exceptional_run(max_steps=resolved_max_steps, agent_run_error='CancelledError')
+			raise
 		except KeyboardInterrupt:
 			self.logger.debug('Got KeyboardInterrupt during execution, returning current history')
 			await self._finalize_exceptional_run(max_steps=resolved_max_steps, agent_run_error='KeyboardInterrupt')
