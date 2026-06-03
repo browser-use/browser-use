@@ -1161,10 +1161,22 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - When `BU_BROWSER_ALLOWED_DOMAINS`, `BU_BROWSER_PROHIBITED_DOMAINS`, or `BU_BROWSER_BLOCK_IP_ADDRESSES=true` is active, the same malformed navigation values are still rejected before CDP navigation so BrowserProfile constraints remain enforced.
    - Proof: terminal `browser_profile_domain_constraints_are_passive_without_env`.
 
+230. Rust Agent Anthropic DEFAULT_LLM parity
+   - `DEFAULT_LLM=anthropic_claude_sonnet_4_0` now resolves through the same `get_llm_by_name(...)` path used by the Rust-backed `Agent` default-LLM constructor.
+   - The factory wires `ANTHROPIC_API_KEY` into `ChatAnthropic`, preserving Browser Use-style provider object behavior while letting the Rust wrapper choose `run-anthropic`.
+   - Proof: `test_get_llm_by_name_resolves_anthropic_from_env` and the Anthropic real_v8 cloud smoke below starting with `provider=anthropic` and `model=claude-sonnet-4-0`.
+
+231. Rust Agent done-tool final-result parity
+   - History reconstruction now prefers the terminal `done` tool's text over a later `session.done` narrative summary when both are present.
+   - This matches Browser Use's public `history.final_result()` contract: the final result should be the answer passed to the done action, not surrounding assistant explanation.
+   - Proof: `test_rust_history_prefers_done_tool_text_over_session_summary` and replaying the Anthropic real_v8 `18` terminal event stream now yields `{"final_result":"Paramjit Uppal, Founder","successful":true}`.
+
 ## Current Verification
 
-- `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
+- `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
+- `uv run pytest -q tests/ci/test_rust_agent.py` (previous full run before latest focused additions: 186 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py -k prefers_done_tool_text`
+- `uv run pytest -q tests/ci/models/test_llm_model_factory.py`
 - `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (28 tests)
 - `cargo fmt --check` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
@@ -1239,6 +1251,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Source `/home/exedev/.evaluation_tool_env`.
   - `REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30 --step-timeout 600`
   - Output: `{"task_id": "18", "successful": true, "final_result": "Paramjit Uppal, Founder"}`
+- real_v8 Anthropic DEFAULT_LLM cloud-browser end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`.
+  - `DEFAULT_LLM=anthropic_claude_sonnet_4_0 REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30 --step-timeout 600`
+  - Live output before final-result reconstruction fix: `provider=anthropic`, `model=claude-sonnet-4-0`, no history errors, terminal `done` tool text `Paramjit Uppal, Founder`; Python summary still exposed a narrative session summary.
+  - Post-fix replay of the same stored terminal event stream through `_history_from_events(...)`: `{"errors":[],"final_result":"Paramjit Uppal, Founder","successful":true}`.
 - real_v8-2 cloud-browser end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`.
   - `REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8-2.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 1 --max-steps 25 --step-timeout 600`
@@ -1301,6 +1318,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - real_v8 `20`: returned `successful=true`, but final output omitted abstracts, reported navigation restrictions, and included generated browser-script syntax/domain-constraint errors.
   - The false-positive BrowserProfile domain-constraint block on malformed navigation from this run is addressed by feature 229; the task itself has not been rerun as a clean benchmark proof.
   - The requested 50+50 parallel real_v8 sweep was not started because the three-task gate did not produce clean task-quality results.
+- 2026-06-03 post-passive-constraint three-task cloud gate:
+  - real_v8 `18` with `DEFAULT_LLM=openai_gpt_4_1_mini`: no false BrowserProfile block, but still returned `[empty]` with generated-script syntax errors and a recovered CDP websocket drop.
+  - real_v8 `20` with `DEFAULT_LLM=openai_gpt_4_1_mini`: reached arXiv and recorded page info, then timed out after the configured 300-second terminal subprocess timeout.
+  - real_v8-2 `1` with `DEFAULT_LLM=openai_gpt_4_1_mini`: returned `successful=true`, but stopped after summary links and asked whether to continue instead of extracting the requested counts/names/official biography links.
+  - This gate still did not justify starting the 50+50 parallel sweep.
 - Non-passing sweep data points so far:
   - real_v8 `11`: repository paths in the task appear stale for current `openai/codex`, and the run later hit the model context window while trying to retrieve large source contents.
   - real_v8 `13`: provider/tool-call decode error, `EOF while parsing an object`, before a final result.
