@@ -291,6 +291,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper classifies visible investor/report/earnings document links into releases, supplements, presentations, transcripts, reports, and data annexes with dates, extensions, period tokens, keyword matches, context, scores, and direct URLs for `read_document_text`.
    - Proof: `browser_script_investor_documents_snapshot_classifies_visible_links`.
 
+57. Browser-script generic document link discovery helper
+   - Terminal browser scripts now expose `document_links_snapshot(limit=100, keywords=None)`.
+   - The helper classifies visible FERC, docket, regulatory, government, report, and generic filing/search result links with row/card context, docket tokens, accession IDs, dates, document type, extension, score, source, and direct URL for `read_document_text`.
+   - Proof: `browser_script_document_links_snapshot_classifies_filing_documents`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -325,6 +330,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_json_api_records_extracts_nested_record_arrays -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_tabular_data_records_normalizes_exports -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_investor_documents_snapshot_classifies_visible_links -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_document_links_snapshot_classifies_filing_documents -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
