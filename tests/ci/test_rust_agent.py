@@ -2873,6 +2873,39 @@ def test_rust_agent_unsupported_vision_warnings_match_browser_use(monkeypatch):
 		assert rust_logger.warnings == browser_use_logger.warnings
 
 
+def test_rust_agent_constructor_debug_summary_matches_browser_use(monkeypatch):
+	import browser_use.agent.service as agent_service
+	import browser_use.rust.service as rust_service
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class RecordingModuleLogger:
+		def __init__(self):
+			self.debugs = []
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+	browser_use_logger = RecordingModuleLogger()
+	rust_logger = RecordingModuleLogger()
+	monkeypatch.setattr(agent_service, 'logger', browser_use_logger)
+	monkeypatch.setattr(rust_service, 'logger', rust_logger)
+
+	BrowserUseAgent(task='Inspect constructor setup.', llm=LLM(), directly_open_url=False)
+	RustAgent(task='Inspect constructor setup.', llm=LLM(), directly_open_url=False)
+
+	expected = ' +vision extraction_model=gpt-test +file_system'
+	assert browser_use_logger.debugs[-1] == expected
+	assert rust_logger.debugs[-1] == expected
+
+
 def test_rust_agent_state_id_defaults_like_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.agent.views import AgentState

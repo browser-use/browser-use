@@ -2604,6 +2604,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if 'grok' in model_name:
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
+		logger.debug(
+			f'{" +vision" if self.settings.use_vision else ""}'
+			f' extraction_model={getattr(self.settings.page_extraction_llm, "model", "Unknown") if self.settings.page_extraction_llm else "Unknown"}'
+			f'{" +file_system" if self.file_system else ""}'
+		)
 		self.token_cost_service = TokenCost(include_cost=calculate_cost)
 		_register_llm_for_usage(self.token_cost_service, llm)
 		_register_llm_for_usage(self.token_cost_service, page_extraction_llm)

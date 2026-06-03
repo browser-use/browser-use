@@ -1061,10 +1061,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Vision disabling behavior is unchanged; this aligns the public constructor feedback seen by callers when their requested model family does not support vision.
    - Proof: `test_rust_agent_unsupported_vision_warnings_match_browser_use`.
 
+210. Rust Agent constructor setup debug parity
+   - Rust-backed construction now emits Browser Use's module-level setup debug summary after LLM/action setup, including vision mode, extraction model, and file-system availability.
+   - This preserves the constructor diagnostics Browser Use callers see before the Rust terminal core is invoked.
+   - Proof: `test_rust_agent_constructor_debug_summary_matches_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (178 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (179 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
