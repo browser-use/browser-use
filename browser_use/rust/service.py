@@ -2973,7 +2973,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
-			return await self.follow_up(self.task, max_steps=max_steps)
+			return await self._follow_up_terminal(self.task, max_steps=max_steps, resolved_max_steps=max_steps)
 
 		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps), timeout_seconds=self.settings.step_timeout)
 		finished = time.time()
@@ -3015,6 +3015,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
 		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
 		self._register_run_signal_handler(resolved_max_steps)
+		try:
+			return await self._follow_up_terminal(task, max_steps=max_steps, resolved_max_steps=resolved_max_steps)
+		except Exception as exc:
+			self.logger.error(f'Agent follow-up failed with exception: {exc}', exc_info=True)
+			await self._finalize_exceptional_run(max_steps=resolved_max_steps, agent_run_error=str(exc))
+			raise
+
+	async def _follow_up_terminal(
+		self,
+		task: str,
+		max_steps: int | None,
+		resolved_max_steps: int,
+	) -> AgentHistoryList[AgentStructuredOutput]:
 		self._initialize_run_lifecycle_state()
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
@@ -3025,7 +3038,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if returncode:
 			raise RustAgentError(stderr_text or stdout_text)
 		returncode, _stdout_text, stderr_text = await self._run_process(
-			self._run_existing_argv(max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)),
+			self._run_existing_argv(resolved_max_steps),
 			timeout_seconds=self.settings.step_timeout,
 		)
 		finished = time.time()
