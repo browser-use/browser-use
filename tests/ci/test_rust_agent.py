@@ -6856,6 +6856,47 @@ async def test_rust_agent_trace_and_cloud_auth_helpers():
 	assert 'trace answer' in trace_object['trace_details']['complete_history']
 
 
+async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class RecordingLogger:
+		def __init__(self):
+			self.warnings = []
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def info(self, message, *args, **kwargs):
+			pass
+
+		def warning(self, message, *args, **kwargs):
+			self.warnings.append(message)
+
+		def error(self, message, *args, **kwargs):
+			pass
+
+	browser_use_logger = RecordingLogger()
+	rust_logger = RecordingLogger()
+	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
+	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+
+	browser_use_agent = BrowserUseAgent(task='Cloud sync warning parity.', llm=LLM(), directly_open_url=False)
+	rust_agent = RustAgent(task='Cloud sync warning parity.', llm=LLM(), directly_open_url=False)
+
+	assert await browser_use_agent.authenticate_cloud_sync(show_instructions=False) is False
+	assert await rust_agent.authenticate_cloud_sync(show_instructions=False) is False
+	assert rust_logger.warnings == browser_use_logger.warnings
+	assert rust_logger.warnings == ['Cloud sync has been removed and is no longer available']
+
+
 def test_rust_agent_trace_metadata_matches_browser_use_helpers(monkeypatch):
 	from browser_use.rust import Agent
 	import browser_use.rust.service as rust_service

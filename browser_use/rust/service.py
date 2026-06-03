@@ -4053,6 +4053,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		The Rust wrapper mirrors that contract.
 		"""
 		_ = show_instructions
+		self.logger.warning('Cloud sync has been removed and is no longer available')
 		return False
 
 	def get_trace_object(self) -> dict[str, Any]:

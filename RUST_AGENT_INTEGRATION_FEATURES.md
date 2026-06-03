@@ -1101,10 +1101,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This asks terminal current-main OpenAI-compatible providers to include token usage in responses so Browser Use-style usage/cost reconstruction has data to report.
    - Proof: `test_rust_agent_requests_openai_compatible_usage_for_cost_calculation`.
 
+218. Rust Agent cloud-sync warning parity
+   - Rust-backed `authenticate_cloud_sync()` now logs Browser Use's cloud-sync removal warning before returning `False`.
+   - This preserves the user-visible helper behavior for callers that still probe the deprecated cloud-sync API.
+   - Proof: `test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (185 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
