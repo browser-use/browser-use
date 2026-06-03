@@ -5345,7 +5345,73 @@ async def test_rust_agent_logs_completion_before_done_callback(monkeypatch):
 	await agent.run(max_steps=1)
 
 	assert seen == [('logged', None), ('done', 'logged answer')]
-	assert 'Task completed successfully' in logged_messages
+	assert '✅ Task completed successfully' in logged_messages
+
+
+async def test_rust_agent_log_completion_matches_browser_use(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def warning(self, message, *args, **kwargs):
+			pass
+
+		def error(self, message, *args, **kwargs):
+			pass
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	def make_history(success: bool):
+		events = [{'event_type': 'session.done', 'payload': {'result': 'done'}}] if success else []
+		return rust_service._history_from_events(
+			events,
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None if success else 'failed',
+		)
+
+	for index, success in enumerate((True, False)):
+		browser_use_logger = RecordingLogger()
+		rust_logger = RecordingLogger()
+		monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self, logger=browser_use_logger: logger))
+		monkeypatch.setattr(RustAgent, 'logger', property(lambda self, logger=rust_logger: logger))
+
+		browser_use_agent = BrowserUseAgent(
+			task='Log completion parity.',
+			llm=LLM(),
+			task_id=f'browsercompletionbu{index}',
+			directly_open_url=False,
+		)
+		rust_agent = RustAgent(
+			task='Log completion parity.',
+			llm=LLM(),
+			task_id=f'rustcompletionrs{index}',
+			directly_open_url=False,
+		)
+		browser_use_agent.history = make_history(success)
+		rust_agent.history = make_history(success)
+
+		await browser_use_agent.log_completion()
+		await rust_agent.log_completion()
+
+		assert rust_logger.infos == browser_use_logger.infos
 
 
 async def test_rust_agent_generates_gif_after_done_callback(monkeypatch, tmp_path):
