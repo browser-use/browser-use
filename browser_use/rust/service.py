@@ -863,6 +863,9 @@ def _attachments_from_events(events: list[dict[str, Any]]) -> list[str] | None:
 			if pointer:
 				pointers.append(pointer)
 		elif event_type in ('tool.output', 'tool.failed'):
+			text_artifact = _artifact_attachment_pointer(payload.get('text_artifact'))
+			if text_artifact:
+				pointers.append(text_artifact)
 			artifacts = payload.get('artifacts')
 			if isinstance(artifacts, list):
 				for artifact in artifacts:

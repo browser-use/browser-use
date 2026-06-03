@@ -1299,6 +1299,53 @@ def test_rust_history_reconstructs_terminal_artifact_attachments():
 	}
 
 
+def test_rust_history_reconstructs_terminal_text_artifact_attachments():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'python',
+					'arguments': {'code': "print('large report')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'python',
+					'ok': True,
+					'text': 'large report...',
+					'text_truncated': True,
+					'text_artifact': {
+						'artifact_id': 'tool-output-python-1234',
+						'path': '/tmp/artifacts/session/tool-output-python-1234.txt',
+						'file_name': 'tool-output-python-1234.txt',
+						'bytes': 8192,
+						'preview': 'large report...',
+						'token_budget': 2048,
+					},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Generated large report.'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	attachments = ['/tmp/artifacts/session/tool-output-python-1234.txt']
+
+	assert history.action_history()[0][0]['result'] == 'large report...'
+	assert history.action_results()[-1].attachments == attachments
+	assert history.last_action() == {
+		'done': {'text': 'Generated large report.', 'success': True, 'files_to_display': attachments}
+	}
+
+
 def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	from browser_use.rust import Agent
 

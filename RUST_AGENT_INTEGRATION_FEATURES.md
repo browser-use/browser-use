@@ -719,10 +719,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves CLI/manual tool paths such as `python`, where `tool.started`, `tool.output`, and `tool.finished` can omit call ids, while explicit call-id matching still takes precedence and transient streaming chunks stay out of final action history.
    - Proof: `test_rust_history_reconstructs_terminal_unkeyed_tool_results`.
 
+142. Rust terminal text-artifact attachment reconstruction
+   - Terminal `tool.output` events with `text_artifact` now expose the spilled text artifact on Browser Use attachment surfaces.
+   - This preserves current-main Python worker outputs that truncate large text in `text` while carrying the full artifact under `text_artifact`, including the synthesized final `done.files_to_display`.
+   - Proof: `test_rust_history_reconstructs_terminal_text_artifact_attachments`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (113 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (114 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
