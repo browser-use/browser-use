@@ -986,10 +986,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Parse/tool-call failures now use Browser Use's model-specific module logger path, and interrupted steps continue to log without mutating `state.last_result`.
    - Proof: `test_rust_agent_handle_step_error_logs_browser_use_failure_prefix`.
 
+195. Rust Agent history-rerun retry parity
+   - Rust-backed `rerun_history(...)` now honors Browser Use's public `max_retries`, `skip_failures`, and `delay_between_actions` controls around Rust-core reruns.
+   - Reruns retry both terminal process exceptions and returned Browser Use history errors, raise after the final attempt when `skip_failures=False`, and otherwise return an error `ActionResult` instead of silently dropping the failure.
+   - Proof: `test_rust_agent_rerun_history_honors_retry_and_skip_controls`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (163 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (164 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -1063,6 +1068,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Existing-session follow-up end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BROWSER_USE_RUST_STATE_DIR=/tmp/browser-use-rust-followup-smoke timeout 420 uv run python - <<'PY' ...`
   - Output: first run `Example Domain`; follow-up `example.com`.
+- History load/rerun Python API end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, run one `Agent` to save history, then run `Agent.load_and_rerun(history_file, max_retries=2, delay_between_actions=0.1)`.
+  - Output: first run `Example Domain`; saved history file exists; rerun results include `Example Domain`.
 - Parallel managed-headless Python API smoke batch:
   - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, and run two `uv run python - <<'PY' ...` Agent scripts in parallel.
   - Follow-up/callback script output: `{"smoke": "python_api_followup_callbacks", "first": "Example Domain", "second": "example.com", "callback_kinds": ["step", "done", "step", "done"], "conversation_files": 2}`.

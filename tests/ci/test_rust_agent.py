@@ -5196,6 +5196,85 @@ async def test_rust_agent_rerun_history_delegates_to_rust_run():
 	assert results[0].extracted_content == 'rerun answer'
 
 
+async def test_rust_agent_rerun_history_honors_retry_and_skip_controls(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.agent.views import ActionResult
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	previous = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'previous answer'}}],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+	success = _history_from_events(
+		[{'event_type': 'session.done', 'payload': {'result': 'retry success'}}],
+		model='gpt-test',
+		started=3.0,
+		finished=4.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+	sleeps = []
+
+	async def fake_sleep(delay):
+		sleeps.append(delay)
+
+	monkeypatch.setattr(rust_service.asyncio, 'sleep', fake_sleep)
+
+	class ErrorHistory:
+		def action_results(self):
+			return [ActionResult(error='history failed')]
+
+		def errors(self):
+			return ['history failed']
+
+	agent = Agent(task='rerun retry', max_steps=5)
+	attempts = []
+
+	async def fake_run(max_steps=100, on_step_start=None, on_step_end=None):
+		attempts.append(max_steps)
+		if len(attempts) == 1:
+			raise RuntimeError('process failed')
+		if len(attempts) == 2:
+			return ErrorHistory()
+		return success
+
+	agent.run = fake_run
+
+	results = await agent.rerun_history(previous, max_retries=3, delay_between_actions=0.1)
+
+	assert attempts == [5, 5, 5]
+	assert sleeps == [0.1, 0.1]
+	assert results[0].extracted_content == 'retry success'
+
+	failing_agent = Agent(task='rerun strict failure', max_steps=2)
+	strict_attempts = []
+	sleeps.clear()
+
+	async def always_fail(max_steps=100, on_step_start=None, on_step_end=None):
+		strict_attempts.append(max_steps)
+		raise RuntimeError('still broken')
+
+	failing_agent.run = always_fail
+
+	with pytest.raises(RuntimeError, match='Rerun failed after 2 attempts: still broken'):
+		await failing_agent.rerun_history(previous, max_retries=2, skip_failures=False, delay_between_actions=0.25)
+
+	assert strict_attempts == [2, 2]
+	assert sleeps == [0.25]
+
+	skip_agent = Agent(task='rerun skipped failure')
+	skip_agent.run = always_fail
+
+	results = await skip_agent.rerun_history(previous, max_retries=1, skip_failures=True)
+
+	assert results[-1].error == 'Rerun failed after 1 attempts: still broken'
+
+
 async def test_rust_agent_load_and_rerun_loads_saved_rust_history(tmp_path):
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events

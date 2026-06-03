@@ -3853,12 +3853,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		The Python Agent replays serialized Python action models. Rust terminal
 		histories do not expose those action models, so this compatibility path
-		reruns the current task through the Rust core and returns reconstructed
-		action results.
+		reruns the current task through the Rust core while preserving the public
+		retry and skip-failure controls from Browser Use's rerun API.
 		"""
-		_ = (history, max_retries, skip_failures, delay_between_actions)
-		result = await self.run(max_steps=self.kwargs.get('max_steps', 100))
-		return result.action_results()
+		_ = history
+		max_retries = max(1, max_retries)
+		last_results: list[ActionResult] = []
+		last_error: str | None = None
+		for attempt in range(1, max_retries + 1):
+			try:
+				result = await self.run(max_steps=self.kwargs.get('max_steps', 100))
+				last_results = result.action_results()
+				errors = [error for error in result.errors() if error]
+				if not errors:
+					return last_results
+				last_error = errors[0]
+			except Exception as error:
+				last_results = []
+				last_error = str(error)
+
+			if attempt < max_retries:
+				self.logger.warning(f'Rerun failed (attempt {attempt}/{max_retries}), retrying...')
+				await asyncio.sleep(delay_between_actions)
+
+		error_msg = f'Rerun failed after {max_retries} attempts: {last_error or "unknown error"}'
+		self.logger.error(error_msg)
+		if not skip_failures:
+			raise RuntimeError(error_msg)
+		return last_results or [ActionResult(error=error_msg)]
 
 	async def load_and_rerun(self, history_file: str | Path | None = None, **kwargs) -> list[ActionResult]:
 		"""Load a saved Rust-backed Browser Use history and rerun the task."""
