@@ -632,6 +632,59 @@ def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
 	assert history.final_result() == 'final answer'
 
 
+def test_rust_history_reconstructs_terminal_structured_tool_output_results():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': "return page.summary()"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'ok': True,
+					'text': '',
+					'summary': {
+						'kind': 'page',
+						'title': 'Example Domain',
+						'url': 'https://example.com',
+					},
+					'data': {'ignored_when_summary_exists': True},
+					'outputs': [{'label': 'page', 'value': {'url': 'https://example.com'}}],
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_result = history.action_results()[0]
+	structured_result = json.loads(first_result.extracted_content or '{}')
+
+	assert history.action_names() == ['browser_script', 'done']
+	assert structured_result == {
+		'kind': 'page',
+		'title': 'Example Domain',
+		'url': 'https://example.com',
+	}
+	assert first_result.long_term_memory == first_result.extracted_content
+	assert json.loads(history.action_history()[0][0]['result'])['url'] == 'https://example.com'
+	assert history.final_result() == 'Example Domain'
+
+
 def test_rust_history_synthesizes_done_action_from_terminal_completion():
 	from browser_use.rust.service import _history_from_events
 

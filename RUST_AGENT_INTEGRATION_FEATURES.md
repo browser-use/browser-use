@@ -724,10 +724,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves current-main Python worker outputs that truncate large text in `text` while carrying the full artifact under `text_artifact`, including the synthesized final `done.files_to_display`.
    - Proof: `test_rust_history_reconstructs_terminal_text_artifact_attachments`.
 
+143. Rust terminal structured tool-output reconstruction
+   - Terminal tool outputs now fall back to structured `summary`, `data`, and `outputs` payloads when no textual `text`, `output`, `result`, or text content is present.
+   - This preserves current-main browser/Python tool results that return structured payloads instead of transcripts, so Browser Use `action_history()` and `ActionResult` surfaces do not show `None` for successful actions.
+   - Proof: `test_rust_history_reconstructs_terminal_structured_tool_output_results`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (114 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (115 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

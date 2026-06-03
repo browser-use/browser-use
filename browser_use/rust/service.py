@@ -1180,6 +1180,14 @@ def _tool_output_text(value: Any) -> str | None:
 	return None
 
 
+def _structured_tool_output_text(value: Any) -> str | None:
+	if isinstance(value, str) and value.strip():
+		return value.strip()
+	if isinstance(value, (dict, list)) and value:
+		return json.dumps(value, ensure_ascii=False, default=str)
+	return None
+
+
 def _tool_result_text(payload: dict[str, Any]) -> str | None:
 	for key in ('text', 'output', 'result'):
 		text = _tool_output_text(payload.get(key))
@@ -1189,6 +1197,10 @@ def _tool_result_text(payload: dict[str, Any]) -> str | None:
 	text = _tool_output_text(content)
 	if text:
 		return text
+	for key in ('summary', 'data', 'outputs'):
+		text = _structured_tool_output_text(payload.get(key))
+		if text:
+			return text
 	return None
 
 
