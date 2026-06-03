@@ -639,10 +639,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This keeps completed Rust-backed histories consistent for `history.last_action()`, `history.action_names()`, `history.model_actions_filtered(['done'])`, and action-history consumers that expect a final Browser Use completion action.
    - Proof: `test_rust_history_synthesizes_done_action_from_terminal_completion`.
 
+126. Rust terminal streamed model output reconstruction
+   - Terminal `model.stream_delta`/`model.delta` events are now reconstructed into Browser Use `AgentOutput.memory`, and `model.thinking_delta` events are reconstructed into `AgentOutput.thinking`.
+   - The reducer mirrors terminal current-main retry semantics by clearing stale streamed text after `model.turn.request`, `model.turn.retry`, and `model.turn.error`, and de-duplicates prefix-style deltas before exposing `history.model_outputs()` and `history.model_thoughts()`.
+   - Proof: `test_rust_history_reconstructs_terminal_streamed_model_thoughts`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (97 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (98 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

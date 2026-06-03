@@ -881,7 +881,37 @@ def _tool_result_text(payload: dict[str, Any]) -> str | None:
 	return None
 
 
-def _model_output_from_tool_calls(tool_calls: list[dict[str, Any]]) -> AgentOutput | None:
+def _append_streaming_text_delta(current: str, incoming: str) -> str:
+	if not incoming:
+		return current
+	if not current:
+		return incoming
+	if incoming == current or incoming.strip() == current.strip():
+		return current
+	if incoming.startswith(current):
+		return current + incoming[len(current) :]
+	if len(incoming) >= 24 and current.endswith(incoming):
+		return current
+	return current + incoming
+
+
+def _streaming_text_from_events(events: list[dict[str, Any]], stream_event_types: tuple[str, ...]) -> str | None:
+	text = ''
+	for event in events:
+		event_type = _event_type(event)
+		if event_type in ('model.turn.request', 'model.turn.retry', 'model.turn.error'):
+			text = ''
+			continue
+		if event_type not in stream_event_types:
+			continue
+		payload = _event_payload(event)
+		incoming = payload.get('text') or payload.get('delta')
+		if isinstance(incoming, str):
+			text = _append_streaming_text_delta(text, incoming)
+	return text if text.strip() else None
+
+
+def _model_output_from_tool_calls(tool_calls: list[dict[str, Any]], events: list[dict[str, Any]]) -> AgentOutput | None:
 	if not tool_calls:
 		return None
 	action_names = list(dict.fromkeys(call['name'] for call in tool_calls if isinstance(call.get('name'), str)))
@@ -898,9 +928,12 @@ def _model_output_from_tool_calls(tool_calls: list[dict[str, Any]]) -> AgentOutp
 			continue
 	if not actions:
 		return None
+	streamed_text = _streaming_text_from_events(events, ('model.delta', 'model.stream_delta'))
+	thinking_text = _streaming_text_from_events(events, ('model.thinking_delta',))
 	return recovered_output_model(
+		thinking=thinking_text,
 		evaluation_previous_goal='',
-		memory='',
+		memory=streamed_text or '',
 		next_goal='',
 		action=actions,
 	)
@@ -1126,7 +1159,7 @@ def _history_from_events(
 		is_done=is_done,
 	)
 	history = AgentHistory(
-		model_output=_model_output_from_tool_calls(tool_calls),
+		model_output=_model_output_from_tool_calls(tool_calls, events),
 		result=_action_results_from_tool_calls(
 			tool_calls,
 			events,

@@ -408,6 +408,48 @@ def test_rust_history_synthesizes_done_action_from_terminal_completion():
 	assert history.action_history()[0][-1]['result'] == 'Example Domain'
 
 
+def test_rust_history_reconstructs_terminal_streamed_model_thoughts():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'payload': {'text': 'stale text'}},
+			{'event_type': 'model.thinking_delta', 'payload': {'text': 'stale thinking'}},
+			{'event_type': 'model.turn.error', 'payload': {'transient': True, 'error': 'retry'}},
+			{'event_type': 'model.turn.retry', 'payload': {'attempt': 1, 'max_retries': 3}},
+			{'event_type': 'model.thinking_delta', 'payload': {'text': 'checking '}},
+			{'event_type': 'model.thinking_delta', 'payload': {'text': 'checking page'}},
+			{'event_type': 'model.stream_delta', 'payload': {'text': 'Opening '}},
+			{'event_type': 'model.stream_delta', 'payload': {'text': 'Opening Example Domain'}},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	output = history.model_outputs()[0]
+	thought = history.model_thoughts()[0]
+
+	assert output.thinking == 'checking page'
+	assert output.memory == 'Opening Example Domain'
+	assert thought.thinking == 'checking page'
+	assert thought.memory == 'Opening Example Domain'
+	assert 'stale' not in thought.memory
+	assert 'stale' not in (thought.thinking or '')
+
+
 def test_rust_history_reconstructs_terminal_token_count_usage():
 	from browser_use.rust.service import _history_from_events
 
