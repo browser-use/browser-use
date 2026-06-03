@@ -2974,23 +2974,30 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self._finalize_run_cleanup()
 			return self.history
 		if self.state.paused:
-			finished = time.time()
-			self.result = _history_from_events(
-				[],
-				model=self.model,
-				started=started,
-				finished=finished,
-				output_model_schema=self.output_model_schema,
-				process_error='Rust agent is paused before terminal run.',
-			)
-			self.history = self.result
-			await self._log_run_usage_summary()
-			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent is paused before terminal run.')
-			self._dispatch_run_update_event()
-			await self._call_callback(on_step_end, self)
-			self._log_final_outcome_messages()
-			await self._finalize_run_cleanup()
-			return self.history
+			self.logger.debug('Agent paused before Rust terminal run, waiting to resume...')
+			await self._external_pause_event.wait()
+			signal_handler = getattr(self, '_run_signal_handler', None)
+			reset = getattr(signal_handler, 'reset', None)
+			if callable(reset):
+				reset()
+			if await self._should_stop_before_run():
+				finished = time.time()
+				self.result = _history_from_events(
+					[],
+					model=self.model,
+					started=started,
+					finished=finished,
+					output_model_schema=self.output_model_schema,
+					process_error='Rust agent stopped before terminal run.',
+				)
+				self.history = self.result
+				await self._log_run_usage_summary()
+				self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
+				self._dispatch_run_update_event()
+				await self._call_callback(on_step_end, self)
+				self._log_final_outcome_messages()
+				await self._finalize_run_cleanup()
+				return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
 			await self._call_callback(on_step_start, self)

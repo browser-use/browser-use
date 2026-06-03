@@ -3335,6 +3335,73 @@ async def test_rust_agent_run_registers_browser_use_signal_handler(monkeypatch):
 	assert captured_events[0].error_message == 'SIGINT: Cancelled by user'
 
 
+async def test_rust_agent_run_waits_for_resume_before_terminal(monkeypatch):
+	import asyncio
+
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	events = []
+
+	class FakeSignalHandler:
+		def __init__(self, **kwargs):
+			events.append('init_signal')
+
+		def register(self):
+			events.append('register_signal')
+
+		def unregister(self):
+			events.append('unregister_signal')
+
+		def reset(self):
+			events.append('reset_signal')
+
+	monkeypatch.setattr(rust_service, 'SignalHandler', FakeSignalHandler)
+	agent = Agent(task='Wait for resume before running.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.pause()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		events.append(('run_process', agent.state.paused, timeout_seconds))
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'resumed run'}}]
+
+	async def on_step_start(callback_agent):
+		events.append(('start', callback_agent.state.paused))
+
+	def on_step_end(callback_agent):
+		events.append(('end', callback_agent.history.final_result()))
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	run_task = asyncio.create_task(agent.run(max_steps=4, on_step_start=on_step_start, on_step_end=on_step_end))
+	for _ in range(20):
+		await asyncio.sleep(0)
+		if 'register_signal' in events:
+			break
+
+	assert 'register_signal' in events
+	assert run_task.done() is False
+	assert [event for event in events if isinstance(event, tuple)] == []
+
+	agent.resume()
+	history = await asyncio.wait_for(run_task, timeout=2)
+
+	assert history.final_result() == 'resumed run'
+	assert events == [
+		'init_signal',
+		'register_signal',
+		'reset_signal',
+		('start', False),
+		('run_process', False, agent.settings.step_timeout),
+		('end', 'resumed run'),
+		'unregister_signal',
+	]
+
+
 async def test_rust_agent_run_finalizes_after_terminal_exception(monkeypatch):
 	import browser_use.rust.service as rust_service
 	from browser_use.rust import Agent

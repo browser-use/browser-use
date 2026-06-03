@@ -931,10 +931,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Interrupted initial actions are swallowed like Browser Use's first-step path, allowing the caller's one-step execution to continue with current agent state.
    - Proof: `test_rust_agent_take_step_executes_initial_actions_on_first_step`.
 
+184. Rust Agent run pause/resume parity
+   - Terminal-backed `Agent.run()` now waits when the agent is paused before Rust terminal execution instead of returning a paused-run error history.
+   - Resuming clears the pause gate, resets the run signal handler when available, and then invokes `on_step_start` and the Rust terminal subprocess in normal Browser Use order.
+   - Proof: `test_rust_agent_run_waits_for_resume_before_terminal`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (155 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (156 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
