@@ -481,17 +481,20 @@ def is_unsafe_pattern(pattern: str) -> bool:
 	return '*' in bare_domain
 
 
+_NEW_TAB_URLS: frozenset[str] = frozenset(
+	{
+		'about:blank',
+		'chrome://new-tab-page/',
+		'chrome://new-tab-page',
+		'chrome://newtab/',
+		'chrome://newtab',
+	}
+)
+
+
 def is_new_tab_page(url: str) -> bool:
-	"""
-	Check if a URL is a new tab page (about:blank, chrome://new-tab-page, or chrome://newtab).
-
-	Args:
-		url: The URL to check
-
-	Returns:
-		bool: True if the URL is a new tab page, False otherwise
-	"""
-	return url in ('about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/', 'chrome://newtab')
+	"""Check if a URL is a new tab page (about:blank, chrome://new-tab-page, or chrome://newtab)."""
+	return url in _NEW_TAB_URLS
 
 
 def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: bool = False) -> bool:
@@ -604,7 +607,7 @@ def merge_dicts(a: dict, b: dict, path: tuple[str, ...] = ()):
 			elif isinstance(a[key], list) and isinstance(b[key], list):
 				a[key] = a[key] + b[key]
 			elif a[key] != b[key]:
-				raise Exception('Conflict at ' + '.'.join(path + (str(key),)))
+				raise ValueError('Conflict at ' + '.'.join(path + (str(key),)))
 		else:
 			a[key] = b[key]
 	return a
