@@ -1141,11 +1141,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Local and session storage entries are installed as origin-guarded `Page.addScriptToEvaluateOnNewDocument` init scripts with `runImmediately=true`, and setup is deduped per storage-state value/session.
    - Proof: terminal `test_worker_cdp_applies_browser_storage_state_env`.
 
+226. Rust Agent BrowserProfile domain-constraint runtime parity
+   - Terminal browser-harness CDP calls now reject `Page.navigate` URLs that violate wrapper-exported `BU_BROWSER_ALLOWED_DOMAINS`, `BU_BROWSER_PROHIBITED_DOMAINS`, or `BU_BROWSER_BLOCK_IP_ADDRESSES`.
+   - The worker mirrors Browser Use's practical matching semantics for exact domains, root `www.` variants, wildcard subdomains, protocol patterns, internal browser URLs, and data/blob URLs.
+   - Proof: terminal `test_worker_cdp_enforces_browser_domain_constraints_env`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
-- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (26 tests)
+- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (27 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
