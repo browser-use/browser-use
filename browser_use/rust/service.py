@@ -1002,13 +1002,15 @@ def _tool_call_from_payload(payload: dict[str, Any], fallback_id: str) -> dict[s
 	name = _safe_tool_action_name(payload.get('name') or function.get('name'))
 	if name is None:
 		return None
-	call_id = payload.get('tool_call_id') or payload.get('call_id') or payload.get('id') or fallback_id
+	raw_call_id = payload.get('tool_call_id') or payload.get('call_id') or payload.get('id')
+	call_id = raw_call_id or fallback_id
 	arguments = payload.get('arguments')
 	if arguments is None:
 		arguments = function.get('arguments')
 	return {
 		'name': name,
 		'tool_call_id': str(call_id),
+		'_has_explicit_tool_call_id': raw_call_id is not None,
 		'arguments': _tool_arguments(arguments),
 	}
 
@@ -1085,6 +1087,57 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 				continue
 			results[key] = (event_type, payload)
 	return results
+
+
+def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+	results: list[tuple[str, dict[str, Any]]] = []
+	for event in events:
+		event_type = _event_type(event)
+		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted', 'tool.finished', 'model.response.input_item'):
+			continue
+		payload = _event_payload(event)
+		if event_type == 'model.response.input_item':
+			payload = _response_input_item_tool_payload(payload)
+		if payload.get('tool_call_id') or payload.get('call_id'):
+			continue
+		if event_type == 'tool.output' and payload.get('stream') is True:
+			continue
+		if event_type == 'tool.finished':
+			name = payload.get('name')
+			previous = next(
+				(
+					result
+					for result in reversed(results)
+					if isinstance(name, str)
+					and name
+					and result[0] != 'tool.finished'
+					and result[1].get('name') == name
+				),
+				None,
+			)
+			if previous is not None:
+				continue
+		results.append((event_type, payload))
+	return results
+
+
+def _matching_unkeyed_tool_result_index(
+	results: list[tuple[str, dict[str, Any]]],
+	used_indices: set[int],
+	name: Any,
+	*,
+	allow_any: bool,
+) -> int | None:
+	if isinstance(name, str) and name:
+		for index, (_event_type, payload) in enumerate(results):
+			if index not in used_indices and payload.get('name') == name:
+				return index
+	if not allow_any:
+		return None
+	for index in range(len(results)):
+		if index not in used_indices:
+			return index
+	return None
 
 
 def _response_input_item_tool_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1273,9 +1326,21 @@ def _action_results_from_tool_calls(
 	append_terminal_result: bool = True,
 ) -> list[ActionResult]:
 	tool_results = _tool_results_by_call_id(events)
+	unkeyed_results = _unkeyed_tool_results(events)
+	used_unkeyed_result_indices: set[int] = set()
 	action_results: list[ActionResult] = []
 	for tool_call in tool_calls:
 		event_type, payload = tool_results.get(str(tool_call.get('tool_call_id')), ('', {}))
+		if not event_type:
+			unkeyed_result_index = _matching_unkeyed_tool_result_index(
+				unkeyed_results,
+				used_unkeyed_result_indices,
+				tool_call.get('name'),
+				allow_any=not tool_call.get('_has_explicit_tool_call_id', True),
+			)
+			if unkeyed_result_index is not None:
+				used_unkeyed_result_indices.add(unkeyed_result_index)
+				event_type, payload = unkeyed_results[unkeyed_result_index]
 		text = _tool_result_text(payload)
 		if event_type == 'tool.finished' and not text:
 			name = payload.get('name') or tool_call.get('name') or 'tool'

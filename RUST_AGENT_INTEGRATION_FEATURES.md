@@ -714,10 +714,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The wrapper treats reasoning tokens as completion usage, matching Browser Use's LLM usage accounting, and preserves terminal-reported cumulative `total_tokens` instead of recomputing totals from visible output tokens only.
    - Proof: `test_rust_history_reconstructs_terminal_reasoning_token_usage`.
 
+141. Rust terminal unkeyed tool-result reconstruction
+   - Terminal tool result events without `tool_call_id` are now paired back to Browser Use action results by ordered tool name fallback.
+   - This preserves CLI/manual tool paths such as `python`, where `tool.started`, `tool.output`, and `tool.finished` can omit call ids, while explicit call-id matching still takes precedence and transient streaming chunks stay out of final action history.
+   - Proof: `test_rust_history_reconstructs_terminal_unkeyed_tool_results`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (112 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (113 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

@@ -577,6 +577,61 @@ def test_rust_history_reconstructs_terminal_tool_finished_results():
 	assert history.final_result() == 'Example Domain'
 
 
+def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'python',
+					'arguments': {'code': "print('full output')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'python',
+					'stream': True,
+					'text': 'partial output',
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'python',
+					'ok': True,
+					'text': 'full output',
+				},
+			},
+			{
+				'type': 'tool.finished',
+				'payload': {
+					'name': 'python',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_result = history.action_results()[0]
+
+	assert history.action_names() == ['python', 'done']
+	assert history.model_actions()[0]['python']['code'] == "print('full output')"
+	assert first_result.extracted_content == 'full output'
+	assert first_result.long_term_memory == 'full output'
+	assert history.action_history()[0][0]['result'] == 'full output'
+	assert 'partial output' not in json.dumps(history.action_history(), sort_keys=True)
+	assert history.final_result() == 'final answer'
+
+
 def test_rust_history_synthesizes_done_action_from_terminal_completion():
 	from browser_use.rust.service import _history_from_events
 
