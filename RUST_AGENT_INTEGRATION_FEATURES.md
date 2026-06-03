@@ -684,10 +684,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves tool result text for provider-shaped replay/import logs that store tool outputs as response input items instead of `tool.output` events.
    - Proof: `test_rust_history_reconstructs_terminal_response_input_item_tool_results`.
 
+135. Rust terminal finished-tool result reconstruction
+   - Terminal `tool.finished` events now reconstruct Browser Use `ActionResult` entries when no richer tool output event was recorded for the same call id.
+   - The fallback text mirrors terminal current-main synthetic tool-result semantics while preserving concrete `tool.output`, failure, abort, and provider input-item results when those are present.
+   - Proof: `test_rust_history_reconstructs_terminal_tool_finished_results`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (106 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (107 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

@@ -514,6 +514,69 @@ def test_rust_history_reconstructs_terminal_response_input_item_tool_results():
 	assert history.final_result() == 'Example Domain'
 
 
+def test_rust_history_reconstructs_terminal_tool_finished_results():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'read_file',
+					'tool_call_id': 'call-read',
+					'arguments': {'path': 'README.md'},
+				},
+			},
+			{
+				'type': 'tool.finished',
+				'payload': {
+					'name': 'read_file',
+					'tool_call_id': 'call-read',
+				},
+			},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'text': 'Opened Example Domain',
+				},
+			},
+			{
+				'type': 'tool.finished',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	results = history.action_results()
+
+	assert history.action_names() == ['read_file', 'browser_script', 'done']
+	assert results[0].extracted_content == 'read_file completed'
+	assert results[0].long_term_memory == 'read_file completed'
+	assert results[1].extracted_content == 'Opened Example Domain'
+	assert history.action_history()[0][0]['result'] == 'read_file completed'
+	assert history.action_history()[0][1]['result'] == 'Opened Example Domain'
+	assert history.final_result() == 'Example Domain'
+
+
 def test_rust_history_synthesizes_done_action_from_terminal_completion():
 	from browser_use.rust.service import _history_from_events
 

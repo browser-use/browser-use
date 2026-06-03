@@ -974,14 +974,18 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 	results: dict[str, tuple[str, dict[str, Any]]] = {}
 	for event in events:
 		event_type = _event_type(event)
-		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted', 'model.response.input_item'):
+		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted', 'tool.finished', 'model.response.input_item'):
 			continue
 		payload = _event_payload(event)
 		if event_type == 'model.response.input_item':
 			payload = _response_input_item_tool_payload(payload)
 		call_id = payload.get('tool_call_id') or payload.get('call_id')
 		if call_id:
-			results[str(call_id)] = (event_type, payload)
+			key = str(call_id)
+			previous = results.get(key)
+			if event_type == 'tool.finished' and previous is not None and previous[0] != 'tool.finished':
+				continue
+			results[key] = (event_type, payload)
 	return results
 
 
@@ -1032,6 +1036,14 @@ def _tool_result_text(payload: dict[str, Any]) -> str | None:
 	if text:
 		return text
 	return None
+
+
+def _synthetic_tool_result_text(name: str) -> str:
+	if name == 'update_plan':
+		return 'Plan updated'
+	if name == 'done':
+		return 'done'
+	return f'{name} completed'
 
 
 def _append_streaming_text_delta(current: str, incoming: str) -> str:
@@ -1136,6 +1148,9 @@ def _action_results_from_tool_calls(
 	for tool_call in tool_calls:
 		event_type, payload = tool_results.get(str(tool_call.get('tool_call_id')), ('', {}))
 		text = _tool_result_text(payload)
+		if event_type == 'tool.finished' and not text:
+			name = payload.get('name') or tool_call.get('name') or 'tool'
+			text = _synthetic_tool_result_text(str(name))
 		if event_type == 'tool.failed':
 			error = _tool_failure_message(payload)
 		elif event_type == 'tool.aborted':
@@ -1145,8 +1160,8 @@ def _action_results_from_tool_calls(
 		action_results.append(
 			ActionResult(
 				error=error,
-				extracted_content=text if event_type in ('tool.output', 'model.response.input_item') else None,
-				long_term_memory=text if event_type in ('tool.output', 'model.response.input_item') else None,
+				extracted_content=text if event_type in ('tool.output', 'tool.finished', 'model.response.input_item') else None,
+				long_term_memory=text if event_type in ('tool.output', 'tool.finished', 'model.response.input_item') else None,
 			)
 		)
 
