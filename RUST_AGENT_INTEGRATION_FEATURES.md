@@ -699,10 +699,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves provider replay/import reasoning summaries, including OpenAI Responses `summary_text` parts, while keeping assistant message response items on the existing memory surface.
    - Proof: `test_rust_history_reconstructs_terminal_response_item_reasoning`.
 
+138. Rust terminal session-rollback reconstruction
+   - Terminal `session.rollback` events now filter rolled-back user turns before Browser Use history reconstruction.
+   - This keeps rolled-back model outputs, tool actions, tool results, usage, attachments, and final results off Python-visible surfaces such as `action_names()`, `model_outputs()`, `action_history()`, and `final_result()`.
+   - Proof: `test_rust_history_applies_terminal_session_rollback`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (109 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (110 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

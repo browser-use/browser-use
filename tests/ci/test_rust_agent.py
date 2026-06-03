@@ -683,6 +683,85 @@ def test_rust_history_reconstructs_terminal_model_turn_steps():
 	assert history.is_done() is True
 
 
+def test_rust_history_applies_terminal_session_rollback():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'session.input', 'seq': 1, 'payload': {'text': 'first task'}},
+			{'event_type': 'model.turn.request', 'seq': 2, 'ts_ms': 2_000, 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'seq': 3, 'payload': {'text': 'First turn'}},
+			{
+				'event_type': 'tool.started',
+				'seq': 4,
+				'payload': {
+					'name': 'browser',
+					'tool_call_id': 'call-first',
+					'arguments': {'cmd': 'connect managed --headless'},
+				},
+			},
+			{
+				'event_type': 'tool.output',
+				'seq': 5,
+				'payload': {'name': 'browser', 'tool_call_id': 'call-first', 'text': 'First kept'},
+			},
+			{'event_type': 'session.followup', 'seq': 6, 'payload': {'text': 'second task'}},
+			{'event_type': 'model.turn.request', 'seq': 7, 'ts_ms': 3_000, 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'seq': 8, 'payload': {'text': 'Second rolled back'}},
+			{
+				'event_type': 'tool.started',
+				'seq': 9,
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-second',
+					'arguments': {'code': "goto_url('https://rolled-back.example')"},
+				},
+			},
+			{
+				'event_type': 'tool.output',
+				'seq': 10,
+				'payload': {'name': 'browser_script', 'tool_call_id': 'call-second', 'text': 'Second removed'},
+			},
+			{'event_type': 'session.done', 'seq': 11, 'payload': {'result': 'Rolled Back Result'}},
+			{'event_type': 'session.rollback', 'seq': 12, 'payload': {'num_turns': 1}},
+			{'event_type': 'session.followup', 'seq': 13, 'payload': {'text': 'third task'}},
+			{'event_type': 'model.turn.request', 'seq': 14, 'ts_ms': 4_000, 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'seq': 15, 'payload': {'text': 'Third turn'}},
+			{
+				'event_type': 'tool.started',
+				'seq': 16,
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-third',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'event_type': 'tool.output',
+				'seq': 17,
+				'payload': {'name': 'browser_script', 'tool_call_id': 'call-third', 'text': 'Third kept'},
+			},
+			{'event_type': 'session.done', 'seq': 18, 'payload': {'result': 'Third result'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=5.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	serialized_actions = json.dumps(history.model_actions(), sort_keys=True)
+
+	assert history.number_of_steps() == 2
+	assert history.action_names() == ['browser', 'browser_script', 'done']
+	assert [output.memory for output in history.model_outputs()] == ['First turn', 'Third turn']
+	assert history.action_history()[0][0]['result'] == 'First kept'
+	assert history.action_history()[1][0]['result'] == 'Third kept'
+	assert history.final_result() == 'Third result'
+	assert 'Second rolled back' not in serialized_actions
+	assert 'rolled-back.example' not in serialized_actions
+
+
 def test_rust_history_reconstructs_terminal_streamed_model_thoughts():
 	from browser_use.rust.service import _history_from_events
 

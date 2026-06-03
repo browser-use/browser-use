@@ -702,6 +702,77 @@ def _event_payload(event: dict[str, Any]) -> dict[str, Any]:
 	return payload if isinstance(payload, dict) else {}
 
 
+def _event_seq(event: dict[str, Any]) -> int | None:
+	for key in ('seq', 'event_seq', 'sequence'):
+		value = event.get(key)
+		if isinstance(value, bool):
+			continue
+		if isinstance(value, int):
+			return value
+	return None
+
+
+def _rollback_turn_count(payload: dict[str, Any]) -> int:
+	for key in ('num_turns', 'turns', 'n'):
+		value = payload.get(key)
+		if isinstance(value, bool):
+			continue
+		if isinstance(value, int) and value >= 0:
+			return value
+	return 1
+
+
+def _is_terminal_user_turn_event(event: dict[str, Any]) -> bool:
+	event_type = _event_type(event)
+	if event_type in ('session.input', 'session.followup'):
+		return True
+	if event_type in ('agent.message', 'agent.mailbox_input'):
+		content = _event_payload(event).get('content')
+		return isinstance(content, str) and bool(content.strip())
+	return False
+
+
+def _contextual_event_targets_turn(event: dict[str, Any], target_seq: int | None) -> bool:
+	if target_seq is None:
+		return False
+	if _event_type(event) not in (
+		'workspace.context',
+		'model.switch_context',
+		'model.personality_context',
+		'model.collaboration_context',
+		'model.generated_image_context',
+	):
+		return False
+	before_seq = _event_payload(event).get('before_seq')
+	return isinstance(before_seq, int) and before_seq == target_seq
+
+
+def _rollback_last_terminal_user_turn(events: list[dict[str, Any]]) -> bool:
+	user_pos = next((index for index in range(len(events) - 1, -1, -1) if _is_terminal_user_turn_event(events[index])), None)
+	if user_pos is None:
+		return False
+	target_seq = _event_seq(events[user_pos])
+	truncate_at = user_pos
+	while truncate_at > 0 and _contextual_event_targets_turn(events[truncate_at - 1], target_seq):
+		truncate_at -= 1
+	del events[truncate_at:]
+	return True
+
+
+def _events_after_terminal_rollbacks(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	if not any(_event_type(event) == 'session.rollback' for event in events):
+		return events
+	replay_events: list[dict[str, Any]] = []
+	for event in events:
+		if _event_type(event) == 'session.rollback':
+			for _ in range(_rollback_turn_count(_event_payload(event))):
+				if not _rollback_last_terminal_user_turn(replay_events):
+					break
+			continue
+		replay_events.append(event)
+	return replay_events
+
+
 def _result_file_pointer(payload: dict[str, Any]) -> str | None:
 	result_file = payload.get('result_file')
 	if isinstance(result_file, dict):
@@ -1499,6 +1570,7 @@ def _history_from_events(
 	output_model_schema: type[AgentStructuredOutput] | None,
 	process_error: str | None,
 ) -> AgentHistoryList[AgentStructuredOutput]:
+	events = _events_after_terminal_rollbacks(events)
 	final_result = _structured_result_text(_result_from_events(events), output_model_schema)
 	failure = process_error or _failure_from_events(events)
 	if final_result is None and failure is None:
