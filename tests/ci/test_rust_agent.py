@@ -1867,6 +1867,79 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
 
+def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		def __init__(self, provider, model, api_key=None, base_url=None):
+			self.provider = provider
+			self.model = model
+			self.api_key = api_key
+			self.base_url = base_url
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	for key in (
+		'LLM_BROWSER_OPENAI_BASE_URL',
+		'LLM_BROWSER_ANTHROPIC_BASE_URL',
+		'LLM_BROWSER_OPENAI_COMPAT_API_KEY',
+		'LLM_BROWSER_OPENAI_COMPAT_BASE_URL',
+		'OPENROUTER_API_KEY',
+		'OPENROUTER_BASE_URL',
+		'DEEPSEEK_API_KEY',
+	):
+		monkeypatch.delenv(key, raising=False)
+	monkeypatch.setenv('LLM_BROWSER_OPENAI_API_KEY', 'ambient-openai-key')
+	monkeypatch.setenv('LLM_BROWSER_ANTHROPIC_API_KEY', 'ambient-anthropic-key')
+
+	openai_env = Agent(
+		task='OpenAI credentials.',
+		llm=LLM('openai', 'gpt-test', api_key='llm-openai-key', base_url='https://openai.example/v1'),
+	)._run_env()
+	openai_agent = Agent(
+		task='OpenAI command.',
+		llm=LLM('openai', 'gpt-test', api_key='llm-openai-key'),
+	)
+	anthropic_agent = Agent(
+		task='Anthropic credentials.',
+		llm=LLM('anthropic', 'claude-test', api_key='llm-anthropic-key', base_url='https://anthropic.example'),
+	)
+	openrouter_agent = Agent(
+		task='OpenRouter credentials.',
+		llm=LLM('openrouter', 'openrouter/model', api_key='llm-openrouter-key', base_url='https://openrouter.example/api/v1'),
+	)
+	deepseek_agent = Agent(
+		task='DeepSeek credentials.',
+		llm=LLM('deepseek', 'deepseek-chat', api_key='llm-deepseek-key', base_url='https://ignored.example'),
+	)
+	ambient_env = Agent(
+		task='Ambient credentials.',
+		llm=LLM('anthropic', 'claude-test'),
+	)._run_env()
+	anthropic_env = anthropic_agent._run_env()
+	openrouter_env = openrouter_agent._run_env()
+	deepseek_env = deepseek_agent._run_env()
+
+	assert openai_env['LLM_BROWSER_OPENAI_API_KEY'] == 'llm-openai-key'
+	assert openai_env['LLM_BROWSER_OPENAI_BASE_URL'] == 'https://openai.example/v1'
+	assert anthropic_env['LLM_BROWSER_ANTHROPIC_API_KEY'] == 'llm-anthropic-key'
+	assert anthropic_env['LLM_BROWSER_ANTHROPIC_BASE_URL'] == 'https://anthropic.example'
+	assert openrouter_env['OPENROUTER_API_KEY'] == 'llm-openrouter-key'
+	assert openrouter_env['OPENROUTER_BASE_URL'] == 'https://openrouter.example/api/v1'
+	assert deepseek_env['DEEPSEEK_API_KEY'] == 'llm-deepseek-key'
+	assert 'LLM_BROWSER_OPENAI_COMPAT_BASE_URL' not in deepseek_env
+	assert ambient_env['LLM_BROWSER_ANTHROPIC_API_KEY'] == 'ambient-anthropic-key'
+
+	for agent, run_command, session_command in (
+		(openai_agent, 'run-openai', 'run-openai-session'),
+		(anthropic_agent, 'run-anthropic', 'run-anthropic-session'),
+		(openrouter_agent, 'run-openrouter', 'run-openrouter-session'),
+		(deepseek_agent, 'run-deepseek', 'run-deepseek-session'),
+	):
+		agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
+		assert agent._run_argv(max_steps=3)[-4] == run_command
+		assert agent._run_existing_argv(max_steps=3)[-4] == session_command
+
+
 def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
 	from browser_use.rust import Agent
 

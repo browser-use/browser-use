@@ -572,6 +572,63 @@ def _warn_sensitive_data_domain_constraints(
 			)
 
 
+def _string_env_value(value: Any) -> str | None:
+	if value is None:
+		return None
+	text = str(value).strip()
+	return text or None
+
+
+def _llm_provider_name(llm: Any) -> str | None:
+	provider = getattr(llm, 'provider', None)
+	if callable(provider):
+		try:
+			provider = provider()
+		except TypeError:
+			provider = None
+	text = _string_env_value(provider)
+	return text.lower() if text else None
+
+
+def _llm_env_overrides(llm: Any) -> dict[str, str]:
+	provider = _llm_provider_name(llm)
+	if provider is None:
+		return {}
+	api_key = _string_env_value(getattr(llm, 'api_key', None))
+	base_url = _string_env_value(getattr(llm, 'base_url', None))
+	overrides: dict[str, str] = {}
+	if provider == 'openai':
+		if api_key:
+			overrides['LLM_BROWSER_OPENAI_API_KEY'] = api_key
+		if base_url:
+			overrides['LLM_BROWSER_OPENAI_BASE_URL'] = base_url
+	elif provider == 'anthropic':
+		if api_key:
+			overrides['LLM_BROWSER_ANTHROPIC_API_KEY'] = api_key
+		if base_url:
+			overrides['LLM_BROWSER_ANTHROPIC_BASE_URL'] = base_url
+	elif provider == 'openrouter':
+		if api_key:
+			overrides['OPENROUTER_API_KEY'] = api_key
+		if base_url:
+			overrides['OPENROUTER_BASE_URL'] = base_url
+	elif provider == 'deepseek' and api_key:
+		overrides['DEEPSEEK_API_KEY'] = api_key
+	return overrides
+
+
+def _llm_terminal_command(llm: Any, *, existing_session: bool = False) -> str:
+	provider = _llm_provider_name(llm)
+	commands = {
+		'openai': ('run-openai', 'run-openai-session'),
+		'anthropic': ('run-anthropic', 'run-anthropic-session'),
+		'openrouter': ('run-openrouter', 'run-openrouter-session'),
+		'deepseek': ('run-deepseek', 'run-deepseek-session'),
+	}
+	run_command, session_command = commands.get(provider, ('run-codex', 'run-codex-session'))
+	return session_command if existing_session else run_command
+
+
 def _navigation_url_from_action(action: Any) -> str | None:
 	if not isinstance(action, dict):
 		return None
@@ -4030,7 +4087,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'max_turns={int(max_steps)}',
 			'-c',
 			f'browser_mode="{self._browser_mode()}"',
-			'run-codex',
+			_llm_terminal_command(self.llm),
 			self.task,
 			'--model',
 			self.model,
@@ -4189,7 +4246,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'max_turns={int(max_steps)}',
 			'-c',
 			f'browser_mode="{self._browser_mode()}"',
-			'run-codex-session',
+			_llm_terminal_command(self.llm, existing_session=True),
 			self.terminal_session_id,
 			'--model',
 			self.model,
@@ -4219,6 +4276,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def _run_env(self) -> dict[str, str]:
 		env = os.environ.copy()
+		env.update(_llm_env_overrides(self.llm))
 		browser_mode = self._browser_mode()
 		env['LLM_BROWSER_BROWSER_MODE'] = browser_mode
 		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)
