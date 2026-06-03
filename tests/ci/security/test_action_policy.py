@@ -20,6 +20,16 @@ class UploadParams(BaseModel):
 	path: str
 
 
+class FailingSessionManager:
+	def get_target(self, target_id: str):
+		raise RuntimeError(f'Cannot resolve target {target_id}')
+
+
+class FailingBrowserSession:
+	agent_focus_target_id = 'target-1'
+	session_manager = FailingSessionManager()
+
+
 @pytest.mark.asyncio
 async def test_read_only_policy_blocks_interactive_actions_before_execution():
 	executed = False
@@ -81,3 +91,20 @@ async def test_tools_passes_action_policy_to_default_registry():
 
 	with pytest.raises(RuntimeError, match='Action policy blocked navigate'):
 		await tools.registry.execute_action('navigate', {'url': 'https://example.com', 'new_tab': False})
+
+
+@pytest.mark.asyncio
+async def test_domain_policy_fails_closed_when_current_url_lookup_fails():
+	executed = False
+	registry = Registry(action_policy=ActionPolicy(allowed_domains=['example.com'], block_transactional=False))
+
+	@registry.action('', param_model=TextParams)
+	async def click(params: TextParams):
+		nonlocal executed
+		executed = True
+		return ActionResult(extracted_content=params.text)
+
+	with pytest.raises(RuntimeError, match='Current page URL is unavailable'):
+		await registry.execute_action('click', {'text': 'Sign in'}, browser_session=FailingBrowserSession())
+
+	assert executed is False

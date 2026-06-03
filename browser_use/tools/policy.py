@@ -97,6 +97,31 @@ class ActionPolicy(BaseModel):
 			raise ActionPolicyViolation(decision)
 		return decision
 
+	def assert_current_url_available(self, action_name: str, params: BaseModel | dict[str, Any]) -> None:
+		"""Fail closed when a domain-scoped policy cannot inspect the current page URL."""
+
+		if not self.requires_current_url(action_name, params):
+			return
+		params_dict = params.model_dump(mode='json') if isinstance(params, BaseModel) else params
+		raise ActionPolicyViolation(
+			ActionPolicyDecision(
+				allowed=False,
+				action_name=action_name,
+				risk=self.custom_action_risks.get(action_name, _default_action_risk(action_name)),
+				reason='Current page URL is unavailable; domain-scoped action policy cannot be evaluated safely.',
+				target_url=_target_url_for_action(action_name, params_dict),
+				matched_rule='current_url_unavailable',
+			)
+		)
+
+	def requires_current_url(self, action_name: str, params: BaseModel | dict[str, Any]) -> bool:
+		"""Return whether this policy must inspect the current URL for this action."""
+
+		if self.allowed_domains is None and not self.blocked_domains:
+			return False
+		params_dict = params.model_dump(mode='json') if isinstance(params, BaseModel) else params
+		return _target_url_for_action(action_name, params_dict) is None
+
 	def _evaluate_action_name(
 		self, action_name: str, risk: ActionRisk, current_url: str | None, target_url: str | None
 	) -> ActionPolicyDecision | None:
