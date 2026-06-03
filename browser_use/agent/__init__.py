@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-	from browser_use.rust.service import Agent, RustAgentError
+	from browser_use.agent.service import Agent
+	from browser_use.rust.service import RustAgentError
 
 _LAZY_IMPORTS = {
-	'Agent': ('browser_use.rust.service', 'Agent'),
+	'Agent': ('browser_use.agent.service', 'Agent'),
 	'RustAgentError': ('browser_use.rust.service', 'RustAgentError'),
 }
 

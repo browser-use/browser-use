@@ -1171,10 +1171,17 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This matches Browser Use's public `history.final_result()` contract: the final result should be the answer passed to the done action, not surrounding assistant explanation.
    - Proof: `test_rust_history_prefers_done_tool_text_over_session_summary` and replaying the Anthropic real_v8 `18` terminal event stream now yields `{"final_result":"Paramjit Uppal, Founder","successful":true}`.
 
+232. Rust Agent opt-in import parity
+   - The original Python Browser Use `Agent` remains the default export for `from browser_use import Agent`, `from browser_use.agent import Agent`, and `from browser_use.agent.service import Agent`.
+   - The Rust-backed implementation is now opt-in via `from browser_use.rust import Agent`, preserving Browser Use's existing package behavior while keeping the Rust wrapper's constructor/signature metadata aligned with the Python service surface.
+   - Proof: `test_top_level_agent_preserves_python_service`, `test_agent_package_export_preserves_python_service`, `test_agent_service_export_preserves_python_service`, `test_rust_agent_class_metadata_matches_browser_use_service_surface`, `test_rust_agent_generic_subscription_matches_browser_use`, and `test_rust_agent_constructor_signature_matches_browser_use_order`; live managed-headless opt-in smoke below completed with `agents_are_distinct=true`, `successful=true`, `final_result` containing `Example Domain`, and no history errors.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
+- `uv run python -m py_compile browser_use/__init__.py browser_use/agent/__init__.py browser_use/agent/service.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py tests/ci/test_rust_agent.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (previous full run before latest focused additions: 186 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py -k 'top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service or rust_agent_class_metadata_matches_browser_use_service_surface or rust_agent_generic_subscription_matches_browser_use or rust_agent_constructor_signature_matches_browser_use_order'`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k prefers_done_tool_text`
 - `uv run pytest -q tests/ci/models/test_llm_model_factory.py`
 - `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (28 tests)
@@ -1247,6 +1254,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Source `/home/exedev/.evaluation_tool_env`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
+- Rust opt-in import managed-headless end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`.
+  - `DEFAULT_LLM=anthropic_claude_sonnet_4_0 BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless timeout 600 uv run python - <<'PY' ...`
+  - Script asserted `from browser_use import Agent as PythonAgent` is distinct from `from browser_use.rust import Agent as RustAgent`, then ran `RustAgent(...)`.
+  - Output: `{"agents_are_distinct":true,"successful":true,"final_result":"Successfully navigated to https://example.com and reported the page title: \"Example Domain\"","errors":[]}`.
 - real_v8 cloud-browser end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`.
   - `REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30 --step-timeout 600`
@@ -1334,6 +1346,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - real_v8-2 `1` with `DEFAULT_LLM=openai_gpt_4_1_mini`: returned `successful=true`, but stopped after summary links and asked whether to continue instead of extracting the requested counts/names/official biography links.
   - This gate still did not justify starting the 50+50 parallel sweep.
 - 2026-06-03 Anthropic cloud gate: real_v8 `18`, real_v8 `20`, and real_v8-2 `1` all completed with `successful=true` and no history errors, but this is still only a small three-task proof, not the requested 50+50 large parallel sweep.
+- 2026-06-03 eval-platform attempt:
+  - `BU_RUNTIME=brust ... uv run python -m eval.service --test-case real_v8 --start 15 --end 18 --parallel-runs 3 ...` did not create or run dashboard tasks because `/api/getTestCase` returned `401 Unauthorized: Invalid API key`.
+  - `gh auth status` also reports logged out, and no `GITHUB_TOKEN` or `GH_TOKEN` is present in the checked environment files, so fanout GitHub dispatch cannot currently create platform runners from this VM.
+- 2026-06-03 local 50+50 Anthropic cloud sweep attempt:
+  - Started `/tmp/browser_use_realv8_batch_runner.py` with run root `/tmp/browser-use-realv8-anthropic-batch-20260603174021`, 100 jobs, and concurrency 10.
+  - Stopped intentionally after the import-contract requirement changed so the sweep would not mix the old top-level Rust export behavior with the required explicit `browser_use.rust.Agent` interface.
 - Non-passing sweep data points so far:
   - real_v8 `11`: repository paths in the task appear stale for current `openai/codex`, and the run later hit the model context window while trying to retrieve large source contents.
   - real_v8 `13`: provider/tool-call decode error, `EOF while parsing an object`, before a final result.

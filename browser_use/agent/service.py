@@ -2313,14 +2313,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 _PythonAgent = Agent
 
-from browser_use.rust.service import Agent as Agent
-
 
 def _align_rust_agent_signatures() -> None:
+	from browser_use.rust.service import Agent as RustAgent
+
 	for name, browser_use_method in vars(_PythonAgent).items():
 		if name.startswith('__') and name != '__init__':
 			continue
-		rust_method = getattr(Agent, name, None)
+		rust_method = getattr(RustAgent, name, None)
 		if rust_method is None or not callable(browser_use_method) or not callable(rust_method):
 			continue
 		try:
@@ -2328,7 +2328,7 @@ def _align_rust_agent_signatures() -> None:
 		except (TypeError, ValueError, AttributeError):
 			continue
 	try:
-		Agent.__signature__ = inspect.signature(_PythonAgent)
+		RustAgent.__signature__ = inspect.signature(_PythonAgent)
 	except (TypeError, ValueError, AttributeError):
 		pass
 

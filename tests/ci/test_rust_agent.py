@@ -33,25 +33,29 @@ def _load_real_v8_smoke_module():
 	return module
 
 
-def test_top_level_agent_uses_rust_wrapper():
+def test_top_level_agent_preserves_python_service():
 	from browser_use import Agent as TopLevelAgent
+	from browser_use.agent.service import Agent as BrowserUseAgent
 	from browser_use.rust import Agent as RustAgent
 
-	assert TopLevelAgent is RustAgent
+	assert TopLevelAgent is BrowserUseAgent
+	assert TopLevelAgent is not RustAgent
 
 
-def test_agent_package_export_uses_rust_wrapper():
+def test_agent_package_export_preserves_python_service():
 	from browser_use.agent import Agent as AgentPackageAgent
+	from browser_use.agent.service import Agent as BrowserUseAgent
 	from browser_use.rust import Agent as RustAgent
 
-	assert AgentPackageAgent is RustAgent
+	assert AgentPackageAgent is BrowserUseAgent
+	assert AgentPackageAgent is not RustAgent
 
 
-def test_agent_service_export_uses_rust_wrapper():
+def test_agent_service_export_preserves_python_service():
 	from browser_use.agent.service import Agent as ServiceAgent
 	from browser_use.rust import Agent as RustAgent
 
-	assert ServiceAgent is RustAgent
+	assert ServiceAgent is not RustAgent
 
 
 def test_rust_agent_class_metadata_matches_browser_use_service_surface():
@@ -60,7 +64,8 @@ def test_rust_agent_class_metadata_matches_browser_use_service_surface():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.rust import Agent as RustAgent
 
-	assert TopLevelAgent is ServiceAgent is RustAgent
+	assert TopLevelAgent is ServiceAgent is BrowserUseAgent
+	assert RustAgent is not BrowserUseAgent
 	assert RustAgent.__name__ == BrowserUseAgent.__name__ == 'Agent'
 	assert RustAgent.__qualname__ == BrowserUseAgent.__qualname__ == 'Agent'
 	assert RustAgent.__module__ == BrowserUseAgent.__module__ == 'browser_use.agent.service'
@@ -83,7 +88,7 @@ def test_rust_agent_generic_subscription_matches_browser_use():
 	assert get_args(rust_alias) == get_args(browser_use_alias) == (dict, Answer)
 	assert get_args(service_alias) == (dict, Answer)
 	assert get_origin(rust_alias) is RustAgent
-	assert get_origin(service_alias) is RustAgent
+	assert get_origin(service_alias) is BrowserUseAgent
 
 	with pytest.raises(TypeError, match='Too few arguments'):
 		RustAgent[Answer]

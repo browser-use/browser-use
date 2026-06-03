@@ -7,7 +7,8 @@ Set BU_CDP_URL or BROWSER_USE_CDP_URL to attach to a remote Browser Use cloud br
 import asyncio
 import os
 
-from browser_use import Agent, BrowserSession
+from browser_use import BrowserSession
+from browser_use.rust import Agent
 
 
 async def main() -> None:
@@ -23,4 +24,3 @@ async def main() -> None:
 
 if __name__ == '__main__':
 	asyncio.run(main())
-

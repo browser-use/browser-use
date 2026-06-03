@@ -13,7 +13,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from browser_use import Agent, BrowserSession
+from browser_use import BrowserSession
+from browser_use.rust import Agent
 
 
 DEFAULT_DATASET = Path('/home/exedev/Developer/terminal/datasets/real_v8.json')
