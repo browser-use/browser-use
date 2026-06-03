@@ -2579,6 +2579,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
 			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
 		self._setup_action_models()
+		self._verify_and_setup_llm()
 		model_name = str(getattr(self.llm, 'model', self.model) or '').lower()
 		if 'deepseek' in model_name:
 			self.logger.warning('DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')

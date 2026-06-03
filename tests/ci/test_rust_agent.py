@@ -4823,6 +4823,23 @@ def test_rust_agent_exposes_setup_helper_methods(tmp_path):
 	assert agent.file_system.base_dir == new_file_system_path
 
 
+def test_rust_agent_constructor_invokes_llm_verification(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test-provider'
+		_verified_api_keys = False
+
+	monkeypatch.setenv('SKIP_LLM_API_KEY_VERIFICATION', 'true')
+
+	llm = LLM()
+	agent = Agent(task='Verify LLM during construction.', llm=llm, directly_open_url=False)
+
+	assert agent.llm is llm
+	assert llm._verified_api_keys is True
+
+
 def test_rust_agent_browser_profile_property_tracks_session_profile():
 	from browser_use.rust import Agent
 
