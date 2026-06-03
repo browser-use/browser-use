@@ -122,6 +122,24 @@ def _llm_timeout_for_model(llm: Any | None) -> int:
 	return 60
 
 
+def _resolve_default_llm(llm: BaseChatModel | None) -> BaseChatModel:
+	if llm is not None:
+		return llm
+	try:
+		from browser_use.config import CONFIG
+
+		default_llm_name = CONFIG.DEFAULT_LLM
+	except Exception:
+		default_llm_name = ''
+	if default_llm_name:
+		from browser_use.llm.models import get_llm_by_name
+
+		return get_llm_by_name(default_llm_name)
+	from browser_use import ChatBrowserUse
+
+	return ChatBrowserUse()
+
+
 def _extract_cdp_url(browser_session: BrowserSession | None) -> str | None:
 	if browser_session is None:
 		return None
@@ -2514,6 +2532,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
+		llm = _resolve_default_llm(llm)
 		if browser and browser_session:
 			raise ValueError('Cannot specify both "browser" and "browser_session".')
 		if tools is not None and controller is not None:

@@ -19,6 +19,8 @@ def _disable_rust_agent_latest_version_check(monkeypatch):
 		return None
 
 	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', no_latest_version)
+	monkeypatch.delenv('DEFAULT_LLM', raising=False)
+	monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-browser-use-api-key')
 
 
 def _load_real_v8_smoke_module():
@@ -2697,6 +2699,21 @@ def test_rust_agent_defaults_page_extraction_llm_to_main_llm():
 	assert str(id(extraction_llm)) in override_agent.token_cost_service.registered_llms
 
 
+def test_rust_agent_defaults_llm_like_browser_use():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	browser_use_agent = BrowserUseAgent(task='Use the default model.', directly_open_url=False)
+	rust_agent = RustAgent(task='Use the default model.', directly_open_url=False)
+
+	assert type(rust_agent.llm) is type(browser_use_agent.llm)
+	assert rust_agent.llm.provider == browser_use_agent.llm.provider == 'browser-use'
+	assert rust_agent.llm.model == browser_use_agent.llm.model == 'bu-1-0'
+	assert rust_agent.settings.flash_mode is True
+	assert rust_agent.settings.page_extraction_llm is rust_agent.llm
+	assert rust_agent.model == rust_agent.llm.model
+
+
 def test_rust_agent_enables_flash_mode_for_browser_use_llm_provider():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.rust import Agent as RustAgent
@@ -4928,12 +4945,15 @@ def test_rust_agent_adds_available_files_to_task_context():
 	assert '- ' in agent.task and 'notes.md' in agent.task
 
 
-def test_rust_agent_default_codex_model_matches_chatgpt_account(monkeypatch):
+def test_rust_agent_default_model_uses_browser_use_default_llm(monkeypatch):
 	from browser_use.rust import Agent
 
-	monkeypatch.delenv('BROWSER_USE_RUST_MODEL', raising=False)
+	monkeypatch.setenv('BROWSER_USE_RUST_MODEL', 'legacy-codex-default')
 
-	assert Agent(task='report title').model == 'gpt-5.3-codex-spark'
+	agent = Agent(task='report title')
+
+	assert agent.llm.provider == 'browser-use'
+	assert agent.model == 'bu-1-0'
 
 
 def test_rust_agent_translates_followup_to_existing_terminal_session(monkeypatch):
