@@ -862,6 +862,10 @@ def _attachments_from_events(events: list[dict[str, Any]]) -> list[str] | None:
 			pointer = _artifact_attachment_pointer(payload.get('artifact'))
 			if pointer:
 				pointers.append(pointer)
+		elif event_type == 'capture.curation':
+			gif_path = payload.get('gif_path')
+			if isinstance(gif_path, str) and gif_path:
+				pointers.append(gif_path)
 		elif event_type in ('tool.output', 'tool.failed'):
 			text_artifact = _artifact_attachment_pointer(payload.get('text_artifact'))
 			if text_artifact:

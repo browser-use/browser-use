@@ -1378,6 +1378,46 @@ def test_rust_history_reconstructs_terminal_artifact_attachments():
 	}
 
 
+def test_rust_history_reconstructs_terminal_capture_curation_gif_attachment():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'capture.curation',
+				'payload': {
+					'source': 'fallback_uncurated',
+					'gif_path': '/tmp/browser-use-agent/capture-summary.gif',
+				},
+			},
+			{
+				'event_type': 'artifact.created',
+				'payload': {
+					'name': 'capture',
+					'artifact': {
+						'path': '/tmp/browser-use-agent/capture-summary.gif',
+						'kind': 'summary_gif',
+						'mime': 'image/gif',
+					},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Generated browser summary.'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	attachments = ['/tmp/browser-use-agent/capture-summary.gif']
+
+	assert history.action_results()[-1].attachments == attachments
+	assert history.last_action() == {
+		'done': {'text': 'Generated browser summary.', 'success': True, 'files_to_display': attachments}
+	}
+
+
 def test_rust_history_reconstructs_terminal_text_artifact_attachments():
 	from browser_use.rust.service import _history_from_events
 
