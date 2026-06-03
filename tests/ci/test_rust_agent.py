@@ -1060,6 +1060,45 @@ async def test_rust_agent_logs_completion_before_done_callback(monkeypatch):
 	assert 'Task completed successfully' in logged_messages
 
 
+async def test_rust_agent_generates_gif_after_done_callback(monkeypatch, tmp_path):
+	from browser_use.agent import gif as gif_module
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	seen = []
+	output_path = tmp_path / 'rust-agent.gif'
+
+	def done_callback(history):
+		seen.append(('done', history.final_result()))
+
+	def fake_create_history_gif(task, history, output_path):
+		seen.append(('gif', task, history.final_result(), output_path))
+
+	monkeypatch.setattr(gif_module, 'create_history_gif', fake_create_history_gif)
+	agent = Agent(
+		task='Create a visual trace.',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		register_done_callback=done_callback,
+		generate_gif=str(output_path),
+	)
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'gif answer'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=1)
+
+	assert seen == [
+		('done', 'gif answer'),
+		('gif', agent.task, 'gif answer', str(output_path)),
+	]
+
+
 async def test_rust_agent_invokes_new_step_callback(monkeypatch):
 	from browser_use.rust import Agent
 

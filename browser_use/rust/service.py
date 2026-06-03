@@ -1296,6 +1296,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		await self._call_new_step_callback()
 		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
+		self._generate_gif_if_requested()
 		return self.history
 
 	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
@@ -1332,6 +1333,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_done_callback()
+		self._generate_gif_if_requested()
 		return self.history
 
 	follow_up_task = follow_up
@@ -1712,6 +1714,17 @@ class Agent(Generic[AgentStructuredOutput]):
 			json.dumps(self._conversation_snapshot(), indent=2, default=str),
 			encoding=self.settings.save_conversation_path_encoding or 'utf-8',
 		)
+
+	def _generate_gif_if_requested(self) -> None:
+		if not self.settings.generate_gif:
+			return
+		output_path = 'agent_history.gif'
+		if isinstance(self.settings.generate_gif, str):
+			output_path = self.settings.generate_gif
+
+		from browser_use.agent.gif import create_history_gif
+
+		create_history_gif(task=self.task, history=self.history, output_path=output_path)
 
 	def _conversation_snapshot(self) -> dict[str, Any]:
 		return {
