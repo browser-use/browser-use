@@ -2661,6 +2661,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'Starting a browser-use agent with version {self.version}, with provider={provider} and model={model}'
 		)
 
+	def _log_main_execution_start(self, max_steps: int) -> None:
+		"""Log Browser Use's main execution-loop start for terminal-backed runs."""
+		self.logger.debug(f'Starting main execution loop with max {max_steps} steps...')
+
 	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Log current step and page context."""
 		url = getattr(browser_state_summary, 'url', '') if browser_state_summary else ''
@@ -2989,6 +2993,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.state.follow_up_task = False
 			return await self._follow_up_terminal(self.task, max_steps=max_steps, resolved_max_steps=max_steps)
 
+		self._log_main_execution_start(max_steps)
 		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps), timeout_seconds=self.settings.step_timeout)
 		finished = time.time()
 		self.last_stdout = stdout_text

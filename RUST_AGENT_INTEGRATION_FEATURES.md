@@ -886,10 +886,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The first run logs session and task event dispatches; later runs on the same Browser Use session log only the task dispatch, matching the one-session/many-tasks lifecycle.
    - Proof: `test_rust_agent_run_logs_browser_use_lifecycle_dispatch`.
 
+175. Rust Agent main-loop start debug logging parity
+   - Terminal-backed `Agent.run()` now logs Browser Use's main execution-loop start line immediately before launching the Rust terminal core.
+   - The log includes the resolved max-step budget, preserving the observable run-start debug metadata expected by Browser Use callers.
+   - Proof: `test_rust_agent_run_logs_main_execution_start`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (146 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (147 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

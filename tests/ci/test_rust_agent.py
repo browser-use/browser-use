@@ -3167,6 +3167,46 @@ async def test_rust_agent_run_logs_browser_use_setup_metadata(monkeypatch):
 	assert logger.errors == []
 
 
+async def test_rust_agent_run_logs_main_execution_start(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Log main execution start.', llm=type('LLM', (), {'model': 'gpt-test'})())
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		assert 'Starting main execution loop with max 6 steps...' in logger.debugs
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'logged execution start'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=6)
+
+	assert history.final_result() == 'logged execution start'
+	assert logger.errors == []
+
+
 async def test_rust_agent_run_registers_browser_use_signal_handler(monkeypatch):
 	import asyncio
 
