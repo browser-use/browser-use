@@ -561,10 +561,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Hyphenated task-id suffixes are sanitized into valid identifiers, and follow-up task event buses keep the same base prefix with a unique suffix.
    - Proof: `test_rust_agent_eventbus_name_matches_browser_use_suffix_prefix`.
 
+111. Rust Agent constructor type-hint parity
+   - The Rust-backed `Agent.__init__(...)` now exposes Browser Use's constructor type metadata for the core public parameters that users and tooling introspect.
+   - LLM, callback, structured-output, extraction-LLM, sample-image, and tools/controller annotations now mirror Browser Use's concrete types, while unannotated `**kwargs` and constructor return metadata stay unannotated like the Python Agent.
+   - Proof: `test_rust_agent_constructor_type_hints_match_browser_use_core_params`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (84 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (85 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
@@ -629,5 +634,5 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
 
 ## Not Verified Yet
 
-- Browser Use cloud remote browser end-to-end was not run because `browser-use-terminal auth status` reports `Browser Use cloud key: not connected`. The remote-CDP path has been verified against an external CDP browser.
-- real_v8 was verified through remote CDP against an external local Chromium endpoint, not a Browser Use cloud browser, because the VM has no connected Browser Use cloud key.
+- Browser Use cloud remote browser end-to-end has not been rerun yet after locating `/home/exedev/.evaluation_tool_env`; when that file is sourced, `browser-use-terminal auth status` reports the Browser Use cloud key as connected.
+- real_v8 was verified through remote CDP against an external local Chromium endpoint, not a Browser Use cloud browser. The next E2E verification target is rerunning this with the sourced Browser Use cloud key.

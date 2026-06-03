@@ -5,7 +5,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import get_args, get_origin
+from typing import get_args, get_origin, get_type_hints
 
 import pytest
 from pydantic import BaseModel
@@ -92,6 +92,40 @@ def test_rust_agent_constructor_signature_matches_browser_use_order(tmp_path):
 	assert agent.source == 'signature-source'
 	assert agent.file_system_path == str(tmp_path / 'agent-files')
 	assert agent.task_id == 'signature-task-id'
+
+
+def test_rust_agent_constructor_type_hints_match_browser_use_core_params():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+	from browser_use.tools.service import Tools
+
+	browser_use_hints = get_type_hints(BrowserUseAgent.__init__)
+	rust_hints = get_type_hints(RustAgent.__init__)
+
+	for name in (
+		'llm',
+		'register_new_step_callback',
+		'register_done_callback',
+		'output_model_schema',
+		'page_extraction_llm',
+		'sample_images',
+	):
+		assert rust_hints[name] == browser_use_hints[name]
+
+	def assert_tools_context_hint(annotation):
+		inner = [arg for arg in get_args(annotation) if arg is not type(None)]
+		assert len(inner) == 1
+		assert get_origin(inner[0]) is Tools
+		type_args = get_args(inner[0])
+		assert len(type_args) == 1
+		assert type_args[0].__name__ == 'Context'
+
+	for name in ('tools', 'controller'):
+		assert_tools_context_hint(browser_use_hints[name])
+		assert_tools_context_hint(rust_hints[name])
+
+	assert 'kwargs' not in rust_hints
+	assert 'return' not in rust_hints
 
 
 def test_rust_events_reconstruct_browser_use_history():

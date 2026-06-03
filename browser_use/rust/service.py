@@ -33,12 +33,15 @@ from browser_use.agent.views import (
 	AgentSettings,
 	AgentState,
 	AgentStepInfo,
+	AgentStructuredOutput,
 	StepMetadata,
 )
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
-from browser_use.browser.views import BrowserStateHistory, TabInfo
+from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary, TabInfo
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
@@ -49,9 +52,12 @@ from browser_use.utils import URL_PATTERN, check_latest_browser_use_version, get
 
 
 Context = TypeVar('Context')
-AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
 AgentHookFunc = Callable[[Any], Awaitable[None] | None]
-AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None] | None]
+AgentNewStepCallback = (
+	Callable[[BrowserStateSummary, AgentOutput, int], None]
+	| Callable[[BrowserStateSummary, AgentOutput, int], Awaitable[None]]
+)
+AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None]] | Callable[[AgentHistoryList], None]
 
 
 class RustAgentError(RuntimeError):
@@ -1061,15 +1067,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def __init__(
 		self,
 		task: str,
-		llm: Any | None = None,
+		llm: BaseChatModel | None = None,
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
 		browser: BrowserSession | None = None,
-		tools: Any | None = None,
-		controller: Any | None = None,
+		tools: Tools[Context] | None = None,
+		controller: Tools[Context] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
-		register_new_step_callback: Callable[..., Awaitable[None] | None] | None = None,
+		register_new_step_callback: AgentNewStepCallback | None = None,
 		register_done_callback: AgentDoneCallback | None = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		register_should_stop_callback: Callable[[], Awaitable[bool]] | None = None,
@@ -1087,7 +1093,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 		max_history_items: int | None = None,
-		page_extraction_llm: Any | None = None,
+		page_extraction_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
 		source: str | None = None,
 		file_system_path: str | None = None,
@@ -1100,11 +1106,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		step_timeout: int = 120,
 		directly_open_url: bool = True,
 		include_recent_events: bool = False,
-		sample_images: list[Any] | None = None,
+		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
 		_url_shortening_limit: int = 25,
-		**kwargs: Any,
-	) -> None:
+		**kwargs,
+	):
 		if browser and browser_session:
 			raise ValueError('Cannot specify both "browser" and "browser_session".')
 		if tools is not None and controller is not None:
