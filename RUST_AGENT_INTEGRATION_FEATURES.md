@@ -784,10 +784,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves current-main browser cloud shutdown, browser cleanup, browser bridge, command write, compaction, and final-answer-not-ready failures on `history.errors()` and the final `ActionResult.error` instead of falling back to a generic missing-result error.
    - Proof: `test_rust_history_surfaces_terminal_operational_failure_events`.
 
+155. Rust terminal subagent-completion result reconstruction
+   - Terminal `agent.completed` events now fall back to their nested `payload.result` as the Browser Use final result when no `session.done` result is present.
+   - This matches terminal protocol result reconstruction for parent/subagent completion histories while preserving `session.done` precedence when both results exist.
+   - Proof: `test_rust_history_reconstructs_terminal_agent_completed_result`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (126 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (127 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

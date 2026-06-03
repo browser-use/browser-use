@@ -1602,6 +1602,53 @@ def test_rust_history_extracts_fenced_structured_output():
 	assert history.structured_output.answer == 'ok'
 
 
+def test_rust_history_reconstructs_terminal_agent_completed_result():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'agent.completed',
+				'payload': {
+					'child_session_id': 'child-1',
+					'status': 'done',
+					'payload': {'result': 'child answer\n'},
+				},
+			}
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	session_done_history = _history_from_events(
+		[
+			{
+				'event_type': 'agent.completed',
+				'payload': {
+					'child_session_id': 'child-1',
+					'status': 'done',
+					'payload': {'result': 'child answer'},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'parent answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.final_result() == 'child answer'
+	assert history.is_done() is True
+	assert history.action_names() == ['done']
+	assert history.last_action() == {'done': {'text': 'child answer', 'success': True}}
+	assert session_done_history.final_result() == 'parent answer'
+
+
 def test_rust_history_exposes_result_file_attachments():
 	from browser_use.rust.service import _history_from_events
 

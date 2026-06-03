@@ -845,6 +845,15 @@ def _result_from_events(events: list[dict[str, Any]]) -> str | None:
 		result_file = _result_file_pointer(payload)
 		if result_file:
 			return f'Saved result file.\n\nFile:\n{result_file}'
+	for event in reversed(events):
+		if _event_type(event) != 'agent.completed':
+			continue
+		payload = _event_payload(event).get('payload')
+		if not isinstance(payload, dict):
+			continue
+		result = payload.get('result')
+		if isinstance(result, str) and result.strip():
+			return result.strip()
 	return None
 
 
