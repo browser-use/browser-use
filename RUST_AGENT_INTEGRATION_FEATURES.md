@@ -296,6 +296,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper classifies visible FERC, docket, regulatory, government, report, and generic filing/search result links with row/card context, docket tokens, accession IDs, dates, document type, extension, score, source, and direct URL for `read_document_text`.
    - Proof: `browser_script_document_links_snapshot_classifies_filing_documents`.
 
+58. Browser-script Shopify catalog extraction helper
+   - Terminal browser scripts now expose `shopify_products_api(url_or_domain=None, limit=250, page_limit=20, timeout=12.0)`.
+   - The helper fetches public Shopify `/products.json` pages and normalizes product titles, handles, URLs, vendors, product types, tags, descriptions, variant availability/SKUs/options/prices, compare-at prices, images, and attempted catalog URLs.
+   - Proof: `browser_script_shopify_products_api_normalizes_catalog_pages`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -331,6 +336,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_tabular_data_records_normalizes_exports -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_investor_documents_snapshot_classifies_visible_links -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_document_links_snapshot_classifies_filing_documents -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_shopify_products_api_normalizes_catalog_pages -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
