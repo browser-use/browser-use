@@ -1099,6 +1099,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			raise ValueError('Cannot specify both "browser" and "browser_session".')
 		if tools is not None and controller is not None:
 			raise ValueError('Cannot specify both "tools" and "controller".')
+		if page_extraction_llm is None:
+			page_extraction_llm = llm
 		self.id = task_id or uuid7str()
 		self.task_id = self.id
 		self.llm = llm

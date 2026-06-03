@@ -880,6 +880,39 @@ def test_rust_agent_exposes_browser_use_settings():
 	assert agent.include_recent_events is True
 
 
+def test_rust_agent_defaults_page_extraction_llm_to_main_llm():
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class ExtractionLLM:
+		model = 'extract-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	llm = LLM()
+	extraction_llm = ExtractionLLM()
+
+	default_agent = Agent(task='Extract with the main model.', llm=llm)
+	override_agent = Agent(
+		task='Extract with a dedicated model.',
+		llm=llm,
+		page_extraction_llm=extraction_llm,
+	)
+
+	assert default_agent.settings.page_extraction_llm is llm
+	assert override_agent.settings.page_extraction_llm is extraction_llm
+	assert str(id(llm)) in default_agent.token_cost_service.registered_llms
+	assert str(id(extraction_llm)) in override_agent.token_cost_service.registered_llms
+
+
 def test_rust_agent_initializes_tools_and_action_models():
 	from browser_use.rust import Agent
 	from browser_use.tools.service import Tools
