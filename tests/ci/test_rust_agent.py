@@ -912,6 +912,29 @@ def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	assert agent.state.file_system_state is not None
 
 
+def test_rust_agent_browser_profile_property_tracks_session_profile():
+	from browser_use.rust import Agent
+
+	class FirstProfile:
+		downloads_path = None
+
+	class SecondProfile:
+		downloads_path = '/tmp/changed-downloads'
+
+	class BrowserSession:
+		browser_profile = FirstProfile()
+
+	session = BrowserSession()
+	agent = Agent(task='Use the current browser profile.', browser_session=session)
+
+	assert agent.browser_profile is session.browser_profile
+
+	session.browser_profile = SecondProfile()
+
+	assert agent.browser_profile is session.browser_profile
+	assert agent.browser_profile.downloads_path == '/tmp/changed-downloads'
+
+
 async def test_rust_agent_tracks_downloaded_files_and_saves_file_system_state(tmp_path):
 	from browser_use.rust import Agent
 

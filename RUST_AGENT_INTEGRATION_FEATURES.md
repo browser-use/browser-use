@@ -461,10 +461,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Page updates rebuild `ActionModel`, `AgentOutput`, `DoneActionModel`, and `DoneAgentOutput` through the configured tools registry with the current page URL.
    - Proof: `test_rust_agent_updates_action_models_for_page`.
 
+91. Rust Agent browser profile property parity
+   - The Rust-backed `Agent` now exposes `browser_profile` as a Browser Use-style property derived from the current `browser_session.browser_profile`.
+   - The wrapper keeps a fallback initial profile for lightweight custom sessions while reflecting later browser-session profile changes through the public property.
+   - Proof: `test_rust_agent_browser_profile_property_tracks_session_profile`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (64 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (65 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

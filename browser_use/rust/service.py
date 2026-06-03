@@ -1097,7 +1097,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.id = task_id or uuid7str()
 		self.task_id = self.id
 		self.llm = llm
-		self.browser_session, self.browser_profile = _default_browser_session(
+		self.browser_session, self._browser_profile = _default_browser_session(
 			self.id,
 			browser_profile,
 			browser_session,
@@ -1354,6 +1354,11 @@ class Agent(Generic[AgentStructuredOutput]):
 		return logging.getLogger(
 			f'browser_use.rust.Agent {self.task_id[-4:]} -> BrowserSession {str(browser_session_id)[-4:]} Target {target_id}'
 		)
+
+	@property
+	def browser_profile(self) -> Any:
+		session_profile = getattr(self.browser_session, 'browser_profile', None)
+		return session_profile if session_profile is not None else self._browser_profile
 
 	@property
 	def message_manager(self) -> MessageManager:
