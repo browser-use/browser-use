@@ -3076,6 +3076,78 @@ async def test_rust_agent_run_logs_browser_use_run_metadata(monkeypatch):
 	assert logger.errors == []
 
 
+async def test_rust_agent_run_registers_browser_use_signal_handler(monkeypatch):
+	import asyncio
+
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	events = []
+	handlers = []
+	captured_events = []
+
+	class FakeSignalHandler:
+		def __init__(
+			self,
+			loop=None,
+			pause_callback=None,
+			resume_callback=None,
+			custom_exit_callback=None,
+			exit_on_second_int=False,
+			interruptible_task_patterns=None,
+		):
+			assert loop is asyncio.get_event_loop()
+			self.pause_callback = pause_callback
+			self.resume_callback = resume_callback
+			self.custom_exit_callback = custom_exit_callback
+			self.exit_on_second_int = exit_on_second_int
+			handlers.append(self)
+			events.append('init')
+
+		def register(self):
+			events.append('register')
+
+		def unregister(self):
+			events.append('unregister')
+
+	class Telemetry:
+		def capture(self, event):
+			captured_events.append(event)
+
+		def flush(self):
+			events.append('flush')
+
+	monkeypatch.setattr(rust_service, 'SignalHandler', FakeSignalHandler)
+	agent = Agent(task='Handle run signals.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.telemetry = Telemetry()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		assert events == ['init', 'register']
+		assert len(handlers) == 1
+		assert handlers[0].exit_on_second_int is True
+		handlers[0].pause_callback()
+		assert agent.state.paused is True
+		handlers[0].resume_callback()
+		assert agent.state.paused is False
+		handlers[0].custom_exit_callback()
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'handled signals'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=4)
+
+	assert history.final_result() == 'handled signals'
+	assert events == ['init', 'register', 'flush', 'unregister']
+	assert len(captured_events) == 1
+	assert captured_events[0].max_steps == 4
+	assert captured_events[0].error_message == 'SIGINT: Cancelled by user'
+
+
 async def test_rust_agent_run_logs_token_usage_summary(monkeypatch):
 	from browser_use.rust import Agent
 

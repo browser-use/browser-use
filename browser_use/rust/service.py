@@ -57,7 +57,7 @@ from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
-from browser_use.utils import URL_PATTERN, check_latest_browser_use_version, get_browser_use_version
+from browser_use.utils import SignalHandler, URL_PATTERN, check_latest_browser_use_version, get_browser_use_version
 
 
 Context = TypeVar('Context')
@@ -2785,6 +2785,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def _record_run_telemetry(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Record Browser Use run telemetry without allowing telemetry failures to break the run."""
+		if getattr(self, '_force_exit_telemetry_logged', False):
+			self.logger.debug('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
+			return
 		try:
 			self._log_agent_event(max_steps=max_steps, agent_run_error=agent_run_error)
 		except Exception as exc:
@@ -2804,6 +2807,37 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if getattr(self, '_eventbus_stopped', False):
 			self.eventbus = EventBus(name=_unique_eventbus_name(self.id))
 			self._eventbus_stopped = False
+
+	def _register_run_signal_handler(self, max_steps: int) -> SignalHandler:
+		"""Register Browser Use SIGINT/SIGTERM handling for a Rust-backed run."""
+		self._unregister_run_signal_handler()
+		self._force_exit_telemetry_logged = False
+
+		def on_force_exit_log_telemetry() -> None:
+			self._record_run_telemetry(max_steps=max_steps, agent_run_error='SIGINT: Cancelled by user')
+			if hasattr(self, 'telemetry') and self.telemetry:
+				self.telemetry.flush()
+			self._force_exit_telemetry_logged = True
+
+		signal_handler = SignalHandler(
+			loop=asyncio.get_event_loop(),
+			pause_callback=self.pause,
+			resume_callback=self.resume,
+			custom_exit_callback=on_force_exit_log_telemetry,
+			exit_on_second_int=True,
+		)
+		signal_handler.register()
+		self._run_signal_handler = signal_handler
+		return signal_handler
+
+	def _unregister_run_signal_handler(self) -> None:
+		signal_handler = getattr(self, '_run_signal_handler', None)
+		if signal_handler is None:
+			return
+		try:
+			signal_handler.unregister()
+		finally:
+			self._run_signal_handler = None
 
 	def _dispatch_run_start_events(self) -> None:
 		"""Emit Browser Use cloud lifecycle create events for a Rust-backed run."""
@@ -2835,6 +2869,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _finalize_run_cleanup(self) -> None:
 		"""Mirror Browser Use run cleanup ordering."""
+		self._unregister_run_signal_handler()
 		await self._stop_eventbus_after_run()
 		await self.close()
 
@@ -2870,6 +2905,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
+		self._register_run_signal_handler(max_steps)
 		await self._log_agent_run()
 		await self._call_callback(on_step_start, self)
 		self._initialize_run_lifecycle_state()
@@ -2952,6 +2988,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
 		if not self.terminal_session_id:
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
+		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
+		self._register_run_signal_handler(resolved_max_steps)
 		self._initialize_run_lifecycle_state()
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
@@ -2980,7 +3018,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.history = self.result
 		self._sync_state_from_history()
-		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
 		await self._log_run_usage_summary()
 		self._record_run_telemetry(max_steps=resolved_max_steps, agent_run_error=process_error)
 		self._dispatch_run_update_event()
