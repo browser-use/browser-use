@@ -815,10 +815,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This keeps close idempotent and safe for user cleanup/finally blocks even when a supplied BrowserSession fails during `kill()`.
    - Proof: `test_rust_agent_close_logs_cleanup_errors_without_raising`.
 
+161. Rust Agent run telemetry parity
+   - Terminal-backed `Agent.run()` and `Agent.follow_up()` now emit Browser Use `AgentTelemetryEvent` records from reconstructed Rust history.
+   - Telemetry captures task/model metadata, URLs, usage, final result, success, and terminal process errors, while telemetry failures are logged and do not break the returned history.
+   - Proof: `test_rust_agent_run_records_terminal_telemetry`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (132 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (133 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

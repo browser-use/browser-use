@@ -2944,6 +2944,78 @@ async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
 	assert captured_events[0].error_message == 'manual-error'
 
 
+async def test_rust_agent_run_records_terminal_telemetry(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	captured_events = []
+
+	class Telemetry:
+		def capture(self, event):
+			captured_events.append(event)
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test-provider'
+
+	agent = Agent(task='Record telemetry.', llm=LLM(), source='ci')
+	agent.telemetry = Telemetry()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [
+			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+			{'event_type': 'model.usage', 'payload': {'input_tokens': 13, 'output_tokens': 5}},
+			{'event_type': 'session.done', 'payload': {'result': 'telemetry answer'}},
+		]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=5)
+
+	assert history.final_result() == 'telemetry answer'
+	assert len(captured_events) == 1
+	event = captured_events[0]
+	assert event.task == agent.task
+	assert event.max_steps == 5
+	assert event.model == 'gpt-test'
+	assert event.model_provider == 'test-provider'
+	assert event.urls_visited == ['https://example.com']
+	assert event.total_input_tokens == 13
+	assert event.total_output_tokens == 5
+	assert event.final_result_response == '"telemetry answer"'
+	assert event.error_message is None
+
+	class FailingTelemetry:
+		def capture(self, event):
+			raise RuntimeError('telemetry failed')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.errors = []
+
+		def info(self, message, *args, **kwargs):
+			pass
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	logger = RecordingLogger()
+	failing_agent = Agent(task='Record failing telemetry.', llm=LLM())
+	failing_agent.telemetry = FailingTelemetry()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	failing_agent._run_process = fake_run_process
+	failing_agent._load_events = fake_load_events
+
+	failing_history = await failing_agent.run(max_steps=2)
+
+	assert failing_history.final_result() == 'telemetry answer'
+	assert logger.errors == ['Failed to log telemetry event: telemetry failed']
+
+
 async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	import base64
 	import time

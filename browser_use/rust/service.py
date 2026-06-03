@@ -2762,6 +2762,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 		)
 
+	def _record_run_telemetry(self, max_steps: int, agent_run_error: str | None = None) -> None:
+		"""Record Browser Use run telemetry without allowing telemetry failures to break the run."""
+		try:
+			self._log_agent_event(max_steps=max_steps, agent_run_error=agent_run_error)
+		except Exception as exc:
+			self.logger.error(f'Failed to log telemetry event: {exc}', exc_info=True)
+
 	def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
 		"""Log an action before execution with Browser Use-style structure."""
 		action_header = f'[{action_num}/{total_actions}] {action_name}:' if total_actions > 1 else f'{action_name}:'
@@ -2801,6 +2808,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				process_error='Rust agent stopped before terminal run.',
 			)
 			self.history = self.result
+			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 			await self._call_callback(on_step_end, self)
 			return self.history
 		if self.state.paused:
@@ -2814,6 +2822,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				process_error='Rust agent is paused before terminal run.',
 			)
 			self.history = self.result
+			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent is paused before terminal run.')
 			await self._call_callback(on_step_end, self)
 			return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
@@ -2842,6 +2851,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.history = self.result
 		self._sync_state_from_history()
+		self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
 		await self._check_and_update_downloads('run')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
@@ -2880,6 +2890,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.history = self.result
 		self._sync_state_from_history()
+		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
+		self._record_run_telemetry(max_steps=resolved_max_steps, agent_run_error=process_error)
 		await self._check_and_update_downloads('follow_up')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
