@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
+from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
@@ -1786,6 +1787,102 @@ class Agent(Generic[AgentStructuredOutput]):
 	def save_file_system_state(self) -> None:
 		"""Save current Browser Use file system state back onto AgentState."""
 		self.state.file_system_state = self.file_system.get_state()
+
+	async def get_model_output(self, input_messages: list[Any]) -> AgentOutput:
+		"""Get next Browser Use action output from the configured Python LLM."""
+		if self.llm is None or not hasattr(self.llm, 'ainvoke'):
+			raise ValueError('A Browser Use-compatible llm with ainvoke(...) is required for get_model_output().')
+
+		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+		response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+		parsed: AgentOutput = getattr(response, 'completion', response)
+
+		if urls_replaced:
+			self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
+
+		actions = getattr(parsed, 'action', None)
+		if actions and len(actions) > self.settings.max_actions_per_step:
+			parsed.action = actions[: self.settings.max_actions_per_step]
+
+		self._log_next_action_summary(parsed)
+		return parsed
+
+	async def _get_model_output_with_retry(self, input_messages: list[Any]) -> AgentOutput:
+		"""Get model output, retrying once when the model returns no usable action."""
+		model_output = await self.get_model_output(input_messages)
+
+		def has_empty_actions(output: AgentOutput) -> bool:
+			actions = getattr(output, 'action', None)
+			if not actions or not isinstance(actions, list):
+				return True
+			return all(getattr(action, 'model_dump', lambda **kwargs: {})() == {} for action in actions)
+
+		if has_empty_actions(model_output):
+			from browser_use.llm.messages import UserMessage
+
+			clarification_message = UserMessage(
+				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
+			)
+			model_output = await self.get_model_output(input_messages + [clarification_message])
+			if has_empty_actions(model_output):
+				try:
+					done_action = self.DoneActionModel(done={'success': False, 'text': 'No next action returned by LLM!'})
+				except Exception:
+					done_action = self.ActionModel()
+					setattr(done_action, 'done', {'success': False, 'text': 'No next action returned by LLM!'})
+				model_output.action = [done_action]
+
+		return model_output
+
+	async def _handle_post_llm_processing(self, browser_state_summary: Any, input_messages: list[Any]) -> None:
+		"""Handle Browser Use callbacks and conversation saving after an LLM response."""
+		if self.register_new_step_callback and self.state.last_model_output:
+			if inspect.iscoroutinefunction(self.register_new_step_callback):
+				await self.register_new_step_callback(
+					browser_state_summary,
+					self.state.last_model_output,
+					self.state.n_steps,
+				)
+			else:
+				self.register_new_step_callback(
+					browser_state_summary,
+					self.state.last_model_output,
+					self.state.n_steps,
+				)
+
+		if self.settings.save_conversation_path and self.state.last_model_output:
+			conversation_dir = Path(self.settings.save_conversation_path)
+			conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
+			target = conversation_dir / conversation_filename
+			await save_conversation(
+				input_messages,
+				self.state.last_model_output,
+				target,
+				self.settings.save_conversation_path_encoding,
+			)
+
+	async def _get_next_action(self, browser_state_summary: Any) -> None:
+		"""Fetch the next model output and run Browser Use post-LLM hooks."""
+		input_messages = self._message_manager.get_messages()
+		try:
+			model_output = await asyncio.wait_for(
+				self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
+			)
+		except TimeoutError:
+			raise TimeoutError(
+				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
+			)
+
+		self.state.last_model_output = model_output
+		await self._check_stop_or_pause()
+		await self._handle_post_llm_processing(browser_state_summary, input_messages)
+		await self._check_stop_or_pause()
+
+	async def _execute_actions(self) -> None:
+		"""Execute actions from the last model output through the Rust-backed action path."""
+		if self.state.last_model_output is None:
+			raise ValueError('No model output to execute actions from')
+		self.state.last_result = await self.multi_act(self.state.last_model_output.action)
 
 	async def _make_history_item(
 		self,

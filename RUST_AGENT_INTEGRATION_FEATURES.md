@@ -501,10 +501,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Initial actions execute through `multi_act` and are recorded as step 0, while history replay remaps moved DOM indices by element hash before routing actions through the Rust-backed action path.
    - Proof: `test_rust_agent_exposes_action_replay_helper_methods`.
 
+99. Rust Agent model output helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's `get_model_output(...)`, `_get_model_output_with_retry(...)`, `_handle_post_llm_processing(...)`, `_get_next_action(...)`, and `_execute_actions()` helpers.
+   - The helpers preserve long-URL restoration in parsed LLM actions, max-action truncation, empty-action retry, step callbacks, conversation saving, and action execution through the Rust-backed `multi_act` path.
+   - Proof: `test_rust_agent_exposes_model_output_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (72 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (73 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

@@ -1808,6 +1808,111 @@ async def test_rust_agent_exposes_action_replay_helper_methods():
 	) is None
 
 
+async def test_rust_agent_exposes_model_output_helper_methods(tmp_path):
+	from types import SimpleNamespace
+
+	from browser_use.agent.views import ActionResult
+	from browser_use.llm.messages import UserMessage
+	from browser_use.rust import Agent
+
+	original_url = 'https://example.com/path?abcdefghijklmnopqrstuvwxyz#section'
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test-provider'
+
+		def __init__(self):
+			self.agent = None
+			self.calls = []
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			self.calls.append((messages, output_format))
+			shortened_text = messages[0].content
+			return SimpleNamespace(
+				usage=None,
+				completion=self.agent.AgentOutput(
+					evaluation_previous_goal='ok',
+					memory='remember',
+					next_goal='finish',
+					action=[
+						self.agent.ActionModel(done={'text': shortened_text, 'success': True}),
+						self.agent.ActionModel(done={'text': 'extra action', 'success': True}),
+					],
+				)
+			)
+
+	seen_callbacks = []
+
+	async def new_step_callback(browser_state, model_output, step_number):
+		seen_callbacks.append((browser_state, model_output, step_number))
+
+	llm = LLM()
+	agent = Agent(
+		task='Use LLM helpers.',
+		llm=llm,
+		max_actions_per_step=1,
+		_url_shortening_limit=8,
+		save_conversation_path=tmp_path / 'conversations',
+		register_new_step_callback=new_step_callback,
+	)
+	llm.agent = agent
+	input_messages = [UserMessage(content=f'Open {original_url} now.')]
+	browser_state = SimpleNamespace(url='https://example.com')
+	agent._message_manager.get_messages = lambda: input_messages
+
+	await agent._get_next_action(browser_state)
+
+	assert llm.calls[0][1] is agent.AgentOutput
+	assert original_url not in llm.calls[0][0][0].content
+	assert len(agent.state.last_model_output.action) == 1
+	assert agent.state.last_model_output.action[0].model_dump(exclude_unset=True)['done']['text'] == f'Open {original_url} now.'
+	assert seen_callbacks == [(browser_state, agent.state.last_model_output, agent.state.n_steps)]
+	assert list((tmp_path / 'conversations').glob(f'conversation_{agent.id}_{agent.state.n_steps}.txt'))
+
+	seen_actions = []
+
+	async def fake_multi_act(actions):
+		seen_actions.append(actions)
+		return [ActionResult(extracted_content='executed')]
+
+	agent.multi_act = fake_multi_act
+	await agent._execute_actions()
+
+	assert seen_actions == [agent.state.last_model_output.action]
+	assert agent.state.last_result[0].extracted_content == 'executed'
+
+	class RetryLLM(LLM):
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			self.calls.append((messages, output_format))
+			if len(self.calls) == 1:
+				return SimpleNamespace(
+					usage=None,
+					completion=self.agent.AgentOutput(
+						evaluation_previous_goal='empty',
+						memory='none',
+						next_goal='retry',
+						action=[],
+					)
+				)
+			return SimpleNamespace(
+				usage=None,
+				completion=self.agent.AgentOutput(
+					evaluation_previous_goal='ok',
+					memory='remember',
+					next_goal='finish',
+					action=[self.agent.ActionModel(done={'text': 'retried action', 'success': True})],
+				)
+			)
+
+	retry_llm = RetryLLM()
+	retry_agent = Agent(task='Retry LLM helpers.', llm=retry_llm)
+	retry_llm.agent = retry_agent
+	retry_output = await retry_agent._get_model_output_with_retry([UserMessage(content='Retry with an action.')])
+
+	assert len(retry_llm.calls) == 2
+	assert retry_output.action
+
+
 async def test_rust_agent_trace_and_cloud_auth_helpers():
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events
