@@ -2,7 +2,7 @@
 
 Branch: `magnus/browser-use-rust-core-integration`
 
-Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled main plus small CLI/browser-mode support commits.
+Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `14e1bcb` plus small CLI/browser-mode support commits.
 
 ## Built Features
 
@@ -361,6 +361,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper repeatedly extracts row-scoped records with `extract_grid_rows`, clicks matching pagination controls, annotates each record with `page_index`, deduplicates repeated pages, and returns page bookkeeping plus deduplicated file/detail actions.
    - Proof: `browser_script_extract_paginated_grid_rows_collects_pages`.
 
+71. Browser-script Semantic Scholar helpers
+   - Terminal browser scripts now expose `semantic_scholar_citations(query_or_paper_id, year=None, limit=200, search_limit=5, timeout=20.0)` and `semantic_scholar_references(query_or_paper_id, year=None, limit=200, search_limit=5, timeout=20.0)`.
+   - The helpers search or fetch a target paper through the Semantic Scholar Graph API, normalize selected-paper metadata, authors, venues, external IDs, open-access PDF URLs, abstracts, and paginated citation/reference records with optional year filtering.
+   - Proof: `browser_script_semantic_scholar_helpers_normalize_paper_graphs`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -409,6 +414,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_action_helpers_click_named_controls -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_overlay_helpers_dismiss_cookie_actions -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_extract_paginated_grid_rows_collects_pages -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_semantic_scholar_helpers_normalize_paper_graphs -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
