@@ -925,6 +925,89 @@ def test_rust_agent_initializes_runtime_metadata_and_observability():
 	assert agent.DoneAgentOutput is not None
 
 
+async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
+	import time
+
+	import browser_use.rust.service as rust_service
+	from browser_use.agent.views import ActionResult
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test-provider'
+
+	class BrowserProfile:
+		downloads_path = None
+
+	class BrowserSession:
+		cdp_url = 'wss://browser.example/devtools/browser/1'
+		browser_profile = BrowserProfile()
+
+	class FakeAction:
+		def model_dump(self, **kwargs):
+			return {'navigate': {'url': 'https://example.com', 'new_tab': False}}
+
+	class Parsed:
+		action = [FakeAction()]
+
+	class DomState:
+		selector_map = {1: object(), 2: object()}
+
+	class BrowserStateSummary:
+		url = 'https://example.com/a/very/long/path/that/will/be/shortened/in/logging'
+		dom_state = DomState()
+
+	async def no_latest_version():
+		return None
+
+	captured_events = []
+
+	class Telemetry:
+		def capture(self, event):
+			captured_events.append(event)
+
+	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', no_latest_version)
+	agent = Agent(task='Log helper parity.', llm=LLM(), browser_session=BrowserSession())
+	agent.telemetry = Telemetry()
+
+	await agent._log_agent_run()
+	agent._log_first_step_startup()
+	agent._log_step_context(BrowserStateSummary())
+	agent._log_next_action_summary(Parsed())
+	agent._log_step_completion_summary(time.time() - 1, [ActionResult(extracted_content='ok')])
+	agent._log_action(FakeAction(), 'navigate', 1, 2)
+	agent.history = rust_service._history_from_events(
+		[
+			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+			{
+				'event_type': 'model.usage',
+				'payload': {'input_tokens': 11, 'cached_input_tokens': 3, 'output_tokens': 7, 'cost_usd': 0.12},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'done'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.5,
+		output_model_schema=None,
+		process_error=None,
+	)
+	agent._sync_state_from_history()
+	agent._log_final_outcome_messages()
+	agent._log_agent_event(max_steps=9, agent_run_error='manual-error')
+
+	assert captured_events
+	assert captured_events[0].model == 'gpt-test'
+	assert captured_events[0].model_provider == 'test-provider'
+	assert captured_events[0].cdp_url == 'browser.example'
+	assert captured_events[0].action_history == [None]
+	assert captured_events[0].urls_visited == ['https://example.com']
+	assert captured_events[0].total_input_tokens == 11
+	assert captured_events[0].total_output_tokens == 7
+	assert captured_events[0].prompt_cached_tokens == 3
+	assert captured_events[0].final_result_response == '"done"'
+	assert captured_events[0].error_message == 'manual-error'
+
+
 def test_rust_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
 	from browser_use.rust import Agent

@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
+from urllib.parse import urlparse
 
 from bubus import EventBus
 from pydantic import BaseModel, ValidationError
@@ -38,10 +39,11 @@ from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.telemetry.service import ProductTelemetry
+from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.service import Tools
-from browser_use.utils import URL_PATTERN, get_browser_use_version
+from browser_use.utils import URL_PATTERN, check_latest_browser_use_version, get_browser_use_version
 
 
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
@@ -1258,6 +1260,178 @@ class Agent(Generic[AgentStructuredOutput]):
 		if getattr(self.llm, '_verified_api_keys', None) is True or skip_verification:
 			setattr(self.llm, '_verified_api_keys', True)
 		return True
+
+	async def _log_agent_run(self) -> None:
+		"""Log Browser Use run metadata for the Rust-backed wrapper."""
+		self.logger.info(f'\033[34mTask: {self.task}\033[0m')
+		self.logger.debug(f'Browser-Use Library Version {self.version} ({self.source})')
+		latest_version = await check_latest_browser_use_version()
+		if latest_version and latest_version != self.version:
+			self.logger.info(
+				f'Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use@{latest_version}'
+			)
+
+	def _log_first_step_startup(self) -> None:
+		"""Log the first-step startup line used by Browser Use callers."""
+		if len(self.history.history) != 0:
+			return
+		provider = getattr(self.llm, 'provider', None) or 'rust-terminal'
+		model = getattr(self.llm, 'model', None) or self.model
+		self.logger.info(
+			f'Starting a browser-use agent with version {self.version}, with provider={provider} and model={model}'
+		)
+
+	def _log_step_context(self, browser_state_summary: Any) -> None:
+		"""Log current step and page context."""
+		url = getattr(browser_state_summary, 'url', '') if browser_state_summary else ''
+		url_short = url[:50] + '...' if len(url) > 50 else url
+		dom_state = getattr(browser_state_summary, 'dom_state', None)
+		selector_map = getattr(dom_state, 'selector_map', {}) if dom_state else {}
+		interactive_count = len(selector_map) if selector_map else 0
+		self.logger.info('')
+		self.logger.info(f'Step {self.state.n_steps}:')
+		self.logger.debug(f'Evaluating page with {interactive_count} interactive elements on: {url_short}')
+
+	def _log_next_action_summary(self, parsed: AgentOutput) -> None:
+		"""Log a concise summary of the next action list."""
+		actions = getattr(parsed, 'action', None)
+		if not (self.logger.isEnabledFor(logging.DEBUG) and actions):
+			return
+		action_details = []
+		for action in actions:
+			action_data = action.model_dump(exclude_unset=True)
+			action_name = next(iter(action_data.keys())) if action_data else 'unknown'
+			action_params = action_data.get(action_name, {}) if action_data else {}
+			param_summary = []
+			if isinstance(action_params, dict):
+				for key, value in action_params.items():
+					if key == 'index':
+						param_summary.append(f'#{value}')
+					elif key == 'text' and isinstance(value, str):
+						text_preview = value[:30] + '...' if len(value) > 30 else value
+						param_summary.append(f'text="{text_preview}"')
+					elif key == 'url':
+						param_summary.append(f'url="{value}"')
+					elif key == 'success':
+						param_summary.append(f'success={value}')
+					elif isinstance(value, (str, int, bool)):
+						value_str = str(value)
+						value_preview = value_str[:30] + '...' if len(value_str) > 30 else value_str
+						param_summary.append(f'{key}={value_preview}')
+			param_text = f'({", ".join(param_summary)})' if param_summary else ''
+			action_details.append(f'{action_name}{param_text}')
+		self.logger.debug(f'Next actions: {", ".join(action_details)}')
+
+	def _log_step_completion_summary(self, step_start_time: float, result: list[ActionResult]) -> None:
+		"""Log action count, timing, and success/failure counts for a completed step."""
+		if not result:
+			return
+		step_duration = time.time() - step_start_time
+		action_count = len(result)
+		success_count = sum(1 for item in result if not item.error)
+		failure_count = action_count - success_count
+		status_parts = []
+		if success_count > 0:
+			status_parts.append(f'success={success_count}')
+		if failure_count > 0:
+			status_parts.append(f'failed={failure_count}')
+		status_text = ' | '.join(status_parts) if status_parts else 'success=0'
+		self.logger.debug(
+			f'Step {self.state.n_steps}: Ran {action_count} action{"" if action_count == 1 else "s"} in {step_duration:.2f}s: {status_text}'
+		)
+
+	def _log_final_outcome_messages(self) -> None:
+		"""Log Browser Use-style guidance for failed runs."""
+		is_successful = self.history.is_successful()
+		if is_successful is not False and is_successful is not None:
+			return
+		final_result = self.history.final_result()
+		final_result_str = str(final_result).lower() if final_result else ''
+		captcha_keywords = ['captcha', 'cloudflare', 'recaptcha', 'challenge', 'bot detection', 'access denied']
+		if any(keyword in final_result_str for keyword in captcha_keywords):
+			task_preview = self.task[:10] if len(self.task) > 10 else self.task
+			self.logger.info('')
+			self.logger.info('Failed because of CAPTCHA? For better browser stealth, try:')
+			self.logger.info(f'   agent = Agent(task="{task_preview}...", browser=Browser(use_cloud=True))')
+		self.logger.info('')
+		self.logger.info('Did the Agent not work as expected? Let us fix this!')
+		self.logger.info('   Please open a short issue here: https://github.com/browser-use/browser-use/issues')
+
+	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
+		"""Emit Browser Use telemetry for a Rust-backed run."""
+		usage = self.history.usage
+		if usage is None:
+			total_input_tokens = 0
+			total_output_tokens = 0
+			prompt_cached_tokens = 0
+			total_tokens = 0
+		else:
+			total_input_tokens = usage.total_prompt_tokens
+			total_output_tokens = usage.total_completion_tokens
+			prompt_cached_tokens = usage.total_prompt_cached_tokens
+			total_tokens = usage.total_tokens
+
+		action_history_data = []
+		for item in self.history.history:
+			if item.model_output and item.model_output.action:
+				action_history_data.append(
+					[action.model_dump(exclude_unset=True) for action in item.model_output.action if action]
+				)
+			else:
+				action_history_data.append(None)
+
+		final_result = self.history.final_result()
+		final_result_str = json.dumps(final_result) if final_result is not None else None
+		cdp_url = getattr(self.browser_session, 'cdp_url', None) if self.browser_session else None
+		model = getattr(self.llm, 'model', None) or self.model
+		provider = getattr(self.llm, 'provider', None) or 'rust-terminal'
+
+		self.telemetry.capture(
+			AgentTelemetryEvent(
+				task=self.task,
+				model=model,
+				model_provider=provider,
+				max_steps=max_steps,
+				max_actions_per_step=self.settings.max_actions_per_step,
+				use_vision=self.settings.use_vision,
+				version=self.version or '',
+				source=self.source,
+				cdp_url=urlparse(cdp_url).hostname if cdp_url else None,
+				agent_type=None,
+				action_errors=self.history.errors(),
+				action_history=action_history_data,
+				urls_visited=self.history.urls(),
+				steps=self.state.n_steps,
+				total_input_tokens=total_input_tokens,
+				total_output_tokens=total_output_tokens,
+				prompt_cached_tokens=prompt_cached_tokens,
+				total_tokens=total_tokens,
+				total_duration_seconds=self.history.total_duration_seconds(),
+				success=self.history.is_successful(),
+				final_result_response=final_result_str,
+				error_message=agent_run_error,
+			)
+		)
+
+	def _log_action(self, action: Any, action_name: str, action_num: int, total_actions: int) -> None:
+		"""Log an action before execution with Browser Use-style structure."""
+		action_header = f'[{action_num}/{total_actions}] {action_name}:' if total_actions > 1 else f'{action_name}:'
+		action_data = action.model_dump(exclude_unset=True)
+		params = action_data.get(action_name, {}) if isinstance(action_data, dict) else {}
+		param_parts = []
+		if isinstance(params, dict):
+			for param_name, value in params.items():
+				if isinstance(value, str) and len(value) > 150:
+					display_value = value[:150] + '...'
+				elif isinstance(value, list) and len(str(value)) > 200:
+					display_value = str(value)[:200] + '...'
+				else:
+					display_value = value
+				param_parts.append(f'{param_name}: {display_value}')
+		if param_parts:
+			self.logger.info(f'  {action_header} {", ".join(param_parts)}')
+		else:
+			self.logger.info(f'  {action_header}')
 
 	async def run(
 		self,

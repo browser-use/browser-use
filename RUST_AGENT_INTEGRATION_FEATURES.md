@@ -486,10 +486,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Construction routes through the helper methods, and direct calls support state restoration, explicit file-system initialization, screenshot storage setup, source overrides, and Rust-terminal LLM verification compatibility.
    - Proof: `test_rust_agent_exposes_setup_helper_methods`.
 
+96. Rust Agent logging helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's run, startup, step context, action summary, step completion, final outcome, telemetry event, and action logging helpers.
+   - Telemetry is emitted from reconstructed Rust history, preserving URLs, errors, usage tokens, final result, timing, and Browser Use model/session metadata where available.
+   - Proof: `test_rust_agent_exposes_logging_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (69 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (70 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
