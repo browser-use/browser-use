@@ -961,10 +961,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The step event is still created only when browser state and model output are available, while common finalize bookkeeping runs for every completed action result.
    - Proof: `test_rust_agent_finalize_orders_summary_save_before_step_event`.
 
+190. Rust Agent done-only guidance parity
+   - Rust-backed `_force_done_after_last_step(...)` and `_force_done_after_failure(...)` now add the same Browser Use done-only context guidance, including the warning that tools shown in history/examples are unavailable.
+   - The helpers also emit the same debug markers before switching `AgentOutput` to `DoneAgentOutput`.
+   - Proof: `test_rust_agent_done_only_guidance_matches_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (160 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (161 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

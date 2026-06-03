@@ -4412,6 +4412,41 @@ async def test_rust_agent_finalize_orders_summary_save_before_step_event(monkeyp
 	assert [type(event).__name__ for event in agent.eventbus.dispatched] == ['CreateAgentStepEvent']
 
 
+async def test_rust_agent_done_only_guidance_matches_browser_use(monkeypatch):
+	from browser_use.agent.views import AgentStepInfo
+	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.debugs = []
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+	messages = []
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Done-only guidance parity.')
+	monkeypatch.setattr(agent._message_manager, '_add_context_message', lambda message: messages.append(message.content))
+
+	await agent._force_done_after_last_step(AgentStepInfo(step_number=2, max_steps=3))
+	assert agent.AgentOutput is agent.DoneAgentOutput
+	assert logger.debugs == ['Last step finishing up']
+	assert len(messages) == 1
+	assert 'All other tools which you see in history or examples are not available.' in messages[-1]
+	assert 'set success in "done" to false! E.g. if not all steps are fully completed.' in messages[-1]
+
+	agent.AgentOutput = None
+	agent.state.consecutive_failures = agent.settings.max_failures
+	await agent._force_done_after_failure()
+	assert agent.AgentOutput is agent.DoneAgentOutput
+	assert logger.debugs[-1] == 'Force done action, because we reached max_failures.'
+	assert len(messages) == 2
+	assert messages[-1].startswith(f'You failed {agent.settings.max_failures} times. Therefore we terminate the agent.')
+	assert 'All other tools which you see in history or examples are not available.' in messages[-1]
+	assert 'set success in "done" to false! E.g. if not all steps are fully completed.' in messages[-1]
+
+
 def test_rust_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
 	from browser_use.rust import Agent
