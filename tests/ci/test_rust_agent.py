@@ -256,6 +256,49 @@ def test_rust_events_reconstruct_browser_use_history():
 	assert history.usage.total_completion_tokens == 7
 
 
+def test_rust_history_reconstructs_terminal_token_count_usage():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'token_count',
+				'payload': {
+					'info': {
+						'last_token_usage': {
+							'cached_input_tokens': 2,
+							'input_tokens': 5,
+							'output_tokens': 7,
+							'total_tokens': 12,
+						},
+						'total_token_usage': {
+							'cached_input_tokens': 13,
+							'input_tokens': 29,
+							'output_tokens': 31,
+							'total_tokens': 60,
+						},
+					}
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 29
+	assert history.usage.total_prompt_cached_tokens == 13
+	assert history.usage.total_completion_tokens == 31
+	assert history.usage.total_tokens == 60
+	assert history.usage.entry_count == 1
+	assert history.usage.by_model['gpt-test'].prompt_tokens == 29
+	assert history.usage.by_model['gpt-test'].completion_tokens == 31
+
+
 def test_rust_history_supports_structured_output():
 	from browser_use.rust.service import _history_from_events
 

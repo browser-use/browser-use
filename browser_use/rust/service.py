@@ -819,22 +819,57 @@ def _browser_state_from_events(events: list[dict[str, Any]]) -> BrowserStateHist
 	return BrowserStateHistory(url=url, title=title, tabs=tabs, interacted_element=[])
 
 
+def _int_value(value: Any) -> int:
+	try:
+		return int(value or 0)
+	except (TypeError, ValueError):
+		return 0
+
+
+def _float_value(value: Any) -> float:
+	try:
+		return float(value or 0.0)
+	except (TypeError, ValueError):
+		return 0.0
+
+
+def _token_count_usage(payload: dict[str, Any]) -> dict[str, Any] | None:
+	info = payload.get('info')
+	if isinstance(info, dict):
+		raw_usage = info.get('total_token_usage') or info.get('last_token_usage')
+	else:
+		raw_usage = payload.get('total_token_usage') or payload.get('last_token_usage')
+	return raw_usage if isinstance(raw_usage, dict) else None
+
+
 def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary:
 	input_tokens = 0
 	cached_input_tokens = 0
 	output_tokens = 0
 	cost = 0.0
 	invocations = 0
+	token_count_invocations = 0
 
 	for event in events:
-		if _event_type(event) != 'model.usage':
-			continue
+		event_type = _event_type(event)
 		payload = _event_payload(event)
-		input_tokens += int(payload.get('input_tokens') or 0)
-		cached_input_tokens += int(payload.get('input_cached_tokens') or payload.get('cached_input_tokens') or 0)
-		output_tokens += int(payload.get('output_tokens') or 0)
-		cost += float(payload.get('cost_usd') or payload.get('cost') or 0.0)
-		invocations += 1
+		if event_type == 'model.usage':
+			input_tokens += _int_value(payload.get('input_tokens'))
+			cached_input_tokens += _int_value(payload.get('input_cached_tokens') or payload.get('cached_input_tokens'))
+			output_tokens += _int_value(payload.get('output_tokens'))
+			cost += _float_value(payload.get('cost_usd') or payload.get('cost'))
+			invocations += 1
+			continue
+		if event_type == 'token_count':
+			token_usage = _token_count_usage(payload)
+			if token_usage is None:
+				continue
+			input_tokens = _int_value(token_usage.get('input_tokens'))
+			cached_input_tokens = _int_value(token_usage.get('cached_input_tokens') or token_usage.get('input_cached_tokens'))
+			output_tokens = _int_value(token_usage.get('output_tokens'))
+			token_count_invocations += 1
+
+	invocations = max(invocations, token_count_invocations)
 
 	total_tokens = input_tokens + output_tokens
 	by_model = {
