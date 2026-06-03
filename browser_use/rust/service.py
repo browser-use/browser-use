@@ -3606,11 +3606,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._external_pause_event.set()
 
 	async def close(self):
-		"""Browser Use-compatible close hook.
+		"""Close Browser Use session resources when the caller did not request keep-alive."""
+		if self.browser_session is not None:
+			profile = getattr(self.browser_session, 'browser_profile', None) or self.browser_profile
+			if not getattr(profile, 'keep_alive', False):
+				kill = getattr(self.browser_session, 'kill', None)
+				if callable(kill):
+					result = kill()
+					if inspect.isawaitable(result):
+						await result
+		import gc
 
-		The Rust terminal owns browser lifecycle for managed modes, and remote CDP
-		browsers are owned by the caller, so the Python wrapper has nothing to close.
-		"""
+		gc.collect()
 		return None
 
 	async def log_completion(self) -> None:

@@ -805,10 +805,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Warnings include placeholder/domain metadata but do not log raw secret values.
    - Proof: `test_rust_agent_warns_about_sensitive_data_domain_constraints`.
 
+159. Rust Agent close lifecycle parity
+   - `Agent.close()` now mirrors Browser Use cleanup by calling `browser_session.kill()` when a browser session is present and `browser_profile.keep_alive` is not enabled.
+   - Keep-alive sessions are preserved, and lightweight custom sessions without a Browser Use browser process remain safe.
+   - Proof: `test_rust_agent_close_kills_non_keep_alive_browser_session`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (130 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (131 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

@@ -3420,6 +3420,40 @@ def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
 	assert 'saved answer' in history_file.read_text(encoding='utf-8')
 
 
+async def test_rust_agent_close_kills_non_keep_alive_browser_session():
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		keep_alive = False
+
+	class BrowserSession:
+		browser_profile = BrowserProfile()
+
+		def __init__(self):
+			self.kill_calls = 0
+
+		async def kill(self):
+			self.kill_calls += 1
+
+	session = BrowserSession()
+	agent = Agent(task='close session', browser_session=session, directly_open_url=False)
+
+	await agent.close()
+
+	assert session.kill_calls == 1
+
+	class KeepAliveProfile:
+		keep_alive = True
+
+	keep_alive_session = BrowserSession()
+	keep_alive_session.browser_profile = KeepAliveProfile()
+	keep_alive_agent = Agent(task='keep session', browser_session=keep_alive_session, directly_open_url=False)
+
+	await keep_alive_agent.close()
+
+	assert keep_alive_session.kill_calls == 0
+
+
 async def test_rust_agent_check_stop_or_pause_matches_browser_use_lifecycle():
 	from browser_use.rust import Agent
 
