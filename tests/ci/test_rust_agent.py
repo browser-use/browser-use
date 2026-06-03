@@ -2531,6 +2531,57 @@ def test_rust_agent_warns_about_sensitive_data_domain_constraints(monkeypatch):
 	assert 'uncovered-secret' not in messages
 
 
+def test_rust_agent_sensitive_data_warnings_match_browser_use(monkeypatch):
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.browser import BrowserProfile
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class RecordingLogger:
+		def __init__(self):
+			self.messages = []
+
+		def info(self, message, *args, **kwargs):
+			pass
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def error(self, message, *args, **kwargs):
+			self.messages.append(('error', message))
+
+		def warning(self, message, *args, **kwargs):
+			self.messages.append(('warning', message))
+
+	for kwargs in (
+		{
+			'sensitive_data': {'password': 'unlocked-secret'},
+		},
+		{
+			'browser_profile': BrowserProfile(allowed_domains=['*.example.com']),
+			'sensitive_data': {'https://evil.test': {'password': 'uncovered-secret'}},
+		},
+	):
+		browser_use_logger = RecordingLogger()
+		rust_logger = RecordingLogger()
+		monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self, logger=browser_use_logger: logger))
+		monkeypatch.setattr(RustAgent, 'logger', property(lambda self, logger=rust_logger: logger))
+
+		BrowserUseAgent(task='Use credentials safely.', llm=LLM(), directly_open_url=False, **kwargs)
+		RustAgent(task='Use credentials safely.', llm=LLM(), directly_open_url=False, **kwargs)
+
+		assert rust_logger.messages == browser_use_logger.messages
+		message_text = '\n'.join(message for _level, message in rust_logger.messages)
+		assert 'unlocked-secret' not in message_text
+		assert 'uncovered-secret' not in message_text
+
+
 def test_rust_agent_mirrors_direct_url_startup():
 	from browser_use.rust import Agent
 

@@ -1066,10 +1066,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves the constructor diagnostics Browser Use callers see before the Rust terminal core is invoked.
    - Proof: `test_rust_agent_constructor_debug_summary_matches_browser_use`.
 
+211. Rust Agent sensitive-data warning parity
+   - Rust-backed construction now emits Browser Use's exact sensitive-data safety warnings when credentials are provided without locked-down domains or when a domain-scoped credential is not covered by `allowed_domains`.
+   - Secret values remain excluded from the warning text while matching Browser Use's public error/warning messages.
+   - Proof: `test_rust_agent_sensitive_data_warnings_match_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (179 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (180 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

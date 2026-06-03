@@ -582,8 +582,9 @@ def _warn_sensitive_data_domain_constraints(
 		return
 	if not allowed_domains:
 		logger.error(
-			'Agent(sensitive_data=••••••••) was provided but Browser(allowed_domains=[...]) is not locked down! '
-			'Sensitive data may be exposed if the agent visits a malicious website.'
+			'⚠️ Agent(sensitive_data=••••••••) was provided but Browser(allowed_domains=[...]) is not locked down! ⚠️\n'
+			'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
+			'   \n'
 		)
 		return
 	for domain_pattern, value in sensitive_data.items():
@@ -591,9 +592,8 @@ def _warn_sensitive_data_domain_constraints(
 			continue
 		if not any(_sensitive_domain_is_allowed(domain_pattern, allowed_domain) for allowed_domain in allowed_domains):
 			logger.warning(
-				f'Domain pattern "{domain_pattern}" in sensitive_data is not covered by any pattern in '
-				f'allowed_domains={allowed_domains}. This may be a security risk as credentials could be used on '
-				'unintended domains.'
+				f'⚠️ Domain pattern "{domain_pattern}" in sensitive_data is not covered by any pattern in allowed_domains={allowed_domains}\n'
+				f'   This may be a security risk as credentials could be used on unintended domains.'
 			)
 
 
