@@ -476,10 +476,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The helpers preserve Browser Use-style schema text formatting and direct-start URL filtering for domains, email addresses, ambiguous tasks, and document URLs.
    - Proof: `test_rust_agent_exposes_task_helper_methods`.
 
+94. Rust Agent URL/text helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's think-tag cleanup and URL shortening/restoration helpers.
+   - The helpers support Browser Use message content mutation plus recursive Pydantic/dict/list/tuple restoration of shortened URLs.
+   - Proof: `test_rust_agent_exposes_url_text_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (67 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (68 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

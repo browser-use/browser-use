@@ -737,6 +737,49 @@ def test_rust_agent_exposes_task_helper_methods():
 	assert agent._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
 
 
+def test_rust_agent_exposes_url_text_helper_methods():
+	from browser_use.llm.messages import ContentPartTextParam, UserMessage
+	from browser_use.rust import Agent
+
+	class Nested(BaseModel):
+		url: str
+
+	class Restored(BaseModel):
+		text: str
+		nested: Nested
+		items: list
+		pair: tuple[str, str]
+
+	agent = Agent(task='Shorten URLs.', _url_shortening_limit=8)
+	original_url = 'https://example.com/path?abcdefghijklmnopqrstuvwxyz#section'
+	text = f'Open {original_url} now.'
+
+	cleaned = agent._remove_think_tags('visible <think>hidden</think> answer')
+	shortened_text, replacements = agent._replace_urls_in_text(text)
+	shortened_url = next(iter(replacements))
+	message = UserMessage(content=[ContentPartTextParam(text=text)])
+	message_replacements = agent._process_messsages_and_replace_long_urls_shorter_ones([message])
+	model = Restored(
+		text=shortened_url,
+		nested=Nested(url=shortened_url),
+		items=[shortened_url, {'url': shortened_url}],
+		pair=(shortened_url, 'untouched'),
+	)
+
+	Agent._recursive_process_all_strings_inside_pydantic_model(model, replacements)
+
+	assert cleaned == 'visible  answer'
+	assert original_url not in shortened_text
+	assert replacements[shortened_url] == original_url
+	assert Agent._replace_shortened_urls_in_string(shortened_text, replacements) == text
+	assert message_replacements
+	assert original_url not in message.content[0].text
+	assert model.text == original_url
+	assert model.nested.url == original_url
+	assert model.items == [original_url, {'url': original_url}]
+	assert model.pair == (original_url, 'untouched')
+
+
 def test_rust_agent_preserves_ordered_initial_actions_context():
 	from browser_use.rust import Agent
 

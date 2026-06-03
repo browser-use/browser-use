@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -40,7 +41,7 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.service import Tools
-from browser_use.utils import get_browser_use_version
+from browser_use.utils import URL_PATTERN, get_browser_use_version
 
 
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
@@ -1378,6 +1379,123 @@ class Agent(Generic[AgentStructuredOutput]):
 	def _extract_start_url(self, task: str) -> str | None:
 		"""Extract Browser Use-style direct startup URL from a task string."""
 		return _extract_start_url(task)
+
+	def _remove_think_tags(self, text: str) -> str:
+		think_tags = re.compile(r'<think>.*?</think>', re.DOTALL)
+		stray_close_tag = re.compile(r'.*?</think>', re.DOTALL)
+		text = re.sub(think_tags, '', text)
+		text = re.sub(stray_close_tag, '', text)
+		return text.strip()
+
+	def _replace_urls_in_text(self, text: str) -> tuple[str, dict[str, str]]:
+		"""Replace long URL query/fragment tails with shorter reversible forms."""
+		replaced_urls: dict[str, str] = {}
+
+		def replace_url(match: re.Match) -> str:
+			original_url = match.group(0)
+			query_start = original_url.find('?')
+			fragment_start = original_url.find('#')
+			after_path_start = len(original_url)
+			if query_start != -1:
+				after_path_start = min(after_path_start, query_start)
+			if fragment_start != -1:
+				after_path_start = min(after_path_start, fragment_start)
+
+			base_url = original_url[:after_path_start]
+			after_path = original_url[after_path_start:]
+			if len(after_path) <= self._url_shortening_limit:
+				return original_url
+			if not after_path:
+				return original_url
+
+			truncated = after_path[: self._url_shortening_limit]
+			short_hash = hashlib.md5(after_path.encode('utf-8')).hexdigest()[:7]
+			shortened = f'{base_url}{truncated}...{short_hash}'
+			if len(shortened) < len(original_url):
+				replaced_urls[shortened] = original_url
+				return shortened
+			return original_url
+
+		return URL_PATTERN.sub(replace_url, text), replaced_urls
+
+	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[Any]) -> dict[str, str]:
+		"""Replace long URLs in Browser Use LLM messages in place."""
+		from browser_use.llm.messages import AssistantMessage, ContentPartTextParam, UserMessage
+
+		urls_replaced: dict[str, str] = {}
+		for message in input_messages:
+			if not isinstance(message, (UserMessage, AssistantMessage)):
+				continue
+			if isinstance(message.content, str):
+				message.content, replaced_urls = self._replace_urls_in_text(message.content)
+				urls_replaced.update(replaced_urls)
+			elif isinstance(message.content, list):
+				for part in message.content:
+					if isinstance(part, ContentPartTextParam):
+						part.text, replaced_urls = self._replace_urls_in_text(part.text)
+						urls_replaced.update(replaced_urls)
+		return urls_replaced
+
+	@staticmethod
+	def _recursive_process_all_strings_inside_pydantic_model(model: BaseModel, url_replacements: dict[str, str]) -> None:
+		"""Replace shortened URLs with originals inside a Pydantic model in place."""
+		for field_name, field_value in model.__dict__.items():
+			if isinstance(field_value, str):
+				setattr(model, field_name, Agent._replace_shortened_urls_in_string(field_value, url_replacements))
+			elif isinstance(field_value, BaseModel):
+				Agent._recursive_process_all_strings_inside_pydantic_model(field_value, url_replacements)
+			elif isinstance(field_value, dict):
+				Agent._recursive_process_dict(field_value, url_replacements)
+			elif isinstance(field_value, (list, tuple)):
+				setattr(model, field_name, Agent._recursive_process_list_or_tuple(field_value, url_replacements))
+
+	@staticmethod
+	def _recursive_process_dict(dictionary: dict, url_replacements: dict[str, str]) -> None:
+		for key, value in dictionary.items():
+			if isinstance(value, str):
+				dictionary[key] = Agent._replace_shortened_urls_in_string(value, url_replacements)
+			elif isinstance(value, BaseModel):
+				Agent._recursive_process_all_strings_inside_pydantic_model(value, url_replacements)
+			elif isinstance(value, dict):
+				Agent._recursive_process_dict(value, url_replacements)
+			elif isinstance(value, (list, tuple)):
+				dictionary[key] = Agent._recursive_process_list_or_tuple(value, url_replacements)
+
+	@staticmethod
+	def _recursive_process_list_or_tuple(container: list | tuple, url_replacements: dict[str, str]) -> list | tuple:
+		if isinstance(container, tuple):
+			processed_items = []
+			for item in container:
+				if isinstance(item, str):
+					processed_items.append(Agent._replace_shortened_urls_in_string(item, url_replacements))
+				elif isinstance(item, BaseModel):
+					Agent._recursive_process_all_strings_inside_pydantic_model(item, url_replacements)
+					processed_items.append(item)
+				elif isinstance(item, dict):
+					Agent._recursive_process_dict(item, url_replacements)
+					processed_items.append(item)
+				elif isinstance(item, (list, tuple)):
+					processed_items.append(Agent._recursive_process_list_or_tuple(item, url_replacements))
+				else:
+					processed_items.append(item)
+			return tuple(processed_items)
+		for index, item in enumerate(container):
+			if isinstance(item, str):
+				container[index] = Agent._replace_shortened_urls_in_string(item, url_replacements)
+			elif isinstance(item, BaseModel):
+				Agent._recursive_process_all_strings_inside_pydantic_model(item, url_replacements)
+			elif isinstance(item, dict):
+				Agent._recursive_process_dict(item, url_replacements)
+			elif isinstance(item, (list, tuple)):
+				container[index] = Agent._recursive_process_list_or_tuple(item, url_replacements)
+		return container
+
+	@staticmethod
+	def _replace_shortened_urls_in_string(text: str, url_replacements: dict[str, str]) -> str:
+		result = text
+		for shortened_url, original_url in url_replacements.items():
+			result = result.replace(shortened_url, original_url)
+		return result
 
 	def _setup_action_models(self, page_url: str | None = None) -> None:
 		"""Expose Browser Use-style action model classes from the configured tools."""
