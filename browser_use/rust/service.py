@@ -2666,6 +2666,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.last_stderr = ''
 		self._last_synced_history_id: int | None = None
 		self._last_step_callback_history_id: int | None = None
+		self._last_step_end_callback_history_id: int | None = None
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
 
@@ -3102,7 +3103,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._check_and_update_downloads('run')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
-		await self._call_callback(on_step_end, self)
+		await self._call_step_end_callbacks(on_step_end)
 		await self._call_done_callback()
 		await self._generate_gif_if_requested()
 		self._log_final_outcome_messages()
@@ -3177,7 +3178,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._check_and_update_downloads('follow_up')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
-		await self._call_callback(on_step_end, self)
+		await self._call_step_end_callbacks(on_step_end)
 		await self._call_done_callback()
 		await self._generate_gif_if_requested()
 		self._log_final_outcome_messages()
@@ -4141,6 +4142,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if inspect.isawaitable(result):
 				await result
 		self._last_step_callback_history_id = history_id
+
+	async def _call_step_end_callbacks(self, callback: AgentHookFunc | None) -> None:
+		if callback is None or not self.history.history:
+			return
+		history_id = id(self.history)
+		if history_id == self._last_step_end_callback_history_id:
+			return
+		for _history_item in self.history.history:
+			await self._call_callback(callback, self)
+		self._last_step_end_callback_history_id = history_id
 
 	def _sync_state_from_history(self) -> None:
 		if not self.history.history:

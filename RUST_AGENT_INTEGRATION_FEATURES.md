@@ -1021,10 +1021,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Callback step numbers use the Browser Use-facing cumulative step counter, and repeated callback dispatch for the same history object is idempotent.
    - Proof: `test_rust_agent_invokes_new_step_callback_for_each_terminal_turn`.
 
+202. Rust Agent per-terminal-turn step-end hook parity
+   - Rust-backed runs now invoke `on_step_end` once for each reconstructed terminal model turn instead of only once after the whole terminal subprocess finishes.
+   - Repeated step-end hook dispatch for the same history object is idempotent, preserving the run/follow-up finalization path while matching Browser Use's per-step hook cardinality.
+   - Proof: `test_rust_agent_invokes_on_step_end_for_each_terminal_turn`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (170 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (171 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -1107,6 +1112,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Per-terminal-turn callback Python API end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, and construct `Agent(..., register_new_step_callback=..., step_timeout=300)`.
   - Output: final result `Example Domain`, `history.number_of_steps()` is `5`, callback count is `5`, and callback step numbers are `[2, 3, 4, 5, 6]`.
+- Per-terminal-turn step-end hook Python API end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, and run `Agent(..., on_step_end=..., step_timeout=300)`.
+  - Output: final result `Example Domain`, `history.number_of_steps()` is `3`, and `on_step_end` callback count is `3`.
 - Parallel managed-headless Python API smoke batch:
   - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, and run two `uv run python - <<'PY' ...` Agent scripts in parallel.
   - Follow-up/callback script output: `{"smoke": "python_api_followup_callbacks", "first": "Example Domain", "second": "example.com", "callback_kinds": ["step", "done", "step", "done"], "conversation_files": 2}`.
