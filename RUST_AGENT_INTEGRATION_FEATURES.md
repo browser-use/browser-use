@@ -1151,12 +1151,20 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Terminal Python worker requests now consume wrapper-exported `BU_BROWSER_WAIT_BETWEEN_ACTIONS_MS` once per successful browser-code action request, keeping the delay at the action boundary instead of raw CDP calls.
    - Proof: terminal `browser_script_goto_url_honors_browser_profile_wait_timing_env` and `test_worker_run_applies_browser_wait_between_actions_env`.
 
+228. Rust Agent BrowserProfile Rust-core runtime parity
+   - Terminal Rust managed-browser launch now consumes wrapper-exported `BU_MANAGED_BROWSER_ARGS`, `BU_MANAGED_BROWSER_PROFILE`, `BU_BROWSER_VIEWPORT`, and `BU_BROWSER_NO_VIEWPORT`.
+   - Terminal Rust browser bridge now consumes wrapper-exported `BU_BROWSER_USER_AGENT`, `BU_BROWSER_PERMISSIONS`, `BU_BROWSER_ACCEPT_DOWNLOADS`, `BU_BROWSER_DOWNLOADS_PATH`, `BU_BROWSER_STORAGE_STATE`, `BU_BROWSER_ALLOWED_DOMAINS`, `BU_BROWSER_PROHIBITED_DOMAINS`, and `BU_BROWSER_BLOCK_IP_ADDRESSES` on the actual browser-script CDP path used by Python `Agent` runs.
+   - Proof: terminal `managed_browser_launch_reads_browser_profile_env`, `browser_profile_runtime_setup_calls_read_env`, `browser_profile_runtime_domain_constraints_read_env`, and the OpenAI-backed Python Agent BrowserProfile/structured-output smoke below.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
 - `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (28 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
+- `cargo test -q -p browser-use-browser managed_browser_launch_reads_browser_profile_env -- --nocapture`
+- `cargo test -q -p browser-use-browser browser_profile_runtime_setup_calls_read_env -- --nocapture`
+- `cargo test -q -p browser-use-browser browser_profile_runtime_domain_constraints_read_env -- --nocapture`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
@@ -1248,6 +1256,10 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Initial-actions/files/structured-output script output: `{"smoke": "python_api_initial_files_structured", "answer": {"title": "Example Domain", "host": "example.com", "marker": "file-marker-ok"}, "history_urls": ["", "", "", "https://example.com", "https://example.com"], "available_files": ["/tmp/.../input-note.txt"]}`.
   - 2026-06-03 rerun after step-error parity: both scripts passed concurrently through the Python `Agent` import with `provider=rust-terminal`; follow-up/callback output was `Example Domain` then `example.com`, and initial-actions/files/structured-output produced `{"title":"Example Domain","host":"example.com","marker":"file-marker-ok"}`.
   - 2026-06-03 rerun after monotonic step-state parity: both scripts passed concurrently through the Python `Agent` import with `provider=rust-terminal`; follow-up/callback/conversation output was `{"first":"Example Domain","second":"example.com","step_numbers":[4,14],"conversation_files":2}`, and initial-actions/files/structured-output produced `{"title":"Example Domain","host":"example.com","marker":"file-marker-monotonic-smoke"}`.
+- BrowserProfile runtime + structured-output Python API end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, and construct `Agent(..., llm=ChatOpenAI(model="gpt-4.1-mini"), browser_profile=BrowserProfile(user_agent="BrowserUseProfileSmoke/5.0", viewport={"width": 960, "height": 720}, permissions=[...], accept_downloads=True, downloads_path=..., allowed_domains=["example.com"], prohibited_domains=["iana.org"], block_ip_addresses=True, wait timings...), output_model_schema=ProfileSmoke)`.
+  - Output: `{"downloads_path_exists":true,"errors":[],"ok":true,"output":{"host":"example.com","title":"Example Domain","user_agent_contains":true,"viewport_width":960},"smoke":"profile_runtime_python_agent_openai"}`.
+  - Follow-up/callback smoke note: an OpenAI-backed follow-up/callback smoke currently completes the first run but does not keep the browser usable for the follow-up interaction in managed-headless mode; do not count it as a green proof until fixed or retested in a different browser mode.
 - Multi-feature Python API cloud end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`, unset browser-mode overrides, and construct `Agent(..., browser_profile=BrowserProfile(use_cloud=True), register_new_step_callback=..., register_done_callback=..., save_conversation_path=..., step_timeout=300)`.
   - Output: first run `Example Domain`; follow-up `example.com`; callback sequence `step, done, step, done`; two conversation JSON snapshots written; terminal session id present.
