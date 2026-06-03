@@ -506,10 +506,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The helpers preserve long-URL restoration in parsed LLM actions, max-action truncation, empty-action retry, step callbacks, conversation saving, and action execution through the Rust-backed `multi_act` path.
    - Proof: `test_rust_agent_exposes_model_output_helper_methods`.
 
+100. Rust Agent prepare-context helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's `_prepare_context(...)` helper.
+   - The helper captures browser state with screenshots/recent events, updates downloads, logs step context, refreshes page-filtered action models, creates state messages with sensitive-data and available-file context, and applies last-step/failure done-only switching.
+   - Proof: `test_rust_agent_exposes_prepare_context_helper_method`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (73 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (74 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

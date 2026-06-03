@@ -1788,6 +1788,43 @@ class Agent(Generic[AgentStructuredOutput]):
 		"""Save current Browser Use file system state back onto AgentState."""
 		self.state.file_system_state = self.file_system.get_state()
 
+	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> Any:
+		"""Prepare Browser Use step context from the configured browser session."""
+		if self.browser_session is None:
+			raise AssertionError('BrowserSession is not set up')
+		get_state = getattr(self.browser_session, 'get_browser_state_summary', None)
+		if not callable(get_state):
+			raise ValueError('BrowserSession does not expose get_browser_state_summary')
+
+		browser_state_summary = await get_state(
+			include_screenshot=True,
+			include_recent_events=self.include_recent_events,
+		)
+		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
+		self._log_step_context(browser_state_summary)
+		await self._check_stop_or_pause()
+		await self._update_action_models_for_page(browser_state_summary.url)
+
+		page_filtered_actions = None
+		registry = getattr(getattr(self.tools, 'registry', None), 'get_prompt_description', None)
+		if callable(registry):
+			page_filtered_actions = registry(browser_state_summary.url)
+
+		self._message_manager.create_state_messages(
+			browser_state_summary=browser_state_summary,
+			model_output=self.state.last_model_output,
+			result=self.state.last_result,
+			step_info=step_info,
+			use_vision=self.settings.use_vision,
+			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
+			sensitive_data=self.sensitive_data,
+			available_file_paths=self.available_file_paths,
+		)
+
+		await self._force_done_after_last_step(step_info)
+		await self._force_done_after_failure()
+		return browser_state_summary
+
 	async def get_model_output(self, input_messages: list[Any]) -> AgentOutput:
 		"""Get next Browser Use action output from the configured Python LLM."""
 		if self.llm is None or not hasattr(self.llm, 'ainvoke'):

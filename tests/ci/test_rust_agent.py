@@ -1913,6 +1913,84 @@ async def test_rust_agent_exposes_model_output_helper_methods(tmp_path):
 	assert retry_output.action
 
 
+async def test_rust_agent_exposes_prepare_context_helper_method(monkeypatch):
+	from types import SimpleNamespace
+
+	from browser_use.agent.views import AgentStepInfo
+	from browser_use.rust import Agent
+
+	state_requests = []
+	browser_state = SimpleNamespace(
+		url='https://example.com/settings',
+		title='Settings',
+		screenshot='base64-screen',
+		dom_state=SimpleNamespace(selector_map={1: object(), 2: object()}),
+	)
+
+	class BrowserProfile:
+		downloads_path = None
+
+	class BrowserSession:
+		browser_profile = BrowserProfile()
+
+		async def get_browser_state_summary(self, include_screenshot=False, include_recent_events=False):
+			state_requests.append((include_screenshot, include_recent_events))
+			return browser_state
+
+	agent = Agent(
+		task='Prepare context.',
+		browser_session=BrowserSession(),
+		include_recent_events=True,
+		use_vision=False,
+		available_file_paths=['/tmp/input.txt'],
+		sensitive_data={'api_key': 'secret-value'},
+	)
+	download_contexts = []
+	updated_pages = []
+	prompt_urls = []
+	created_messages = []
+
+	async def fake_check_downloads(context=''):
+		download_contexts.append(context)
+
+	async def fake_update_action_models(page_url):
+		updated_pages.append(page_url)
+
+	def fake_prompt_description(page_url):
+		prompt_urls.append(page_url)
+		return 'filtered action prompt'
+
+	def fake_create_state_messages(**kwargs):
+		created_messages.append(kwargs)
+
+	monkeypatch.setattr(agent, '_check_and_update_downloads', fake_check_downloads)
+	monkeypatch.setattr(agent, '_update_action_models_for_page', fake_update_action_models)
+	monkeypatch.setattr(agent.tools.registry, 'get_prompt_description', fake_prompt_description)
+	monkeypatch.setattr(agent._message_manager, 'create_state_messages', fake_create_state_messages)
+
+	step_info = AgentStepInfo(step_number=2, max_steps=3)
+	result = await agent._prepare_context(step_info)
+
+	assert result is browser_state
+	assert state_requests == [(True, True)]
+	assert download_contexts == ['Step 1: after getting browser state']
+	assert updated_pages == ['https://example.com/settings']
+	assert prompt_urls == ['https://example.com/settings']
+	assert created_messages == [
+		{
+			'browser_state_summary': browser_state,
+			'model_output': agent.state.last_model_output,
+			'result': agent.state.last_result,
+			'step_info': step_info,
+			'use_vision': False,
+			'page_filtered_actions': 'filtered action prompt',
+			'sensitive_data': {'api_key': 'secret-value'},
+			'available_file_paths': ['/tmp/input.txt'],
+		}
+	]
+	assert agent.AgentOutput is agent.DoneAgentOutput
+
+
 async def test_rust_agent_trace_and_cloud_auth_helpers():
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events
