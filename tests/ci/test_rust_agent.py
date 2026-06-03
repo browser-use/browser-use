@@ -1025,14 +1025,21 @@ def test_rust_agent_state_id_defaults_like_browser_use():
 		async def ainvoke(self, messages, output_format=None, **kwargs):
 			return type('Result', (), {'usage': None})()
 
-	task_id = 'explicit_task_id'
 	llm = LLM()
-	browser_use_agent = BrowserUseAgent(task='Inspect state.', llm=llm, task_id=task_id, directly_open_url=False)
-	rust_agent = RustAgent(task='Inspect state.', llm=llm, task_id=task_id, directly_open_url=False)
+	browser_use_task_id = 'browser_use_state'
+	rust_task_id = 'rust_state_id'
+	browser_use_agent = BrowserUseAgent(
+		task='Inspect state.',
+		llm=llm,
+		task_id=browser_use_task_id,
+		directly_open_url=False,
+	)
+	rust_agent = RustAgent(task='Inspect state.', llm=llm, task_id=rust_task_id, directly_open_url=False)
 
-	assert browser_use_agent.task_id == rust_agent.task_id == task_id
-	assert browser_use_agent.state.agent_id != task_id
-	assert rust_agent.state.agent_id != task_id
+	assert browser_use_agent.task_id == browser_use_task_id
+	assert rust_agent.task_id == rust_task_id
+	assert browser_use_agent.state.agent_id != browser_use_task_id
+	assert rust_agent.state.agent_id != rust_task_id
 	assert rust_agent.state.n_steps == browser_use_agent.state.n_steps == 1
 
 	injected_state = AgentState(agent_id='restored-state-id')
@@ -1040,6 +1047,32 @@ def test_rust_agent_state_id_defaults_like_browser_use():
 
 	assert restored_agent.state is injected_state
 	assert restored_agent.state.agent_id == 'restored-state-id'
+
+
+def test_rust_agent_eventbus_name_matches_browser_use_suffix_prefix():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	browser_use_agent = BrowserUseAgent(task='Inspect event bus.', llm=LLM(), task_id='browseruseabcd', directly_open_url=False)
+	rust_agent = RustAgent(task='Inspect event bus.', llm=LLM(), task_id='rustagentwxyz', directly_open_url=False)
+
+	assert browser_use_agent.eventbus.name == 'Agent_abcd'
+	assert rust_agent.eventbus.name == 'Agent_wxyz'
+
+	rust_agent_with_hyphen = RustAgent(task='Inspect event bus.', llm=LLM(), task_id='task-1', directly_open_url=False)
+	initial_name = rust_agent_with_hyphen.eventbus.name
+	rust_agent_with_hyphen.add_new_task('Follow up.')
+
+	assert initial_name == 'Agent_sk_1'
+	assert rust_agent_with_hyphen.eventbus.name.startswith(f'{initial_name}_')
+	assert rust_agent_with_hyphen.eventbus.name.isidentifier()
 
 
 def test_rust_agent_initializes_tools_and_action_models():

@@ -556,10 +556,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The redirected `browser_use.agent.service.Agent` import also supports the same two-argument generic subscription, while one-argument subscriptions raise the same too-few-arguments error shape as Browser Use.
    - Proof: `test_rust_agent_generic_subscription_matches_browser_use`.
 
+110. Rust Agent event bus naming parity
+   - The Rust-backed Agent now mirrors Browser Use's public event bus naming convention with an `Agent_` prefix and public task-id suffix.
+   - Hyphenated task-id suffixes are sanitized into valid identifiers, and follow-up task event buses keep the same base prefix with a unique suffix.
+   - Proof: `test_rust_agent_eventbus_name_matches_browser_use_suffix_prefix`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (83 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (84 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

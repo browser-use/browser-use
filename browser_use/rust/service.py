@@ -980,14 +980,12 @@ def _register_llm_for_usage(token_cost_service: TokenCost, llm: Any | None) -> N
 		return
 
 
-def _eventbus_name(agent_id: str, prefix: str = 'RustAgent') -> str:
-	suffix = re.sub(r'\W', '_', str(agent_id)[-8:])
-	if suffix and suffix[0].isdigit():
-		suffix = 'a' + suffix
+def _eventbus_name(agent_id: str, prefix: str = 'Agent') -> str:
+	suffix = re.sub(r'\W', '_', str(agent_id)[-4:])
 	return f'{prefix}_{suffix or "agent"}'
 
 
-def _unique_eventbus_name(agent_id: str, prefix: str = 'RustAgent') -> str:
+def _unique_eventbus_name(agent_id: str, prefix: str = 'Agent') -> str:
 	unique_suffix = re.sub(r'\W', '_', uuid7str()[-8:])
 	return f'{_eventbus_name(agent_id, prefix)}_{unique_suffix}'
 
