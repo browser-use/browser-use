@@ -336,6 +336,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helpers surface native selects and combobox-like controls with labels/current values/options/rects, then choose native select options by label/value via focus plus keyboard navigation or use click/type/Enter for comboboxes.
    - Proof: `browser_script_select_helpers_choose_native_select_options`.
 
+66. Browser-script semantic form field helper
+   - Terminal browser scripts now expose `form_fields_snapshot(limit=30)` and `fill_form_field(label_or_placeholder, value, clear=True, timeout=3.0)`.
+   - The helpers surface visible text fields, textareas, contenteditable fields, comboboxes, and textbox roles with labels/placeholders/selectors/rects, then fill a matched field by label, placeholder, name, selector, or nearby text through the existing real browser `fill_input` path.
+   - Proof: `browser_script_form_field_helpers_match_labels_and_fill_semantically`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -379,6 +384,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_location_records_snapshot_normalizes_directory_records -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_form_control_helpers_toggle_labeled_controls -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_select_helpers_choose_native_select_options -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_form_field_helpers_match_labels_and_fill_semantically -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
