@@ -3052,6 +3052,48 @@ async def test_rust_agent_run_logs_token_usage_summary(monkeypatch):
 	]
 
 
+async def test_rust_agent_run_logs_final_outcome_guidance(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.errors = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+
+	class Telemetry:
+		def capture(self, event):
+			pass
+
+	agent = Agent(task='Handle failed terminal run.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.telemetry = Telemetry()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 1, 'Session: 12345678-1234-1234-1234-123456789abc\n', 'terminal failed'
+
+	async def fake_load_events():
+		return []
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=1)
+
+	assert history.errors() == ['terminal failed']
+	assert 'Did the Agent not work as expected? Let us fix this!' in logger.infos
+	assert '   Please open a short issue here: https://github.com/browser-use/browser-use/issues' in logger.infos
+
+
 async def test_rust_agent_run_initializes_browser_use_session_state(monkeypatch):
 	from browser_use.rust import Agent
 

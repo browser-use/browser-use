@@ -846,10 +846,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Usage-summary logging runs before telemetry/event finalization, matching the Python Agent's observable run finalization order.
    - Proof: `test_rust_agent_run_logs_token_usage_summary`.
 
+167. Rust Agent final outcome guidance parity
+   - Terminal-backed `Agent.run()` and `Agent.follow_up()` now call Browser Use final outcome guidance logging before run cleanup.
+   - Failed or not-done Rust terminal histories now emit the same user-facing issue/CAPTCHA guidance path that the Python Agent runs after GIF/output handling and before eventbus shutdown.
+   - Proof: `test_rust_agent_run_logs_final_outcome_guidance`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (138 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (139 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

@@ -2888,6 +2888,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
+			self._log_final_outcome_messages()
 			await self._finalize_run_cleanup()
 			return self.history
 		if self.state.paused:
@@ -2905,6 +2906,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent is paused before terminal run.')
 			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
+			self._log_final_outcome_messages()
 			await self._finalize_run_cleanup()
 			return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
@@ -2942,6 +2944,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._call_callback(on_step_end, self)
 		await self._call_done_callback()
 		await self._generate_gif_if_requested()
+		self._log_final_outcome_messages()
 		await self._finalize_run_cleanup()
 		return self.history
 
@@ -2985,6 +2988,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._call_new_step_callback()
 		await self._call_done_callback()
 		await self._generate_gif_if_requested()
+		self._log_final_outcome_messages()
 		await self._finalize_run_cleanup()
 		return self.history
 
