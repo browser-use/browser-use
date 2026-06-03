@@ -889,6 +889,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Initial-actions Python API end-to-end:
   - Construct `Agent(task="Report only the current page title.", initial_actions=[{"go_to_url": {"url": "https://example.com"}}], directly_open_url=False, step_timeout=240)`.
   - Output: final result `Example Domain`, no history errors, converted initial action `navigate(url="https://example.com")`, and history URLs include `https://example.com`.
+- Sensitive-data Python API end-to-end:
+  - Construct `Agent(..., sensitive_data={"username": "...", "https://example.com": {"password": "..."}}, step_timeout=180)`.
+  - Output: final result `username, password`, no history errors, sanitized context exposes only placeholder names, and raw secret values are absent from task, stdout/stderr, terminal events, and final result.
 - real_v8 remote-CDP end-to-end:
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 timeout 600 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30`
