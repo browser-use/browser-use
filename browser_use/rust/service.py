@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -20,6 +21,7 @@ from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, TabInfo
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 
 
@@ -863,6 +865,48 @@ def _load_rust_history(file_path: str | Path) -> AgentHistoryList:
 	return AgentHistoryList.model_validate(data)
 
 
+def _default_browser_session(
+	agent_id: str,
+	browser_profile: BrowserProfile | None,
+	browser_session: Any | None,
+	browser: Any | None,
+) -> tuple[Any | None, Any | None]:
+	if browser is not None:
+		return browser, getattr(browser, 'browser_profile', browser_profile)
+	if browser_session is not None:
+		return browser_session, getattr(browser_session, 'browser_profile', browser_profile)
+	if browser_profile is not None and not isinstance(browser_profile, BrowserProfile):
+		return None, browser_profile
+	resolved_profile = browser_profile or BrowserProfile()
+	session = BrowserSession(
+		browser_profile=resolved_profile,
+		id=uuid7str()[:-4] + agent_id[-4:],
+	)
+	return session, session.browser_profile
+
+
+def _init_file_system(
+	state: AgentState,
+	agent_directory: Path,
+	file_system_path: str | None,
+) -> tuple[FileSystem, str]:
+	if state.file_system_state and file_system_path:
+		raise ValueError(
+			'Cannot provide both file_system_state (from agent state) and file_system_path. '
+			'Either restore from existing state or create new file system at specified path, not both.'
+		)
+	if state.file_system_state:
+		file_system = FileSystem.from_state(state.file_system_state)
+		return file_system, str(file_system.base_dir)
+	if file_system_path:
+		file_system = FileSystem(file_system_path)
+		state.file_system_state = file_system.get_state()
+		return file_system, file_system_path
+	file_system = FileSystem(agent_directory)
+	state.file_system_state = file_system.get_state()
+	return file_system, str(agent_directory)
+
+
 def _action_payload(action: Any) -> dict[str, Any]:
 	"""Serialize a Browser Use action model into JSON-like data for Rust task context."""
 	if isinstance(action, dict):
@@ -970,8 +1014,12 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.id = task_id or uuid7str()
 		self.task_id = self.id
 		self.llm = llm
-		self.browser_profile = browser_profile
-		self.browser_session = browser or browser_session
+		self.browser_session, self.browser_profile = _default_browser_session(
+			self.id,
+			browser_profile,
+			browser_session,
+			browser,
+		)
 		self.tools = controller or tools
 		self.sensitive_data = sensitive_data
 		self.register_new_step_callback = register_new_step_callback
@@ -983,6 +1031,9 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.kwargs = kwargs
 		self.model = _model_name(llm)
 		self.state = injected_agent_state or AgentState(agent_id=self.id)
+		timestamp = int(time.time())
+		self.agent_directory = Path(tempfile.gettempdir()) / f'browser_use_agent_{self.id}_{timestamp}'
+		self.file_system, self.file_system_path = _init_file_system(self.state, self.agent_directory, file_system_path)
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			vision_detail_level=vision_detail_level,
@@ -1028,7 +1079,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.browser_storage_state = _extract_browser_storage_state(self.browser_session, self.browser_profile)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		self.display_files_in_done_text = display_files_in_done_text
-		self.file_system_path = file_system_path
+		self.has_downloads_path = getattr(self.browser_profile, 'downloads_path', None) is not None
+		self._last_known_downloads: list[str] = []
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images

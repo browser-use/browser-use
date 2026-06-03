@@ -768,6 +768,29 @@ def test_rust_agent_exposes_browser_use_settings():
 	assert agent.include_recent_events is True
 
 
+def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
+	from browser_use.browser import BrowserProfile, BrowserSession
+	from browser_use.rust import Agent
+
+	file_system_path = tmp_path / 'agent-files'
+	downloads_path = tmp_path / 'downloads'
+	agent = Agent(
+		task='Open example.com',
+		task_id='task-1234',
+		browser_profile=BrowserProfile(headless=True, downloads_path=downloads_path),
+		file_system_path=str(file_system_path),
+	)
+
+	assert isinstance(agent.browser_session, BrowserSession)
+	assert agent.browser_session.id.endswith('1234')
+	assert agent.browser_profile is agent.browser_session.browser_profile
+	assert agent.browser_profile.downloads_path == downloads_path
+	assert agent.has_downloads_path is True
+	assert agent.file_system_path == str(file_system_path)
+	assert agent.file_system.base_dir == file_system_path
+	assert agent.state.file_system_state is not None
+
+
 def test_rust_agent_adds_available_files_to_task_context():
 	from browser_use.rust import Agent
 

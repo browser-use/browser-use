@@ -396,10 +396,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f8
    - `take_step` drives one Rust terminal turn and returns `(is_done, is_valid)`; `multi_act` preserves local `done` action semantics and routes non-done Browser Use action batches through the active Rust session or a bounded one-step run.
    - Proof: `test_rust_agent_take_step_runs_one_terminal_turn`, `test_rust_agent_multi_act_preserves_done_action`, and `test_rust_agent_multi_act_routes_actions_to_followup`.
 
+78. Rust Agent constructor session/filesystem parity
+   - The Rust-backed `Agent` now initializes a real Browser Use `BrowserSession`/`BrowserProfile` pair when callers do not provide a session, preserving default post-construction access to `agent.browser_session` and `agent.browser_profile`.
+   - The wrapper now creates Browser Use-style `agent_directory`, `file_system`, `file_system_path`, restored `file_system_state`, and download-path tracking attributes while preserving duck-typed profile/session inputs for lightweight tests and custom callers.
+   - Proof: `test_rust_agent_initializes_browser_use_session_and_file_system`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (52 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (53 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
