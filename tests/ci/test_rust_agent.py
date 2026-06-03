@@ -1156,6 +1156,39 @@ async def test_rust_agent_take_step_runs_one_terminal_turn():
 	assert is_valid is True
 
 
+async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='step once', llm=type('LLM', (), {'model': 'gpt-test'})())
+	seen = []
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		seen.append((argv, timeout_seconds))
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [
+			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+			{'event_type': 'session.done', 'payload': {'result': 'step answer'}},
+		]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	result = await agent.step()
+
+	assert result is None
+	assert len(seen) == 1
+	assert seen[0][0][0] == '/tmp/browser-use-terminal'
+	assert 'max_turns=1' in seen[0][0]
+	assert seen[0][1] == agent.settings.step_timeout
+	assert agent.history.final_result() == 'step answer'
+	assert agent.state.last_result is not None
+	assert agent.state.last_result[-1].is_done is True
+	assert agent.state.last_result[-1].extracted_content == 'step answer'
+
+
 async def test_rust_agent_multi_act_preserves_done_action():
 	from browser_use.rust import Agent
 

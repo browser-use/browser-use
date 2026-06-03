@@ -426,10 +426,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - `add_new_task(...)` now updates the message manager follow-up history, resets pause/stop state, and recreates a valid event bus name without depending on the Python Agent run loop.
    - Proof: `test_rust_agent_initializes_message_manager_and_followup_state`.
 
+84. Rust Agent step method parity
+   - The Rust-backed `Agent` now exposes Browser Use's async `step(...)` method and routes it through a single Rust terminal turn.
+   - Single-step Rust results now synchronize into `agent.state.last_result`, so Browser Use callers can inspect the last action result after `step(...)`, `take_step(...)`, `run(...)`, or `follow_up(...)`.
+   - Proof: `test_rust_agent_step_runs_single_terminal_turn_and_updates_state`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (57 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (58 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

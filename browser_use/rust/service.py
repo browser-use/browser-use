@@ -1439,6 +1439,10 @@ class Agent(Generic[AgentStructuredOutput]):
 		"""Save current Browser Use file system state back onto AgentState."""
 		self.state.file_system_state = self.file_system.get_state()
 
+	async def step(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Execute one Browser Use-style step through the Rust terminal core."""
+		await self.take_step(step_info)
+
 	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
 		"""Take one Rust terminal turn and return Browser Use-style step status."""
 		if step_info is not None:
@@ -1682,6 +1686,9 @@ class Agent(Generic[AgentStructuredOutput]):
 		metadata = self.history.history[-1].metadata
 		if metadata is not None:
 			self.state.n_steps = metadata.step_number
+		action_results = self.history.action_results()
+		if action_results:
+			self.state.last_result = action_results
 
 	async def _save_conversation_if_requested(self) -> None:
 		if not self.settings.save_conversation_path:
