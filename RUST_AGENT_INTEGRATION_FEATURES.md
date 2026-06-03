@@ -1146,11 +1146,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The worker mirrors Browser Use's practical matching semantics for exact domains, root `www.` variants, wildcard subdomains, protocol patterns, internal browser URLs, and data/blob URLs.
    - Proof: terminal `test_worker_cdp_enforces_browser_domain_constraints_env`.
 
+227. Rust Agent BrowserProfile wait-timing runtime parity
+   - Terminal browser-script `goto_url()` now consumes wrapper-exported `BU_BROWSER_MINIMUM_WAIT_PAGE_LOAD_MS` and `BU_BROWSER_NETWORK_IDLE_PAGE_LOAD_MS` after the normal load wait.
+   - Terminal Python worker requests now consume wrapper-exported `BU_BROWSER_WAIT_BETWEEN_ACTIONS_MS` once per successful browser-code action request, keeping the delay at the action boundary instead of raw CDP calls.
+   - Proof: terminal `browser_script_goto_url_honors_browser_profile_wait_timing_env` and `test_worker_run_applies_browser_wait_between_actions_env`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
-- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (27 tests)
+- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (28 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -1164,6 +1169,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_highlight_env_controls_color_and_duration -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_user_agent_env_builds_override_params -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_helpers_read_wait_timing_env -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_goto_url_honors_browser_profile_wait_timing_env -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_helpers_block_ip_address_env -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_helpers_enforce_domain_constraints_env -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_navigation_snapshot_surfaces_menu_and_route_links -- --nocapture`
