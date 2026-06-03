@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+import keyword
 import logging
 import os
 import re
@@ -17,7 +18,7 @@ from typing import Any, Generic, Literal
 from urllib.parse import urlparse
 
 from bubus import EventBus
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, create_model
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
@@ -790,6 +791,135 @@ def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 	return None
 
 
+def _safe_tool_action_name(value: Any) -> str | None:
+	if not isinstance(value, str):
+		return None
+	name = value.strip()
+	if not name or name.startswith('_') or not name.isidentifier() or keyword.iskeyword(name):
+		return None
+	return name
+
+
+def _tool_arguments(value: Any) -> dict[str, Any]:
+	if isinstance(value, dict):
+		return value
+	if value is None:
+		return {}
+	return {'value': value}
+
+
+def _tool_started_calls(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	tool_calls: list[dict[str, Any]] = []
+	for event in events:
+		if _event_type(event) != 'tool.started':
+			continue
+		payload = _event_payload(event)
+		name = _safe_tool_action_name(payload.get('name'))
+		if name is None:
+			continue
+		call_id = payload.get('tool_call_id') or payload.get('call_id') or f'tool-{len(tool_calls)}'
+		tool_calls.append(
+			{
+				'name': name,
+				'tool_call_id': str(call_id),
+				'arguments': _tool_arguments(payload.get('arguments')),
+			}
+		)
+	return tool_calls
+
+
+def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[str, dict[str, Any]]]:
+	results: dict[str, tuple[str, dict[str, Any]]] = {}
+	for event in events:
+		event_type = _event_type(event)
+		if event_type not in ('tool.output', 'tool.failed'):
+			continue
+		payload = _event_payload(event)
+		call_id = payload.get('tool_call_id') or payload.get('call_id')
+		if call_id:
+			results[str(call_id)] = (event_type, payload)
+	return results
+
+
+def _tool_result_text(payload: dict[str, Any]) -> str | None:
+	for key in ('text', 'output', 'result'):
+		value = payload.get(key)
+		if isinstance(value, str) and value.strip():
+			return value.strip()
+	content = payload.get('content')
+	if isinstance(content, list):
+		for part in content:
+			if not isinstance(part, dict):
+				continue
+			text = part.get('text')
+			if isinstance(text, str) and text.strip():
+				return text.strip()
+	return None
+
+
+def _model_output_from_tool_calls(tool_calls: list[dict[str, Any]]) -> AgentOutput | None:
+	if not tool_calls:
+		return None
+	action_names = list(dict.fromkeys(call['name'] for call in tool_calls if isinstance(call.get('name'), str)))
+	if not action_names:
+		return None
+	action_fields = {name: (dict[str, Any] | None, None) for name in action_names}
+	recovered_action_model = create_model('RustTerminalActionModel', __base__=ActionModel, **action_fields)
+	recovered_output_model = AgentOutput.type_with_custom_actions(recovered_action_model)
+	actions = []
+	for tool_call in tool_calls:
+		try:
+			actions.append(recovered_action_model(**{tool_call['name']: tool_call['arguments']}))
+		except (TypeError, ValueError, ValidationError):
+			continue
+	if not actions:
+		return None
+	return recovered_output_model(
+		evaluation_previous_goal='',
+		memory='',
+		next_goal='',
+		action=actions,
+	)
+
+
+def _action_results_from_tool_calls(
+	tool_calls: list[dict[str, Any]],
+	events: list[dict[str, Any]],
+	*,
+	final_result: str | None,
+	attachments: list[str] | None,
+	failure: str | None,
+	is_done: bool,
+) -> list[ActionResult]:
+	tool_results = _tool_results_by_call_id(events)
+	action_results: list[ActionResult] = []
+	for tool_call in tool_calls:
+		event_type, payload = tool_results.get(str(tool_call.get('tool_call_id')), ('', {}))
+		text = _tool_result_text(payload)
+		error = payload.get('error') if event_type == 'tool.failed' else None
+		action_results.append(
+			ActionResult(
+				error=str(error).strip() if isinstance(error, str) and error.strip() else None,
+				extracted_content=text if event_type == 'tool.output' else None,
+				long_term_memory=text if event_type == 'tool.output' else None,
+			)
+		)
+
+	final_action = ActionResult(
+		is_done=is_done,
+		success=True if is_done else None,
+		error=failure,
+		attachments=attachments,
+		extracted_content=final_result,
+		long_term_memory=final_result,
+	)
+	if action_results and tool_calls[-1].get('name') == 'done':
+		action_results[-1] = final_action
+	else:
+		action_results.append(final_action)
+	return action_results
+
+
 def _browser_url(value: Any) -> str:
 	if not isinstance(value, str):
 		return ''
@@ -964,16 +1094,18 @@ def _history_from_events(
 	if final_result is None and failure is None:
 		failure = 'Rust terminal session did not produce a final result.'
 	is_done = final_result is not None and failure is None
-	result = ActionResult(
-		is_done=is_done,
-		success=True if is_done else None,
-		error=failure,
-		attachments=_attachments_from_events(events),
-		extracted_content=final_result,
-	)
+	attachments = _attachments_from_events(events)
+	tool_calls = _tool_started_calls(events)
 	history = AgentHistory(
-		model_output=None,
-		result=[result],
+		model_output=_model_output_from_tool_calls(tool_calls),
+		result=_action_results_from_tool_calls(
+			tool_calls,
+			events,
+			final_result=final_result,
+			attachments=attachments,
+			failure=failure,
+			is_done=is_done,
+		),
 		state=_browser_state_from_events(events),
 		metadata=StepMetadata(step_start_time=started, step_end_time=finished, step_number=max(1, len(events))),
 	)

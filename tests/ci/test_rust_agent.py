@@ -318,6 +318,57 @@ def test_rust_history_reconstructs_terminal_browser_script_urls():
 	assert navigation_history.urls() == ['https://example.com']
 
 
+def test_rust_history_reconstructs_terminal_tool_call_actions():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'ok': True,
+					'text': 'Opened Example Domain',
+				},
+			},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'done',
+					'tool_call_id': 'call-done',
+					'arguments': {'text': 'Example Domain', 'success': True},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	actions = history.model_actions()
+	action_history = history.action_history()
+
+	assert history.action_names() == ['browser_script', 'done']
+	assert actions[0]['browser_script']['code'] == "goto_url('https://example.com')"
+	assert actions[1]['done'] == {'text': 'Example Domain', 'success': True}
+	assert history.last_action() == {'done': {'text': 'Example Domain', 'success': True}}
+	assert action_history[0][0]['result'] == 'Opened Example Domain'
+	assert history.final_result() == 'Example Domain'
+	assert history.action_results()[-1].is_done is True
+
+
 def test_rust_history_reconstructs_terminal_token_count_usage():
 	from browser_use.rust.service import _history_from_events
 
