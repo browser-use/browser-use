@@ -384,6 +384,57 @@ def test_rust_history_reconstructs_terminal_screenshot_paths(tmp_path):
 	assert history.screenshots() == [base64.b64encode(screenshot_bytes).decode('utf-8')]
 
 
+def test_rust_history_attaches_terminal_tool_images_to_actions(tmp_path):
+	from browser_use.rust.service import _history_from_events
+
+	screenshot_path = tmp_path / 'tool-image.png'
+	screenshot_path.write_bytes(b'\x89PNG\r\n\x1a\nterminal-image')
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': 'observe_page()'},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'text': 'Observed page.',
+					'images': [{'path': str(screenshot_path), 'mime_type': 'image/png'}],
+				},
+			},
+			{
+				'type': 'tool.image',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'image': {'path': str(screenshot_path), 'mime_type': 'image/png'},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	results = history.action_results()
+
+	assert history.action_names() == ['browser_script', 'done']
+	assert results[0].attachments == [str(screenshot_path)]
+	assert results[0].extracted_content == 'Observed page.'
+	assert results[-1].attachments is None
+	assert history.screenshot_paths() == [str(screenshot_path)]
+
+
 def test_rust_history_reconstructs_terminal_tool_call_actions():
 	from browser_use.rust.service import _history_from_events
 

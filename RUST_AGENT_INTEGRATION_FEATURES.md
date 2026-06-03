@@ -774,10 +774,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves current-main exec-specific streamed `chunk` payloads on Python-visible `ActionResult.extracted_content`, `long_term_memory`, and `action_history()` while avoiding duplicate text when terminal also emits the paired generic `tool.output_delta`.
    - Proof: `test_rust_history_reconstructs_terminal_exec_command_output_deltas`.
 
+153. Rust terminal tool-image action attachments
+   - Terminal `tool.image` events and tool-output `images` payloads now attach their image paths to the matching Python-visible `ActionResult`.
+   - This preserves current-main screenshot/image artifacts on the per-action Browser Use API surface while keeping final `done.files_to_display` limited to file/result attachments.
+   - Proof: `test_rust_history_attaches_terminal_tool_images_to_actions`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (124 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (125 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

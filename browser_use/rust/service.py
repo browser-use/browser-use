@@ -1409,6 +1409,25 @@ def _matching_unkeyed_tool_result_index(
 	return None
 
 
+def _matching_unkeyed_tool_attachment_index(
+	attachments: list[tuple[str, list[str]]],
+	used_indices: set[int],
+	name: Any,
+	*,
+	allow_any: bool,
+) -> int | None:
+	if isinstance(name, str) and name:
+		for index, (attachment_name, _paths) in enumerate(attachments):
+			if index not in used_indices and attachment_name == name:
+				return index
+	if not allow_any:
+		return None
+	for index in range(len(attachments)):
+		if index not in used_indices:
+			return index
+	return None
+
+
 def _response_input_item_tool_payload(payload: dict[str, Any]) -> dict[str, Any]:
 	item = payload.get('item')
 	if not isinstance(item, dict):
@@ -1616,10 +1635,14 @@ def _action_results_from_tool_calls(
 ) -> list[ActionResult]:
 	tool_results = _tool_results_by_call_id(events)
 	unkeyed_results = _unkeyed_tool_results(events)
+	image_attachments_by_call_id = _tool_image_attachments_by_call_id(events)
+	unkeyed_image_attachments = _tool_image_attachments_by_name(events)
 	used_unkeyed_result_indices: set[int] = set()
+	used_unkeyed_image_attachment_indices: set[int] = set()
 	action_results: list[ActionResult] = []
 	for tool_call in tool_calls:
-		event_type, payload = tool_results.get(str(tool_call.get('tool_call_id')), ('', {}))
+		tool_call_id = str(tool_call.get('tool_call_id'))
+		event_type, payload = tool_results.get(tool_call_id, ('', {}))
 		if not event_type:
 			unkeyed_result_index = _matching_unkeyed_tool_result_index(
 				unkeyed_results,
@@ -1630,6 +1653,17 @@ def _action_results_from_tool_calls(
 			if unkeyed_result_index is not None:
 				used_unkeyed_result_indices.add(unkeyed_result_index)
 				event_type, payload = unkeyed_results[unkeyed_result_index]
+		tool_attachments = image_attachments_by_call_id.get(tool_call_id)
+		if not tool_attachments:
+			unkeyed_attachment_index = _matching_unkeyed_tool_attachment_index(
+				unkeyed_image_attachments,
+				used_unkeyed_image_attachment_indices,
+				tool_call.get('name'),
+				allow_any=not tool_call.get('_has_explicit_tool_call_id', True),
+			)
+			if unkeyed_attachment_index is not None:
+				used_unkeyed_image_attachment_indices.add(unkeyed_attachment_index)
+				tool_attachments = unkeyed_image_attachments[unkeyed_attachment_index][1]
 		text = _tool_result_text(payload)
 		if event_type == 'tool.finished' and not text:
 			name = payload.get('name') or tool_call.get('name') or 'tool'
@@ -1645,6 +1679,7 @@ def _action_results_from_tool_calls(
 		action_results.append(
 			ActionResult(
 				error=error,
+				attachments=list(tool_attachments) if tool_attachments else None,
 				extracted_content=text if event_type in _TEXTUAL_TOOL_RESULT_EVENTS else None,
 				long_term_memory=text if event_type in _TEXTUAL_TOOL_RESULT_EVENTS else None,
 			)
@@ -1773,6 +1808,60 @@ def _image_path(value: Any) -> str | None:
 	if isinstance(url, str) and url.startswith('file://'):
 		return url.removeprefix('file://')
 	return None
+
+
+def _append_unique_attachment(attachments: list[str], pointer: str | None) -> None:
+	if pointer and pointer not in attachments:
+		attachments.append(pointer)
+
+
+def _tool_image_attachments_by_call_id(events: list[dict[str, Any]]) -> dict[str, list[str]]:
+	attachments: dict[str, list[str]] = {}
+	for event in events:
+		event_type = _event_type(event)
+		payload = _event_payload(event)
+		if event_type == 'tool.image':
+			image_path = _image_path(payload.get('image'))
+			call_id = payload.get('tool_call_id') or payload.get('call_id')
+			if image_path and call_id:
+				_append_unique_attachment(attachments.setdefault(str(call_id), []), image_path)
+			continue
+		if event_type not in ('tool.output', 'tool.failed'):
+			continue
+		call_id = payload.get('tool_call_id') or payload.get('call_id')
+		if not call_id:
+			continue
+		images = payload.get('images')
+		if not isinstance(images, list):
+			continue
+		for image in images:
+			image_path = _image_path(image)
+			if image_path:
+				_append_unique_attachment(attachments.setdefault(str(call_id), []), image_path)
+	return attachments
+
+
+def _tool_image_attachments_by_name(events: list[dict[str, Any]]) -> list[tuple[str, list[str]]]:
+	attachments: list[tuple[str, list[str]]] = []
+	for event in events:
+		event_type = _event_type(event)
+		payload = _event_payload(event)
+		if payload.get('tool_call_id') or payload.get('call_id'):
+			continue
+		name = payload.get('name')
+		if not isinstance(name, str) or not name:
+			continue
+		image_paths: list[str] = []
+		if event_type == 'tool.image':
+			_append_unique_attachment(image_paths, _image_path(payload.get('image')))
+		elif event_type in ('tool.output', 'tool.failed'):
+			images = payload.get('images')
+			if isinstance(images, list):
+				for image in images:
+					_append_unique_attachment(image_paths, _image_path(image))
+		if image_paths:
+			attachments.append((name, image_paths))
+	return attachments
 
 
 def _screenshot_path_from_events(events: list[dict[str, Any]]) -> str | None:
