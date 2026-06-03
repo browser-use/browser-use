@@ -35,6 +35,7 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, TabInfo
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.screenshots.service import ScreenshotService
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
@@ -1122,6 +1123,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		timestamp = int(time.time())
 		self.agent_directory = Path(tempfile.gettempdir()) / f'browser_use_agent_{self.id}_{timestamp}'
 		self.file_system, self.file_system_path = _init_file_system(self.state, self.agent_directory, file_system_path)
+		self.screenshot_service = ScreenshotService(self.agent_directory)
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			vision_detail_level=vision_detail_level,

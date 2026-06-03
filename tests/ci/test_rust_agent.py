@@ -916,6 +916,27 @@ async def test_rust_agent_tracks_downloaded_files_and_saves_file_system_state(tm
 	assert agent.state.file_system_state.base_dir == str(tmp_path / 'agent-files')
 
 
+async def test_rust_agent_initializes_screenshot_service(tmp_path):
+	import base64
+
+	from browser_use.rust import Agent
+	from browser_use.screenshots.service import ScreenshotService
+
+	agent = Agent(task='Capture a screenshot.', file_system_path=str(tmp_path / 'agent-files'))
+
+	assert isinstance(agent.screenshot_service, ScreenshotService)
+	assert agent.screenshot_service.agent_directory == agent.agent_directory
+	assert agent.screenshot_service.screenshots_dir == agent.agent_directory / 'screenshots'
+	assert agent.screenshot_service.screenshots_dir.exists()
+
+	screenshot_b64 = base64.b64encode(b'png-bytes').decode('utf-8')
+	screenshot_path = await agent.screenshot_service.store_screenshot(screenshot_b64, step_number=3)
+
+	assert Path(screenshot_path).name == 'step_3.png'
+	assert Path(screenshot_path).read_bytes() == b'png-bytes'
+	assert await agent.screenshot_service.get_screenshot(screenshot_path) == screenshot_b64
+
+
 def test_rust_agent_adds_available_files_to_task_context():
 	from browser_use.rust import Agent
 
