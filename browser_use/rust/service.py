@@ -3521,6 +3521,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if actions and len(actions) > self.settings.max_actions_per_step:
 			parsed.action = actions[: self.settings.max_actions_per_step]
 
+		if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+			from browser_use.agent.service import log_response
+
+			registry = getattr(getattr(self.tools, 'registry', None), 'registry', None)
+			log_response(parsed, registry, self.logger)
+
 		self._log_next_action_summary(parsed)
 		return parsed
 

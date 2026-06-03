@@ -6458,6 +6458,71 @@ async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_p
 	]
 
 
+async def test_rust_agent_get_model_output_logs_response_like_browser_use(monkeypatch):
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.llm.messages import UserMessage
+	from browser_use.rust import Agent as RustAgent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.debugs = []
+			self.infos = []
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def warning(self, message, *args, **kwargs):
+			pass
+
+		def isEnabledFor(self, level):
+			return False
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test-provider'
+
+		def __init__(self):
+			self.agent = None
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type(
+				'Result',
+				(),
+				{
+					'usage': None,
+					'completion': self.agent.AgentOutput(
+						evaluation_previous_goal='neutral',
+						memory='remember response logging',
+						next_goal='finish response logging',
+						action=[self.agent.ActionModel(done={'text': 'logged', 'success': True})],
+					),
+				},
+			)()
+
+	browser_use_logger = RecordingLogger()
+	rust_logger = RecordingLogger()
+	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
+	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+
+	browser_use_llm = LLM()
+	browser_use_agent = BrowserUseAgent(task='Log the model output.', llm=browser_use_llm, directly_open_url=False)
+	browser_use_llm.agent = browser_use_agent
+	await browser_use_agent.get_model_output([UserMessage(content='log response')])
+
+	rust_llm = LLM()
+	rust_agent = RustAgent(task='Log the model output.', llm=rust_llm, directly_open_url=False)
+	rust_llm.agent = rust_agent
+	await rust_agent.get_model_output([UserMessage(content='log response')])
+
+	assert rust_logger.infos == browser_use_logger.infos
+	assert any('Eval: neutral' in message for message in rust_logger.infos)
+	assert any('Memory: remember response logging' in message for message in rust_logger.infos)
+	assert any('Next goal: finish response logging' in message for message in rust_logger.infos)
+
+
 async def test_rust_agent_exposes_prepare_context_helper_method(monkeypatch):
 	from types import SimpleNamespace
 

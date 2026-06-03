@@ -1071,10 +1071,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Secret values remain excluded from the warning text while matching Browser Use's public error/warning messages.
    - Proof: `test_rust_agent_sensitive_data_warnings_match_browser_use`.
 
+212. Rust Agent model-output response logging parity
+   - Rust-backed `get_model_output(...)` now calls Browser Use's shared `log_response(...)` helper after URL restoration and action trimming.
+   - This preserves the public evaluation, memory, and next-goal log lines that callers see when using Python Agent helper methods against the Rust-backed interface.
+   - Proof: `test_rust_agent_get_model_output_logs_response_like_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (180 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (181 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
