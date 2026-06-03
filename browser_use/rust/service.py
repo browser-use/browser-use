@@ -2750,3 +2750,4 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 
 Agent.__module__ = 'browser_use.agent.service'
+Agent.__doc__ = None

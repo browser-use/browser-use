@@ -52,6 +52,7 @@ def test_rust_agent_class_metadata_matches_browser_use_service_surface():
 	assert RustAgent.__name__ == BrowserUseAgent.__name__ == 'Agent'
 	assert RustAgent.__qualname__ == BrowserUseAgent.__qualname__ == 'Agent'
 	assert RustAgent.__module__ == BrowserUseAgent.__module__ == 'browser_use.agent.service'
+	assert RustAgent.__doc__ == BrowserUseAgent.__doc__
 	assert repr(RustAgent) == repr(BrowserUseAgent)
 
 

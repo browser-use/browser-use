@@ -624,6 +624,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This makes `AgentHistoryList.urls()` reflect pages visited by the Rust terminal core instead of returning an empty URL when terminal main emits browser state through script output summaries.
    - Proof: `test_rust_history_reconstructs_terminal_browser_script_urls`.
 
+123. Rust Agent class doc metadata parity
+   - The Rust-backed replacement now mirrors Browser Use's original `Agent.__doc__` metadata.
+   - This keeps docs, runtime introspection, and service-export class metadata aligned after `browser_use.agent.service.Agent` redirects to the Rust wrapper.
+   - Proof: `test_rust_agent_class_metadata_matches_browser_use_service_surface`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
