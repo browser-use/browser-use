@@ -608,10 +608,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This removes string-annotation drift from the Rust wrapper and keeps docs, runtime introspection, and dependency-injection tooling aligned with the Browser Use Agent interface after the redirect.
    - Proof: `test_rust_agent_runtime_signatures_match_browser_use_callable_surface`.
 
+120. Rust Agent terminal stream-error reconstruction
+   - Terminal current-main `stream_error` events are now reconstructed as Browser Use history errors instead of being collapsed into the generic missing-final-result fallback.
+   - This gives Python callers accurate diagnostics for cloud and benchmark runs where the terminal core reaches the browser but the model stream fails before `session.done`.
+   - Proof: `test_rust_history_surfaces_terminal_stream_error_message`.
+   - Evidence: real_v8 cloud task `18` reached Browser Use cloud and emitted terminal `stream_error` provider messages before this reconstruction fix.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (92 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (93 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

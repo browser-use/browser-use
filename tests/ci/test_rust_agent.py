@@ -2489,6 +2489,26 @@ def test_rust_history_marks_missing_terminal_result_as_error():
 	assert history.errors() == ['Rust terminal session did not produce a final result.']
 
 
+def test_rust_history_surfaces_terminal_stream_error_message():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'stream_error', 'payload': {'message': 'provider error'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.final_result() is None
+	assert history.is_done() is False
+	assert history.errors() == ['provider error']
+
+
 def test_real_v8_smoke_selects_case_by_index_and_task_id(tmp_path):
 	module = _load_real_v8_smoke_module()
 	dataset = tmp_path / 'real_v8.json'

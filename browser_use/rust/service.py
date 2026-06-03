@@ -781,8 +781,10 @@ def _structured_result_text(
 
 def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 	for event in reversed(events):
-		if _event_type(event) == 'session.failed':
-			error = _event_payload(event).get('error')
+		event_type = _event_type(event)
+		if event_type in ('session.failed', 'stream_error'):
+			payload = _event_payload(event)
+			error = payload.get('error') or payload.get('message')
 			if isinstance(error, str) and error:
 				return error
 	return None
