@@ -391,10 +391,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f8
    - The helpers collect deduplicated row/file detail actions, recommend fanout when enough independent actions are present, and return `fanout_tasks` with per-item instructions and spawn messages for child-agent processing.
    - Proof: `browser_script_grid_rows_builds_fanout_manifests`; paginated coverage: `browser_script_extract_paginated_grid_rows_collects_pages`.
 
+77. Rust Agent step/action compatibility
+   - The Rust-backed `Agent` now exposes Browser Use-style `take_step(step_info=None)` and `multi_act(actions)`.
+   - `take_step` drives one Rust terminal turn and returns `(is_done, is_valid)`; `multi_act` preserves local `done` action semantics and routes non-done Browser Use action batches through the active Rust session or a bounded one-step run.
+   - Proof: `test_rust_agent_take_step_runs_one_terminal_turn`, `test_rust_agent_multi_act_preserves_done_action`, and `test_rust_agent_multi_act_routes_actions_to_followup`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (49 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (52 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

@@ -981,6 +981,82 @@ async def test_rust_agent_load_and_rerun_loads_saved_rust_history(tmp_path):
 	assert results[0].extracted_content == 'loaded answer'
 
 
+async def test_rust_agent_take_step_runs_one_terminal_turn():
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(task='step once')
+	seen = []
+
+	async def fake_run(max_steps=100, on_step_start=None, on_step_end=None):
+		seen.append(max_steps)
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': 'single step answer'}}],
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent.run = fake_run
+
+	is_done, is_valid = await agent.take_step()
+
+	assert seen == [1]
+	assert is_done is True
+	assert is_valid is True
+
+
+async def test_rust_agent_multi_act_preserves_done_action():
+	from browser_use.rust import Agent
+
+	agent = Agent(task='finish manually')
+
+	results = await agent.multi_act([{'done': {'text': 'manual answer', 'success': False, 'files_to_display': ['report.txt']}}])
+
+	assert len(results) == 1
+	assert results[0].is_done is True
+	assert results[0].success is False
+	assert results[0].extracted_content == 'manual answer'
+	assert results[0].attachments == ['report.txt']
+
+
+async def test_rust_agent_multi_act_routes_actions_to_followup():
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(task='act on current page')
+	agent.session_id = '12345678-1234-1234-1234-123456789abc'
+	seen = []
+
+	async def fake_follow_up(task, max_steps=None):
+		seen.append((task, max_steps))
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': 'actions applied'}}],
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent.follow_up = fake_follow_up
+
+	results = await agent.multi_act(
+		[
+			{'click_element': {'index': 2}},
+			{'input_text': {'index': 3, 'text': 'hello'}},
+		]
+	)
+
+	assert seen[0][1] == 2
+	assert 'Browser Use action models' in seen[0][0]
+	assert '"click_element"' in seen[0][0]
+	assert '"input_text"' in seen[0][0]
+	assert results[0].extracted_content == 'actions applied'
+
+
 async def test_rust_agent_trace_and_cloud_auth_helpers():
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events

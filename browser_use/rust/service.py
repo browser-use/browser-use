@@ -16,7 +16,7 @@ from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
-from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentSettings, AgentState, StepMetadata
+from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, AgentSettings, AgentState, AgentStepInfo, StepMetadata
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, TabInfo
@@ -863,6 +863,56 @@ def _load_rust_history(file_path: str | Path) -> AgentHistoryList:
 	return AgentHistoryList.model_validate(data)
 
 
+def _action_payload(action: Any) -> dict[str, Any]:
+	"""Serialize a Browser Use action model into JSON-like data for Rust task context."""
+	if isinstance(action, dict):
+		return action
+	if hasattr(action, 'model_dump'):
+		try:
+			dumped = action.model_dump(exclude_unset=True, mode='json')
+		except TypeError:
+			dumped = action.model_dump(exclude_unset=True)
+		if isinstance(dumped, dict):
+			return dumped
+	return {'action': str(action)}
+
+
+def _done_action_result(payload: dict[str, Any]) -> ActionResult | None:
+	done_payload = payload.get('done')
+	if done_payload is None:
+		return None
+	if hasattr(done_payload, 'model_dump'):
+		done_payload = done_payload.model_dump(exclude_unset=True, mode='json')
+	if not isinstance(done_payload, dict):
+		done_payload = {}
+	success = done_payload.get('success')
+	if not isinstance(success, bool):
+		success = True
+	text = done_payload.get('text')
+	if not isinstance(text, str) and 'data' in done_payload:
+		text = json.dumps(done_payload['data'], ensure_ascii=False, default=str)
+	if not isinstance(text, str):
+		text = ''
+	files = done_payload.get('files_to_display')
+	attachments = [str(item) for item in files if isinstance(item, (str, os.PathLike))] if isinstance(files, list) else None
+	return ActionResult(
+		is_done=True,
+		success=success,
+		extracted_content=text,
+		long_term_memory=f'Task completed. Success Status: {success}',
+		attachments=attachments or None,
+	)
+
+
+def _actions_instruction(payloads: list[dict[str, Any]]) -> str:
+	actions_json = json.dumps(payloads, indent=2, ensure_ascii=False, default=str)
+	return (
+		'Execute these Browser Use action models in order using the current browser page/session. '
+		'Return a concise result for the executed actions.\n\n'
+		f'Actions:\n{actions_json}'
+	)
+
+
 class Agent(Generic[AgentStructuredOutput]):
 	"""Browser Use-style Agent backed by the Rust browser-use-terminal core."""
 
@@ -1118,6 +1168,41 @@ class Agent(Generic[AgentStructuredOutput]):
 	@property
 	def usage(self) -> UsageSummary | None:
 		return self.history.usage
+
+	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
+		"""Take one Rust terminal turn and return Browser Use-style step status."""
+		if step_info is not None:
+			self.state.n_steps = max(self.state.n_steps, step_info.step_number)
+		history = await self.run(max_steps=1)
+		is_valid = not history.has_errors()
+		return history.is_done(), is_valid
+
+	async def multi_act(self, actions: list[Any]) -> list[ActionResult]:
+		"""Execute Browser Use action models through the Rust-backed session.
+
+		The Rust terminal owns browser actions, so non-`done` action batches are
+		serialized as a follow-up instruction for the active Rust session. A
+		standalone `done` action preserves Browser Use's local completion semantics.
+		"""
+		payloads = [_action_payload(action) for action in actions]
+		if not payloads:
+			return []
+		if len(payloads) == 1:
+			done_result = _done_action_result(payloads[0])
+			if done_result is not None:
+				return [done_result]
+		instruction = _actions_instruction(payloads)
+		max_steps = max(1, len(payloads))
+		if self.session_id:
+			history = await self.follow_up(instruction, max_steps=max_steps)
+			return history.action_results()
+		original_task = self.task
+		self.task = f'{self.task}\n\n{instruction}'
+		try:
+			history = await self.run(max_steps=max_steps)
+		finally:
+			self.task = original_task
+		return history.action_results()
 
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a follow-up task while keeping the same Browser Use-style agent object."""
