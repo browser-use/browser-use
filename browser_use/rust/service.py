@@ -1314,7 +1314,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'Starting a browser-use agent with version {self.version}, with provider={provider} and model={model}'
 		)
 
-	def _log_step_context(self, browser_state_summary: Any) -> None:
+	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Log current step and page context."""
 		url = getattr(browser_state_summary, 'url', '') if browser_state_summary else ''
 		url_short = url[:50] + '...' if len(url) > 50 else url
@@ -1823,7 +1823,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Save current Browser Use file system state back onto AgentState."""
 		self.state.file_system_state = self.file_system.get_state()
 
-	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> Any:
+	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare Browser Use step context from the configured browser session."""
 		if self.browser_session is None:
 			raise AssertionError('BrowserSession is not set up')
@@ -1933,7 +1933,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.settings.save_conversation_path_encoding,
 			)
 
-	async def _get_next_action(self, browser_state_summary: Any) -> None:
+	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Fetch the next model output and run Browser Use post-LLM hooks."""
 		input_messages = self._message_manager.get_messages()
 		try:
@@ -1959,7 +1959,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _make_history_item(
 		self,
 		model_output: AgentOutput | None,
-		browser_state_summary: Any,
+		browser_state_summary: BrowserStateSummary,
 		result: list[ActionResult],
 		metadata: StepMetadata | None = None,
 		state_message: str | None = None,
@@ -2024,7 +2024,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.state.last_result = [ActionResult(error=error_msg)]
 
-	async def _finalize(self, browser_state_summary: Any | None) -> None:
+	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
 		"""Finalize one Browser Use-style step after Rust-backed helper execution."""
 		step_end_time = time.time()
 		if not self.state.last_result:

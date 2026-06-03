@@ -576,10 +576,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - `_convert_initial_actions(...)`, `_update_action_indices(...)`, and `multi_act(...)` now resolve to Browser Use's `ActionModel`, `DOMInteractedElement`, and `BrowserStateSummary` annotations instead of loose `Any` metadata.
    - Proof: `test_rust_agent_action_model_helper_type_hints_match_browser_use`.
 
+114. Rust Agent browser-state helper type-hint parity
+   - The Rust-backed browser-state helper methods now expose Browser Use's `BrowserStateSummary` metadata for callers that introspect step preparation, logging, action selection, history creation, and finalization.
+   - `_prepare_context(...)`, `_get_next_action(...)`, `_log_step_context(...)`, `_make_history_item(...)`, and `_finalize(...)` now resolve to the same Browser Use browser-state annotations instead of loose `Any` metadata.
+   - Proof: `test_rust_agent_browser_state_helper_type_hints_match_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (87 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (88 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
