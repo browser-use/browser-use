@@ -321,6 +321,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper extracts and normalizes visible and structured emails, phones, contact links, social links, addresses, JSON-LD contact records, and contact evidence sections.
    - Proof: `browser_script_contact_details_snapshot_normalizes_candidates`.
 
+63. Browser-script location records snapshot helper
+   - Terminal browser scripts now expose `location_records_snapshot(limit=200, keywords=None)`.
+   - The helper extracts structured and visible store, hospital, office, directory, and local-business location records with names, addresses, city/state/postal fields, phone numbers, URLs, hours, source/kind labels, keyword scoring, and normalized text.
+   - Proof: `browser_script_location_records_snapshot_normalizes_directory_records`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -361,6 +366,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_pagination_helpers_click_until_stable -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_result_count_snapshot_parses_visible_count_evidence -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_contact_details_snapshot_normalizes_candidates -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_location_records_snapshot_normalizes_directory_records -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
