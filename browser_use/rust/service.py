@@ -2599,10 +2599,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._verify_and_setup_llm()
 		model_name = str(getattr(self.llm, 'model', self.model) or '').lower()
 		if 'deepseek' in model_name:
-			self.logger.warning('DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 		if 'grok' in model_name:
-			self.logger.warning('XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
+			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 		self.token_cost_service = TokenCost(include_cost=calculate_cost)
 		_register_llm_for_usage(self.token_cost_service, llm)

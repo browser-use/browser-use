@@ -1056,10 +1056,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves the public feedback callers see when automatic URL startup changes the initial action list before the Rust terminal core runs.
    - Proof: `test_rust_agent_logs_direct_url_startup_like_browser_use`.
 
+209. Rust Agent unsupported-vision warning parity
+   - Rust-backed construction now emits Browser Use's exact warning messages, including the warning icon prefix, when DeepSeek or Grok/XAI model families force `use_vision=False`.
+   - Vision disabling behavior is unchanged; this aligns the public constructor feedback seen by callers when their requested model family does not support vision.
+   - Proof: `test_rust_agent_unsupported_vision_warnings_match_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (177 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (178 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

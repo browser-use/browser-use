@@ -2832,6 +2832,47 @@ def test_rust_agent_disables_vision_for_unsupported_model_families():
 	assert normal_agent.settings.use_vision is True
 
 
+def test_rust_agent_unsupported_vision_warnings_match_browser_use(monkeypatch):
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		provider = 'test'
+
+		def __init__(self, model):
+			self.model = model
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class RecordingLogger:
+		def __init__(self):
+			self.warnings = []
+
+		def info(self, message, *args, **kwargs):
+			pass
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def warning(self, message, *args, **kwargs):
+			self.warnings.append(message)
+
+		def error(self, message, *args, **kwargs):
+			pass
+
+	for model in ['deepseek-chat', 'grok-2']:
+		browser_use_logger = RecordingLogger()
+		rust_logger = RecordingLogger()
+		monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self, logger=browser_use_logger: logger))
+		monkeypatch.setattr(RustAgent, 'logger', property(lambda self, logger=rust_logger: logger))
+
+		BrowserUseAgent(task='Inspect vision warning.', llm=LLM(model), directly_open_url=False, use_vision=True)
+		RustAgent(task='Inspect vision warning.', llm=LLM(model), directly_open_url=False, use_vision=True)
+
+		assert rust_logger.warnings == browser_use_logger.warnings
+
+
 def test_rust_agent_state_id_defaults_like_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.agent.views import AgentState
