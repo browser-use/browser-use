@@ -1046,10 +1046,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Default construction now preserves downstream Browser Use defaults that depend on the resolved LLM, including `flash_mode=True`, `settings.page_extraction_llm is agent.llm`, and the public `agent.model` value.
    - Proof: `test_rust_agent_defaults_llm_like_browser_use`.
 
+207. Rust Agent constructor alias parity
+   - Rust-backed construction now matches Browser Use alias precedence by accepting both `tools` and `controller` while choosing `tools` when both are supplied.
+   - The `browser` plus `browser_session` conflict now raises Browser Use's public error message instead of the Rust wrapper's shorter old-interface message.
+   - Proof: `test_rust_agent_constructor_aliases_match_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (175 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (176 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

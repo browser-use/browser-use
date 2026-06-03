@@ -2854,6 +2854,52 @@ def test_rust_agent_eventbus_name_matches_browser_use_suffix_prefix():
 	assert rust_agent_with_hyphen.eventbus.name.isidentifier()
 
 
+def test_rust_agent_constructor_aliases_match_browser_use():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+	from browser_use.tools.service import Tools
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	tools = Tools()
+	controller = Tools()
+
+	browser_use_agent = BrowserUseAgent(
+		task='Resolve aliases.',
+		llm=LLM(),
+		tools=tools,
+		controller=controller,
+		directly_open_url=False,
+	)
+	rust_agent = RustAgent(
+		task='Resolve aliases.',
+		llm=LLM(),
+		tools=tools,
+		controller=controller,
+		directly_open_url=False,
+	)
+
+	assert browser_use_agent.tools is tools
+	assert rust_agent.tools is tools
+
+	expected_error = 'Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.'
+	for agent_class in (BrowserUseAgent, RustAgent):
+		with pytest.raises(ValueError) as exc_info:
+			agent_class(
+				task='Conflicting browser aliases.',
+				llm=LLM(),
+				browser=object(),
+				browser_session=object(),
+				directly_open_url=False,
+			)
+		assert str(exc_info.value) == expected_error
+
+
 def test_rust_agent_initializes_tools_and_action_models():
 	from browser_use.rust import Agent
 	from browser_use.tools.service import Tools

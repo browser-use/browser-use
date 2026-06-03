@@ -2362,7 +2362,7 @@ def _resolve_tools(
 	use_vision: bool | Literal['auto'],
 	display_files_in_done_text: bool,
 ) -> Any:
-	resolved_tools = controller or tools
+	resolved_tools = tools if tools is not None else controller
 	if resolved_tools is None:
 		exclude_actions = ['screenshot'] if use_vision is False else []
 		resolved_tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
@@ -2534,9 +2534,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	):
 		llm = _resolve_default_llm(llm)
 		if browser and browser_session:
-			raise ValueError('Cannot specify both "browser" and "browser_session".')
-		if tools is not None and controller is not None:
-			raise ValueError('Cannot specify both "tools" and "controller".')
+			raise ValueError('Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.')
 		if getattr(llm, 'provider', None) == 'browser-use':
 			flash_mode = True
 		if page_extraction_llm is None:
