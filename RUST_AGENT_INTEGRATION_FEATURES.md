@@ -491,10 +491,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Telemetry is emitted from reconstructed Rust history, preserving URLs, errors, usage tokens, final result, timing, and Browser Use model/session metadata where available.
    - Proof: `test_rust_agent_exposes_logging_helper_methods`.
 
+97. Rust Agent step finalization helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's `_post_process()`, `_handle_step_error(...)`, `_finalize(...)`, `_force_done_after_last_step(...)`, `_force_done_after_failure()`, and `_make_history_item(...)` helpers.
+   - The helpers preserve failure bookkeeping, done-result logging, screenshot-backed history item creation, file-system state persistence, step counting, and done-only output switching for Rust-backed helper execution.
+   - Proof: `test_rust_agent_exposes_step_finalization_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (70 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (71 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

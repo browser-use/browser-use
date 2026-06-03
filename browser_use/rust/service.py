@@ -25,6 +25,7 @@ from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
+	AgentError,
 	AgentHistory,
 	AgentHistoryList,
 	AgentOutput,
@@ -1785,6 +1786,123 @@ class Agent(Generic[AgentStructuredOutput]):
 	def save_file_system_state(self) -> None:
 		"""Save current Browser Use file system state back onto AgentState."""
 		self.state.file_system_state = self.file_system.get_state()
+
+	async def _make_history_item(
+		self,
+		model_output: AgentOutput | None,
+		browser_state_summary: Any,
+		result: list[ActionResult],
+		metadata: StepMetadata | None = None,
+		state_message: str | None = None,
+	) -> None:
+		"""Create and store a Browser Use history item from a browser-state summary."""
+		if model_output:
+			selector_map = getattr(getattr(browser_state_summary, 'dom_state', None), 'selector_map', {})
+			interacted_elements = AgentHistory.get_interacted_element(model_output, selector_map)
+		else:
+			interacted_elements = [None]
+
+		screenshot_path = None
+		screenshot = getattr(browser_state_summary, 'screenshot', None)
+		if screenshot:
+			screenshot_path = await self.screenshot_service.store_screenshot(screenshot, self.state.n_steps)
+
+		state_history = BrowserStateHistory(
+			url=getattr(browser_state_summary, 'url', ''),
+			title=getattr(browser_state_summary, 'title', ''),
+			tabs=getattr(browser_state_summary, 'tabs', []),
+			interacted_element=interacted_elements,
+			screenshot_path=screenshot_path,
+		)
+		self.history.add_item(
+			AgentHistory(
+				model_output=model_output,
+				result=result,
+				state=state_history,
+				metadata=metadata,
+				state_message=state_message,
+			)
+		)
+
+	async def _post_process(self) -> None:
+		"""Handle Browser Use-style post-action bookkeeping."""
+		await self._check_and_update_downloads('after executing actions')
+		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
+			self.state.consecutive_failures += 1
+			self.logger.debug(f'Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
+			return
+		if self.state.consecutive_failures > 0:
+			self.state.consecutive_failures = 0
+			self.logger.debug(f'Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
+		if self.state.last_result and self.state.last_result[-1].is_done:
+			self.logger.info(f'\nFinal Result:\n{self.state.last_result[-1].extracted_content}\n')
+			if self.state.last_result[-1].attachments:
+				total_attachments = len(self.state.last_result[-1].attachments)
+				for index, file_path in enumerate(self.state.last_result[-1].attachments):
+					label = f'Attachment {index + 1}' if total_attachments > 1 else 'Attachment'
+					self.logger.info(f'{label}: {file_path}')
+
+	async def _handle_step_error(self, error: Exception) -> None:
+		"""Convert a step exception into Browser Use-style state.last_result."""
+		if isinstance(error, InterruptedError):
+			self.logger.error('The agent was interrupted mid-step' + (f' - {error}' if str(error) else ''))
+			return
+		include_trace = self.logger.isEnabledFor(logging.DEBUG)
+		error_msg = AgentError.format_error(error, include_trace=include_trace)
+		self.state.consecutive_failures += 1
+		self.logger.error(
+			f'Result failed {self.state.consecutive_failures}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n {error_msg}'
+		)
+		self.state.last_result = [ActionResult(error=error_msg)]
+
+	async def _finalize(self, browser_state_summary: Any | None) -> None:
+		"""Finalize one Browser Use-style step after Rust-backed helper execution."""
+		step_end_time = time.time()
+		if not self.state.last_result:
+			return
+		if browser_state_summary is not None:
+			step_start_time = getattr(self, 'step_start_time', step_end_time)
+			metadata = StepMetadata(
+				step_number=self.state.n_steps,
+				step_start_time=step_start_time,
+				step_end_time=step_end_time,
+			)
+			state_message = getattr(self._message_manager, 'last_state_message_text', None)
+			await self._make_history_item(
+				self.state.last_model_output,
+				browser_state_summary,
+				self.state.last_result,
+				metadata,
+				state_message=state_message,
+			)
+			self._log_step_completion_summary(step_start_time, self.state.last_result)
+		self.save_file_system_state()
+		self.state.n_steps += 1
+
+	async def _force_done_after_last_step(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Switch to done-only output on the last configured step."""
+		if not (step_info and step_info.is_last_step()):
+			return
+		from browser_use.llm.messages import UserMessage
+
+		msg = 'You reached max_steps - this is your last step. Your only tool available is the "done" tool. No other tool is available.'
+		msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false. Else success to true.'
+		msg += '\nInclude everything you found out for the ultimate task in the done text.'
+		self._message_manager._add_context_message(UserMessage(content=msg))
+		self.AgentOutput = self.DoneAgentOutput
+
+	async def _force_done_after_failure(self) -> None:
+		"""Switch to done-only output after max failures when final response is enabled."""
+		if self.state.consecutive_failures < self.settings.max_failures or not self.settings.final_response_after_failure:
+			return
+		from browser_use.llm.messages import UserMessage
+
+		msg = f'You failed {self.settings.max_failures} times. Therefore we terminate the agent.'
+		msg += '\nYour only tool available is the "done" tool. No other tool is available.'
+		msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false. Else success to true.'
+		msg += '\nInclude everything you found out for the ultimate task in the done text.'
+		self._message_manager._add_context_message(UserMessage(content=msg))
+		self.AgentOutput = self.DoneAgentOutput
 
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one Browser Use-style step through the Rust terminal core."""

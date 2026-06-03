@@ -1008,6 +1008,57 @@ async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
 	assert captured_events[0].error_message == 'manual-error'
 
 
+async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
+	import base64
+	import time
+
+	from browser_use.agent.views import ActionResult, AgentStepInfo
+	from browser_use.rust import Agent
+
+	class DomState:
+		selector_map = {}
+
+	class BrowserStateSummary:
+		url = 'https://example.com/final'
+		title = 'Final'
+		tabs = []
+		screenshot = base64.b64encode(b'png-bytes').decode('utf-8')
+		dom_state = DomState()
+
+	agent = Agent(task='Finalize helper parity.', file_system_path=str(tmp_path / 'agent-files'))
+
+	await agent._handle_step_error(ValueError('bad step'))
+	assert agent.state.consecutive_failures == 1
+	assert agent.state.last_result is not None
+	assert agent.state.last_result[-1].error == 'bad step'
+
+	await agent._post_process()
+	assert agent.state.consecutive_failures == 2
+
+	agent.state.last_result = [
+		ActionResult(is_done=True, success=True, extracted_content='final answer', attachments=['file:///tmp/report.txt'])
+	]
+	await agent._post_process()
+	assert agent.state.consecutive_failures == 0
+
+	agent.step_start_time = time.time() - 0.1
+	await agent._finalize(BrowserStateSummary())
+
+	assert agent.state.n_steps == 2
+	assert agent.state.file_system_state is not None
+	assert agent.history.final_result() == 'final answer'
+	assert agent.history.urls() == ['https://example.com/final']
+	assert Path(agent.history.history[0].state.screenshot_path).read_bytes() == b'png-bytes'
+
+	await agent._force_done_after_last_step(AgentStepInfo(step_number=2, max_steps=3))
+	assert agent.AgentOutput is agent.DoneAgentOutput
+
+	agent.state.consecutive_failures = agent.settings.max_failures
+	agent.AgentOutput = None
+	await agent._force_done_after_failure()
+	assert agent.AgentOutput is agent.DoneAgentOutput
+
+
 def test_rust_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
 	from browser_use.rust import Agent
