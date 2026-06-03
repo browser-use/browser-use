@@ -4578,6 +4578,47 @@ def test_rust_agent_initializes_message_manager_and_followup_state():
 	assert agent.eventbus.name.isidentifier()
 
 
+async def test_rust_agent_add_new_task_preserves_browser_use_raw_followup_task(monkeypatch):
+	from browser_use.rust import Agent
+
+	class Answer(BaseModel):
+		answer: str
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(
+		task='Initial structured task.',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		output_model_schema=Answer,
+	)
+	process_calls = []
+	load_count = 0
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		process_calls.append(argv)
+		if len(process_calls) == 1:
+			return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+		return 0, '', ''
+
+	async def fake_load_events():
+		nonlocal load_count
+		load_count += 1
+		return [{'event_type': 'session.done', 'payload': {'result': '{"answer":"ok"}'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=2)
+	agent.add_new_task('Follow up with raw text.')
+
+	assert agent.task == 'Follow up with raw text.'
+	assert 'Expected output JSON schema' not in agent.task
+	assert '<follow_up_user_request> Follow up with raw text. </follow_up_user_request>' in agent.message_manager.task
+
+	await agent.run(max_steps=2)
+
+	assert process_calls[1][-3:] == ['followup', '12345678-1234-1234-1234-123456789abc', 'Follow up with raw text.']
+
+
 def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.rust import Agent

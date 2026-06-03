@@ -3827,7 +3827,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a follow-up task while keeping the same Browser Use-style agent object."""
-		self.task = _task_with_schema(new_task, self.output_model_schema)
+		self.task = new_task
 		self._message_manager.add_new_task(new_task)
 		self.state.follow_up_task = True
 		self.state.stopped = False

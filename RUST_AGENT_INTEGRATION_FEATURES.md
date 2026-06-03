@@ -991,10 +991,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Reruns retry both terminal process exceptions and returned Browser Use history errors, raise after the final attempt when `skip_failures=False`, and otherwise return an error `ActionResult` instead of silently dropping the failure.
    - Proof: `test_rust_agent_rerun_history_honors_retry_and_skip_controls`.
 
+196. Rust Agent follow-up task text parity
+   - Rust-backed `add_new_task(...)` now preserves Browser Use's raw follow-up task text on `agent.task` instead of appending structured-output schema instructions.
+   - Delegated terminal follow-up runs now send the same raw follow-up text through `browser-use-terminal followup ...`, while the existing `output_model_schema` remains attached to the agent for result parsing.
+   - Proof: `test_rust_agent_add_new_task_preserves_browser_use_raw_followup_task`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (164 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (165 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
