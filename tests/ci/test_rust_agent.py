@@ -2954,6 +2954,60 @@ def test_rust_history_surfaces_terminal_tool_failure_message():
 	assert history.action_results()[-1].error == 'browser_script failed: RuntimeError: navigation failed'
 
 
+def test_rust_history_surfaces_terminal_cancellation_and_tool_abort_messages():
+	from browser_use.rust.service import _history_from_events
+
+	cancelled = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'session.cancelled', 'payload': {'reason': 'user requested stop'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	aborted = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser',
+					'tool_call_id': 'call-browser',
+					'arguments': {'cmd': 'connect managed --headless'},
+				},
+			},
+			{
+				'type': 'tool.aborted',
+				'payload': {
+					'name': 'browser',
+					'tool_call_id': 'call-browser',
+					'error': 'aborted by user',
+				},
+			},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert cancelled.final_result() is None
+	assert cancelled.is_done() is False
+	assert cancelled.errors() == ['Rust terminal session was cancelled: user requested stop']
+	assert cancelled.action_results()[-1].error == 'Rust terminal session was cancelled: user requested stop'
+
+	assert aborted.final_result() is None
+	assert aborted.is_done() is False
+	assert aborted.errors() == ['browser aborted: aborted by user']
+	assert aborted.action_results()[0].error == 'browser aborted: aborted by user'
+	assert aborted.action_results()[-1].error == 'browser aborted: aborted by user'
+
+
 def test_real_v8_smoke_selects_case_by_index_and_task_id(tmp_path):
 	module = _load_real_v8_smoke_module()
 	dataset = tmp_path / 'real_v8.json'

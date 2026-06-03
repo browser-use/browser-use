@@ -664,10 +664,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This makes `number_of_steps()`, `model_outputs()`, `model_thoughts()`, `action_history()`, `urls()`, screenshot paths, and final done state follow Browser Use step semantics while preserving collapsed behavior for event logs without terminal model-turn boundaries.
    - Proof: `test_rust_history_reconstructs_terminal_model_turn_steps`.
 
+131. Rust terminal cancellation and tool-abort reconstruction
+   - Terminal `session.cancelled` events are now reconstructed as Browser Use history errors instead of falling through to the generic missing-result fallback.
+   - Terminal `tool.aborted` events now surface action-level abort messages and final history errors when no terminal completion result is available.
+   - Proof: `test_rust_history_surfaces_terminal_cancellation_and_tool_abort_messages`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (102 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (103 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

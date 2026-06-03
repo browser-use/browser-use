@@ -822,6 +822,12 @@ def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 			error = payload.get('error') or payload.get('message')
 			if isinstance(error, str) and error:
 				return error
+		if event_type == 'session.cancelled':
+			payload = _event_payload(event)
+			reason = payload.get('reason') or payload.get('message') or payload.get('error')
+			if isinstance(reason, str) and reason.strip():
+				return f'Rust terminal session was cancelled: {reason.strip()}'
+			return 'Rust terminal session was cancelled.'
 		if event_type in ('agent.failed', 'agent.cancelled'):
 			payload = _event_payload(event)
 			inner_payload = payload.get('payload')
@@ -841,6 +847,10 @@ def _recoverable_failure_from_events(events: list[dict[str, Any]]) -> str | None
 			error = _tool_failure_message(payload)
 			if error:
 				return error
+		if event_type == 'tool.aborted':
+			error = _tool_abort_message(payload)
+			if error:
+				return error
 		if event_type in ('model.turn.error', 'model.turn.context_overflow'):
 			error = payload.get('error') or payload.get('message') or payload.get('reason')
 			if isinstance(error, str) and error.strip():
@@ -854,6 +864,14 @@ def _tool_failure_message(payload: dict[str, Any]) -> str | None:
 		return None
 	name = payload.get('name')
 	return f'{name} failed: {error.strip()}' if isinstance(name, str) and name else error.strip()
+
+
+def _tool_abort_message(payload: dict[str, Any]) -> str | None:
+	error = payload.get('error') or payload.get('reason') or payload.get('message')
+	if not isinstance(error, str) or not error.strip():
+		error = 'aborted'
+	name = payload.get('name')
+	return f'{name} aborted: {error.strip()}' if isinstance(name, str) and name else error.strip()
 
 
 def _safe_tool_action_name(value: Any) -> str | None:
@@ -921,7 +939,7 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 	results: dict[str, tuple[str, dict[str, Any]]] = {}
 	for event in events:
 		event_type = _event_type(event)
-		if event_type not in ('tool.output', 'tool.failed'):
+		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted'):
 			continue
 		payload = _event_payload(event)
 		call_id = payload.get('tool_call_id') or payload.get('call_id')
@@ -1019,7 +1037,12 @@ def _action_results_from_tool_calls(
 	for tool_call in tool_calls:
 		event_type, payload = tool_results.get(str(tool_call.get('tool_call_id')), ('', {}))
 		text = _tool_result_text(payload)
-		error = _tool_failure_message(payload) if event_type == 'tool.failed' else None
+		if event_type == 'tool.failed':
+			error = _tool_failure_message(payload)
+		elif event_type == 'tool.aborted':
+			error = _tool_abort_message(payload)
+		else:
+			error = None
 		action_results.append(
 			ActionResult(
 				error=error,
