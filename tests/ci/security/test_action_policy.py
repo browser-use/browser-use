@@ -1,7 +1,10 @@
+from typing import cast
+
 import pytest
 from pydantic import BaseModel
 
 from browser_use.agent.views import ActionResult
+from browser_use.browser.session import BrowserSession
 from browser_use.tools.policy import ActionPolicy
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.service import Tools
@@ -105,6 +108,6 @@ async def test_domain_policy_fails_closed_when_current_url_lookup_fails():
 		return ActionResult(extracted_content=params.text)
 
 	with pytest.raises(RuntimeError, match='Current page URL is unavailable'):
-		await registry.execute_action('click', {'text': 'Sign in'}, browser_session=FailingBrowserSession())
+		await registry.execute_action('click', {'text': 'Sign in'}, browser_session=cast(BrowserSession, FailingBrowserSession()))
 
 	assert executed is False

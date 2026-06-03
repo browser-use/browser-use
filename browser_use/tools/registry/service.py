@@ -353,20 +353,19 @@ class Registry(Generic[Context]):
 				raise ValueError(f'Invalid parameters {params} for action {action_name}: {type(e)}: {e}') from e
 
 			current_url = None
-			current_url_lookup_failed = False
 			if browser_session and browser_session.agent_focus_target_id:
 				try:
 					target = browser_session.session_manager.get_target(browser_session.agent_focus_target_id)
 					if target:
 						current_url = target.url
 				except Exception:
-					current_url_lookup_failed = True
+					pass
 
 			if sensitive_data:
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
 
 			if self.action_policy is not None:
-				if current_url_lookup_failed:
+				if current_url is None:
 					self.action_policy.assert_current_url_available(action_name, validated_params)
 				self.action_policy.assert_allowed(action_name, validated_params, current_url=current_url)
 
