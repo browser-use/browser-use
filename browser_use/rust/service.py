@@ -1280,7 +1280,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Expose Browser Use version/source metadata on the Rust-backed wrapper."""
 		self.version, self.source = _browser_use_version_and_source(source_override)
 
-	def _verify_and_setup_llm(self) -> bool:
+	def _verify_and_setup_llm(self):
 		"""Mirror Browser Use LLM verification state for callers that use the helper."""
 		if self.llm is None:
 			return True
@@ -1446,7 +1446,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 		)
 
-	def _log_action(self, action: Any, action_name: str, action_num: int, total_actions: int) -> None:
+	def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
 		"""Log an action before execution with Browser Use-style structure."""
 		action_header = f'[{action_num}/{total_actions}] {action_name}:' if total_actions > 1 else f'{action_name}:'
 		action_data = action.model_dump(exclude_unset=True)
@@ -2267,7 +2267,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		result = await self.run(max_steps=self.kwargs.get('max_steps', 100))
 		return result.action_results()
 
-	async def load_and_rerun(self, history_file: str | Path | None = None, **kwargs: Any) -> list[ActionResult]:
+	async def load_and_rerun(self, history_file: str | Path | None = None, **kwargs) -> list[ActionResult]:
 		"""Load a saved Rust-backed Browser Use history and rerun the task."""
 		if not history_file:
 			history_file = 'AgentHistory.json'
@@ -2289,7 +2289,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.stopped = True
 		self._external_pause_event.set()
 
-	async def close(self) -> None:
+	async def close(self):
 		"""Browser Use-compatible close hook.
 
 		The Rust terminal owns browser lifecycle for managed modes, and remote CDP

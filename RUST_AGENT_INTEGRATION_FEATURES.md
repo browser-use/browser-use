@@ -586,10 +586,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - `get_model_output(...)`, `_get_model_output_with_retry(...)`, `_handle_post_llm_processing(...)`, and `_process_messsages_and_replace_long_urls_shorter_ones(...)` now resolve to Browser Use's message-list annotations instead of loose `Any` metadata.
    - Proof: `test_rust_agent_llm_message_helper_type_hints_match_browser_use`.
 
+116. Rust Agent unannotated helper type-hint parity
+   - The Rust-backed helper methods now mirror Browser Use's intentionally unannotated metadata for helpers where the Python Agent does not publish runtime type hints.
+   - `_log_action(...)`, `_verify_and_setup_llm()`, `close()`, and `load_and_rerun(...)` no longer expose Rust-only `Any` or return annotations that Browser Use callers would not see.
+   - Proof: `test_rust_agent_unannotated_helper_type_hints_match_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (89 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (90 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
