@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import html
 import json
 import logging
+import mimetypes
 import re
 import traceback
 from dataclasses import dataclass
@@ -617,6 +620,273 @@ class AgentRunTrace(BaseModel):
 	success: bool | None = None
 	total_duration_seconds: float | None = None
 
+	def to_html(self, *, embed_screenshots: bool = False) -> str:
+		"""Render a shareable HTML viewer for this run trace."""
+
+		status = 'done' if self.is_done else 'in progress'
+		if self.success is True:
+			status = 'success'
+		elif self.success is False:
+			status = 'failed'
+
+		cards = '\n'.join(_render_trace_step_html(step, embed_screenshots=embed_screenshots) for step in self.steps)
+		if not cards:
+			cards = '<p class="empty">No trace steps recorded.</p>'
+
+		return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>browser-use agent trace</title>
+<style>
+:root {{
+	color-scheme: light dark;
+	--bg: #0f1117;
+	--panel: #171a23;
+	--panel-soft: #202432;
+	--text: #f4f6fb;
+	--muted: #aab1c5;
+	--line: #31384c;
+	--ok: #51d88a;
+	--bad: #ff6b7a;
+}}
+body {{
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}}
+main {{
+	max-width: 1180px;
+	margin: 0 auto;
+	padding: 28px;
+}}
+header {{
+	display: flex;
+	justify-content: space-between;
+	gap: 20px;
+	align-items: flex-start;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--line);
+}}
+h1 {{
+	margin: 0 0 8px;
+	font-size: 28px;
+	font-weight: 700;
+}}
+.summary {{
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+}}
+.pill {{
+	background: var(--panel-soft);
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	padding: 5px 10px;
+	color: var(--muted);
+}}
+.pill.success {{ color: var(--ok); }}
+.pill.failed {{ color: var(--bad); }}
+.timeline {{
+	margin-top: 24px;
+	display: grid;
+	gap: 14px;
+}}
+.step {{
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+	gap: 18px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 16px;
+}}
+.step-main {{ min-width: 0; }}
+.step-head {{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 10px;
+}}
+.step-title {{
+	font-weight: 650;
+	font-size: 16px;
+}}
+.outcome {{
+	border-radius: 999px;
+	padding: 3px 9px;
+	background: var(--panel-soft);
+	color: var(--muted);
+	font-size: 12px;
+	text-transform: uppercase;
+}}
+.outcome.success, .outcome.done {{ color: var(--ok); }}
+.outcome.error {{ color: var(--bad); }}
+.meta, .url {{
+	color: var(--muted);
+	overflow-wrap: anywhere;
+}}
+.block {{ margin-top: 12px; }}
+.label {{
+	color: var(--muted);
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	margin-bottom: 5px;
+}}
+pre {{
+	margin: 0;
+	padding: 10px;
+	background: #0a0c12;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}}
+.screenshot {{
+	align-self: start;
+	background: #0a0c12;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	overflow: hidden;
+	min-height: 120px;
+	display: grid;
+	place-items: center;
+	color: var(--muted);
+}}
+.screenshot img {{
+	width: 100%;
+	display: block;
+}}
+.empty {{ color: var(--muted); }}
+@media (max-width: 780px) {{
+	main {{ padding: 18px; }}
+	header, .step {{ display: block; }}
+	.screenshot {{ margin-top: 14px; }}
+}}
+</style>
+</head>
+<body>
+<main>
+	<header>
+		<div>
+			<h1>Agent run trace</h1>
+			<div class="summary">
+				<span class="pill {html.escape(status)}">{html.escape(status)}</span>
+				<span class="pill">{len(self.steps)} steps</span>
+				<span class="pill">{_format_duration(self.total_duration_seconds)}</span>
+			</div>
+		</div>
+	</header>
+	{_render_final_result(self.final_result)}
+	<section class="timeline">
+		{cards}
+	</section>
+</main>
+</body>
+</html>
+"""
+
+
+def _render_final_result(final_result: str | None) -> str:
+	if not final_result:
+		return ''
+	return f"""
+	<section class="block">
+		<div class="label">Final result</div>
+		<pre>{html.escape(final_result)}</pre>
+	</section>
+"""
+
+
+def _render_trace_step_html(step: AgentRunTraceStep, *, embed_screenshots: bool) -> str:
+	action_label = step.action_type or 'step'
+	action_suffix = f' action {step.action_index}' if step.action_index is not None else ''
+	meta_parts = [
+		part
+		for part in (
+			step.timestamp,
+			_format_duration(step.duration_seconds),
+			step.title,
+		)
+		if part
+	]
+	blocks = [
+		_render_pre_block('Action payload', step.action_payload),
+		_render_pre_block('LLM state', step.llm_thought),
+		_render_pre_block('Result', step.result),
+		_render_pre_block('Error', step.error),
+	]
+	return f"""
+	<article class="step">
+		<div class="step-main">
+			<div class="step-head">
+				<div>
+					<div class="step-title">Step {step.step_index}{html.escape(action_suffix)}: {html.escape(action_label)}</div>
+					<div class="meta">{html.escape(' · '.join(meta_parts))}</div>
+				</div>
+				<span class="outcome {html.escape(step.step_outcome)}">{html.escape(step.step_outcome)}</span>
+			</div>
+			{_render_url(step.url)}
+			{''.join(blocks)}
+		</div>
+		{_render_screenshot(step.screenshot_ref, embed_screenshots=embed_screenshots)}
+	</article>
+"""
+
+
+def _render_pre_block(label: str, value: Any) -> str:
+	if value is None or value == {}:
+		return ''
+	if isinstance(value, str):
+		rendered = value
+	else:
+		rendered = json.dumps(value, indent=2, ensure_ascii=False, default=str)
+	return f"""
+			<div class="block">
+				<div class="label">{html.escape(label)}</div>
+				<pre>{html.escape(rendered)}</pre>
+			</div>
+"""
+
+
+def _render_url(url: str | None) -> str:
+	if not url:
+		return ''
+	return f'<div class="url">{html.escape(url)}</div>'
+
+
+def _render_screenshot(screenshot_ref: str | None, *, embed_screenshots: bool) -> str:
+	if not screenshot_ref:
+		return '<aside class="screenshot">No screenshot</aside>'
+	src = _screenshot_src(screenshot_ref, embed_screenshots=embed_screenshots)
+	if src:
+		return f'<aside class="screenshot"><img src="{html.escape(src, quote=True)}" alt="Screenshot for this step"></aside>'
+	return f'<aside class="screenshot">{html.escape(screenshot_ref)}</aside>'
+
+
+def _screenshot_src(screenshot_ref: str, *, embed_screenshots: bool) -> str | None:
+	if not embed_screenshots:
+		return screenshot_ref
+	path = Path(screenshot_ref)
+	if not path.exists() or not path.is_file():
+		return screenshot_ref
+	mime_type = mimetypes.guess_type(path.name)[0] or 'image/png'
+	encoded = base64.b64encode(path.read_bytes()).decode('ascii')
+	return f'data:{mime_type};base64,{encoded}'
+
+
+def _format_duration(duration_seconds: float | None) -> str:
+	if duration_seconds is None:
+		return ''
+	if duration_seconds < 1:
+		return f'{duration_seconds * 1000:.0f}ms'
+	return f'{duration_seconds:.2f}s'
+
 
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
 
@@ -751,6 +1021,22 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			data = self.to_run_trace(sensitive_data=sensitive_data).model_dump(exclude_none=True, mode='json')
 			with open(path, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2, ensure_ascii=False)
+		except Exception as e:
+			raise e
+
+	def save_trace_viewer(
+		self,
+		filepath: str | Path,
+		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		*,
+		embed_screenshots: bool = False,
+	) -> None:
+		"""Save a browser-openable HTML trace viewer for replaying agent runs."""
+		try:
+			path = Path(filepath)
+			path.parent.mkdir(parents=True, exist_ok=True)
+			html_content = self.to_run_trace(sensitive_data=sensitive_data).to_html(embed_screenshots=embed_screenshots)
+			path.write_text(html_content, encoding='utf-8')
 		except Exception as e:
 			raise e
 

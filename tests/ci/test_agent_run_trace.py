@@ -129,3 +129,64 @@ def test_to_run_trace_redacts_sensitive_data_from_shareable_fields():
 
 	assert secret_email not in trace_json
 	assert '<secret>email</secret>' in trace_json
+
+
+def test_save_trace_viewer_writes_redacted_html(tmp_path):
+	secret_email = 'ritwij@example.com'
+	history = AgentHistoryList(
+		history=[
+			AgentHistory(
+				model_output=AgentOutput(
+					evaluation_previous_goal='Reached checkout',
+					memory=f'Need to avoid exposing {secret_email}',
+					next_goal='Stop before payment',
+					action=[TraceAction(input=InputParams(index=4, text=secret_email))],
+				),
+				result=[ActionResult(error=f'Payment form rejected {secret_email}')],
+				state=BrowserStateHistory(
+					url=f'https://example.com/pay?email={secret_email}',
+					title='Checkout <danger>',
+					tabs=[],
+					interacted_element=[None],
+				),
+				metadata=StepMetadata(step_number=3, step_start_time=10.0, step_end_time=10.25),
+			)
+		]
+	)
+	viewer_path = tmp_path / 'trace.html'
+
+	history.save_trace_viewer(viewer_path, sensitive_data={'email': secret_email})
+
+	html = viewer_path.read_text()
+	assert 'Agent run trace' in html
+	assert 'Step 3 action 0: input' in html
+	assert '250ms' in html
+	assert 'Payment form rejected &lt;secret&gt;email&lt;/secret&gt;' in html
+	assert 'Checkout &lt;danger&gt;' in html
+	assert secret_email not in html
+
+
+def test_trace_viewer_can_embed_screenshots(tmp_path):
+	screenshot_path = tmp_path / 'step.png'
+	screenshot_path.write_bytes(b'\x89PNG\r\n\x1a\n')
+	history = AgentHistoryList(
+		history=[
+			AgentHistory(
+				model_output=None,
+				result=[ActionResult(long_term_memory='Loaded page')],
+				state=BrowserStateHistory(
+					url='https://example.com',
+					title='Example',
+					tabs=[],
+					interacted_element=[],
+					screenshot_path=str(screenshot_path),
+				),
+				metadata=StepMetadata(step_number=1, step_start_time=10.0, step_end_time=11.0),
+			)
+		]
+	)
+
+	html = history.to_run_trace().to_html(embed_screenshots=True)
+
+	assert 'data:image/png;base64,' in html
+	assert str(screenshot_path) not in html
