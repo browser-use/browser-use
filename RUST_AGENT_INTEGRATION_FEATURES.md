@@ -436,10 +436,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Callers can use `agent.screenshot_service.store_screenshot(...)` and `get_screenshot(...)` with the same storage layout as the Python Agent.
    - Proof: `test_rust_agent_initializes_screenshot_service`.
 
+86. Rust Agent completion logging parity
+   - The Rust-backed `Agent` now exposes Browser Use's async `log_completion()` method.
+   - Completed Rust-backed runs now log task completion before invoking any registered done callback, matching the Python Agent lifecycle surface.
+   - Proof: `test_rust_agent_logs_completion_before_done_callback`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (59 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (60 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

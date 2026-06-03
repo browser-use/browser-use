@@ -1012,6 +1012,54 @@ async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
 	]
 
 
+async def test_rust_agent_logs_completion_before_done_callback(monkeypatch):
+	import logging
+
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	seen = []
+	logged_messages = []
+	original_info = logging.Logger.info
+
+	def recording_info(logger, message, *args, **kwargs):
+		logged_messages.append(str(message))
+		return original_info(logger, message, *args, **kwargs)
+
+	monkeypatch.setattr(logging.Logger, 'info', recording_info)
+
+	def done_callback(history):
+		seen.append(('done', history.final_result()))
+
+	agent = Agent(
+		task='start',
+		task_id='completion-logs',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		register_done_callback=done_callback,
+	)
+	original_log_completion = agent.log_completion
+
+	async def recording_log_completion():
+		await original_log_completion()
+		seen.append(('logged', None))
+
+	agent.log_completion = recording_log_completion
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'logged answer'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=1)
+
+	assert seen == [('logged', None), ('done', 'logged answer')]
+	assert 'Task completed successfully' in logged_messages
+
+
 async def test_rust_agent_invokes_new_step_callback(monkeypatch):
 	from browser_use.rust import Agent
 

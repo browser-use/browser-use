@@ -1544,6 +1544,13 @@ class Agent(Generic[AgentStructuredOutput]):
 		"""
 		return None
 
+	async def log_completion(self) -> None:
+		"""Log Browser Use-style task completion."""
+		if self.history.is_successful():
+			self.logger.info('Task completed successfully')
+		else:
+			self.logger.info('Task completed without success')
+
 	def run_sync(
 		self,
 		max_steps: int = 100,
@@ -1667,7 +1674,10 @@ class Agent(Generic[AgentStructuredOutput]):
 			await result
 
 	async def _call_done_callback(self) -> None:
-		if self.register_done_callback is None or not self.history.is_done():
+		if not self.history.is_done():
+			return
+		await self.log_completion()
+		if self.register_done_callback is None:
 			return
 		result = self.register_done_callback(self.history)
 		if inspect.isawaitable(result):
