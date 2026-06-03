@@ -603,10 +603,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Proof: `browser-use-terminal run-codex-session --help` exposes `<TASK_ID>` and `--model`.
    - Proof: Python `Agent.run()` followed by `Agent.follow_up()` against the rebuilt current-main terminal binary completed successfully.
 
+119. Rust Agent runtime signature parity
+   - The service export now copies Browser Use's original Agent `inspect.signature` metadata onto the Rust-backed replacement for the class constructor and common callable methods.
+   - This removes string-annotation drift from the Rust wrapper and keeps docs, runtime introspection, and dependency-injection tooling aligned with the Browser Use Agent interface after the redirect.
+   - Proof: `test_rust_agent_runtime_signatures_match_browser_use_callable_surface`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (91 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (92 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

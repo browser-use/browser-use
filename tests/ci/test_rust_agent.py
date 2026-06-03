@@ -107,6 +107,24 @@ def test_rust_agent_constructor_signature_matches_browser_use_order(tmp_path):
 	assert agent.task_id == 'signature-task-id'
 
 
+def test_rust_agent_runtime_signatures_match_browser_use_callable_surface():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	assert inspect.signature(RustAgent) == inspect.signature(BrowserUseAgent)
+	assert inspect.signature(RustAgent.__init__) == inspect.signature(BrowserUseAgent.__init__)
+
+	browser_use_callables = {
+		name for name, value in vars(BrowserUseAgent).items() if callable(value) and not name.startswith('__')
+	}
+	rust_callables = {name for name, value in vars(RustAgent).items() if callable(value) and not name.startswith('__')}
+
+	for method_name in sorted(browser_use_callables & rust_callables):
+		assert inspect.signature(getattr(RustAgent, method_name)) == inspect.signature(
+			getattr(BrowserUseAgent, method_name)
+		)
+
+
 def test_rust_agent_constructor_type_hints_match_browser_use_core_params():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.rust import Agent as RustAgent
