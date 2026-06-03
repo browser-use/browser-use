@@ -2790,6 +2790,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except Exception as exc:
 			self.logger.error(f'Failed to log telemetry event: {exc}', exc_info=True)
 
+	async def _log_run_usage_summary(self) -> None:
+		"""Log Browser Use token usage summary for a completed Rust-backed run."""
+		await self.token_cost_service.log_usage_summary()
+
 	def _cloud_event_agent(self):
 		llm_model_name = getattr(getattr(self, 'llm', None), 'model_name', None)
 		if isinstance(llm_model_name, str) and llm_model_name:
@@ -2880,6 +2884,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				process_error='Rust agent stopped before terminal run.',
 			)
 			self.history = self.result
+			await self._log_run_usage_summary()
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
@@ -2896,6 +2901,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				process_error='Rust agent is paused before terminal run.',
 			)
 			self.history = self.result
+			await self._log_run_usage_summary()
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent is paused before terminal run.')
 			self._dispatch_run_update_event()
 			await self._call_callback(on_step_end, self)
@@ -2927,6 +2933,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.history = self.result
 		self._sync_state_from_history()
+		await self._log_run_usage_summary()
 		self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
 		self._dispatch_run_update_event()
 		await self._check_and_update_downloads('run')
@@ -2970,6 +2977,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.history = self.result
 		self._sync_state_from_history()
 		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
+		await self._log_run_usage_summary()
 		self._record_run_telemetry(max_steps=resolved_max_steps, agent_run_error=process_error)
 		self._dispatch_run_update_event()
 		await self._check_and_update_downloads('follow_up')
