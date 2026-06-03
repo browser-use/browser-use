@@ -1121,11 +1121,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - `BU_BROWSER_NO_VIEWPORT=true` suppresses viewport-derived launch flags so no-viewport BrowserProfile mode remains distinct.
    - Proof: terminal `test_managed_browser_viewport_env_controls_worker_launch`.
 
+222. Rust Agent BrowserProfile user-agent runtime parity
+   - Terminal browser-harness CDP calls now apply wrapper-exported `BU_BROWSER_USER_AGENT` with `Network.setUserAgentOverride` before normal browser commands.
+   - This covers remote-CDP, Browser Use cloud, and other existing-session runs where managed Chromium launch args cannot set the user agent.
+   - Proof: terminal `test_worker_cdp_applies_browser_user_agent_env`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
-- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (22 tests)
+- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (23 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
