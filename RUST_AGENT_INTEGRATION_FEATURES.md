@@ -892,6 +892,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Sensitive-data Python API end-to-end:
   - Construct `Agent(..., sensitive_data={"username": "...", "https://example.com": {"password": "..."}}, step_timeout=180)`.
   - Output: final result `username, password`, no history errors, sanitized context exposes only placeholder names, and raw secret values are absent from task, stdout/stderr, terminal events, and final result.
+- BrowserProfile domain-constraint Python API end-to-end:
+  - Construct `Agent(..., browser_profile=BrowserProfile(allowed_domains=["example.com"], prohibited_domains=["iana.org"]), step_timeout=240)`.
+  - Output: final result `Example Domain`, no history errors, preserved allowed/prohibited domain lists, history URLs include `example.com`, and no history URL includes `iana.org`.
 - real_v8 remote-CDP end-to-end:
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 timeout 600 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30`
