@@ -34,8 +34,15 @@ def test_agent_package_export_uses_rust_wrapper():
 	assert AgentPackageAgent is RustAgent
 
 
+def test_agent_service_export_uses_rust_wrapper():
+	from browser_use.agent.service import Agent as ServiceAgent
+	from browser_use.rust import Agent as RustAgent
+
+	assert ServiceAgent is RustAgent
+
+
 def test_rust_agent_constructor_signature_matches_browser_use_order(tmp_path):
-	from browser_use.agent.service import Agent as BrowserUseAgent
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.rust import Agent as RustAgent
 
 	browser_use_params = list(inspect.signature(BrowserUseAgent.__init__).parameters)
@@ -899,7 +906,7 @@ def test_rust_agent_initializes_tools_and_action_models():
 
 
 def test_rust_agent_setup_action_models_signature_matches_browser_use():
-	from browser_use.agent.service import Agent as BrowserUseAgent
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.rust import Agent as RustAgent
 
 	browser_use_signature = inspect.signature(BrowserUseAgent._setup_action_models)

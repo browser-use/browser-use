@@ -521,10 +521,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Page-specific action-model rebuilding remains available through the Rust wrapper's internal helper and `_update_action_models_for_page(...)`, so filtered tool models still work without exposing an incompatible public helper signature.
    - Proof: `test_rust_agent_setup_action_models_signature_matches_browser_use`.
 
+103. Rust Agent service import parity
+   - `from browser_use.agent.service import Agent` now resolves to the Rust-backed Agent wrapper, matching the top-level `browser_use.Agent` and package-level `browser_use.agent.Agent` exports.
+   - The original Python Agent class remains available privately as `_PythonAgent` for parity audits while common direct service imports run through the Rust core.
+   - Proof: `test_agent_service_export_uses_rust_wrapper`.
+
 ## Current Verification
 
-- `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (76 tests)
+- `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
+- `uv run pytest -q tests/ci/test_rust_agent.py` (77 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

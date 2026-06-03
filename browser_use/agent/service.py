@@ -2309,3 +2309,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		import asyncio
 
 		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
+
+
+_PythonAgent = Agent
+
+from browser_use.rust.service import Agent as Agent
