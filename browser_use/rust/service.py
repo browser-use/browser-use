@@ -2769,6 +2769,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except Exception as exc:
 			self.logger.error(f'Failed to log telemetry event: {exc}', exc_info=True)
 
+	def _initialize_run_lifecycle_state(self) -> None:
+		"""Initialize Browser Use run timing and session state."""
+		self._session_start_time = time.time()
+		self._task_start_time = self._session_start_time
+		if not self.state.session_initialized:
+			self.state.session_initialized = True
+
 	def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
 		"""Log an action before execution with Browser Use-style structure."""
 		action_header = f'[{action_num}/{total_actions}] {action_name}:' if total_actions > 1 else f'{action_name}:'
@@ -2796,6 +2803,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		await self._call_callback(on_step_start, self)
+		self._initialize_run_lifecycle_state()
 		started = time.time()
 		if await self._should_stop_before_run():
 			finished = time.time()
@@ -2863,6 +2871,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
 		if not self.terminal_session_id:
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
+		self._initialize_run_lifecycle_state()
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
 		returncode, stdout_text, stderr_text = await self._run_process(

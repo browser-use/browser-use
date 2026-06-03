@@ -3016,6 +3016,33 @@ async def test_rust_agent_run_records_terminal_telemetry(monkeypatch):
 	assert logger.errors == ['Failed to log telemetry event: telemetry failed']
 
 
+async def test_rust_agent_run_initializes_browser_use_session_state(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='Initialize session state.', llm=type('LLM', (), {'model': 'gpt-test'})())
+
+	assert agent.state.session_initialized is False
+	assert not hasattr(agent, '_session_start_time')
+	assert not hasattr(agent, '_task_start_time')
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'initialized'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=4)
+
+	assert history.final_result() == 'initialized'
+	assert agent.state.session_initialized is True
+	assert agent._session_start_time > 0
+	assert agent._task_start_time == agent._session_start_time
+
+
 async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	import base64
 	import time

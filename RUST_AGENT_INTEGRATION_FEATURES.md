@@ -820,10 +820,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Telemetry captures task/model metadata, URLs, usage, final result, success, and terminal process errors, while telemetry failures are logged and do not break the returned history.
    - Proof: `test_rust_agent_run_records_terminal_telemetry`.
 
+162. Rust Agent run session-state parity
+   - Terminal-backed `Agent.run()` and `Agent.follow_up()` now initialize Browser Use run lifecycle state before execution.
+   - The wrapper sets `_session_start_time`, `_task_start_time`, and flips `state.session_initialized`, matching the observable Python Agent state callers can inspect around completed runs.
+   - Proof: `test_rust_agent_run_initializes_browser_use_session_state`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (133 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (134 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
