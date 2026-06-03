@@ -42,6 +42,19 @@ def test_agent_service_export_uses_rust_wrapper():
 	assert ServiceAgent is RustAgent
 
 
+def test_rust_agent_class_metadata_matches_browser_use_service_surface():
+	from browser_use import Agent as TopLevelAgent
+	from browser_use.agent.service import Agent as ServiceAgent
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	assert TopLevelAgent is ServiceAgent is RustAgent
+	assert RustAgent.__name__ == BrowserUseAgent.__name__ == 'Agent'
+	assert RustAgent.__qualname__ == BrowserUseAgent.__qualname__ == 'Agent'
+	assert RustAgent.__module__ == BrowserUseAgent.__module__ == 'browser_use.agent.service'
+	assert repr(RustAgent) == repr(BrowserUseAgent)
+
+
 def test_rust_agent_generic_subscription_matches_browser_use():
 	from browser_use.agent.service import Agent as ServiceAgent
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent

@@ -2656,3 +2656,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if isinstance(parsed, dict):
 				events.append(parsed)
 		return events
+
+
+Agent.__module__ = 'browser_use.agent.service'
