@@ -2952,7 +2952,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		await self._log_agent_run()
 		self._log_agent_setup()
-		await self._call_callback(on_step_start, self)
 		self._initialize_run_lifecycle_state()
 		self._log_first_step_startup()
 		started = time.time()
@@ -2994,6 +2993,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
+			await self._call_callback(on_step_start, self)
 			self._log_main_execution_start(max_steps)
 			return await self._follow_up_terminal(
 				self.task,
@@ -3003,6 +3003,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				on_step_end=on_step_end,
 			)
 
+		await self._call_callback(on_step_start, self)
 		self._log_main_execution_start(max_steps)
 		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps), timeout_seconds=self.settings.step_timeout)
 		finished = time.time()

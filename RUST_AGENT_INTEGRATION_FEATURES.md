@@ -921,10 +921,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Cancelled runs log usage summaries, record cancellation telemetry, dispatch the final task update, unregister signal handlers, close browser resources, and then re-raise cancellation to the caller.
    - Proof: `test_rust_agent_run_finalizes_after_cancellation`.
 
+182. Rust Agent start-hook lifecycle ordering parity
+   - Terminal-backed `Agent.run()` now initializes Browser Use run lifecycle state before invoking `on_step_start`, matching the Python Agent's run-start event ordering before per-step hooks.
+   - `on_step_start` now fires only when the Rust terminal execution or run-delegated follow-up path is about to execute, so stopped or paused-before-run paths do not report a step start that never happened.
+   - Proof: `test_rust_agent_run_initializes_lifecycle_before_start_callback_error`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (153 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (154 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

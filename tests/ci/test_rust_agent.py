@@ -3425,6 +3425,113 @@ async def test_rust_agent_run_finalizes_after_terminal_exception(monkeypatch):
 	assert logger.errors[0] == 'Agent run failed with exception: terminal exploded'
 
 
+async def test_rust_agent_run_initializes_lifecycle_before_start_callback_error(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	events = []
+	dispatched = []
+	captured_events = []
+
+	class FakeSignalHandler:
+		def __init__(self, **kwargs):
+			events.append('init_signal')
+
+		def register(self):
+			events.append('register_signal')
+
+		def unregister(self):
+			events.append('unregister_signal')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+			self.warnings = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+		def warning(self, message, *args, **kwargs):
+			self.warnings.append(message)
+
+	class EventBus:
+		def dispatch(self, event):
+			dispatched.append(event)
+			return event
+
+	class BrowserProfile:
+		keep_alive = False
+		viewport = {'width': 1280, 'height': 720}
+		user_agent = None
+		headless = True
+		allowed_domains = []
+
+	class BrowserSession:
+		id = 'browser-session-1234'
+		browser_profile = BrowserProfile()
+		cdp_url = None
+
+		def __init__(self):
+			self.kill_calls = 0
+
+		async def kill(self):
+			events.append('kill_browser')
+			self.kill_calls += 1
+
+	class TokenCostService:
+		async def log_usage_summary(self):
+			events.append('usage_summary')
+
+	class Telemetry:
+		def capture(self, event):
+			captured_events.append(event)
+
+	session = BrowserSession()
+	logger = RecordingLogger()
+	monkeypatch.setattr(rust_service, 'SignalHandler', FakeSignalHandler)
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Fail from start callback.', llm=type('LLM', (), {'model': 'gpt-test'})(), browser_session=session)
+	agent.eventbus = EventBus()
+	agent.token_cost_service = TokenCostService()
+	agent.telemetry = Telemetry()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		events.append('run_process')
+		raise AssertionError('terminal process should not start')
+
+	async def on_step_start(callback_agent):
+		events.append('start_callback')
+		assert callback_agent is agent
+		raise RuntimeError('start callback failed')
+
+	agent._run_process = fake_run_process
+
+	with pytest.raises(RuntimeError, match='start callback failed'):
+		await agent.run(max_steps=3, on_step_start=on_step_start)
+
+	assert events == ['init_signal', 'register_signal', 'start_callback', 'usage_summary', 'unregister_signal', 'kill_browser']
+	assert [type(event).__name__ for event in dispatched] == [
+		'CreateAgentSessionEvent',
+		'CreateAgentTaskEvent',
+		'UpdateAgentTaskEvent',
+	]
+	assert session.kill_calls == 1
+	assert getattr(agent, '_run_signal_handler') is None
+	assert len(captured_events) == 1
+	assert captured_events[0].max_steps == 3
+	assert captured_events[0].error_message == 'start callback failed'
+	assert logger.errors[0] == 'Agent run failed with exception: start callback failed'
+
+
 async def test_rust_agent_run_finalizes_after_cancellation(monkeypatch):
 	import asyncio
 
