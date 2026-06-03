@@ -2645,6 +2645,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.directly_open_url and not self.state.follow_up_task and not initial_actions:
 			self.initial_url = _extract_start_url(task)
 			if self.initial_url:
+				self.logger.info(f'🔗 Found URL in task: {self.initial_url}, adding as initial action...')
 				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
 		self.initial_action_payloads = list(initial_actions or [])
 		self.initial_actions = self._convert_initial_actions(self.initial_action_payloads) if self.initial_action_payloads else None

@@ -2544,6 +2544,46 @@ def test_rust_agent_mirrors_direct_url_startup():
 	assert "First navigate to 'https://example.com'" in agent.task
 
 
+def test_rust_agent_logs_direct_url_startup_like_browser_use(monkeypatch):
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def warning(self, message, *args, **kwargs):
+			pass
+
+		def error(self, message, *args, **kwargs):
+			pass
+
+	browser_use_logger = RecordingLogger()
+	rust_logger = RecordingLogger()
+	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
+	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+
+	BrowserUseAgent(task='Open example.com and report the title.', llm=LLM())
+	RustAgent(task='Open example.com and report the title.', llm=LLM())
+
+	expected = ['🔗 Found URL in task: https://example.com, adding as initial action...']
+	assert browser_use_logger.infos == expected
+	assert rust_logger.infos == expected
+
+
 def test_rust_agent_exposes_task_helper_methods():
 	from browser_use.rust import Agent
 

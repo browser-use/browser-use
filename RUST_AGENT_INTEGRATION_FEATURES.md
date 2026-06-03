@@ -1051,10 +1051,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The `browser` plus `browser_session` conflict now raises Browser Use's public error message instead of the Rust wrapper's shorter old-interface message.
    - Proof: `test_rust_agent_constructor_aliases_match_browser_use`.
 
+208. Rust Agent direct-URL startup feedback parity
+   - Rust-backed construction now logs Browser Use's "Found URL in task" startup message when `directly_open_url=True` converts a task URL into an initial navigation action.
+   - This preserves the public feedback callers see when automatic URL startup changes the initial action list before the Rust terminal core runs.
+   - Proof: `test_rust_agent_logs_direct_url_startup_like_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (176 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (177 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
