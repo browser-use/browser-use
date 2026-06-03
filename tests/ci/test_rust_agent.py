@@ -3677,6 +3677,27 @@ def test_rust_history_surfaces_terminal_cancellation_and_tool_abort_messages():
 	assert aborted.action_results()[-1].error == 'browser aborted: aborted by user'
 
 
+def test_rust_history_surfaces_terminal_session_interrupted_message():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'session.interrupted', 'payload': {'reason': 'interrupted by send_input'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.final_result() is None
+	assert history.is_done() is False
+	assert history.errors() == ['Rust terminal session was interrupted: interrupted by send_input']
+	assert history.action_results()[-1].error == 'Rust terminal session was interrupted: interrupted by send_input'
+
+
 def test_real_v8_smoke_selects_case_by_index_and_task_id(tmp_path):
 	module = _load_real_v8_smoke_module()
 	dataset = tmp_path / 'real_v8.json'

@@ -929,6 +929,12 @@ def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 			if isinstance(reason, str) and reason.strip():
 				return f'Rust terminal session was cancelled: {reason.strip()}'
 			return 'Rust terminal session was cancelled.'
+		if event_type == 'session.interrupted':
+			payload = _event_payload(event)
+			reason = payload.get('reason') or payload.get('message') or payload.get('error')
+			if isinstance(reason, str) and reason.strip():
+				return f'Rust terminal session was interrupted: {reason.strip()}'
+			return 'Rust terminal session was interrupted.'
 		if event_type in ('agent.failed', 'agent.cancelled'):
 			payload = _event_payload(event)
 			inner_payload = payload.get('payload')
