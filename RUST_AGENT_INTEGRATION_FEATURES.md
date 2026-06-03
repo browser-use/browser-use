@@ -602,6 +602,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Proof: terminal `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`.
    - Proof: `browser-use-terminal run-codex-session --help` exposes `<TASK_ID>` and `--model`.
    - Proof: Python `Agent.run()` followed by `Agent.follow_up()` against the rebuilt current-main terminal binary completed successfully.
+   - Current-main refresh: terminal `origin/main` fetched at `ee3ce69`; terminal integration head is `8c8dd8a` with only the `run-codex-session` commit on top.
 
 119. Rust Agent runtime signature parity
    - The service export now copies Browser Use's original Agent `inspect.signature` metadata onto the Rust-backed replacement for the class constructor and common callable methods.
@@ -860,6 +861,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Source `/home/exedev/.evaluation_tool_env`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
+- Existing-session follow-up end-to-end:
+  - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BROWSER_USE_RUST_STATE_DIR=/tmp/browser-use-rust-followup-smoke timeout 420 uv run python - <<'PY' ...`
+  - Output: first run `Example Domain`; follow-up `example.com`.
 - real_v8 remote-CDP end-to-end:
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 timeout 600 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30`
