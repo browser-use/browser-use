@@ -1117,14 +1117,14 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
 		self.register_should_stop_callback = register_should_stop_callback
 		self.output_model_schema = output_model_schema
-		self.version, self.source = _browser_use_version_and_source(source)
+		self._set_browser_use_version_and_source(source)
 		self.kwargs = kwargs
 		self.model = _model_name(llm)
 		self.state = injected_agent_state or AgentState(agent_id=self.id)
 		timestamp = int(time.time())
 		self.agent_directory = Path(tempfile.gettempdir()) / f'browser_use_agent_{self.id}_{timestamp}'
-		self.file_system, self.file_system_path = _init_file_system(self.state, self.agent_directory, file_system_path)
-		self.screenshot_service = ScreenshotService(self.agent_directory)
+		self._set_file_system(file_system_path)
+		self._set_screenshot_service()
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			vision_detail_level=vision_detail_level,
@@ -1232,6 +1232,32 @@ class Agent(Generic[AgentStructuredOutput]):
 		self.last_stderr = ''
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
+
+	def _set_file_system(self, file_system_path: str | None = None) -> None:
+		"""Initialize or restore Browser Use file-system state."""
+		self.file_system, self.file_system_path = _init_file_system(self.state, self.agent_directory, file_system_path)
+
+	def _set_screenshot_service(self) -> None:
+		"""Initialize Browser Use screenshot storage under the agent directory."""
+		self.screenshot_service = ScreenshotService(self.agent_directory)
+
+	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
+		"""Expose Browser Use version/source metadata on the Rust-backed wrapper."""
+		self.version, self.source = _browser_use_version_and_source(source_override)
+
+	def _verify_and_setup_llm(self) -> bool:
+		"""Mirror Browser Use LLM verification state for callers that use the helper."""
+		if self.llm is None:
+			return True
+		try:
+			from browser_use.config import CONFIG
+
+			skip_verification = CONFIG.SKIP_LLM_API_KEY_VERIFICATION
+		except Exception:
+			skip_verification = False
+		if getattr(self.llm, '_verified_api_keys', None) is True or skip_verification:
+			setattr(self.llm, '_verified_api_keys', True)
+		return True
 
 	async def run(
 		self,

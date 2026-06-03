@@ -481,10 +481,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The helpers support Browser Use message content mutation plus recursive Pydantic/dict/list/tuple restoration of shortened URLs.
    - Proof: `test_rust_agent_exposes_url_text_helper_methods`.
 
+95. Rust Agent setup helper parity
+   - The Rust-backed `Agent` now exposes Browser Use's `_set_file_system(...)`, `_set_screenshot_service()`, `_set_browser_use_version_and_source(...)`, and `_verify_and_setup_llm()` setup helpers.
+   - Construction routes through the helper methods, and direct calls support state restoration, explicit file-system initialization, screenshot storage setup, source overrides, and Rust-terminal LLM verification compatibility.
+   - Proof: `test_rust_agent_exposes_setup_helper_methods`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (68 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (69 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

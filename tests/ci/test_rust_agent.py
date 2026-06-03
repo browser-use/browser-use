@@ -973,6 +973,46 @@ def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	assert agent.state.file_system_state is not None
 
 
+def test_rust_agent_exposes_setup_helper_methods(tmp_path):
+	from browser_use.rust import Agent
+	from browser_use.screenshots.service import ScreenshotService
+
+	class LLM:
+		_verified_api_keys = True
+
+	initial_file_system_path = tmp_path / 'initial-files'
+	new_file_system_path = tmp_path / 'new-files'
+	agent = Agent(
+		task='Set up helpers.',
+		llm=LLM(),
+		file_system_path=str(initial_file_system_path),
+		source='constructor-source',
+	)
+
+	agent.file_system = None
+	agent.file_system_path = None
+	agent._set_file_system()
+	agent._set_screenshot_service()
+	agent._set_browser_use_version_and_source('helper-source')
+
+	assert agent.file_system_path == str(initial_file_system_path)
+	assert agent.file_system.base_dir == initial_file_system_path
+	assert isinstance(agent.screenshot_service, ScreenshotService)
+	assert agent.screenshot_service.agent_directory == agent.agent_directory
+	assert agent.source == 'helper-source'
+	assert agent.version
+	assert agent._verify_and_setup_llm() is True
+
+	with pytest.raises(ValueError, match='Cannot provide both file_system_state'):
+		agent._set_file_system(str(new_file_system_path))
+
+	agent.state.file_system_state = None
+	agent._set_file_system(str(new_file_system_path))
+
+	assert agent.file_system_path == str(new_file_system_path)
+	assert agent.file_system.base_dir == new_file_system_path
+
+
 def test_rust_agent_browser_profile_property_tracks_session_profile():
 	from browser_use.rust import Agent
 
