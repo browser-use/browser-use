@@ -571,10 +571,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - `on_step_start` and `on_step_end` resolve to Browser Use's `Callable[[Agent], Awaitable[None]] | None` hook shape instead of the previous loose `Any` callback annotation, while the runtime callback behavior remains unchanged.
    - Proof: `test_rust_agent_run_type_hints_match_browser_use_hooks`.
 
+113. Rust Agent action-model helper type-hint parity
+   - The Rust-backed action helper methods now expose Browser Use's action-model type metadata for callers that introspect replay and multi-action APIs.
+   - `_convert_initial_actions(...)`, `_update_action_indices(...)`, and `multi_act(...)` now resolve to Browser Use's `ActionModel`, `DOMInteractedElement`, and `BrowserStateSummary` annotations instead of loose `Any` metadata.
+   - Proof: `test_rust_agent_action_model_helper_type_hints_match_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (86 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (87 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

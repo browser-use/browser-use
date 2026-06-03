@@ -39,6 +39,7 @@ from browser_use.agent.views import (
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.profile import CHROME_DETERMINISTIC_RENDERING_ARGS, CHROME_DISABLE_SECURITY_ARGS, CHROME_DOCKER_ARGS
 from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary, TabInfo
+from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam
@@ -47,6 +48,7 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
+from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import URL_PATTERN, check_latest_browser_use_version, get_browser_use_version
 
@@ -1760,7 +1762,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Update Browser Use-style action model classes for page-filtered tools."""
 		self._setup_action_models_for_page(page_url)
 
-	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[Any]:
+	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[ActionModel]:
 		"""Convert dictionary initial actions to Browser Use action model instances when possible."""
 		converted_actions: list[Any] = []
 		registry = getattr(getattr(self.tools, 'registry', None), 'registry', None)
@@ -2104,7 +2106,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		_ = max_steps
 		return history.is_done()
 
-	async def multi_act(self, actions: list[Any]) -> list[ActionResult]:
+	async def multi_act(self, actions: list[ActionModel]) -> list[ActionResult]:
 		"""Execute Browser Use action models through the Rust-backed session.
 
 		The Rust terminal owns browser actions, so non-`done` action batches are
@@ -2201,10 +2203,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _update_action_indices(
 		self,
-		historical_element: Any | None,
-		action: Any,
-		browser_state_summary: Any,
-	) -> Any | None:
+		historical_element: DOMInteractedElement | None,
+		action: ActionModel,
+		browser_state_summary: BrowserStateSummary,
+	) -> ActionModel | None:
 		"""Update an action index when a historical DOM element moved."""
 		selector_map = getattr(getattr(browser_state_summary, 'dom_state', None), 'selector_map', {})
 		if not historical_element or not selector_map:
