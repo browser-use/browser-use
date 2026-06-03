@@ -4300,3 +4300,58 @@ def test_real_v8_smoke_selects_case_by_index_and_task_id(tmp_path):
 	assert module.select_case(cases, index=None, task_id='1')['confirmed_task'] == 'first task'
 	with pytest.raises(ValueError, match='Select by index or task_id'):
 		module.select_case(cases, index=0, task_id='1')
+
+
+async def test_real_v8_smoke_passes_step_timeout_to_agent(tmp_path, monkeypatch, capsys):
+	module = _load_real_v8_smoke_module()
+	dataset = tmp_path / 'real_v8.json'
+	dataset.write_text(json.dumps([{'task_id': '18', 'confirmed_task': 'find leadership'}]), encoding='utf-8')
+	seen: dict[str, object] = {}
+
+	class FakeHistory:
+		def final_result(self):
+			return 'done'
+
+		def is_successful(self):
+			return True
+
+		def errors(self):
+			return []
+
+		def urls(self):
+			return ['https://example.com']
+
+	class FakeAgent:
+		session_id = 'session-1'
+
+		def __init__(self, **kwargs):
+			seen.update(kwargs)
+			self.history = FakeHistory()
+
+		async def run(self, max_steps):
+			seen['max_steps'] = max_steps
+			return self.history
+
+	monkeypatch.setattr(module, 'Agent', FakeAgent)
+
+	await module.run_smoke(
+		type(
+			'Args',
+			(),
+			{
+				'dataset': dataset,
+				'list': False,
+				'index': None,
+				'task_id': '18',
+				'max_steps': 7,
+				'step_timeout': 600,
+				'cdp_url': None,
+			},
+		)()
+	)
+
+	assert seen['task'] == 'find leadership'
+	assert seen['task_id'] == '18'
+	assert seen['step_timeout'] == 600
+	assert seen['max_steps'] == 7
+	assert json.loads(capsys.readouterr().out)['final_result'] == 'done'

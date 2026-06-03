@@ -795,10 +795,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves current-main child-agent failure payloads that store error text under nested `payload.failure`, plus sensible cancellation/failure fallbacks when no text is present.
    - Proof: `test_rust_history_surfaces_terminal_subagent_failure_events`.
 
+157. real_v8 smoke step-timeout bridge
+   - `examples/rust_agent/real_v8_smoke.py` now accepts `--step-timeout` and `BU_STEP_TIMEOUT`, then passes the value to the Rust-backed Browser Use `Agent(step_timeout=...)`.
+   - This keeps benchmark cloud smokes on the public Browser Use timeout interface instead of requiring task-specific runner edits when real_v8 tasks exceed the 120-second default.
+   - Proof: `test_real_v8_smoke_passes_step_timeout_to_agent`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (128 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (129 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -861,6 +866,10 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Source `/home/exedev/.evaluation_tool_env`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
+- real_v8 cloud-browser end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`.
+  - `REAL_V8_DATASET=/home/exedev/Developer/evaluations-internal/datasets/real_v8.json BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud timeout 900 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30 --step-timeout 600`
+  - Output: `{"task_id": "18", "successful": true, "final_result": "Paramjit Uppal, Founder"}`
 - Existing-session follow-up end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BROWSER_USE_RUST_STATE_DIR=/tmp/browser-use-rust-followup-smoke timeout 420 uv run python - <<'PY' ...`
   - Output: first run `Example Domain`; follow-up `example.com`.
@@ -871,4 +880,4 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
-- Full real_v8 cloud-browser verification is intentionally not the active focus now. Per latest direction, benchmark runs should remain final smoke evidence only and should not drive task-specific changes.
+- A broader multi-task real_v8 cloud-browser sweep is not complete yet. The current proof covers one live benchmark task through Browser Use cloud and the Python Rust-backed Agent interface.

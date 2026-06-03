@@ -82,6 +82,12 @@ def parse_args() -> argparse.Namespace:
 		help='Maximum Rust terminal agent turns.',
 	)
 	parser.add_argument(
+		'--step-timeout',
+		type=int,
+		default=_int_from_env('BU_STEP_TIMEOUT', 120),
+		help='Maximum seconds to wait for the Rust terminal subprocess.',
+	)
+	parser.add_argument(
 		'--cdp-url',
 		default=os.environ.get('BU_CDP_URL') or os.environ.get('BROWSER_USE_CDP_URL'),
 		help='Optional remote browser CDP endpoint.',
@@ -100,7 +106,12 @@ async def run_smoke(args: argparse.Namespace) -> None:
 
 	case = select_case(cases, index=args.index, task_id=args.task_id)
 	browser_session = BrowserSession(cdp_url=args.cdp_url) if args.cdp_url else None
-	agent = Agent(task=case['confirmed_task'], browser_session=browser_session, task_id=case['task_id'])
+	agent = Agent(
+		task=case['confirmed_task'],
+		browser_session=browser_session,
+		task_id=case['task_id'],
+		step_timeout=args.step_timeout,
+	)
 	history = await agent.run(max_steps=args.max_steps)
 	final_result = history.final_result()
 	print(json.dumps(_summary(case, final_result, history.is_successful(), agent), indent=2))
