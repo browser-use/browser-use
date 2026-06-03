@@ -718,6 +718,24 @@ def _result_file_pointer(payload: dict[str, Any]) -> str | None:
 	return None
 
 
+def _artifact_attachment_pointer(value: Any) -> str | None:
+	if isinstance(value, str) and value:
+		return value
+	if not isinstance(value, dict):
+		return None
+	kind = value.get('kind')
+	mime = value.get('mime_type') or value.get('mime')
+	if isinstance(kind, str) and kind.lower() == 'image':
+		return None
+	if isinstance(mime, str) and mime.lower().startswith('image/'):
+		return None
+	for key in ('url', 'file_url', 'path'):
+		pointer = value.get(key)
+		if isinstance(pointer, str) and pointer:
+			return pointer
+	return None
+
+
 def _result_from_events(events: list[dict[str, Any]]) -> str | None:
 	for event in reversed(events):
 		if _event_type(event) != 'session.done':
@@ -735,11 +753,27 @@ def _result_from_events(events: list[dict[str, Any]]) -> str | None:
 def _attachments_from_events(events: list[dict[str, Any]]) -> list[str] | None:
 	attachments: list[str] = []
 	for event in events:
-		if _event_type(event) != 'session.done':
-			continue
-		result_file = _result_file_pointer(_event_payload(event))
-		if result_file and result_file not in attachments:
-			attachments.append(result_file)
+		event_type = _event_type(event)
+		payload = _event_payload(event)
+		pointers: list[str] = []
+		if event_type == 'session.done':
+			result_file = _result_file_pointer(payload)
+			if result_file:
+				pointers.append(result_file)
+		elif event_type in ('artifact.created', 'tool.output_spilled'):
+			pointer = _artifact_attachment_pointer(payload.get('artifact'))
+			if pointer:
+				pointers.append(pointer)
+		elif event_type in ('tool.output', 'tool.failed'):
+			artifacts = payload.get('artifacts')
+			if isinstance(artifacts, list):
+				for artifact in artifacts:
+					pointer = _artifact_attachment_pointer(artifact)
+					if pointer:
+						pointers.append(pointer)
+		for pointer in pointers:
+			if pointer not in attachments:
+				attachments.append(pointer)
 	return attachments or None
 
 

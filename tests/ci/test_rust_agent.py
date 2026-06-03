@@ -598,6 +598,71 @@ def test_rust_history_exposes_result_file_attachments():
 	assert results[0].attachments == ['file:///tmp/report.json']
 
 
+def test_rust_history_reconstructs_terminal_artifact_attachments():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-artifacts',
+					'arguments': {'code': "write_file('report.csv', rows)"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-artifacts',
+					'text': 'Generated report.csv',
+					'artifacts': [
+						{'path': '/tmp/report.csv', 'kind': 'file', 'mime': 'text/csv'},
+						{'path': '/tmp/screenshot.png', 'kind': 'image', 'mime_type': 'image/png'},
+					],
+				},
+			},
+			{
+				'type': 'artifact.created',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-artifacts',
+					'artifact': {'path': '/tmp/report.csv', 'kind': 'file', 'mime': 'text/csv'},
+				},
+			},
+			{
+				'type': 'tool.output_spilled',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-large',
+					'artifact': {'path': '/tmp/large-output.txt', 'original_tokens_estimate': 75000},
+				},
+			},
+			{
+				'event_type': 'session.done',
+				'payload': {
+					'result': 'Generated reports.',
+					'result_file': {'url': 'file:///tmp/final.json', 'path': '/tmp/final.json'},
+				},
+			},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	attachments = ['/tmp/report.csv', '/tmp/large-output.txt', 'file:///tmp/final.json']
+
+	assert history.final_result() == 'Generated reports.'
+	assert history.action_results()[-1].attachments == attachments
+	assert history.last_action() == {
+		'done': {'text': 'Generated reports.', 'success': True, 'files_to_display': attachments}
+	}
+
+
 def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	from browser_use.rust import Agent
 
