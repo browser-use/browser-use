@@ -805,6 +805,32 @@ def test_rust_agent_initializes_tools_and_action_models():
 	assert 'done' in str(done_schema)
 
 
+async def test_rust_agent_updates_action_models_for_page(monkeypatch):
+	from browser_use.rust import Agent
+
+	agent = Agent(task='Use page-specific tools.')
+	registry = agent.tools.registry
+	original_create_action_model = registry.create_action_model
+	seen = []
+
+	def recording_create_action_model(*args, **kwargs):
+		seen.append(kwargs)
+		return original_create_action_model(*args, **kwargs)
+
+	monkeypatch.setattr(registry, 'create_action_model', recording_create_action_model)
+
+	await agent._update_action_models_for_page('https://example.com/settings')
+
+	assert seen == [
+		{'page_url': 'https://example.com/settings'},
+		{'include_actions': ['done'], 'page_url': 'https://example.com/settings'},
+	]
+	assert agent.ActionModel is not None
+	assert agent.DoneActionModel is not None
+	assert agent.AgentOutput is not None
+	assert agent.DoneAgentOutput is not None
+
+
 def test_rust_agent_initializes_runtime_metadata_and_observability():
 	from browser_use.rust import Agent
 	from browser_use.tokens.service import TokenCost

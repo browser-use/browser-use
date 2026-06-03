@@ -1383,6 +1383,10 @@ class Agent(Generic[AgentStructuredOutput]):
 		else:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
 
+	async def _update_action_models_for_page(self, page_url: str) -> None:
+		"""Update Browser Use-style action model classes for page-filtered tools."""
+		self._setup_action_models(page_url=page_url)
+
 	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[Any]:
 		"""Convert dictionary initial actions to Browser Use action model instances when possible."""
 		converted_actions: list[Any] = []
