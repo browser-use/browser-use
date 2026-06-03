@@ -963,6 +963,10 @@ def _recoverable_failure_from_events(events: list[dict[str, Any]]) -> str | None
 			error = _tool_abort_message(payload)
 			if error:
 				return error
+		if event_type == 'exec_command.end' and not _matching_tool_result_payload(events, payload, ('tool.failed', 'tool.aborted')):
+			error = _exec_command_end_failure_message(payload)
+			if error:
+				return error
 		if event_type in ('model.turn.error', 'model.turn.context_overflow'):
 			error = payload.get('error') or payload.get('message') or payload.get('reason')
 			if isinstance(error, str) and error.strip():
@@ -986,6 +990,19 @@ def _tool_abort_message(payload: dict[str, Any]) -> str | None:
 	return f'{name} aborted: {error.strip()}' if isinstance(name, str) and name else error.strip()
 
 
+def _exec_command_end_failure_message(payload: dict[str, Any]) -> str | None:
+	exit_code = _int_value(payload.get('exit_code'))
+	if exit_code == 0:
+		return None
+	name = payload.get('name')
+	tool_name = name if isinstance(name, str) and name else 'exec_command'
+	detail = f'exit code {exit_code}'
+	text = _tool_result_text(payload)
+	if text:
+		detail = f'{detail}: {text}'
+	return f'{tool_name} failed: {detail}'
+
+
 def _tool_result_key(payload: dict[str, Any]) -> tuple[str, str] | None:
 	call_id = payload.get('tool_call_id') or payload.get('call_id')
 	if call_id:
@@ -996,17 +1013,23 @@ def _tool_result_key(payload: dict[str, Any]) -> tuple[str, str] | None:
 	return None
 
 
-def _matching_tool_abort_payload(events: list[dict[str, Any]], payload: dict[str, Any]) -> dict[str, Any] | None:
+def _matching_tool_result_payload(
+	events: list[dict[str, Any]], payload: dict[str, Any], event_types: tuple[str, ...]
+) -> dict[str, Any] | None:
 	key = _tool_result_key(payload)
 	if key is None:
 		return None
 	for event in events:
-		if _event_type(event) != 'tool.aborted':
+		if _event_type(event) not in event_types:
 			continue
-		abort_payload = _event_payload(event)
-		if _tool_result_key(abort_payload) == key:
-			return abort_payload
+		result_payload = _event_payload(event)
+		if _tool_result_key(result_payload) == key:
+			return result_payload
 	return None
+
+
+def _matching_tool_abort_payload(events: list[dict[str, Any]], payload: dict[str, Any]) -> dict[str, Any] | None:
+	return _matching_tool_result_payload(events, payload, ('tool.aborted',))
 
 
 def _safe_tool_action_name(value: Any) -> str | None:
@@ -1521,6 +1544,8 @@ def _action_results_from_tool_calls(
 			error = _tool_failure_message(payload)
 		elif event_type == 'tool.aborted':
 			error = _tool_abort_message(payload)
+		elif event_type == 'exec_command.end':
+			error = _exec_command_end_failure_message(payload)
 		else:
 			error = None
 		action_results.append(

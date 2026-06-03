@@ -704,6 +704,53 @@ def test_rust_history_reconstructs_terminal_exec_command_end_output():
 	assert history.final_result() == 'final answer'
 
 
+def test_rust_history_surfaces_terminal_exec_command_end_failure():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'arguments': {'cmd': 'exit 2'},
+				},
+			},
+			{
+				'type': 'exec_command.end',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'process_id': '1000',
+					'session_id': 1000,
+					'exit_code': 2,
+					'wall_time_seconds': 0.1,
+					'output': 'command failed\n',
+				},
+			},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	error = 'exec_command failed: exit code 2: command failed'
+	first_result = history.action_results()[0]
+
+	assert history.final_result() is None
+	assert history.is_done() is False
+	assert history.errors() == [error]
+	assert first_result.error == error
+	assert first_result.extracted_content == 'command failed'
+	assert first_result.long_term_memory == 'command failed'
+	assert history.action_history()[0][0]['result'] == 'command failed'
+	assert history.action_results()[-1].error == error
+
+
 def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
 	from browser_use.rust.service import _history_from_events
 

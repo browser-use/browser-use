@@ -759,10 +759,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves current-main unified exec final stdout/stderr on Python-visible `ActionResult.extracted_content`, `long_term_memory`, and `action_history()` even if only the exec lifecycle events were recorded.
    - Proof: `test_rust_history_reconstructs_terminal_exec_command_end_output`.
 
+150. Rust terminal exec-command failure reconstruction
+   - Terminal `exec_command.end` events with nonzero exit codes now surface Browser Use action and history errors when no explicit `tool.failed` or `tool.aborted` event is present.
+   - This preserves current-main unified exec failures on Python-visible `history.errors()` and per-action `ActionResult.error` while retaining the final command output in action memory.
+   - Proof: `test_rust_history_surfaces_terminal_exec_command_end_failure`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (121 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (122 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
