@@ -11,6 +11,16 @@ import pytest
 from pydantic import BaseModel
 
 
+@pytest.fixture(autouse=True)
+def _disable_rust_agent_latest_version_check(monkeypatch):
+	import browser_use.rust.service as rust_service
+
+	async def no_latest_version():
+		return None
+
+	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', no_latest_version)
+
+
 def _load_real_v8_smoke_module():
 	path = Path(__file__).parents[2] / 'examples' / 'rust_agent' / 'real_v8_smoke.py'
 	spec = importlib.util.spec_from_file_location('real_v8_smoke', path)
@@ -3000,6 +3010,9 @@ async def test_rust_agent_run_records_terminal_telemetry(monkeypatch):
 		def info(self, message, *args, **kwargs):
 			pass
 
+		def debug(self, message, *args, **kwargs):
+			pass
+
 		def error(self, message, *args, **kwargs):
 			self.errors.append(message)
 
@@ -3014,6 +3027,53 @@ async def test_rust_agent_run_records_terminal_telemetry(monkeypatch):
 
 	assert failing_history.final_result() == 'telemetry answer'
 	assert logger.errors == ['Failed to log telemetry event: telemetry failed']
+
+
+async def test_rust_agent_run_logs_browser_use_run_metadata(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	async def latest_version():
+		return None
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', latest_version)
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+
+	agent = Agent(task='Log run metadata.', llm=type('LLM', (), {'model': 'gpt-test'})())
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		assert any(message.endswith('Task: Log run metadata.\033[0m') for message in logger.infos)
+		assert any('Browser-Use Library Version' in message for message in logger.debugs)
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'logged metadata'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=1)
+
+	assert history.final_result() == 'logged metadata'
+	assert logger.errors == []
 
 
 async def test_rust_agent_run_logs_token_usage_summary(monkeypatch):
@@ -3064,6 +3124,9 @@ async def test_rust_agent_run_logs_final_outcome_guidance(monkeypatch):
 
 		def info(self, message, *args, **kwargs):
 			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			pass
 
 		def error(self, message, *args, **kwargs):
 			self.errors.append(message)

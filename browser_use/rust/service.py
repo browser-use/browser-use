@@ -2870,6 +2870,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
+		await self._log_agent_run()
 		await self._call_callback(on_step_start, self)
 		self._initialize_run_lifecycle_state()
 		started = time.time()

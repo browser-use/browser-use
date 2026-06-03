@@ -851,10 +851,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Failed or not-done Rust terminal histories now emit the same user-facing issue/CAPTCHA guidance path that the Python Agent runs after GIF/output handling and before eventbus shutdown.
    - Proof: `test_rust_agent_run_logs_final_outcome_guidance`.
 
+168. Rust Agent run metadata logging parity
+   - Terminal-backed `Agent.run()` now invokes Browser Use run-start metadata logging before Rust terminal execution.
+   - The wrapper logs the task and Browser Use library version through the same public helper path that callers can also invoke directly.
+   - Proof: `test_rust_agent_run_logs_browser_use_run_metadata`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (139 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (140 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
