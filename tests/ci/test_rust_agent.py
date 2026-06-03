@@ -838,6 +838,31 @@ def test_rust_agent_initializes_runtime_metadata_and_observability():
 	assert agent.DoneAgentOutput is not None
 
 
+def test_rust_agent_initializes_message_manager_and_followup_state():
+	from browser_use.agent.message_manager.service import MessageManager
+	from browser_use.rust import Agent
+
+	agent = Agent(
+		task='Initial task.',
+		task_id='task-with-hyphen',
+		include_recent_events=True,
+	)
+	initial_eventbus_name = agent.eventbus.name
+
+	agent.add_new_task('Follow up task.')
+
+	assert isinstance(agent.message_manager, MessageManager)
+	assert agent.message_manager is agent._message_manager
+	assert agent.message_manager.include_recent_events is True
+	assert '<initial_user_request>' in agent.message_manager.task
+	assert '<follow_up_user_request> Follow up task. </follow_up_user_request>' in agent.message_manager.task
+	assert agent.state.follow_up_task is True
+	assert agent.state.stopped is False
+	assert agent.state.paused is False
+	assert agent.eventbus.name.startswith(initial_eventbus_name)
+	assert agent.eventbus.name.isidentifier()
+
+
 def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.rust import Agent

@@ -421,10 +421,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The wrapper registers supplied LLMs with token-cost tracking when they expose `ainvoke`, creates a valid Bubus event bus name for arbitrary task IDs, and exposes `DoneAgentOutput` alongside `DoneActionModel`.
    - Proof: `test_rust_agent_initializes_runtime_metadata_and_observability`.
 
+83. Rust Agent message manager parity
+   - The Rust-backed `Agent` now initializes a Browser Use `MessageManager` and exposes it through `agent.message_manager`.
+   - `add_new_task(...)` now updates the message manager follow-up history, resets pause/stop state, and recreates a valid event bus name without depending on the Python Agent run loop.
+   - Proof: `test_rust_agent_initializes_message_manager_and_followup_state`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (56 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (57 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

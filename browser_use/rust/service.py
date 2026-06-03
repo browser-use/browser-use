@@ -19,6 +19,8 @@ from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 from uuid_extensions import uuid7str
 
+from browser_use.agent.message_manager.service import MessageManager
+from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
 	AgentHistory,
@@ -960,6 +962,18 @@ def _register_llm_for_usage(token_cost_service: TokenCost, llm: Any | None) -> N
 		return
 
 
+def _eventbus_name(agent_id: str, prefix: str = 'RustAgent') -> str:
+	suffix = re.sub(r'\W', '_', str(agent_id)[-8:])
+	if suffix and suffix[0].isdigit():
+		suffix = 'a' + suffix
+	return f'{prefix}_{suffix or "agent"}'
+
+
+def _unique_eventbus_name(agent_id: str, prefix: str = 'RustAgent') -> str:
+	unique_suffix = re.sub(r'\W', '_', uuid7str()[-8:])
+	return f'{_eventbus_name(agent_id, prefix)}_{unique_suffix}'
+
+
 def _action_payload(action: Any) -> dict[str, Any]:
 	"""Serialize a Browser Use action model into JSON-like data for Rust task context."""
 	if isinstance(action, dict):
@@ -1134,8 +1148,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		_register_llm_for_usage(self.token_cost_service, llm)
 		_register_llm_for_usage(self.token_cost_service, page_extraction_llm)
 		self.telemetry = ProductTelemetry()
-		eventbus_suffix = re.sub(r'\W', '_', str(self.id)[-8:])
-		self.eventbus = EventBus(name=f'RustAgent_{eventbus_suffix}')
+		self.eventbus = EventBus(name=_eventbus_name(self.id))
 		self.available_file_paths = available_file_paths or []
 		self.allowed_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'allowed_domains')
 		self.prohibited_domains = _extract_profile_domains(self.browser_session, self.browser_profile, 'prohibited_domains')
@@ -1186,6 +1199,26 @@ class Agent(Generic[AgentStructuredOutput]):
 				self.available_file_paths,
 			),
 			output_model_schema,
+		)
+		self._message_manager = MessageManager(
+			task=self.task,
+			system_message=SystemPrompt(
+				max_actions_per_step=self.settings.max_actions_per_step,
+				override_system_message=self.settings.override_system_message,
+				extend_system_message=self.settings.extend_system_message,
+				use_thinking=self.settings.use_thinking,
+				flash_mode=self.settings.flash_mode,
+			).get_system_message(),
+			file_system=self.file_system,
+			state=self.state.message_manager_state,
+			use_thinking=self.settings.use_thinking,
+			include_attributes=self.settings.include_attributes,
+			sensitive_data=sensitive_data,
+			max_history_items=self.settings.max_history_items,
+			vision_detail_level=self.settings.vision_detail_level,
+			include_tool_call_examples=self.settings.include_tool_call_examples,
+			include_recent_events=self.include_recent_events,
+			sample_images=self.sample_images,
 		)
 		self.session_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
@@ -1317,6 +1350,10 @@ class Agent(Generic[AgentStructuredOutput]):
 			f'browser_use.rust.Agent {self.task_id[-4:]} -> BrowserSession {str(browser_session_id)[-4:]} Target {target_id}'
 		)
 
+	@property
+	def message_manager(self) -> MessageManager:
+		return self._message_manager
+
 	def _setup_action_models(self, page_url: str | None = None) -> None:
 		"""Expose Browser Use-style action model classes from the configured tools."""
 		registry = getattr(self.tools, 'registry', None)
@@ -1440,9 +1477,11 @@ class Agent(Generic[AgentStructuredOutput]):
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a follow-up task while keeping the same Browser Use-style agent object."""
 		self.task = _task_with_schema(new_task, self.output_model_schema)
+		self._message_manager.add_new_task(new_task)
 		self.state.follow_up_task = True
 		self.state.stopped = False
 		self.state.paused = False
+		self.eventbus = EventBus(name=_unique_eventbus_name(self.id))
 		self._external_pause_event.set()
 
 	def save_history(self, file_path: str | Path | None = None) -> None:
