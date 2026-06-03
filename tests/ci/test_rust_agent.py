@@ -660,6 +660,50 @@ def test_rust_history_reconstructs_terminal_tool_output_deltas():
 	assert history.final_result() == 'final answer'
 
 
+def test_rust_history_reconstructs_terminal_exec_command_end_output():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'arguments': {'cmd': "printf 'final stdout'"},
+				},
+			},
+			{
+				'type': 'exec_command.end',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'process_id': '1000',
+					'session_id': 1000,
+					'exit_code': 0,
+					'wall_time_seconds': 0.1,
+					'output': 'final stdout\n',
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_result = history.action_results()[0]
+
+	assert history.action_names() == ['exec_command', 'done']
+	assert history.model_actions()[0]['exec_command']['cmd'] == "printf 'final stdout'"
+	assert first_result.extracted_content == 'final stdout'
+	assert first_result.long_term_memory == 'final stdout'
+	assert history.action_history()[0][0]['result'] == 'final stdout'
+	assert history.final_result() == 'final answer'
+
+
 def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
 	from browser_use.rust.service import _history_from_events
 

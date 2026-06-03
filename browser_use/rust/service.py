@@ -1114,6 +1114,7 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 		if event_type not in (
 			'tool.output',
 			'tool.output_delta',
+			'exec_command.end',
 			'tool.failed',
 			'tool.aborted',
 			'tool.finished',
@@ -1127,6 +1128,8 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 			delta_text = _tool_output_delta_text(payload)
 			if not delta_text:
 				continue
+		if event_type == 'exec_command.end' and not _tool_result_text(payload):
+			continue
 		call_id = payload.get('tool_call_id') or payload.get('call_id')
 		if call_id:
 			key = str(call_id)
@@ -1141,6 +1144,13 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 						merged_payload[payload_key] = payload_value
 				merged_payload['text'] = f'{previous_text if isinstance(previous_text, str) else ""}{delta_text}'
 				results[key] = (event_type, merged_payload)
+				continue
+			if event_type == 'exec_command.end' and previous is not None and previous[0] in (
+				'tool.output',
+				'tool.failed',
+				'tool.aborted',
+				'model.response.input_item',
+			):
 				continue
 			if event_type == 'tool.failed' and previous is not None and previous[0] == 'tool.aborted':
 				continue
@@ -1157,6 +1167,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 		if event_type not in (
 			'tool.output',
 			'tool.output_delta',
+			'exec_command.end',
 			'tool.failed',
 			'tool.aborted',
 			'tool.finished',
@@ -1205,6 +1216,26 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 			)
 			if previous_delta_index is not None and payload.get('stream') is not True:
 				results[previous_delta_index] = (event_type, payload)
+				continue
+		elif event_type == 'exec_command.end':
+			if not _tool_result_text(payload):
+				continue
+			name = payload.get('name')
+			previous_result_index = next(
+				(
+					index
+					for index in range(len(results) - 1, -1, -1)
+					if isinstance(name, str)
+					and name
+					and results[index][1].get('name') == name
+				),
+				None,
+			)
+			if previous_result_index is not None:
+				previous_event_type = results[previous_result_index][0]
+				if previous_event_type in ('tool.output', 'tool.failed', 'tool.aborted', 'model.response.input_item'):
+					continue
+				results[previous_result_index] = (event_type, payload)
 				continue
 		if event_type == 'tool.output' and payload.get('stream') is True:
 			continue
@@ -1496,10 +1527,10 @@ def _action_results_from_tool_calls(
 			ActionResult(
 				error=error,
 				extracted_content=text
-				if event_type in ('tool.output', 'tool.output_delta', 'tool.finished', 'model.response.input_item')
+				if event_type in ('tool.output', 'tool.output_delta', 'exec_command.end', 'tool.finished', 'model.response.input_item')
 				else None,
 				long_term_memory=text
-				if event_type in ('tool.output', 'tool.output_delta', 'tool.finished', 'model.response.input_item')
+				if event_type in ('tool.output', 'tool.output_delta', 'exec_command.end', 'tool.finished', 'model.response.input_item')
 				else None,
 			)
 		)

@@ -754,10 +754,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves current-main user-aborted tool semantics on Python-visible `history.errors()`, per-action `ActionResult.error`, and final fallback errors instead of downgrading them to generic tool-failure messages.
    - Proof: `test_rust_history_preserves_terminal_tool_abort_when_failed_event_follows`.
 
+149. Rust terminal exec-command end-output reconstruction
+   - Terminal `exec_command.end` final output is now reconstructed into Browser Use action results when no generic textual `tool.output` is present.
+   - This preserves current-main unified exec final stdout/stderr on Python-visible `ActionResult.extracted_content`, `long_term_memory`, and `action_history()` even if only the exec lifecycle events were recorded.
+   - Proof: `test_rust_history_reconstructs_terminal_exec_command_end_output`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (120 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (121 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
