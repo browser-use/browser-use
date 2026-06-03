@@ -3967,16 +3967,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def pause(self) -> None:
 		"""Pause the Rust-backed agent before the next terminal run."""
+		print('\n\n⏸️ Paused the agent and left the browser open.\n\tPress [Enter] to resume or [Ctrl+C] again to quit.')
 		self.state.paused = True
 		self._external_pause_event.clear()
 
 	def resume(self) -> None:
 		"""Resume a paused Rust-backed agent."""
+		print('----------------------------------------------------------------------')
+		print('▶️  Resuming agent execution where it left off...\n')
 		self.state.paused = False
 		self._external_pause_event.set()
 
 	def stop(self) -> None:
 		"""Stop the Rust-backed agent before the next terminal run."""
+		self.logger.info('⏹️ Agent stopping')
 		self.state.stopped = True
 		self._external_pause_event.set()
 

@@ -1031,10 +1031,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Trace payloads now include serialized `get_git_info()` metadata, matching Browser Use's trace contract while preserving the existing Rust-backed history and structured-output trace fields.
    - Proof: `test_rust_agent_trace_metadata_matches_browser_use_helpers`.
 
+204. Rust Agent control-method feedback parity
+   - Rust-backed `pause()` and `resume()` now print the same Browser Use user-facing control messages while preserving their pause event-gate behavior.
+   - Rust-backed `stop()` now logs Browser Use's stop message before setting the stopped state and unblocking paused runs.
+   - Proof: `test_rust_agent_control_methods_match_browser_use_user_feedback`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (172 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (173 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

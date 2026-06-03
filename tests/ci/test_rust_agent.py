@@ -5335,6 +5335,52 @@ def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
 	assert 'saved answer' in history_file.read_text(encoding='utf-8')
 
 
+def test_rust_agent_control_methods_match_browser_use_user_feedback(monkeypatch, capsys):
+	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def warning(self, message, *args, **kwargs):
+			pass
+
+		def error(self, message, *args, **kwargs):
+			pass
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Control lifecycle feedback.', directly_open_url=False)
+
+	agent.pause()
+	pause_output = capsys.readouterr().out
+
+	assert agent.state.paused is True
+	assert not agent._external_pause_event.is_set()
+	assert 'Paused the agent and left the browser open.' in pause_output
+	assert 'Press [Enter] to resume or [Ctrl+C] again to quit.' in pause_output
+
+	agent.resume()
+	resume_output = capsys.readouterr().out
+
+	assert agent.state.paused is False
+	assert agent._external_pause_event.is_set()
+	assert '----------------------------------------------------------------------' in resume_output
+	assert 'Resuming agent execution where it left off...' in resume_output
+
+	agent.stop()
+
+	assert agent.state.stopped is True
+	assert agent._external_pause_event.is_set()
+	assert logger.infos == ['⏹️ Agent stopping']
+
+
 def test_rust_agent_sync_state_counts_terminal_histories_monotonically():
 	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events
