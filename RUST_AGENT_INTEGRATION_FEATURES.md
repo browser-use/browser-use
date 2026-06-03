@@ -891,10 +891,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The log includes the resolved max-step budget, preserving the observable run-start debug metadata expected by Browser Use callers.
    - Proof: `test_rust_agent_run_logs_main_execution_start`.
 
+176. Rust Agent follow-up interrupt-finalization parity
+   - Direct terminal-backed `Agent.follow_up()` now handles `KeyboardInterrupt` like Browser Use run execution, returning current history after finalizing lifecycle state.
+   - Interrupted follow-ups log usage summaries, record `KeyboardInterrupt` telemetry, dispatch the final task update, unregister signal handlers, and close browser resources before returning.
+   - Proof: `test_rust_agent_follow_up_finalizes_after_keyboard_interrupt`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (147 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (148 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
