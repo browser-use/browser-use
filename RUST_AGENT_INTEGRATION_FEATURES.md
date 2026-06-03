@@ -1285,7 +1285,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
-- A broader real_v8 cloud-browser sweep is in progress. Passing live benchmark tasks: real_v8 `18`, real_v8-2 `1`.
+- Historical passing live benchmark tasks from earlier focused smokes: real_v8 `18`, real_v8-2 `1`.
+- 2026-06-03 three-task real_v8 cloud smoke through the Python `Agent` API and Rust terminal core launched and returned for real_v8 `18`, `14`, and `20` with `DEFAULT_LLM=openai_gpt_4_1_mini`, `BROWSER_USE_RUST_BROWSER_MODE=cloud`, and the local debug `browser-use-terminal`, but it is not a clean benchmark pass:
+  - real_v8 `18`: returned `successful=true`, but final output was `[empty]` after failing to verify AND Digital leadership information and included generated browser-script JavaScript quoting errors.
+  - real_v8 `14`: returned `successful=true`, but final output said ycombinator.com was blocked/unresponsive and did not extract the requested Winter 2025 B2B company data.
+  - real_v8 `20`: returned `successful=true`, but final output omitted abstracts, reported navigation restrictions, and included generated browser-script syntax/domain-constraint errors.
+  - The requested 50+50 parallel real_v8 sweep was not started because the three-task gate did not produce clean task-quality results.
 - Non-passing sweep data points so far:
   - real_v8 `11`: repository paths in the task appear stale for current `openai/codex`, and the run later hit the model context window while trying to retrieve large source contents.
   - real_v8 `13`: provider/tool-call decode error, `EOF while parsing an object`, before a final result.
