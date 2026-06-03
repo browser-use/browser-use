@@ -409,6 +409,64 @@ def test_rust_history_reconstructs_terminal_tool_call_actions():
 	assert history.action_results()[-1].is_done is True
 
 
+def test_rust_history_reconstructs_terminal_model_tool_call_actions():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'model.tool_call',
+				'payload': {
+					'id': 'call-browser',
+					'name': 'browser_script',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': "duplicate_should_not_replace_original()"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'text': 'Opened Example Domain',
+				},
+			},
+			{
+				'type': 'model.response.output_item',
+				'payload': {
+					'item': {
+						'type': 'function_call',
+						'call_id': 'call-done',
+						'name': 'done',
+						'arguments': '{"text": "Example Domain", "success": true}',
+					}
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	actions = history.model_actions()
+
+	assert history.action_names() == ['browser_script', 'done']
+	assert actions[0]['browser_script']['code'] == "goto_url('https://example.com')"
+	assert actions[1]['done'] == {'text': 'Example Domain', 'success': True}
+	assert history.action_history()[0][0]['result'] == 'Opened Example Domain'
+	assert history.last_action() == {'done': {'text': 'Example Domain', 'success': True}}
+
+
 def test_rust_history_synthesizes_done_action_from_terminal_completion():
 	from browser_use.rust.service import _history_from_events
 

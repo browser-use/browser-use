@@ -886,28 +886,63 @@ def _safe_tool_action_name(value: Any) -> str | None:
 def _tool_arguments(value: Any) -> dict[str, Any]:
 	if isinstance(value, dict):
 		return value
+	if isinstance(value, str):
+		try:
+			parsed = json.loads(value)
+		except json.JSONDecodeError:
+			return {'value': value}
+		return parsed if isinstance(parsed, dict) else {'value': parsed}
 	if value is None:
 		return {}
 	return {'value': value}
 
 
+def _tool_call_from_payload(payload: dict[str, Any], fallback_id: str) -> dict[str, Any] | None:
+	function = payload.get('function')
+	if not isinstance(function, dict):
+		function = {}
+	name = _safe_tool_action_name(payload.get('name') or function.get('name'))
+	if name is None:
+		return None
+	call_id = payload.get('tool_call_id') or payload.get('call_id') or payload.get('id') or fallback_id
+	arguments = payload.get('arguments')
+	if arguments is None:
+		arguments = function.get('arguments')
+	return {
+		'name': name,
+		'tool_call_id': str(call_id),
+		'arguments': _tool_arguments(arguments),
+	}
+
+
+def _tool_call_from_response_item(payload: dict[str, Any], fallback_id: str) -> dict[str, Any] | None:
+	item = payload.get('item')
+	if not isinstance(item, dict):
+		return None
+	if item.get('type') not in ('function_call', 'custom_tool_call'):
+		return None
+	return _tool_call_from_payload(item, fallback_id)
+
+
 def _tool_started_calls(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	tool_calls: list[dict[str, Any]] = []
+	seen_call_ids: set[str] = set()
 	for event in events:
-		if _event_type(event) != 'tool.started':
-			continue
+		event_type = _event_type(event)
 		payload = _event_payload(event)
-		name = _safe_tool_action_name(payload.get('name'))
-		if name is None:
+		if event_type in ('tool.started', 'model.tool_call'):
+			tool_call = _tool_call_from_payload(payload, f'tool-{len(tool_calls)}')
+		elif event_type == 'model.response.output_item':
+			tool_call = _tool_call_from_response_item(payload, f'tool-{len(tool_calls)}')
+		else:
 			continue
-		call_id = payload.get('tool_call_id') or payload.get('call_id') or f'tool-{len(tool_calls)}'
-		tool_calls.append(
-			{
-				'name': name,
-				'tool_call_id': str(call_id),
-				'arguments': _tool_arguments(payload.get('arguments')),
-			}
-		)
+		if tool_call is None:
+			continue
+		call_id = tool_call['tool_call_id']
+		if call_id in seen_call_ids:
+			continue
+		seen_call_ids.add(call_id)
+		tool_calls.append(tool_call)
 	return tool_calls
 
 
