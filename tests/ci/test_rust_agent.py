@@ -966,6 +966,31 @@ def test_rust_agent_llm_timeout_defaults_match_browser_use_model_families():
 	assert override_agent.settings.llm_timeout == 12
 
 
+def test_rust_agent_disables_vision_for_unsupported_model_families():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		provider = 'test'
+
+		def __init__(self, model):
+			self.model = model
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	for model in ['deepseek-chat', 'grok-2', 'xai-grok']:
+		browser_use_agent = BrowserUseAgent(task='Inspect vision.', llm=LLM(model), directly_open_url=False, use_vision=True)
+		rust_agent = RustAgent(task='Inspect vision.', llm=LLM(model), directly_open_url=False, use_vision=True)
+
+		assert browser_use_agent.settings.use_vision is False
+		assert rust_agent.settings.use_vision is False
+
+	normal_agent = RustAgent(task='Inspect vision.', llm=LLM('gpt-test'), directly_open_url=False, use_vision=True)
+
+	assert normal_agent.settings.use_vision is True
+
+
 def test_rust_agent_state_id_defaults_like_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.agent.views import AgentState

@@ -546,10 +546,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Explicit `llm_timeout` overrides still take precedence over the model-family heuristic.
    - Proof: `test_rust_agent_llm_timeout_defaults_match_browser_use_model_families`.
 
+108. Rust Agent unsupported vision model parity
+   - The Rust-backed Agent now mirrors Browser Use's constructor behavior that disables `settings.use_vision` for DeepSeek and Grok/XAI model families.
+   - Ordinary vision-capable model families still preserve caller-provided `use_vision=True`.
+   - Proof: `test_rust_agent_disables_vision_for_unsupported_model_families`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (81 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (82 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
