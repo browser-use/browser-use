@@ -467,6 +467,53 @@ def test_rust_history_reconstructs_terminal_model_tool_call_actions():
 	assert history.last_action() == {'done': {'text': 'Example Domain', 'success': True}}
 
 
+def test_rust_history_reconstructs_terminal_response_input_item_tool_results():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'model.tool_call',
+				'payload': {
+					'id': 'call-browser',
+					'name': 'browser_script',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'model.response.input_item',
+				'payload': {
+					'call_id': 'call-browser',
+					'name': 'browser_script',
+					'item': {
+						'type': 'function_call_output',
+						'call_id': 'call-browser',
+						'output': [
+							{'type': 'input_text', 'text': 'Opened '},
+							{'type': 'input_text', 'text': 'Example Domain'},
+							{'type': 'input_image', 'image_url': 'data:image/png;base64,AAAA'},
+						],
+					},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	first_result = history.action_results()[0]
+
+	assert history.action_names() == ['browser_script', 'done']
+	assert first_result.extracted_content == 'Opened Example Domain'
+	assert first_result.long_term_memory == 'Opened Example Domain'
+	assert history.action_history()[0][0]['result'] == 'Opened Example Domain'
+	assert history.final_result() == 'Example Domain'
+
+
 def test_rust_history_synthesizes_done_action_from_terminal_completion():
 	from browser_use.rust.service import _history_from_events
 

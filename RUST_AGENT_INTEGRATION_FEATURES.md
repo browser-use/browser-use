@@ -679,10 +679,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves model commentary for replay/import logs that store assistant text as response items instead of live `model.stream_delta` events, while still de-duplicating overlapping stream prefixes.
    - Proof: `test_rust_history_reconstructs_terminal_response_item_model_text`.
 
+134. Rust terminal response-input tool-result reconstruction
+   - Terminal `model.response.input_item` function-call-output records are now reconstructed into Browser Use `ActionResult` entries.
+   - This preserves tool result text for provider-shaped replay/import logs that store tool outputs as response input items instead of `tool.output` events.
+   - Proof: `test_rust_history_reconstructs_terminal_response_input_item_tool_results`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (105 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (106 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

@@ -974,28 +974,63 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 	results: dict[str, tuple[str, dict[str, Any]]] = {}
 	for event in events:
 		event_type = _event_type(event)
-		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted'):
+		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted', 'model.response.input_item'):
 			continue
 		payload = _event_payload(event)
+		if event_type == 'model.response.input_item':
+			payload = _response_input_item_tool_payload(payload)
 		call_id = payload.get('tool_call_id') or payload.get('call_id')
 		if call_id:
 			results[str(call_id)] = (event_type, payload)
 	return results
 
 
+def _response_input_item_tool_payload(payload: dict[str, Any]) -> dict[str, Any]:
+	item = payload.get('item')
+	if not isinstance(item, dict):
+		item = {}
+	call_id = item.get('call_id') or item.get('id') or payload.get('call_id') or payload.get('id')
+	result_payload: dict[str, Any] = dict(payload)
+	if call_id:
+		result_payload['tool_call_id'] = call_id
+	name = item.get('name') or payload.get('name')
+	if isinstance(name, str) and name:
+		result_payload['name'] = name
+	if 'output' in item:
+		result_payload['output'] = item.get('output')
+	elif 'content' in item:
+		result_payload['content'] = item.get('content')
+	return result_payload
+
+
+def _tool_output_text(value: Any) -> str | None:
+	if isinstance(value, str) and value.strip():
+		return value.strip()
+	if isinstance(value, list):
+		text_parts = []
+		for part in value:
+			if isinstance(part, str):
+				text_parts.append(part)
+			elif isinstance(part, dict):
+				text = part.get('text')
+				if isinstance(text, str):
+					text_parts.append(text)
+		text = ''.join(text_parts).strip()
+		return text or None
+	if isinstance(value, dict):
+		return json.dumps(value, ensure_ascii=False, default=str)
+	return None
+
+
 def _tool_result_text(payload: dict[str, Any]) -> str | None:
 	for key in ('text', 'output', 'result'):
-		value = payload.get(key)
-		if isinstance(value, str) and value.strip():
-			return value.strip()
+		text = _tool_output_text(payload.get(key))
+		if text:
+			return text
 	content = payload.get('content')
-	if isinstance(content, list):
-		for part in content:
-			if not isinstance(part, dict):
-				continue
-			text = part.get('text')
-			if isinstance(text, str) and text.strip():
-				return text.strip()
+	text = _tool_output_text(content)
+	if text:
+		return text
 	return None
 
 
@@ -1110,8 +1145,8 @@ def _action_results_from_tool_calls(
 		action_results.append(
 			ActionResult(
 				error=error,
-				extracted_content=text if event_type == 'tool.output' else None,
-				long_term_memory=text if event_type == 'tool.output' else None,
+				extracted_content=text if event_type in ('tool.output', 'model.response.input_item') else None,
+				long_term_memory=text if event_type in ('tool.output', 'model.response.input_item') else None,
 			)
 		)
 
