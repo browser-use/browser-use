@@ -3607,17 +3607,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def close(self):
 		"""Close Browser Use session resources when the caller did not request keep-alive."""
-		if self.browser_session is not None:
-			profile = getattr(self.browser_session, 'browser_profile', None) or self.browser_profile
-			if not getattr(profile, 'keep_alive', False):
-				kill = getattr(self.browser_session, 'kill', None)
-				if callable(kill):
-					result = kill()
-					if inspect.isawaitable(result):
-						await result
-		import gc
+		try:
+			if self.browser_session is not None:
+				profile = getattr(self.browser_session, 'browser_profile', None) or self.browser_profile
+				if not getattr(profile, 'keep_alive', False):
+					kill = getattr(self.browser_session, 'kill', None)
+					if callable(kill):
+						result = kill()
+						if inspect.isawaitable(result):
+							await result
+			import gc
 
-		gc.collect()
+			gc.collect()
+		except Exception as exc:
+			self.logger.error(f'Error during cleanup: {exc}')
 		return None
 
 	async def log_completion(self) -> None:

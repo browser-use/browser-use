@@ -3454,6 +3454,34 @@ async def test_rust_agent_close_kills_non_keep_alive_browser_session():
 	assert keep_alive_session.kill_calls == 0
 
 
+async def test_rust_agent_close_logs_cleanup_errors_without_raising(monkeypatch):
+	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.errors = []
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+
+	class BrowserProfile:
+		keep_alive = False
+
+	class BrowserSession:
+		browser_profile = BrowserProfile()
+
+		async def kill(self):
+			raise RuntimeError('cleanup failed')
+
+	agent = Agent(task='close failed session', browser_session=BrowserSession(), directly_open_url=False)
+
+	assert await agent.close() is None
+	assert logger.errors == ['Error during cleanup: cleanup failed']
+
+
 async def test_rust_agent_check_stop_or_pause_matches_browser_use_lifecycle():
 	from browser_use.rust import Agent
 
