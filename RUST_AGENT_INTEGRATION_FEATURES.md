@@ -1156,15 +1156,22 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Terminal Rust browser bridge now consumes wrapper-exported `BU_BROWSER_USER_AGENT`, `BU_BROWSER_PERMISSIONS`, `BU_BROWSER_ACCEPT_DOWNLOADS`, `BU_BROWSER_DOWNLOADS_PATH`, `BU_BROWSER_STORAGE_STATE`, `BU_BROWSER_ALLOWED_DOMAINS`, `BU_BROWSER_PROHIBITED_DOMAINS`, and `BU_BROWSER_BLOCK_IP_ADDRESSES` on the actual browser-script CDP path used by Python `Agent` runs.
    - Proof: terminal `managed_browser_launch_reads_browser_profile_env`, `browser_profile_runtime_setup_calls_read_env`, `browser_profile_runtime_domain_constraints_read_env`, and the OpenAI-backed Python Agent BrowserProfile/structured-output smoke below.
 
+229. Rust Agent BrowserProfile passive domain-constraint parity
+   - Terminal Rust browser bridge now leaves malformed or relative `Page.navigate` values to normal CDP/browser handling when no wrapper-exported domain/IP constraints are configured.
+   - When `BU_BROWSER_ALLOWED_DOMAINS`, `BU_BROWSER_PROHIBITED_DOMAINS`, or `BU_BROWSER_BLOCK_IP_ADDRESSES=true` is active, the same malformed navigation values are still rejected before CDP navigation so BrowserProfile constraints remain enforced.
+   - Proof: terminal `browser_profile_domain_constraints_are_passive_without_env`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
 - `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (28 tests)
+- `cargo fmt --check` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-browser managed_browser_launch_reads_browser_profile_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_setup_calls_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_domain_constraints_read_env -- --nocapture`
+- `cargo test -q -p browser-use-browser browser_profile_domain_constraints_are_passive_without_env -- --nocapture`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
@@ -1290,6 +1297,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - real_v8 `18`: returned `successful=true`, but final output was `[empty]` after failing to verify AND Digital leadership information and included generated browser-script JavaScript quoting errors.
   - real_v8 `14`: returned `successful=true`, but final output said ycombinator.com was blocked/unresponsive and did not extract the requested Winter 2025 B2B company data.
   - real_v8 `20`: returned `successful=true`, but final output omitted abstracts, reported navigation restrictions, and included generated browser-script syntax/domain-constraint errors.
+  - The false-positive BrowserProfile domain-constraint block on malformed navigation from this run is addressed by feature 229; the task itself has not been rerun as a clean benchmark proof.
   - The requested 50+50 parallel real_v8 sweep was not started because the three-task gate did not produce clean task-quality results.
 - Non-passing sweep data points so far:
   - real_v8 `11`: repository paths in the task appear stale for current `openai/codex`, and the run later hit the model context window while trying to retrieve large source contents.
