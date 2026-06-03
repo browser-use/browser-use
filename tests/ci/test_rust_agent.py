@@ -5,6 +5,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from typing import get_args, get_origin
 
 import pytest
 from pydantic import BaseModel
@@ -39,6 +40,27 @@ def test_agent_service_export_uses_rust_wrapper():
 	from browser_use.rust import Agent as RustAgent
 
 	assert ServiceAgent is RustAgent
+
+
+def test_rust_agent_generic_subscription_matches_browser_use():
+	from browser_use.agent.service import Agent as ServiceAgent
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class Answer(BaseModel):
+		answer: str
+
+	browser_use_alias = BrowserUseAgent[dict, Answer]
+	rust_alias = RustAgent[dict, Answer]
+	service_alias = ServiceAgent[dict, Answer]
+
+	assert get_args(rust_alias) == get_args(browser_use_alias) == (dict, Answer)
+	assert get_args(service_alias) == (dict, Answer)
+	assert get_origin(rust_alias) is RustAgent
+	assert get_origin(service_alias) is RustAgent
+
+	with pytest.raises(TypeError, match='Too few arguments'):
+		RustAgent[Answer]
 
 
 def test_rust_agent_constructor_signature_matches_browser_use_order(tmp_path):

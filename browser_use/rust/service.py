@@ -48,6 +48,7 @@ from browser_use.tools.service import Tools
 from browser_use.utils import URL_PATTERN, check_latest_browser_use_version, get_browser_use_version
 
 
+Context = TypeVar('Context')
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
 AgentHookFunc = Callable[[Any], Awaitable[None] | None]
 AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None] | None]
@@ -1056,7 +1057,7 @@ def _normalize_initial_action(action_name: str, params: Any) -> tuple[str, Any]:
 	return action_name, params
 
 
-class Agent(Generic[AgentStructuredOutput]):
+class Agent(Generic[Context, AgentStructuredOutput]):
 	"""Browser Use-style Agent backed by the Rust browser-use-terminal core."""
 
 	def __init__(
