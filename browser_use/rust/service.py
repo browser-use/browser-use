@@ -529,6 +529,41 @@ def _sensitive_data_context(sensitive_data: dict[str, str | dict[str, str]] | No
 	}
 
 
+def _sensitive_domain_is_allowed(domain_pattern: str, allowed_domain: str) -> bool:
+	if domain_pattern == allowed_domain or allowed_domain == '*':
+		return True
+	pattern_domain = domain_pattern.split('://')[-1] if '://' in domain_pattern else domain_pattern
+	allowed_domain_part = allowed_domain.split('://')[-1] if '://' in allowed_domain else allowed_domain
+	return pattern_domain == allowed_domain_part or (
+		allowed_domain_part.startswith('*.')
+		and (pattern_domain == allowed_domain_part[2:] or pattern_domain.endswith('.' + allowed_domain_part[2:]))
+	)
+
+
+def _warn_sensitive_data_domain_constraints(
+	logger: logging.Logger,
+	sensitive_data: dict[str, str | dict[str, str]] | None,
+	allowed_domains: list[str],
+) -> None:
+	if not sensitive_data:
+		return
+	if not allowed_domains:
+		logger.error(
+			'Agent(sensitive_data=••••••••) was provided but Browser(allowed_domains=[...]) is not locked down! '
+			'Sensitive data may be exposed if the agent visits a malicious website.'
+		)
+		return
+	for domain_pattern, value in sensitive_data.items():
+		if not isinstance(value, dict):
+			continue
+		if not any(_sensitive_domain_is_allowed(domain_pattern, allowed_domain) for allowed_domain in allowed_domains):
+			logger.warning(
+				f'Domain pattern "{domain_pattern}" in sensitive_data is not covered by any pattern in '
+				f'allowed_domains={allowed_domains}. This may be a security risk as credentials could be used on '
+				'unintended domains.'
+			)
+
+
 def _navigation_url_from_action(action: Any) -> str | None:
 	if not isinstance(action, dict):
 		return None
@@ -2490,6 +2525,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.browser_storage_state = _extract_browser_storage_state(self.browser_session, self.browser_profile)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
+		_warn_sensitive_data_domain_constraints(self.logger, sensitive_data, self.allowed_domains)
 		self.display_files_in_done_text = display_files_in_done_text
 		self.has_downloads_path = getattr(self.browser_profile, 'downloads_path', None) is not None
 		self._last_known_downloads: list[str] = []

@@ -800,10 +800,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This keeps benchmark cloud smokes on the public Browser Use timeout interface instead of requiring task-specific runner edits when real_v8 tasks exceed the 120-second default.
    - Proof: `test_real_v8_smoke_passes_step_timeout_to_agent`.
 
+158. Rust Agent sensitive-data domain warning parity
+   - The Rust-backed Agent now mirrors Browser Use's sensitive-data safety warnings when credentials are supplied without `allowed_domains`, or when domain-scoped sensitive data is not covered by the configured allowed-domain patterns.
+   - Warnings include placeholder/domain metadata but do not log raw secret values.
+   - Proof: `test_rust_agent_warns_about_sensitive_data_domain_constraints`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (129 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (130 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

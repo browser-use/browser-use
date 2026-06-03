@@ -2398,6 +2398,54 @@ def test_rust_agent_adds_sensitive_data_placeholders_without_values():
 	assert 'super-secret-password' not in agent.task
 
 
+def test_rust_agent_warns_about_sensitive_data_domain_constraints(monkeypatch):
+	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.messages = []
+
+		def error(self, message, *args, **kwargs):
+			self.messages.append(('error', message))
+
+		def warning(self, message, *args, **kwargs):
+			self.messages.append(('warning', message))
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+
+	Agent(
+		task='Use credentials safely.',
+		sensitive_data={'password': 'super-secret-password'},
+		directly_open_url=False,
+	)
+
+	messages = '\n'.join(message for _level, message in logger.messages)
+	assert 'not locked down' in messages
+	assert 'super-secret-password' not in messages
+
+	logger.messages.clear()
+
+	class BrowserProfile:
+		allowed_domains = ['*.example.com']
+
+	Agent(
+		task='Use domain-scoped credentials safely.',
+		browser_profile=BrowserProfile(),
+		sensitive_data={
+			'https://secure.example.com': {'password': 'covered-secret'},
+			'https://evil.test': {'token': 'uncovered-secret'},
+		},
+		directly_open_url=False,
+	)
+
+	messages = '\n'.join(message for _level, message in logger.messages)
+	assert 'Domain pattern "https://evil.test" in sensitive_data is not covered' in messages
+	assert 'https://secure.example.com' not in messages
+	assert 'covered-secret' not in messages
+	assert 'uncovered-secret' not in messages
+
+
 def test_rust_agent_mirrors_direct_url_startup():
 	from browser_use.rust import Agent
 
