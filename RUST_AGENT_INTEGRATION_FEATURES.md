@@ -1131,11 +1131,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This mirrors Browser Use's permissions watchdog for managed, remote-CDP, Browser Use cloud, and other existing-session runs.
    - Proof: terminal `test_worker_cdp_grants_browser_permissions_env`.
 
+224. Rust Agent BrowserProfile downloads runtime parity
+   - Terminal browser-harness CDP calls now apply wrapper-exported `BU_BROWSER_ACCEPT_DOWNLOADS` and `BU_BROWSER_DOWNLOADS_PATH` through `Browser.setDownloadBehavior`.
+   - Enabled downloads use an expanded download directory with browser download events enabled; explicitly disabled downloads are denied before normal browser commands.
+   - Proof: terminal `test_worker_cdp_applies_browser_download_behavior_env`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (186 tests)
-- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (24 tests)
+- `uv run --with pytest pytest -q python/tests/test_worker_package.py` on terminal branch `magnus/browser-use-rust-main-integration` (25 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
