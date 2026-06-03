@@ -896,10 +896,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Interrupted follow-ups log usage summaries, record `KeyboardInterrupt` telemetry, dispatch the final task update, unregister signal handlers, and close browser resources before returning.
    - Proof: `test_rust_agent_follow_up_finalizes_after_keyboard_interrupt`.
 
+177. Rust Agent run-delegated follow-up lifecycle parity
+   - Browser Use-style `Agent.add_new_task(...); Agent.run(...)` follow-ups now reuse the run-level lifecycle initialization instead of initializing twice inside the terminal follow-up helper.
+   - Run-delegated follow-ups emit one `CreateAgentTaskEvent` and one `UpdateAgentTaskEvent`, matching the single task lifecycle expected by Browser Use callers.
+   - Proof: `test_rust_agent_run_follow_up_dispatches_single_task_lifecycle`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (148 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (149 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

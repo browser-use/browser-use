@@ -3710,6 +3710,59 @@ async def test_rust_agent_run_dispatches_browser_use_lifecycle_events(monkeypatc
 	assert dispatched[1].done_output == 'dispatched 2'
 
 
+async def test_rust_agent_run_follow_up_dispatches_single_task_lifecycle(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	dispatched = []
+	process_calls = []
+	load_count = 0
+
+	class EventBus:
+		def dispatch(self, event):
+			dispatched.append(event)
+			return event
+
+	agent = Agent(task='Start lifecycle follow-up.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.eventbus = EventBus()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		process_calls.append(argv)
+		if len(process_calls) == 1:
+			return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+		return 0, '', ''
+
+	async def fake_load_events():
+		nonlocal load_count
+		load_count += 1
+		return [{'event_type': 'session.done', 'payload': {'result': f'lifecycle follow-up {load_count}'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=4)
+
+	assert history.final_result() == 'lifecycle follow-up 1'
+	assert [type(event).__name__ for event in dispatched] == [
+		'CreateAgentSessionEvent',
+		'CreateAgentTaskEvent',
+		'UpdateAgentTaskEvent',
+	]
+
+	dispatched.clear()
+	agent.add_new_task('Continue the lifecycle follow-up.')
+	agent.eventbus = EventBus()
+
+	history = await agent.run(max_steps=4)
+
+	assert history.final_result() == 'lifecycle follow-up 2'
+	assert len(process_calls) == 3
+	assert process_calls[1][-3] == 'followup'
+	assert [type(event).__name__ for event in dispatched] == ['CreateAgentTaskEvent', 'UpdateAgentTaskEvent']
+	assert dispatched[0].llm_model == 'gpt-test'
+	assert dispatched[1].done_output == 'lifecycle follow-up 2'
+
+
 async def test_rust_agent_run_logs_browser_use_lifecycle_dispatch(monkeypatch):
 	from browser_use.rust import Agent
 

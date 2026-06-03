@@ -2991,7 +2991,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return self.history
 		if self.state.follow_up_task and self.terminal_session_id:
 			self.state.follow_up_task = False
-			return await self._follow_up_terminal(self.task, max_steps=max_steps, resolved_max_steps=max_steps)
+			return await self._follow_up_terminal(
+				self.task, max_steps=max_steps, resolved_max_steps=max_steps, initialize_lifecycle=False
+			)
 
 		self._log_main_execution_start(max_steps)
 		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps), timeout_seconds=self.settings.step_timeout)
@@ -3050,8 +3052,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		task: str,
 		max_steps: int | None,
 		resolved_max_steps: int,
+		initialize_lifecycle: bool = True,
 	) -> AgentHistoryList[AgentStructuredOutput]:
-		self._initialize_run_lifecycle_state()
+		if initialize_lifecycle:
+			self._initialize_run_lifecycle_state()
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
 		returncode, stdout_text, stderr_text = await self._run_process(
