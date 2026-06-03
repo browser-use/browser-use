@@ -1942,6 +1942,46 @@ def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 		assert agent._run_existing_argv(max_steps=3)[-4] == session_command
 
 
+def test_rust_agent_requests_openai_compatible_usage_for_cost_calculation(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		def __init__(self, provider, model):
+			self.provider = provider
+			self.model = model
+			self.api_key = 'test-key'
+
+	monkeypatch.delenv('LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE', raising=False)
+	monkeypatch.delenv('BU_USE_CALCULATE_COST', raising=False)
+
+	openrouter_env = Agent(
+		task='Track OpenRouter usage.',
+		llm=LLM('openrouter', 'openrouter/model'),
+		calculate_cost=True,
+	)._run_env()
+	deepseek_env = Agent(
+		task='Track DeepSeek usage.',
+		llm=LLM('deepseek', 'deepseek-chat'),
+		calculate_cost=True,
+	)._run_env()
+	default_env = Agent(
+		task='Default OpenRouter usage.',
+		llm=LLM('openrouter', 'openrouter/model'),
+	)._run_env()
+	openai_env = Agent(
+		task='OpenAI usage.',
+		llm=LLM('openai', 'gpt-test'),
+		calculate_cost=True,
+	)._run_env()
+
+	assert openrouter_env['BU_USE_CALCULATE_COST'] == 'true'
+	assert openrouter_env['LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE'] == 'true'
+	assert deepseek_env['BU_USE_CALCULATE_COST'] == 'true'
+	assert deepseek_env['LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE'] == 'true'
+	assert 'LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE' not in default_env
+	assert 'LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE' not in openai_env
+
+
 def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
 	from browser_use.rust import Agent
 

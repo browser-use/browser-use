@@ -1096,10 +1096,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This lets terminal current-main provider usage/cost recording honor the same public Agent setting while leaving default runs unchanged.
    - Proof: `test_rust_agent_initializes_runtime_metadata_and_observability`.
 
+217. Rust Agent OpenAI-compatible usage request parity
+   - Cost-enabled Rust-backed OpenRouter and DeepSeek runs now export `LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE=true`.
+   - This asks terminal current-main OpenAI-compatible providers to include token usage in responses so Browser Use-style usage/cost reconstruction has data to report.
+   - Proof: `test_rust_agent_requests_openai_compatible_usage_for_cost_calculation`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (184 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (185 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

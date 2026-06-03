@@ -4336,6 +4336,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		env.update(_llm_env_overrides(self.llm))
 		if self.settings.calculate_cost:
 			env['BU_USE_CALCULATE_COST'] = 'true'
+			if _llm_provider_name(self.llm) in {'openrouter', 'deepseek'}:
+				env['LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE'] = 'true'
 		browser_mode = self._browser_mode()
 		env['LLM_BROWSER_BROWSER_MODE'] = browser_mode
 		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)
