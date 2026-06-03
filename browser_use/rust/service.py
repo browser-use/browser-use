@@ -790,15 +790,69 @@ def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
 	return None
 
 
+def _browser_url(value: Any) -> str:
+	if not isinstance(value, str):
+		return ''
+	value = value.strip()
+	if value.startswith(('http://', 'https://', 'about:', 'file://')):
+		return value
+	return ''
+
+
+def _browser_state_candidates(value: Any) -> list[tuple[str, str, str]]:
+	candidates: list[tuple[str, str, str]] = []
+	if isinstance(value, dict):
+		url = _browser_url(value.get('url'))
+		if url:
+			title = str(value.get('title') or '')
+			target_id = str(value.get('target_id') or value.get('targetId') or value.get('tab_id') or value.get('tabId') or 'tab-0')
+			candidates.append((url, title, target_id))
+		for child in value.values():
+			candidates.extend(_browser_state_candidates(child))
+	elif isinstance(value, list):
+		for child in value:
+			candidates.extend(_browser_state_candidates(child))
+	return candidates
+
+
+def _browser_script_navigation_candidates(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+	if payload.get('name') != 'browser_script':
+		return []
+	arguments = payload.get('arguments')
+	if not isinstance(arguments, dict):
+		return []
+	code = arguments.get('code')
+	if not isinstance(code, str) or not re.search(r'\b(?:goto_url|new_tab|open_tab|navigate)\s*\(', code):
+		return []
+	candidates = []
+	for match in URL_PATTERN.finditer(code):
+		url = _browser_url(match.group(0))
+		if url:
+			candidates.append((url, '', 'tab-0'))
+	return candidates
+
+
 def _browser_state_from_events(events: list[dict[str, Any]]) -> BrowserStateHistory:
 	url = ''
 	title = ''
 	tabs: list[TabInfo] = []
 	for event in events:
-		if _event_type(event) not in ('browser.connected', 'browser.reconnected', 'browser.target_changed', 'browser.page', 'browser.state'):
+		event_type = _event_type(event)
+		if event_type in ('tool.output', 'tool.started'):
+			payload = _event_payload(event)
+			if event_type == 'tool.started':
+				candidates = _browser_script_navigation_candidates(payload)
+			else:
+				candidates = _browser_state_candidates(payload)
+			for candidate_url, candidate_title, candidate_target_id in candidates:
+				url = candidate_url
+				title = candidate_title or title
+				tabs = [TabInfo(url=url, title=title, target_id=candidate_target_id)]
+			continue
+		if event_type not in ('browser.connected', 'browser.reconnected', 'browser.target_changed', 'browser.page', 'browser.state'):
 			continue
 		payload = _event_payload(event)
-		url = str(payload.get('url') or url)
+		url = _browser_url(payload.get('url')) or url
 		title = str(payload.get('title') or title)
 		raw_tabs = payload.get('tabs')
 		if isinstance(raw_tabs, list):

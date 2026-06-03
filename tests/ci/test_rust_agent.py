@@ -256,6 +256,67 @@ def test_rust_events_reconstruct_browser_use_history():
 	assert history.usage.total_completion_tokens == 7
 
 
+def test_rust_history_reconstructs_terminal_browser_script_urls():
+	from browser_use.rust.service import _history_from_events
+
+	output_history = _history_from_events(
+		[
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'ok': True,
+					'outputs': [
+						{
+							'label': 'start',
+							'summary': {
+								'kind': 'page',
+								'title': 'AND Digital',
+								'url': 'https://www.and.digital/',
+							},
+							'value': {
+								'title': 'AND Digital',
+								'url': 'https://www.and.digital/',
+								'target': {'target_id': 'target-1'},
+							},
+						}
+					],
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert output_history.urls() == ['https://www.and.digital/']
+	assert output_history.history[0].state.title == 'AND Digital'
+	assert output_history.history[0].state.tabs[0].url == 'https://www.and.digital/'
+
+	navigation_history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'arguments': {'code': "info = new_tab('https://example.com')\nwait_for_load(timeout=10)"},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'Example Domain'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert navigation_history.urls() == ['https://example.com']
+
+
 def test_rust_history_reconstructs_terminal_token_count_usage():
 	from browser_use.rust.service import _history_from_events
 
