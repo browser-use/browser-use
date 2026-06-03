@@ -996,10 +996,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Delegated terminal follow-up runs now send the same raw follow-up text through `browser-use-terminal followup ...`, while the existing `output_model_schema` remains attached to the agent for result parsing.
    - Proof: `test_rust_agent_add_new_task_preserves_browser_use_raw_followup_task`.
 
+197. Rust Agent conversation-path setup parity
+   - Rust-backed construction now resolves `save_conversation_path` with `expanduser().resolve()` and logs Browser Use's "Saving conversation to ..." message before runs.
+   - Terminal conversation snapshots continue to write under the resolved directory while preserving the configured file encoding.
+   - Proof: `test_rust_agent_resolves_conversation_path_like_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (165 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (166 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

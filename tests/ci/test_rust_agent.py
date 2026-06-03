@@ -6007,6 +6007,57 @@ async def test_rust_agent_saves_terminal_conversation(tmp_path, monkeypatch):
 	assert agent.state.n_steps == 2
 
 
+async def test_rust_agent_resolves_conversation_path_like_browser_use(tmp_path, monkeypatch):
+	from browser_use.rust import Agent
+	from browser_use.utils import _log_pretty_path
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			pass
+
+		def warning(self, message, *args, **kwargs):
+			pass
+
+		def error(self, message, *args, **kwargs):
+			pass
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	conversation_dir = tmp_path / 'conversations'
+	agent = Agent(
+		task='save resolved conversation path',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		task_id='task-path',
+		save_conversation_path=conversation_dir,
+	)
+
+	assert agent.settings.save_conversation_path == conversation_dir.resolve()
+	assert logger.infos[0] == f'💬 Saving conversation to {_log_pretty_path(conversation_dir.resolve())}'
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'saved path transcript'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=2)
+
+	files = list(conversation_dir.resolve().glob('conversation_task-path_*.json'))
+	assert len(files) == 1
+	assert json.loads(files[0].read_text(encoding='utf-8'))['final_result'] == 'saved path transcript'
+
+
 async def test_rust_agent_terminal_process_timeout():
 	from browser_use.rust import Agent
 

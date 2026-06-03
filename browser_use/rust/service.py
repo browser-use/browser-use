@@ -58,7 +58,7 @@ from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
-from browser_use.utils import SignalHandler, URL_PATTERN, check_latest_browser_use_version, get_browser_use_version
+from browser_use.utils import SignalHandler, URL_PATTERN, _log_pretty_path, check_latest_browser_use_version, get_browser_use_version
 
 
 Context = TypeVar('Context')
@@ -2511,6 +2511,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 		)
+		if self.settings.save_conversation_path:
+			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
+			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
 		self._setup_action_models()
 		model_name = str(getattr(self.llm, 'model', self.model) or '').lower()
 		if 'deepseek' in model_name:
