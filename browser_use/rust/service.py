@@ -3577,8 +3577,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		step_end_time = time.time()
 		if not self.state.last_result:
 			return
+		step_start_time = getattr(self, 'step_start_time', step_end_time)
 		if browser_state_summary is not None:
-			step_start_time = getattr(self, 'step_start_time', step_end_time)
 			metadata = StepMetadata(
 				step_number=self.state.n_steps,
 				step_start_time=step_start_time,
@@ -3606,6 +3606,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					browser_state_summary,
 				)
 				self.eventbus.dispatch(step_event)
+		self._log_step_completion_summary(step_start_time, self.state.last_result)
 		self.save_file_system_state()
 		self.state.n_steps += 1
 

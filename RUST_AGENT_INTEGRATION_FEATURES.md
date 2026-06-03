@@ -951,10 +951,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The event uses Browser Use's `CreateAgentStepEvent.from_agent_step(...)` factory, preserving action data, step metadata, URL, and screenshot payload semantics.
    - Proof: `test_rust_agent_exposes_step_finalization_helper_methods`.
 
+188. Rust Agent finalize summary parity without browser state
+   - Rust-backed `_finalize(...)` now logs Browser Use-style step completion summaries whenever completed action results exist, even if no browser state snapshot is available.
+   - History item creation and `CreateAgentStepEvent` dispatch remain gated on browser state, matching the Python Agent separation between optional stateful history/events and common step completion logging.
+   - Proof: `test_rust_agent_finalize_logs_step_completion_without_browser_state`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (158 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (159 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -1028,6 +1033,10 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Existing-session follow-up end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BROWSER_USE_RUST_STATE_DIR=/tmp/browser-use-rust-followup-smoke timeout 420 uv run python - <<'PY' ...`
   - Output: first run `Example Domain`; follow-up `example.com`.
+- Parallel managed-headless Python API smoke batch:
+  - Source `/home/exedev/.evaluation_tool_env`, set `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`, set `BROWSER_USE_RUST_BROWSER_MODE=managed-headless`, and run two `uv run python - <<'PY' ...` Agent scripts in parallel.
+  - Follow-up/callback script output: `{"smoke": "python_api_followup_callbacks", "first": "Example Domain", "second": "example.com", "callback_kinds": ["step", "done", "step", "done"], "conversation_files": 2}`.
+  - Initial-actions/files/structured-output script output: `{"smoke": "python_api_initial_files_structured", "answer": {"title": "Example Domain", "host": "example.com", "marker": "file-marker-ok"}, "history_urls": ["", "", "", "https://example.com", "https://example.com"], "available_files": ["/tmp/.../input-note.txt"]}`.
 - Multi-feature Python API cloud end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`, unset browser-mode overrides, and construct `Agent(..., browser_profile=BrowserProfile(use_cloud=True), register_new_step_callback=..., register_done_callback=..., save_conversation_path=..., step_timeout=300)`.
   - Output: first run `Example Domain`; follow-up `example.com`; callback sequence `step, done, step, done`; two conversation JSON snapshots written; terminal session id present.

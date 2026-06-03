@@ -4319,6 +4319,44 @@ async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	assert agent.AgentOutput is agent.DoneAgentOutput
 
 
+async def test_rust_agent_finalize_logs_step_completion_without_browser_state(monkeypatch, tmp_path):
+	import time
+
+	from browser_use.agent.views import ActionResult
+	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.debugs = []
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+	class EventBus:
+		def __init__(self):
+			self.dispatched = []
+
+		def dispatch(self, event):
+			self.dispatched.append(event)
+			return event
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Finalize without browser state.', file_system_path=str(tmp_path / 'agent-files'))
+	agent.eventbus = EventBus()
+	agent.state.last_result = [ActionResult(extracted_content='ok')]
+	agent.step_start_time = time.time() - 0.1
+	starting_steps = agent.state.n_steps
+
+	await agent._finalize(None)
+
+	assert agent.state.n_steps == starting_steps + 1
+	assert agent.state.file_system_state is not None
+	assert agent.history.history == []
+	assert agent.eventbus.dispatched == []
+	assert any('Ran 1 action' in message and 'success=1' in message for message in logger.debugs)
+
+
 def test_rust_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
 	from browser_use.rust import Agent
