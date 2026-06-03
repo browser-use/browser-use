@@ -881,10 +881,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The setup log exposes the public agent session suffix, task suffix, browser session suffix, and whether the run is launching locally or connecting through CDP.
    - Proof: `test_rust_agent_run_logs_browser_use_setup_metadata`.
 
+174. Rust Agent lifecycle dispatch debug logging parity
+   - Terminal-backed `Agent.run()` now logs Browser Use-style debug lines before dispatching run-start cloud lifecycle events.
+   - The first run logs session and task event dispatches; later runs on the same Browser Use session log only the task dispatch, matching the one-session/many-tasks lifecycle.
+   - Proof: `test_rust_agent_run_logs_browser_use_lifecycle_dispatch`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (145 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (146 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

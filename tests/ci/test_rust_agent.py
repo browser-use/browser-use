@@ -3578,6 +3578,68 @@ async def test_rust_agent_run_dispatches_browser_use_lifecycle_events(monkeypatc
 	assert dispatched[1].done_output == 'dispatched 2'
 
 
+async def test_rust_agent_run_logs_browser_use_lifecycle_dispatch(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	dispatched = []
+	run_count = 0
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	class EventBus:
+		def dispatch(self, event):
+			dispatched.append(event)
+			return event
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Log lifecycle dispatch.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.eventbus = EventBus()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		nonlocal run_count
+		run_count += 1
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': f'logged dispatch {run_count}'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	await agent.run(max_steps=1)
+
+	assert 'Dispatching CreateAgentSessionEvent...' in logger.debugs
+	assert 'Dispatching CreateAgentTaskEvent...' in logger.debugs
+
+	logger.debugs.clear()
+	await agent.run(max_steps=1)
+
+	assert 'Dispatching CreateAgentSessionEvent...' not in logger.debugs
+	assert 'Dispatching CreateAgentTaskEvent...' in logger.debugs
+	assert [type(event).__name__ for event in dispatched] == [
+		'CreateAgentSessionEvent',
+		'CreateAgentTaskEvent',
+		'UpdateAgentTaskEvent',
+		'CreateAgentTaskEvent',
+		'UpdateAgentTaskEvent',
+	]
+
+
 async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	import base64
 	import time

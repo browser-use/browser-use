@@ -2854,8 +2854,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._ensure_eventbus()
 		event_agent = self._cloud_event_agent()
 		if not self.state.session_initialized:
+			self.logger.debug('Dispatching CreateAgentSessionEvent...')
 			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(event_agent))
 			self.state.session_initialized = True
+		self.logger.debug('Dispatching CreateAgentTaskEvent...')
 		self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(event_agent))
 
 	def _dispatch_run_update_event(self) -> None:
