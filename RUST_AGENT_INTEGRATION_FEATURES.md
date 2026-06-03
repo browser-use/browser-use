@@ -301,6 +301,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper fetches public Shopify `/products.json` pages and normalizes product titles, handles, URLs, vendors, product types, tags, descriptions, variant availability/SKUs/options/prices, compare-at prices, images, and attempted catalog URLs.
    - Proof: `browser_script_shopify_products_api_normalizes_catalog_pages`.
 
+59. Browser-script product record snapshot helper
+   - Terminal browser scripts now expose `product_records_snapshot(limit=80, keywords=None)`.
+   - The helper combines JSON-LD, product meta tags, and visible product-like cards for non-Shopify catalogs, returning normalized titles, URLs, descriptions, prices, specs, labels, images, source, scores, and detail-action counts.
+   - Proof: `browser_script_product_records_snapshot_normalizes_catalog_products`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -337,6 +342,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_investor_documents_snapshot_classifies_visible_links -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_document_links_snapshot_classifies_filing_documents -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_shopify_products_api_normalizes_catalog_pages -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_product_records_snapshot_normalizes_catalog_products -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
