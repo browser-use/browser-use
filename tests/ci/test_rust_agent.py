@@ -5169,6 +5169,68 @@ async def test_rust_agent_invokes_new_step_callback(monkeypatch):
 	assert seen == [('https://example.com', None, 2)]
 
 
+async def test_rust_agent_invokes_new_step_callback_for_each_terminal_turn(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	seen = []
+
+	def new_step_callback(browser_state, model_output, step_number):
+		seen.append((browser_state.url, model_output, step_number))
+
+	agent = Agent(
+		task='run multiple terminal turns',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		register_new_step_callback=new_step_callback,
+	)
+	starting_steps = agent.state.n_steps
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		assert timeout_seconds == agent.settings.step_timeout
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [
+			{'type': 'model.turn.request', 'ts_ms': 1_000, 'payload': {'model': 'gpt-test'}},
+			{'type': 'browser.state', 'ts_ms': 1_010, 'payload': {'url': 'https://first.example', 'title': 'First'}},
+			{
+				'type': 'tool.started',
+				'ts_ms': 1_020,
+				'payload': {'name': 'browser', 'tool_call_id': 'call-browser', 'arguments': {'cmd': 'observe'}},
+			},
+			{
+				'type': 'tool.output',
+				'ts_ms': 1_030,
+				'payload': {'name': 'browser', 'tool_call_id': 'call-browser', 'text': 'first turn observed'},
+			},
+			{'type': 'model.turn.request', 'ts_ms': 2_000, 'payload': {'model': 'gpt-test'}},
+			{'type': 'browser.state', 'ts_ms': 2_010, 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+			{
+				'type': 'tool.started',
+				'ts_ms': 2_020,
+				'payload': {
+					'name': 'done',
+					'tool_call_id': 'call-done',
+					'arguments': {'text': 'Example Domain', 'success': True},
+				},
+			},
+			{'type': 'session.done', 'ts_ms': 2_030, 'payload': {'result': 'Example Domain'}},
+		]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=4)
+	await agent._call_new_step_callback()
+
+	assert history.number_of_steps() == 2
+	assert agent.state.n_steps == starting_steps + 2
+	assert seen == [
+		('https://first.example', None, starting_steps + 1),
+		('https://example.com', None, starting_steps + 2),
+	]
+
+
 def test_rust_agent_run_sync_delegates_to_async_run(monkeypatch):
 	from browser_use.rust import Agent
 

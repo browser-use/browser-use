@@ -2665,6 +2665,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.last_stdout = ''
 		self.last_stderr = ''
 		self._last_synced_history_id: int | None = None
+		self._last_step_callback_history_id: int | None = None
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
 
@@ -4131,10 +4132,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _call_new_step_callback(self) -> None:
 		if self.register_new_step_callback is None or not self.history.history:
 			return
-		history_item = self.history.history[-1]
-		result = self.register_new_step_callback(history_item.state, None, self.state.n_steps)
-		if inspect.isawaitable(result):
-			await result
+		history_id = id(self.history)
+		if history_id == self._last_step_callback_history_id:
+			return
+		start_step = max(1, self.state.n_steps - len(self.history.history) + 1)
+		for offset, history_item in enumerate(self.history.history):
+			result = self.register_new_step_callback(history_item.state, None, start_step + offset)
+			if inspect.isawaitable(result):
+				await result
+		self._last_step_callback_history_id = history_id
 
 	def _sync_state_from_history(self) -> None:
 		if not self.history.history:
