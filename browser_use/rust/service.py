@@ -2969,7 +2969,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self._log_run_usage_summary()
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 			self._dispatch_run_update_event()
-			await self._call_callback(on_step_end, self)
 			self._log_final_outcome_messages()
 			await self._finalize_run_cleanup()
 			return self.history
@@ -2994,7 +2993,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				await self._log_run_usage_summary()
 				self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 				self._dispatch_run_update_event()
-				await self._call_callback(on_step_end, self)
 				self._log_final_outcome_messages()
 				await self._finalize_run_cleanup()
 				return self.history

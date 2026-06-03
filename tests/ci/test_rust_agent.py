@@ -3402,6 +3402,60 @@ async def test_rust_agent_run_waits_for_resume_before_terminal(monkeypatch):
 	]
 
 
+async def test_rust_agent_run_stopped_before_terminal_skips_step_hooks(monkeypatch):
+	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	events = []
+	captured_events = []
+
+	class FakeSignalHandler:
+		def __init__(self, **kwargs):
+			events.append('init_signal')
+
+		def register(self):
+			events.append('register_signal')
+
+		def unregister(self):
+			events.append('unregister_signal')
+
+	class TokenCostService:
+		async def log_usage_summary(self):
+			events.append('usage_summary')
+
+	class Telemetry:
+		def capture(self, event):
+			captured_events.append(event)
+
+	monkeypatch.setattr(rust_service, 'SignalHandler', FakeSignalHandler)
+	agent = Agent(task='Stop before terminal run.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.token_cost_service = TokenCostService()
+	agent.telemetry = Telemetry()
+	agent.stop()
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		events.append('run_process')
+		raise AssertionError('terminal process should not start')
+
+	async def on_step_start(callback_agent):
+		events.append('start')
+
+	def on_step_end(callback_agent):
+		events.append('end')
+
+	agent._run_process = fake_run_process
+
+	history = await agent.run(max_steps=3, on_step_start=on_step_start, on_step_end=on_step_end)
+
+	assert history.errors() == ['Rust agent stopped before terminal run.']
+	assert events == ['init_signal', 'register_signal', 'usage_summary', 'unregister_signal']
+	assert agent.state.stopped is True
+	assert len(captured_events) == 1
+	assert captured_events[0].max_steps == 3
+	assert captured_events[0].error_message == 'Rust agent stopped before terminal run.'
+
+
 async def test_rust_agent_run_finalizes_after_terminal_exception(monkeypatch):
 	import browser_use.rust.service as rust_service
 	from browser_use.rust import Agent

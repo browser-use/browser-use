@@ -936,10 +936,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Resuming clears the pause gate, resets the run signal handler when available, and then invokes `on_step_start` and the Rust terminal subprocess in normal Browser Use order.
    - Proof: `test_rust_agent_run_waits_for_resume_before_terminal`.
 
+185. Rust Agent pre-run stop hook parity
+   - Terminal-backed `Agent.run()` no longer invokes step hooks when the agent was stopped before Rust terminal execution starts.
+   - Stopped pre-run executions still finalize usage summaries, telemetry, lifecycle update events, final guidance, signal handlers, and cleanup while returning a normal stopped history error.
+   - Proof: `test_rust_agent_run_stopped_before_terminal_skips_step_hooks`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (156 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (157 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
