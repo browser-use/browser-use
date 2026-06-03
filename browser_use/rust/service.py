@@ -955,7 +955,8 @@ def _recoverable_failure_from_events(events: list[dict[str, Any]]) -> str | None
 		event_type = _event_type(event)
 		payload = _event_payload(event)
 		if event_type == 'tool.failed':
-			error = _tool_failure_message(payload)
+			abort_payload = _matching_tool_abort_payload(events, payload)
+			error = _tool_abort_message(abort_payload) if abort_payload is not None else _tool_failure_message(payload)
 			if error:
 				return error
 		if event_type == 'tool.aborted':
@@ -983,6 +984,29 @@ def _tool_abort_message(payload: dict[str, Any]) -> str | None:
 		error = 'aborted'
 	name = payload.get('name')
 	return f'{name} aborted: {error.strip()}' if isinstance(name, str) and name else error.strip()
+
+
+def _tool_result_key(payload: dict[str, Any]) -> tuple[str, str] | None:
+	call_id = payload.get('tool_call_id') or payload.get('call_id')
+	if call_id:
+		return ('call_id', str(call_id))
+	name = payload.get('name')
+	if isinstance(name, str) and name:
+		return ('name', name)
+	return None
+
+
+def _matching_tool_abort_payload(events: list[dict[str, Any]], payload: dict[str, Any]) -> dict[str, Any] | None:
+	key = _tool_result_key(payload)
+	if key is None:
+		return None
+	for event in events:
+		if _event_type(event) != 'tool.aborted':
+			continue
+		abort_payload = _event_payload(event)
+		if _tool_result_key(abort_payload) == key:
+			return abort_payload
+	return None
 
 
 def _safe_tool_action_name(value: Any) -> str | None:
@@ -1118,6 +1142,8 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 				merged_payload['text'] = f'{previous_text if isinstance(previous_text, str) else ""}{delta_text}'
 				results[key] = (event_type, merged_payload)
 				continue
+			if event_type == 'tool.failed' and previous is not None and previous[0] == 'tool.aborted':
+				continue
 			if event_type == 'tool.finished' and previous is not None and previous[0] != 'tool.finished':
 				continue
 			results[key] = (event_type, payload)
@@ -1182,6 +1208,21 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 				continue
 		if event_type == 'tool.output' and payload.get('stream') is True:
 			continue
+		if event_type == 'tool.failed':
+			name = payload.get('name')
+			previous_abort = next(
+				(
+					result
+					for result in reversed(results)
+					if isinstance(name, str)
+					and name
+					and result[0] == 'tool.aborted'
+					and result[1].get('name') == name
+				),
+				None,
+			)
+			if previous_abort is not None:
+				continue
 		if event_type == 'tool.finished':
 			name = payload.get('name')
 			previous = next(

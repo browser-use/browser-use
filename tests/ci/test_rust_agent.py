@@ -3800,6 +3800,51 @@ def test_rust_history_surfaces_terminal_cancellation_and_tool_abort_messages():
 	assert aborted.action_results()[-1].error == 'browser aborted: aborted by user'
 
 
+def test_rust_history_preserves_terminal_tool_abort_when_failed_event_follows():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'arguments': {'cmd': 'sleep 60'},
+				},
+			},
+			{
+				'type': 'tool.aborted',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'error': 'aborted by user after 1.0s',
+				},
+			},
+			{
+				'type': 'tool.failed',
+				'payload': {
+					'name': 'exec_command',
+					'tool_call_id': 'call-exec',
+					'error': 'aborted by user after 1.0s',
+				},
+			},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.final_result() is None
+	assert history.is_done() is False
+	assert history.errors() == ['exec_command aborted: aborted by user after 1.0s']
+	assert history.action_results()[0].error == 'exec_command aborted: aborted by user after 1.0s'
+	assert history.action_results()[-1].error == 'exec_command aborted: aborted by user after 1.0s'
+
+
 def test_rust_history_surfaces_terminal_session_interrupted_message():
 	from browser_use.rust.service import _history_from_events
 

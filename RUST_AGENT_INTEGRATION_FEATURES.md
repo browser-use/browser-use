@@ -749,10 +749,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This preserves current-main unified exec streamed stdout/stderr on Python-visible `ActionResult.extracted_content`, `long_term_memory`, and `action_history()` instead of falling back to synthetic tool-completion text.
    - Proof: `test_rust_history_reconstructs_terminal_tool_output_deltas`.
 
+148. Rust terminal paired tool-abort precedence
+   - Terminal tool calls that emit `tool.aborted` followed by the paired `tool.failed` now keep the abort-specific Browser Use error.
+   - This preserves current-main user-aborted tool semantics on Python-visible `history.errors()`, per-action `ActionResult.error`, and final fallback errors instead of downgrading them to generic tool-failure messages.
+   - Proof: `test_rust_history_preserves_terminal_tool_abort_when_failed_event_follows`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (119 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (120 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
