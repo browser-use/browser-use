@@ -2,7 +2,7 @@
 
 Branch: `magnus/browser-use-rust-core-integration`
 
-Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `14e1bcb` plus small CLI/browser-mode support commits.
+Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f82ef73` plus small CLI/browser-mode support commits.
 
 ## Built Features
 
@@ -381,6 +381,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `14
    - The helper runs Wikidata SPARQL queries, appends a limit when requested, normalizes result bindings, extracts QID/PID IDs and entity URLs from Wikidata entity URIs, and adds label-text convenience fields for `*Label` bindings.
    - Proof: `browser_script_wikidata_sparql_normalizes_entity_bindings`.
 
+75. Browser-script Wikidata education/award cascade helper
+   - Terminal browser scripts now expose `wikidata_education_award_cascade(person_names, award_keywords=None, limit_per_person=50, timeout=20.0)`.
+   - The helper resolves people through Wikidata search, queries their education institutions and degree qualifiers, finds other award winners educated at the same institutions, deduplicates relationship rows, and returns normalized institution, award, degree, and person QIDs/URLs.
+   - Proof: `browser_script_wikidata_education_award_cascade_resolves_and_queries`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -433,6 +438,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `14
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_openreview_notes_normalizes_content_values -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_nobel_prize_api_normalizes_official_links -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_wikidata_sparql_normalizes_entity_bindings -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_wikidata_education_award_cascade_resolves_and_queries -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
