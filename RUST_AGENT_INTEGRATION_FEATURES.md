@@ -888,3 +888,5 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - Non-passing sweep data points so far:
   - real_v8 `11`: repository paths in the task appear stale for current `openai/codex`, and the run later hit the model context window while trying to retrieve large source contents.
   - real_v8 `13`: provider/tool-call decode error, `EOF while parsing an object`, before a final result.
+  - real_v8 `5`: generated browser-script/provider failures while extracting Sziget ticket pricing, including invalid JavaScript and a provider request error.
+  - real_v8-2 `3`: product-page discovery task did not produce a final result before the configured `Agent(step_timeout=600)` terminal subprocess timeout.
