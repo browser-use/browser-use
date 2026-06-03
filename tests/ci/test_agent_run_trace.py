@@ -166,6 +166,32 @@ def test_save_trace_viewer_writes_redacted_html(tmp_path):
 	assert secret_email not in html
 
 
+def test_trace_redacts_final_result_from_json_and_html(tmp_path):
+	secret_email = 'ritwij@example.com'
+	history = AgentHistoryList(
+		history=[
+			AgentHistory(
+				model_output=None,
+				result=[ActionResult(extracted_content=f'Final answer sent to {secret_email}', is_done=True, success=True)],
+				state=BrowserStateHistory(url='https://example.com/done', title='Done', tabs=[], interacted_element=[]),
+				metadata=StepMetadata(step_number=1, step_start_time=10.0, step_end_time=11.0),
+			)
+		]
+	)
+	trace_path = tmp_path / 'run.trace.json'
+	viewer_path = tmp_path / 'trace.html'
+
+	history.save_trace_to_file(trace_path, sensitive_data={'email': secret_email})
+	history.save_trace_viewer(viewer_path, sensitive_data={'email': secret_email})
+
+	trace_json = trace_path.read_text()
+	html = viewer_path.read_text()
+	assert secret_email not in trace_json
+	assert secret_email not in html
+	assert '<secret>email</secret>' in trace_json
+	assert '&lt;secret&gt;email&lt;/secret&gt;' in html
+
+
 def test_trace_viewer_can_embed_screenshots(tmp_path):
 	screenshot_path = tmp_path / 'step.png'
 	screenshot_path.write_bytes(b'\x89PNG\r\n\x1a\n')

@@ -1005,9 +1005,13 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					)
 				)
 
+		final_result = self.final_result()
+		if final_result and sensitive_data and self.history:
+			final_result = self.history[-1]._filter_sensitive_data_from_string(final_result, sensitive_data)
+
 		return AgentRunTrace(
 			steps=steps,
-			final_result=self.final_result(),
+			final_result=final_result,
 			is_done=self.is_done(),
 			success=self.is_successful(),
 			total_duration_seconds=self.total_duration_seconds() if self.history else None,
