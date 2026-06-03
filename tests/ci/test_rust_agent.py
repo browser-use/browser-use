@@ -791,6 +791,36 @@ def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	assert agent.state.file_system_state is not None
 
 
+async def test_rust_agent_tracks_downloaded_files_and_saves_file_system_state(tmp_path):
+	from browser_use.rust import Agent
+
+	class BrowserProfile:
+		downloads_path = tmp_path / 'downloads'
+
+	class BrowserSession:
+		browser_profile = BrowserProfile()
+		downloaded_files = ['/tmp/report.csv', '/tmp/report.csv']
+
+	agent = Agent(
+		task='Use downloaded files.',
+		browser_session=BrowserSession(),
+		available_file_paths=['/tmp/input.txt'],
+		file_system_path=str(tmp_path / 'agent-files'),
+	)
+
+	await agent._check_and_update_downloads('test')
+	BrowserSession.downloaded_files = ['/tmp/report.csv', '/tmp/summary.pdf']
+	await agent._check_and_update_downloads('test')
+
+	agent.state.file_system_state = None
+	agent.save_file_system_state()
+
+	assert agent.available_file_paths == ['/tmp/input.txt', '/tmp/report.csv', '/tmp/summary.pdf']
+	assert agent._last_known_downloads == ['/tmp/report.csv', '/tmp/summary.pdf']
+	assert agent.state.file_system_state is not None
+	assert agent.state.file_system_state.base_dir == str(tmp_path / 'agent-files')
+
+
 def test_rust_agent_adds_available_files_to_task_context():
 	from browser_use.rust import Agent
 

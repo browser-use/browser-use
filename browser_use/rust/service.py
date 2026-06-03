@@ -1174,6 +1174,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		)
 		self.history = self.result
 		self._sync_state_from_history()
+		await self._check_and_update_downloads('run')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_callback(on_step_end, self)
@@ -1210,6 +1211,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		)
 		self.history = self.result
 		self._sync_state_from_history()
+		await self._check_and_update_downloads('follow_up')
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_done_callback()
@@ -1220,6 +1222,41 @@ class Agent(Generic[AgentStructuredOutput]):
 	@property
 	def usage(self) -> UsageSummary | None:
 		return self.history.usage
+
+	async def _check_and_update_downloads(self, context: str = '') -> None:
+		"""Mirror Browser Use's downloaded-file tracking for supplied sessions."""
+		if not self.has_downloads_path or self.browser_session is None:
+			return
+		try:
+			current_downloads = getattr(self.browser_session, 'downloaded_files', None)
+			if callable(current_downloads):
+				current_downloads = current_downloads()
+			if inspect.isawaitable(current_downloads):
+				current_downloads = await current_downloads
+			if not isinstance(current_downloads, list):
+				return
+			if current_downloads != self._last_known_downloads:
+				self._update_available_file_paths(current_downloads)
+				self._last_known_downloads = list(current_downloads)
+		except Exception:
+			_ = context
+
+	def _update_available_file_paths(self, downloads: list[str]) -> None:
+		"""Update available_file_paths with downloaded files, preserving caller order."""
+		if not self.has_downloads_path:
+			return
+		current_files = list(self.available_file_paths or [])
+		seen = set(current_files)
+		for file_path in downloads:
+			if not isinstance(file_path, str) or not file_path or file_path in seen:
+				continue
+			current_files.append(file_path)
+			seen.add(file_path)
+		self.available_file_paths = current_files
+
+	def save_file_system_state(self) -> None:
+		"""Save current Browser Use file system state back onto AgentState."""
+		self.state.file_system_state = self.file_system.get_state()
 
 	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
 		"""Take one Rust terminal turn and return Browser Use-style step status."""

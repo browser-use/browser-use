@@ -2,7 +2,7 @@
 
 Branch: `magnus/browser-use-rust-core-integration`
 
-Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f82ef73` plus small CLI/browser-mode support commits.
+Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f036761` plus small CLI/browser-mode support commits.
 
 ## Built Features
 
@@ -401,10 +401,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `f8
    - The wrapper now creates Browser Use-style `agent_directory`, `file_system`, `file_system_path`, restored `file_system_state`, and download-path tracking attributes while preserving duck-typed profile/session inputs for lightweight tests and custom callers.
    - Proof: `test_rust_agent_initializes_browser_use_session_and_file_system`.
 
+79. Rust Agent downloaded file tracking
+   - The Rust-backed `Agent` now mirrors Browser Use's downloaded-file bookkeeping for supplied sessions by syncing `browser_session.downloaded_files` into `available_file_paths` after Rust runs and follow-ups.
+   - The wrapper also exposes `save_file_system_state()` so callers can persist the Browser Use `FileSystem` state back onto the agent state.
+   - Proof: `test_rust_agent_tracks_downloaded_files_and_saves_file_system_state`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (53 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (54 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
