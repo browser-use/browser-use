@@ -4447,6 +4447,55 @@ async def test_rust_agent_done_only_guidance_matches_browser_use(monkeypatch):
 	assert 'set success in "done" to false! E.g. if not all steps are fully completed.' in messages[-1]
 
 
+async def test_rust_agent_post_process_logs_browser_use_result_messages(monkeypatch):
+	from browser_use.agent.views import ActionResult
+	from browser_use.rust import Agent
+
+	class RecordingLogger:
+		def __init__(self):
+			self.debugs = []
+			self.infos = []
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Post-process log parity.')
+	download_checks = []
+
+	async def fake_check_downloads(label):
+		download_checks.append(label)
+
+	agent._check_and_update_downloads = fake_check_downloads
+
+	agent.state.last_result = [ActionResult(error='failed action')]
+	await agent._post_process()
+	assert agent.state.consecutive_failures == 1
+	assert logger.debugs == [f'🔄 Step {agent.state.n_steps}: Consecutive failures: 1']
+
+	agent.state.last_result = [
+		ActionResult(is_done=True, success=True, extracted_content='final answer', attachments=['file:///tmp/a.txt', 'file:///tmp/b.txt'])
+	]
+	await agent._post_process()
+	assert agent.state.consecutive_failures == 0
+	assert logger.debugs[-1] == f'🔄 Step {agent.state.n_steps}: Consecutive failures reset to: 0'
+	assert logger.infos[-3:] == [
+		'\n📄 \033[32m Final Result:\033[0m \nfinal answer\n\n',
+		'👉 Attachment 1: file:///tmp/a.txt',
+		'👉 Attachment 2: file:///tmp/b.txt',
+	]
+
+	logger.infos.clear()
+	agent.state.last_result = [ActionResult(is_done=True, success=False, extracted_content='not done')]
+	await agent._post_process()
+	assert logger.infos == ['\n📄 \033[31m Final Result:\033[0m \nnot done\n\n']
+	assert download_checks == ['after executing actions', 'after executing actions', 'after executing actions']
+
+
 def test_rust_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
 	from browser_use.rust import Agent

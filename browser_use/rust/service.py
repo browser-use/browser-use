@@ -3550,18 +3550,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._check_and_update_downloads('after executing actions')
 		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
 			self.state.consecutive_failures += 1
-			self.logger.debug(f'Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
+			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
 			return
 		if self.state.consecutive_failures > 0:
 			self.state.consecutive_failures = 0
-			self.logger.debug(f'Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
+			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
 		if self.state.last_result and self.state.last_result[-1].is_done:
-			self.logger.info(f'\nFinal Result:\n{self.state.last_result[-1].extracted_content}\n')
+			success = self.state.last_result[-1].success
+			if success:
+				self.logger.info(f'\n📄 \033[32m Final Result:\033[0m \n{self.state.last_result[-1].extracted_content}\n\n')
+			else:
+				self.logger.info(f'\n📄 \033[31m Final Result:\033[0m \n{self.state.last_result[-1].extracted_content}\n\n')
 			if self.state.last_result[-1].attachments:
 				total_attachments = len(self.state.last_result[-1].attachments)
 				for index, file_path in enumerate(self.state.last_result[-1].attachments):
-					label = f'Attachment {index + 1}' if total_attachments > 1 else 'Attachment'
-					self.logger.info(f'{label}: {file_path}')
+					self.logger.info(f'👉 Attachment {index + 1 if total_attachments > 1 else ""}: {file_path}')
 
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Convert a step exception into Browser Use-style state.last_result."""

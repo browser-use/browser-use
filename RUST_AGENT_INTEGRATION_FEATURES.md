@@ -976,10 +976,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The helper still retries once with the Browser Use clarification message and inserts the same failed `done` action when the retry also returns no usable action.
    - Proof: `test_rust_agent_exposes_model_output_helper_methods`.
 
+193. Rust Agent post-process result logging parity
+   - Rust-backed `_post_process(...)` now emits Browser Use-style consecutive-failure debug markers and color-coded final-result logs.
+   - Attachment logs now use Browser Use's attachment labels while preserving download checks, failure counting, reset behavior, and final-result bookkeeping.
+   - Proof: `test_rust_agent_post_process_logs_browser_use_result_messages`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (161 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (162 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
