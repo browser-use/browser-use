@@ -942,6 +942,30 @@ def test_rust_agent_enables_flash_mode_for_browser_use_llm_provider():
 	assert rust_browser_use_agent.AgentOutput.__name__ == browser_use_agent.AgentOutput.__name__
 
 
+def test_rust_agent_llm_timeout_defaults_match_browser_use_model_families():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		provider = 'test'
+
+		def __init__(self, model):
+			self.model = model
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	for model in ['gpt-test', 'gemini-2.5-pro', 'groq-llama', 'o3-mini', 'claude-sonnet', 'deepseek-chat']:
+		browser_use_agent = BrowserUseAgent(task='Inspect timeout.', llm=LLM(model), directly_open_url=False)
+		rust_agent = RustAgent(task='Inspect timeout.', llm=LLM(model), directly_open_url=False)
+
+		assert rust_agent.settings.llm_timeout == browser_use_agent.settings.llm_timeout
+
+	override_agent = RustAgent(task='Override timeout.', llm=LLM('gemini-2.5-pro'), llm_timeout=12)
+
+	assert override_agent.settings.llm_timeout == 12
+
+
 def test_rust_agent_state_id_defaults_like_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.agent.views import AgentState

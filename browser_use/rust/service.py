@@ -86,6 +86,17 @@ def _model_name(llm: Any | None) -> str:
 	return os.environ.get('BROWSER_USE_RUST_MODEL', 'gpt-5.3-codex-spark')
 
 
+def _llm_timeout_for_model(llm: Any | None) -> int:
+	model_name = str(getattr(llm, 'model', '') or '').lower()
+	if 'gemini' in model_name:
+		return 45
+	if 'groq' in model_name:
+		return 30
+	if 'o3' in model_name or 'claude' in model_name or 'sonnet' in model_name or 'deepseek' in model_name:
+		return 90
+	return 60
+
+
 def _extract_cdp_url(browser_session: BrowserSession | None) -> str | None:
 	if browser_session is None:
 		return None
@@ -1103,6 +1114,8 @@ class Agent(Generic[AgentStructuredOutput]):
 			flash_mode = True
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
+		if llm_timeout is None:
+			llm_timeout = _llm_timeout_for_model(llm)
 		self.id = task_id or uuid7str()
 		self.task_id = self.id
 		self.llm = llm
@@ -1150,7 +1163,7 @@ class Agent(Generic[AgentStructuredOutput]):
 			page_extraction_llm=page_extraction_llm,
 			calculate_cost=calculate_cost,
 			include_tool_call_examples=include_tool_call_examples,
-			llm_timeout=llm_timeout or 60,
+			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 		)

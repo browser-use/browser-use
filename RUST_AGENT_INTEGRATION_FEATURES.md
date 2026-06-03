@@ -541,10 +541,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Non-Browser Use providers retain the caller's flash-mode setting, and Browser Use-provider models build the same flash-mode action output class family.
    - Proof: `test_rust_agent_enables_flash_mode_for_browser_use_llm_provider`.
 
+107. Rust Agent LLM timeout default parity
+   - The Rust-backed Agent now mirrors Browser Use's constructor timeout defaults by model family: Gemini uses 45 seconds, Groq uses 30 seconds, O3/Claude/Sonnet/DeepSeek use 90 seconds, and other models use 60 seconds.
+   - Explicit `llm_timeout` overrides still take precedence over the model-family heuristic.
+   - Proof: `test_rust_agent_llm_timeout_defaults_match_browser_use_model_families`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (80 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (81 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
