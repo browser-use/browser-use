@@ -52,7 +52,7 @@ from browser_use.utils import URL_PATTERN, check_latest_browser_use_version, get
 
 
 Context = TypeVar('Context')
-AgentHookFunc = Callable[[Any], Awaitable[None] | None]
+AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 AgentNewStepCallback = (
 	Callable[[BrowserStateSummary, AgentOutput, int], None]
 	| Callable[[BrowserStateSummary, AgentOutput, int], Awaitable[None]]

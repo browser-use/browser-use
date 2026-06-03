@@ -566,10 +566,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - LLM, callback, structured-output, extraction-LLM, sample-image, and tools/controller annotations now mirror Browser Use's concrete types, while unannotated `**kwargs` and constructor return metadata stay unannotated like the Python Agent.
    - Proof: `test_rust_agent_constructor_type_hints_match_browser_use_core_params`.
 
+112. Rust Agent run hook type-hint parity
+   - The Rust-backed `Agent.run(...)` and `Agent.run_sync(...)` methods now expose Browser Use's hook callback type metadata.
+   - `on_step_start` and `on_step_end` resolve to Browser Use's `Callable[[Agent], Awaitable[None]] | None` hook shape instead of the previous loose `Any` callback annotation, while the runtime callback behavior remains unchanged.
+   - Proof: `test_rust_agent_run_type_hints_match_browser_use_hooks`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (85 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (86 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
@@ -627,6 +632,10 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
+- Browser Use cloud end-to-end:
+  - Source `/home/exedev/.evaluation_tool_env`.
+  - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
+  - Output: `Example Domain`
 - real_v8 remote-CDP end-to-end:
   - Launch external Chromium with `--remote-debugging-port=49333`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_CDP_URL=http://127.0.0.1:49333 timeout 600 uv run python examples/rust_agent/real_v8_smoke.py --task-id 18 --max-steps 30`
@@ -634,5 +643,4 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
 
 ## Not Verified Yet
 
-- Browser Use cloud remote browser end-to-end has not been rerun yet after locating `/home/exedev/.evaluation_tool_env`; when that file is sourced, `browser-use-terminal auth status` reports the Browser Use cloud key as connected.
-- real_v8 was verified through remote CDP against an external local Chromium endpoint, not a Browser Use cloud browser. The next E2E verification target is rerunning this with the sourced Browser Use cloud key.
+- Full real_v8 cloud-browser verification is intentionally not the active focus now. Per latest direction, benchmark runs should remain final smoke evidence only and should not drive task-specific changes.

@@ -128,6 +128,17 @@ def test_rust_agent_constructor_type_hints_match_browser_use_core_params():
 	assert 'return' not in rust_hints
 
 
+def test_rust_agent_run_type_hints_match_browser_use_hooks():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	for method_name in ('run', 'run_sync'):
+		browser_use_hints = get_type_hints(getattr(BrowserUseAgent, method_name))
+		rust_hints = get_type_hints(getattr(RustAgent, method_name))
+
+		assert rust_hints == browser_use_hints
+
+
 def test_rust_events_reconstruct_browser_use_history():
 	from browser_use.rust.service import _history_from_events
 
