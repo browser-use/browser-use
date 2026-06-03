@@ -511,10 +511,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - The helper captures browser state with screenshots/recent events, updates downloads, logs step context, refreshes page-filtered action models, creates state messages with sensitive-data and available-file context, and applies last-step/failure done-only switching.
    - Proof: `test_rust_agent_exposes_prepare_context_helper_method`.
 
+101. Rust Agent constructor signature order parity
+   - The Rust-backed `Agent.__init__(...)` now preserves Browser Use's constructor parameter order, including the `source`, `file_system_path`, and `task_id` tail after `injected_agent_state`.
+   - Positional constructor calls that rely on Browser Use's public signature now route those values to the same Rust wrapper fields while retaining keyword compatibility.
+   - Proof: `test_rust_agent_constructor_signature_matches_browser_use_order`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (74 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (75 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

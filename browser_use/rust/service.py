@@ -1079,6 +1079,8 @@ class Agent(Generic[AgentStructuredOutput]):
 		max_history_items: int | None = None,
 		page_extraction_llm: Any | None = None,
 		injected_agent_state: AgentState | None = None,
+		source: str | None = None,
+		file_system_path: str | None = None,
 		task_id: str | None = None,
 		calculate_cost: bool = False,
 		display_files_in_done_text: bool = True,
@@ -1090,8 +1092,6 @@ class Agent(Generic[AgentStructuredOutput]):
 		include_recent_events: bool = False,
 		sample_images: list[Any] | None = None,
 		final_response_after_failure: bool = True,
-		file_system_path: str | None = None,
-		source: str | None = None,
 		_url_shortening_limit: int = 25,
 		**kwargs: Any,
 	) -> None:

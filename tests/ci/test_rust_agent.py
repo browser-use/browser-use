@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import importlib.util
 import json
 import sys
@@ -31,6 +32,37 @@ def test_agent_package_export_uses_rust_wrapper():
 	from browser_use.rust import Agent as RustAgent
 
 	assert AgentPackageAgent is RustAgent
+
+
+def test_rust_agent_constructor_signature_matches_browser_use_order(tmp_path):
+	from browser_use.agent.service import Agent as BrowserUseAgent
+	from browser_use.rust import Agent as RustAgent
+
+	browser_use_params = list(inspect.signature(BrowserUseAgent.__init__).parameters)
+	rust_params = list(inspect.signature(RustAgent.__init__).parameters)
+
+	assert rust_params == browser_use_params
+
+	values = []
+	for param in list(inspect.signature(RustAgent.__init__).parameters.values())[1:]:
+		if param.name == 'task':
+			values.append('Check constructor parity.')
+		elif param.name == 'source':
+			values.append('signature-source')
+		elif param.name == 'file_system_path':
+			values.append(str(tmp_path / 'agent-files'))
+		elif param.name == 'task_id':
+			values.append('signature-task-id')
+			break
+		else:
+			assert param.default is not inspect.Parameter.empty
+			values.append(param.default)
+
+	agent = RustAgent(*values)
+
+	assert agent.source == 'signature-source'
+	assert agent.file_system_path == str(tmp_path / 'agent-files')
+	assert agent.task_id == 'signature-task-id'
 
 
 def test_rust_events_reconstruct_browser_use_history():
