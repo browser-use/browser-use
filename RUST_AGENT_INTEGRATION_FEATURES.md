@@ -271,6 +271,11 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
    - The helper scans visible DOM route attributes, inline scripts, and same-origin bundled JavaScript for likely public listing, booking, product, document, search, and investor routes hidden inside SPA manifests.
    - Proof: `browser_script_route_candidates_snapshot_discovers_spa_routes`.
 
+53. Browser-script network resource discovery helper
+   - Terminal browser scripts now expose `network_resources_snapshot(limit=80, keywords=None)`.
+   - The helper ranks API, JSON/CSV/table, document/download, pagination, form, export, inline-script, and data-attribute URLs from the current page's performance entries and DOM without fetching them itself.
+   - Proof: `browser_script_network_resources_snapshot_surfaces_api_candidates`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -301,6 +306,7 @@ Terminal core branch: `magnus/browser-use-rust-integration` at latest pulled mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_pricing_cards_snapshot_surfaces_commercial_signals -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_sitemap_urls_snapshot_discovers_public_routes -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_route_candidates_snapshot_discovers_spa_routes -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_network_resources_snapshot_surfaces_api_candidates -- --nocapture`
 - Managed-headless end-to-end:
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
