@@ -876,10 +876,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The startup log preserves the Browser Use provider/model/version line that callers and support logs expect at the beginning of a run.
    - Proof: `test_rust_agent_run_logs_first_step_startup`.
 
+173. Rust Agent setup debug logging parity
+   - Terminal-backed `Agent.run()` now logs Browser Use-style setup metadata after run metadata and before Rust terminal execution.
+   - The setup log exposes the public agent session suffix, task suffix, browser session suffix, and whether the run is launching locally or connecting through CDP.
+   - Proof: `test_rust_agent_run_logs_browser_use_setup_metadata`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (144 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (145 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`

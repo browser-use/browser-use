@@ -2641,6 +2641,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				f'Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use@{latest_version}'
 			)
 
+	def _log_agent_setup(self) -> None:
+		"""Log Browser Use run setup metadata for the Rust-backed wrapper."""
+		browser_session_id = getattr(self.browser_session, 'id', None) if self.browser_session else None
+		browser_session_suffix = str(browser_session_id)[-4:] if browser_session_id else 'None'
+		cdp_url = getattr(self.browser_session, 'cdp_url', None) if self.browser_session else None
+		connection_mode = '(connecting via CDP)' if cdp_url else '(launching local browser)'
+		self.logger.debug(
+			f'Agent setup: Agent Session ID {self.session_id[-4:]}, Task ID {self.task_id[-4:]}, Browser Session ID {browser_session_suffix} {connection_mode}'
+		)
+
 	def _log_first_step_startup(self) -> None:
 		"""Log the first-step startup line used by Browser Use callers."""
 		if len(self.history.history) != 0:
@@ -2932,6 +2942,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_end: AgentHookFunc | None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		await self._log_agent_run()
+		self._log_agent_setup()
 		await self._call_callback(on_step_start, self)
 		self._initialize_run_lifecycle_state()
 		self._log_first_step_startup()

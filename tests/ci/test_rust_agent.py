@@ -3123,6 +3123,50 @@ async def test_rust_agent_run_logs_first_step_startup(monkeypatch):
 	assert logger.errors == []
 
 
+async def test_rust_agent_run_logs_browser_use_setup_metadata(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Log setup metadata.', llm=type('LLM', (), {'model': 'gpt-test'})())
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		expected = (
+			f'Agent setup: Agent Session ID {agent.session_id[-4:]}, Task ID {agent.task_id[-4:]}, '
+			f'Browser Session ID {agent.browser_session.id[-4:]} (launching local browser)'
+		)
+		assert expected in logger.debugs
+		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'logged setup'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=1)
+
+	assert history.final_result() == 'logged setup'
+	assert logger.errors == []
+
+
 async def test_rust_agent_run_registers_browser_use_signal_handler(monkeypatch):
 	import asyncio
 
