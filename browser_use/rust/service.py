@@ -959,7 +959,35 @@ def _artifact_attachment_pointer(value: Any) -> str | None:
 	return None
 
 
+def _done_tool_result_from_events(events: list[dict[str, Any]]) -> str | None:
+	for event in reversed(events):
+		event_type = _event_type(event)
+		if event_type not in ('tool.started', 'tool.output', 'tool.finished'):
+			continue
+		payload = _event_payload(event)
+		if payload.get('name') != 'done':
+			continue
+		arguments = payload.get('arguments')
+		if isinstance(arguments, dict):
+			for key in ('text', 'result', 'answer'):
+				value = arguments.get(key)
+				if isinstance(value, str) and value.strip():
+					return value.strip()
+		text = _tool_result_text(payload)
+		if not text:
+			continue
+		text = text.strip()
+		if text.lower().startswith('done:'):
+			text = text[5:].strip()
+		if text:
+			return text
+	return None
+
+
 def _result_from_events(events: list[dict[str, Any]]) -> str | None:
+	done_result = _done_tool_result_from_events(events)
+	if done_result:
+		return done_result
 	for event in reversed(events):
 		if _event_type(event) != 'session.done':
 			continue

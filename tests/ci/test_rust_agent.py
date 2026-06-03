@@ -1144,6 +1144,44 @@ def test_rust_history_reconstructs_terminal_model_turn_steps():
 	assert history.is_done() is True
 
 
+def test_rust_history_prefers_done_tool_text_over_session_summary():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'type': 'model.turn.request', 'ts_ms': 1_000, 'payload': {'model': 'claude-sonnet-4-0', 'attempt': 0}},
+			{
+				'type': 'tool.started',
+				'ts_ms': 1_010,
+				'payload': {
+					'name': 'done',
+					'tool_call_id': 'call-done',
+					'arguments': {'text': 'Paramjit Uppal, Founder', 'success': True},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'ts_ms': 1_020,
+				'payload': {'name': 'done', 'tool_call_id': 'call-done', 'text': 'done:Paramjit Uppal, Founder'},
+			},
+			{
+				'type': 'session.done',
+				'ts_ms': 1_030,
+				'payload': {'result': 'I found the founder and will now provide the requested final format.'},
+			},
+		],
+		model='claude-sonnet-4-0',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.final_result() == 'Paramjit Uppal, Founder'
+	assert history.action_results()[-1].extracted_content == 'Paramjit Uppal, Founder'
+	assert history.is_successful() is True
+
+
 def test_rust_history_applies_terminal_session_rollback():
 	from browser_use.rust.service import _history_from_events
 
