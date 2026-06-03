@@ -3207,6 +3207,62 @@ async def test_rust_agent_run_logs_main_execution_start(monkeypatch):
 	assert logger.errors == []
 
 
+async def test_rust_agent_run_follow_up_logs_main_execution_start(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	process_calls = []
+	load_count = 0
+
+	class RecordingLogger:
+		def __init__(self):
+			self.infos = []
+			self.debugs = []
+			self.errors = []
+
+		def info(self, message, *args, **kwargs):
+			self.infos.append(message)
+
+		def debug(self, message, *args, **kwargs):
+			self.debugs.append(message)
+
+		def error(self, message, *args, **kwargs):
+			self.errors.append(message)
+
+	logger = RecordingLogger()
+	monkeypatch.setattr(Agent, 'logger', property(lambda self: logger))
+	agent = Agent(task='Log follow-up execution start.', llm=type('LLM', (), {'model': 'gpt-test'})())
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		process_calls.append(argv)
+		if len(process_calls) == 1:
+			return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
+		if len(process_calls) == 2:
+			assert argv[-3] == 'followup'
+			assert 'Starting main execution loop with max 5 steps...' in logger.debugs
+		return 0, '', ''
+
+	async def fake_load_events():
+		nonlocal load_count
+		load_count += 1
+		return [{'event_type': 'session.done', 'payload': {'result': f'logged follow-up execution {load_count}'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=4)
+
+	assert history.final_result() == 'logged follow-up execution 1'
+	logger.debugs.clear()
+	agent.add_new_task('Continue and log follow-up execution start.')
+
+	history = await agent.run(max_steps=5)
+
+	assert history.final_result() == 'logged follow-up execution 2'
+	assert len(process_calls) == 3
+	assert logger.errors == []
+
+
 async def test_rust_agent_run_registers_browser_use_signal_handler(monkeypatch):
 	import asyncio
 

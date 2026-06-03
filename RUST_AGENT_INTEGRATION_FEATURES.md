@@ -906,10 +906,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Run-delegated follow-ups preserve the normal callback order: step-start hook, terminal execution, new-step callback, step-end hook, done callback.
    - Proof: `test_rust_agent_run_follow_up_invokes_on_step_end`.
 
+179. Rust Agent run-delegated follow-up main-loop logging parity
+   - Browser Use-style `Agent.add_new_task(...); Agent.run(...)` follow-ups now log the main execution-loop start line before invoking the Rust terminal follow-up command.
+   - The log includes the follow-up run's resolved max-step budget, matching the run-start debug metadata emitted by normal terminal-backed runs.
+   - Proof: `test_rust_agent_run_follow_up_logs_main_execution_start`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (150 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (151 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
