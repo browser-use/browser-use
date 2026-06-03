@@ -4190,12 +4190,19 @@ async def test_rust_agent_direct_follow_up_updates_task_state_and_transcript(tmp
 	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
 	process_calls = []
 	load_count = 0
+	step_numbers = []
+
+	def new_step_callback(browser_state, model_output, step_number):
+		step_numbers.append(step_number)
+
 	agent = Agent(
 		task='Start direct follow-up state.',
 		llm=type('LLM', (), {'model': 'gpt-test'})(),
 		task_id='direct-followup',
 		save_conversation_path=tmp_path,
+		register_new_step_callback=new_step_callback,
 	)
+	starting_steps = agent.state.n_steps
 
 	async def fake_run_process(argv, timeout_seconds=None):
 		process_calls.append(argv)
@@ -4226,15 +4233,23 @@ async def test_rust_agent_direct_follow_up_updates_task_state_and_transcript(tmp
 		'12345678-1234-1234-1234-123456789abc',
 		'Direct raw follow-up task.',
 	]
+	assert step_numbers == [starting_steps + 1, starting_steps + 2]
+	assert agent.state.n_steps == starting_steps + 2
 	assert agent.last_stdout == 'followup accepted\nrerun stdout'
 	assert agent.last_stderr == 'followup stderr\nrerun stderr'
 
-	files = list(tmp_path.glob('conversation_direct-followup_*.json'))
-	assert len(files) == 1
-	snapshot = json.loads(files[0].read_text(encoding='utf-8'))
-	assert snapshot['task'] == 'Direct raw follow-up task.'
-	assert snapshot['stdout'] == 'followup accepted\nrerun stdout'
-	assert snapshot['stderr'] == 'followup stderr\nrerun stderr'
+	files = sorted(tmp_path.glob('conversation_direct-followup_*.json'))
+	assert [path.name for path in files] == [
+		f'conversation_direct-followup_{starting_steps + 1}.json',
+		f'conversation_direct-followup_{starting_steps + 2}.json',
+	]
+	initial_snapshot = json.loads(files[0].read_text(encoding='utf-8'))
+	follow_up_snapshot = json.loads(files[1].read_text(encoding='utf-8'))
+	assert initial_snapshot['task'] == 'Start direct follow-up state.'
+	assert initial_snapshot['final_result'] == 'direct follow-up 1'
+	assert follow_up_snapshot['task'] == 'Direct raw follow-up task.'
+	assert follow_up_snapshot['stdout'] == 'followup accepted\nrerun stdout'
+	assert follow_up_snapshot['stderr'] == 'followup stderr\nrerun stderr'
 
 
 async def test_rust_agent_run_logs_browser_use_lifecycle_dispatch(monkeypatch):
@@ -5120,6 +5135,41 @@ def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
 	agent.save_history(history_file)
 
 	assert 'saved answer' in history_file.read_text(encoding='utf-8')
+
+
+def test_rust_agent_sync_state_counts_terminal_histories_monotonically():
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	def history_from_result(result: str):
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': result}}],
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent = Agent(task='Sync terminal history steps.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	starting_steps = agent.state.n_steps
+
+	agent.history = history_from_result('first answer')
+	agent._sync_state_from_history()
+
+	assert agent.state.n_steps == starting_steps + 1
+	assert agent.state.last_result is not None
+	assert agent.state.last_result[-1].extracted_content == 'first answer'
+
+	agent._sync_state_from_history()
+	assert agent.state.n_steps == starting_steps + 1
+
+	agent.history = history_from_result('follow-up answer')
+	agent._sync_state_from_history()
+
+	assert agent.state.n_steps == starting_steps + 2
+	assert agent.state.last_result is not None
+	assert agent.state.last_result[-1].extracted_content == 'follow-up answer'
 
 
 async def test_rust_agent_close_kills_non_keep_alive_browser_session():

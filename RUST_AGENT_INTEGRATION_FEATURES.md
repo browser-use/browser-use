@@ -1006,10 +1006,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Follow-up terminal stdout/stderr from both the append and rerun subprocesses are now preserved on the agent and in saved conversation snapshots.
    - Proof: `test_rust_agent_direct_follow_up_updates_task_state_and_transcript`.
 
+199. Rust Agent monotonic terminal step-state parity
+   - Reconstructed terminal histories now advance Browser Use-facing `agent.state.n_steps` cumulatively by reconstructed history item count instead of replacing it with a terminal run-local step number.
+   - Re-syncing the same history object is idempotent, while subsequent `run()`/`follow_up()` histories produce distinct conversation snapshot step suffixes and monotonic new-step callback numbers.
+   - Proof: `test_rust_agent_sync_state_counts_terminal_histories_monotonically`, `test_rust_agent_direct_follow_up_updates_task_state_and_transcript`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (167 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (168 tests)
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -1091,6 +1096,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Follow-up/callback script output: `{"smoke": "python_api_followup_callbacks", "first": "Example Domain", "second": "example.com", "callback_kinds": ["step", "done", "step", "done"], "conversation_files": 2}`.
   - Initial-actions/files/structured-output script output: `{"smoke": "python_api_initial_files_structured", "answer": {"title": "Example Domain", "host": "example.com", "marker": "file-marker-ok"}, "history_urls": ["", "", "", "https://example.com", "https://example.com"], "available_files": ["/tmp/.../input-note.txt"]}`.
   - 2026-06-03 rerun after step-error parity: both scripts passed concurrently through the Python `Agent` import with `provider=rust-terminal`; follow-up/callback output was `Example Domain` then `example.com`, and initial-actions/files/structured-output produced `{"title":"Example Domain","host":"example.com","marker":"file-marker-ok"}`.
+  - 2026-06-03 rerun after monotonic step-state parity: both scripts passed concurrently through the Python `Agent` import with `provider=rust-terminal`; follow-up/callback/conversation output was `{"first":"Example Domain","second":"example.com","step_numbers":[4,14],"conversation_files":2}`, and initial-actions/files/structured-output produced `{"title":"Example Domain","host":"example.com","marker":"file-marker-monotonic-smoke"}`.
 - Multi-feature Python API cloud end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`, unset browser-mode overrides, and construct `Agent(..., browser_profile=BrowserProfile(use_cloud=True), register_new_step_callback=..., register_done_callback=..., save_conversation_path=..., step_timeout=300)`.
   - Output: first run `Example Domain`; follow-up `example.com`; callback sequence `step, done, step, done`; two conversation JSON snapshots written; terminal session id present.
