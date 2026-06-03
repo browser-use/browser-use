@@ -2,7 +2,7 @@
 
 Branch: `magnus/browser-use-rust-core-integration`
 
-Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee3ce69` plus small CLI/browser-mode support commits.
+Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal main `ee3ce69` plus Codex session rerun support commit `8c8dd8a`.
 
 ## Built Features
 
@@ -596,11 +596,19 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - This keeps direct imports, top-level imports, `repr(Agent)`, docs, and runtime introspection aligned after the service export redirects to the Rust wrapper.
    - Proof: `test_rust_agent_class_metadata_matches_browser_use_service_surface`.
 
+118. Terminal main Codex session rerun compatibility
+   - The current terminal `origin/main` baseline is now the active Rust core ground truth for this integration.
+   - Terminal branch `magnus/browser-use-rust-main-integration` adds `run-codex-session`, so Browser Use-style `Agent.follow_up()` can append a follow-up turn and rerun the same terminal session through the Codex backend instead of depending on the older terminal integration branch.
+   - Proof: terminal `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`.
+   - Proof: `browser-use-terminal run-codex-session --help` exposes `<TASK_ID>` and `--model`.
+   - Proof: Python `Agent.run()` followed by `Agent.follow_up()` against the rebuilt current-main terminal binary completed successfully.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (91 tests)
-- `cargo build -q -p browser-use-cli`
+- `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
+- `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_profile_dir -- --nocapture`
