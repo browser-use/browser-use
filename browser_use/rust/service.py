@@ -1126,7 +1126,7 @@ class Agent(Generic[AgentStructuredOutput]):
 		self._set_browser_use_version_and_source(source)
 		self.kwargs = kwargs
 		self.model = _model_name(llm)
-		self.state = injected_agent_state or AgentState(agent_id=self.id)
+		self.state = injected_agent_state or AgentState()
 		timestamp = int(time.time())
 		self.agent_directory = Path(tempfile.gettempdir()) / f'browser_use_agent_{self.id}_{timestamp}'
 		self._set_file_system(file_system_path)

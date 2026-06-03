@@ -531,10 +531,15 @@ Terminal core branch: `magnus/browser-use-rust-integration` at terminal main `ee
    - Explicit `page_extraction_llm` overrides are still preserved, and both defaulted and explicit extraction models can be registered with token usage tracking.
    - Proof: `test_rust_agent_defaults_page_extraction_llm_to_main_llm`.
 
+105. Rust Agent state ID default parity
+   - The Rust-backed Agent now mirrors Browser Use's default `AgentState()` initialization instead of forcing `state.agent_id` to match the public task id.
+   - Explicit `task_id` still controls `agent.id` and `agent.task_id`, while injected `AgentState` objects remain preserved for restored runs.
+   - Proof: `test_rust_agent_state_id_defaults_like_browser_use`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py tests/ci/test_rust_agent.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
-- `uv run pytest -q tests/ci/test_rust_agent.py` (78 tests)
+- `uv run pytest -q tests/ci/test_rust_agent.py` (79 tests)
 - `cargo build -q -p browser-use-cli`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_managed_mode_with_launch_args -- --nocapture`

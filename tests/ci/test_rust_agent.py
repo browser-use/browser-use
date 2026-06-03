@@ -913,6 +913,35 @@ def test_rust_agent_defaults_page_extraction_llm_to_main_llm():
 	assert str(id(extraction_llm)) in override_agent.token_cost_service.registered_llms
 
 
+def test_rust_agent_state_id_defaults_like_browser_use():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.agent.views import AgentState
+	from browser_use.rust import Agent as RustAgent
+
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
+	task_id = 'explicit_task_id'
+	llm = LLM()
+	browser_use_agent = BrowserUseAgent(task='Inspect state.', llm=llm, task_id=task_id, directly_open_url=False)
+	rust_agent = RustAgent(task='Inspect state.', llm=llm, task_id=task_id, directly_open_url=False)
+
+	assert browser_use_agent.task_id == rust_agent.task_id == task_id
+	assert browser_use_agent.state.agent_id != task_id
+	assert rust_agent.state.agent_id != task_id
+	assert rust_agent.state.n_steps == browser_use_agent.state.n_steps == 1
+
+	injected_state = AgentState(agent_id='restored-state-id')
+	restored_agent = RustAgent(task='Restore state.', injected_agent_state=injected_state)
+
+	assert restored_agent.state is injected_state
+	assert restored_agent.state.agent_id == 'restored-state-id'
+
+
 def test_rust_agent_initializes_tools_and_action_models():
 	from browser_use.rust import Agent
 	from browser_use.tools.service import Tools
