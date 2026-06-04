@@ -45,6 +45,7 @@ from browser_use.tools.views import (
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	HoverAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -745,6 +746,85 @@ class Tools(Generic[Context]):
 
 		# Register click action (index-only by default)
 		self._register_click_action()
+
+		@self.registry.action(
+			'Hover over element by index or coordinates. Use to trigger dropdown menus, tooltips, or CSS hover effects.',
+			param_model=HoverAction,
+		)
+		async def hover(params: HoverAction, browser_session: BrowserSession) -> ActionResult:
+			"""Hover over an element using CDP mouse events with smooth movement."""
+			try:
+				# Handle hover by coordinates
+				if params.coordinate_x is not None and params.coordinate_y is not None:
+					# Convert coordinates from LLM size to original viewport size if resizing was used
+					actual_x, actual_y = _convert_llm_coordinates_to_viewport(
+						params.coordinate_x, params.coordinate_y, browser_session
+					)
+
+					page = await browser_session.must_get_current_page()
+
+					# Smooth mouse movement to target coordinates
+					mouse = await page.mouse
+					await mouse.move(actual_x, actual_y)
+					await asyncio.sleep(0.1)  # Allow CSS :hover effects to trigger
+
+					memory = f'Hovered at coordinate {params.coordinate_x}, {params.coordinate_y}'
+					logger.info(f'👆 {memory}')
+					return ActionResult(
+						extracted_content=memory,
+						metadata={'hover_x': actual_x, 'hover_y': actual_y},
+					)
+
+				# Handle hover by index
+				if params.index is not None:
+					node = await browser_session.get_element_by_index(params.index)
+					if node is None:
+						msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+						logger.warning(f'⚠️ {msg}')
+						return ActionResult(extracted_content=msg)
+
+					# Highlight the element being hovered (truly non-blocking)
+					create_task_with_error_handling(
+						browser_session.highlight_interaction_element(node), name='highlight_hover_element', suppress_exceptions=True
+					)
+
+					# Get element bounding box to find center
+					if not node.snapshot_node or not node.snapshot_node.bounds:
+						return ActionResult(error=f'Could not get bounding box for element {params.index}')
+
+					bounds = node.snapshot_node.bounds
+					center_x = int(bounds.x + bounds.width / 2)
+					center_y = int(bounds.y + bounds.height / 2)
+
+					page = await browser_session.must_get_current_page()
+					mouse = await page.mouse
+
+					# Two-step hover: move to center first (enter element), then to target position
+					# This triggers :hover effects more reliably than jumping directly to position
+					await mouse.move(center_x, center_y)
+					await asyncio.sleep(0.1)
+
+					element_desc = get_click_description(node)
+					memory = f'Hovered over {element_desc}'
+					logger.info(f'👆 {memory}')
+					return ActionResult(
+						extracted_content=memory,
+						metadata={
+							'hover_index': params.index,
+							'hover_x': center_x,
+							'hover_y': center_y,
+							'element_bbox': {'x': int(bounds.x), 'y': int(bounds.y), 'width': int(bounds.width), 'height': int(bounds.height)},
+						},
+					)
+
+				return ActionResult(error='Either index or coordinates must be provided for hover action')
+
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover: {str(e)}'
+				logger.error(f'Failed to hover: {type(e).__name__}: {e}')
+				return ActionResult(error=error_msg)
 
 		@self.registry.action(
 			'Input text into element by index. Clears existing text by default; pass text="" to clear only, or clear=False to append.',
