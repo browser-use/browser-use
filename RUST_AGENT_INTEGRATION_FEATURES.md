@@ -1252,6 +1252,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task cloud gate where startup/proxy/judge exceptions were fixed, but multiple tasks still spent 400+ seconds in the agent stage before judgement.
    - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env -- --nocapture`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py`, terminal `cargo fmt --check -p browser-use-browser`, terminal `git diff --check -- crates/browser-use-browser/src/lib.rs`, and eval `git diff --check -- eval/service.py .github/workflows/eval.yaml tests/test_service_cli.py`.
 
+246. Rust Agent Agent SDK judge max-turn fallback parity
+   - Agent SDK judging now explicitly tells the judge not to solve the original task from scratch and to use live-web tools only for targeted spot checks.
+   - If the tool-enabled Agent SDK judge reaches its max-turn budget, the eval runner falls back to a no-tools Agent SDK verdict over the supplied task, trajectory, and final result instead of surfacing `Agent SDK judge raised an exception`.
+   - This targets the 2026-06-04 five-task cloud gate where a completed agent result was scored `0.0` because the judge hit `Reached maximum number of turns (8)`.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1259,9 +1265,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'browser_script_wait or max_steps or cloud_create or agent_sdk_judge_retries'` on evaluations-internal branch `main`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py` on evaluations-internal branch `main`
+- `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env -- --nocapture`
 - `cargo fmt --check -p browser-use-agent`
@@ -1467,6 +1475,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - All five Browser Use cloud sessions were created promptly and entered Rust-core agent execution. Completed saved results before the 10-minute stop: task 3 score `1.0` in 112.93s agent time/175.35s total pipeline, task 1 score `0.3` in 403.08s/576.05s, and task 5 score `1.0` in 470.13s/632.59s.
   - Task 2 had completed the agent stage in 488.51s and was in the Agent SDK judge path when the 10-minute limit was reached; task 4 was still running. The remaining Browser Use cloud sessions were manually stopped.
   - The prior repeated Agent SDK exception did not reproduce in the completed judgements, but the gate still did not justify scaling to 50 because agent-stage latency was high across multiple tasks and serialized judging added tail latency.
+- 2026-06-04 seven-second browser_script wait five-task real_v8 Agent SDK gate:
+  - Run `kh788gkryg98ys20h2a90f61hx880t86` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100`.
+  - All five Browser Use cloud sessions were created promptly and all five tasks entered Rust-core agent execution. Agent-stage completions before the 10-minute stop were task 2 at 162.06s, task 3 at 168.49s, task 1 at 225.02s, and task 5 at 227.80s.
+  - Saved results before the stop: task 2 score `0.0`, task 3 score `0.9`, and task 1 score `0.0`; task 1's `0.0` came from Agent SDK judge max-turn exhaustion, which feature 246 addresses.
+  - The gate showed the 7-second threshold improved the agent-stage tail for several tasks compared with the prior 403s/470s/488s long tasks, but did not justify scaling to 50 because task 4 and serialized Agent SDK judging still exceeded the 10-minute gate.
 - 2026-06-03 three-task real_v8 cloud smoke through the Python `Agent` API and Rust terminal core launched and returned for real_v8 `18`, `14`, and `20` with `DEFAULT_LLM=openai_gpt_4_1_mini`, `BROWSER_USE_RUST_BROWSER_MODE=cloud`, and the local debug `browser-use-terminal`, but it is not a clean benchmark pass:
   - real_v8 `18`: returned `successful=true`, but final output was `[empty]` after failing to verify AND Digital leadership information and included generated browser-script JavaScript quoting errors.
   - real_v8 `14`: returned `successful=true`, but final output said ycombinator.com was blocked/unresponsive and did not extract the requested Winter 2025 B2B company data.
