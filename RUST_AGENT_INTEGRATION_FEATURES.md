@@ -1359,6 +1359,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated five-task gates where non-vision Agent SDK runs still uploaded dozens of screenshots per completed task before judging/saving, wasting tail time and payload size without helping the no-tools fallback judge.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'non_vision_runs_skip_screenshot_persistence'`, eval `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py`, eval `git diff --check -- eval/service.py tests/test_service_cli.py`, and eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`.
 
+262. Rust Agent eval Agent SDK trajectory-only judge default
+   - Eval service now defaults `--judge-type agent_sdk` runs to `AGENT_SDK_JUDGE_TRAJECTORY_ONLY=1`, while preserving `AGENT_SDK_JUDGE_TRAJECTORY_ONLY=0` as an opt-out for tool-enabled WebFetch/WebSearch verification.
+   - The Agent SDK judge now has an explicit trajectory-only mode that skips the tool-enabled attempt and runs the existing no-tools Agent SDK trajectory verdict directly.
+   - This targets repeated five-task gates where every completed task's tool-enabled Agent SDK judge timed out after 25 seconds before the trajectory-only fallback produced the actual saved score.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge_trajectory_only or agent_sdk_service_defaults_to_trajectory_only_judge'`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py eval/service.py tests/test_service_cli.py`, eval `git diff --check -- eval/judges/agent_sdk_judge.py eval/service.py tests/test_service_cli.py`, and eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1587,6 +1593,14 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-Agent-SDK-trajectory-judge five-task real_v8 Agent SDK gate:
+  - Run `kh7ahf1zhwn895e84ftn1n59x9881hhe` used `BU_RUNTIME=brust`, eval-internal commit `6e75e49`, terminal commit `8af682f`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - The shell explicitly unset `AGENT_SDK_JUDGE_TRAJECTORY_ONLY`; eval service still enabled trajectory-only mode by default for `agent_sdk`, proving the new service default.
+  - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T12:02:17Z, all five tasks entered Rust-core agent execution, and no CAPTCHA/local-browser misconfiguration appeared.
+  - The judge-tail fix was verified live: saved tasks 9, 10, and 6 each logged `Agent SDK judge trajectory-only mode enabled; skipping tool-enabled verification attempt`, no `Agent SDK judge attempt timed out` lines appeared, and each saved with `screenshots=0`.
+  - Saved results before the 10-minute cap: task 9 score `1.0` in 242.85s agent time/273.51s total pipeline, task 10 score `1.0` in 354.64s/398.86s, and task 6 score `1.0` in 431.91s/463.31s.
+  - Tasks 7 and 8 were still in agent-stage execution when the cap fired. Their remaining Browser Use cloud sessions were explicitly stopped after the cap, and no eval/terminal subprocesses remained.
+  - This gate does not justify scaling to 50: saved-task mean score was `1.0`, but missing-task-as-zero mean score was `0.60` with only 3/5 tasks saved within the iteration budget. The judge-tail cost is fixed for saved tasks, but long-tail agent execution still dominates document/research tasks.
 - 2026-06-04 post-non-vision-screenshot-skip five-task real_v8 Agent SDK gate:
   - Run `kh787xq9gjbpr0e5dd5tdgh69x881z4s` used `BU_RUNTIME=brust`, terminal commit `8af682f`, eval-internal commit `256ff5e`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T11:45:22Z, all five tasks entered Rust-core agent execution, and no CAPTCHA/local-browser misconfiguration appeared.
