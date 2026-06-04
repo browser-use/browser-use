@@ -1239,6 +1239,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task Agent SDK gate where all five tasks hit repeated `saveRunnerProgress` failures during startup while final task-result saves still succeeded.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py` and eval `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py`.
 
+244. Rust Agent eval orchestration hardening parity
+   - Eval defaults now use 100 max steps in both the Python CLI and GitHub workflow, while explicit `--max-steps` values still win.
+   - Browser Use cloud browser sessions now send a default `proxyCountryCode=US` for non-proxyless runs, with env override via `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE` and opt-out via `--proxyless`.
+   - Agent SDK judging now uses Claude Sonnet 4.6 by default, serializes in-process judge subprocesses, and retries transient SDK errors such as `Claude Code returned an error result: success` before scoring a completed task as failed.
+   - Bounded Rust-core runs now add a final generic developer nudge on the last allowed sampling turn telling the agent to call `done` with the best available answer instead of continuing exploration.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, terminal `bounded_loop_aborts_after_max_turns`, and terminal `cargo fmt --check -p browser-use-agent`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1246,6 +1253,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py` on evaluations-internal branch `main`
+- `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
+- `cargo fmt --check -p browser-use-agent`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (previous full run before latest focused additions: 186 tests)
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service or rust_agent_class_metadata_matches_browser_use_service_surface or rust_agent_generic_subscription_matches_browser_use or rust_agent_constructor_signature_matches_browser_use_order'`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'run_finalizes_after_startup_cancellation or run_finalizes_after_cancellation or top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service'`
@@ -1429,6 +1439,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 ## Not Verified Yet
 
 - Historical passing live benchmark tasks from earlier focused smokes: real_v8 `18`, real_v8-2 `1`.
+- 2026-06-04 progress-fix five-task real_v8 Agent SDK gate:
+  - Run `kh7a50j1amqsnjthdy4y01bsv98812by` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 75`.
+  - Startup was healthy: all five Browser Use cloud sessions were created promptly, agent execution began for all five, and the prior startup `saveRunnerProgress` 500 storm was not observed.
+  - The gate was stopped after the 10-minute limit with task 4 still running; the remaining cloud browser session was manually stopped.
+  - Completed saved results before stop: task 1 score `0.0`, task 2 score `0.0`, task 3 score `0.0`, task 5 score `1.0`; tasks 1/2/3 were scored down by repeated Agent SDK judge exception `Claude Code returned an error result: success`, which feature 244 addresses.
 - 2026-06-04 fixed five-task real_v8 Agent SDK gate:
   - Run `kh74dv6k1hpkwb3eahr59a7vhs880pc2` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 75`.
   - Scores were task 1 `0.9`, task 2 `0.5`, task 3 `0.9`, task 4 `0.0`, task 5 `1.0`; mean score `0.66`, total batch time `891.75s`.
