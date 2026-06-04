@@ -160,10 +160,6 @@ class TokenCost:
 
 	async def get_model_pricing(self, model_name: str) -> ModelPricing | None:
 		"""Get pricing information for a specific model"""
-		# Ensure we're initialized
-		if not self._initialized:
-			await self.initialize()
-
 		# Check custom pricing first
 		if model_name in CUSTOM_MODEL_PRICING:
 			data = CUSTOM_MODEL_PRICING[model_name]
@@ -177,6 +173,10 @@ class TokenCost:
 				cache_read_input_token_cost=data.get('cache_read_input_token_cost'),
 				cache_creation_input_token_cost=data.get('cache_creation_input_token_cost'),
 			)
+
+		# Ensure we're initialized before checking remote LiteLLM pricing.
+		if not self._initialized:
+			await self.initialize()
 
 		# Map model name to LiteLLM model name if needed
 		litellm_model_name = MODEL_TO_LITELLM.get(model_name, model_name)

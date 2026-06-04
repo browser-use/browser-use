@@ -1659,6 +1659,70 @@ def test_rust_history_reconstructs_terminal_nested_model_usage():
 	assert history.usage.by_model['gpt-test'].cost == 0.0123
 
 
+async def test_rust_terminal_usage_prices_token_count_events(monkeypatch):
+	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.tokens.service import TokenCost
+
+	async def fail_fetch(_self):
+		raise AssertionError('custom model pricing should not fetch remote pricing')
+
+	monkeypatch.setattr(TokenCost, '_fetch_and_cache_pricing_data', fail_fetch)
+
+	events = [
+		{
+			'event_type': 'token_count',
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 20,
+						'input_tokens': 100,
+						'output_tokens': 10,
+						'total_tokens': 110,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 20,
+						'input_tokens': 100,
+						'output_tokens': 10,
+						'total_tokens': 110,
+					},
+				},
+			},
+		},
+		{
+			'event_type': 'token_count',
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 0,
+						'input_tokens': 200,
+						'output_tokens': 20,
+						'total_tokens': 220,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 20,
+						'input_tokens': 300,
+						'output_tokens': 30,
+						'total_tokens': 330,
+					},
+				},
+			},
+		},
+	]
+
+	summary = await _usage_from_events_with_costs(events, 'claude-sonnet-4-6', TokenCost(include_cost=True))
+
+	assert summary.total_prompt_tokens == 300
+	assert summary.total_prompt_cached_tokens == 20
+	assert summary.total_completion_tokens == 30
+	assert summary.total_tokens == 330
+	assert summary.entry_count == 2
+	assert summary.total_prompt_cost == pytest.approx(0.000846)
+	assert summary.total_prompt_cached_cost == pytest.approx(0.000006)
+	assert summary.total_completion_cost == pytest.approx(0.00045)
+	assert summary.total_cost == pytest.approx(0.001296)
+	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.001296)
+
+
 def test_rust_history_supports_structured_output():
 	from browser_use.rust.service import _history_from_events
 

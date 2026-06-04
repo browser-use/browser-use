@@ -51,6 +51,7 @@ from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam
+from browser_use.llm.views import ChatInvokeUsage
 from browser_use.observability import observe
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.telemetry.service import ProductTelemetry
@@ -2266,9 +2267,44 @@ def _token_count_usage(payload: dict[str, Any]) -> dict[str, Any] | None:
 	return raw_usage if isinstance(raw_usage, dict) else None
 
 
+def _token_count_last_usage(payload: dict[str, Any]) -> dict[str, Any] | None:
+	info = payload.get('info')
+	if isinstance(info, dict):
+		raw_usage = info.get('last_token_usage') or info.get('total_token_usage')
+	else:
+		raw_usage = payload.get('last_token_usage') or payload.get('total_token_usage')
+	return raw_usage if isinstance(raw_usage, dict) else None
+
+
 def _model_usage_payload(payload: dict[str, Any]) -> dict[str, Any]:
 	usage = payload.get('usage')
 	return usage if isinstance(usage, dict) else payload
+
+
+def _optional_positive_int(value: Any) -> int | None:
+	integer = _int_value(value)
+	return integer if integer > 0 else None
+
+
+def _chat_invoke_usage_from_payload(usage: dict[str, Any]) -> ChatInvokeUsage | None:
+	input_tokens = _int_value(usage.get('input_tokens'))
+	cached_input_tokens = _int_value(usage.get('input_cached_tokens') or usage.get('cached_input_tokens'))
+	completion_tokens = _usage_completion_tokens(usage)
+	total_tokens = _usage_total_tokens(usage, input_tokens, completion_tokens)
+	if input_tokens == 0 and completion_tokens == 0 and total_tokens == 0:
+		return None
+	return ChatInvokeUsage(
+		prompt_tokens=input_tokens,
+		prompt_cached_tokens=cached_input_tokens or None,
+		prompt_cache_creation_tokens=_optional_positive_int(
+			usage.get('prompt_cache_creation_tokens')
+			or usage.get('cache_creation_input_tokens')
+			or usage.get('input_cache_creation_tokens')
+		),
+		prompt_image_tokens=_optional_positive_int(usage.get('prompt_image_tokens') or usage.get('image_tokens')),
+		completion_tokens=completion_tokens,
+		total_tokens=total_tokens,
+	)
 
 
 def _reasoning_output_tokens(usage: dict[str, Any]) -> int:
@@ -2347,6 +2383,63 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 		total_cost=cost,
 		entry_count=invocations,
 		by_model=by_model,
+	)
+
+
+async def _usage_from_events_with_costs(
+	events: list[dict[str, Any]],
+	model: str,
+	token_cost_service: TokenCost,
+) -> UsageSummary:
+	"""Reconstruct usage from terminal events and price per-call usage when enabled."""
+	summary = _usage_from_events(events, model)
+	if not token_cost_service.include_cost:
+		return summary
+
+	total_prompt_cost = 0.0
+	total_completion_cost = 0.0
+	total_prompt_cached_cost = 0.0
+	total_cost = 0.0
+	priced_invocations = 0
+
+	for event in events:
+		event_type = _event_type(event)
+		payload = _event_payload(event)
+		raw_usage = None
+		if event_type == 'model.usage':
+			raw_usage = _model_usage_payload(payload)
+		elif event_type == 'token_count':
+			raw_usage = _token_count_last_usage(payload)
+		if not isinstance(raw_usage, dict):
+			continue
+		chat_usage = _chat_invoke_usage_from_payload(raw_usage)
+		if chat_usage is None:
+			continue
+		cost = await token_cost_service.calculate_cost(model, chat_usage)
+		if cost is None:
+			continue
+		priced_invocations += 1
+		total_prompt_cost += cost.prompt_cost
+		total_completion_cost += cost.completion_cost
+		total_prompt_cached_cost += cost.prompt_read_cached_cost or 0.0
+		total_cost += cost.total_cost
+
+	if priced_invocations == 0:
+		return summary
+
+	model_stats = dict(summary.by_model)
+	stats = model_stats.get(model) or ModelUsageStats(model=model)
+	stats.cost = total_cost
+	model_stats[model] = stats
+
+	return summary.model_copy(
+		update={
+			'total_prompt_cost': total_prompt_cost,
+			'total_prompt_cached_cost': total_prompt_cached_cost,
+			'total_completion_cost': total_completion_cost,
+			'total_cost': total_cost,
+			'by_model': model_stats,
+		}
 	)
 
 
@@ -3086,6 +3179,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Log Browser Use token usage summary for a completed Rust-backed run."""
 		await self.token_cost_service.log_usage_summary()
 
+	async def _apply_terminal_usage_costs(self, events: list[dict[str, Any]]) -> None:
+		"""Populate cost fields for terminal-reconstructed usage."""
+		if self.history is None:
+			return
+		try:
+			self.history.usage = await _usage_from_events_with_costs(events, self.model, self.token_cost_service)
+		except Exception as exc:
+			self.logger.debug(f'Failed to price Rust terminal usage: {exc}', exc_info=True)
+
 	def _cloud_event_agent(self):
 		llm_model_name = getattr(getattr(self, 'llm', None), 'model_name', None)
 		if isinstance(llm_model_name, str) and llm_model_name:
@@ -3249,6 +3351,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				process_error='Rust agent stopped before terminal run.',
 			)
 			self.history = self.result
+			await self._apply_terminal_usage_costs([])
 			await self._log_run_usage_summary()
 			self._record_laminar_run_observability(
 				max_steps=max_steps,
@@ -3278,6 +3381,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					process_error='Rust agent stopped before terminal run.',
 				)
 				self.history = self.result
+				await self._apply_terminal_usage_costs([])
 				await self._log_run_usage_summary()
 				self._record_laminar_run_observability(
 					max_steps=max_steps,
@@ -3327,6 +3431,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				process_error=process_error,
 			)
 			self.history = self.result
+			await self._apply_terminal_usage_costs(events)
 			self._sync_state_from_history()
 			await self._log_run_usage_summary()
 			self._record_laminar_run_observability(
@@ -3366,6 +3471,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
+		await self._apply_terminal_usage_costs(events)
 		self._sync_state_from_history()
 		await self._log_run_usage_summary()
 		self._record_laminar_run_observability(
@@ -3463,6 +3569,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			process_error=process_error,
 		)
 		self.history = self.result
+		await self._apply_terminal_usage_costs(self.last_events)
 		self._sync_state_from_history()
 		await self._log_run_usage_summary()
 		self._record_laminar_run_observability(

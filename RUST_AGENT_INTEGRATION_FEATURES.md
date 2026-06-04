@@ -1400,8 +1400,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This is a general judge-cost guard; the subsequent live gate still reproduced the Agent SDK gzip timeout on one long trajectory, so the judge-stage budget remains the effective protection for saved results.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
 
+269. Rust terminal usage-cost propagation
+   - Rust terminal `token_count` and `model.usage` events now populate Browser Use `UsageSummary` cost fields when callers enable `calculate_cost=True` or `BROWSER_USE_CALCULATE_COST=true`.
+   - Claude Sonnet/Opus 4.6 pricing is available through custom pricing so eval dashboard `usage.total_cost` can be calculated for Rust-core runs without waiting on remote LiteLLM pricing metadata.
+   - Custom model pricing is checked before remote pricing initialization, preventing per-task network/cache work from becoming an eval tail-latency source.
+   - Proof: `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'` and `.venv/bin/python -m py_compile browser_use/rust/service.py browser_use/tokens/custom_pricing.py browser_use/tokens/service.py tests/ci/test_rust_agent.py`.
+
 ## Current Verification
 
+- `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'`
+- `.venv/bin/python -m py_compile browser_use/rust/service.py browser_use/tokens/custom_pricing.py browser_use/tokens/service.py tests/ci/test_rust_agent.py`
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py` on browser-use commit `2fa61300`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'load_events_uses_bounded_terminal_timeout or follow_up_allows_timeout_overrides'` on browser-use commit `2fa61300`
 - `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py` on evaluations-internal commits `d3a9632` and `94300bf`
