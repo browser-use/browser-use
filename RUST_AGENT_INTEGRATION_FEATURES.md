@@ -1304,6 +1304,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated real_v8 gates where completed tasks carried hundreds of thousands to millions of prompt-token-equivalent text through reconstructed terminal histories and judge/eval payloads.
    - Proof: `uv run pytest -q tests/ci/test_rust_agent.py -k 'rust_history_compacts_large_terminal_tool_memory or rust_history_attaches_terminal_tool_images_to_actions or rust_history_reconstructs_terminal_tool_call_actions'`, `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`, and `git diff --check -- browser_use/rust/service.py tests/ci/test_rust_agent.py`.
 
+254. Rust Agent eval Agent SDK fallback timeout safety
+   - Eval Agent SDK judging now separates the tool-enabled judge timeout from the no-tools trajectory fallback timeout.
+   - `AGENT_SDK_JUDGE_TIMEOUT_SECONDS` can be lowered for flaky WebFetch/WebSearch attempts, while the fallback defaults to at least 45 seconds unless `AGENT_SDK_JUDGE_FALLBACK_TIMEOUT_SECONDS` explicitly overrides it.
+   - This prevents aggressive tool-judge timeout experiments from making the fallback inherit the same low cap and incorrectly score completed agent results as `0.0`.
+   - This targets the 2026-06-04 low-tool-timeout gate where task 9 completed successfully but the Agent SDK judge scored `0.0` because both the tool judge and trajectory fallback were capped at 25 seconds.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, and eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1516,6 +1523,18 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-safe-fallback-timeout five-task real_v8 Agent SDK gate:
+  - Run `kh72a28mb72b9nmdtwf5wda4ss881jhr` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - The fallback-timeout bug from the prior gate was fixed live: task 9's tool-enabled judge timed out after 25 seconds, then the no-tools Agent SDK fallback completed and saved score `1.0` instead of the prior false `0.0`.
+  - Saved results before the 10-minute cap: task 9 score `1.0` in 390.95s agent time/455.46s total pipeline, with `982005` prompt tokens and `1007921` total tokens reported by the Rust terminal usage events.
+  - Task 7 completed the agent stage at 526.37s and entered the fallback judge path, but did not save before the cap. Tasks 6, 8, and 10 were still in agent-stage execution when the cap fired. All remaining Browser Use cloud sessions were manually stopped and no subprocesses remained.
+  - This gate does not justify scaling to 50: missing-task-as-zero mean score was `0.20`, and the remaining bottleneck is agent-stage latency/token growth rather than judge serialization or cloud browser startup.
+- 2026-06-04 low-tool-timeout diagnostic five-task real_v8 Agent SDK gate:
+  - Run `kh71eentz1hextqekxyzknwbt9880bj2` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - The run proved feature 252's judge parallelism: task 6 and task 10 entered Agent SDK judging while task 9's fallback was still active instead of queueing behind it.
+  - It also exposed the feature-254 bug: task 9 completed agent execution in 300.09s but scored `0.0` because both the tool judge and no-tools fallback inherited the same 25-second timeout and the final catch-all returned `Agent SDK judge raised an exception`.
+  - Saved results before the run was stopped early as invalid: task 9 score `0.0` in 300.09s/372.30s, task 6 score `1.0` in 317.67s/384.50s, and task 10 score `1.0` in 342.39s/411.52s.
+  - This gate was intentionally not continued or scaled because the judge configuration bug made its score invalid; all remaining Browser Use cloud sessions were manually stopped and no subprocesses remained.
 - 2026-06-04 no-vision five-task real_v8 Agent SDK gate:
   - Run `kh76x89db29h53xtbskrtmk1fd881f7b` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `--use-vision false`, the eval default `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=45`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - Saved results before the 10-minute stop: task 9 score `0.85` in 226.16s agent time/318.30s total pipeline, task 8 score `1.0` in 298.69s/388.56s, task 10 score `1.0` in 390.37s/521.15s, and task 6 score `1.0` in 425.37s/544.40s.
