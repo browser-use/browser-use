@@ -7570,18 +7570,17 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.events[-1][0] == 'agent.run.terminal_summary'
 	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
 	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
-	assert FakeLaminar.spans[0]['input']['messages'][0]['role'] == 'system'
-	assert FakeLaminar.spans[0]['input']['messages'][0]['content'][0]['text'] == 'System prompt'
-	assert FakeLaminar.spans[0]['input']['messages'][1]['content'][0]['text'] == 'Find the title on example.com'
-	assert FakeLaminar.spans[0]['input']['messages'][1]['content'][1] == {
+	assert isinstance(FakeLaminar.spans[0]['input'], list)
+	assert FakeLaminar.spans[0]['input'][0]['role'] == 'system'
+	assert FakeLaminar.spans[0]['input'][0]['content'][0]['text'] == 'System prompt'
+	assert FakeLaminar.spans[0]['input'][1]['content'][0]['text'] == 'Find the title on example.com'
+	assert FakeLaminar.spans[0]['input'][1]['content'][1] == {
 		'type': 'image_url',
 		'image_url': {
 			'url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
 			'detail': 'low',
 		},
 	}
-	assert FakeLaminar.spans[0]['input']['tools'][0]['name'] == 'browser_script'
-	assert 'click_at_xy' in FakeLaminar.spans[0]['input']['tools'][0]['description']
 	span_attrs = {}
 	for attributes in FakeLaminar.spans[0]['attributes']:
 		span_attrs.update(attributes)

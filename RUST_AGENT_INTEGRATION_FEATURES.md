@@ -1492,6 +1492,18 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The Agent SDK judge default budget is also `1800` seconds when task timeboxing is active, preventing false-zero judge cancellations from a shorter outer wrapper.
    - Proof: evaluations-internal `PYTHONPATH=. uv run pytest -q tests/test_service_cli.py -k 'task_timebox_defaults_to_single_generous_budget or run_agent_finalizes_timeboxed_rust_history or timeout_finalization_wall_timeout_does_not_fail_task or run_judge_with_timeout_returns_saveable_timeout_result'`, evaluations-internal `PYTHONPATH=. uv run python -m py_compile eval/service.py tests/test_service_cli.py`, and evaluations-internal `git diff --check -- eval/service.py tests/test_service_cli.py`.
 
+283. Rust terminal Anthropic automatic conversation caching
+   - The terminal provider-path Anthropic Messages request now sends top-level `cache_control: {type: ephemeral}`, enabling Anthropic's automatic cache breakpoint on the last cacheable block for growing multi-turn conversations.
+   - This addresses the 2026-06-04 task-13 trace where per-turn cache reads climbed to about `23k` tokens, then fell back to about `18k` after later browser/tool turns pushed the previous explicit message breakpoint outside Anthropic's cache lookup window.
+   - The provider still keeps explicit stable system and final-tool cache breakpoints, so static instructions and tool schemas remain cacheable while automatic caching handles the moving conversation tail.
+   - Proof: terminal `cargo test -q -p browser-use-providers anthropic_messages_request_marks_last_tool_cacheable -- --nocapture`, terminal `cargo fmt --check -p browser-use-providers`, and terminal `git diff --check -- crates/browser-use-providers/src/lib.rs`.
+
+284. Rust Agent flattened Laminar LLM span input
+   - Python `browser_use.rust.Agent` Laminar replay now passes the model-visible message array directly as the raw LLM span input instead of wrapping it as `{"messages": [...], "tools": [...]}`.
+   - Tool definitions remain available through Laminar/OpenTelemetry attributes, including `gen_ai.tool.definitions`, `gen_ai.request.tools`, and `llm.request.functions.*`.
+   - This matches the actual agent-visible message history more closely and removes the extra nesting level that made Laminar render Rust-core inputs as one wrapped object.
+   - Proof: browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary or exact_laminar_tool_replay or tool_definitions' --disable-warnings`, browser-use `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`, and browser-use `git diff --check -- browser_use/rust/service.py tests/ci/test_rust_agent.py`.
+
 ## Current Verification
 
 - terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`

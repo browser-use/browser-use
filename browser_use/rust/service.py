@@ -2754,11 +2754,7 @@ def _terminal_laminar_tools_for_span(span_input: dict[str, Any]) -> list[dict[st
 
 
 def _terminal_laminar_span_input_payload(span_input: dict[str, Any]) -> Any:
-	messages = _terminal_laminar_span_input_messages(span_input)
-	tools = _terminal_laminar_tools_for_span(span_input)
-	if not tools:
-		return messages
-	return {'messages': messages, 'tools': tools}
+	return _terminal_laminar_span_input_messages(span_input)
 
 
 def _terminal_laminar_span_output_messages(span_output: dict[str, Any]) -> list[dict[str, Any]]:
