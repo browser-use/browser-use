@@ -1412,8 +1412,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This makes main Rust-core LLM calls visible in eval traces alongside the existing executor/evaluation/judge spans and sub-agent calls.
    - Proof: `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span or terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'` and `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`.
 
+271. Rust terminal Laminar LLM message payloads
+   - Rust terminal `model.turn.request` events now include a bounded, provider-neutral `llm_input` payload with system blocks and model-visible messages from the assembled per-turn request.
+   - The payload redacts common secret fields and inline media data, caps message/text volume, and preserves roles/content/tool-call structure so the Python Laminar bridge can show real LLM inputs instead of only tool-name summaries.
+   - The Python `browser_use.rust.Agent` Laminar replay now passes those messages as the `LLM` span input and adds GenAI-style `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`, and `gen_ai.usage.*` attributes.
+   - Proof: terminal `cargo test -p browser-use-agent turn_request_event_carries_sanitized_llm_input_messages -- --nocapture`, browser-use `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span'`, and browser-use `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`.
+
 ## Current Verification
 
+- terminal `cargo test -p browser-use-agent turn_request_event_carries_sanitized_llm_input_messages -- --nocapture`
+- `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span'`
 - `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span or terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'`
 - `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'`

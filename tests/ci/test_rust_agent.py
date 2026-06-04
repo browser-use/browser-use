@@ -7305,6 +7305,17 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 					'system_prompt_tokens': 100,
 					'tools': [{'name': 'browser'}, {'name': 'done'}],
 				},
+				'llm_input': {
+					'system': [{'text': 'System prompt'}],
+					'messages': [
+						{
+							'role': 'user',
+							'content': [{'type': 'text', 'text': 'Find the title on example.com'}],
+						}
+					],
+					'message_count': 1,
+					'omitted_earlier_messages': 0,
+				},
 			},
 		},
 		{'event_type': 'model.stream_delta', 'ts_ms': 1500, 'payload': {'text': 'laminar answer'}},
@@ -7350,10 +7361,21 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
 	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
 	assert FakeLaminar.spans[0]['input']['tools_count'] == 2
-	assert FakeLaminar.spans[0]['attributes'][-1]['input_tokens'] == 100
-	assert FakeLaminar.spans[0]['attributes'][-1]['output_tokens'] == 20
-	assert FakeLaminar.spans[0]['attributes'][-1]['total_tokens'] == 120
+	assert FakeLaminar.spans[0]['input']['messages'][0]['content'][0]['text'] == 'Find the title on example.com'
+	span_attrs = {}
+	for attributes in FakeLaminar.spans[0]['attributes']:
+		span_attrs.update(attributes)
+	assert span_attrs['input_tokens'] == 100
+	assert span_attrs['output_tokens'] == 20
+	assert span_attrs['total_tokens'] == 120
+	assert span_attrs['gen_ai.operation.name'] == 'chat'
+	assert span_attrs['gen_ai.request.model'] == 'gpt-test'
+	assert 'Find the title on example.com' in span_attrs['gen_ai.input.messages']
+	assert span_attrs['gen_ai.usage.input_tokens'] == 100
+	assert span_attrs['gen_ai.usage.output_tokens'] == 20
+	assert span_attrs['gen_ai.usage.total_tokens'] == 120
 	assert FakeLaminar.spans[0]['outputs'][-1]['assistant_output_preview'] == 'laminar answer'
+	assert FakeLaminar.spans[0]['outputs'][-1]['messages'][0]['content'][0]['text'] == 'laminar answer'
 
 
 async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):

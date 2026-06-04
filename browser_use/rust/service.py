@@ -2508,6 +2508,15 @@ def _terminal_laminar_turn_input(
 	for tool in tools[:30]:
 		if isinstance(tool, dict) and isinstance(tool.get('name'), str):
 			tool_names.append(tool['name'])
+	llm_input = request_payload.get('llm_input')
+	if not isinstance(llm_input, dict):
+		llm_input = {}
+	messages = llm_input.get('messages')
+	if not isinstance(messages, list):
+		messages = []
+	system = llm_input.get('system')
+	if not isinstance(system, list):
+		system = []
 	return {
 		'model': request_payload.get('model') or default_model,
 		'provider': request_payload.get('provider') or default_provider,
@@ -2516,6 +2525,11 @@ def _terminal_laminar_turn_input(
 		'system_prompt_tokens': composition.get('system_prompt_tokens'),
 		'tools_count': len(tools),
 		'tool_names': tool_names,
+		'system': system,
+		'messages': messages,
+		'message_count': _int_value(llm_input.get('message_count')),
+		'omitted_earlier_messages': _int_value(llm_input.get('omitted_earlier_messages')),
+		'truncated': bool(llm_input.get('truncated')),
 	}
 
 
@@ -2527,13 +2541,57 @@ def _terminal_laminar_turn_output(events: list[dict[str, Any]], raw_usage: dict[
 		response_item_extractor=_response_output_item_reasoning_text,
 	)
 	tool_calls = _tool_started_calls(events)
+	assistant_preview = _laminar_preview(assistant_text, limit=2000)
+	thinking_preview = _laminar_preview(thinking_text, limit=1200)
+	output_messages = []
+	if assistant_preview:
+		output_messages.append({'role': 'assistant', 'content': [{'type': 'text', 'text': assistant_preview}]})
+	if tool_calls:
+		output_messages.append(
+			{
+				'role': 'assistant',
+				'tool_calls': [
+					{
+						'name': call.get('name'),
+						'id': call.get('tool_call_id'),
+						'arguments': call.get('arguments'),
+					}
+					for call in tool_calls[:20]
+				],
+			}
+		)
 	return {
-		'assistant_output_preview': _laminar_preview(assistant_text, limit=2000),
-		'thinking_preview': _laminar_preview(thinking_text, limit=1200),
+		'messages': output_messages,
+		'assistant_output_preview': assistant_preview,
+		'thinking_preview': thinking_preview,
 		'tool_calls_count': len(tool_calls),
 		'tool_call_names': [call['name'] for call in tool_calls[:20] if isinstance(call.get('name'), str)],
 		'usage': _terminal_laminar_usage_summary(raw_usage),
 	}
+
+
+def _terminal_laminar_gen_ai_attributes(
+	span_input: dict[str, Any],
+	span_output: dict[str, Any],
+	usage: dict[str, int | float] | None,
+) -> dict[str, Any]:
+	attributes: dict[str, Any] = {
+		'gen_ai.operation.name': 'chat',
+		'gen_ai.request.model': str(span_input.get('model') or ''),
+		'gen_ai.system': str(span_input.get('provider') or ''),
+		'gen_ai.input.messages': _laminar_preview(span_input.get('messages') or [], limit=60_000),
+		'gen_ai.system_instructions': _laminar_preview(span_input.get('system') or [], limit=30_000),
+		'gen_ai.output.messages': _laminar_preview(span_output.get('messages') or [], limit=40_000),
+	}
+	if usage:
+		attributes.update(
+			{
+				'gen_ai.usage.input_tokens': usage.get('input_tokens'),
+				'gen_ai.usage.output_tokens': usage.get('output_tokens'),
+				'gen_ai.usage.total_tokens': usage.get('total_tokens'),
+			}
+		)
+	return attributes
 
 
 def _record_laminar_terminal_llm_spans(
@@ -2563,6 +2621,7 @@ def _record_laminar_terminal_llm_spans(
 		start_time = _event_time_seconds(turn_events[0], 0.0)
 		end_time = _event_time_seconds(turn_events[-1], start_time)
 		with _laminar_start_span('rust_core.llm', input=span_input, span_type='LLM'):
+			span_output = _terminal_laminar_turn_output(turn_events, raw_usage)
 			_laminar_set_span_attributes(
 				{
 					'runtime': 'browser_use.rust',
@@ -2578,7 +2637,8 @@ def _record_laminar_terminal_llm_spans(
 					'duration_seconds': max(0.0, end_time - start_time),
 				}
 			)
-			_laminar_set_span_output(_terminal_laminar_turn_output(turn_events, raw_usage))
+			_laminar_set_span_attributes(_terminal_laminar_gen_ai_attributes(span_input, span_output, usage))
+			_laminar_set_span_output(span_output)
 	if len(ranges) > max_spans:
 		_laminar_event(
 			'rust_core.llm_spans_truncated',
