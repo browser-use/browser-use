@@ -1241,7 +1241,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 244. Rust Agent eval orchestration hardening parity
    - Eval defaults now use 100 max steps in both the Python CLI and GitHub workflow, while explicit `--max-steps` values still win.
-   - Browser Use cloud browser sessions now send a default `proxyCountryCode=US` for non-proxyless runs, with env override via `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE` and opt-out via `--proxyless`.
+   - Browser Use cloud browser sessions now send a default lowercase `proxyCountryCode=us` for non-proxyless runs, with env override via `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE` and opt-out via `--proxyless`.
    - Agent SDK judging now uses Claude Sonnet 4.6 by default, serializes in-process judge subprocesses, and retries transient SDK errors such as `Claude Code returned an error result: success` before scoring a completed task as failed.
    - Bounded Rust-core runs now add a final generic developer nudge on the last allowed sampling turn telling the agent to call `done` with the best available answer instead of continuing exploration.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, terminal `bounded_loop_aborts_after_max_turns`, and terminal `cargo fmt --check -p browser-use-agent`.
