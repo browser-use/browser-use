@@ -1301,6 +1301,7 @@ _TEXTUAL_TOOL_RESULT_EVENTS = (
 	'tool.finished',
 	'model.response.input_item',
 )
+_MAX_TERMINAL_LONG_TERM_TEXT_LENGTH = 1000
 
 
 def _is_redundant_paired_output_delta(
@@ -1774,6 +1775,16 @@ def _synthetic_tool_result_text(name: str) -> str:
 	return f'{name} completed'
 
 
+def _terminal_tool_memory(name: str, text: str) -> tuple[str, bool]:
+	if len(text) < _MAX_TERMINAL_LONG_TERM_TEXT_LENGTH:
+		return text, False
+	tool_name = name or 'tool'
+	return (
+		f'{tool_name} returned {len(text):,} characters. Full output was included once in <read_state> for that step.',
+		True,
+	)
+
+
 def _append_streaming_text_delta(current: str, incoming: str) -> str:
 	if not incoming:
 		return current
@@ -1945,12 +1956,18 @@ def _action_results_from_tool_calls(
 			error = _exec_command_end_failure_message(payload)
 		else:
 			error = None
+		long_term_memory = None
+		include_extracted_content_only_once = False
+		if event_type in _TEXTUAL_TOOL_RESULT_EVENTS and text:
+			name = str(payload.get('name') or tool_call.get('name') or 'tool')
+			long_term_memory, include_extracted_content_only_once = _terminal_tool_memory(name, text)
 		action_results.append(
 			ActionResult(
 				error=error,
 				attachments=list(tool_attachments) if tool_attachments else None,
 				extracted_content=text if event_type in _TEXTUAL_TOOL_RESULT_EVENTS else None,
-				long_term_memory=text if event_type in _TEXTUAL_TOOL_RESULT_EVENTS else None,
+				long_term_memory=long_term_memory,
+				include_extracted_content_only_once=include_extracted_content_only_once,
 			)
 		)
 

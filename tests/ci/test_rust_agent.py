@@ -452,6 +452,47 @@ def test_rust_history_attaches_terminal_tool_images_to_actions(tmp_path):
 	assert history.screenshot_paths() == [str(screenshot_path)]
 
 
+def test_rust_history_compacts_large_terminal_tool_memory():
+	from browser_use.rust.service import _history_from_events
+
+	large_output = 'large browser output\n' + ('row,value\n' * 200)
+
+	history = _history_from_events(
+		[
+			{
+				'type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': 'print(document.body.innerText)'},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'text': large_output,
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	result = history.action_results()[0]
+
+	assert result.extracted_content == large_output.strip()
+	assert result.include_extracted_content_only_once is True
+	assert result.long_term_memory is not None
+	assert 'browser_script returned' in result.long_term_memory
+	assert large_output.strip() not in result.long_term_memory
+
+
 def test_rust_history_reconstructs_terminal_tool_call_actions():
 	from browser_use.rust.service import _history_from_events
 

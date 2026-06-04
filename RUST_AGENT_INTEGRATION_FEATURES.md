@@ -1291,6 +1291,19 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated 2026-06-04 gates where Google-heavy tasks accumulated many `f*.txt` artifacts in the downloads directory, polluting eval artifacts and wasting background fetch work.
    - Proof: `uv run pytest -q tests/ci/test_downloads_watchdog.py`, `uv run python -m py_compile browser_use/browser/watchdogs/downloads_watchdog.py tests/ci/test_downloads_watchdog.py`, and `git diff --check -- browser_use/browser/watchdogs/downloads_watchdog.py tests/ci/test_downloads_watchdog.py`.
 
+252. Rust Agent eval Agent SDK judge bounded parallelism
+   - Eval Agent SDK judging now uses a configurable semaphore, `AGENT_SDK_JUDGE_CONCURRENCY`, defaulting to 16 concurrent judge calls instead of a process-wide single-call lock.
+   - This preserves bounded local resource use while preventing completed parallel agent tasks from queueing behind one slow or timed-out judge subprocess.
+   - This targets repeated 2026-06-04 five-task gates where tool-enabled Agent SDK judge attempts commonly hit the timeout fallback and serialized judging consumed the remaining eval cap.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, and eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
+253. Rust Agent terminal history payload compaction parity
+   - Reconstructed Rust terminal textual tool results now keep small outputs unchanged but compact large outputs over 1000 characters in `long_term_memory`.
+   - Large outputs remain available as `extracted_content` with `include_extracted_content_only_once=True`, while long-term memory stores only a short note with the tool name and character count.
+   - This reduces Python history, judge prompt, and eval payload bloat from large browser-script/page-text outputs without changing the final answer or hiding the one-step full tool output from Browser Use history.
+   - This targets repeated real_v8 gates where completed tasks carried hundreds of thousands to millions of prompt-token-equivalent text through reconstructed terminal histories and judge/eval payloads.
+   - Proof: `uv run pytest -q tests/ci/test_rust_agent.py -k 'rust_history_compacts_large_terminal_tool_memory or rust_history_attaches_terminal_tool_images_to_actions or rust_history_reconstructs_terminal_tool_call_actions'`, `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`, and `git diff --check -- browser_use/rust/service.py tests/ci/test_rust_agent.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1300,6 +1313,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'mirrors_direct_url_startup or exposes_task_helper_methods'`
 - `uv run python -m py_compile browser_use/browser/watchdogs/downloads_watchdog.py tests/ci/test_downloads_watchdog.py`
 - `uv run pytest -q tests/ci/test_downloads_watchdog.py`
+- `uv run pytest -q tests/ci/test_rust_agent.py -k 'rust_history_compacts_large_terminal_tool_memory or rust_history_attaches_terminal_tool_images_to_actions or rust_history_reconstructs_terminal_tool_call_actions'`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'browser_script_wait or max_steps or cloud_create or agent_sdk_judge_retries'` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main`
@@ -1502,6 +1516,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 no-vision five-task real_v8 Agent SDK gate:
+  - Run `kh76x89db29h53xtbskrtmk1fd881f7b` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `--use-vision false`, the eval default `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=45`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - Saved results before the 10-minute stop: task 9 score `0.85` in 226.16s agent time/318.30s total pipeline, task 8 score `1.0` in 298.69s/388.56s, task 10 score `1.0` in 390.37s/521.15s, and task 6 score `1.0` in 425.37s/544.40s.
+  - Task 7 was still in the agent stage when the cap fired; its remaining Browser Use cloud session was manually stopped and no eval or terminal subprocesses remained.
+  - The run still used the old serialized Agent SDK judge code because it launched before feature 252 was patched and pushed. Four saved tasks were enough to confirm repeated tool-enabled judge timeouts followed by successful no-tools Agent SDK fallback scores, but not enough to justify scaling.
+  - This gate does not justify scaling to 50: saved-task mean score was `0.9625`, but missing-task-as-zero mean score was `0.77` with only 4/5 tasks saved within the iteration budget.
 - 2026-06-04 post-download-filter five-task real_v8 Agent SDK gate:
   - Run `kh76d5r82p69gshaa3vr0ph0bn8809h8` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, the eval default `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=45`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - The network auto-download filter was verified live: the same Google-heavy slice no longer logged `Detected downloadable content` or `Tracked download: f*.txt` for Google async/autocomplete responses, while tasks still entered normal browser execution.
