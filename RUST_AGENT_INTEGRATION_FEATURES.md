@@ -1424,6 +1424,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task gate where all five tasks reported `total_prompt_cached_tokens: 0` while repeatedly sending hundreds of thousands to millions of prompt tokens.
    - Proof: terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`, terminal `cargo test -p browser-use-llm build_body_marks_cache_control_breakpoints -- --nocapture`, terminal `cargo test -p browser-use-llm build_body_golden_system_user_and_tool -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent -p browser-use-llm`, terminal `git diff --check -- crates/browser-use-agent/src/turn/sampling.rs crates/browser-use-agent/src/turn/sampling_tests.rs crates/browser-use-llm/src/protocols/anthropic_messages.rs`, and terminal `cargo build -p browser-use-cli`.
 
+273. Rust Anthropic current-state message cache breakpoint
+   - The Rust LLM schema now carries a provider-neutral per-message `CacheHint`, and the Anthropic Messages protocol lowers it onto the final non-image content block as `cache_control: {type: ephemeral}`.
+   - The Rust sampling request builder now marks the latest non-system/developer message cacheable, matching the traditional Python agent's `SystemMessage(cache=True)` plus current browser-state `UserMessage(cache=True)` pattern where only the last non-system cache marker is retained.
+   - Live proof after feature 272 showed real cache reads on real_v8 task 3: run `kh7f32qhnhq1n7zaqcqvpy5vwn881842` scored `1.0`, reported `total_prompt_cached_tokens: 221555`, and reduced agent `usage.total_cost` to `$0.0266685` for 13 invocations. The preceding five-task gate without Rust cache markers had `total_prompt_cached_tokens: 0` on every task and task-3 agent cost `$0.997485`.
+   - Proof: terminal `cargo fmt --check -p browser-use-agent -p browser-use-llm`, terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`, terminal `cargo test -p browser-use-llm build_body_marks_cache_control_breakpoints -- --nocapture`, and terminal `cargo build -p browser-use-cli`.
+
 ## Current Verification
 
 - terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`
