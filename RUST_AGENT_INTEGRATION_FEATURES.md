@@ -1542,6 +1542,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-judge-retry five-task real_v8 Agent SDK gate:
+  - Run `kh7d050skjqy3w1bjg2b2kb9318805ed` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T10:19:04Z, and all five tasks entered Rust-core agent execution promptly.
+  - Saved results before the 10-minute cap: task 9 score `1.0` in 327.00s agent time/364.38s total pipeline, and task 10 score `1.0` in 334.40s/402.58s.
+  - Task 10's tool-enabled Agent SDK judge timed out after 25 seconds, then the no-tools fallback completed and saved score `1.0`; the repeated Agent SDK `success` exception from the prior gate did not false-score the saved tasks.
+  - Tasks 6, 7, and 8 were still in agent-stage execution when the cap fired. All five Browser Use cloud sessions were manually stopped after the cap, and no eval or terminal subprocesses remained.
+  - This gate does not justify scaling to 50: saved-task mean score was `1.0`, but missing-task-as-zero mean score was `0.40` with only 2/5 tasks saved within the iteration budget. The remaining bottleneck is agent-stage latency/token growth on multi-document/research tasks, not browser startup or judge fallback.
 - 2026-06-04 stdout-cap five-task real_v8 Agent SDK gate:
   - Run `kh74mry8q73g8xxf0as2tze7vn881pvn` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - Saved results before the 10-minute cap: task 9 score `0.0` in 274.13s agent time/308.57s total pipeline, task 10 score `0.0` in 466.81s/482.05s, and task 6 score `0.0` in 558.09s/574.26s.
