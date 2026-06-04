@@ -12,6 +12,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
@@ -146,6 +147,16 @@ def _laminar_event(name: str, attributes: dict[str, Any] | None = None) -> None:
 		Laminar.event(name, safe_attributes or None)
 	except Exception:
 		logger.debug('Failed to emit Laminar event %s', name, exc_info=True)
+
+
+def _laminar_start_span(name: str, *, input: Any = None, span_type: str = 'DEFAULT'):
+	if not _laminar_ready():
+		return nullcontext()
+	try:
+		return Laminar.start_as_current_span(name=name, input=input, span_type=span_type)
+	except Exception:
+		logger.debug('Failed to start Laminar span %s', name, exc_info=True)
+		return nullcontext()
 
 
 def find_browser_use_terminal_binary() -> str:
@@ -2443,6 +2454,138 @@ async def _usage_from_events_with_costs(
 	)
 
 
+def _terminal_model_turn_event_ranges(events: list[dict[str, Any]]) -> list[tuple[int, int]]:
+	starts = [index for index, event in enumerate(events) if _event_type(event) == 'model.turn.request']
+	return [(start, starts[index + 1] if index + 1 < len(starts) else len(events)) for index, start in enumerate(starts)]
+
+
+def _terminal_turn_usage_payload(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+	raw_usage = None
+	for event in events:
+		event_type = _event_type(event)
+		payload = _event_payload(event)
+		if event_type == 'model.usage':
+			raw_usage = _model_usage_payload(payload)
+		elif event_type == 'token_count':
+			raw_usage = _token_count_last_usage(payload)
+	return raw_usage if isinstance(raw_usage, dict) else None
+
+
+def _terminal_laminar_usage_summary(raw_usage: dict[str, Any] | None) -> dict[str, int | float] | None:
+	if raw_usage is None:
+		return None
+	input_tokens = _int_value(raw_usage.get('input_tokens'))
+	cached_input_tokens = _int_value(raw_usage.get('input_cached_tokens') or raw_usage.get('cached_input_tokens'))
+	output_tokens = _usage_completion_tokens(raw_usage)
+	total_tokens = _usage_total_tokens(raw_usage, input_tokens, output_tokens)
+	cost = _float_value(raw_usage.get('cost_usd') or raw_usage.get('cost') or raw_usage.get('total_cost'))
+	summary: dict[str, int | float] = {
+		'input_tokens': input_tokens,
+		'cached_input_tokens': cached_input_tokens,
+		'output_tokens': output_tokens,
+		'total_tokens': total_tokens,
+	}
+	reasoning_output_tokens = _reasoning_output_tokens(raw_usage)
+	if reasoning_output_tokens:
+		summary['reasoning_output_tokens'] = reasoning_output_tokens
+	if cost:
+		summary['cost_usd'] = cost
+	return summary
+
+
+def _terminal_laminar_turn_input(
+	request_payload: dict[str, Any],
+	*,
+	default_model: str,
+	default_provider: str,
+) -> dict[str, Any]:
+	composition = request_payload.get('composition')
+	if not isinstance(composition, dict):
+		composition = {}
+	raw_tools = composition.get('tools')
+	tools = raw_tools if isinstance(raw_tools, list) else []
+	tool_names = []
+	for tool in tools[:30]:
+		if isinstance(tool, dict) and isinstance(tool.get('name'), str):
+			tool_names.append(tool['name'])
+	return {
+		'model': request_payload.get('model') or default_model,
+		'provider': request_payload.get('provider') or default_provider,
+		'turn_idx': request_payload.get('turn_idx'),
+		'attempt': request_payload.get('attempt'),
+		'system_prompt_tokens': composition.get('system_prompt_tokens'),
+		'tools_count': len(tools),
+		'tool_names': tool_names,
+	}
+
+
+def _terminal_laminar_turn_output(events: list[dict[str, Any]], raw_usage: dict[str, Any] | None) -> dict[str, Any]:
+	assistant_text = _streaming_text_from_events(events, ('model.delta', 'model.stream_delta', 'model.response.output_item'))
+	thinking_text = _streaming_text_from_events(
+		events,
+		('model.thinking_delta', 'model.response.output_item'),
+		response_item_extractor=_response_output_item_reasoning_text,
+	)
+	tool_calls = _tool_started_calls(events)
+	return {
+		'assistant_output_preview': _laminar_preview(assistant_text, limit=2000),
+		'thinking_preview': _laminar_preview(thinking_text, limit=1200),
+		'tool_calls_count': len(tool_calls),
+		'tool_call_names': [call['name'] for call in tool_calls[:20] if isinstance(call.get('name'), str)],
+		'usage': _terminal_laminar_usage_summary(raw_usage),
+	}
+
+
+def _record_laminar_terminal_llm_spans(
+	events: list[dict[str, Any]],
+	*,
+	default_model: str,
+	default_provider: str,
+) -> None:
+	if not _laminar_ready():
+		return
+	max_spans = _int_value(os.getenv('BROWSER_USE_RUST_LAMINAR_MAX_LLM_SPANS') or 80)
+	if max_spans <= 0:
+		return
+	ranges = _terminal_model_turn_event_ranges(events)
+	for span_index, (start, end) in enumerate(ranges[:max_spans], start=1):
+		turn_events = events[start:end]
+		if not turn_events:
+			continue
+		request_payload = _event_payload(turn_events[0])
+		span_input = _terminal_laminar_turn_input(
+			request_payload,
+			default_model=default_model,
+			default_provider=default_provider,
+		)
+		raw_usage = _terminal_turn_usage_payload(turn_events)
+		usage = _terminal_laminar_usage_summary(raw_usage)
+		start_time = _event_time_seconds(turn_events[0], 0.0)
+		end_time = _event_time_seconds(turn_events[-1], start_time)
+		with _laminar_start_span('rust_core.llm', input=span_input, span_type='LLM'):
+			_laminar_set_span_attributes(
+				{
+					'runtime': 'browser_use.rust',
+					'model': str(span_input.get('model') or default_model),
+					'provider': str(span_input.get('provider') or default_provider),
+					'turn_index': span_index,
+					'turn_idx': _int_value(span_input.get('turn_idx')),
+					'attempt': _int_value(span_input.get('attempt')),
+					'input_tokens': usage.get('input_tokens') if usage else None,
+					'cached_input_tokens': usage.get('cached_input_tokens') if usage else None,
+					'output_tokens': usage.get('output_tokens') if usage else None,
+					'total_tokens': usage.get('total_tokens') if usage else None,
+					'duration_seconds': max(0.0, end_time - start_time),
+				}
+			)
+			_laminar_set_span_output(_terminal_laminar_turn_output(turn_events, raw_usage))
+	if len(ranges) > max_spans:
+		_laminar_event(
+			'rust_core.llm_spans_truncated',
+			{'recorded': max_spans, 'available': len(ranges)},
+		)
+
+
 def _history_from_events(
 	events: list[dict[str, Any]],
 	*,
@@ -3148,6 +3291,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					'usage_completion_tokens': usage.total_completion_tokens,
 				}
 			)
+		_record_laminar_terminal_llm_spans(
+			self.last_events or [],
+			default_model=str(model),
+			default_provider=str(provider),
+		)
 		_laminar_set_span_attributes(
 			{
 				'runtime': summary['runtime'],

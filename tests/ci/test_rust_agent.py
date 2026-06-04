@@ -7248,6 +7248,8 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 		attributes = []
 		outputs = []
 		events = []
+		spans = []
+		current_span = None
 
 		@staticmethod
 		def is_initialized():
@@ -7255,22 +7257,77 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 
 		@classmethod
 		def set_span_attributes(cls, attributes):
-			cls.attributes.append(attributes)
+			if cls.current_span is not None:
+				cls.current_span['attributes'].append(attributes)
+			else:
+				cls.attributes.append(attributes)
 
 		@classmethod
 		def set_span_output(cls, output):
-			cls.outputs.append(output)
+			if cls.current_span is not None:
+				cls.current_span['outputs'].append(output)
+			else:
+				cls.outputs.append(output)
 
 		@classmethod
 		def event(cls, name, attributes=None):
 			cls.events.append((name, attributes))
+
+		@classmethod
+		def start_as_current_span(cls, name, input=None, span_type='DEFAULT'):
+			record = {'name': name, 'input': input, 'span_type': span_type, 'attributes': [], 'outputs': []}
+
+			class Span:
+				def __enter__(self):
+					cls.current_span = record
+					cls.spans.append(record)
+					return self
+
+				def __exit__(self, exc_type, exc, tb):
+					cls.current_span = None
+					return False
+
+			return Span()
 
 	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
 
 	agent = Agent(task='Trace terminal observability.', llm=type('LLM', (), {'model': 'gpt-test'})())
 	agent.terminal_session_id = 'terminal-session-1'
 	agent.last_events = [
-		{'event_type': 'model.turn.completed', 'payload': {'turn': 1}},
+		{
+			'event_type': 'model.turn.request',
+			'ts_ms': 1000,
+			'payload': {
+				'model': 'gpt-test',
+				'provider': 'test-provider',
+				'turn_idx': 0,
+				'composition': {
+					'system_prompt_tokens': 100,
+					'tools': [{'name': 'browser'}, {'name': 'done'}],
+				},
+			},
+		},
+		{'event_type': 'model.stream_delta', 'ts_ms': 1500, 'payload': {'text': 'laminar answer'}},
+		{
+			'event_type': 'token_count',
+			'ts_ms': 2000,
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 5,
+						'input_tokens': 100,
+						'output_tokens': 20,
+						'total_tokens': 120,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 5,
+						'input_tokens': 100,
+						'output_tokens': 20,
+						'total_tokens': 120,
+					},
+				},
+			},
+		},
 		{'event_type': 'session.done', 'payload': {'result': 'laminar answer'}},
 	]
 	agent.history = _history_from_events(
@@ -7288,8 +7345,15 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.attributes[-1]['terminal_session_id'] == 'terminal-session-1'
 	assert FakeLaminar.outputs[-1]['final_result_preview'] == 'laminar answer'
 	assert FakeLaminar.outputs[-1]['steps'] == agent.history.number_of_steps()
-	assert FakeLaminar.outputs[-1]['terminal_events_count'] == 2
+	assert FakeLaminar.outputs[-1]['terminal_events_count'] == 4
 	assert FakeLaminar.events[-1][0] == 'agent.run.terminal_summary'
+	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
+	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
+	assert FakeLaminar.spans[0]['input']['tools_count'] == 2
+	assert FakeLaminar.spans[0]['attributes'][-1]['input_tokens'] == 100
+	assert FakeLaminar.spans[0]['attributes'][-1]['output_tokens'] == 20
+	assert FakeLaminar.spans[0]['attributes'][-1]['total_tokens'] == 120
+	assert FakeLaminar.spans[0]['outputs'][-1]['assistant_output_preview'] == 'laminar answer'
 
 
 async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):

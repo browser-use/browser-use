@@ -1406,8 +1406,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Custom model pricing is checked before remote pricing initialization, preventing per-task network/cache work from becoming an eval tail-latency source.
    - Proof: `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'` and `.venv/bin/python -m py_compile browser_use/rust/service.py browser_use/tokens/custom_pricing.py browser_use/tokens/service.py tests/ci/test_rust_agent.py`.
 
+270. Rust terminal Laminar LLM span replay
+   - Rust terminal `model.turn.request`, `model.stream_delta`, `model.response.output_item`, `model.usage`, and `token_count` events are now replayed as compact Laminar `LLM` child spans under the Python `agent.run` span.
+   - The replayed spans include model/provider, turn index, duration, bounded output/thinking previews, tool-call names, and token usage without routing Rust-provider HTTP traffic through Laminar's Claude-agent proxy.
+   - This makes main Rust-core LLM calls visible in eval traces alongside the existing executor/evaluation/judge spans and sub-agent calls.
+   - Proof: `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span or terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'` and `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`.
+
 ## Current Verification
 
+- `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span or terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'`
+- `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'`
 - `.venv/bin/python -m py_compile browser_use/rust/service.py browser_use/tokens/custom_pricing.py browser_use/tokens/service.py tests/ci/test_rust_agent.py`
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py` on browser-use commit `2fa61300`
