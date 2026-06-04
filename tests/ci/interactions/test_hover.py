@@ -193,13 +193,13 @@ class TestHoverByIndex:
 		menu_index = await browser_session.get_index_by_id('nav-menu')
 		assert menu_index is not None, 'Could not find nav-menu element'
 
-		# Before hover: submenu should be hidden
+		# Before hover: submenu computed display should be "none"
 		cdp_session = await browser_session.get_or_create_cdp_session()
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': "document.getElementById('submenu').style.display", 'returnByValue': True},
+			params={'expression': "window.getComputedStyle(document.getElementById('submenu')).display", 'returnByValue': True},
 			session_id=cdp_session.session_id,
 		)
-		assert result.get('result', {}).get('value', '') in ('', 'none'), f'Submenu should be hidden before hover, got: {result}'
+		assert result.get('result', {}).get('value', '') == 'none', f'Submenu should be hidden before hover, got: {result}'
 
 		# Hover over the menu element
 		hover_result = await tools.hover(index=menu_index, browser_session=browser_session)
@@ -212,16 +212,14 @@ class TestHoverByIndex:
 		assert 'hover_x' in hover_result.metadata
 		assert 'hover_y' in hover_result.metadata
 
-		# After hover: submenu should be visible (CSS :hover activated)
+		# After hover: submenu computed display should be "block" (CSS :hover activated)
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': "document.getElementById('submenu').style.display", 'returnByValue': True},
+			params={'expression': "window.getComputedStyle(document.getElementById('submenu')).display", 'returnByValue': True},
 			session_id=cdp_session.session_id,
 		)
 		display_value = result.get('result', {}).get('value', '')
-		# CSS :hover may set display to 'block' or the computed style may differ
-		# Check that it's no longer 'none'
-		assert display_value != 'none' or display_value == '', (
-			f'Submenu should be visible after hover, got display: {display_value}'
+		assert display_value == 'block', (
+			f'Submenu should be visible after hover (computed display="block"), got: {display_value}'
 		)
 
 	async def test_hover_triggers_css_tooltip(self, tools, browser_session: BrowserSession, base_url):
