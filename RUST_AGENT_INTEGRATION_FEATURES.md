@@ -1504,8 +1504,21 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This matches the actual agent-visible message history more closely and removes the extra nesting level that made Laminar render Rust-core inputs as one wrapped object.
    - Proof: browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary or exact_laminar_tool_replay or tool_definitions' --disable-warnings`, browser-use `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`, and browser-use `git diff --check -- browser_use/rust/service.py tests/ci/test_rust_agent.py`.
 
+285. Rust terminal durable prompt replay avoids duplicate tool history
+   - Production terminal runs now rebuild prompts from the durable event log as the single source of truth instead of appending the in-memory fusion recorder tail on top.
+   - The recorder tail remains enabled for offline/unit seams that do not emit durable model/tool events, but the live config facade disables it because model/tool events are persisted synchronously before the next sampling request.
+   - This fixes the Claude cache-breaker seen in recent real_v8 traces where earlier assistant/browser_script tool-call pairs appeared twice in the middle of later `model.turn.request` inputs, causing Anthropic cache reads to fall back to the stable system/tools prefix.
+   - Proof: terminal `cargo test -q -p browser-use-agent durable_prompt_replay_ignores_duplicate_fusion_tail -- --nocapture`, terminal `cargo test -q -p browser-use-agent store_turn_state_lowers_history_and_records -- --nocapture`, terminal `cargo test -q -p browser-use-agent fused_entrypoint_driver_dispatches_and_resamples_with_output -- --nocapture`, terminal `cargo test -q -p browser-use-agent config_facade_drives_fake_backend_to_quiescence -- --nocapture`, terminal `cargo test -q -p browser-use-agent runtime_config_overrides_materialize_max_turns_and_browser_mode -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent -p browser-use-cli`, and terminal `git diff --check -- crates/browser-use-agent/src/entrypoint/mod.rs`.
+
 ## Current Verification
 
+- terminal `cargo test -q -p browser-use-agent durable_prompt_replay_ignores_duplicate_fusion_tail -- --nocapture`
+- terminal `cargo test -q -p browser-use-agent store_turn_state_lowers_history_and_records -- --nocapture`
+- terminal `cargo test -q -p browser-use-agent fused_entrypoint_driver_dispatches_and_resamples_with_output -- --nocapture`
+- terminal `cargo test -q -p browser-use-agent config_facade_drives_fake_backend_to_quiescence -- --nocapture`
+- terminal `cargo test -q -p browser-use-agent runtime_config_overrides_materialize_max_turns_and_browser_mode -- --nocapture`
+- terminal `cargo fmt --check -p browser-use-agent -p browser-use-cli`
+- terminal `git diff --check -- crates/browser-use-agent/src/entrypoint/mod.rs`
 - terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`
 - terminal `cargo test -p browser-use-llm build_body_marks_cache_control_breakpoints -- --nocapture`
 - terminal `cargo test -p browser-use-llm build_body_golden_system_user_and_tool -- --nocapture`
