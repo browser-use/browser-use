@@ -2747,6 +2747,12 @@ def test_rust_agent_exposes_task_helper_methods():
 	assert agent._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
 	assert agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
 	assert browser_use_agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
+	numbered_task = (
+		'1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n'
+		'2. Ensure "General Search" is selected.'
+	)
+	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
+	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 
 
 def test_rust_agent_exposes_url_text_helper_methods():

@@ -38,6 +38,17 @@ def is_placeholder_url(url: str) -> bool:
 
 	return len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels)
 
+
+def sanitize_url_candidate(url: str) -> str:
+	"""Normalize a URL candidate captured from prose before auto-navigation."""
+	candidate = url.strip()
+	# Some benchmark tasks arrive with escaped newlines in prose, e.g.
+	# "https://example.com/search.\\n2. Next step". Those are task text,
+	# not part of the URL.
+	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
+	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+
+
 # Import error types - these may need to be adjusted based on actual import paths
 try:
 	from openai import BadRequestError as OpenAIBadRequestError

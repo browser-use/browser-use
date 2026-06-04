@@ -67,6 +67,7 @@ from browser_use.utils import (
 	get_browser_use_version,
 	get_git_info,
 	is_placeholder_url,
+	sanitize_url_candidate,
 )
 
 
@@ -866,7 +867,7 @@ def _extract_start_url(task: str) -> str | None:
 	found_urls = []
 	for pattern in patterns:
 		for match in re.finditer(pattern, task_without_emails):
-			url = re.sub(r'[.,;:!?()\[\]]+$', '', match.group(0))
+			url = sanitize_url_candidate(match.group(0))
 			url_lower = url.lower()
 			if is_placeholder_url(url):
 				continue

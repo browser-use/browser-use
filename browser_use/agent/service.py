@@ -70,6 +70,7 @@ from browser_use.utils import (
 	get_browser_use_version,
 	get_git_info,
 	is_placeholder_url,
+	sanitize_url_candidate,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -1505,7 +1506,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				original_position = match.start()  # Store original position before URL modification
 
 				# Remove trailing punctuation that's not part of URLs
-				url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
+				url = sanitize_url_candidate(url)
 
 				if is_placeholder_url(url):
 					self.logger.debug(f'Excluding placeholder URL from auto-navigation: {url}')
