@@ -1100,6 +1100,8 @@ def _last_streamed_assistant_text_from_events(events: list[dict[str, Any]]) -> s
 	)
 	candidates = events[last_request_index + 1 :] if last_request_index >= 0 else events
 	text = _streaming_text_from_events(candidates, ('model.delta', 'model.stream_delta', 'model.response.output_item'))
+	if not isinstance(text, str):
+		return None
 	text = text.strip()
 	return text or None
 

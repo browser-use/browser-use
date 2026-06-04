@@ -7818,6 +7818,27 @@ def test_rust_history_marks_process_failure_not_done():
 	assert history.errors() == ['terminal failed']
 
 
+def test_rust_history_process_failure_ignores_empty_stream_text():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{'event_type': 'model.stream_delta', 'payload': {'text': None}},
+			{'event_type': 'token_count', 'payload': {'info': {'last_token_usage': {'input_tokens': 1}}}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error='terminal failed after empty stream delta',
+	)
+
+	assert history.final_result() is None
+	assert history.is_done() is False
+	assert history.errors() == ['terminal failed after empty stream delta']
+
+
 def test_rust_history_marks_missing_terminal_result_as_error():
 	from browser_use.rust.service import _history_from_events
 
