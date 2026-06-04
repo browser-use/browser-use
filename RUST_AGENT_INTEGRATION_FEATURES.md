@@ -1430,6 +1430,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Live proof after feature 272 showed real cache reads on real_v8 task 3: run `kh7f32qhnhq1n7zaqcqvpy5vwn881842` scored `1.0`, reported `total_prompt_cached_tokens: 221555`, and reduced agent `usage.total_cost` to `$0.0266685` for 13 invocations. The preceding five-task gate without Rust cache markers had `total_prompt_cached_tokens: 0` on every task and task-3 agent cost `$0.997485`.
    - Proof: terminal `cargo fmt --check -p browser-use-agent -p browser-use-llm`, terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`, terminal `cargo test -p browser-use-llm build_body_marks_cache_control_breakpoints -- --nocapture`, and terminal `cargo build -p browser-use-cli`.
 
+274. Rust Anthropic cache usage accounting parity
+   - The Rust Anthropic decoder now follows the official Anthropic usage formula: total input tokens are `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`.
+   - Rust usage keeps cache-read tokens visible for discounted read pricing and cache-creation tokens visible for cache-write pricing, while the Python `browser_use.rust.Agent` usage bridge handles raw Anthropic fields and canonical terminal token-count events without negative prompt costs.
+   - This fixes the 2026-06-04 cache gate where dashboard usage showed negative `total_prompt_cost` after Anthropic returned tiny raw `input_tokens` plus large `cache_read_input_tokens`.
+   - Proof: terminal `cargo test -p browser-use-llm decoder_normalizes_anthropic_cached_usage_to_inclusive_input -- --nocapture`, terminal `cargo test -p browser-use-agent usage_total_nonzero_is_preserved -- --nocapture`, terminal `cargo test -p browser-use-providers anthropic_messages_provider_parses_text_tool_use_and_usage -- --nocapture`, browser-use `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'anthropic_raw_cache_reads or terminal_usage_prices_token_count_events'`, and browser-use `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`.
+
 ## Current Verification
 
 - terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`

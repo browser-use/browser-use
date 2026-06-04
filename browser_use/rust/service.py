@@ -2269,6 +2269,13 @@ def _float_value(value: Any) -> float:
 		return 0.0
 
 
+def _int_field(usage: dict[str, Any], keys: tuple[str, ...]) -> int:
+	for key in keys:
+		if key in usage:
+			return _int_value(usage.get(key))
+	return 0
+
+
 def _token_count_usage(payload: dict[str, Any]) -> dict[str, Any] | None:
 	info = payload.get('info')
 	if isinstance(info, dict):
@@ -2297,21 +2304,27 @@ def _optional_positive_int(value: Any) -> int | None:
 	return integer if integer > 0 else None
 
 
-def _chat_invoke_usage_from_payload(usage: dict[str, Any]) -> ChatInvokeUsage | None:
+def _input_usage_buckets(usage: dict[str, Any]) -> tuple[int, int, int]:
+	cache_read_tokens = _int_field(usage, ('cache_read_input_tokens', 'input_cached_tokens', 'cached_input_tokens'))
+	cache_creation_tokens = _int_field(
+		usage, ('cache_creation_input_tokens', 'prompt_cache_creation_tokens', 'input_cache_creation_tokens')
+	)
 	input_tokens = _int_value(usage.get('input_tokens'))
-	cached_input_tokens = _int_value(usage.get('input_cached_tokens') or usage.get('cached_input_tokens'))
+	if 'cache_read_input_tokens' in usage or 'cache_creation_input_tokens' in usage:
+		input_tokens += cache_read_tokens
+	return input_tokens, cache_read_tokens, cache_creation_tokens
+
+
+def _chat_invoke_usage_from_payload(usage: dict[str, Any]) -> ChatInvokeUsage | None:
+	input_tokens, cached_input_tokens, cache_creation_tokens = _input_usage_buckets(usage)
 	completion_tokens = _usage_completion_tokens(usage)
-	total_tokens = _usage_total_tokens(usage, input_tokens, completion_tokens)
+	total_tokens = _usage_total_tokens(usage, input_tokens, cache_creation_tokens, completion_tokens)
 	if input_tokens == 0 and completion_tokens == 0 and total_tokens == 0:
 		return None
 	return ChatInvokeUsage(
 		prompt_tokens=input_tokens,
 		prompt_cached_tokens=cached_input_tokens or None,
-		prompt_cache_creation_tokens=_optional_positive_int(
-			usage.get('prompt_cache_creation_tokens')
-			or usage.get('cache_creation_input_tokens')
-			or usage.get('input_cache_creation_tokens')
-		),
+		prompt_cache_creation_tokens=cache_creation_tokens or None,
 		prompt_image_tokens=_optional_positive_int(usage.get('prompt_image_tokens') or usage.get('image_tokens')),
 		completion_tokens=completion_tokens,
 		total_tokens=total_tokens,
@@ -2330,13 +2343,18 @@ def _usage_completion_tokens(usage: dict[str, Any]) -> int:
 	return _int_value(usage.get('output_tokens')) + _reasoning_output_tokens(usage)
 
 
-def _usage_total_tokens(usage: dict[str, Any], input_tokens: int, completion_tokens: int) -> int:
+def _usage_total_tokens(
+	usage: dict[str, Any], input_tokens: int, cache_creation_tokens: int, completion_tokens: int
+) -> int:
+	computed_total = input_tokens + cache_creation_tokens + completion_tokens
+	if 'cache_read_input_tokens' in usage or 'cache_creation_input_tokens' in usage:
+		return computed_total
 	reported_total = usage.get('total_tokens')
 	if reported_total is not None:
 		total_tokens = _int_value(reported_total)
-		if total_tokens > 0 or input_tokens + completion_tokens == 0:
+		if total_tokens > 0 or computed_total == 0:
 			return total_tokens
-	return input_tokens + completion_tokens
+	return computed_total
 
 
 def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary:
@@ -2353,12 +2371,14 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 		payload = _event_payload(event)
 		if event_type == 'model.usage':
 			usage = _model_usage_payload(payload)
-			event_input_tokens = _int_value(usage.get('input_tokens'))
+			event_input_tokens, event_cached_input_tokens, event_cache_creation_tokens = _input_usage_buckets(usage)
 			event_completion_tokens = _usage_completion_tokens(usage)
 			input_tokens += event_input_tokens
-			cached_input_tokens += _int_value(usage.get('input_cached_tokens') or usage.get('cached_input_tokens'))
+			cached_input_tokens += event_cached_input_tokens
 			completion_tokens += event_completion_tokens
-			total_tokens += _usage_total_tokens(usage, event_input_tokens, event_completion_tokens)
+			total_tokens += _usage_total_tokens(
+				usage, event_input_tokens, event_cache_creation_tokens, event_completion_tokens
+			)
 			cost += _float_value(usage.get('cost_usd') or usage.get('cost') or payload.get('cost_usd') or payload.get('cost'))
 			invocations += 1
 			continue
@@ -2366,10 +2386,9 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 			token_usage = _token_count_usage(payload)
 			if token_usage is None:
 				continue
-			input_tokens = _int_value(token_usage.get('input_tokens'))
-			cached_input_tokens = _int_value(token_usage.get('cached_input_tokens') or token_usage.get('input_cached_tokens'))
+			input_tokens, cached_input_tokens, cache_creation_tokens = _input_usage_buckets(token_usage)
 			completion_tokens = _usage_completion_tokens(token_usage)
-			total_tokens = _usage_total_tokens(token_usage, input_tokens, completion_tokens)
+			total_tokens = _usage_total_tokens(token_usage, input_tokens, cache_creation_tokens, completion_tokens)
 			token_count_invocations += 1
 
 	invocations = max(invocations, token_count_invocations)
@@ -2474,10 +2493,9 @@ def _terminal_turn_usage_payload(events: list[dict[str, Any]]) -> dict[str, Any]
 def _terminal_laminar_usage_summary(raw_usage: dict[str, Any] | None) -> dict[str, int | float] | None:
 	if raw_usage is None:
 		return None
-	input_tokens = _int_value(raw_usage.get('input_tokens'))
-	cached_input_tokens = _int_value(raw_usage.get('input_cached_tokens') or raw_usage.get('cached_input_tokens'))
+	input_tokens, cached_input_tokens, cache_creation_tokens = _input_usage_buckets(raw_usage)
 	output_tokens = _usage_completion_tokens(raw_usage)
-	total_tokens = _usage_total_tokens(raw_usage, input_tokens, output_tokens)
+	total_tokens = _usage_total_tokens(raw_usage, input_tokens, cache_creation_tokens, output_tokens)
 	cost = _float_value(raw_usage.get('cost_usd') or raw_usage.get('cost') or raw_usage.get('total_cost'))
 	summary: dict[str, int | float] = {
 		'input_tokens': input_tokens,
@@ -2485,6 +2503,8 @@ def _terminal_laminar_usage_summary(raw_usage: dict[str, Any] | None) -> dict[st
 		'output_tokens': output_tokens,
 		'total_tokens': total_tokens,
 	}
+	if cache_creation_tokens:
+		summary['cache_creation_input_tokens'] = cache_creation_tokens
 	reasoning_output_tokens = _reasoning_output_tokens(raw_usage)
 	if reasoning_output_tokens:
 		summary['reasoning_output_tokens'] = reasoning_output_tokens

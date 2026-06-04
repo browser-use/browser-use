@@ -1723,6 +1723,43 @@ async def test_rust_terminal_usage_prices_token_count_events(monkeypatch):
 	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.001296)
 
 
+async def test_rust_terminal_usage_prices_anthropic_raw_cache_reads(monkeypatch):
+	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.tokens.service import TokenCost
+
+	async def fail_fetch(_self):
+		raise AssertionError('custom model pricing should not fetch remote pricing')
+
+	monkeypatch.setattr(TokenCost, '_fetch_and_cache_pricing_data', fail_fetch)
+
+	events = [
+		{
+			'event_type': 'model.usage',
+			'payload': {
+				'usage': {
+					'input_tokens': 12,
+					'cache_read_input_tokens': 183250,
+					'cache_creation_input_tokens': 44,
+					'output_tokens': 3088,
+				},
+			},
+		},
+	]
+
+	summary = await _usage_from_events_with_costs(events, 'claude-sonnet-4-6', TokenCost(include_cost=True))
+
+	assert summary.total_prompt_tokens == 183262
+	assert summary.total_prompt_cached_tokens == 183250
+	assert summary.total_completion_tokens == 3088
+	assert summary.total_tokens == 186394
+	assert summary.total_prompt_cost == pytest.approx(0.055176)
+	assert summary.total_prompt_cached_cost == pytest.approx(0.054975)
+	assert summary.total_completion_cost == pytest.approx(0.04632)
+	assert summary.total_cost == pytest.approx(0.101496)
+	assert summary.by_model['claude-sonnet-4-6'].prompt_tokens == 183262
+	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.101496)
+
+
 def test_rust_history_supports_structured_output():
 	from browser_use.rust.service import _history_from_events
 
