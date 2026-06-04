@@ -1230,6 +1230,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 242. Rust Agent single-site collection parity
    - The terminal browser-agent prompt now gives general single-site guidance for tasks that request one website, vendor, domain, or source.
    - The agent is instructed to pick one viable domain early, finish the collection checklist on that domain, avoid stitching rows across domains, and mark missing items unavailable for the committed domain instead of vendor-hopping.
+   - When unavailable/missing rows are permitted, a domain is treated as viable once it has the requested category/source type and at least one requested row or a searchable catalog in the requested currency/locale; the agent should not keep searching for a perfect domain that has every row.
    - This targets the 2026-06-04 focused task-4 diagnostic where the agent spent 21 steps scouting vendor domains without committing to one AUD source.
    - Proof: terminal `system_prompt_commits_single_site_collection_to_one_domain`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent system_prompt_ -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, and terminal `cargo build -q -p browser-use-cli`.
 
