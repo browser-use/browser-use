@@ -1516,8 +1516,17 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task gate where three unrelated tasks continued past 10 minutes and 40-60 turns despite having gathered substantial data/artifacts, without changing task-specific instructions or reducing the timeout.
    - Proof: terminal `cargo test -q -p browser-use-agent bounded_loop_adds_progress_nudge_for_long_runs -- --nocapture`, terminal `cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`, terminal `cargo test -q -p browser-use-agent durable_prompt_replay_ignores_duplicate_fusion_tail -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- crates/browser-use-agent/src/turn/loop_driver.rs crates/browser-use-agent/src/turn/loop_tests.rs`, and terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`.
 
+287. Rust eval Agent SDK judge single-timeout parity
+   - The Agent SDK judge no longer has a hidden 45-second default timeout underneath the eval runner's 30-minute task budget.
+   - Tool-enabled and trajectory-only Agent SDK judge attempts now inherit `AGENT_SDK_JUDGE_TIMEOUT_SECONDS`, then `EVALUATION_JUDGE_TIMEOUT_SECONDS`, then `EVALUATION_TASK_TIMEBOX_SECONDS`, falling back to `1800` seconds. Explicit Agent SDK overrides still win.
+   - This prevents completed Rust agent outputs from being falsely scored as infra failures because the judge hit a shorter internal timer while the eval task itself still had budget.
+   - Proof: evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge'`, evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge_timeout or single_generous or timeout_default or timeout_inherits or explicit_timeouts or service_cli_defaults_to_100'`, and evaluations-internal `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
 ## Current Verification
 
+- evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge'` on commit `40e2360`
+- evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge_timeout or single_generous or timeout_default or timeout_inherits or explicit_timeouts or service_cli_defaults_to_100'` on commit `40e2360`
+- evaluations-internal `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`
 - terminal `cargo test -q -p browser-use-agent bounded_loop_adds_progress_nudge_for_long_runs -- --nocapture`
 - terminal `cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
 - terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`
@@ -1771,6 +1780,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-durable-replay/progress-nudge five-task real_v8 Agent SDK gate:
+  - Run `kh70pdtgfx3va5kc0yqmy0am8n881t64` used clean local browser-use worktree `71a9f3e2`, terminal `fa0728a`, `BU_RUNTIME=brust`, Browser Use cloud CDP with US proxy, `--parallel-runs 5`, `--max-steps 100`, Claude Sonnet 4.6 executor, and Agent SDK judge for real_v8 tasks 11-15.
+  - The run proved the duplicated-prompt-history/cache breaker is fixed: request message counts grew monotonically (`3,5,7,...`) with only the intentional progress checkpoint adding one message at turn 50, instead of replaying prior browser_script tool-call/result pairs in the middle of later prompts.
+  - Saved results before the 10-minute stop were task 11 score `1.0` in 336.62s agent time/362.71s total pipeline and task 13 score `0.7` in 189.97s/252.80s. Three tasks were still active at the cap; the remaining Browser Use cloud sessions and an unintended queued GPT-5.5 comparison run were manually stopped, and the cloud API reported `active_count 0`.
+  - This does not justify scaling to 50 yet: missing-task-as-zero mean score was `0.34`, and the remaining bottleneck is long agent-stage execution/repeated browser_script retries rather than duplicate prompt replay or cloud browser setup.
 - 2026-06-04 post-dataset-timebox five-task real_v8 Agent SDK gate:
   - Run `kh783as9s2c1s1cf6j7rzgd77h8815a6` used `BU_RUNTIME=brust`, eval-internal commit `6e75e49`, terminal commit `ce498f7`, browser-use commit `590234b7`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T12:35:14Z, all five tasks entered Rust-core agent execution, and no CAPTCHA/local-browser misconfiguration appeared.
