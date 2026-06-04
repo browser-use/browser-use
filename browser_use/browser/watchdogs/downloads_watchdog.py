@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -28,6 +29,75 @@ from browser_use.browser.watchdog_base import BaseWatchdog
 
 if TYPE_CHECKING:
 	pass
+
+
+_NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
+	'pdf',
+	'doc',
+	'docx',
+	'xls',
+	'xlsx',
+	'ppt',
+	'pptx',
+	'csv',
+	'tsv',
+	'txt',
+	'json',
+	'xml',
+	'zip',
+	'gz',
+	'tar',
+	'jpg',
+	'jpeg',
+	'png',
+	'gif',
+	'webp',
+}
+
+_GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
+
+
+def _filename_from_content_disposition(content_disposition: str) -> str | None:
+	filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
+	if filename_match:
+		return filename_match.group(1).strip('\'"')
+	return None
+
+
+def _has_file_extension(value: str | None) -> bool:
+	if not value:
+		return False
+	return Path(urlparse(value).path if '://' in value else value).suffix.lower().lstrip('.') in _NETWORK_DOWNLOAD_FILE_EXTENSIONS
+
+
+def _is_generic_text_attachment(url: str, content_type: str, suggested_filename: str | None) -> bool:
+	mime = content_type.split(';', 1)[0].strip().lower()
+	if mime not in {'text/plain', 'application/json', 'text/javascript', 'application/javascript'}:
+		return False
+	if _has_file_extension(url):
+		return False
+	if not suggested_filename:
+		return False
+	filename = Path(suggested_filename).name.lower()
+	stem = Path(filename).stem
+	ext = Path(filename).suffix.lower().lstrip('.')
+	return stem in _GENERIC_TEXT_ATTACHMENT_NAMES and ext in {'', 'txt', 'json'}
+
+
+def _should_auto_download_network_response(
+	url: str,
+	content_type: str,
+	is_pdf: bool,
+	is_download_attachment: bool,
+	suggested_filename: str | None,
+) -> bool:
+	if is_pdf:
+		return True
+	if not is_download_attachment:
+		return False
+	if _is_generic_text_attachment(url, content_type, suggested_filename):
+		return False
+	return _has_file_extension(suggested_filename) or _has_file_extension(url) or 'application/octet-stream' in content_type
 
 
 class DownloadsWatchdog(BaseWatchdog):
@@ -344,6 +414,18 @@ class DownloadsWatchdog(BaseWatchdog):
 						if not (is_pdf or is_download_attachment):
 							return
 
+						# Extract filename from Content-Disposition if available
+						suggested_filename = _filename_from_content_disposition(content_disposition)
+
+						if not _should_auto_download_network_response(
+							url=url,
+							content_type=content_type,
+							is_pdf=is_pdf,
+							is_download_attachment=is_download_attachment,
+							suggested_filename=suggested_filename,
+						):
+							return
+
 						# Check if we've already processed this URL in this session
 						if url in self._detected_downloads:
 							self.logger.debug(f'[DownloadsWatchdog] Already detected download: {url[:80]}...')
@@ -351,16 +433,6 @@ class DownloadsWatchdog(BaseWatchdog):
 
 						# Mark as detected to avoid duplicates
 						self._detected_downloads.add(url)
-
-						# Extract filename from Content-Disposition if available
-						suggested_filename = None
-						if 'filename=' in content_disposition:
-							# Parse filename from Content-Disposition header
-							import re
-
-							filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
-							if filename_match:
-								suggested_filename = filename_match.group(1).strip('\'"')
 
 						self.logger.info(f'[DownloadsWatchdog] 🔍 Detected downloadable content via network: {url[:80]}...')
 						self.logger.debug(
