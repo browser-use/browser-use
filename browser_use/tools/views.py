@@ -81,6 +81,8 @@ class ClickElementActionIndexOnly(BaseModel):
 
 
 class HoverAction(BaseModel):
+	model_config = ConfigDict(extra='forbid')
+
 	index: int | None = Field(default=None, ge=1, description='Element index from browser_state')
 	coordinate_x: int | None = Field(default=None, description='Horizontal coordinate relative to viewport left edge')
 	coordinate_y: int | None = Field(default=None, description='Vertical coordinate relative to viewport top edge')
