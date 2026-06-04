@@ -1339,6 +1339,14 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 real_v8 slice where document/research tasks repeatedly emitted or printed large page bodies, then spent additional turns searching rather than using compact progress evidence to finish.
    - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_truncated_structured_output_preserves_summary_first -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
 
+259. Rust Agent browser-script batch fetch helper parity
+   - Terminal `browser_script` now exposes `http_get_many`, `browser_fetch`, and `browser_fetch_many` alongside the existing `http_get` helper.
+   - `http_get_many` fetches independent public URLs concurrently, preserves input order, merges shared/per-request headers, and returns per-URL error records by default so one broken document/API link does not abort a whole extraction chunk.
+   - `browser_fetch` and `browser_fetch_many` run fetches from the current page context with browser cookies/session state, giving the agent a direct browser-backed path for endpoints that direct HTTP cannot access.
+   - The browser-agent prompt and `browser_script` tool description now advertise these helpers and instruct the model to use batch direct/browser fetches after stable endpoints, links, downloads, or XHR patterns are discovered.
+   - This targets repeated document/research gates where the agent hand-wrote fragile per-link fetch/reverse-engineering loops after discovering stable links or request patterns, increasing steps and token cost.
+   - Proof: terminal `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_http_get_many_preserves_order_and_errors -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-browser -p browser-use-agent`, terminal `git diff --check`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1396,13 +1404,19 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_script_stdout_cap_defaults_to_four_kib_for_eval_cost -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_truncated_structured_output_preserves_summary_first -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
+- `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration` at `21a180a`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_http_get_many_preserves_order_and_errors -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration` at `21a180a`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration` at `21a180a`
 - `cargo fmt --check -p browser-use-agent -p browser-use-browser` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo fmt --check -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo fmt --check -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
+- `cargo fmt --check -p browser-use-browser -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration` at `21a180a`
+- `git diff --check` on terminal branch `magnus/browser-use-rust-main-integration` before commit `21a180a`
 - `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py eval/task_types.py` on evaluations-internal branch `main`
 - `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
+- `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration` at `21a180a`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_domain_constraints_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_domain_constraints_are_passive_without_env -- --nocapture`
 - `cargo fmt --check -p browser-use-llm` on terminal branch `magnus/browser-use-rust-main-integration`
