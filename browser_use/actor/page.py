@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
 
+from browser_use import logger
 from browser_use.actor.utils import get_key_info
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 from browser_use.dom.service import DomService
@@ -129,8 +130,8 @@ class Page:
 		else:
 			expression = f'({page_function})()'
 
-		# Debug: print the actual expression being evaluated
-		print(f'DEBUG: Evaluating JavaScript: {repr(expression)}')
+		# Debug: log the actual expression being evaluated
+		logger.debug(f'Evaluating JavaScript: {repr(expression)}')
 
 		params: 'EvaluateParameters' = {'expression': expression, 'returnByValue': True, 'awaitPromise': True}
 		result = await self._client.send.Runtime.evaluate(
@@ -188,7 +189,7 @@ class Page:
 
 		return js_code
 
-	async def screenshot(self, format: str = 'jpeg', quality: int | None = None) -> str:
+	async def screenshot(self, format: str = 'png', quality: int | None = None) -> str:
 		"""Take a screenshot and return base64 encoded image.
 
 		Args:
@@ -405,10 +406,12 @@ class Page:
 
 		dom_service = self.dom_service
 
-		enhanced_dom_tree = await dom_service.get_dom_tree(target_id=self._target_id)
+		# Lazy fetch all_frames inside get_dom_tree if needed (for cross-origin iframes)
+		enhanced_dom_tree, _ = await dom_service.get_dom_tree(target_id=self._target_id, all_frames=None)
 
+		session_id = self._browser_session.id
 		serialized_dom_state, _ = DOMTreeSerializer(
-			enhanced_dom_tree, None, paint_order_filtering=True
+			enhanced_dom_tree, None, paint_order_filtering=True, session_id=session_id
 		).serialize_accessible_elements()
 
 		llm_representation = serialized_dom_state.llm_representation()

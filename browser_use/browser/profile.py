@@ -1,7 +1,9 @@
+import os
 import sys
 import tempfile
 from collections.abc import Iterable
 from enum import Enum
+from fnmatch import fnmatch
 from functools import cache
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -9,11 +11,29 @@ from urllib.parse import urlparse
 
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from browser_use.browser.cloud.views import CloudBrowserParams
 from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
+
+def _get_enable_default_extensions_default() -> bool:
+	"""Get the default value for enable_default_extensions from env var or True."""
+	env_val = os.getenv('BROWSER_USE_DISABLE_EXTENSIONS')
+	if env_val is not None:
+		# If DISABLE_EXTENSIONS is truthy, return False (extensions disabled)
+		return env_val.lower() in ('0', 'false', 'no', 'off', '')
+	return True
+
+
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
+CHROME_PROFILE_TRANSIENT_FILE_PATTERNS = (
+	'Singleton*',
+	'*.lock',
+	'*-journal',
+	'LOCK',
+	'LOCKFILE',
+)
 CHROME_DISABLED_COMPONENTS = [
 	# Playwright defaults: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
 	# AcceptCHFrame,AutoExpandDetailsElement,AvoidUnnecessaryBeforeUnloadCheckSync,CertificateTransparencyComponentUpdater,DeferRendererTasksAfterInput,DestroyProfileOnBrowserClose,DialMediaRouteProvider,ExtensionManifestV2Disabled,GlobalMediaControls,HttpsUpgrades,ImprovedCookieControls,LazyFrameLoading,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate
@@ -65,6 +85,34 @@ CHROME_DISABLED_COMPONENTS = [
 	'ExtensionManifestV2Unsupported',
 ]
 
+
+def _ignore_chrome_profile_transient_files(_src: str, names: list[str]) -> set[str]:
+	"""Skip Chrome lock/journal files that should not be copied into a temp profile."""
+	return {name for name in names if any(fnmatch(name, pattern) for pattern in CHROME_PROFILE_TRANSIENT_FILE_PATTERNS)}
+
+
+def _is_chrome_profile_lock_error(error: BaseException) -> bool:
+	"""Detect Windows sharing violations or permission errors raised while copying a Chrome profile."""
+	if isinstance(error, PermissionError):
+		return True
+
+	if getattr(error, 'winerror', None) == 32:
+		return True
+
+	# shutil.Error stores copy failures as (src, dst, message/exception) triples.
+	for arg in getattr(error, 'args', ()):
+		if isinstance(arg, (list, tuple)):
+			for item in arg:
+				if isinstance(item, (list, tuple)) and item:
+					detail = item[-1]
+					if isinstance(detail, BaseException) and _is_chrome_profile_lock_error(detail):
+						return True
+					if 'WinError 32' in str(detail) or 'being used by another process' in str(detail):
+						return True
+
+	return False
+
+
 CHROME_HEADLESS_ARGS = [
 	'--headless=new',
 ]
@@ -112,7 +160,7 @@ CHROME_DEFAULT_ARGS = [
 	'--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
 	'--disable-breakpad',
 	'--disable-client-side-phishing-detection',
-	'--disable-component-extensions-with-background-pages',
+	# '--disable-component-extensions-with-background-pages',  # kills user-loaded extensions on Chrome 145+
 	'--disable-component-update',  # Avoids unneeded network activity after startup.
 	'--no-default-browser-check',
 	# '--disable-default-apps',
@@ -138,7 +186,7 @@ CHROME_DEFAULT_ARGS = [
 	# added by us:
 	'--enable-features=NetworkService,NetworkServiceInProcess',
 	'--enable-network-information-downlink-max',
-	'--test-type=gpu',
+	# '--test-type=gpu',  # blocks unpacked extension loading on Chrome 145+
 	'--disable-sync',
 	'--allow-legacy-extension-manifests',
 	'--allow-pre-commit-input',
@@ -418,14 +466,14 @@ class BrowserLaunchArgs(BaseModel):
 		if self.downloads_path is None:
 			import uuid
 
-			# Create unique directory in /tmp for downloads
+			# Create unique directory in system temp folder for downloads
 			unique_id = str(uuid.uuid4())[:8]  # 8 characters
-			downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+			downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			# Ensure path doesn't already exist (extremely unlikely but possible)
 			while downloads_path.exists():
 				unique_id = str(uuid.uuid4())[:8]
-				downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+				downloads_path = Path(tempfile.gettempdir()) / f'browser-use-downloads-{unique_id}'
 
 			self.downloads_path = downloads_path
 			self.downloads_path.mkdir(parents=True, exist_ok=True)
@@ -559,6 +607,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Alias for use_cloud field for compatibility."""
 		return self.use_cloud
 
+	cloud_browser_params: CloudBrowserParams | None = Field(
+		default=None, description='Parameters for creating a cloud browser instance'
+	)
+
 	# custom options we provide that aren't native playwright kwargs
 	disable_security: bool = Field(default=False, description='Disable browser security features.')
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
@@ -583,8 +635,16 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Proxy settings. Use browser_use.browser.profile.ProxySettings(server, bypass, username, password)',
 	)
 	enable_default_extensions: bool = Field(
+		default_factory=_get_enable_default_extensions_default,
+		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled. Can be disabled via BROWSER_USE_DISABLE_EXTENSIONS=1 environment variable.",
+	)
+	captcha_solver: bool = Field(
 		default=True,
-		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled.",
+		description='Enable the captcha solver watchdog that listens for captcha events from the browser proxy. Automatically pauses agent steps while a CAPTCHA is being solved. Only active when the browser emits BrowserUse CDP events (e.g. Browser Use cloud browsers). Harmless when disabled or when events are not emitted.',
+	)
+	demo_mode: bool = Field(
+		default=False,
+		description='Enable demo mode side panel that streams agent logs directly inside the browser window (requires headless=False).',
 	)
 	cookie_whitelist_domains: list[str] = Field(
 		default_factory=lambda: ['nature.com', 'qatarairways.com'],
@@ -773,6 +833,64 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def model_post_init(self, __context: Any) -> None:
 		"""Called after model initialization to set up display configuration."""
 		self.detect_display_configuration()
+		self._copy_profile()
+
+	def _copy_profile(self) -> None:
+		"""Copy profile to temp directory if user_data_dir is not None and not already a temp dir."""
+		if self.user_data_dir is None:
+			return
+
+		user_data_str = str(self.user_data_dir)
+		if 'browser-use-user-data-dir-' in user_data_str.lower():
+			# Already using a temp directory, no need to copy
+			return
+
+		is_chrome = (
+			'chrome' in user_data_str.lower()
+			or ('chrome' in str(self.executable_path).lower())
+			or self.channel
+			in (BrowserChannel.CHROME, BrowserChannel.CHROME_BETA, BrowserChannel.CHROME_DEV, BrowserChannel.CHROME_CANARY)
+		)
+
+		if not is_chrome:
+			return
+
+		temp_dir = tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+		path_original_user_data = Path(self.user_data_dir)
+		path_original_profile = path_original_user_data / self.profile_directory
+		path_temp_profile = Path(temp_dir) / self.profile_directory
+
+		if path_original_profile.exists():
+			import shutil
+
+			try:
+				shutil.copytree(
+					path_original_profile,
+					path_temp_profile,
+					ignore=_ignore_chrome_profile_transient_files,
+				)
+			except (OSError, shutil.Error) as error:
+				if not _is_chrome_profile_lock_error(error):
+					raise
+
+				shutil.rmtree(temp_dir, ignore_errors=True)
+				raise RuntimeError(
+					f'Unable to copy Chrome profile "{self.profile_directory}" because one or more files are locked. '
+					'Close any Chrome windows using this profile, or start browser-use with --cdp-url to connect to '
+					'an already-running browser instead of copying the profile.'
+				) from error
+			local_state_src = path_original_user_data / 'Local State'
+			local_state_dst = Path(temp_dir) / 'Local State'
+			if local_state_src.exists():
+				shutil.copy(local_state_src, local_state_dst)
+			logger.info(f'Copied profile ({self.profile_directory}) and Local State to temp directory: {temp_dir}')
+
+		else:
+			Path(temp_dir).mkdir(parents=True, exist_ok=True)
+			path_temp_profile.mkdir(parents=True, exist_ok=True)
+			logger.info(f'Created new profile ({self.profile_directory}) in temp directory: {temp_dir}')
+
+		self.user_data_dir = temp_dir
 
 	def get_args(self) -> list[str]:
 		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
@@ -870,6 +988,25 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 		return args
 
+	@staticmethod
+	def _check_extension_manifest_version(ext_dir: Path, ext_name: str) -> bool:
+		"""Check that an extension uses Manifest V3. Returns False for MV2 extensions (unsupported by Chrome 145+)."""
+		import json
+
+		manifest_path = ext_dir / 'manifest.json'
+		if not manifest_path.exists():
+			return False
+		try:
+			with open(manifest_path, encoding='utf-8') as f:
+				manifest = json.load(f)
+			mv = manifest.get('manifest_version', 2)
+			if mv < 3:
+				logger.warning(f'Skipping {ext_name} extension: Manifest V{mv} is no longer supported by Chrome')
+				return False
+			return True
+		except Exception:
+			return False
+
 	def _ensure_default_extensions_downloaded(self) -> list[str]:
 		"""
 		Ensure default extensions are downloaded and cached locally.
@@ -877,22 +1014,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""
 
 		# Extension definitions - optimized for automation and content extraction
-		# Combines uBlock Origin (ad blocking) + "I still don't care about cookies" (cookie banner handling)
+		# uBlock Origin Lite (ad blocking, MV3) + "I still don't care about cookies" (cookie banner handling)
 		extensions = [
 			{
-				'name': 'uBlock Origin',
-				'id': 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dcjpalhdlnbpafiamejdnhcphjbkeiagm%26uc',
+				'name': 'uBlock Origin Lite',
+				'id': 'ddkjiahejlhfcafbddmgiahcphecmpfh',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dddkjiahejlhfcafbddmgiahcphecmpfh%26uc',
 			},
 			{
 				'name': "I still don't care about cookies",
 				'id': 'edibdbjcniadpccecjdfdjjppcpchdlm',
 				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
-			},
-			{
-				'name': 'ClearURLs',
-				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
 			},
 			{
 				'name': 'Force Background Tab',
@@ -931,7 +1063,8 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 			# Check if extension is already extracted
 			if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
-				# logger.debug(f'✅ Using cached {ext["name"]} extension from {_log_pretty_path(ext_dir)}')
+				if not self._check_extension_manifest_version(ext_dir, ext['name']):
+					continue
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
 				continue
@@ -947,6 +1080,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				# Extract extension
 				logger.info(f'📂 Extracting {ext["name"]} extension...')
 				self._extract_extension(crx_file, ext_dir)
+
+				if not self._check_extension_manifest_version(ext_dir, ext['name']):
+					continue
 
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
@@ -1086,7 +1222,6 @@ async function initialize(checkInitialized, magic) {{
 				zip_data = f.read()
 
 			# Write ZIP data to temp file and extract
-			import tempfile
 
 			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
 				temp_zip.write(zip_data)

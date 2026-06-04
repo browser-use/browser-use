@@ -64,3 +64,13 @@ def test_optimizer_preserves_all_fields_in_structured_done_action():
 		f'Missing from optimized: {original_fields - optimized_fields}\n'
 		f'Unexpected in optimized: {optimized_fields - original_fields}'
 	)
+
+
+def test_gemini_schema_retains_required_fields():
+	"""Gemini schema should keep explicit required arrays for mandatory fields."""
+	schema = SchemaOptimizer.create_gemini_optimized_schema(ProductInfo)
+
+	assert 'required' in schema, 'Gemini schema removed required fields.'
+
+	required_fields = set(schema['required'])
+	assert {'price', 'title'}.issubset(required_fields), 'Mandatory fields must stay required for Gemini.'

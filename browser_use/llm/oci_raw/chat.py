@@ -8,7 +8,7 @@ Generative AI service using raw API calls without Langchain dependencies.
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import TypeVar, overload
+from typing import Any, TypeVar, overload
 
 import oci
 from oci.generative_ai_inference import GenerativeAiInferenceClient
@@ -322,13 +322,15 @@ class ChatOCIRaw(BaseChatModel):
 		return await loop.run_in_executor(None, _sync_request)
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
+	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Invoke the OCI GenAI model with the given messages using raw API.

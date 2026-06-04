@@ -35,6 +35,109 @@ if len(sys.argv) > 1 and sys.argv[1] == 'install':
 		sys.exit(1)
 	sys.exit(0)
 
+# Check for init subcommand early to avoid loading TUI dependencies
+if 'init' in sys.argv:
+	from browser_use.init_cmd import INIT_TEMPLATES
+	from browser_use.init_cmd import main as init_main
+
+	# Check if --template or -t flag is present without a value
+	# If so, just remove it and let init_main handle interactive mode
+	if '--template' in sys.argv or '-t' in sys.argv:
+		try:
+			template_idx = sys.argv.index('--template') if '--template' in sys.argv else sys.argv.index('-t')
+			template = sys.argv[template_idx + 1] if template_idx + 1 < len(sys.argv) else None
+
+			# If template is not provided or is another flag, remove the flag and use interactive mode
+			if not template or template.startswith('-'):
+				if '--template' in sys.argv:
+					sys.argv.remove('--template')
+				else:
+					sys.argv.remove('-t')
+		except (ValueError, IndexError):
+			pass
+
+	# Remove 'init' from sys.argv so click doesn't see it as an unexpected argument
+	sys.argv.remove('init')
+	init_main()
+	sys.exit(0)
+
+# Check for --template flag early to avoid loading TUI dependencies
+if '--template' in sys.argv:
+	from pathlib import Path
+
+	import click
+
+	from browser_use.init_cmd import INIT_TEMPLATES
+
+	# Parse template and output from sys.argv
+	try:
+		template_idx = sys.argv.index('--template')
+		template = sys.argv[template_idx + 1] if template_idx + 1 < len(sys.argv) else None
+	except (ValueError, IndexError):
+		template = None
+
+	# If template is not provided or is another flag, use interactive mode
+	if not template or template.startswith('-'):
+		# Redirect to init command with interactive template selection
+		from browser_use.init_cmd import main as init_main
+
+		# Remove --template from sys.argv
+		sys.argv.remove('--template')
+		init_main()
+		sys.exit(0)
+
+	# Validate template name
+	if template not in INIT_TEMPLATES:
+		click.echo(f'❌ Invalid template. Choose from: {", ".join(INIT_TEMPLATES.keys())}', err=True)
+		sys.exit(1)
+
+	# Check for --output flag
+	output = None
+	if '--output' in sys.argv or '-o' in sys.argv:
+		try:
+			output_idx = sys.argv.index('--output') if '--output' in sys.argv else sys.argv.index('-o')
+			output = sys.argv[output_idx + 1] if output_idx + 1 < len(sys.argv) else None
+		except (ValueError, IndexError):
+			pass
+
+	# Check for --force flag
+	force = '--force' in sys.argv or '-f' in sys.argv
+
+	# Determine output path
+	output_path = Path(output) if output else Path.cwd() / f'browser_use_{template}.py'
+
+	# Read and write template
+	try:
+		templates_dir = Path(__file__).parent / 'cli_templates'
+		template_file = INIT_TEMPLATES[template]['file']
+		template_path = templates_dir / template_file
+		content = template_path.read_text(encoding='utf-8')
+
+		# Write file with safety checks
+		if output_path.exists() and not force:
+			click.echo(f'⚠️  File already exists: {output_path}')
+			if not click.confirm('Overwrite?', default=False):
+				click.echo('❌ Cancelled')
+				sys.exit(1)
+
+		output_path.parent.mkdir(parents=True, exist_ok=True)
+		output_path.write_text(content, encoding='utf-8')
+
+		click.echo(f'✅ Created {output_path}')
+		click.echo('\nNext steps:')
+		click.echo('  1. Install browser-use:')
+		click.echo('     uv pip install browser-use')
+		click.echo('  2. Set up your API key in .env file or environment:')
+		click.echo('     BROWSER_USE_API_KEY=your-key')
+		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=cli)')
+		click.echo('  3. Run your script:')
+		click.echo(f'     python {output_path.name}')
+	except Exception as e:
+		click.echo(f'❌ Error: {e}', err=True)
+		sys.exit(1)
+
+	sys.exit(0)
+
 import asyncio
 import json
 import logging
@@ -66,16 +169,21 @@ try:
 	from textual.containers import Container, HorizontalGroup, VerticalScroll
 	from textual.widgets import Footer, Header, Input, Label, Link, RichLog, Static
 except ImportError:
-	print('⚠️ CLI addon is not installed. Please install it with: `pip install "browser-use[cli]"` and try again.')
+	print(
+		'⚠️ CLI addon is not installed. Please install it with: `pip install "browser-use[cli]"` and try again.', file=sys.stderr
+	)
 	sys.exit(1)
 
 
 try:
 	import readline
 
+	_add_history = getattr(readline, 'add_history', None)
+	if _add_history is None:
+		raise ImportError('readline missing add_history')
 	READLINE_AVAILABLE = True
 except ImportError:
-	# readline not available on Windows by default
+	_add_history = None
 	READLINE_AVAILABLE = False
 
 
@@ -189,8 +297,8 @@ def save_user_config(config: dict[str, Any]) -> None:
 
 		# Save to separate history file
 		history_file = CONFIG.BROWSER_USE_CONFIG_DIR / 'command_history.json'
-		with open(history_file, 'w') as f:
-			json.dump(history, f, indent=2)
+		with open(history_file, 'w', encoding='utf-8') as f:
+			json.dump(history, f, indent=2, ensure_ascii=False)
 
 
 def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) -> dict[str, Any]:
@@ -236,12 +344,11 @@ def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) ->
 
 def setup_readline_history(history: list[str]) -> None:
 	"""Set up readline with command history."""
-	if not READLINE_AVAILABLE:
+	if not _add_history:
 		return
 
-	# Add history items to readline
 	for item in history:
-		readline.add_history(item)
+		_add_history(item)
 
 
 def get_llm(config: dict[str, Any]):
@@ -589,8 +696,6 @@ class BrowserUseApp(App):
 			'trafilatura.htmlprocessing',
 			'trafilatura',
 			'groq',
-			'portalocker',
-			'portalocker.utils',
 		]:
 			third_party = logging.getLogger(logger_name)
 			third_party.setLevel(logging.ERROR)
@@ -615,9 +720,9 @@ class BrowserUseApp(App):
 		# Step 2: Set up input history
 		logger.debug('Setting up readline history...')
 		try:
-			if READLINE_AVAILABLE and self.task_history:
+			if READLINE_AVAILABLE and self.task_history and _add_history:
 				for item in self.task_history:
-					readline.add_history(item)
+					_add_history(item)
 				logger.debug(f'Added {len(self.task_history)} items to readline history')
 			else:
 				logger.debug('No readline history to set up')
@@ -1024,7 +1129,7 @@ class BrowserUseApp(App):
 
 		# Exit the application
 		self.exit()
-		print('\nTry running tasks on our cloud: https://browser-use.com')
+		print('\nTry running tasks on our cloud: https://browser-use.com?utm_source=oss&utm_medium=cli')
 
 	def compose(self) -> ComposeResult:
 		"""Create the UI layout."""
@@ -1039,7 +1144,11 @@ class BrowserUseApp(App):
 			with Container(id='links-panel'):
 				with HorizontalGroup(classes='link-row'):
 					yield Static('Run at scale on cloud:    [blink]☁️[/]  ', markup=True, classes='link-label')
-					yield Link('https://browser-use.com', url='https://browser-use.com', classes='link-white link-url')
+					yield Link(
+						'https://browser-use.com',
+						url='https://browser-use.com?utm_source=oss&utm_medium=cli',
+						classes='link-white link-url',
+					)
 
 				yield Static('')  # Empty line
 
@@ -1200,13 +1309,10 @@ class BrowserUseApp(App):
 						pass
 
 					# Show the agent's current page URL if available
-					if browser_session.agent_focus:
-						current_url = (
-							browser_session.agent_focus.url.replace('https://', '')
-							.replace('http://', '')
-							.replace('www.', '')[:36]
-							+ '…'
-						)
+					if browser_session.agent_focus_target_id:
+						target = browser_session.session_manager.get_focused_target()
+						target_url = target.url if target else 'about:blank'
+						current_url = target_url.replace('https://', '').replace('http://', '').replace('www.', '')[:36] + '…'
 						browser_info.write(f'👁️  [green]{current_url}[/]')
 			except Exception as e:
 				browser_info.write(f'[red]Error updating browser info: {str(e)}[/]')
@@ -1754,8 +1860,14 @@ async def run_auth_command():
 
 			# Run authentication and progress updates concurrently
 			auth_start_time = asyncio.get_event_loop().time()
-			auth_task = asyncio.create_task(sync_service.authenticate(show_instructions=True))
-			progress_task = asyncio.create_task(show_auth_progress())
+			from browser_use.utils import create_task_with_error_handling
+
+			auth_task = create_task_with_error_handling(
+				sync_service.authenticate(show_instructions=True), name='sync_authenticate'
+			)
+			progress_task = create_task_with_error_handling(
+				show_auth_progress(), name='show_auth_progress', suppress_exceptions=True
+			)
 
 			# Wait for authentication to complete, with timeout
 			success = await asyncio.wait_for(auth_task, timeout=120.0)  # 2 minutes for initial testing
@@ -1877,6 +1989,13 @@ async def run_auth_command():
 
 @click.group(invoke_without_command=True)
 @click.option('--version', is_flag=True, help='Print version and exit')
+@click.option(
+	'--template',
+	type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
+	help='Generate a template file (default, advanced, or tools)',
+)
+@click.option('--output', '-o', type=click.Path(), help='Output file path for template (default: browser_use_<template>.py)')
+@click.option('--force', '-f', is_flag=True, help='Overwrite existing files without asking')
 @click.option('--model', type=str, help='Model to use (e.g., gpt-5-mini, claude-4-sonnet, gemini-2.5-flash)')
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
 @click.option('--headless', is_flag=True, help='Run browser in headless mode', default=None)
@@ -1898,7 +2017,16 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser Use - AI Agent for Web Automation
 
 	Run without arguments to start the interactive TUI.
+
+	Examples:
+	  uvx browser-use --template default
+	  uvx browser-use --template advanced --output my_script.py
 	"""
+
+	# Handle template generation
+	if kwargs.get('template'):
+		_run_template_generation(kwargs['template'], kwargs.get('output'), kwargs.get('force', False))
+		return
 
 	if ctx.invoked_subcommand is None:
 		# No subcommand, run the main interface
@@ -2050,6 +2178,189 @@ def install():
 		print('🚀 Ready to use! Run: uvx browser-use')
 	else:
 		print('\n❌ Installation failed')
+		sys.exit(1)
+
+
+# ============================================================================
+# Template Generation - Generate template files
+# ============================================================================
+
+# Template metadata
+INIT_TEMPLATES = {
+	'default': {
+		'file': 'default_template.py',
+		'description': 'Simplest setup - capable of any web task with minimal configuration',
+	},
+	'advanced': {
+		'file': 'advanced_template.py',
+		'description': 'All configuration options shown with defaults',
+	},
+	'tools': {
+		'file': 'tools_template.py',
+		'description': 'Custom action examples - extend the agent with your own functions',
+	},
+}
+
+
+def _run_template_generation(template: str, output: str | None, force: bool):
+	"""Generate a template file (called from main CLI)."""
+	# Determine output path
+	if output:
+		output_path = Path(output)
+	else:
+		output_path = Path.cwd() / f'browser_use_{template}.py'
+
+	# Read template file
+	try:
+		templates_dir = Path(__file__).parent / 'cli_templates'
+		template_file = INIT_TEMPLATES[template]['file']
+		template_path = templates_dir / template_file
+		content = template_path.read_text(encoding='utf-8')
+	except Exception as e:
+		click.echo(f'❌ Error reading template: {e}', err=True)
+		sys.exit(1)
+
+	# Write file
+	if _write_init_file(output_path, content, force):
+		click.echo(f'✅ Created {output_path}')
+		click.echo('\nNext steps:')
+		click.echo('  1. Install browser-use:')
+		click.echo('     uv pip install browser-use')
+		click.echo('  2. Set up your API key in .env file or environment:')
+		click.echo('     BROWSER_USE_API_KEY=your-key')
+		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=cli)')
+		click.echo('  3. Run your script:')
+		click.echo(f'     python {output_path.name}')
+	else:
+		sys.exit(1)
+
+
+def _write_init_file(output_path: Path, content: str, force: bool = False) -> bool:
+	"""Write content to a file, with safety checks."""
+	# Check if file already exists
+	if output_path.exists() and not force:
+		click.echo(f'⚠️  File already exists: {output_path}')
+		if not click.confirm('Overwrite?', default=False):
+			click.echo('❌ Cancelled')
+			return False
+
+	# Ensure parent directory exists
+	output_path.parent.mkdir(parents=True, exist_ok=True)
+
+	# Write file
+	try:
+		output_path.write_text(content, encoding='utf-8')
+		return True
+	except Exception as e:
+		click.echo(f'❌ Error writing file: {e}', err=True)
+		return False
+
+
+@main.command('init')
+@click.option(
+	'--template',
+	'-t',
+	type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
+	help='Template to use',
+)
+@click.option(
+	'--output',
+	'-o',
+	type=click.Path(),
+	help='Output file path (default: browser_use_<template>.py)',
+)
+@click.option(
+	'--force',
+	'-f',
+	is_flag=True,
+	help='Overwrite existing files without asking',
+)
+@click.option(
+	'--list',
+	'-l',
+	'list_templates',
+	is_flag=True,
+	help='List available templates',
+)
+def init(
+	template: str | None,
+	output: str | None,
+	force: bool,
+	list_templates: bool,
+):
+	"""
+	Generate a browser-use template file to get started quickly.
+
+	Examples:
+
+	\b
+	# Interactive mode - prompts for template selection
+	uvx browser-use init
+
+	\b
+	# Generate default template
+	uvx browser-use init --template default
+
+	\b
+	# Generate advanced template with custom filename
+	uvx browser-use init --template advanced --output my_script.py
+
+	\b
+	# List available templates
+	uvx browser-use init --list
+	"""
+
+	# Handle --list flag
+	if list_templates:
+		click.echo('Available templates:\n')
+		for name, info in INIT_TEMPLATES.items():
+			click.echo(f'  {name:12} - {info["description"]}')
+		return
+
+	# Interactive template selection if not provided
+	if not template:
+		click.echo('Available templates:\n')
+		for name, info in INIT_TEMPLATES.items():
+			click.echo(f'  {name:12} - {info["description"]}')
+		click.echo()
+
+		template = click.prompt(
+			'Which template would you like to use?',
+			type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
+			default='default',
+		)
+
+	# Template is guaranteed to be set at this point (either from option or prompt)
+	assert template is not None
+
+	# Determine output path
+	if output:
+		output_path = Path(output)
+	else:
+		output_path = Path.cwd() / f'browser_use_{template}.py'
+
+	# Read template file
+	try:
+		templates_dir = Path(__file__).parent / 'cli_templates'
+		template_file = INIT_TEMPLATES[template]['file']
+		template_path = templates_dir / template_file
+		content = template_path.read_text(encoding='utf-8')
+	except Exception as e:
+		click.echo(f'❌ Error reading template: {e}', err=True)
+		sys.exit(1)
+
+	# Write file
+	if _write_init_file(output_path, content, force):
+		click.echo(f'✅ Created {output_path}')
+		click.echo('\nNext steps:')
+		click.echo('  1. Install browser-use:')
+		click.echo('     uv pip install browser-use')
+		click.echo('  2. Set up your API key in .env file or environment:')
+		click.echo('     BROWSER_USE_API_KEY=your-key')
+		click.echo('     (Get your key at https://cloud.browser-use.com/new-api-key?utm_source=oss&utm_medium=cli)')
+		click.echo('  3. Run your script:')
+		click.echo(f'     python {output_path.name}')
+	else:
 		sys.exit(1)
 
 

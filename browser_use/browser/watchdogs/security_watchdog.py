@@ -68,7 +68,6 @@ class SecurityWatchdog(BaseWatchdog):
 				await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
 				self.logger.info(f'⛔️ Navigated to about:blank after blocked URL: {event.url}')
 			except Exception as e:
-				pass
 				self.logger.error(f'⛔️ Failed to navigate to about:blank: {type(e).__name__} {e}')
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
@@ -137,22 +136,40 @@ class SecurityWatchdog(BaseWatchdog):
 			return (host, f'www.{host}')  # ('example.com', 'www.example.com')
 
 	def _is_ip_address(self, host: str) -> bool:
-		"""Check if a hostname is an IP address (IPv4 or IPv6).
+		"""True iff `host` matches an IPv4 or IPv6 the browser would resolve.
 
-		Args:
-			host: The hostname to check
-
-		Returns:
-			True if the host is an IP address, False otherwise
+		Mirrors WHATWG host canonicalization so non-standard IPv4 encodings
+		(decimal, hex, octal, short-form, percent-encoded, Unicode digits)
+		can't bypass `block_ip_addresses`. Never raises — unrecognizable
+		hosts return False and fall through to domain-allowlist handling.
 		"""
 		import ipaddress
+		import socket
+		import unicodedata
+		from urllib.parse import unquote
+
+		bare = host.strip('[]')
+		try:
+			bare = unquote(bare)
+		except Exception:
+			pass
+		try:
+			bare = unicodedata.normalize('NFKC', bare)
+		except Exception:
+			pass
+		# IDNA label separators NFKC misses (U+3002, U+FF61 → U+3002).
+		bare = bare.replace('。', '.').replace('｡', '.')
 
 		try:
-			# Try to parse as IP address (handles both IPv4 and IPv6)
-			ipaddress.ip_address(host)
+			ipaddress.ip_address(bare)
 			return True
-		except ValueError:
-			return False
+		except Exception:
+			pass
+		# Non-standard IPv4 (decimal, hex, octal, short-form) — `inet_aton`
+		# accepts the same liberal forms the kernel resolver does.
+		try:
+			socket.inet_aton(bare)
+			return True
 		except Exception:
 			return False
 
@@ -252,9 +269,8 @@ class SecurityWatchdog(BaseWatchdog):
 					if scheme in ['http', 'https']:
 						return True
 			elif pattern.endswith('/*'):
-				# Pattern like brave://* should match any brave:// URL
-				prefix = pattern[:-1]  # Remove the * at the end
-				if url.startswith(prefix):
+				# Pattern like brave://* or http*://example.com/*
+				if fnmatch.fnmatch(url, pattern):
 					return True
 			else:
 				# Use fnmatch for other glob patterns

@@ -240,11 +240,11 @@ class TestDOMSerializer:
 		print('\n✅ Validating click counter...')
 
 		# Get the CDP session for the main page (use target from a regular DOM element)
-		# Note: browser_session.agent_focus may point to a different target than the page
+		# Note: browser_session.agent_focus_target_id may point to a different target than the page
 		if regular_elements and regular_elements[0][1].target_id:
 			cdp_session = await browser_session.get_or_create_cdp_session(target_id=regular_elements[0][1].target_id)
 		else:
-			cdp_session = browser_session.agent_focus
+			cdp_session = await browser_session.get_or_create_cdp_session()
 
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={
@@ -498,7 +498,7 @@ class TestDOMSerializer:
 		elif final_button:
 			cdp_session = await browser_session.get_or_create_cdp_session(target_id=final_button[1].target_id)
 		else:
-			cdp_session = browser_session.agent_focus
+			cdp_session = await browser_session.get_or_create_cdp_session()
 
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={

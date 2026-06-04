@@ -49,16 +49,61 @@ def sanitize_url_candidate(url: str) -> str:
 	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
 
 
-# Import error types - these may need to be adjusted based on actual import paths
-try:
-	from openai import BadRequestError as OpenAIBadRequestError
-except ImportError:
-	OpenAIBadRequestError = None
+# Lazy import for error types
+# Use sentinel to avoid retrying import when package is not installed
+_IMPORT_NOT_FOUND: type = type('_ImportNotFound', (), {})
+_openai_bad_request_error: type | None = None
+_groq_bad_request_error: type | None = None
 
-try:
-	from groq import BadRequestError as GroqBadRequestError  # type: ignore[import-not-found]
-except ImportError:
-	GroqBadRequestError = None
+
+def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, str]:
+	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings."""
+	if not sensitive_data:
+		return {}
+
+	sensitive_values: dict[str, str] = {}
+	for key_or_domain, content in sensitive_data.items():
+		if isinstance(content, dict):
+			for key, val in content.items():
+				if val:
+					sensitive_values[key] = val
+		elif content:
+			sensitive_values[key_or_domain] = content
+
+	return sensitive_values
+
+
+def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
+	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
+		value = value.replace(secret, f'<secret>{key}</secret>')
+	return value
+
+
+def _get_openai_bad_request_error() -> type | None:
+	"""Lazy loader for OpenAI BadRequestError."""
+	global _openai_bad_request_error
+	if _openai_bad_request_error is None:
+		try:
+			from openai import BadRequestError
+
+			_openai_bad_request_error = BadRequestError
+		except ImportError:
+			_openai_bad_request_error = _IMPORT_NOT_FOUND
+	return _openai_bad_request_error if _openai_bad_request_error is not _IMPORT_NOT_FOUND else None
+
+
+def _get_groq_bad_request_error() -> type | None:
+	"""Lazy loader for Groq BadRequestError."""
+	global _groq_bad_request_error
+	if _groq_bad_request_error is None:
+		try:
+			from groq import BadRequestError  # type: ignore[import-not-found]
+
+			_groq_bad_request_error = BadRequestError
+		except ImportError:
+			_groq_bad_request_error = _IMPORT_NOT_FOUND
+	return _groq_bad_request_error if _groq_bad_request_error is not _IMPORT_NOT_FOUND else None
 
 
 # Global flag to prevent duplicate exit messages
@@ -81,6 +126,7 @@ class SignalHandler:
 	- Management of event loop state across signals
 	- Standardized handling of first and second Ctrl+C presses
 	- Cross-platform compatibility (with simplified behavior on Windows)
+	- Option to disable signal handling for embedding in applications that manage their own signals
 	"""
 
 	def __init__(
@@ -91,6 +137,7 @@ class SignalHandler:
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
 		interruptible_task_patterns: list[str] | None = None,
+		disabled: bool = False,
 	):
 		"""
 		Initialize the signal handler.
@@ -103,6 +150,8 @@ class SignalHandler:
 			exit_on_second_int: Whether to exit on second SIGINT (Ctrl+C)
 			interruptible_task_patterns: List of patterns to match task names that should be
 										 canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
+			disabled: If True, signal handling is disabled and register() is a no-op.
+					Useful when embedding browser-use in applications that manage their own signals.
 		"""
 		self.loop = loop or asyncio.get_event_loop()
 		self.pause_callback = pause_callback
@@ -111,6 +160,7 @@ class SignalHandler:
 		self.exit_on_second_int = exit_on_second_int
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
 		self.is_windows = platform.system() == 'Windows'
+		self.disabled = disabled
 
 		# Initialize loop state attributes
 		self._initialize_loop_state()
@@ -125,7 +175,13 @@ class SignalHandler:
 		setattr(self.loop, 'waiting_for_input', False)
 
 	def register(self) -> None:
-		"""Register signal handlers for SIGINT and SIGTERM."""
+		"""Register signal handlers for SIGINT and SIGTERM.
+
+		If disabled=True was passed to __init__, this method does nothing.
+		"""
+		if self.disabled:
+			return
+
 		try:
 			if self.is_windows:
 				# On Windows, use simple signal handling with immediate exit on Ctrl+C
@@ -150,7 +206,13 @@ class SignalHandler:
 			pass
 
 	def unregister(self) -> None:
-		"""Unregister signal handlers and restore original handlers if possible."""
+		"""Unregister signal handlers and restore original handlers if possible.
+
+		If disabled=True was passed to __init__, this method does nothing.
+		"""
+		if self.disabled:
+			return
+
 		try:
 			if self.is_windows:
 				# On Windows, just restore the original SIGINT handler
@@ -693,3 +755,83 @@ def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	if max_len is not None and len(s) > max_len:
 		return s[:max_len] + '…'
 	return s
+
+
+def create_task_with_error_handling(
+	coro: Coroutine[Any, Any, T],
+	*,
+	name: str | None = None,
+	logger_instance: logging.Logger | None = None,
+	suppress_exceptions: bool = False,
+) -> asyncio.Task[T]:
+	"""
+	Create an asyncio task with proper exception handling to prevent "Task exception was never retrieved" warnings.
+
+	Args:
+		coro: The coroutine to wrap in a task
+		name: Optional name for the task (useful for debugging)
+		logger_instance: Optional logger instance to use. If None, uses module logger.
+		suppress_exceptions: If True, logs exceptions at ERROR level. If False, logs at WARNING level
+			and exceptions remain retrievable via task.exception() if the caller awaits the task.
+			Default False.
+
+	Returns:
+		asyncio.Task: The created task with exception handling callback
+
+	Example:
+		# Fire-and-forget with suppressed exceptions
+		create_task_with_error_handling(some_async_function(), name="my_task", suppress_exceptions=True)
+
+		# Task with retrievable exceptions (if you plan to await it)
+		task = create_task_with_error_handling(critical_function(), name="critical")
+		result = await task  # Will raise the exception if one occurred
+	"""
+	task = asyncio.create_task(coro, name=name)
+	log = logger_instance or logger
+
+	def _handle_task_exception(t: asyncio.Task[T]) -> None:
+		"""Callback to handle task exceptions"""
+		exc_to_raise = None
+		try:
+			# This will raise if the task had an exception
+			exc = t.exception()
+			if exc is not None:
+				task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
+				if suppress_exceptions:
+					log.error(f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}', exc_info=exc)
+				else:
+					# Log at warning level then mark for re-raising
+					log.warning(
+						f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}',
+						exc_info=exc,
+					)
+					exc_to_raise = exc
+		except asyncio.CancelledError:
+			# Task was cancelled, this is normal behavior
+			pass
+		except Exception as e:
+			# Catch any other exception during exception handling (e.g., t.exception() itself failing)
+			task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
+			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {e}')
+
+		# Re-raise outside the try-except block so it propagates to the event loop
+		if exc_to_raise is not None:
+			raise exc_to_raise
+
+	task.add_done_callback(_handle_task_exception)
+	return task
+
+
+def sanitize_surrogates(text: str) -> str:
+	"""Remove surrogate characters that can't be encoded in UTF-8.
+
+	Surrogate pairs (U+D800 to U+DFFF) are invalid in UTF-8 when unpaired.
+	These often appear in DOM content from mathematical symbols or emojis.
+
+	Args:
+		text: The text to sanitize
+
+	Returns:
+		Text with surrogate characters removed
+	"""
+	return text.encode('utf-8', errors='ignore').decode('utf-8')

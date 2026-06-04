@@ -1,9 +1,9 @@
 """Video Recording Service for Browser Use Sessions."""
 
 import base64
+import io
 import logging
 import math
-import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -11,9 +11,9 @@ from browser_use.browser.profile import ViewportSize
 
 try:
 	import imageio.v2 as iio  # type: ignore[import-not-found]
-	import imageio_ffmpeg  # type: ignore[import-not-found]
 	import numpy as np  # type: ignore[import-not-found]
 	from imageio.core.format import Format  # type: ignore[import-not-found]
+	from PIL import Image
 
 	IMAGEIO_AVAILABLE = True
 except ImportError:
@@ -98,46 +98,25 @@ class VideoRecorderService:
 		try:
 			frame_bytes = base64.b64decode(frame_data_b64)
 
-			# Build a filter chain for ffmpeg:
-			# 1. scale: Resizes the frame to the user-specified dimensions.
-			# 2. pad: Adds black bars to meet codec's macro-block requirements,
-			#    centering the original content.
-			vf_chain = (
-				f'scale={self.size["width"]}:{self.size["height"]},'
-				f'pad={self.padded_size["width"]}:{self.padded_size["height"]}:(ow-iw)/2:(oh-ih)/2:color=black'
-			)
+			# Use PIL to handle image processing in memory - much faster than spawning ffmpeg subprocess per frame
+			with Image.open(io.BytesIO(frame_bytes)) as img:
+				# 1. Resize if needed to target viewport size
+				if img.size != (self.size['width'], self.size['height']):
+					# Use BICUBIC as it's faster than LANCZOS and good enough for screen recordings
+					img = img.resize((self.size['width'], self.size['height']), Image.Resampling.BICUBIC)
 
-			output_pix_fmt = 'rgb24'
-			command = [
-				imageio_ffmpeg.get_ffmpeg_exe(),
-				'-f',
-				'image2pipe',  # Input format from a pipe
-				'-c:v',
-				'png',  # Specify input codec is PNG
-				'-i',
-				'-',  # Input from stdin
-				'-vf',
-				vf_chain,  # Video filter for resizing and padding
-				'-f',
-				'rawvideo',  # Output format is raw video
-				'-pix_fmt',
-				output_pix_fmt,  # Output pixel format
-				'-',  # Output to stdout
-			]
+				# 2. Handle Padding (Macro block alignment for codecs)
+				# Check if padding is actually needed
+				if self.padded_size['width'] != self.size['width'] or self.padded_size['height'] != self.size['height']:
+					new_img = Image.new('RGB', (self.padded_size['width'], self.padded_size['height']), (0, 0, 0))
+					# Center the image
+					x_offset = (self.padded_size['width'] - self.size['width']) // 2
+					y_offset = (self.padded_size['height'] - self.size['height']) // 2
+					new_img.paste(img, (x_offset, y_offset))
+					img = new_img
 
-			# Execute ffmpeg as a subprocess
-			proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			out, err = proc.communicate(input=frame_bytes)
-
-			if proc.returncode != 0:
-				err_msg = err.decode(errors='ignore').strip()
-				if 'deprecated pixel format used' not in err_msg.lower():
-					raise OSError(f'ffmpeg error during resizing/padding: {err_msg}')
-				else:
-					logger.debug(f'ffmpeg warning during resizing/padding: {err_msg}')
-
-			# Convert the raw output bytes to a numpy array with the padded dimensions
-			img_array = np.frombuffer(out, dtype=np.uint8).reshape((self.padded_size['height'], self.padded_size['width'], 3))
+				# 3. Convert to numpy array for imageio
+				img_array = np.array(img)
 
 			self._writer.append_data(img_array)
 		except Exception as e:

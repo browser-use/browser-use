@@ -19,6 +19,10 @@ class RegisteredAction(BaseModel):
 	function: Callable
 	param_model: type[BaseModel]
 
+	# If True, this action is known to change the page (e.g. navigate, search, go_back, switch).
+	# multi_act() will abort remaining queued actions after executing a terminates_sequence action.
+	terminates_sequence: bool = False
+
 	# filters: provide specific domains to determine whether the action should be available on the given URL or not
 	domains: list[str] | None = None  # e.g. ['*.google.com', 'www.bing.com', 'yahoo.*]
 
@@ -167,6 +171,7 @@ class SpecialActionParameters(BaseModel):
 	file_system: FileSystem | None = None
 	available_file_paths: list[str] | None = None
 	has_sensitive_data: bool = False
+	extraction_schema: dict | None = None
 
 	@classmethod
 	def get_browser_requiring_params(cls) -> set[str]:

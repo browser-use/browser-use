@@ -35,7 +35,23 @@ class Registry(Generic[Context]):
 	def __init__(self, exclude_actions: list[str] | None = None):
 		self.registry = ActionRegistry()
 		self.telemetry = ProductTelemetry()
-		self.exclude_actions = exclude_actions if exclude_actions is not None else []
+		# Create a new list to avoid mutable default argument issues
+		self.exclude_actions = list(exclude_actions) if exclude_actions is not None else []
+
+	def exclude_action(self, action_name: str) -> None:
+		"""Exclude an action from the registry after initialization.
+
+		If the action is already registered, it will be removed from the registry.
+		The action is also added to the exclude_actions list to prevent re-registration.
+		"""
+		# Add to exclude list to prevent future registration
+		if action_name not in self.exclude_actions:
+			self.exclude_actions.append(action_name)
+
+		# Remove from registry if already registered
+		if action_name in self.registry.actions:
+			del self.registry.actions[action_name]
+			logger.debug(f'Excluded action "{action_name}" from registry')
 
 	def _get_special_param_types(self) -> dict[str, type | UnionType | None]:
 		"""Get the expected types for special parameters from SpecialActionParameters"""
@@ -52,6 +68,7 @@ class Registry(Generic[Context]):
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
 			'file_system': FileSystem,
+			'extraction_schema': None,  # dict | None, skip type validation
 		}
 
 	def _normalize_action_function_signature(
@@ -276,6 +293,7 @@ class Registry(Generic[Context]):
 		param_model: type[BaseModel] | None = None,
 		domains: list[str] | None = None,
 		allowed_domains: list[str] | None = None,
+		terminates_sequence: bool = False,
 	):
 		"""Decorator for registering actions"""
 		# Handle aliases: domains and allowed_domains are the same parameter
@@ -298,6 +316,7 @@ class Registry(Generic[Context]):
 				function=normalized_func,
 				param_model=actual_param_model,
 				domains=final_domains,
+				terminates_sequence=terminates_sequence,
 			)
 			self.registry.actions[func.__name__] = action
 
@@ -317,6 +336,7 @@ class Registry(Generic[Context]):
 		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
+		extraction_schema: dict | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -333,14 +353,12 @@ class Registry(Generic[Context]):
 			if sensitive_data:
 				# Get current URL if browser_session is provided
 				current_url = None
-				if browser_session and browser_session.current_target_id:
+				if browser_session and browser_session.agent_focus_target_id:
 					try:
-						# Get current page info using CDP
-						targets = await browser_session.cdp_client.send.Target.getTargets()
-						for target in targets.get('targetInfos', []):
-							if target.get('targetId') == browser_session.current_target_id:
-								current_url = target.get('url')
-								break
+						# Get current page info from session_manager
+						target = browser_session.session_manager.get_target(browser_session.agent_focus_target_id)
+						if target:
+							current_url = target.url
 					except Exception:
 						pass
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
@@ -352,6 +370,7 @@ class Registry(Generic[Context]):
 				'available_file_paths': available_file_paths,
 				'has_sensitive_data': action_name == 'input' and bool(sensitive_data),
 				'file_system': file_system,
+				'extraction_schema': extraction_schema,
 			}
 
 			# Only pass sensitive_data to actions that explicitly need it (input)
@@ -437,12 +456,12 @@ class Registry(Generic[Context]):
 
 		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
 			if isinstance(value, str):
+				# 1. Handle tagged secrets: <secret>label</secret>
 				matches = secret_pattern.findall(value)
-				# check if the placeholder key, like x_password is in the output parameters of the LLM and replace it with the sensitive data
 				for placeholder in matches:
 					if placeholder in applicable_secrets:
-						# generate a totp code if secret is a 2fa secret
-						if 'bu_2fa_code' in placeholder:
+						# generate a totp code if secret is suffixed with bu_2fa_code
+						if placeholder.endswith('bu_2fa_code'):
 							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
 							replacement_value = totp.now()
 						else:
@@ -453,7 +472,17 @@ class Registry(Generic[Context]):
 					else:
 						# Keep track of missing placeholders
 						all_missing_placeholders.add(placeholder)
-						# Don't replace the tag, keep it as is
+
+				# 2. Handle literal secrets: "user_name" (no tags)
+				# This handles cases where the LLM forgets to use tags but uses the exact placeholder name
+				if value in applicable_secrets:
+					placeholder_name = value
+					if placeholder_name.endswith('bu_2fa_code'):
+						totp = pyotp.TOTP(applicable_secrets[placeholder_name], digits=6)
+						value = totp.now()
+					else:
+						value = applicable_secrets[placeholder_name]
+					replaced_placeholders.add(placeholder_name)
 
 				return value
 			elif isinstance(value, dict):

@@ -33,7 +33,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	version: str
 	source: str
 	cdp_url: str | None
-	agent_type: str | None  # 'code' for CodeAgent, None for regular Agent
+	agent_type: str | None
 	# step details
 	action_errors: Sequence[str | None]
 	action_history: Sequence[list[dict] | None]
@@ -48,6 +48,12 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	success: bool | None
 	final_result_response: str | None
 	error_message: str | None
+	# judge details
+	judge_verdict: bool | None = None
+	judge_reasoning: str | None = None
+	judge_failure_reason: str | None = None
+	judge_reached_captcha: bool | None = None
+	judge_impossible_task: bool | None = None
 
 	name: str = 'agent_event'
 

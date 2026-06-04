@@ -24,7 +24,7 @@ build_image() {
         [ "$PUSH" = "true" ] && build_cmd="$build_cmd --push" || build_cmd="$build_cmd"
     fi
     
-    $build_cmd $tag_args $build_args -f $dockerfile ../../..
+    $build_cmd $tag_args $build_args -f $dockerfile ..
 }
 
 # Main

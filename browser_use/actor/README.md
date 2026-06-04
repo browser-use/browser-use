@@ -75,7 +75,7 @@ await element.drag_to(target_element)  # Drag and drop
 value = await element.get_attribute("value")
 box = await element.get_bounding_box()  # Returns BoundingBox or None
 info = await element.get_basic_info()  # Comprehensive element info
-screenshot_b64 = await element.screenshot(format='jpeg')
+screenshot_b64 = await element.screenshot(format='png')
 
 # Execute JavaScript on element (this context is the element)
 text = await element.evaluate("() => this.textContent")
@@ -108,7 +108,7 @@ await page.press("Escape")     # Single keys
 
 # Page controls
 await page.set_viewport_size(width=1920, height=1080)
-page_screenshot = await page.screenshot()  # JPEG by default
+page_screenshot = await page.screenshot()  # PNG by default
 page_png = await page.screenshot(format="png", quality=90)
 
 # Page information
@@ -166,7 +166,7 @@ products = await page.extract_content(
 - `evaluate(page_function: str, *args)` → `str` - Execute JavaScript (MUST use (...args) => format)
 - `press(key: str)` - Press key on page (supports "Control+A" format)
 - `set_viewport_size(width: int, height: int)` - Set viewport dimensions
-- `screenshot(format='jpeg', quality=None)` → `str` - Take page screenshot, return base64
+- `screenshot(format='png', quality=None)` → `str` - Take page screenshot, return base64
 - `get_url()` → `str`, `get_title()` → `str` - Get page information
 - `mouse` → `Mouse` - Get mouse interface for this page
 
@@ -181,7 +181,7 @@ products = await page.extract_content(
 - `evaluate(page_function: str, *args)` → `str` - Execute JavaScript on element (this = element)
 - `get_attribute(name: str)` → `str | None` - Get attribute value
 - `get_bounding_box()` → `BoundingBox | None` - Get element position/size
-- `screenshot(format='jpeg', quality=None)` → `str` - Take element screenshot, return base64
+- `screenshot(format='png', quality=None)` → `str` - Take element screenshot, return base64
 - `get_basic_info()` → `ElementInfo` - Get comprehensive element information
 
 

@@ -1,9 +1,12 @@
 import asyncio
+import json
+import os
 import tempfile
 import time
 
+import anyio
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionResult
@@ -161,7 +164,7 @@ class TestToolsIntegration:
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
 		# Verify that approximately 1 second has passed (allowing some margin)
-		assert end_time - start_time <= 0.5  # We wait 3-3 seconds for LLM call
+		assert end_time - start_time <= 2.5  # We wait 3-1 seconds for LLM call
 
 		# longer wait
 		# Record start time
@@ -178,7 +181,7 @@ class TestToolsIntegration:
 		assert result.extracted_content is not None
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
-		assert 1.5 <= end_time - start_time <= 2.5  # We wait 5-3 seconds for LLM call
+		assert 3.5 <= end_time - start_time <= 4.5  # We wait 5-1 seconds for LLM call
 
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
@@ -333,7 +336,7 @@ class TestToolsIntegration:
 		await tools.navigate(url=f'{base_url}/dropdown1', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
-		cdp_session = browser_session.agent_focus
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		assert cdp_session is not None, 'CDP session not initialized'
 
 		# Wait for page load by checking document ready state
@@ -445,7 +448,7 @@ class TestToolsIntegration:
 		await tools.navigate(url=f'{base_url}/dropdown2', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
-		cdp_session = browser_session.agent_focus
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		assert cdp_session is not None, 'CDP session not initialized'
 
 		# Wait for page load by checking document ready state
@@ -491,3 +494,175 @@ class TestToolsIntegration:
 		)
 		selected_value = selected_value_result.get('result', {}).get('value')
 		assert selected_value == 'option2'  # Second Option has value "option2"
+
+
+class TestStructuredOutputDoneWithFiles:
+	"""Tests for file handling in structured output done action."""
+
+	async def test_structured_output_done_without_files(self, browser_session, base_url):
+		"""Structured output done action works without files (backward compat)."""
+
+		class MyOutput(BaseModel):
+			answer: str = Field(description='The answer')
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			result = await tools.done(
+				data={'answer': 'hello'},
+				success=True,
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			assert isinstance(result, ActionResult)
+			assert result.is_done is True
+			assert result.success is True
+			assert result.extracted_content is not None
+			output = json.loads(result.extracted_content)
+			assert output == {'answer': 'hello'}
+			assert result.attachments == []
+
+	async def test_structured_output_done_with_files_to_display(self, browser_session, base_url):
+		"""Structured output done action resolves files_to_display into attachments."""
+
+		class MyOutput(BaseModel):
+			summary: str
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			await file_system.write_file('report.txt', 'some report content')
+
+			result = await tools.done(
+				data={'summary': 'done'},
+				success=True,
+				files_to_display=['report.txt'],
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			assert isinstance(result, ActionResult)
+			assert result.is_done is True
+			assert result.success is True
+			assert result.extracted_content is not None
+			output = json.loads(result.extracted_content)
+			assert output == {'summary': 'done'}
+			assert result.attachments is not None
+			assert len(result.attachments) == 1
+			assert result.attachments[0].endswith('report.txt')
+
+	async def test_structured_output_done_auto_attaches_downloads(self, browser_session, base_url):
+		"""Session downloads are auto-attached even without files_to_display."""
+
+		class MyOutput(BaseModel):
+			url: str
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			# Simulate a CDP-tracked browser download
+			fake_download = os.path.join(temp_dir, 'tax-bill.pdf')
+			await anyio.Path(fake_download).write_bytes(b'%PDF-1.4 fake pdf content')
+
+			saved_downloads = browser_session._downloaded_files.copy()
+			browser_session._downloaded_files.append(fake_download)
+			try:
+				result = await tools.done(
+					data={'url': f'{base_url}/bill.pdf'},
+					success=True,
+					browser_session=browser_session,
+					file_system=file_system,
+				)
+
+				assert isinstance(result, ActionResult)
+				assert result.is_done is True
+				assert result.extracted_content is not None
+				output = json.loads(result.extracted_content)
+				assert output == {'url': f'{base_url}/bill.pdf'}
+				# The download should be auto-attached
+				assert result.attachments is not None
+				assert len(result.attachments) == 1
+				assert result.attachments[0] == fake_download
+			finally:
+				browser_session._downloaded_files = saved_downloads
+
+	async def test_structured_output_done_deduplicates_attachments(self, browser_session):
+		"""Downloads already covered by files_to_display are not duplicated."""
+
+		class MyOutput(BaseModel):
+			status: str
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			await file_system.write_file('report.txt', 'content here')
+
+			# The same file appears in both files_to_display and session downloads
+			fs_path = str(file_system.get_dir() / 'report.txt')
+
+			saved_downloads = browser_session._downloaded_files.copy()
+			browser_session._downloaded_files.append(fs_path)
+			try:
+				result = await tools.done(
+					data={'status': 'ok'},
+					success=True,
+					files_to_display=['report.txt'],
+					browser_session=browser_session,
+					file_system=file_system,
+				)
+
+				assert isinstance(result, ActionResult)
+				# Should have exactly 1 attachment, not 2
+				assert result.attachments is not None
+				assert len(result.attachments) == 1
+				assert result.attachments[0] == fs_path
+			finally:
+				browser_session._downloaded_files = saved_downloads
+
+	async def test_structured_output_done_nonexistent_file_ignored(self, browser_session):
+		"""Files that don't exist in FileSystem are not included via files_to_display."""
+
+		class MyOutput(BaseModel):
+			value: int
+
+		tools = Tools(output_model=MyOutput)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+
+			result = await tools.done(
+				data={'value': 42},
+				success=True,
+				files_to_display=['nonexistent.txt'],
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			assert isinstance(result, ActionResult)
+			assert result.is_done is True
+			assert result.extracted_content is not None
+			output = json.loads(result.extracted_content)
+			assert output == {'value': 42}
+			# nonexistent file should not appear in attachments
+			assert result.attachments == []
+
+	async def test_structured_output_schema_hides_internal_fields(self):
+		"""The JSON schema for StructuredOutputAction hides success and files_to_display."""
+		from browser_use.tools.views import StructuredOutputAction
+
+		class MyOutput(BaseModel):
+			name: str
+
+		schema = StructuredOutputAction[MyOutput].model_json_schema()
+		top_level_props = schema.get('properties', {})
+		assert 'success' not in top_level_props
+		assert 'files_to_display' not in top_level_props
+		# data should still be present
+		assert 'data' in top_level_props

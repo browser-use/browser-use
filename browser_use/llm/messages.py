@@ -5,7 +5,7 @@ This implementation is based on the OpenAI types, while removing all the parts t
 # region - Content parts
 from typing import Literal, Union
 
-from openai import BaseModel
+from pydantic import BaseModel
 
 
 def _truncate(text: str, max_length: int = 50) -> str:
@@ -61,7 +61,7 @@ class ImageURL(BaseModel):
     [Vision guide](https://platform.openai.com/docs/guides/vision#low-or-high-fidelity-image-understanding).
     """
 	# needed for Anthropic
-	media_type: SupportedImageMediaType = 'image/jpeg'
+	media_type: SupportedImageMediaType = 'image/png'
 
 	def __str__(self) -> str:
 		url_display = _format_image_url(self.url)

@@ -8,7 +8,7 @@ Usage:
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
     model = llm.google_gemini_2_5_pro
-    model = llm.bu_latest
+    model = llm.bu_latest  # or bu_1_0, bu_2_0
 """
 
 import os
@@ -18,6 +18,7 @@ from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
 
 # Optional OCI import
@@ -64,6 +65,11 @@ google_gemini_2_0_pro: 'BaseChatModel'
 google_gemini_2_5_pro: 'BaseChatModel'
 google_gemini_2_5_flash: 'BaseChatModel'
 google_gemini_2_5_flash_lite: 'BaseChatModel'
+mistral_large: 'BaseChatModel'
+mistral_medium: 'BaseChatModel'
+mistral_small: 'BaseChatModel'
+codestral: 'BaseChatModel'
+pixtral_large: 'BaseChatModel'
 
 anthropic_claude_sonnet_4_0: 'BaseChatModel'
 anthropic_claude_3_5_sonnet_latest: 'BaseChatModel'
@@ -81,6 +87,7 @@ cerebras_qwen_3_coder_480b: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
+bu_2_0: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -98,6 +105,19 @@ def get_llm_by_name(model_name: str):
 	"""
 	if not model_name:
 		raise ValueError('Model name cannot be empty')
+
+	# Handle top-level Mistral aliases without provider prefix
+	mistral_aliases = {
+		'mistral_large': 'mistral-large-latest',
+		'mistral_medium': 'mistral-medium-latest',
+		'mistral_small': 'mistral-small-latest',
+		'codestral': 'codestral-latest',
+		'pixtral_large': 'pixtral-large-latest',
+	}
+	if model_name in mistral_aliases:
+		api_key = os.getenv('MISTRAL_API_KEY')
+		base_url = os.getenv('MISTRAL_BASE_URL', 'https://api.mistral.ai/v1')
+		return ChatMistral(model=mistral_aliases[model_name], api_key=api_key, base_url=base_url)
 
 	# Parse model name
 	parts = model_name.split('_', 1)
@@ -168,6 +188,21 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('ANTHROPIC_API_KEY')
 		return ChatAnthropic(model=model, api_key=api_key)
 
+	# Mistral Models
+	elif provider == 'mistral':
+		api_key = os.getenv('MISTRAL_API_KEY')
+		base_url = os.getenv('MISTRAL_BASE_URL', 'https://api.mistral.ai/v1')
+		mistral_map = {
+			'large': 'mistral-large-latest',
+			'medium': 'mistral-medium-latest',
+			'small': 'mistral-small-latest',
+			'codestral': 'codestral-latest',
+			'pixtral-large': 'pixtral-large-latest',
+		}
+		normalized_model_part = model_part.replace('_', '-')
+		resolved_model = mistral_map.get(normalized_model_part, model.replace('_', '-'))
+		return ChatMistral(model=resolved_model, api_key=api_key, base_url=base_url)
+
 	# OCI Models
 	elif provider == 'oci':
 		# OCI requires more complex configuration that can't be easily inferred from env vars
@@ -187,7 +222,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'anthropic', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -201,6 +236,10 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatAzureOpenAI  # type: ignore
 	elif name == 'ChatGoogle':
 		return ChatGoogle  # type: ignore
+
+	elif name == 'ChatMistral':
+		return ChatMistral  # type: ignore
+
 	elif name == 'ChatOCIRaw':
 		if not OCI_AVAILABLE:
 			raise ImportError('OCI integration not available. Install with: pip install "browser-use[oci]"')
@@ -222,6 +261,7 @@ __all__ = [
 	'ChatOpenAI',
 	'ChatAzureOpenAI',
 	'ChatGoogle',
+	'ChatMistral',
 	'ChatCerebras',
 	'ChatBrowserUse',
 ]
@@ -267,6 +307,12 @@ __all__ += [
 	'anthropic_claude_sonnet_4_0',
 	'anthropic_claude_3_5_sonnet_latest',
 	'anthropic_claude_3_5_haiku_latest',
+	# Mistral instances - created on demand
+	'mistral_large',
+	'mistral_medium',
+	'mistral_small',
+	'codestral',
+	'pixtral_large',
 	# Cerebras instances - created on demand
 	'cerebras_llama3_1_8b',
 	'cerebras_llama3_3_70b',
@@ -280,6 +326,7 @@ __all__ += [
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',
+	'bu_2_0',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required
