@@ -1208,6 +1208,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The Rust-backed Python `Agent.run()` now mirrors the normal Agent's `agent.run` observability entry point and records terminal-session summaries into the active Laminar span.
    - Proof: `uv run pytest -q tests/ci/test_rust_agent.py -k laminar_run_summary --disable-warnings`, `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`, and eval `.venv/bin/python -m py_compile eval/service.py eval/server.py eval/task_types.py`.
 
+239. Rust Agent eval speed defaults parity
+   - Terminal fallback capture GIF generation is now disabled by default and can be explicitly opted into with `BU_ENABLE_FALLBACK_CAPTURE_GIF=1`; `BU_DISABLE_FALLBACK_CAPTURE_GIF=1` still wins when present.
+   - Terminal browser_script startup waits 15 seconds before returning a detachable observe run, and the eval runner/workflow pins `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=15000` so GitHub and local evals use the same threshold.
+   - Proof: terminal `fallback_capture_recording_is_opt_in_for_eval_speed`, terminal `browser_script_initial_wait_defaults_to_fifteen_seconds_and_clamps_env`, eval `py_compile eval/service.py eval/server.py eval/task_types.py`, and terminal `cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1223,7 +1228,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-browser managed_browser_launch_reads_browser_profile_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_setup_calls_read_env -- --nocapture`
-- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_fifteen_seconds_and_clamps_env -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_start_observe_finishes_slow_scripts -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_png_images_warn_in_stdout_without_media_payload -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_remote_cdp_mode -- --nocapture`
