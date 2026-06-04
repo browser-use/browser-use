@@ -476,7 +476,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise
 
 	async def _hover_element_node_impl(self, element_node: EnhancedDOMTreeNode) -> dict[str, Any] | None:
-		"""Hover over an element using pure CDP with multiple fallback methods for getting element geometry. 
+		"""Hover over an element using pure CDP with multiple fallback methods for getting element geometry.
 
 		Args:
 			element_node: The DOM element to hover over
