@@ -1221,6 +1221,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Eval task-result logging now records compact format-history counts instead of dumping full action/complete histories into runner logs.
    - Proof: terminal `selected_remote_cdp_rewrites_wrong_browser_family_commands`, terminal `browser_mode_instruction_guides_remote_cdp_to_direct_page_work`, terminal `session_capture_is_opt_in_for_eval_speed`, terminal `browser_script_initial_wait_defaults_to_fifteen_seconds_and_clamps_env`, eval `py_compile eval/service.py eval/server.py eval/task_types.py`, terminal `py_compile crates/browser-use-browser/src/browser_script_helpers.py`, terminal `cargo fmt --check -p browser-use-agent -p browser-use-browser`, and terminal `cargo build -q -p browser-use-cli`.
 
+241. Rust Agent multi-item collection loop-control parity
+   - The terminal browser-agent prompt now gives general checklist guidance for tasks that request many products, countries, people, records, prices, links, or fields.
+   - The agent is instructed to distribute work across required rows, bound targeted attempts per item/source, mark unavailable/unknown with source and reason when appropriate, and audit every requested row/field before `done`.
+   - This targets the 2026-06-04 five-task gate failure where the AUD networking-pricing task spent many turns varying one missing access-point search instead of moving through the remaining requested procurement table.
+   - Proof: terminal `system_prompt_bounds_multi_item_collection_loops`, terminal `cargo fmt --check -p browser-use-agent`, and terminal `cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1243,7 +1249,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_remote_cdp_mode -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_rewrites_wrong_browser_family_commands -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_mode_instruction_guides_remote_cdp_to_direct_page_work -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent system_prompt_bounds_multi_item_collection_loops -- --nocapture`
 - `cargo fmt --check -p browser-use-agent -p browser-use-browser` on terminal branch `magnus/browser-use-rust-main-integration`
+- `cargo fmt --check -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration`
 - `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py eval/task_types.py` on evaluations-internal branch `main`
 - `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
@@ -1406,6 +1414,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 ## Not Verified Yet
 
 - Historical passing live benchmark tasks from earlier focused smokes: real_v8 `18`, real_v8-2 `1`.
+- 2026-06-04 fixed five-task real_v8 Agent SDK gate:
+  - Run `kh74dv6k1hpkwb3eahr59a7vhs880pc2` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 75`.
+  - Scores were task 1 `0.9`, task 2 `0.5`, task 3 `0.9`, task 4 `0.0`, task 5 `1.0`; mean score `0.66`, total batch time `891.75s`.
+  - Validated that Remote CDP setup no longer wastes early rejected connect steps and continuous `.capture.frames` directories are not created by default.
+  - Did not justify scaling to 50: task 4 reached 50 steps and 867.84s after repeatedly varying one missing product search; the terminal child was stopped to avoid burning the full timeout.
 - 2026-06-03 three-task real_v8 cloud smoke through the Python `Agent` API and Rust terminal core launched and returned for real_v8 `18`, `14`, and `20` with `DEFAULT_LLM=openai_gpt_4_1_mini`, `BROWSER_USE_RUST_BROWSER_MODE=cloud`, and the local debug `browser-use-terminal`, but it is not a clean benchmark pass:
   - real_v8 `18`: returned `successful=true`, but final output was `[empty]` after failing to verify AND Digital leadership information and included generated browser-script JavaScript quoting errors.
   - real_v8 `14`: returned `successful=true`, but final output said ycombinator.com was blocked/unresponsive and did not extract the requested Winter 2025 B2B company data.
