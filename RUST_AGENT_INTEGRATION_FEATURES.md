@@ -1191,6 +1191,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This prevents Python/eval callers from running until subprocess timeout when a task exceeds the configured step budget.
    - Proof: terminal `bounded_loop_aborts_after_max_turns`, terminal `loop_is_unbounded_fifty_iterations_complete`, and the local eval-harness Browser Use cloud smoke below completed with `--max-steps 2`.
 
+236. Rust Agent eval browser-script reliability parity
+   - Terminal browser_script start now waits up to 7 seconds by default before returning a running/observe handle, with `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS`/`BROWSER_SCRIPT_INITIAL_WAIT_MS` overrides for fast tests or deployment tuning.
+   - Terminal page/screenshot helpers now prefer a real page tab over internal/blank targets, treat stable `interactive` pages as loaded after a short grace period, retry screenshot capture, and downscale attached screenshots by default.
+   - Oversized PNG artifacts are no longer sent as invalid provider image payloads; the tool returns a warning and preserves the artifact path instead of crashing the agent loop.
+   - The eval harness now initializes Laminar for trace-only runs when `LMNR_PROJECT_API_KEY` is present, records Laminar/GitHub links in run/task metadata, and defaults GitHub-dispatched max steps to 75.
+   - Proof: terminal `browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env`, terminal `browser_script_start_observe_finishes_slow_scripts`, terminal `script_oversized_png_images_warn_in_stdout_without_media_payload`, terminal `bare_browser_connect_resolves_to_selected_remote_cdp_mode`, eval `py_compile eval/service.py eval/server.py eval/task_types.py`, terminal `py_compile crates/browser-use-browser/src/browser_script_helpers.py`, and terminal `cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1206,6 +1213,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-browser managed_browser_launch_reads_browser_profile_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_setup_calls_read_env -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_start_observe_finishes_slow_scripts -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_png_images_warn_in_stdout_without_media_payload -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_remote_cdp_mode -- --nocapture`
+- `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration`
+- `.venv/bin/python -m py_compile eval/service.py eval/server.py eval/task_types.py` on evaluations-internal branch `main`
+- `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_domain_constraints_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_domain_constraints_are_passive_without_env -- --nocapture`
 - `cargo fmt --check -p browser-use-llm` on terminal branch `magnus/browser-use-rust-main-integration`
