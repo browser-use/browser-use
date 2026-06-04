@@ -1522,8 +1522,19 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This prevents completed Rust agent outputs from being falsely scored as infra failures because the judge hit a shorter internal timer while the eval task itself still had budget.
    - Proof: evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge'`, evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge_timeout or single_generous or timeout_default or timeout_inherits or explicit_timeouts or service_cli_defaults_to_100'`, and evaluations-internal `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
 
+288. Rust browser_fetch single-call error resilience
+   - Single `browser_fetch(...)` now matches the batch helper's resilient default by returning `{"ok": False, "url": ..., "error": ...}` for page-context fetch failures instead of failing the entire browser_script call.
+   - Callers can still pass `return_error=False` when a required URL should abort the script. The browser_script tool description now names this behavior so the model can inspect a failed endpoint and continue without spending an extra retry turn on recoverable fetch failures.
+   - This targets the 2026-06-04 five-task gate where unrelated long-running tasks lost turns to transient `browser_fetch failed ... Failed to fetch` tool failures after already discovering useful page/API state.
+   - Proof: terminal `cargo test -q -p browser-use-browser browser_script_browser_fetch_single_returns_structured_errors_by_default -- --nocapture`, terminal `cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-browser -p browser-use-agent`, terminal `git diff --check -- crates/browser-use-browser/src/browser_script_helpers.py crates/browser-use-browser/src/lib.rs prompts/browser-script-tool-description.md`, and terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`.
+
 ## Current Verification
 
+- terminal `cargo test -q -p browser-use-browser browser_script_browser_fetch_single_returns_structured_errors_by_default -- --nocapture` on commit `e109049`
+- terminal `cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture` on commit `e109049`
+- terminal `cargo fmt --check -p browser-use-browser -p browser-use-agent`
+- terminal `git diff --check -- crates/browser-use-browser/src/browser_script_helpers.py crates/browser-use-browser/src/lib.rs prompts/browser-script-tool-description.md`
+- terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge'` on commit `40e2360`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge_timeout or single_generous or timeout_default or timeout_inherits or explicit_timeouts or service_cli_defaults_to_100'` on commit `40e2360`
 - evaluations-internal `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`
