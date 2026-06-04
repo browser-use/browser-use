@@ -1377,8 +1377,37 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated capped five-task gates where tasks 6, 7, and 8 were still in agent execution at the 10-minute cap despite having partial evidence/artifacts, leaving no saved result and scoring as missing.
    - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent dataset_prompt_enforces_timeboxed_finalization -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- prompts/dataset-case-user.md crates/browser-use-agent/src/prompts/tests.rs`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
 
+265. Rust Agent bounded terminal event reloads
+   - The Python `browser_use.rust.Agent` wrapper now loads terminal `events` through the same bounded subprocess helper used for `start`, `run`, and `followup`.
+   - Event reloads default to a 15-second cap and can be overridden with `BROWSER_USE_RUST_EVENTS_TIMEOUT_SECONDS`, preventing a local terminal bookkeeping command from blocking eval finalization indefinitely.
+   - This targets the 2026-06-04 50-task gate where one timed-out task was cancelled inside `Agent._load_events()` during Rust follow-up finalization, converting a recoverable partial result into an agent-stage `TimeoutError`.
+   - Proof: `uv run pytest -q tests/ci/test_rust_agent.py -k 'load_events_uses_bounded_terminal_timeout or follow_up_allows_timeout_overrides'`, `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`, and `git diff --check -- browser_use/rust/service.py tests/ci/test_rust_agent.py`.
+
+266. Rust Agent eval timeout-finalization budget
+   - Eval timeout finalization now wraps Rust `Agent.follow_up(...)` in a total wall-clock budget: enqueue timeout, follow-up step timeout, and a short event-reload grace.
+   - If that wall-clock budget is exceeded, the eval runner records a Laminar failure event and continues to format/save the existing trajectory instead of failing the agent stage.
+   - This targets the same 50-task gate where finalization follow-up could outlive the outer agent stage timeout.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'task_timebox or run_agent_finalizes_timeboxed_rust_history or timeout_finalization_wall_timeout_does_not_fail_task'`, eval `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py`, and eval `git diff --check -- eval/service.py tests/test_service_cli.py`.
+
+267. Rust Agent eval judge-stage budget
+   - Eval non-agent judges, including `agent_sdk`, now run through a task-timebox-aware judge-stage budget, defaulting to 60 seconds when `--task-timebox-seconds` is active.
+   - A stuck judge now yields a saveable evaluation record with a judge-timeout error instead of consuming the remaining 10-minute experiment cap and losing an already completed agent result.
+   - This targets the 2026-06-04 task-1 gate where the Agent SDK trajectory-only judge hit repeated gzip/timeout failures and prevented the result from saving before the cap.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'task_timebox or run_agent_finalizes_timeboxed_rust_history or timeout_finalization_wall_timeout_does_not_fail_task or run_judge_with_timeout_returns_saveable_timeout_result'`, eval `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py`, and eval `git diff --check -- eval/service.py tests/test_service_cli.py`.
+
+268. Rust Agent eval Agent SDK trajectory turn budget
+   - The no-tools trajectory-only Agent SDK judge now defaults to two turns via `AGENT_SDK_JUDGE_TRAJECTORY_MAX_TURNS`, preserving an override while reducing judge cost and limiting unnecessary agentic loops when no tools are available.
+   - This is a general judge-cost guard; the subsequent live gate still reproduced the Agent SDK gzip timeout on one long trajectory, so the judge-stage budget remains the effective protection for saved results.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
 ## Current Verification
 
+- `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py` on browser-use commit `2fa61300`
+- `uv run pytest -q tests/ci/test_rust_agent.py -k 'load_events_uses_bounded_terminal_timeout or follow_up_allows_timeout_overrides'` on browser-use commit `2fa61300`
+- `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py` on evaluations-internal commits `d3a9632` and `94300bf`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'task_timebox or run_agent_finalizes_timeboxed_rust_history or timeout_finalization_wall_timeout_does_not_fail_task or run_judge_with_timeout_returns_saveable_timeout_result'` on evaluations-internal commit `94300bf`
+- `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal commit `fe23d23`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal commit `fe23d23`
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run python -m py_compile browser_use/__init__.py browser_use/agent/__init__.py browser_use/agent/service.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py tests/ci/test_rust_agent.py`
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
@@ -1722,6 +1751,26 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Task 1's tool-enabled Agent SDK judge hit the configured 75-second timeout and fell back to a no-tools trajectory-only verdict, then saved successfully instead of leaking an unsaved judge subprocess into the global cap.
   - Task 4 was still in the agent stage when the 10-minute cap fired; its remaining Browser Use cloud session was manually stopped. No eval or terminal subprocesses remained after cleanup.
   - This gate does not justify scaling to 50 yet: saved-task mean score was `0.875`, but missing-task-as-zero mean score was `0.70` with only 4/5 tasks completed within the iteration budget.
+- 2026-06-04 timeout-finalization five-task real_v8 Agent SDK gate:
+  - Run `kh75wmqhbdr68d423yw1svb845881a9k` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, `--max-steps 100`, and `--task-timebox-seconds 600` for real_v8 tasks 6-10.
+  - All five tasks saved within 488.04s. Scores were task 6 `1.0`, task 7 `0.85`, task 8 `1.0`, task 9 `0.6`, and task 10 `1.0`; mean score `0.89`.
+  - Tasks 7 and 8 exercised Rust timeout finalization and produced final answers before judge/save, proving the follow-up path can recover long-running tasks without task-specific instructions.
+- 2026-06-04 50-task/50-parallel real_v8 Agent SDK diagnostic:
+  - Run `kh7f07wkfc9ef7c60f3gfmqgtn880pr9` used the same Browser Use cloud/Rust/Agent SDK configuration with `--start 0 --end 50 --parallel-runs 50`.
+  - All 50 Browser Use cloud sessions were created, but the VM saturated CPU under 50-way local orchestration. Within the 10-minute cap, 32 agent runs completed, 21 judge scores were produced, 20 results saved, and the judged mean was `0.829`.
+  - The run exposed three general orchestration issues addressed after the run: unbounded Rust event reload during finalization, finalization wall-clock overrun, and judge retries consuming the remaining eval cap. Thirty-two cloud sessions left by the killed process were manually stopped; no local eval/terminal/judge subprocesses remained.
+- 2026-06-04 post-event/finalization-bounds five-task real_v8 Agent SDK gate:
+  - Run `kh7fv9a4m8hmdgrgwxws2jxnp588086j` used tasks 1-5 with the bounded Rust event reload and finalization wall-clock guard.
+  - All five agent runs completed and two timeout finalizations produced real final results, but only four results saved before the 10-minute cap because task 1 stayed in Agent SDK judge retries. Saved scores were task 2 `0.9`, task 3 `1.0`, task 4 `0.25`, and task 5 `0.9`; saved-task mean `0.762`.
+  - The remaining Browser Use cloud session was manually stopped. This gate motivated the judge-stage budget in feature 267.
+- 2026-06-04 post-judge-budget five-task real_v8 Agent SDK gate:
+  - Run `kh759mgwssktdc4wxh18rzetsh88006q` used tasks 1-5 with `EVALUATION_JUDGE_TIMEOUT_SECONDS=60`.
+  - All five results saved in 537.52s and all five cloud sessions stopped. Scores were task 1 `0.0` from the judge timeout budget, task 2 `0.85`, task 3 `1.0`, task 4 `0.3`, and task 5 `1.0`; mean score `0.63`.
+  - This proved completed agent outputs are no longer lost to a stuck judge, but did not justify scaling because score quality remained below target.
+- 2026-06-04 post-trajectory-turn-budget five-task real_v8 Agent SDK gate:
+  - Run `kh73beq9gmz13mq2smnt2yb50h88158w` used tasks 1-5 with `AGENT_SDK_JUDGE_TRAJECTORY_MAX_TURNS=2` and the 60-second judge-stage budget.
+  - All five results saved in 511.10s and all five cloud sessions stopped. Scores were task 1 `0.0`, task 2 `0.9`, task 3 `1.0`, task 4 `0.0`, and task 5 `0.9`; mean score `0.56`.
+  - The reduced turn budget did not resolve the repeated Agent SDK gzip/timeout on task 1; it remains a judge-path reliability issue, not a browser-cloud or Rust event-reload blocker.
 - Historical passing live benchmark tasks from earlier focused smokes: real_v8 `18`, real_v8-2 `1`.
 - 2026-06-04 progress-fix five-task real_v8 Agent SDK gate:
   - Run `kh7a50j1amqsnjthdy4y01bsv98812by` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 75`.
