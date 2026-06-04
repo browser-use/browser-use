@@ -1234,11 +1234,18 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 focused task-4 diagnostic where the agent spent 21 steps scouting vendor domains without committing to one AUD source.
    - Proof: terminal `system_prompt_commits_single_site_collection_to_one_domain`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent system_prompt_ -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, and terminal `cargo build -q -p browser-use-cli`.
 
+243. Rust Agent eval runner progress visibility parity
+   - Eval runner progress updates now use stable local runner IDs, serialize progress writes by default, and omit absent optional metadata instead of sending JSON null values that can clear GitHub runner task ranges registered by the workflow.
+   - This targets the 2026-06-04 five-task Agent SDK gate where all five tasks hit repeated `saveRunnerProgress` failures during startup while final task-result saves still succeeded.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py` and eval `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run python -m py_compile browser_use/__init__.py browser_use/agent/__init__.py browser_use/agent/service.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py tests/ci/test_rust_agent.py`
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
+- `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (previous full run before latest focused additions: 186 tests)
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service or rust_agent_class_metadata_matches_browser_use_service_surface or rust_agent_generic_subscription_matches_browser_use or rust_agent_constructor_signature_matches_browser_use_order'`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'run_finalizes_after_startup_cancellation or run_finalizes_after_cancellation or top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service'`
