@@ -1311,6 +1311,20 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 low-tool-timeout gate where task 9 completed successfully but the Agent SDK judge scored `0.0` because both the tool judge and trajectory fallback were capped at 25 seconds.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, and eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
 
+255. Rust Agent browser-script stdout model-output cap parity
+   - Terminal `browser_script` tool output now caps model-facing stdout at 16 KiB after structured browser-script text and warnings are rendered.
+   - The full script output remains persisted through existing event/artifact paths; only the next model turn's inline stdout is shortened with an explicit truncation marker.
+   - This reduces repeated large page/PDF/table dumps in Rust terminal prompts while preserving small outputs, structured image payloads, and persisted artifacts.
+   - This targets repeated 2026-06-04 real_v8 gates where browser-script steps inflated task prompt usage into the hundreds of thousands or millions of tokens.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_images_are_appended_as_structured_stdout_payload -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`, and terminal `cargo fmt`.
+
+256. Rust Agent eval Agent SDK trajectory fallback retry parity
+   - Eval Agent SDK trajectory-only fallback now has its own bounded retry loop via `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS`, defaulting to 3 attempts.
+   - The fallback retries the same transient Agent SDK `Claude Code returned an error result: success` condition that previously made completed agent results score `0.0`.
+   - Timeouts and other transient fallback failures are also retried within the bounded fallback path, while non-transient judge failures still fail fast.
+   - This targets the 2026-06-04 stdout-cap gate where tasks 9, 10, and 6 all completed successfully but each was scored `0.0` because both the tool judge and first no-tools fallback raised the Agent SDK `success` exception.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, and eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1321,6 +1335,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `uv run python -m py_compile browser_use/browser/watchdogs/downloads_watchdog.py tests/ci/test_downloads_watchdog.py`
 - `uv run pytest -q tests/ci/test_downloads_watchdog.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'rust_history_compacts_large_terminal_tool_memory or rust_history_attaches_terminal_tool_images_to_actions or rust_history_reconstructs_terminal_tool_call_actions'`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main` at `1fe697d`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main` at `1fe697d`
+- `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main` at `1fe697d`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'browser_script_wait or max_steps or cloud_create or agent_sdk_judge_retries'` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main`
@@ -1360,6 +1377,8 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_mode_instruction_guides_remote_cdp_to_direct_page_work -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent system_prompt_bounds_multi_item_collection_loops -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent system_prompt_ -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_images_are_appended_as_structured_stdout_payload -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo fmt --check -p browser-use-agent -p browser-use-browser` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo fmt --check -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration`
 - `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration`
@@ -1523,6 +1542,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 stdout-cap five-task real_v8 Agent SDK gate:
+  - Run `kh74mry8q73g8xxf0as2tze7vn881pvn` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - Saved results before the 10-minute cap: task 9 score `0.0` in 274.13s agent time/308.57s total pipeline, task 10 score `0.0` in 466.81s/482.05s, and task 6 score `0.0` in 558.09s/574.26s.
+  - All three saved tasks reported agent success, but the Agent SDK tool judge and the first trajectory fallback both raised `Claude Code returned an error result: success`, causing false `0.0` scores. This repeated judge-side failure is addressed by feature 256.
+  - The terminal stdout cap showed a partial cost signal on task 9 compared with the prior comparable gate: `904195` total tokens over 17 steps versus `1007921` total tokens over 18 steps, but the gate does not justify scaling because scoring was invalid and tasks 7/8 were still running at the cap.
+  - All five Browser Use cloud sessions were manually stopped after the cap, and no eval or terminal subprocesses remained.
 - 2026-06-04 post-safe-fallback-timeout five-task real_v8 Agent SDK gate:
   - Run `kh72a28mb72b9nmdtwf5wda4ss881jhr` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - The fallback-timeout bug from the prior gate was fixed live: task 9's tool-enabled judge timed out after 25 seconds, then the no-tools Agent SDK fallback completed and saved score `1.0` instead of the prior false `0.0`.
