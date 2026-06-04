@@ -55,8 +55,12 @@ if TYPE_CHECKING:
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
+	from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
+	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
 	from browser_use.llm.browser_use.chat import ChatBrowserUse
+	from browser_use.llm.cerebras.chat import ChatCerebras
+	from browser_use.llm.deepseek.chat import ChatDeepSeek
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.litellm.chat import ChatLiteLLM
@@ -64,6 +68,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
+	from browser_use.llm.openrouter.chat import ChatOpenRouter
 	from browser_use.llm.vercel.chat import ChatVercel
 	from browser_use.sandbox import sandbox
 	from browser_use.tools.service import Controller, Tools
@@ -91,13 +96,18 @@ _LAZY_IMPORTS = {
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
+	'ChatAnthropicBedrock': ('browser_use.llm.aws.chat_anthropic', 'ChatAnthropicBedrock'),
+	'ChatAWSBedrock': ('browser_use.llm.aws.chat_bedrock', 'ChatAWSBedrock'),
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
+	'ChatCerebras': ('browser_use.llm.cerebras.chat', 'ChatCerebras'),
+	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
 	'ChatLiteLLM': ('browser_use.llm.litellm.chat', 'ChatLiteLLM'),
 	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
+	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 	# LLM models module
 	'models': ('browser_use.llm.models', None),
@@ -143,13 +153,18 @@ __all__ = [
 	'ChatOpenAI',
 	'ChatGoogle',
 	'ChatAnthropic',
+	'ChatAnthropicBedrock',
+	'ChatAWSBedrock',
 	'ChatBrowserUse',
+	'ChatCerebras',
+	'ChatDeepSeek',
 	'ChatGroq',
 	'ChatLiteLLM',
 	'ChatMistral',
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',
 	'ChatOllama',
+	'ChatOpenRouter',
 	'ChatVercel',
 	'Tools',
 	'Controller',
