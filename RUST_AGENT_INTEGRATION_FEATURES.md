@@ -1365,6 +1365,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated five-task gates where every completed task's tool-enabled Agent SDK judge timed out after 25 seconds before the trajectory-only fallback produced the actual saved score.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge_trajectory_only or agent_sdk_service_defaults_to_trajectory_only_judge'`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py eval/service.py tests/test_service_cli.py`, eval `git diff --check -- eval/judges/agent_sdk_judge.py eval/service.py tests/test_service_cli.py`, and eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`.
 
+263. Rust Agent text-heavy extraction screenshot restraint
+   - Terminal dataset and browser-agent prompts now make text/DOM/API observations and batch fetches the default for text-heavy research, document reading, search, pricing, table, and list extraction tasks.
+   - Screenshot guidance is narrowed to visual-state cases such as layout, coordinates, blockers, menus/dialogs, file flows, and final visual verification, while preserving screenshot capability for interaction tasks.
+   - This targets repeated capped five-task gates where non-vision Rust-core eval tasks still spent many agent turns creating screenshots and visually inspecting document/search pages even though `--use-vision false` made text/DOM evidence and batched fetches the useful path.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent prompts_avoid_screenshots_for_text_heavy_extraction -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- prompts/dataset-case-user.md prompts/browser-agent-system.md prompts/browser-script-tool-description.md crates/browser-use-agent/src/prompts/tests.rs`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
