@@ -1475,6 +1475,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-bounded-judge five-task real_v8 Agent SDK gate:
+  - Run `kh7721qn6hkscjk86wc5q03n4h881k6e` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=75`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100`.
+  - All five Browser Use cloud sessions were created promptly and all five tasks entered Rust-core agent execution. Saved results before the 10-minute stop: task 3 score `1.0` in 199.46s agent time/252.82s total pipeline, task 2 score `1.0` in 211.40s/298.76s, task 5 score `1.0` in 372.26s/450.59s, and task 1 score `0.5` in 505.85s/644.64s.
+  - Task 1's tool-enabled Agent SDK judge hit the configured 75-second timeout and fell back to a no-tools trajectory-only verdict, then saved successfully instead of leaking an unsaved judge subprocess into the global cap.
+  - Task 4 was still in the agent stage when the 10-minute cap fired; its remaining Browser Use cloud session was manually stopped. No eval or terminal subprocesses remained after cleanup.
+  - This gate does not justify scaling to 50 yet: saved-task mean score was `0.875`, but missing-task-as-zero mean score was `0.70` with only 4/5 tasks completed within the iteration budget.
 - Historical passing live benchmark tasks from earlier focused smokes: real_v8 `18`, real_v8-2 `1`.
 - 2026-06-04 progress-fix five-task real_v8 Agent SDK gate:
   - Run `kh7a50j1amqsnjthdy4y01bsv98812by` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 75`.
