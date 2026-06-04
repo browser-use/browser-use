@@ -4931,6 +4931,43 @@ async def test_rust_agent_direct_follow_up_updates_task_state_and_transcript(tmp
 	assert follow_up_snapshot['stderr'] == 'followup stderr\nrerun stderr'
 
 
+async def test_rust_agent_follow_up_allows_timeout_overrides(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='Summarize current evidence.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
+	process_calls = []
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		process_calls.append((argv, timeout_seconds))
+		return 0, 'ok\n', ''
+
+	async def fake_load_events():
+		return [{'event_type': 'session.done', 'payload': {'result': 'finalized answer'}}]
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.follow_up(
+		'Return the final answer from gathered evidence.',
+		max_steps=2,
+		step_timeout=45,
+		enqueue_timeout=10,
+	)
+
+	assert history.final_result() == 'finalized answer'
+	assert len(process_calls) == 2
+	assert process_calls[0][0][-3:] == [
+		'followup',
+		'12345678-1234-1234-1234-123456789abc',
+		'Return the final answer from gathered evidence.',
+	]
+	assert process_calls[0][1] == 10
+	assert 'max_turns=2' in process_calls[1][0]
+	assert process_calls[1][1] == 45
+
+
 async def test_rust_agent_run_logs_browser_use_lifecycle_dispatch(monkeypatch):
 	from browser_use.rust import Agent
 

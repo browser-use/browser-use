@@ -3385,7 +3385,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._finalize_run_cleanup()
 		return self.history
 
-	async def follow_up(self, task: str, max_steps: int | None = None) -> AgentHistoryList[AgentStructuredOutput]:
+	async def follow_up(
+		self,
+		task: str,
+		max_steps: int | None = None,
+		*,
+		step_timeout: int | None = None,
+		enqueue_timeout: int | None = None,
+	) -> AgentHistoryList[AgentStructuredOutput]:
 		if not self.terminal_session_id:
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
 		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
@@ -3393,7 +3400,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.follow_up_task = False
 		self._register_run_signal_handler(resolved_max_steps)
 		try:
-			return await self._follow_up_terminal(self.task, max_steps=max_steps, resolved_max_steps=resolved_max_steps)
+			return await self._follow_up_terminal(
+				self.task,
+				max_steps=max_steps,
+				resolved_max_steps=resolved_max_steps,
+				step_timeout=step_timeout,
+				enqueue_timeout=enqueue_timeout,
+			)
 		except asyncio.CancelledError:
 			await self._finalize_exceptional_run(max_steps=resolved_max_steps, agent_run_error='CancelledError')
 			raise
@@ -3413,14 +3426,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		resolved_max_steps: int,
 		initialize_lifecycle: bool = True,
 		on_step_end: AgentHookFunc | None = None,
+		step_timeout: int | None = None,
+		enqueue_timeout: int | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		if initialize_lifecycle:
 			self._initialize_run_lifecycle_state()
 		started = time.time()
 		binary = find_browser_use_terminal_binary()
+		run_timeout = self.settings.step_timeout if step_timeout is None else step_timeout
+		followup_timeout = run_timeout if enqueue_timeout is None else enqueue_timeout
 		returncode, stdout_text, stderr_text = await self._run_process(
 			[binary, *self._state_dir_args(), 'followup', self.terminal_session_id, task],
-			timeout_seconds=self.settings.step_timeout,
+			timeout_seconds=followup_timeout,
 		)
 		self.last_stdout = stdout_text
 		self.last_stderr = stderr_text
@@ -3428,7 +3445,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise RustAgentError(stderr_text or stdout_text)
 		returncode, run_stdout_text, run_stderr_text = await self._run_process(
 			self._run_existing_argv(resolved_max_steps),
-			timeout_seconds=self.settings.step_timeout,
+			timeout_seconds=run_timeout,
 		)
 		self.last_stdout = '\n'.join(part for part in (stdout_text.strip(), run_stdout_text.strip()) if part)
 		self.last_stderr = '\n'.join(part for part in (stderr_text.strip(), run_stderr_text.strip()) if part)
