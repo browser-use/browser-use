@@ -2363,11 +2363,13 @@ def _usage_total_tokens(
 def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary:
 	input_tokens = 0
 	cached_input_tokens = 0
+	cache_creation_tokens = 0
 	completion_tokens = 0
 	total_tokens = 0
 	cost = 0.0
 	invocations = 0
 	token_count_invocations = 0
+	token_count_cache_creation_tokens = 0
 
 	for event in events:
 		event_type = _event_type(event)
@@ -2378,6 +2380,7 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 			event_completion_tokens = _usage_completion_tokens(usage)
 			input_tokens += event_input_tokens
 			cached_input_tokens += event_cached_input_tokens
+			cache_creation_tokens += event_cache_creation_tokens
 			completion_tokens += event_completion_tokens
 			total_tokens += _usage_total_tokens(
 				usage, event_input_tokens, event_cache_creation_tokens, event_completion_tokens
@@ -2389,7 +2392,14 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 			token_usage = _token_count_usage(payload)
 			if token_usage is None:
 				continue
-			input_tokens, cached_input_tokens, cache_creation_tokens = _input_usage_buckets(token_usage)
+			input_tokens, cached_input_tokens, total_cache_creation_tokens = _input_usage_buckets(token_usage)
+			last_usage = _token_count_last_usage(payload)
+			if isinstance(last_usage, dict):
+				_, _, last_cache_creation_tokens = _input_usage_buckets(last_usage)
+				token_count_cache_creation_tokens += last_cache_creation_tokens
+			elif total_cache_creation_tokens:
+				token_count_cache_creation_tokens = total_cache_creation_tokens
+			cache_creation_tokens = token_count_cache_creation_tokens
 			completion_tokens = _usage_completion_tokens(token_usage)
 			total_tokens = _usage_total_tokens(token_usage, input_tokens, cache_creation_tokens, completion_tokens)
 			token_count_invocations += 1
@@ -2410,6 +2420,8 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 		total_prompt_cost=0.0,
 		total_prompt_cached_tokens=cached_input_tokens,
 		total_prompt_cached_cost=0.0,
+		total_prompt_cache_creation_tokens=cache_creation_tokens,
+		total_prompt_cache_creation_cost=0.0,
 		total_completion_tokens=completion_tokens,
 		total_completion_cost=0.0,
 		total_tokens=total_tokens,
@@ -2432,6 +2444,7 @@ async def _usage_from_events_with_costs(
 	total_prompt_cost = 0.0
 	total_completion_cost = 0.0
 	total_prompt_cached_cost = 0.0
+	total_prompt_cache_creation_cost = 0.0
 	total_cost = 0.0
 	priced_invocations = 0
 
@@ -2455,6 +2468,7 @@ async def _usage_from_events_with_costs(
 		total_prompt_cost += cost.prompt_cost
 		total_completion_cost += cost.completion_cost
 		total_prompt_cached_cost += cost.prompt_read_cached_cost or 0.0
+		total_prompt_cache_creation_cost += cost.prompt_cache_creation_cost or 0.0
 		total_cost += cost.total_cost
 
 	if priced_invocations == 0:
@@ -2469,6 +2483,7 @@ async def _usage_from_events_with_costs(
 		update={
 			'total_prompt_cost': total_prompt_cost,
 			'total_prompt_cached_cost': total_prompt_cached_cost,
+			'total_prompt_cache_creation_cost': total_prompt_cache_creation_cost,
 			'total_completion_cost': total_completion_cost,
 			'total_cost': total_cost,
 			'by_model': model_stats,
@@ -2593,27 +2608,140 @@ def _terminal_laminar_turn_output(events: list[dict[str, Any]], raw_usage: dict[
 	}
 
 
+def _terminal_laminar_system_messages(span_input: dict[str, Any]) -> list[dict[str, Any]]:
+	system_messages = []
+	system_parts = span_input.get('system')
+	if not isinstance(system_parts, list):
+		return system_messages
+	for part in system_parts:
+		if isinstance(part, dict):
+			text = part.get('text') or part.get('content')
+		else:
+			text = part
+		if isinstance(text, str) and text:
+			system_messages.append({'role': 'system', 'content': [{'type': 'text', 'text': text}]})
+	return system_messages
+
+
+def _terminal_laminar_content_part_for_span(part: Any) -> Any:
+	if not isinstance(part, dict):
+		return part
+	part_type = part.get('type')
+	if part_type == 'media':
+		mime_type = part.get('mime_type')
+		mime_type = mime_type if isinstance(mime_type, str) and mime_type else 'application/octet-stream'
+		url = part.get('url')
+		data = part.get('data')
+		resolved_url = None
+		if isinstance(url, str) and url:
+			resolved_url = url
+		elif isinstance(data, str) and data:
+			resolved_url = f'data:{mime_type};base64,{data}'
+		if resolved_url and mime_type.startswith('image/'):
+			image_url: dict[str, Any] = {'url': resolved_url}
+			detail = part.get('detail')
+			if isinstance(detail, str) and detail:
+				image_url['detail'] = detail
+			return {'type': 'image_url', 'image_url': image_url}
+		if resolved_url:
+			return {'type': 'file', 'file_data': resolved_url}
+	content = part.get('content')
+	if isinstance(content, list):
+		normalized = dict(part)
+		normalized['content'] = [_terminal_laminar_content_part_for_span(item) for item in content]
+		return normalized
+	return part
+
+
+def _terminal_laminar_message_for_span(message: Any) -> Any:
+	if not isinstance(message, dict):
+		return message
+	content = message.get('content')
+	if not isinstance(content, list):
+		return message
+	normalized = dict(message)
+	normalized['content'] = [_terminal_laminar_content_part_for_span(part) for part in content]
+	return normalized
+
+
+def _terminal_laminar_span_input_messages(span_input: dict[str, Any]) -> list[dict[str, Any]]:
+	messages = span_input.get('messages')
+	if not isinstance(messages, list):
+		messages = []
+	normalized_messages = [_terminal_laminar_message_for_span(message) for message in messages]
+	return [*_terminal_laminar_system_messages(span_input), *normalized_messages]
+
+
+def _terminal_laminar_span_output_messages(span_output: dict[str, Any]) -> list[dict[str, Any]]:
+	messages = span_output.get('messages')
+	return messages if isinstance(messages, list) else []
+
+
+def _terminal_laminar_message_text(message: dict[str, Any]) -> str:
+	content = message.get('content')
+	if isinstance(content, str):
+		return content
+	if not isinstance(content, list):
+		return _laminar_preview(content, limit=4000) if content else ''
+	parts = []
+	for part in content:
+		if isinstance(part, dict):
+			text = part.get('text') or part.get('content')
+			if isinstance(text, str):
+				parts.append(text)
+			elif part.get('type') in {'image', 'image_url', 'media', 'input_image'}:
+				parts.append('[image]')
+			elif part:
+				parts.append(str(_laminar_preview(part, limit=1000)))
+		elif isinstance(part, str):
+			parts.append(part)
+	return '\n'.join(parts)
+
+
+def _terminal_laminar_indexed_message_attributes(
+	messages: list[dict[str, Any]], prefix: str, *, max_messages: int = 20
+) -> dict[str, Any]:
+	attributes: dict[str, Any] = {}
+	for index, message in enumerate(messages[:max_messages]):
+		if not isinstance(message, dict):
+			continue
+		role = message.get('role')
+		if isinstance(role, str):
+			attributes[f'{prefix}.{index}.role'] = role
+		content = _terminal_laminar_message_text(message)
+		if content:
+			attributes[f'{prefix}.{index}.content'] = _laminar_preview(content, limit=12_000)
+	if len(messages) > max_messages:
+		attributes[f'{prefix}.truncated_count'] = len(messages) - max_messages
+	return attributes
+
+
 def _terminal_laminar_gen_ai_attributes(
 	span_input: dict[str, Any],
 	span_output: dict[str, Any],
 	usage: dict[str, int | float] | None,
 ) -> dict[str, Any]:
+	input_messages = _terminal_laminar_span_input_messages(span_input)
+	output_messages = _terminal_laminar_span_output_messages(span_output)
 	attributes: dict[str, Any] = {
 		'gen_ai.operation.name': 'chat',
 		'gen_ai.request.model': str(span_input.get('model') or ''),
 		'gen_ai.system': str(span_input.get('provider') or ''),
-		'gen_ai.input.messages': _laminar_preview(span_input.get('messages') or [], limit=60_000),
 		'gen_ai.system_instructions': _laminar_preview(span_input.get('system') or [], limit=30_000),
-		'gen_ai.output.messages': _laminar_preview(span_output.get('messages') or [], limit=40_000),
 	}
+	attributes.update(_terminal_laminar_indexed_message_attributes(input_messages, 'gen_ai.prompt'))
+	attributes.update(_terminal_laminar_indexed_message_attributes(output_messages, 'gen_ai.completion'))
 	if usage:
 		attributes.update(
 			{
 				'gen_ai.usage.input_tokens': usage.get('input_tokens'),
 				'gen_ai.usage.output_tokens': usage.get('output_tokens'),
 				'gen_ai.usage.total_tokens': usage.get('total_tokens'),
+				'llm.usage.total_tokens': usage.get('total_tokens'),
 			}
 		)
+		if usage.get('cost_usd'):
+			attributes['gen_ai.usage.cost'] = usage.get('cost_usd')
 	return attributes
 
 
@@ -2643,8 +2771,10 @@ def _record_laminar_terminal_llm_spans(
 		usage = _terminal_laminar_usage_summary(raw_usage)
 		start_time = _event_time_seconds(turn_events[0], 0.0)
 		end_time = _event_time_seconds(turn_events[-1], start_time)
-		with _laminar_start_span('rust_core.llm', input=span_input, span_type='LLM'):
+		span_input_messages = _terminal_laminar_span_input_messages(span_input)
+		with _laminar_start_span('rust_core.llm', input=span_input_messages, span_type='LLM'):
 			span_output = _terminal_laminar_turn_output(turn_events, raw_usage)
+			span_output_messages = _terminal_laminar_span_output_messages(span_output)
 			_laminar_set_span_attributes(
 				{
 					'runtime': 'browser_use.rust',
@@ -2653,15 +2783,27 @@ def _record_laminar_terminal_llm_spans(
 					'turn_index': span_index,
 					'turn_idx': _int_value(span_input.get('turn_idx')),
 					'attempt': _int_value(span_input.get('attempt')),
+					'system_prompt_tokens': _int_value(span_input.get('system_prompt_tokens')),
+					'tools_count': _int_value(span_input.get('tools_count')),
+					'tool_names': _laminar_preview(span_input.get('tool_names') or [], limit=2000),
+					'message_count': _int_value(span_input.get('message_count')),
+					'omitted_earlier_messages': _int_value(span_input.get('omitted_earlier_messages')),
+					'truncated': bool(span_input.get('truncated')),
+					'assistant_output_preview': span_output.get('assistant_output_preview') or '',
+					'thinking_preview': span_output.get('thinking_preview') or '',
+					'tool_calls_count': _int_value(span_output.get('tool_calls_count')),
+					'tool_call_names': _laminar_preview(span_output.get('tool_call_names') or [], limit=2000),
 					'input_tokens': usage.get('input_tokens') if usage else None,
 					'cached_input_tokens': usage.get('cached_input_tokens') if usage else None,
+					'cache_creation_input_tokens': usage.get('cache_creation_input_tokens') if usage else None,
 					'output_tokens': usage.get('output_tokens') if usage else None,
 					'total_tokens': usage.get('total_tokens') if usage else None,
+					'cost_usd': usage.get('cost_usd') if usage else None,
 					'duration_seconds': max(0.0, end_time - start_time),
 				}
 			)
 			_laminar_set_span_attributes(_terminal_laminar_gen_ai_attributes(span_input, span_output, usage))
-			_laminar_set_span_output(span_output)
+			_laminar_set_span_output(span_output_messages)
 	if len(ranges) > max_spans:
 		_laminar_event(
 			'rust_core.llm_spans_truncated',

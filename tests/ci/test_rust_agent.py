@@ -1713,11 +1713,13 @@ async def test_rust_terminal_usage_prices_token_count_events(monkeypatch):
 
 	assert summary.total_prompt_tokens == 300
 	assert summary.total_prompt_cached_tokens == 20
+	assert summary.total_prompt_cache_creation_tokens == 0
 	assert summary.total_completion_tokens == 30
 	assert summary.total_tokens == 330
 	assert summary.entry_count == 2
 	assert summary.total_prompt_cost == pytest.approx(0.000846)
 	assert summary.total_prompt_cached_cost == pytest.approx(0.000006)
+	assert summary.total_prompt_cache_creation_cost == pytest.approx(0.0)
 	assert summary.total_completion_cost == pytest.approx(0.00045)
 	assert summary.total_cost == pytest.approx(0.001296)
 	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.001296)
@@ -1750,14 +1752,136 @@ async def test_rust_terminal_usage_prices_anthropic_raw_cache_reads(monkeypatch)
 
 	assert summary.total_prompt_tokens == 183262
 	assert summary.total_prompt_cached_tokens == 183250
+	assert summary.total_prompt_cache_creation_tokens == 44
 	assert summary.total_completion_tokens == 3088
 	assert summary.total_tokens == 186394
 	assert summary.total_prompt_cost == pytest.approx(0.055176)
 	assert summary.total_prompt_cached_cost == pytest.approx(0.054975)
+	assert summary.total_prompt_cache_creation_cost == pytest.approx(0.000165)
 	assert summary.total_completion_cost == pytest.approx(0.04632)
 	assert summary.total_cost == pytest.approx(0.101496)
 	assert summary.by_model['claude-sonnet-4-6'].prompt_tokens == 183262
 	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(0.101496)
+
+
+async def test_rust_terminal_usage_sums_token_count_cache_creation(monkeypatch):
+	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.tokens.service import TokenCost
+
+	async def fail_fetch(_self):
+		raise AssertionError('custom model pricing should not fetch remote pricing')
+
+	monkeypatch.setattr(TokenCost, '_fetch_and_cache_pricing_data', fail_fetch)
+
+	events = [
+		{
+			'event_type': 'token_count',
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 0,
+						'input_cache_creation_tokens': 18462,
+						'input_tokens': 3,
+						'output_tokens': 71,
+						'total_tokens': 18536,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 0,
+						'input_cache_creation_tokens': 18462,
+						'input_tokens': 3,
+						'output_tokens': 71,
+						'total_tokens': 18536,
+					},
+				},
+			},
+		},
+		{
+			'event_type': 'token_count',
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 18462,
+						'input_cache_creation_tokens': 1506,
+						'input_tokens': 18463,
+						'output_tokens': 177,
+						'total_tokens': 20146,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 18462,
+						'input_tokens': 18466,
+						'output_tokens': 248,
+						'total_tokens': 38682,
+					},
+				},
+			},
+		},
+		{
+			'event_type': 'token_count',
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 18462,
+						'input_cache_creation_tokens': 5067,
+						'input_tokens': 18463,
+						'output_tokens': 182,
+						'total_tokens': 23712,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 36924,
+						'input_tokens': 36929,
+						'output_tokens': 430,
+						'total_tokens': 62394,
+					},
+				},
+			},
+		},
+	]
+
+	summary = await _usage_from_events_with_costs(events, 'claude-sonnet-4-6', TokenCost(include_cost=True))
+
+	assert summary.total_prompt_tokens == 36929
+	assert summary.total_prompt_cached_tokens == 36924
+	assert summary.total_prompt_cache_creation_tokens == 25035
+	assert summary.total_completion_tokens == 430
+	assert summary.total_tokens == 62394
+	assert summary.total_prompt_cost == pytest.approx(0.10497345)
+	assert summary.total_prompt_cached_cost == pytest.approx(0.0110772)
+	assert summary.total_prompt_cache_creation_cost == pytest.approx(0.09388125)
+	assert summary.total_completion_cost == pytest.approx(0.00645)
+	assert summary.total_cost == pytest.approx(0.11142345)
+
+
+async def test_rust_token_summary_does_not_double_count_cache_reads(monkeypatch):
+	from browser_use.llm.views import ChatInvokeUsage
+	from browser_use.tokens.service import TokenCost
+
+	async def fail_fetch(_self):
+		raise AssertionError('custom model pricing should not fetch remote pricing')
+
+	monkeypatch.setattr(TokenCost, '_fetch_and_cache_pricing_data', fail_fetch)
+
+	token_cost = TokenCost(include_cost=True)
+	token_cost.add_usage(
+		'claude-sonnet-4-6',
+		ChatInvokeUsage(
+			prompt_tokens=110,
+			prompt_cached_tokens=100,
+			prompt_cache_creation_tokens=40,
+			prompt_image_tokens=None,
+			completion_tokens=20,
+			total_tokens=170,
+		),
+	)
+
+	summary = await token_cost.get_usage_summary()
+
+	assert summary.total_prompt_cost == pytest.approx(0.00021)
+	assert summary.total_prompt_cached_cost == pytest.approx(0.00003)
+	assert summary.total_prompt_cache_creation_tokens == 40
+	assert summary.total_prompt_cache_creation_cost == pytest.approx(0.00015)
+	assert summary.total_completion_cost == pytest.approx(0.0003)
+	assert summary.total_cost == pytest.approx(0.00051)
+	assert summary.by_model['claude-sonnet-4-6'].cost == pytest.approx(summary.total_cost)
 
 
 def test_rust_history_supports_structured_output():
@@ -7344,14 +7468,22 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 				},
 				'llm_input': {
 					'system': [{'text': 'System prompt'}],
-					'messages': [
-						{
-							'role': 'user',
-							'content': [{'type': 'text', 'text': 'Find the title on example.com'}],
-						}
-					],
-					'message_count': 1,
-					'omitted_earlier_messages': 0,
+						'messages': [
+							{
+								'role': 'user',
+								'content': [
+									{'type': 'text', 'text': 'Find the title on example.com'},
+									{
+										'type': 'media',
+										'mime_type': 'image/png',
+										'data': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
+										'detail': 'low',
+									},
+								],
+							}
+						],
+						'message_count': 1,
+						'omitted_earlier_messages': 0,
 				},
 			},
 		},
@@ -7397,22 +7529,37 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.events[-1][0] == 'agent.run.terminal_summary'
 	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
 	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
-	assert FakeLaminar.spans[0]['input']['tools_count'] == 2
-	assert FakeLaminar.spans[0]['input']['messages'][0]['content'][0]['text'] == 'Find the title on example.com'
+	assert FakeLaminar.spans[0]['input'][0]['role'] == 'system'
+	assert FakeLaminar.spans[0]['input'][0]['content'][0]['text'] == 'System prompt'
+	assert FakeLaminar.spans[0]['input'][1]['content'][0]['text'] == 'Find the title on example.com'
+	assert FakeLaminar.spans[0]['input'][1]['content'][1] == {
+		'type': 'image_url',
+		'image_url': {
+			'url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
+			'detail': 'low',
+		},
+	}
 	span_attrs = {}
 	for attributes in FakeLaminar.spans[0]['attributes']:
 		span_attrs.update(attributes)
+	assert span_attrs['tools_count'] == 2
+	assert 'browser' in span_attrs['tool_names']
 	assert span_attrs['input_tokens'] == 100
 	assert span_attrs['output_tokens'] == 20
 	assert span_attrs['total_tokens'] == 120
 	assert span_attrs['gen_ai.operation.name'] == 'chat'
 	assert span_attrs['gen_ai.request.model'] == 'gpt-test'
-	assert 'Find the title on example.com' in span_attrs['gen_ai.input.messages']
+	assert span_attrs['gen_ai.prompt.0.role'] == 'system'
+	assert span_attrs['gen_ai.prompt.0.content'] == 'System prompt'
+	assert span_attrs['gen_ai.prompt.1.role'] == 'user'
+	assert span_attrs['gen_ai.prompt.1.content'] == 'Find the title on example.com\n[image]'
+	assert span_attrs['gen_ai.completion.0.role'] == 'assistant'
+	assert span_attrs['gen_ai.completion.0.content'] == 'laminar answer'
 	assert span_attrs['gen_ai.usage.input_tokens'] == 100
 	assert span_attrs['gen_ai.usage.output_tokens'] == 20
 	assert span_attrs['gen_ai.usage.total_tokens'] == 120
-	assert FakeLaminar.spans[0]['outputs'][-1]['assistant_output_preview'] == 'laminar answer'
-	assert FakeLaminar.spans[0]['outputs'][-1]['messages'][0]['content'][0]['text'] == 'laminar answer'
+	assert span_attrs['assistant_output_preview'] == 'laminar answer'
+	assert FakeLaminar.spans[0]['outputs'][-1][0]['content'][0]['text'] == 'laminar answer'
 
 
 async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):

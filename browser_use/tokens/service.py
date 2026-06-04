@@ -420,6 +420,8 @@ class TokenCost:
 				total_prompt_cost=0.0,
 				total_prompt_cached_tokens=0,
 				total_prompt_cached_cost=0.0,
+				total_prompt_cache_creation_tokens=0,
+				total_prompt_cache_creation_cost=0.0,
 				total_completion_tokens=0,
 				total_completion_cost=0.0,
 				total_tokens=0,
@@ -432,12 +434,14 @@ class TokenCost:
 		total_completion = sum(u.usage.completion_tokens for u in filtered_usage)
 		total_tokens = total_prompt + total_completion
 		total_prompt_cached = sum(u.usage.prompt_cached_tokens or 0 for u in filtered_usage)
+		total_prompt_cache_creation = sum(u.usage.prompt_cache_creation_tokens or 0 for u in filtered_usage)
 
 		# Calculate per-model stats with record-by-record cost calculation
 		model_stats: dict[str, ModelUsageStats] = {}
 		total_prompt_cost = 0.0
 		total_completion_cost = 0.0
 		total_prompt_cached_cost = 0.0
+		total_prompt_cache_creation_cost = 0.0
 
 		for entry in filtered_usage:
 			if entry.model not in model_stats:
@@ -457,6 +461,7 @@ class TokenCost:
 					total_prompt_cost += cost.prompt_cost
 					total_completion_cost += cost.completion_cost
 					total_prompt_cached_cost += cost.prompt_read_cached_cost or 0
+					total_prompt_cache_creation_cost += cost.prompt_cache_creation_cost or 0
 
 		# Calculate averages
 		for stats in model_stats.values():
@@ -468,10 +473,12 @@ class TokenCost:
 			total_prompt_cost=total_prompt_cost,
 			total_prompt_cached_tokens=total_prompt_cached,
 			total_prompt_cached_cost=total_prompt_cached_cost,
+			total_prompt_cache_creation_tokens=total_prompt_cache_creation,
+			total_prompt_cache_creation_cost=total_prompt_cache_creation_cost,
 			total_completion_tokens=total_completion,
 			total_completion_cost=total_completion_cost,
 			total_tokens=total_tokens,
-			total_cost=total_prompt_cost + total_completion_cost + total_prompt_cached_cost,
+			total_cost=total_prompt_cost + total_completion_cost,
 			entry_count=len(filtered_usage),
 			by_model=model_stats,
 		)
