@@ -1258,6 +1258,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task cloud gate where a completed agent result was scored `0.0` because the judge hit `Reached maximum number of turns (8)`.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
 
+247. Rust Agent Browser Use done-result schema parity
+   - Terminal `done` now accepts Browser Use-style `result` and `result_file` fields while preserving the legacy `text` alias.
+   - The model-visible `done` tool schema now presents `result` as the complete user-facing final answer, matching the existing system prompt's `done(result=...)` guidance.
+   - The fused Rust turn loop now surfaces `done.result` as the final assistant message, falling back to `text` and then a compact `result_file` pointer.
+   - This targets the 2026-06-04 five-task gates where eval final results could be empty or only a short summary even though the agent had collected substantive data in step memory.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent done_ -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent fused_done_result_becomes_final_message_without_follow_up -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- crates/browser-use-agent/src/tools/handlers/done.rs crates/browser-use-agent/src/tools/handlers/done_tests.rs crates/browser-use-agent/src/tools/registry.rs crates/browser-use-agent/src/tools/registry_tests.rs crates/browser-use-agent/src/turn/sampling.rs crates/browser-use-agent/src/turn/sampling_tests.rs`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1271,6 +1278,8 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent done_ -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent fused_done_result_becomes_final_message_without_follow_up -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env -- --nocapture`
 - `cargo fmt --check -p browser-use-agent`
 - `cargo fmt --check -p browser-use-browser`
