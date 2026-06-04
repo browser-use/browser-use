@@ -1371,6 +1371,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated capped five-task gates where non-vision Rust-core eval tasks still spent many agent turns creating screenshots and visually inspecting document/search pages even though `--use-vision false` made text/DOM evidence and batched fetches the useful path.
    - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent prompts_avoid_screenshots_for_text_heavy_extraction -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- prompts/dataset-case-user.md prompts/browser-agent-system.md prompts/browser-script-tool-description.md crates/browser-use-agent/src/prompts/tests.rs`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
 
+264. Rust Agent dataset timeboxed finalization contract
+   - Terminal dataset prompts now tell agents that eval runs have a short wall-clock budget, with a 7-minute soft deadline and 8.5-minute hard deadline for long research, document, and extraction tasks.
+   - Agents are instructed to check the deadline before starting each new page, document, query, or file; after the soft deadline they should stop broad research, fill remaining fields from strongest verified evidence or mark them unknown/unavailable, and call `done(...)` before the hard deadline.
+   - This targets repeated capped five-task gates where tasks 6, 7, and 8 were still in agent execution at the 10-minute cap despite having partial evidence/artifacts, leaving no saved result and scoring as missing.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent dataset_prompt_enforces_timeboxed_finalization -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- prompts/dataset-case-user.md crates/browser-use-agent/src/prompts/tests.rs`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
