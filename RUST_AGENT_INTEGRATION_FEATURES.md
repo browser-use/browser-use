@@ -1246,16 +1246,26 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Bounded Rust-core runs now add a final generic developer nudge on the last allowed sampling turn telling the agent to call `done` with the best available answer instead of continuing exploration.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, terminal `bounded_loop_aborts_after_max_turns`, and terminal `cargo fmt --check -p browser-use-agent`.
 
+245. Rust Agent browser_script observe-threshold speed parity
+   - Terminal browser_script startup now waits 7 seconds before returning a detachable observe run instead of 15 seconds, keeping enough initial wait for slow page/script setup while reducing repeated per-step latency in eval tasks.
+   - Local eval service and GitHub eval workflow both pin `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000` so local gates and runner-dispatched gates use the same Rust-core behavior.
+   - This targets the 2026-06-04 five-task cloud gate where startup/proxy/judge exceptions were fixed, but multiple tasks still spent 400+ seconds in the agent stage before judgement.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env -- --nocapture`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py`, terminal `cargo fmt --check -p browser-use-browser`, terminal `git diff --check -- crates/browser-use-browser/src/lib.rs`, and eval `git diff --check -- eval/service.py .github/workflows/eval.yaml tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run python -m py_compile browser_use/__init__.py browser_use/agent/__init__.py browser_use/agent/service.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py tests/ci/test_rust_agent.py`
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'browser_script_wait or max_steps or cloud_create or agent_sdk_judge_retries'` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
+- `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env -- --nocapture`
 - `cargo fmt --check -p browser-use-agent`
+- `cargo fmt --check -p browser-use-browser`
 - `uv run pytest -q tests/ci/test_rust_agent.py` (previous full run before latest focused additions: 186 tests)
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service or rust_agent_class_metadata_matches_browser_use_service_surface or rust_agent_generic_subscription_matches_browser_use or rust_agent_constructor_signature_matches_browser_use_order'`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'run_finalizes_after_startup_cancellation or run_finalizes_after_cancellation or top_level_agent_preserves_python_service or agent_package_export_preserves_python_service or agent_service_export_preserves_python_service'`
@@ -1452,6 +1462,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - 2026-06-04 focused real_v8 task-4 Agent SDK diagnostic:
   - Run `kh760nrdkqwsjxb539c6v740m58808s1` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 1`, and `--max-steps 75`.
   - Score was `0.0` after the terminal child was stopped at 271.88s and 21 steps; the run showed vendor-domain scouting without committing to one AUD source, which feature 242 addresses.
+- 2026-06-04 hardened/lowercase-proxy five-task real_v8 Agent SDK gate:
+  - Run `kh7akj2ps8vg3tcfbg9g2zwj1188114a` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, `--max-steps 100`, and `AGENT_SDK_JUDGE_ATTEMPTS=3`.
+  - All five Browser Use cloud sessions were created promptly and entered Rust-core agent execution. Completed saved results before the 10-minute stop: task 3 score `1.0` in 112.93s agent time/175.35s total pipeline, task 1 score `0.3` in 403.08s/576.05s, and task 5 score `1.0` in 470.13s/632.59s.
+  - Task 2 had completed the agent stage in 488.51s and was in the Agent SDK judge path when the 10-minute limit was reached; task 4 was still running. The remaining Browser Use cloud sessions were manually stopped.
+  - The prior repeated Agent SDK exception did not reproduce in the completed judgements, but the gate still did not justify scaling to 50 because agent-stage latency was high across multiple tasks and serialized judging added tail latency.
 - 2026-06-03 three-task real_v8 cloud smoke through the Python `Agent` API and Rust terminal core launched and returned for real_v8 `18`, `14`, and `20` with `DEFAULT_LLM=openai_gpt_4_1_mini`, `BROWSER_USE_RUST_BROWSER_MODE=cloud`, and the local debug `browser-use-terminal`, but it is not a clean benchmark pass:
   - real_v8 `18`: returned `successful=true`, but final output was `[empty]` after failing to verify AND Digital leadership information and included generated browser-script JavaScript quoting errors.
   - real_v8 `14`: returned `successful=true`, but final output said ycombinator.com was blocked/unresponsive and did not extract the requested Winter 2025 B2B company data.
