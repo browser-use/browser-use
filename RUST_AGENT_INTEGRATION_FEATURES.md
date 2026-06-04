@@ -1186,6 +1186,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This matches Anthropic's Messages API constraint that error tool-result content blocks must all be `text`, and prevents provider 400s when browser-script failures include rich content.
    - Proof: terminal `build_body_flattens_error_tool_result_content_to_text_blocks`, terminal `anthropic_messages` protocol tests, `cargo check -q -p browser-use-llm`, and rerunning the previously failing explicit Rust real_v8-2 task `1` now returns `successful=true` with no history errors.
 
+235. Rust Agent max_steps terminal-loop parity
+   - Terminal commit `5b72bda` threads `Agent.run(max_steps=...)` through the Rust terminal session loop as `max_turns`, while preserving the lower-level unbounded `TurnLoop::run(...)` API for Codex-parity callers.
+   - This prevents Python/eval callers from running until subprocess timeout when a task exceeds the configured step budget.
+   - Proof: terminal `bounded_loop_aborts_after_max_turns`, terminal `loop_is_unbounded_fifty_iterations_complete`, and the local eval-harness Browser Use cloud smoke below completed with `--max-steps 2`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1208,6 +1213,9 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `cargo test -q -p browser-use-llm build_body_maps_tool_use_and_tool_result -- --nocapture`
 - `cargo test -q -p browser-use-llm anthropic_messages -- --nocapture`
 - `cargo check -q -p browser-use-llm`
+- `cargo test -p browser-use-agent bounded_loop_aborts_after_max_turns` on terminal branch `magnus/browser-use-rust-main-integration`
+- `cargo test -p browser-use-agent loop_is_unbounded_fifty_iterations_complete` on terminal branch `magnus/browser-use-rust-main-integration`
+- `cargo build -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k browser_profile_domain_constraints`
 - `cargo test -q -p browser-use-cli run_codex_session_command_accepts_task_id_and_model -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_mode_allows_remote_cdp_connect -- --nocapture`
@@ -1271,6 +1279,8 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
   - Source `/home/exedev/.evaluation_tool_env`.
   - `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=cloud BU_TASK='Open https://example.com and report the page title only.' BU_MAX_STEPS=12 timeout 300 uv run python examples/rust_agent/basic.py`
   - Output: `Example Domain`
+  - 2026-06-04 eval-harness Browser Use cloud CDP smoke: source `/tmp/browser-use-eval-runtime.env`, set `PYTHONPATH=/home/exedev/Developer/browser-use`, `BU_RUNTIME=brust`, and `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`; run `python -m eval.service --task-text 'Open example.com and report the page title.' --task-website https://example.com --browser browser-use-cloud --max-steps 2 --skip-judge --agent-timeout-seconds 120`.
+  - Output: Browser Use cloud session created and stopped, no local Chrome processes, `browser_use.rust.Agent` completed successfully in 27.73s, final harness status `Success: 1, Failed: 0`.
 - Rust opt-in import managed-headless end-to-end:
   - Source `/home/exedev/.evaluation_tool_env`.
   - `DEFAULT_LLM=anthropic_claude_sonnet_4_0 BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal BROWSER_USE_RUST_BROWSER_MODE=managed-headless timeout 600 uv run python - <<'PY' ...`
