@@ -542,6 +542,88 @@ def test_rust_history_reconstructs_terminal_tool_call_actions():
 	assert history.action_results()[-1].is_done is True
 
 
+def test_rust_history_reconstructs_eval_visible_multi_turn_actions_and_usage():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'type': 'model.turn.request', 'ts_ms': 1_000, 'payload': {'model': 'claude-sonnet-4-6'}},
+			{'type': 'browser.state', 'ts_ms': 1_010, 'payload': {'url': 'about:blank', 'title': ''}},
+			{
+				'type': 'tool.started',
+				'ts_ms': 1_020,
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-open',
+					'arguments': {'code': "goto_url('https://example.com')"},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'ts_ms': 1_030,
+				'payload': {'name': 'browser_script', 'tool_call_id': 'call-open', 'text': 'Opened Example Domain'},
+			},
+			{'type': 'model.usage', 'payload': {'input_tokens': 100, 'cached_input_tokens': 20, 'output_tokens': 15}},
+			{'type': 'model.turn.request', 'ts_ms': 2_000, 'payload': {'model': 'claude-sonnet-4-6'}},
+			{'type': 'browser.state', 'ts_ms': 2_010, 'payload': {'url': 'https://example.com', 'title': 'Example Domain'}},
+			{
+				'type': 'model.tool_call',
+				'ts_ms': 2_020,
+				'payload': {
+					'id': 'call-extract',
+					'name': 'browser_script',
+					'arguments': {'code': 'emit_output(page_info(), label="page_info")'},
+				},
+			},
+			{
+				'type': 'tool.output',
+				'ts_ms': 2_030,
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-extract',
+					'text': 'Page title: Example Domain',
+				},
+			},
+			{'type': 'model.usage', 'payload': {'input_tokens': 140, 'cached_input_tokens': 90, 'output_tokens': 25}},
+			{
+				'type': 'tool.started',
+				'ts_ms': 2_040,
+				'payload': {
+					'name': 'done',
+					'tool_call_id': 'call-done',
+					'arguments': {'text': 'Example Domain', 'success': True},
+				},
+			},
+			{'type': 'session.done', 'ts_ms': 2_050, 'payload': {'result': 'Example Domain'}},
+		],
+		model='claude-sonnet-4-6',
+		started=1.0,
+		finished=2.5,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	dump = history.model_dump()
+	action_history = history.action_history()
+
+	assert history.number_of_steps() == 2
+	assert len(dump['history']) == 2
+	assert history.action_names() == ['browser_script', 'browser_script', 'done']
+	assert action_history[0][0]['browser_script']['code'] == "goto_url('https://example.com')"
+	assert action_history[0][0]['result'] == 'Opened Example Domain'
+	assert action_history[1][0]['browser_script']['code'] == 'emit_output(page_info(), label="page_info")'
+	assert action_history[1][0]['result'] == 'Page title: Example Domain'
+	assert action_history[1][-1]['done'] == {'text': 'Example Domain', 'success': True}
+	assert 'https://example.com' in history.urls()
+	assert history.final_result() == 'Example Domain'
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 240
+	assert history.usage.total_prompt_cached_tokens == 110
+	assert history.usage.total_completion_tokens == 40
+	assert history.usage.total_tokens == 280
+	assert history.usage.entry_count == 2
+
+
 def test_rust_history_reconstructs_terminal_model_tool_call_actions():
 	from browser_use.rust.service import _history_from_events
 
