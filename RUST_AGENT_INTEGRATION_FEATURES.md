@@ -1325,6 +1325,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 stdout-cap gate where tasks 9, 10, and 6 all completed successfully but each was scored `0.0` because both the tool judge and first no-tools fallback raised the Agent SDK `success` exception.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, and eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
 
+257. Rust Agent browser-script inline output 4 KiB cost cap
+   - Terminal `browser_script` tool output now defaults the model-facing inline text cap to 4 KiB instead of 16 KiB.
+   - Full browser-script output remains persisted through durable events/artifacts; only the text carried into the next model turn is shortened.
+   - This reduces cumulative prompt growth across long eval tasks because each later turn carries every prior browser-script result again.
+   - This targets the 2026-06-04 real_v8 slice where the 16 KiB cap still produced hundreds of thousands to millions of cumulative prompt tokens on 20-40 step tasks.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_script_stdout_cap_defaults_to_four_kib_for_eval_cost -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_images_are_appended_as_structured_stdout_payload -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1379,6 +1386,7 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent system_prompt_ -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_images_are_appended_as_structured_stdout_payload -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_script_stdout_cap_defaults_to_four_kib_for_eval_cost -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo fmt --check -p browser-use-agent -p browser-use-browser` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo fmt --check -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration`
 - `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration`
@@ -1542,6 +1550,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-4k-browser-script-cap five-task real_v8 Agent SDK gate:
+  - Run `kh75ejqt6j76rc4k0xecf1rmq9881h9t` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - Browser Use cloud startup remained healthy: all five sessions were created around 2026-06-04T10:34:51Z, and all five tasks entered Rust-core agent execution promptly.
+  - Saved results before the 10-minute cap: task 9 score `0.85` in 222.07s agent time/288.21s total pipeline, task 10 score `1.0` in 383.78s/455.94s, and task 6 score `1.0` in 409.48s/477.23s.
+  - Task 9 showed the clearest cost/speed signal compared with the prior 16 KiB gate: 13 steps and `539192` total tokens instead of 18 steps and `906970` total tokens. Task 6 also saved before the cap after being unsaved in the prior run.
+  - Tasks 7 and 8 were still in agent-stage execution when the cap fired. All five Browser Use cloud sessions were manually stopped after the cap, and no eval or terminal subprocesses remained.
+  - This gate does not justify scaling to 50: saved-task mean score was about `0.95`, but missing-task-as-zero mean score was `0.57` with only 3/5 tasks saved within the iteration budget. The remaining bottleneck is the research/document-heavy long tail.
 - 2026-06-04 post-judge-retry five-task real_v8 Agent SDK gate:
   - Run `kh7d050skjqy3w1bjg2b2kb9318805ed` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T10:19:04Z, and all five tasks entered Rust-core agent execution promptly.
