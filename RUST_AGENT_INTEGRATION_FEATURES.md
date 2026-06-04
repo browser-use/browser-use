@@ -1278,6 +1278,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 real_v8 task-6 gate where startup auto-detected `https://elibrary.ferc.gov/eLibrary/search.\\n2` as the first navigation URL.
    - Proof: `uv run pytest -q tests/ci/test_rust_agent.py -k 'mirrors_direct_url_startup or exposes_task_helper_methods'`, `uv run python -m py_compile browser_use/utils.py browser_use/agent/service.py browser_use/rust/service.py tests/ci/test_rust_agent.py`, and `git diff --check -- browser_use/utils.py browser_use/agent/service.py browser_use/rust/service.py tests/ci/test_rust_agent.py`.
 
+250. Rust Agent eval Agent SDK judge timeout cost parity
+   - Eval Agent SDK judging now defaults each tool-enabled judge attempt to 45 seconds instead of 90 seconds, while preserving `AGENT_SDK_JUDGE_TIMEOUT_SECONDS` as an override.
+   - The no-tools trajectory-only fallback remains the bounded path after timeout, so completed agent runs still receive a score without leaving long judge tails in capped parallel evals.
+   - This targets repeated 2026-06-04 gates where tool-enabled Agent SDK judge attempts hit timeout but the fallback verdict scored completed tasks correctly, and long judge tails prevented other completed tasks from saving before the 10-minute cap.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1290,11 +1296,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main` at `c36a332`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main` at `c36a332`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main` at `65e83c4`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main` at `65e83c4`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
+- `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main` at `65e83c4`
 - `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main` before commit `c36a332`
+- `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main` before commit `65e83c4`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent done_ -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent fused_done_result_becomes_final_message_without_follow_up -- --nocapture`
@@ -1483,6 +1493,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-direct-url-sanitizer five-task real_v8 Agent SDK gate:
+  - Run `kh71nj15hk37qysqhbmq1pvktx881j7n` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=45`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - The direct-start URL sanitizer was verified live: task 6 auto-detected `https://elibrary.ferc.gov/eLibrary/search` instead of the prior malformed `https://elibrary.ferc.gov/eLibrary/search.\\n2`.
+  - Saved results before the 10-minute stop: task 9 score `1.0` in 211.81s agent time/296.81s total pipeline, task 10 score `1.0` in 389.80s/480.63s, task 6 score `1.0` in 497.11s/591.82s, and task 7 score `1.0` after 591.29s agent time; the hard cap interrupted during task 7 cleanup after the result save.
+  - Task 8 completed the agent stage at 635.50s and entered the Agent SDK judge path, but it did not save before the hard cap. Its remaining Browser Use cloud session was manually stopped, along with the interrupted task-7 session, and no subprocesses remained.
+  - This gate still does not justify scaling to 50: saved-task mean score was `1.0`, but missing-task-as-zero mean score was `0.80` with only 4/5 tasks saved within the iteration budget.
 - 2026-06-04 pre-direct-url-sanitizer five-task real_v8 Agent SDK gate:
   - Run `kh708p87bkm0bftbrfcp81b4rd8817ac` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=75`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - All five Browser Use cloud sessions were created promptly and all five tasks entered Rust-core agent execution. Saved results before the 10-minute stop: task 10 score `1.0` in 313.29s agent time/365.32s total pipeline and task 9 score `0.85` in 235.33s/385.73s.
