@@ -1265,6 +1265,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task gates where eval final results could be empty or only a short summary even though the agent had collected substantive data in step memory.
    - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent done_ -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent fused_done_result_becomes_final_message_without_follow_up -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- crates/browser-use-agent/src/tools/handlers/done.rs crates/browser-use-agent/src/tools/handlers/done_tests.rs crates/browser-use-agent/src/tools/registry.rs crates/browser-use-agent/src/tools/registry_tests.rs crates/browser-use-agent/src/turn/sampling.rs crates/browser-use-agent/src/turn/sampling_tests.rs`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
 
+248. Rust Agent Agent SDK judge bounded-fallback parity
+   - Eval Agent SDK judging now bounds each tool-enabled judge attempt with `AGENT_SDK_JUDGE_TIMEOUT_SECONDS`, defaulting to 90 seconds.
+   - The repeated Claude Code SDK `returned an error result: success` condition now falls back immediately to a no-tools Agent SDK trajectory verdict instead of retrying more tool-enabled judge subprocesses until the eval iteration cap.
+   - Tool-enabled judge timeouts use the same no-tools trajectory fallback, preserving completed agent results while keeping the eval loop inside the 10-minute experiment budget.
+   - This targets the 2026-06-04 five-task cloud gates where completed agent runs were either scored `0.0` or left unsaved because the Agent SDK judge tail consumed the remaining capped eval time.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1273,10 +1280,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'browser_script_wait or max_steps or cloud_create or agent_sdk_judge_retries'` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main` at `c36a332`
+- `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main` at `c36a332`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py eval/browsers.py eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main`
+- `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py` on evaluations-internal branch `main` before commit `c36a332`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent done_ -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent fused_done_result_becomes_final_message_without_follow_up -- --nocapture`
