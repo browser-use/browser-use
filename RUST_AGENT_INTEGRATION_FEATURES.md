@@ -1347,6 +1347,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated document/research gates where the agent hand-wrote fragile per-link fetch/reverse-engineering loops after discovering stable links or request patterns, increasing steps and token cost.
    - Proof: terminal `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_http_get_many_preserves_order_and_errors -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-browser -p browser-use-agent`, terminal `git diff --check`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
 
+260. Rust Agent browser-script batch fetch adoption guidance
+   - Terminal `browser_script` guidance now includes a compact, reusable batch-fetch recipe for the point after the browser has discovered stable independent URLs or endpoints.
+   - The recipe demonstrates `http_get_many(...)`, ordered response handling, per-URL error preservation, compact `emit_output(...)` progress, and `# browser_summary` summaries so the model can switch from serial browser waits to checkpointed batch extraction without printing full page bodies.
+   - This is intentionally generic and does not name any eval task, domain, site category, or expected answer; it targets the current live evidence that the helper API exists but fresh eval artifacts still did not show the model adopting it.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
