@@ -1481,6 +1481,17 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The same gate proved the Rust usage dashboard fix: saved tasks now show nonzero `tokensUsed` from `history.usage.total_tokens` and include cache/cost buckets in `usage`.
    - Proof: evaluations-internal `PYTHONPATH=. uv run python -m py_compile eval/task_types.py tests/test_service_cli.py`, evaluations-internal `PYTHONPATH=. uv run pytest -q tests/test_service_cli.py -k 'server_payload_trims_oversized_history_fields or pre_judge_checkpoint or uses_usage_total_tokens_when_metadata_missing'`, evaluations-internal `git diff --check -- eval/task_types.py tests/test_service_cli.py`, and dashboard query `/api/getRunResults?runId=kh71j6cq0cwegjjb6rh4c4840h881wm8&format=only_judge`.
 
+281. Rust terminal Anthropic tool-cache parity
+   - The terminal provider-path Anthropic Messages request builder now marks the final tool definition with `cache_control: {type: ephemeral}`, matching the active `browser-use-llm` Anthropic protocol path.
+   - This keeps static browser/action tool descriptions in the provider-visible cache prefix for Claude Sonnet 4.6 runs instead of only caching system/current-state message breakpoints.
+   - Proof: terminal `cargo test -q -p browser-use-providers anthropic_messages_request_marks_last_tool_cacheable -- --nocapture`, terminal `cargo fmt --check -p browser-use-providers`, terminal `git diff --check -- crates/browser-use-providers/src/lib.rs`, and terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`.
+
+282. Rust eval single 30-minute task timeout
+   - The eval runner now defaults to one generous `1800` second per-task timeout instead of carving a 600-second run into separate agent, finalization, save-buffer, and judge-stage budgets.
+   - The hidden default timeout-finalization and save-buffer reservations are off by default, so the Rust agent no longer receives a surprising `425` or `485` second effective budget unless an operator explicitly configures those legacy knobs.
+   - The Agent SDK judge default budget is also `1800` seconds when task timeboxing is active, preventing false-zero judge cancellations from a shorter outer wrapper.
+   - Proof: evaluations-internal `PYTHONPATH=. uv run pytest -q tests/test_service_cli.py -k 'task_timebox_defaults_to_single_generous_budget or run_agent_finalizes_timeboxed_rust_history or timeout_finalization_wall_timeout_does_not_fail_task or run_judge_with_timeout_returns_saveable_timeout_result'`, evaluations-internal `PYTHONPATH=. uv run python -m py_compile eval/service.py tests/test_service_cli.py`, and evaluations-internal `git diff --check -- eval/service.py tests/test_service_cli.py`.
+
 ## Current Verification
 
 - terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`
