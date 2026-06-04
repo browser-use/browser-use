@@ -2581,13 +2581,16 @@ def _terminal_laminar_turn_input(
 		composition = {}
 	raw_tools = composition.get('tools')
 	tools = raw_tools if isinstance(raw_tools, list) else []
-	tool_names = []
-	for tool in tools[:30]:
-		if isinstance(tool, dict) and isinstance(tool.get('name'), str):
-			tool_names.append(tool['name'])
 	llm_input = request_payload.get('llm_input')
 	if not isinstance(llm_input, dict):
 		llm_input = {}
+	llm_tools = llm_input.get('tools')
+	if isinstance(llm_tools, list):
+		tools = [tool for tool in llm_tools if isinstance(tool, dict)]
+	tool_names = []
+	for tool in tools:
+		if isinstance(tool, dict) and isinstance(tool.get('name'), str):
+			tool_names.append(tool['name'])
 	messages = llm_input.get('messages')
 	if not isinstance(messages, list):
 		messages = []
@@ -2602,6 +2605,7 @@ def _terminal_laminar_turn_input(
 		'system_prompt_tokens': composition.get('system_prompt_tokens'),
 		'tools_count': len(tools),
 		'tool_names': tool_names,
+		'tools': tools,
 		'system': system,
 		'messages': messages,
 		'message_count': _int_value(llm_input.get('message_count')),
@@ -2740,6 +2744,21 @@ def _terminal_laminar_span_input_messages(span_input: dict[str, Any]) -> list[di
 	return [*_terminal_laminar_system_messages(span_input), *normalized_messages]
 
 
+def _terminal_laminar_tools_for_span(span_input: dict[str, Any]) -> list[dict[str, Any]]:
+	tools = span_input.get('tools')
+	if not isinstance(tools, list):
+		return []
+	return [tool for tool in tools if isinstance(tool, dict)]
+
+
+def _terminal_laminar_span_input_payload(span_input: dict[str, Any]) -> Any:
+	messages = _terminal_laminar_span_input_messages(span_input)
+	tools = _terminal_laminar_tools_for_span(span_input)
+	if not tools:
+		return messages
+	return {'messages': messages, 'tools': tools}
+
+
 def _terminal_laminar_span_output_messages(span_output: dict[str, Any]) -> list[dict[str, Any]]:
 	messages = span_output.get('messages')
 	return messages if isinstance(messages, list) else []
@@ -2766,6 +2785,90 @@ def _terminal_laminar_message_text(message: dict[str, Any]) -> str:
 	return '\n'.join(parts)
 
 
+def _terminal_laminar_semconv_content_part(part: Any) -> dict[str, Any]:
+	if not isinstance(part, dict):
+		return {'type': 'text', 'content': str(part)}
+	part_type = part.get('type')
+	if part_type in {'text', 'input_text', 'output_text'}:
+		text = part.get('text') or part.get('content')
+		if isinstance(text, str):
+			return {'type': 'text', 'content': text}
+	if part_type == 'image_url':
+		image_url = part.get('image_url')
+		url = image_url.get('url') if isinstance(image_url, dict) else None
+		if isinstance(url, str) and url:
+			if url.startswith('data:') and ';base64,' in url:
+				header, blob = url.split(';base64,', 1)
+				mime_type = header.removeprefix('data:') or 'application/octet-stream'
+				return {'type': 'blob', 'blob': blob, 'mimeType': mime_type}
+			return {'type': 'uri', 'uri': url}
+	if part_type in {'tool_use', 'tool_call'}:
+		tool_call: dict[str, Any] = {'type': 'tool_call'}
+		tool_id = part.get('id') or part.get('tool_call_id')
+		name = part.get('name')
+		arguments = part.get('arguments') if 'arguments' in part else part.get('input')
+		if isinstance(tool_id, str):
+			tool_call['id'] = tool_id
+		if isinstance(name, str):
+			tool_call['name'] = name
+		if arguments is not None:
+			tool_call['arguments'] = arguments
+		return tool_call
+	if part_type == 'tool_result':
+		response: dict[str, Any] = {'type': 'tool_call_response'}
+		tool_id = part.get('tool_use_id') or part.get('tool_call_id') or part.get('id')
+		if isinstance(tool_id, str):
+			response['id'] = tool_id
+		if 'content' in part:
+			response['response'] = part.get('content')
+		return response
+	content = part.get('content')
+	if isinstance(content, str):
+		return {'type': 'text', 'content': content}
+	return {'type': 'text', 'content': _terminal_laminar_json_attribute(part)}
+
+
+def _terminal_laminar_semconv_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	semconv_messages: list[dict[str, Any]] = []
+	for message in messages:
+		if not isinstance(message, dict):
+			continue
+		role = message.get('role')
+		if not isinstance(role, str):
+			continue
+		content = message.get('content')
+		parts: list[dict[str, Any]]
+		if isinstance(content, list):
+			parts = [_terminal_laminar_semconv_content_part(part) for part in content]
+		elif isinstance(content, str):
+			parts = [{'type': 'text', 'content': content}]
+		else:
+			parts = []
+		tool_calls = message.get('tool_calls')
+		if isinstance(tool_calls, list):
+			for tool_call in tool_calls:
+				parts.append(_terminal_laminar_semconv_content_part({'type': 'tool_call', **tool_call}))
+		semconv_messages.append({'role': role, 'parts': parts})
+	return semconv_messages
+
+
+def _terminal_laminar_system_instructions(span_input: dict[str, Any]) -> str:
+	system_parts = span_input.get('system')
+	if not isinstance(system_parts, list):
+		return ''
+	texts: list[str] = []
+	for part in system_parts:
+		if isinstance(part, dict):
+			text = part.get('text') or part.get('content')
+			if isinstance(text, str):
+				texts.append(text)
+			elif part:
+				texts.append(_terminal_laminar_json_attribute(part))
+		elif isinstance(part, str):
+			texts.append(part)
+	return '\n\n'.join(texts)
+
+
 def _terminal_laminar_indexed_message_attributes(
 	messages: list[dict[str, Any]], prefix: str, *, max_messages: int = 20
 ) -> dict[str, Any]:
@@ -2784,6 +2887,46 @@ def _terminal_laminar_indexed_message_attributes(
 	return attributes
 
 
+def _terminal_laminar_json_attribute(value: Any) -> str:
+	return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _terminal_laminar_tool_definition_attributes(tools: list[dict[str, Any]]) -> dict[str, Any]:
+	if not tools:
+		return {}
+	attributes: dict[str, Any] = {
+		'gen_ai.tool.definitions': _terminal_laminar_json_attribute(tools),
+		'gen_ai.request.tools': _terminal_laminar_json_attribute(tools),
+		'llm.request.functions': _terminal_laminar_json_attribute(tools),
+	}
+	for index, tool in enumerate(tools):
+		name = tool.get('name')
+		description = tool.get('description')
+		input_schema = tool.get('input_schema') or tool.get('parameters')
+		output_schema = tool.get('output_schema')
+		namespace = tool.get('namespace')
+		namespace_description = tool.get('namespace_description')
+		prefix = f'llm.request.functions.{index}'
+		if isinstance(name, str):
+			attributes[f'{prefix}.name'] = name
+			attributes[f'gen_ai.request.tools.{index}.name'] = name
+		if isinstance(description, str):
+			attributes[f'{prefix}.description'] = description
+			attributes[f'gen_ai.request.tools.{index}.description'] = description
+		if input_schema is not None:
+			schema = _terminal_laminar_json_attribute(input_schema)
+			attributes[f'{prefix}.input_schema'] = schema
+			attributes[f'{prefix}.parameters'] = schema
+			attributes[f'gen_ai.request.tools.{index}.input_schema'] = schema
+		if output_schema is not None:
+			attributes[f'{prefix}.output_schema'] = _terminal_laminar_json_attribute(output_schema)
+		if isinstance(namespace, str):
+			attributes[f'{prefix}.namespace'] = namespace
+		if isinstance(namespace_description, str):
+			attributes[f'{prefix}.namespace_description'] = namespace_description
+	return attributes
+
+
 def _terminal_laminar_gen_ai_attributes(
 	span_input: dict[str, Any],
 	span_output: dict[str, Any],
@@ -2795,10 +2938,13 @@ def _terminal_laminar_gen_ai_attributes(
 		'gen_ai.operation.name': 'chat',
 		'gen_ai.request.model': str(span_input.get('model') or ''),
 		'gen_ai.system': str(span_input.get('provider') or ''),
-		'gen_ai.system_instructions': _laminar_preview(span_input.get('system') or [], limit=30_000),
+		'gen_ai.system_instructions': _terminal_laminar_system_instructions(span_input),
+		'gen_ai.input.messages': _terminal_laminar_json_attribute(_terminal_laminar_semconv_messages(input_messages)),
+		'gen_ai.output.messages': _terminal_laminar_json_attribute(_terminal_laminar_semconv_messages(output_messages)),
 	}
 	attributes.update(_terminal_laminar_indexed_message_attributes(input_messages, 'gen_ai.prompt'))
 	attributes.update(_terminal_laminar_indexed_message_attributes(output_messages, 'gen_ai.completion'))
+	attributes.update(_terminal_laminar_tool_definition_attributes(_terminal_laminar_tools_for_span(span_input)))
 	if usage:
 		attributes.update(
 			{
@@ -2923,8 +3069,8 @@ def _record_laminar_terminal_llm_spans(
 			usage.update(cost)
 		start_time = _event_time_seconds(turn_events[0], 0.0)
 		end_time = _event_time_seconds(turn_events[-1], start_time)
-		span_input_messages = _terminal_laminar_span_input_messages(span_input)
-		with _laminar_start_span('rust_core.llm', input=span_input_messages, span_type='LLM'):
+		span_input_payload = _terminal_laminar_span_input_payload(span_input)
+		with _laminar_start_span('rust_core.llm', input=span_input_payload, span_type='LLM'):
 			span_output = _terminal_laminar_turn_output(turn_events, raw_usage)
 			span_output_messages = _terminal_laminar_span_output_messages(span_output)
 			_laminar_set_span_attributes(

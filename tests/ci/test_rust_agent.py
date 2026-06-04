@@ -7471,22 +7471,33 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 				},
 				'llm_input': {
 					'system': [{'text': 'System prompt'}],
-						'messages': [
-							{
-								'role': 'user',
-								'content': [
-									{'type': 'text', 'text': 'Find the title on example.com'},
-									{
-										'type': 'media',
-										'mime_type': 'image/png',
-										'data': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
-										'detail': 'low',
-									},
-								],
-							}
-						],
-						'message_count': 1,
-						'omitted_earlier_messages': 0,
+					'tools': [
+						{
+							'name': 'browser_script',
+							'description': 'Run browser Python. Use click_at_xy(x, y) to click visible page coordinates.',
+							'input_schema': {
+								'type': 'object',
+								'properties': {'code': {'type': 'string'}},
+								'required': ['code'],
+							},
+						}
+					],
+					'messages': [
+						{
+							'role': 'user',
+							'content': [
+								{'type': 'text', 'text': 'Find the title on example.com'},
+								{
+									'type': 'media',
+									'mime_type': 'image/png',
+									'data': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
+									'detail': 'low',
+								},
+							],
+						}
+					],
+					'message_count': 1,
+					'omitted_earlier_messages': 0,
 				},
 			},
 		},
@@ -7559,21 +7570,23 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.events[-1][0] == 'agent.run.terminal_summary'
 	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
 	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
-	assert FakeLaminar.spans[0]['input'][0]['role'] == 'system'
-	assert FakeLaminar.spans[0]['input'][0]['content'][0]['text'] == 'System prompt'
-	assert FakeLaminar.spans[0]['input'][1]['content'][0]['text'] == 'Find the title on example.com'
-	assert FakeLaminar.spans[0]['input'][1]['content'][1] == {
+	assert FakeLaminar.spans[0]['input']['messages'][0]['role'] == 'system'
+	assert FakeLaminar.spans[0]['input']['messages'][0]['content'][0]['text'] == 'System prompt'
+	assert FakeLaminar.spans[0]['input']['messages'][1]['content'][0]['text'] == 'Find the title on example.com'
+	assert FakeLaminar.spans[0]['input']['messages'][1]['content'][1] == {
 		'type': 'image_url',
 		'image_url': {
 			'url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
 			'detail': 'low',
 		},
 	}
+	assert FakeLaminar.spans[0]['input']['tools'][0]['name'] == 'browser_script'
+	assert 'click_at_xy' in FakeLaminar.spans[0]['input']['tools'][0]['description']
 	span_attrs = {}
 	for attributes in FakeLaminar.spans[0]['attributes']:
 		span_attrs.update(attributes)
-	assert span_attrs['tools_count'] == 2
-	assert 'browser' in span_attrs['tool_names']
+	assert span_attrs['tools_count'] == 1
+	assert 'browser_script' in span_attrs['tool_names']
 	assert span_attrs['input_tokens'] == 100
 	assert span_attrs['cached_input_tokens'] == 5
 	assert span_attrs['cache_creation_input_tokens'] == 13
@@ -7594,6 +7607,15 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert span_attrs['gen_ai.usage.cache_creation_input_tokens'] == 13
 	assert span_attrs['gen_ai.usage.output_tokens'] == 20
 	assert span_attrs['gen_ai.usage.total_tokens'] == 133
+	assert span_attrs['llm.request.functions.0.name'] == 'browser_script'
+	assert 'click_at_xy' in span_attrs['llm.request.functions.0.description']
+	assert '"code"' in span_attrs['llm.request.functions.0.input_schema']
+	assert '"browser_script"' in span_attrs['gen_ai.tool.definitions']
+	assert 'click_at_xy' in span_attrs['gen_ai.tool.definitions']
+	assert '"browser_script"' in span_attrs['gen_ai.request.tools']
+	assert '"System prompt"' in span_attrs['gen_ai.input.messages']
+	assert 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB' in span_attrs['gen_ai.input.messages']
+	assert '"laminar answer"' in span_attrs['gen_ai.output.messages']
 	assert span_attrs['assistant_output_preview'] == 'laminar answer'
 	assert FakeLaminar.spans[0]['outputs'][-1][0]['content'][0]['text'] == 'laminar answer'
 	assert FakeLaminar.spans[1]['name'] == 'rust_core.tool.browser_script'
