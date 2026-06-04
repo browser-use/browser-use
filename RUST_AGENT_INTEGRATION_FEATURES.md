@@ -1284,6 +1284,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets repeated 2026-06-04 gates where tool-enabled Agent SDK judge attempts hit timeout but the fallback verdict scored completed tasks correctly, and long judge tails prevented other completed tasks from saving before the 10-minute cap.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
 
+251. Rust Agent BrowserSession network auto-download filter parity
+   - BrowserSession's network-response download fallback now skips generic text/JSON attachments without file-like URLs, while preserving PDFs, named file attachments, file-extension URLs, and browser download events.
+   - This prevents Google async/autocomplete/search helper responses that advertise generic `f.txt` attachments from being auto-fetched and tracked as user downloads.
+   - The filter is intentionally generic: it does not special-case a domain, and it only affects the network-response fallback path that supplements normal browser download events.
+   - This targets repeated 2026-06-04 gates where Google-heavy tasks accumulated many `f*.txt` artifacts in the downloads directory, polluting eval artifacts and wasting background fetch work.
+   - Proof: `uv run pytest -q tests/ci/test_downloads_watchdog.py`, `uv run python -m py_compile browser_use/browser/watchdogs/downloads_watchdog.py tests/ci/test_downloads_watchdog.py`, and `git diff --check -- browser_use/browser/watchdogs/downloads_watchdog.py tests/ci/test_downloads_watchdog.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1291,6 +1298,8 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `uv run python -m py_compile browser_use/utils.py browser_use/agent/service.py browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - `uv run pytest -q tests/ci/test_rust_agent.py -k 'mirrors_direct_url_startup or exposes_task_helper_methods'`
+- `uv run python -m py_compile browser_use/browser/watchdogs/downloads_watchdog.py tests/ci/test_downloads_watchdog.py`
+- `uv run pytest -q tests/ci/test_downloads_watchdog.py`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'browser_script_wait or max_steps or cloud_create or agent_sdk_judge_retries'` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main`
@@ -1493,6 +1502,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-download-filter five-task real_v8 Agent SDK gate:
+  - Run `kh76d5r82p69gshaa3vr0ph0bn8809h8` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, the eval default `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=45`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - The network auto-download filter was verified live: the same Google-heavy slice no longer logged `Detected downloadable content` or `Tracked download: f*.txt` for Google async/autocomplete responses, while tasks still entered normal browser execution.
+  - Saved results before the 10-minute stop: task 9 score `1.0` in 165.53s agent time/246.54s total pipeline and task 10 score `1.0` in 307.50s/362.23s.
+  - Tasks 6, 7, and 8 were still in agent-stage execution when the hard cap fired; their Browser Use cloud sessions were manually stopped and no subprocesses remained.
+  - This gate does not justify scaling to 50: saved-task mean score was `1.0`, but missing-task-as-zero mean score was `0.40` with only 2/5 tasks saved within the iteration budget.
 - 2026-06-04 post-direct-url-sanitizer five-task real_v8 Agent SDK gate:
   - Run `kh71nj15hk37qysqhbmq1pvktx881j7n` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=45`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - The direct-start URL sanitizer was verified live: task 6 auto-detected `https://elibrary.ferc.gov/eLibrary/search` instead of the prior malformed `https://elibrary.ferc.gov/eLibrary/search.\\n2`.
