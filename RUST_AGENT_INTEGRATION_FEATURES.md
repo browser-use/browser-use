@@ -1510,8 +1510,17 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This fixes the Claude cache-breaker seen in recent real_v8 traces where earlier assistant/browser_script tool-call pairs appeared twice in the middle of later `model.turn.request` inputs, causing Anthropic cache reads to fall back to the stable system/tools prefix.
    - Proof: terminal `cargo test -q -p browser-use-agent durable_prompt_replay_ignores_duplicate_fusion_tail -- --nocapture`, terminal `cargo test -q -p browser-use-agent store_turn_state_lowers_history_and_records -- --nocapture`, terminal `cargo test -q -p browser-use-agent fused_entrypoint_driver_dispatches_and_resamples_with_output -- --nocapture`, terminal `cargo test -q -p browser-use-agent config_facade_drives_fake_backend_to_quiescence -- --nocapture`, terminal `cargo test -q -p browser-use-agent runtime_config_overrides_materialize_max_turns_and_browser_mode -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent -p browser-use-cli`, and terminal `git diff --check -- crates/browser-use-agent/src/entrypoint/mod.rs`.
 
+286. Rust terminal long-run progress finalization nudge
+   - Bounded terminal runs with a large `max_turns` now inject a generic progress checkpoint every 10 turns after half of the configured turn budget has elapsed, while preserving the existing final-step nudge and the full `max_turns=100` cap.
+   - The nudge is deliberately general: if the agent already has enough evidence, a saved artifact, or a complete-enough answer, it should call `done`; otherwise it should continue only for clearly missing required information.
+   - This targets the 2026-06-04 five-task gate where three unrelated tasks continued past 10 minutes and 40-60 turns despite having gathered substantial data/artifacts, without changing task-specific instructions or reducing the timeout.
+   - Proof: terminal `cargo test -q -p browser-use-agent bounded_loop_adds_progress_nudge_for_long_runs -- --nocapture`, terminal `cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`, terminal `cargo test -q -p browser-use-agent durable_prompt_replay_ignores_duplicate_fusion_tail -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check -- crates/browser-use-agent/src/turn/loop_driver.rs crates/browser-use-agent/src/turn/loop_tests.rs`, and terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`.
+
 ## Current Verification
 
+- terminal `cargo test -q -p browser-use-agent bounded_loop_adds_progress_nudge_for_long_runs -- --nocapture`
+- terminal `cargo test -q -p browser-use-agent bounded_loop_aborts_after_max_turns -- --nocapture`
+- terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`
 - terminal `cargo test -q -p browser-use-agent durable_prompt_replay_ignores_duplicate_fusion_tail -- --nocapture`
 - terminal `cargo test -q -p browser-use-agent store_turn_state_lowers_history_and_records -- --nocapture`
 - terminal `cargo test -q -p browser-use-agent fused_entrypoint_driver_dispatches_and_resamples_with_output -- --nocapture`
