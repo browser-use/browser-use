@@ -1528,6 +1528,11 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task gate where unrelated long-running tasks lost turns to transient `browser_fetch failed ... Failed to fetch` tool failures after already discovering useful page/API state.
    - Proof: terminal `cargo test -q -p browser-use-browser browser_script_browser_fetch_single_returns_structured_errors_by_default -- --nocapture`, terminal `cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-browser -p browser-use-agent`, terminal `git diff --check -- crates/browser-use-browser/src/browser_script_helpers.py crates/browser-use-browser/src/lib.rs prompts/browser-script-tool-description.md`, and terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`.
 
+289. Rust Agent wrapper initialization and public eval ref parity
+   - `browser_use.rust.Agent` now owns its Browser Use signature-alignment hook instead of importing the Rust wrapper from the Python `Agent` module at import time, preserving `from browser_use.rust import Agent` while keeping the previous Python `Agent` class available as `_PythonAgent`.
+   - Rust wrapper construction initializes action/output models and verifies the LLM even when `save_conversation_path` is not set, matching normal Python `Agent` initialization and preventing hosted eval refs from producing empty one-step histories because setup was skipped.
+   - Proof: browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k 'rust_agent_initializes_action_models_without_conversation_path or rust_agent_setup_action_models_signature_matches_browser_use or rust_agent_resolves_conversation_path_like_browser_use'`.
+
 ## Current Verification
 
 - terminal `cargo test -q -p browser-use-browser browser_script_browser_fetch_single_returns_structured_errors_by_default -- --nocapture` on commit `e109049`
@@ -1535,6 +1540,8 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - terminal `cargo fmt --check -p browser-use-browser -p browser-use-agent`
 - terminal `git diff --check -- crates/browser-use-browser/src/browser_script_helpers.py crates/browser-use-browser/src/lib.rs prompts/browser-script-tool-description.md`
 - terminal `cargo build -q -p browser-use-cli --bin browser-use-terminal`
+- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k 'rust_agent_initializes_action_models_without_conversation_path or rust_agent_setup_action_models_signature_matches_browser_use or rust_agent_resolves_conversation_path_like_browser_use'`
+- browser-use `uv run ruff format browser_use/agent/service.py browser_use/rust/service.py tests/ci/test_rust_agent.py`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge'` on commit `40e2360`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -k 'agent_sdk_judge_timeout or single_generous or timeout_default or timeout_inherits or explicit_timeouts or service_cli_defaults_to_100'` on commit `40e2360`
 - evaluations-internal `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`

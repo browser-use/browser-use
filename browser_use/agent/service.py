@@ -4140,36 +4140,3 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 
 _PythonAgent = Agent
-
-
-def _align_rust_agent_signatures() -> None:
-	from browser_use.rust.service import Agent as RustAgent
-
-	for name, browser_use_method in vars(_PythonAgent).items():
-		if name.startswith('__') and name != '__init__':
-			continue
-		rust_method = getattr(RustAgent, name, None)
-		if rust_method is None or not callable(browser_use_method) or not callable(rust_method):
-			continue
-		try:
-			rust_method.__signature__ = inspect.signature(browser_use_method)
-			rust_method.__annotations__ = dict(getattr(browser_use_method, '__annotations__', {}))
-		except (TypeError, ValueError, AttributeError):
-			continue
-	try:
-		RustAgent.__signature__ = inspect.signature(_PythonAgent)
-	except (TypeError, ValueError, AttributeError):
-		pass
-	agent_hook_func = Callable[[_PythonAgent], Awaitable[None]]
-	for name in ('run', 'run_sync'):
-		rust_method = getattr(RustAgent, name, None)
-		if rust_method is None:
-			continue
-		try:
-			rust_method.__annotations__['on_step_start'] = agent_hook_func | None
-			rust_method.__annotations__['on_step_end'] = agent_hook_func | None
-		except (TypeError, AttributeError, KeyError):
-			continue
-
-
-_align_rust_agent_signatures()

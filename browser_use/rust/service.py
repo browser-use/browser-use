@@ -30,6 +30,7 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
+from browser_use.agent.judge import construct_judge_messages
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
@@ -43,6 +44,7 @@ from browser_use.agent.views import (
 	AgentState,
 	AgentStepInfo,
 	AgentStructuredOutput,
+	JudgementResult,
 	MessageCompactionSettings,
 	StepMetadata,
 )
@@ -78,8 +80,7 @@ from browser_use.utils import (
 Context = TypeVar('Context')
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 AgentNewStepCallback = (
-	Callable[[BrowserStateSummary, AgentOutput, int], None]
-	| Callable[[BrowserStateSummary, AgentOutput, int], Awaitable[None]]
+	Callable[[BrowserStateSummary, AgentOutput, int], None] | Callable[[BrowserStateSummary, AgentOutput, int], Awaitable[None]]
 )
 AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None]] | Callable[[AgentHistoryList], None]
 logger = logging.getLogger(__name__)
@@ -115,11 +116,7 @@ def _laminar_preview(value: Any, limit: int = 2000) -> Any:
 def _laminar_set_span_attributes(attributes: dict[str, Any]) -> None:
 	if not _laminar_ready():
 		return
-	safe_attributes = {
-		key: value
-		for key, value in attributes.items()
-		if isinstance(value, (str, bool, int, float))
-	}
+	safe_attributes = {key: value for key, value in attributes.items() if isinstance(value, (str, bool, int, float))}
 	if not safe_attributes:
 		return
 	try:
@@ -140,11 +137,7 @@ def _laminar_set_span_output(output: Any) -> None:
 def _laminar_event(name: str, attributes: dict[str, Any] | None = None) -> None:
 	if not _laminar_ready():
 		return
-	safe_attributes = {
-		key: value
-		for key, value in (attributes or {}).items()
-		if isinstance(value, (str, bool, int, float))
-	}
+	safe_attributes = {key: value for key, value in (attributes or {}).items() if isinstance(value, (str, bool, int, float))}
 	try:
 		Laminar.event(name, safe_attributes or None)
 	except Exception:
@@ -177,9 +170,7 @@ def find_browser_use_terminal_binary() -> str:
 	for candidate in candidates:
 		if candidate.exists():
 			return str(candidate)
-	raise RustAgentError(
-		'Could not find browser-use-terminal. Set BROWSER_USE_TERMINAL_BINARY or build the terminal CLI.'
-	)
+	raise RustAgentError('Could not find browser-use-terminal. Set BROWSER_USE_TERMINAL_BINARY or build the terminal CLI.')
 
 
 def _model_name(llm: Any | None) -> str:
@@ -358,7 +349,9 @@ def _managed_browser_profile_dir(browser_session: BrowserSession | None, browser
 	return None
 
 
-def _managed_browser_executable_path(browser_session: BrowserSession | None, browser_profile: BrowserProfile | None) -> str | None:
+def _managed_browser_executable_path(
+	browser_session: BrowserSession | None, browser_profile: BrowserProfile | None
+) -> str | None:
 	session_profile = getattr(browser_session, 'browser_profile', None)
 	for profile in (session_profile, browser_profile, browser_session):
 		value = getattr(profile, 'executable_path', None)
@@ -662,7 +655,7 @@ def _warn_sensitive_data_domain_constraints(
 	if not sensitive_data:
 		return
 	if not allowed_domains:
-		logger.error(
+		logger.warning(
 			'⚠️ Agent(sensitive_data=••••••••) was provided but Browser(allowed_domains=[...]) is not locked down! ⚠️\n'
 			'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
 			'   \n'
@@ -965,7 +958,9 @@ def _compaction_replay_start_seq(event: dict[str, Any]) -> int | None:
 
 
 def _events_after_terminal_compaction(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-	compaction_index = next((index for index in range(len(events) - 1, -1, -1) if _event_type(events[index]) == 'session.compacted'), None)
+	compaction_index = next(
+		(index for index in range(len(events) - 1, -1, -1) if _event_type(events[index]) == 'session.compacted'), None
+	)
 	if compaction_index is None:
 		return events
 	replay_start_seq = _compaction_replay_start_seq(events[compaction_index])
@@ -1142,7 +1137,9 @@ def _attachments_from_events(events: list[dict[str, Any]]) -> list[str] | None:
 
 def _json_result_candidates(text: str) -> list[str]:
 	candidates = [text.strip()]
-	candidates.extend(match.group(1).strip() for match in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.IGNORECASE | re.DOTALL))
+	candidates.extend(
+		match.group(1).strip() for match in re.finditer(r'```(?:json)?\s*(.*?)```', text, re.IGNORECASE | re.DOTALL)
+	)
 	decoder = json.JSONDecoder()
 	for index, char in enumerate(text):
 		if char not in '{[':
@@ -1224,7 +1221,9 @@ def _recoverable_failure_from_events(events: list[dict[str, Any]]) -> str | None
 			error = _tool_abort_message(payload)
 			if error:
 				return error
-		if event_type == 'exec_command.end' and not _matching_tool_result_payload(events, payload, ('tool.failed', 'tool.aborted')):
+		if event_type == 'exec_command.end' and not _matching_tool_result_payload(
+			events, payload, ('tool.failed', 'tool.aborted')
+		):
 			error = _exec_command_end_failure_message(payload)
 			if error:
 				return error
@@ -1521,8 +1520,12 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 					and _is_redundant_paired_output_delta(previous[0], previous[1], event_type, payload, delta_text)
 				):
 					continue
-				merged_payload = dict(previous[1]) if previous is not None and previous[0] in _TOOL_OUTPUT_DELTA_EVENTS else dict(payload)
-				previous_text = merged_payload.get('text') if previous is not None and previous[0] in _TOOL_OUTPUT_DELTA_EVENTS else ''
+				merged_payload = (
+					dict(previous[1]) if previous is not None and previous[0] in _TOOL_OUTPUT_DELTA_EVENTS else dict(payload)
+				)
+				previous_text = (
+					merged_payload.get('text') if previous is not None and previous[0] in _TOOL_OUTPUT_DELTA_EVENTS else ''
+				)
 				for payload_key, payload_value in payload.items():
 					if payload_key != 'text':
 						merged_payload[payload_key] = payload_value
@@ -1540,11 +1543,16 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 					continue
 				results[key] = (event_type, _command_waiting_payload(payload, previous[1] if previous is not None else None))
 				continue
-			if event_type == 'exec_command.end' and previous is not None and previous[0] in (
-				'tool.output',
-				'tool.failed',
-				'tool.aborted',
-				'model.response.input_item',
+			if (
+				event_type == 'exec_command.end'
+				and previous is not None
+				and previous[0]
+				in (
+					'tool.output',
+					'tool.failed',
+					'tool.aborted',
+					'model.response.input_item',
+				)
 			):
 				continue
 			if event_type == 'tool.failed' and previous is not None and previous[0] == 'tool.aborted':
@@ -1585,10 +1593,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 				(
 					result
 					for result in reversed(results)
-					if isinstance(name, str)
-					and name
-					and result[0] in _TOOL_OUTPUT_DELTA_EVENTS
-					and result[1].get('name') == name
+					if isinstance(name, str) and name and result[0] in _TOOL_OUTPUT_DELTA_EVENTS and result[1].get('name') == name
 				),
 				None,
 			)
@@ -1620,15 +1625,19 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 				(
 					index
 					for index in range(len(results) - 1, -1, -1)
-					if isinstance(name, str)
-					and name
-					and results[index][1].get('name') == name
+					if isinstance(name, str) and name and results[index][1].get('name') == name
 				),
 				None,
 			)
 			if previous_result_index is not None:
 				previous_event_type, previous_payload = results[previous_result_index]
-				if previous_event_type in ('tool.output', 'tool.failed', 'tool.aborted', 'exec_command.end', 'model.response.input_item'):
+				if previous_event_type in (
+					'tool.output',
+					'tool.failed',
+					'tool.aborted',
+					'exec_command.end',
+					'model.response.input_item',
+				):
 					continue
 				results[previous_result_index] = (event_type, _command_waiting_payload(payload, previous_payload))
 				continue
@@ -1641,9 +1650,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 				(
 					index
 					for index in range(len(results) - 1, -1, -1)
-					if isinstance(name, str)
-					and name
-					and results[index][1].get('name') == name
+					if isinstance(name, str) and name and results[index][1].get('name') == name
 				),
 				None,
 			)
@@ -1661,10 +1668,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 				(
 					result
 					for result in reversed(results)
-					if isinstance(name, str)
-					and name
-					and result[0] == 'tool.aborted'
-					and result[1].get('name') == name
+					if isinstance(name, str) and name and result[0] == 'tool.aborted' and result[1].get('name') == name
 				),
 				None,
 			)
@@ -1676,10 +1680,7 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 				(
 					result
 					for result in reversed(results)
-					if isinstance(name, str)
-					and name
-					and result[0] != 'tool.finished'
-					and result[1].get('name') == name
+					if isinstance(name, str) and name and result[0] != 'tool.finished' and result[1].get('name') == name
 				),
 				None,
 			)
@@ -2103,7 +2104,9 @@ def _browser_state_candidates(value: Any) -> list[tuple[str, str, str]]:
 		url = _browser_url(value.get('url'))
 		if url:
 			title = str(value.get('title') or '')
-			target_id = str(value.get('target_id') or value.get('targetId') or value.get('tab_id') or value.get('tabId') or 'tab-0')
+			target_id = str(
+				value.get('target_id') or value.get('targetId') or value.get('tab_id') or value.get('tabId') or 'tab-0'
+			)
 			candidates.append((url, title, target_id))
 		for child in value.values():
 			candidates.extend(_browser_state_candidates(child))
@@ -2350,9 +2353,7 @@ def _chat_invoke_usage_from_payload(usage: dict[str, Any]) -> ChatInvokeUsage | 
 
 def _reasoning_output_tokens(usage: dict[str, Any]) -> int:
 	return _int_value(
-		usage.get('reasoning_output_tokens')
-		or usage.get('output_reasoning_tokens')
-		or usage.get('reasoning_tokens')
+		usage.get('reasoning_output_tokens') or usage.get('output_reasoning_tokens') or usage.get('reasoning_tokens')
 	)
 
 
@@ -2360,9 +2361,7 @@ def _usage_completion_tokens(usage: dict[str, Any]) -> int:
 	return _int_value(usage.get('output_tokens')) + _reasoning_output_tokens(usage)
 
 
-def _usage_total_tokens(
-	usage: dict[str, Any], input_tokens: int, cache_creation_tokens: int, completion_tokens: int
-) -> int:
+def _usage_total_tokens(usage: dict[str, Any], input_tokens: int, cache_creation_tokens: int, completion_tokens: int) -> int:
 	computed_total = input_tokens + cache_creation_tokens + completion_tokens
 	if 'cache_read_input_tokens' in usage or 'cache_creation_input_tokens' in usage:
 		return computed_total
@@ -2396,9 +2395,7 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 			cached_input_tokens += event_cached_input_tokens
 			cache_creation_tokens += event_cache_creation_tokens
 			completion_tokens += event_completion_tokens
-			total_tokens += _usage_total_tokens(
-				usage, event_input_tokens, event_cache_creation_tokens, event_completion_tokens
-			)
+			total_tokens += _usage_total_tokens(usage, event_input_tokens, event_cache_creation_tokens, event_completion_tokens)
 			cost += _float_value(usage.get('cost_usd') or usage.get('cost') or payload.get('cost_usd') or payload.get('cost'))
 			invocations += 1
 			continue
@@ -3016,7 +3013,7 @@ def _record_laminar_terminal_tool_spans(events: list[dict[str, Any]], *, max_spa
 		event_type, payload = result if result is not None else (None, {})
 		input_messages = _terminal_laminar_tool_input_message(tool_call)
 		output_messages = _terminal_laminar_tool_output_message(event_type, payload)
-		with _laminar_start_span(f"rust_core.tool.{tool_call.get('name') or 'tool'}", input=input_messages, span_type='TOOL'):
+		with _laminar_start_span(f'rust_core.tool.{tool_call.get("name") or "tool"}', input=input_messages, span_type='TOOL'):
 			_laminar_set_span_attributes(
 				{
 					'runtime': 'browser_use.rust',
@@ -3550,8 +3547,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if 'deepseek' in model_name:
 			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if 'grok' in model_name:
-			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
+		if 'grok-3' in model_name or 'grok-code' in model_name:
+			self.logger.warning('⚠️ This XAI model does not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 		logger.debug(
 			f'{" +vision" if self.settings.use_vision else ""}'
@@ -3586,9 +3583,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.browser_accept_downloads, self.browser_downloads_path = _extract_browser_downloads(
 			self.browser_session, self.browser_profile
 		)
-		self.browser_no_viewport, self.browser_viewport = _extract_browser_viewport(
-			self.browser_session, self.browser_profile
-		)
+		self.browser_no_viewport, self.browser_viewport = _extract_browser_viewport(self.browser_session, self.browser_profile)
 		self.browser_storage_state = _extract_browser_storage_state(self.browser_session, self.browser_profile)
 		self.sensitive_data_context = _sensitive_data_context(sensitive_data)
 		_warn_sensitive_data_domain_constraints(self.logger, sensitive_data, self.allowed_domains)
@@ -3606,7 +3601,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.info(f'🔗 Found URL in task: {self.initial_url}, adding as initial action...')
 				initial_actions = [{'navigate': {'url': self.initial_url, 'new_tab': False}}]
 		self.initial_action_payloads = list(initial_actions or [])
-		self.initial_actions = self._convert_initial_actions(self.initial_action_payloads) if self.initial_action_payloads else None
+		self.initial_actions = (
+			self._convert_initial_actions(self.initial_action_payloads) if self.initial_action_payloads else None
+		)
 		self.task = _task_with_schema(
 			_task_with_available_files(
 				_task_with_sensitive_data_context(
@@ -3713,9 +3710,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 		provider = getattr(self.llm, 'provider', None) or 'rust-terminal'
 		model = getattr(self.llm, 'model', None) or self.model
-		self.logger.info(
-			f'Starting a browser-use agent with version {self.version}, with provider={provider} and model={model}'
-		)
+		self.logger.info(f'Starting a browser-use agent with version {self.version}, with provider={provider} and model={model}')
 
 	def _log_main_execution_start(self, max_steps: int) -> None:
 		"""Log Browser Use's main execution-loop start for terminal-backed runs."""
@@ -3796,6 +3791,67 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.info('')
 		self.logger.info('Did the Agent not work as expected? Let us fix this!')
 		self.logger.info('   Please open a short issue here: https://github.com/browser-use/browser-use/issues')
+
+	@observe(ignore_input=True, ignore_output=False)
+	async def _judge_trace(self) -> JudgementResult | None:
+		"""Judge the reconstructed Rust terminal trace with the configured judge LLM."""
+		input_messages = construct_judge_messages(
+			task=self.task,
+			final_result=self.history.final_result() or '',
+			agent_steps=self.history.agent_steps(),
+			screenshot_paths=[path for path in self.history.screenshot_paths() if path is not None],
+			max_images=10,
+			ground_truth=self.settings.ground_truth,
+			use_vision=self.settings.use_vision,
+		)
+
+		kwargs: dict[str, Any] = {'output_format': JudgementResult}
+		if getattr(self.judge_llm, 'provider', None) == 'browser-use':
+			kwargs['request_type'] = 'judge'
+			kwargs['session_id'] = self.session_id
+
+		try:
+			response = await self.judge_llm.ainvoke(input_messages, **kwargs)
+			return response.completion  # type: ignore[return-value]
+		except Exception as exc:
+			self.logger.error(f'Judge trace failed: {exc}')
+			return None
+
+	async def _judge_and_log(self) -> None:
+		"""Run judge evaluation and attach the verdict to the final action result."""
+		judgement = await self._judge_trace()
+		if not self.history.history:
+			return
+		last_step = self.history.history[-1]
+		if not last_step.result:
+			return
+		last_result = last_step.result[-1]
+		if not last_result.is_done:
+			return
+
+		last_result.judgement = judgement
+		self_reported_success = last_result.success
+		if not judgement:
+			return
+		if self_reported_success is True and judgement.verdict is True:
+			return
+
+		judge_log = '\n'
+		if self_reported_success is True and judgement.verdict is False:
+			judge_log += '⚠️  \033[33mAgent reported success but judge thinks task failed\033[0m\n'
+
+		verdict_color = '\033[32m' if judgement.verdict else '\033[31m'
+		verdict_text = '✅ PASS' if judgement.verdict else '❌ FAIL'
+		judge_log += f'⚖️  {verdict_color}Judge Verdict: {verdict_text}\033[0m\n'
+		if judgement.failure_reason:
+			judge_log += f'   Failure Reason: {judgement.failure_reason}\n'
+		if judgement.reached_captcha:
+			self.logger.warning(
+				'Agent was blocked by a captcha. Cloud browsers include stealth fingerprinting and proxy rotation to avoid this.\n'
+				'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=captcha_nudge'
+			)
+		judge_log += f'   {judgement.reasoning}\n'
+		self.logger.info(judge_log)
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Emit Browser Use telemetry for a Rust-backed run."""
@@ -5207,7 +5263,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Get Browser Use-style trace and trace_details data for the Rust-backed run."""
 
 		def extract_task_website(task_text: str) -> str | None:
-			match = re.search(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', task_text, re.IGNORECASE)
+			match = re.search(
+				r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', task_text, re.IGNORECASE
+			)
 			return match.group(0) if match else None
 
 		def json_default(value: Any) -> str:
@@ -5251,7 +5309,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				'action_history_truncated': json.dumps(action_history, default=json_default) if action_history else None,
 				'action_errors': json.dumps(action_errors, default=json_default) if action_errors else None,
 				'urls': json.dumps(urls, default=json_default) if urls else None,
-				'final_result_response_truncated': final_result[:20000] if final_result and len(final_result) > 20000 else final_result,
+				'final_result_response_truncated': final_result[:20000]
+				if final_result and len(final_result) > 20000
+				else final_result,
 				'self_report_completed': 1 if self.history.is_done() else 0,
 				'self_report_success': 1 if self.history.is_successful() else 0,
 				'duration': self.history.total_duration_seconds(),
@@ -5588,3 +5648,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 Agent.__module__ = 'browser_use.agent.service'
 Agent.__doc__ = None
+
+
+def _align_browser_use_agent_signatures() -> None:
+	from browser_use.agent.service import _PythonAgent
+
+	for name, browser_use_method in vars(_PythonAgent).items():
+		if name.startswith('__') and name != '__init__':
+			continue
+		rust_method = getattr(Agent, name, None)
+		if rust_method is None or not callable(browser_use_method) or not callable(rust_method):
+			continue
+		try:
+			rust_method.__signature__ = inspect.signature(browser_use_method)
+			rust_method.__annotations__ = dict(getattr(browser_use_method, '__annotations__', {}))
+		except (TypeError, ValueError, AttributeError):
+			continue
+	try:
+		Agent.__signature__ = inspect.signature(_PythonAgent)
+	except (TypeError, ValueError, AttributeError):
+		pass
+	agent_hook_func = Callable[[_PythonAgent], Awaitable[None]]
+	for name in ('run', 'run_sync'):
+		rust_method = getattr(Agent, name, None)
+		if rust_method is None:
+			continue
+		try:
+			rust_method.__annotations__['on_step_start'] = agent_hook_func | None
+			rust_method.__annotations__['on_step_end'] = agent_hook_func | None
+		except (TypeError, AttributeError, KeyError):
+			continue
+
+
+_align_browser_use_agent_signatures()

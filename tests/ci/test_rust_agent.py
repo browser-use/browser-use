@@ -138,9 +138,7 @@ def test_rust_agent_runtime_signatures_match_browser_use_callable_surface():
 	rust_callables = {name for name, value in vars(RustAgent).items() if callable(value) and not name.startswith('__')}
 
 	for method_name in sorted(browser_use_callables & rust_callables):
-		assert inspect.signature(getattr(RustAgent, method_name)) == inspect.signature(
-			getattr(BrowserUseAgent, method_name)
-		)
+		assert inspect.signature(getattr(RustAgent, method_name)) == inspect.signature(getattr(BrowserUseAgent, method_name))
 
 
 def test_rust_agent_constructor_type_hints_match_browser_use_core_params():
@@ -562,7 +560,7 @@ def test_rust_history_reconstructs_terminal_model_tool_call_actions():
 				'payload': {
 					'name': 'browser_script',
 					'tool_call_id': 'call-browser',
-					'arguments': {'code': "duplicate_should_not_replace_original()"},
+					'arguments': {'code': 'duplicate_should_not_replace_original()'},
 				},
 			},
 			{
@@ -1042,7 +1040,7 @@ def test_rust_history_reconstructs_terminal_structured_tool_output_results():
 				'payload': {
 					'name': 'browser_script',
 					'tool_call_id': 'call-browser',
-					'arguments': {'code': "return page.summary()"},
+					'arguments': {'code': 'return page.summary()'},
 				},
 			},
 			{
@@ -2056,9 +2054,7 @@ def test_rust_history_reconstructs_terminal_artifact_attachments():
 
 	assert history.final_result() == 'Generated reports.'
 	assert history.action_results()[-1].attachments == attachments
-	assert history.last_action() == {
-		'done': {'text': 'Generated reports.', 'success': True, 'files_to_display': attachments}
-	}
+	assert history.last_action() == {'done': {'text': 'Generated reports.', 'success': True, 'files_to_display': attachments}}
 
 
 def test_rust_history_reconstructs_terminal_capture_curation_gif_attachment():
@@ -3013,10 +3009,7 @@ def test_rust_agent_exposes_task_helper_methods():
 	assert agent._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
 	assert agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
 	assert browser_use_agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
-	numbered_task = (
-		'1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n'
-		'2. Ensure "General Search" is selected.'
-	)
+	numbered_task = '1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n2. Ensure "General Search" is selected.'
 	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 
@@ -3895,8 +3888,7 @@ async def test_rust_agent_run_logs_first_step_startup(monkeypatch):
 
 	async def fake_run_process(argv, timeout_seconds=None):
 		assert (
-			f'Starting a browser-use agent with version {agent.version}, '
-			'with provider=startup-provider and model=gpt-startup'
+			f'Starting a browser-use agent with version {agent.version}, with provider=startup-provider and model=gpt-startup'
 		) in logger.infos
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
@@ -5336,9 +5328,7 @@ async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	assert Path(agent.history.history[0].state.screenshot_path).read_bytes() == b'png-bytes'
 	assert [type(event).__name__ for event in agent.eventbus.dispatched] == ['CreateAgentStepEvent']
 	assert agent.eventbus.dispatched[0].agent_task_id == str(agent.task_id)
-	assert agent.eventbus.dispatched[0].actions == [
-		{'done': {'text': 'final answer', 'success': True, 'files_to_display': []}}
-	]
+	assert agent.eventbus.dispatched[0].actions == [{'done': {'text': 'final answer', 'success': True, 'files_to_display': []}}]
 	assert agent.eventbus.dispatched[0].url == 'https://example.com/final'
 	assert agent.eventbus.dispatched[0].screenshot_url.startswith('data:image/jpeg;base64,')
 
@@ -5510,7 +5500,9 @@ async def test_rust_agent_post_process_logs_browser_use_result_messages(monkeypa
 	assert logger.debugs == [f'🔄 Step {agent.state.n_steps}: Consecutive failures: 1']
 
 	agent.state.last_result = [
-		ActionResult(is_done=True, success=True, extracted_content='final answer', attachments=['file:///tmp/a.txt', 'file:///tmp/b.txt'])
+		ActionResult(
+			is_done=True, success=True, extracted_content='final answer', attachments=['file:///tmp/a.txt', 'file:///tmp/b.txt']
+		)
 	]
 	await agent._post_process()
 	assert agent.state.consecutive_failures == 0
@@ -7006,9 +6998,7 @@ async def test_rust_agent_exposes_action_replay_helper_methods(monkeypatch):
 
 		async def get_browser_state_summary(self, include_screenshot=False):
 			assert include_screenshot is False
-			return SimpleNamespace(
-				dom_state=SimpleNamespace(selector_map={7: SimpleNamespace(element_hash='matching-hash')})
-			)
+			return SimpleNamespace(dom_state=SimpleNamespace(selector_map={7: SimpleNamespace(element_hash='matching-hash')}))
 
 	class FakeAction:
 		def __init__(self):
@@ -7066,11 +7056,14 @@ async def test_rust_agent_exposes_action_replay_helper_methods(monkeypatch):
 	assert action.index == 7
 	assert replay_calls == [[action]]
 	assert results[0].extracted_content == 'replayed'
-	assert await agent._update_action_indices(
-		SimpleNamespace(element_hash='missing-hash'),
-		FakeAction(),
-		SimpleNamespace(dom_state=SimpleNamespace(selector_map={1: SimpleNamespace(element_hash='other-hash')})),
-	) is None
+	assert (
+		await agent._update_action_indices(
+			SimpleNamespace(element_hash='missing-hash'),
+			FakeAction(),
+			SimpleNamespace(dom_state=SimpleNamespace(selector_map={1: SimpleNamespace(element_hash='other-hash')})),
+		)
+		is None
+	)
 
 
 async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_path):
@@ -7123,7 +7116,7 @@ async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_p
 						self.agent.ActionModel(done={'text': shortened_text, 'success': True}),
 						self.agent.ActionModel(done={'text': 'extra action', 'success': True}),
 					],
-				)
+				),
 			)
 
 	seen_callbacks = []
@@ -7177,7 +7170,7 @@ async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_p
 						memory='none',
 						next_goal='retry',
 						action=[],
-					)
+					),
 				)
 			return SimpleNamespace(
 				usage=None,
@@ -7186,7 +7179,7 @@ async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_p
 					memory='remember',
 					next_goal='finish',
 					action=[self.agent.ActionModel(done={'text': 'retried action', 'success': True})],
-				)
+				),
 			)
 
 	retry_llm = RetryLLM()
@@ -7694,6 +7687,20 @@ def test_rust_agent_trace_metadata_matches_browser_use_helpers(monkeypatch):
 
 	assert trace['browser_use_version'] == '9.9.9-test'
 	assert json.loads(trace['git_info']) == {'branch': 'trace-branch', 'commit_hash': 'abc123'}
+
+
+def test_rust_agent_initializes_action_models_without_conversation_path():
+	from browser_use.rust import Agent
+
+	agent = Agent(
+		task='Initialize action models without saving conversations.',
+		llm=type('LLM', (), {'model': 'gpt-test'})(),
+		directly_open_url=False,
+	)
+
+	assert agent.settings.save_conversation_path is None
+	assert agent.AgentOutput is not None
+	assert agent.DoneAgentOutput is not None
 
 
 async def test_rust_agent_saves_terminal_conversation(tmp_path, monkeypatch):
