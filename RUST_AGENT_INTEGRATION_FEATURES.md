@@ -1332,6 +1332,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 real_v8 slice where the 16 KiB cap still produced hundreds of thousands to millions of cumulative prompt tokens on 20-40 step tasks.
    - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_script_stdout_cap_defaults_to_four_kib_for_eval_cost -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_images_are_appended_as_structured_stdout_payload -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
 
+258. Rust Agent browser-script summary-first truncation parity
+   - Terminal `browser_script` model-facing stdout now renders compact structured `summary` records before raw `outputs` and `data` before raw `outputs`.
+   - Large emitted values still persist in full through durable browser-script events/artifacts, but a 4 KiB model-facing cap no longer hides the compact summary behind the first large raw output.
+   - The truncation marker now tells the agent to continue with narrower extraction, emitted summaries, or a saved artifact instead of re-reading broad page text.
+   - This targets the 2026-06-04 real_v8 slice where document/research tasks repeatedly emitted or printed large page bodies, then spent additional turns searching rather than using compact progress evidence to finish.
+   - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_truncated_structured_output_preserves_summary_first -- --nocapture`, terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1387,11 +1394,15 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_images_are_appended_as_structured_stdout_payload -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_script_stdout_cap_defaults_to_four_kib_for_eval_cost -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_truncated_structured_output_preserves_summary_first -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_stdout_is_truncated_for_model_output -- --nocapture` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
 - `cargo fmt --check -p browser-use-agent -p browser-use-browser` on terminal branch `magnus/browser-use-rust-main-integration`
 - `cargo fmt --check -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration`
+- `cargo fmt --check -p browser-use-agent` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
 - `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py eval/task_types.py` on evaluations-internal branch `main`
 - `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
+- `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration` at `297930a`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_domain_constraints_read_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_domain_constraints_are_passive_without_env -- --nocapture`
 - `cargo fmt --check -p browser-use-llm` on terminal branch `magnus/browser-use-rust-main-integration`
