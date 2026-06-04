@@ -4968,6 +4968,29 @@ async def test_rust_agent_follow_up_allows_timeout_overrides(monkeypatch):
 	assert process_calls[1][1] == 45
 
 
+async def test_rust_agent_load_events_uses_bounded_terminal_timeout(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	monkeypatch.setenv('BROWSER_USE_RUST_EVENTS_TIMEOUT_SECONDS', '7')
+	agent = Agent(task='Load terminal events.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
+	seen = {}
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		seen['argv'] = argv
+		seen['timeout_seconds'] = timeout_seconds
+		return 0, '{"event_type":"session.done","payload":{"result":"answer"}}\nnot-json\n', ''
+
+	agent._run_process = fake_run_process
+
+	events = await agent._load_events()
+
+	assert seen['argv'][-2:] == ['events', '12345678-1234-1234-1234-123456789abc']
+	assert seen['timeout_seconds'] == 7
+	assert events == [{'event_type': 'session.done', 'payload': {'result': 'answer'}}]
+
+
 async def test_rust_agent_run_logs_browser_use_lifecycle_dispatch(monkeypatch):
 	from browser_use.rust import Agent
 

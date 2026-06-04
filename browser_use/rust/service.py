@@ -4666,22 +4666,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				return candidate
 		return None
 
+	def _events_timeout_seconds(self) -> int:
+		raw = os.getenv('BROWSER_USE_RUST_EVENTS_TIMEOUT_SECONDS')
+		if raw:
+			try:
+				return max(1, int(raw))
+			except ValueError:
+				self.logger.warning(f'Ignoring invalid BROWSER_USE_RUST_EVENTS_TIMEOUT_SECONDS={raw!r}')
+		return 15
+
 	async def _load_events(self) -> list[dict[str, Any]]:
 		if not self.terminal_session_id:
 			return []
 		binary = find_browser_use_terminal_binary()
-		proc = await asyncio.create_subprocess_exec(
-			binary,
-			*self._state_dir_args(),
-			'events',
-			self.terminal_session_id,
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE,
-			env=self._run_env(),
+		returncode, stdout_text, stderr_text = await self._run_process(
+			[
+				binary,
+				*self._state_dir_args(),
+				'events',
+				self.terminal_session_id,
+			],
+			timeout_seconds=self._events_timeout_seconds(),
 		)
-		stdout, _stderr = await proc.communicate()
+		if returncode:
+			self.logger.warning(
+				'Rust terminal event load failed with code %s: %s',
+				returncode,
+				(stderr_text or stdout_text).strip(),
+			)
 		events = []
-		for line in stdout.decode(errors='replace').splitlines():
+		for line in stdout_text.splitlines():
 			try:
 				parsed = json.loads(line)
 			except json.JSONDecodeError:
