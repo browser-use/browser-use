@@ -2712,6 +2712,8 @@ def test_rust_agent_logs_direct_url_startup_like_browser_use(monkeypatch):
 
 	BrowserUseAgent(task='Open example.com and report the title.', llm=LLM())
 	RustAgent(task='Open example.com and report the title.', llm=LLM())
+	BrowserUseAgent(task='Use https://XXX.XX only as an example price placeholder.', llm=LLM())
+	RustAgent(task='Use https://XXX.XX only as an example price placeholder.', llm=LLM())
 
 	expected = ['🔗 Found URL in task: https://example.com, adding as initial action...']
 	assert browser_use_logger.infos == expected
@@ -2719,12 +2721,21 @@ def test_rust_agent_logs_direct_url_startup_like_browser_use(monkeypatch):
 
 
 def test_rust_agent_exposes_task_helper_methods():
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.rust import Agent
 
 	class Answer(BaseModel):
 		answer: str
 
+	class LLM:
+		model = 'gpt-test'
+		provider = 'test'
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			return type('Result', (), {'usage': None})()
+
 	agent = Agent(task='Open example.com and report the title.')
+	browser_use_agent = BrowserUseAgent(task='Inspect URL extraction.', llm=LLM(), directly_open_url=False)
 
 	enhanced = agent._enhance_task_with_schema('Return the answer.', Answer)
 
@@ -2734,6 +2745,8 @@ def test_rust_agent_exposes_task_helper_methods():
 	assert agent._extract_start_url('Open example.com and report the title.') == 'https://example.com'
 	assert agent._extract_start_url('Email support@example.com only.') is None
 	assert agent._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
+	assert agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
+	assert browser_use_agent._extract_start_url('Use https://XXX.XX as a placeholder in the table.') is None
 
 
 def test_rust_agent_exposes_url_text_helper_methods():
@@ -3741,7 +3754,7 @@ async def test_rust_agent_run_follow_up_logs_main_execution_start(monkeypatch):
 		process_calls.append(argv)
 		if len(process_calls) == 1:
 			return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
-		if len(process_calls) == 2:
+		if len(process_calls) == 3:
 			assert argv[-3] == 'followup'
 			assert 'Starting main execution loop with max 5 steps...' in logger.debugs
 		return 0, '', ''
@@ -3763,7 +3776,7 @@ async def test_rust_agent_run_follow_up_logs_main_execution_start(monkeypatch):
 	history = await agent.run(max_steps=5)
 
 	assert history.final_result() == 'logged follow-up execution 2'
-	assert len(process_calls) == 3
+	assert len(process_calls) == 4
 	assert logger.errors == []
 
 
@@ -3812,16 +3825,20 @@ async def test_rust_agent_run_registers_browser_use_signal_handler(monkeypatch):
 	monkeypatch.setattr(rust_service, 'SignalHandler', FakeSignalHandler)
 	agent = Agent(task='Handle run signals.', llm=type('LLM', (), {'model': 'gpt-test'})())
 	agent.telemetry = Telemetry()
+	process_calls = 0
 
 	async def fake_run_process(argv, timeout_seconds=None):
-		assert events == ['init', 'register']
+		nonlocal process_calls
+		process_calls += 1
+		assert events in (['init', 'register'], ['init', 'register', 'flush'])
 		assert len(handlers) == 1
 		assert handlers[0].exit_on_second_int is True
-		handlers[0].pause_callback()
-		assert agent.state.paused is True
-		handlers[0].resume_callback()
-		assert agent.state.paused is False
-		handlers[0].custom_exit_callback()
+		if process_calls == 1:
+			handlers[0].pause_callback()
+			assert agent.state.paused is True
+			handlers[0].resume_callback()
+			assert agent.state.paused is False
+			handlers[0].custom_exit_callback()
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
 	async def fake_load_events():
@@ -3900,6 +3917,7 @@ async def test_rust_agent_run_waits_for_resume_before_terminal(monkeypatch):
 		'register_signal',
 		'reset_signal',
 		('start', False),
+		('run_process', False, agent.settings.step_timeout),
 		('run_process', False, agent.settings.step_timeout),
 		('end', 'resumed run'),
 		'unregister_signal',
@@ -4656,7 +4674,7 @@ async def test_rust_agent_run_dispatches_browser_use_lifecycle_events(monkeypatc
 
 	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
 	dispatched = []
-	run_count = 0
+	load_count = 0
 
 	class EventBus:
 		def dispatch(self, event):
@@ -4667,12 +4685,12 @@ async def test_rust_agent_run_dispatches_browser_use_lifecycle_events(monkeypatc
 	agent.eventbus = EventBus()
 
 	async def fake_run_process(argv, timeout_seconds=None):
-		nonlocal run_count
-		run_count += 1
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
 	async def fake_load_events():
-		return [{'event_type': 'session.done', 'payload': {'result': f'dispatched {run_count}'}}]
+		nonlocal load_count
+		load_count += 1
+		return [{'event_type': 'session.done', 'payload': {'result': f'dispatched {load_count}'}}]
 
 	agent._run_process = fake_run_process
 	agent._load_events = fake_load_events
@@ -4746,8 +4764,8 @@ async def test_rust_agent_run_follow_up_dispatches_single_task_lifecycle(monkeyp
 	history = await agent.run(max_steps=4)
 
 	assert history.final_result() == 'lifecycle follow-up 2'
-	assert len(process_calls) == 3
-	assert process_calls[1][-3] == 'followup'
+	assert len(process_calls) == 4
+	assert process_calls[2][-3] == 'followup'
 	assert [type(event).__name__ for event in dispatched] == ['CreateAgentTaskEvent', 'UpdateAgentTaskEvent']
 	assert dispatched[0].llm_model == 'gpt-test'
 	assert dispatched[1].done_output == 'lifecycle follow-up 2'
@@ -4794,8 +4812,8 @@ async def test_rust_agent_run_follow_up_invokes_on_step_end(monkeypatch):
 
 	assert history.final_result() == 'callback follow-up 2'
 	assert callbacks == [('start', 'Continue follow-up callbacks.'), ('end', 'callback follow-up 2')]
-	assert len(process_calls) == 3
-	assert process_calls[1][-3] == 'followup'
+	assert len(process_calls) == 4
+	assert process_calls[2][-3] == 'followup'
 
 
 async def test_rust_agent_direct_follow_up_updates_task_state_and_transcript(tmp_path, monkeypatch):
@@ -4822,7 +4840,7 @@ async def test_rust_agent_direct_follow_up_updates_task_state_and_transcript(tmp
 		process_calls.append(argv)
 		if len(process_calls) == 1:
 			return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
-		if len(process_calls) == 2:
+		if len(process_calls) == 3:
 			return 0, 'followup accepted\n', 'followup stderr\n'
 		return 0, 'rerun stdout\n', 'rerun stderr\n'
 
@@ -4842,7 +4860,7 @@ async def test_rust_agent_direct_follow_up_updates_task_state_and_transcript(tmp
 	assert agent.task == 'Direct raw follow-up task.'
 	assert agent.state.follow_up_task is False
 	assert '<follow_up_user_request> Direct raw follow-up task. </follow_up_user_request>' in agent.message_manager.task
-	assert process_calls[1][-3:] == [
+	assert process_calls[2][-3:] == [
 		'followup',
 		'12345678-1234-1234-1234-123456789abc',
 		'Direct raw follow-up task.',
@@ -5298,7 +5316,7 @@ async def test_rust_agent_add_new_task_preserves_browser_use_raw_followup_task(m
 
 	await agent.run(max_steps=2)
 
-	assert process_calls[1][-3:] == ['followup', '12345678-1234-1234-1234-123456789abc', 'Follow up with raw text.']
+	assert process_calls[2][-3:] == ['followup', '12345678-1234-1234-1234-123456789abc', 'Follow up with raw text.']
 
 
 def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
@@ -5521,6 +5539,41 @@ async def test_rust_agent_keeps_browser_use_session_id_separate_from_terminal_se
 	assert agent.session_id != agent.terminal_session_id
 
 
+async def test_rust_agent_loads_started_session_events_after_terminal_timeout(monkeypatch):
+	from browser_use.rust import Agent
+
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_BINARY', '/tmp/browser-use-terminal')
+	agent = Agent(task='timeout after start', llm=type('LLM', (), {'model': 'gpt-test'})(), step_timeout=5)
+	process_commands = []
+	stored_events = [
+		{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
+		{'event_type': 'model.usage', 'payload': {'input_tokens': 11, 'output_tokens': 7}},
+	]
+
+	async def fake_run_process(argv, timeout_seconds=None):
+		process_commands.append(argv[-2] if argv[-2:] == ['start', agent.task] else argv[-4])
+		if process_commands[-1] == 'start':
+			return 0, '12345678-1234-1234-1234-123456789abc\n', ''
+		return 124, '', 'browser-use-terminal timed out after 5 seconds'
+
+	async def fake_load_events():
+		assert agent.terminal_session_id == '12345678-1234-1234-1234-123456789abc'
+		return stored_events
+
+	agent._run_process = fake_run_process
+	agent._load_events = fake_load_events
+
+	history = await agent.run(max_steps=3)
+
+	assert process_commands == ['start', 'run-codex-session']
+	assert agent.terminal_session_id == '12345678-1234-1234-1234-123456789abc'
+	assert agent.last_events == stored_events
+	assert history.urls() == ['https://example.com']
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 11
+	assert history.errors() == ['browser-use-terminal timed out after 5 seconds']
+
+
 async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
 	from browser_use.rust import Agent
 
@@ -5534,7 +5587,8 @@ async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
 
 	async def fake_run_process(argv, timeout_seconds=None):
 		assert timeout_seconds == agent.settings.step_timeout
-		seen.append(('argv', argv[-4]))
+		command = 'start' if argv[-2:] == ['start', agent.task] else argv[-4]
+		seen.append(('argv', command))
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
 	async def fake_load_events():
@@ -5554,7 +5608,8 @@ async def test_rust_agent_invokes_browser_use_style_callbacks(monkeypatch):
 	assert history.final_result() == 'ok'
 	assert seen == [
 		('start', True),
-		('argv', 'run-codex'),
+		('argv', 'start'),
+		('argv', 'run-codex-session'),
 		('end', True),
 		('done', 'ok'),
 	]
@@ -6440,10 +6495,12 @@ async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monke
 	result = await agent.step()
 
 	assert result is None
-	assert len(seen) == 1
+	assert len(seen) == 2
 	assert seen[0][0][0] == '/tmp/browser-use-terminal'
-	assert 'max_turns=1' in seen[0][0]
+	assert seen[0][0][-2:] == ['start', 'step once']
+	assert 'max_turns=1' in seen[1][0]
 	assert seen[0][1] == agent.settings.step_timeout
+	assert seen[1][1] == agent.settings.step_timeout
 	assert agent.history.final_result() == 'step answer'
 	assert agent.state.last_result is not None
 	assert agent.state.last_result[-1].is_done is True
@@ -6467,7 +6524,8 @@ async def test_rust_agent_execute_step_runs_one_turn_with_callbacks(monkeypatch)
 	)
 
 	async def fake_run_process(argv, timeout_seconds=None):
-		seen.append(('argv', argv[-4], timeout_seconds))
+		command = 'start' if argv[-2:] == ['start', agent.task] else argv[-4]
+		seen.append(('argv', command, timeout_seconds))
 		return 0, 'Session: 12345678-1234-1234-1234-123456789abc\n', ''
 
 	async def fake_load_events():
@@ -6493,7 +6551,8 @@ async def test_rust_agent_execute_step_runs_one_turn_with_callbacks(monkeypatch)
 	assert is_done is True
 	assert seen == [
 		('start', True),
-		('argv', 'run-codex', agent.settings.step_timeout),
+		('argv', 'start', agent.settings.step_timeout),
+		('argv', 'run-codex-session', agent.settings.step_timeout),
 		('end', True),
 		('done', 'execute step answer'),
 	]
@@ -7007,6 +7066,59 @@ async def test_rust_agent_trace_and_cloud_auth_helpers():
 	assert trace_object['trace']['self_report_completed'] == 1
 	assert trace_object['trace_details']['final_result_response'] == 'trace answer'
 	assert 'trace answer' in trace_object['trace_details']['complete_history']
+
+
+def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
+	from browser_use.rust import Agent
+	import browser_use.rust.service as rust_service
+	from browser_use.rust.service import _history_from_events
+
+	class FakeLaminar:
+		attributes = []
+		outputs = []
+		events = []
+
+		@staticmethod
+		def is_initialized():
+			return True
+
+		@classmethod
+		def set_span_attributes(cls, attributes):
+			cls.attributes.append(attributes)
+
+		@classmethod
+		def set_span_output(cls, output):
+			cls.outputs.append(output)
+
+		@classmethod
+		def event(cls, name, attributes=None):
+			cls.events.append((name, attributes))
+
+	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
+
+	agent = Agent(task='Trace terminal observability.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent.terminal_session_id = 'terminal-session-1'
+	agent.last_events = [
+		{'event_type': 'model.turn.completed', 'payload': {'turn': 1}},
+		{'event_type': 'session.done', 'payload': {'result': 'laminar answer'}},
+	]
+	agent.history = _history_from_events(
+		agent.last_events,
+		model='gpt-test',
+		started=1.0,
+		finished=4.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	agent._record_laminar_run_observability(max_steps=7, duration_seconds=3.0)
+
+	assert FakeLaminar.attributes[-1]['runtime'] == 'browser_use.rust'
+	assert FakeLaminar.attributes[-1]['terminal_session_id'] == 'terminal-session-1'
+	assert FakeLaminar.outputs[-1]['final_result_preview'] == 'laminar answer'
+	assert FakeLaminar.outputs[-1]['steps'] == agent.history.number_of_steps()
+	assert FakeLaminar.outputs[-1]['terminal_events_count'] == 2
+	assert FakeLaminar.events[-1][0] == 'agent.run.terminal_summary'
 
 
 async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):

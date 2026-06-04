@@ -51,6 +51,7 @@ from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam
+from browser_use.observability import observe
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
@@ -65,6 +66,7 @@ from browser_use.utils import (
 	check_latest_browser_use_version,
 	get_browser_use_version,
 	get_git_info,
+	is_placeholder_url,
 )
 
 
@@ -77,9 +79,71 @@ AgentNewStepCallback = (
 AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None]] | Callable[[AgentHistoryList], None]
 logger = logging.getLogger(__name__)
 
+try:
+	from lmnr import Laminar  # type: ignore
+except ImportError:
+	Laminar = None  # type: ignore
+
 
 class RustAgentError(RuntimeError):
 	"""Raised when the Rust terminal core cannot run a task."""
+
+
+def _laminar_ready() -> bool:
+	if Laminar is None:
+		return False
+	try:
+		return bool(Laminar.is_initialized())
+	except Exception:
+		return False
+
+
+def _laminar_preview(value: Any, limit: int = 2000) -> Any:
+	if value is None or isinstance(value, (bool, int, float)):
+		return value
+	text = value if isinstance(value, str) else json.dumps(value, default=str)
+	if len(text) <= limit:
+		return text
+	return text[:limit] + f'...[truncated {len(text) - limit} chars]'
+
+
+def _laminar_set_span_attributes(attributes: dict[str, Any]) -> None:
+	if not _laminar_ready():
+		return
+	safe_attributes = {
+		key: value
+		for key, value in attributes.items()
+		if isinstance(value, (str, bool, int, float))
+	}
+	if not safe_attributes:
+		return
+	try:
+		Laminar.set_span_attributes(safe_attributes)
+	except Exception:
+		logger.debug('Failed to set Laminar span attributes', exc_info=True)
+
+
+def _laminar_set_span_output(output: Any) -> None:
+	if not _laminar_ready():
+		return
+	try:
+		Laminar.set_span_output(output)
+	except Exception:
+		logger.debug('Failed to set Laminar span output', exc_info=True)
+
+
+def _laminar_event(name: str, attributes: dict[str, Any] | None = None) -> None:
+	if not _laminar_ready():
+		return
+	safe_attributes = {
+		key: value
+		for key, value in (attributes or {}).items()
+		if isinstance(value, (str, bool, int, float))
+	}
+	try:
+		Laminar.event(name, safe_attributes or None)
+	except Exception:
+		logger.debug('Failed to emit Laminar event %s', name, exc_info=True)
 
 
 def find_browser_use_terminal_binary() -> str:
@@ -804,6 +868,8 @@ def _extract_start_url(task: str) -> str | None:
 		for match in re.finditer(pattern, task_without_emails):
 			url = re.sub(r'[.,;:!?()\[\]]+$', '', match.group(0))
 			url_lower = url.lower()
+			if is_placeholder_url(url):
+				continue
 			if any(f'.{ext}' in url_lower for ext in excluded_extensions):
 				continue
 			context_start = max(0, match.start() - 20)
@@ -2931,6 +2997,73 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except Exception as exc:
 			self.logger.error(f'Failed to log telemetry event: {exc}', exc_info=True)
 
+	def _record_laminar_run_observability(
+		self,
+		*,
+		max_steps: int,
+		duration_seconds: float | None,
+		process_error: str | None = None,
+	) -> None:
+		"""Populate the current Laminar agent.run span for terminal-backed runs."""
+		if not _laminar_ready():
+			return
+		errors = self.history.errors()
+		usage = self.history.usage
+		final_result = self.history.final_result()
+		model = getattr(self.llm, 'model', None) or self.model
+		provider = getattr(self.llm, 'provider', None) or 'rust-terminal'
+		summary = {
+			'runtime': 'browser_use.rust',
+			'model': model,
+			'provider': provider,
+			'max_steps': max_steps,
+			'steps': self.history.number_of_steps(),
+			'is_done': self.history.is_done(),
+			'is_successful': self.history.is_successful(),
+			'errors_count': len(errors or []),
+			'errors_preview': _laminar_preview(errors, limit=1500),
+			'final_result_preview': _laminar_preview(final_result, limit=2000),
+			'terminal_session_id': self.terminal_session_id,
+			'browser_use_session_id': self.session_id,
+			'terminal_events_count': len(self.last_events or []),
+			'duration_seconds': duration_seconds,
+			'process_error': process_error,
+		}
+		if usage is not None:
+			summary.update(
+				{
+					'usage_total_tokens': usage.total_tokens,
+					'usage_prompt_tokens': usage.total_prompt_tokens,
+					'usage_completion_tokens': usage.total_completion_tokens,
+				}
+			)
+		_laminar_set_span_attributes(
+			{
+				'runtime': summary['runtime'],
+				'model': model,
+				'provider': provider,
+				'max_steps': max_steps,
+				'steps': summary['steps'],
+				'is_done': summary['is_done'],
+				'is_successful': summary['is_successful'],
+				'terminal_session_id': self.terminal_session_id,
+				'terminal_events_count': summary['terminal_events_count'],
+				'duration_seconds': duration_seconds,
+				'process_error': process_error,
+			}
+		)
+		_laminar_set_span_output(summary)
+		_laminar_event(
+			'agent.run.terminal_summary',
+			{
+				'runtime': summary['runtime'],
+				'steps': summary['steps'],
+				'is_successful': summary['is_successful'],
+				'duration_seconds': duration_seconds,
+				'terminal_events_count': summary['terminal_events_count'],
+			},
+		)
+
 	async def _log_run_usage_summary(self) -> None:
 		"""Log Browser Use token usage summary for a completed Rust-backed run."""
 		await self.token_cost_service.log_usage_summary()
@@ -3018,6 +3151,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not hasattr(self, '_task_start_time') or not hasattr(self, '_session_start_time'):
 			self._initialize_run_lifecycle_state()
 		await self._log_run_usage_summary()
+		self._record_laminar_run_observability(
+			max_steps=max_steps,
+			duration_seconds=None,
+			process_error=agent_run_error,
+		)
 		self._record_run_telemetry(max_steps=max_steps, agent_run_error=agent_run_error)
 		self._dispatch_run_update_event()
 		self._log_final_outcome_messages()
@@ -3049,6 +3187,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			self.logger.info(f'  {action_header}')
 
+	@observe(name='agent.run', ignore_input=True, ignore_output=True)
 	async def run(
 		self,
 		max_steps: int = 100,
@@ -3093,6 +3232,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 			self.history = self.result
 			await self._log_run_usage_summary()
+			self._record_laminar_run_observability(
+				max_steps=max_steps,
+				duration_seconds=finished - started,
+				process_error='Rust agent stopped before terminal run.',
+			)
 			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 			self._dispatch_run_update_event()
 			self._log_final_outcome_messages()
@@ -3117,6 +3261,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 				self.history = self.result
 				await self._log_run_usage_summary()
+				self._record_laminar_run_observability(
+					max_steps=max_steps,
+					duration_seconds=finished - started,
+					process_error='Rust agent stopped before terminal run.',
+				)
 				self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
 				self._dispatch_run_update_event()
 				self._log_final_outcome_messages()
@@ -3136,17 +3285,59 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		await self._call_callback(on_step_start, self)
 		self._log_main_execution_start(max_steps)
-		returncode, stdout_text, stderr_text = await self._run_process(self._run_argv(max_steps), timeout_seconds=self.settings.step_timeout)
+		start_returncode, start_stdout_text, start_stderr_text = await self._run_process(
+			self._start_argv(), timeout_seconds=self.settings.step_timeout
+		)
+		self.terminal_session_id = self._session_id_from_stdout(start_stdout_text)
+		if start_returncode or not self.terminal_session_id:
+			finished = time.time()
+			self.last_stdout = start_stdout_text
+			self.last_stderr = start_stderr_text
+			events = await self._load_events() if self.terminal_session_id else []
+			process_error = start_stderr_text.strip() or (
+				f'browser-use-terminal exited with code {start_returncode}'
+				if start_returncode
+				else 'browser-use-terminal did not print a session id.'
+			)
+			self.last_events = events
+			self.result = _history_from_events(
+				events,
+				model=self.model,
+				started=started,
+				finished=finished,
+				output_model_schema=self.output_model_schema,
+				process_error=process_error,
+			)
+			self.history = self.result
+			self._sync_state_from_history()
+			await self._log_run_usage_summary()
+			self._record_laminar_run_observability(
+				max_steps=max_steps,
+				duration_seconds=finished - started,
+				process_error=process_error,
+			)
+			self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
+			self._dispatch_run_update_event()
+			await self._check_and_update_downloads('run')
+			await self._save_conversation_if_requested()
+			await self._call_new_step_callback()
+			await self._call_step_end_callbacks(on_step_end)
+			await self._call_done_callback()
+			await self._generate_gif_if_requested()
+			self._log_final_outcome_messages()
+			await self._finalize_run_cleanup()
+			return self.history
+
+		returncode, stdout_text, stderr_text = await self._run_process(
+			self._run_existing_argv(max_steps), timeout_seconds=self.settings.step_timeout
+		)
 		finished = time.time()
-		self.last_stdout = stdout_text
-		self.last_stderr = stderr_text
-		self.terminal_session_id = self._session_id_from_stdout(stdout_text)
+		self.last_stdout = '\n'.join(part for part in (start_stdout_text.strip(), stdout_text.strip()) if part)
+		self.last_stderr = '\n'.join(part for part in (start_stderr_text.strip(), stderr_text.strip()) if part)
 		events = await self._load_events()
 		process_error = None
 		if returncode:
 			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
-		elif not self.terminal_session_id:
-			process_error = 'browser-use-terminal did not print a session id.'
 		self.last_events = events
 		self.result = _history_from_events(
 			events,
@@ -3159,6 +3350,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.history = self.result
 		self._sync_state_from_history()
 		await self._log_run_usage_summary()
+		self._record_laminar_run_observability(
+			max_steps=max_steps,
+			duration_seconds=finished - started,
+			process_error=process_error,
+		)
 		self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
 		self._dispatch_run_update_event()
 		await self._check_and_update_downloads('run')
@@ -3234,6 +3430,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.history = self.result
 		self._sync_state_from_history()
 		await self._log_run_usage_summary()
+		self._record_laminar_run_observability(
+			max_steps=resolved_max_steps,
+			duration_seconds=finished - started,
+			process_error=process_error,
+		)
 		self._record_run_telemetry(max_steps=resolved_max_steps, agent_run_error=process_error)
 		self._dispatch_run_update_event()
 		await self._check_and_update_downloads('follow_up')
@@ -4164,6 +4365,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.task,
 			'--model',
 			self.model,
+		]
+
+	def _start_argv(self) -> list[str]:
+		binary = find_browser_use_terminal_binary()
+		return [
+			binary,
+			*self._state_dir_args(),
+			'start',
+			self.task,
 		]
 
 	async def _run_process(self, argv: list[str], timeout_seconds: int | None = None) -> tuple[int, str, str]:

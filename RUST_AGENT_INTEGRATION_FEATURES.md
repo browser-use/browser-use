@@ -1198,6 +1198,16 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The eval harness now initializes Laminar for trace-only runs when `LMNR_PROJECT_API_KEY` is present, records Laminar/GitHub links in run/task metadata, and defaults GitHub-dispatched max steps to 75.
    - Proof: terminal `browser_script_initial_wait_defaults_to_seven_seconds_and_clamps_env`, terminal `browser_script_start_observe_finishes_slow_scripts`, terminal `script_oversized_png_images_warn_in_stdout_without_media_payload`, terminal `bare_browser_connect_resolves_to_selected_remote_cdp_mode`, eval `py_compile eval/service.py eval/server.py eval/task_types.py`, terminal `py_compile crates/browser-use-browser/src/browser_script_helpers.py`, and terminal `cargo build -q -p browser-use-cli`.
 
+237. Rust Agent eval finalization isolation parity
+   - Terminal fallback capture GIF generation can be disabled with `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, and the eval runner sets this by default so the final `done` step is not delayed by nonessential media encoding.
+   - Terminal browser_script output auto-collection can be scoped to a per-session artifact directory with `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, and the eval runner sets this by default to prevent parallel tasks from attaching each other's cwd files.
+   - Proof: terminal `fallback_capture_recording_can_be_disabled_for_eval_runs`, terminal `browser_script_session_outputs_dir_isolates_parallel_cwd_files`, eval `py_compile eval/service.py eval/server.py eval/task_types.py`, and terminal `cargo build -q -p browser-use-cli`.
+
+238. Rust Agent eval Laminar observability parity
+   - Eval `evaluation`, `executor`, `stage.*`, and `evaluate_task_result` spans now receive explicit Laminar attributes and compact outputs instead of relying on ignored decorator input/output.
+   - The Rust-backed Python `Agent.run()` now mirrors the normal Agent's `agent.run` observability entry point and records terminal-session summaries into the active Laminar span.
+   - Proof: `uv run pytest -q tests/ci/test_rust_agent.py -k laminar_run_summary --disable-warnings`, `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`, and eval `.venv/bin/python -m py_compile eval/service.py eval/server.py eval/task_types.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`

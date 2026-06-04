@@ -2,6 +2,8 @@
 
 import re
 
+from browser_use.utils import is_placeholder_url
+
 
 def truncate_message_content(content: str, max_length: int = 10000) -> str:
 	"""Truncate message content to max_length characters for history."""
@@ -61,6 +63,8 @@ def extract_url_from_task(task: str) -> str | None:
 
 			# Remove trailing punctuation that's not part of URLs
 			url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
+			if is_placeholder_url(url):
+				continue
 			# Add https:// if missing
 			if not url.startswith(('http://', 'https://')):
 				url = 'https://' + url

@@ -69,6 +69,7 @@ from browser_use.utils import (
 	check_latest_browser_use_version,
 	get_browser_use_version,
 	get_git_info,
+	is_placeholder_url,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -1506,6 +1507,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Remove trailing punctuation that's not part of URLs
 				url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
 
+				if is_placeholder_url(url):
+					self.logger.debug(f'Excluding placeholder URL from auto-navigation: {url}')
+					continue
+
 				# Check if URL ends with a file extension that should be excluded
 				url_lower = url.lower()
 				should_exclude = False
@@ -2325,12 +2330,23 @@ def _align_rust_agent_signatures() -> None:
 			continue
 		try:
 			rust_method.__signature__ = inspect.signature(browser_use_method)
+			rust_method.__annotations__ = dict(getattr(browser_use_method, '__annotations__', {}))
 		except (TypeError, ValueError, AttributeError):
 			continue
 	try:
 		RustAgent.__signature__ = inspect.signature(_PythonAgent)
 	except (TypeError, ValueError, AttributeError):
 		pass
+	agent_hook_func = Callable[[_PythonAgent], Awaitable[None]]
+	for name in ('run', 'run_sync'):
+		rust_method = getattr(RustAgent, name, None)
+		if rust_method is None:
+			continue
+		try:
+			rust_method.__annotations__['on_step_start'] = agent_hook_func | None
+			rust_method.__annotations__['on_step_end'] = agent_hook_func | None
+		except (TypeError, AttributeError, KeyError):
+			continue
 
 
 _align_rust_agent_signatures()

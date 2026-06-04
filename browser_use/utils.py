@@ -24,6 +24,20 @@ URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a
 
 logger = logging.getLogger(__name__)
 
+
+def is_placeholder_url(url: str) -> bool:
+	"""Return True for mock placeholder hostnames like https://XXX.XX."""
+	parsed_url = urlparse(url if '://' in url else f'https://{url}')
+	hostname = (parsed_url.hostname or '').strip('.').lower()
+	if not hostname:
+		return False
+
+	labels = [label for label in hostname.split('.') if label]
+	if labels and labels[0] == 'www':
+		labels = labels[1:]
+
+	return len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels)
+
 # Import error types - these may need to be adjusted based on actual import paths
 try:
 	from openai import BadRequestError as OpenAIBadRequestError
