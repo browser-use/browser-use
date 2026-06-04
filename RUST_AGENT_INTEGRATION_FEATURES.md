@@ -1272,11 +1272,19 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This targets the 2026-06-04 five-task cloud gates where completed agent runs were either scored `0.0` or left unsaved because the Agent SDK judge tail consumed the remaining capped eval time.
    - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'`, eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`, eval `.venv/bin/python -m py_compile eval/judges/agent_sdk_judge.py tests/test_service_cli.py`, and eval `git diff --check -- eval/judges/agent_sdk_judge.py tests/test_service_cli.py`.
 
+249. Rust Agent direct-start URL sanitation parity
+   - Direct URL startup now sanitizes URL candidates captured from prose before auto-navigation, shared by the normal Python `Agent` and the Rust-backed `browser_use.rust.Agent`.
+   - Candidates are split before escaped task-text line breaks such as `\\n2` and then stripped of trailing sentence punctuation, so numbered instructions like `https://example.com/search.\\n2. Next step` navigate to the intended page instead of a malformed URL.
+   - This targets the 2026-06-04 real_v8 task-6 gate where startup auto-detected `https://elibrary.ferc.gov/eLibrary/search.\\n2` as the first navigation URL.
+   - Proof: `uv run pytest -q tests/ci/test_rust_agent.py -k 'mirrors_direct_url_startup or exposes_task_helper_methods'`, `uv run python -m py_compile browser_use/utils.py browser_use/agent/service.py browser_use/rust/service.py tests/ci/test_rust_agent.py`, and `git diff --check -- browser_use/utils.py browser_use/agent/service.py browser_use/rust/service.py tests/ci/test_rust_agent.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
 - `uv run python -m py_compile browser_use/__init__.py browser_use/agent/__init__.py browser_use/agent/service.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py tests/ci/test_rust_agent.py`
 - `uv run python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`
+- `uv run python -m py_compile browser_use/utils.py browser_use/agent/service.py browser_use/rust/service.py tests/ci/test_rust_agent.py`
+- `uv run pytest -q tests/ci/test_rust_agent.py -k 'mirrors_direct_url_startup or exposes_task_helper_methods'`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'browser_script_wait or max_steps or cloud_create or agent_sdk_judge_retries'` on evaluations-internal branch `main`
 - `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'agent_sdk_judge'` on evaluations-internal branch `main`
@@ -1475,6 +1483,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 pre-direct-url-sanitizer five-task real_v8 Agent SDK gate:
+  - Run `kh708p87bkm0bftbrfcp81b4rd8817ac` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=75`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - All five Browser Use cloud sessions were created promptly and all five tasks entered Rust-core agent execution. Saved results before the 10-minute stop: task 10 score `1.0` in 313.29s agent time/365.32s total pipeline and task 9 score `0.85` in 235.33s/385.73s.
+  - Tasks 6 and 8 completed the agent stage at 506.49s and 490.87s respectively, but did not save before the global cap because they were still in the Agent SDK judge path; task 7 was still in the agent stage. The three remaining Browser Use cloud sessions were manually stopped and no subprocesses remained.
+  - The run surfaced a general direct-start URL parsing bug: task 6 auto-detected `https://elibrary.ferc.gov/eLibrary/search.\\n2` as the startup URL from numbered task prose, which feature 249 addresses.
+  - The run also showed repeated BrowserSession downloads-watchdog false positives on Google async/autocomplete responses, creating at least twelve tracked `f*.txt` artifacts in one session. This is not yet fixed because document/PDF tasks still need safe download handling.
 - 2026-06-04 post-bounded-judge five-task real_v8 Agent SDK gate:
   - Run `kh7721qn6hkscjk86wc5q03n4h881k6e` used `BU_RUNTIME=brust`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=75`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100`.
   - All five Browser Use cloud sessions were created promptly and all five tasks entered Rust-core agent execution. Saved results before the 10-minute stop: task 3 score `1.0` in 199.46s agent time/252.82s total pipeline, task 2 score `1.0` in 211.40s/298.76s, task 5 score `1.0` in 372.26s/450.59s, and task 1 score `0.5` in 505.85s/644.64s.
