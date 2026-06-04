@@ -1213,6 +1213,14 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - Terminal browser_script startup waits 15 seconds before returning a detachable observe run, and the eval runner/workflow pins `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=15000` so GitHub and local evals use the same threshold.
    - Proof: terminal `fallback_capture_recording_is_opt_in_for_eval_speed`, terminal `browser_script_initial_wait_defaults_to_fifteen_seconds_and_clamps_env`, eval `py_compile eval/service.py eval/server.py eval/task_types.py`, and terminal `cargo build -q -p browser-use-cli`.
 
+240. Rust Agent eval remote-CDP speed parity
+   - Terminal Remote CDP mode now tells the agent that the eval harness already provided the browser endpoint and to start page work directly with `browser_script`/`goto_url(...)` instead of probing local/managed/cloud setup.
+   - Wrong-family browser setup commands in locked Remote CDP mode, including `browser connect managed`, `browser connect local`, and `browser remote start`, are rewritten to the provided Remote CDP connect command instead of wasting steps on rejections.
+   - `browser status --json` in locked Remote CDP mode now ensures the provided connection first, so the initial status no longer reports `not-configured` with a misleading `browser connect local` next step.
+   - Continuous browser_script session capture is opt-in with `LLM_BROWSER_CAPTURE_FPS`; terminal, local eval, and GitHub eval defaults set it to off, while per-step screenshots and explicit captures still work.
+   - Eval task-result logging now records compact format-history counts instead of dumping full action/complete histories into runner logs.
+   - Proof: terminal `selected_remote_cdp_rewrites_wrong_browser_family_commands`, terminal `browser_mode_instruction_guides_remote_cdp_to_direct_page_work`, terminal `session_capture_is_opt_in_for_eval_speed`, terminal `browser_script_initial_wait_defaults_to_fifteen_seconds_and_clamps_env`, eval `py_compile eval/service.py eval/server.py eval/task_types.py`, terminal `py_compile crates/browser-use-browser/src/browser_script_helpers.py`, terminal `cargo fmt --check -p browser-use-agent -p browser-use-browser`, and terminal `cargo build -q -p browser-use-cli`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1229,9 +1237,13 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 - `cargo test -q -p browser-use-browser managed_browser_launch_reads_browser_profile_env -- --nocapture`
 - `cargo test -q -p browser-use-browser browser_profile_runtime_setup_calls_read_env -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_initial_wait_defaults_to_fifteen_seconds_and_clamps_env -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser session_capture_is_opt_in_for_eval_speed -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-browser browser_script_start_observe_finishes_slow_scripts -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent script_oversized_png_images_warn_in_stdout_without_media_payload -- --nocapture`
 - `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent bare_browser_connect_resolves_to_selected_remote_cdp_mode -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent selected_remote_cdp_rewrites_wrong_browser_family_commands -- --nocapture`
+- `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_mode_instruction_guides_remote_cdp_to_direct_page_work -- --nocapture`
+- `cargo fmt --check -p browser-use-agent -p browser-use-browser` on terminal branch `magnus/browser-use-rust-main-integration`
 - `python3 -m py_compile crates/browser-use-browser/src/browser_script_helpers.py` on terminal branch `magnus/browser-use-rust-main-integration`
 - `.venv/bin/python -m py_compile eval/service.py eval/server.py eval/task_types.py` on evaluations-internal branch `main`
 - `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli` on terminal branch `magnus/browser-use-rust-main-integration`
