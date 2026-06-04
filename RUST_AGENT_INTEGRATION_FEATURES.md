@@ -1353,6 +1353,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This is intentionally generic and does not name any eval task, domain, site category, or expected answer; it targets the current live evidence that the helper API exists but fresh eval artifacts still did not show the model adopting it.
    - Proof: terminal `CARGO_INCREMENTAL=0 cargo test -q -p browser-use-agent browser_tool_descriptions_preserve_interaction_skills -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent`, terminal `git diff --check`, and terminal `CARGO_INCREMENTAL=0 cargo build -q -p browser-use-cli`.
 
+261. Rust Agent eval non-vision screenshot persistence skip
+   - Eval formatting now treats `--use-vision false` as a non-visual run and skips local screenshot persistence plus Convex screenshot uploads for that formatting pass.
+   - Vision and `auto` runs still persist screenshots when `images_per_step > 0`, and `images_per_step=0` still disables screenshots for all modes.
+   - This targets repeated five-task gates where non-vision Agent SDK runs still uploaded dozens of screenshots per completed task before judging/saving, wasting tail time and payload size without helping the no-tools fallback judge.
+   - Proof: eval `.venv/bin/python -m pytest -q tests/test_service_cli.py -k 'non_vision_runs_skip_screenshot_persistence'`, eval `.venv/bin/python -m py_compile eval/service.py tests/test_service_cli.py`, eval `git diff --check -- eval/service.py tests/test_service_cli.py`, and eval `.venv/bin/python -m pytest -q tests/test_service_cli.py`.
+
 ## Current Verification
 
 - `python3 -m py_compile browser_use/agent/service.py browser_use/rust/service.py browser_use/rust/__init__.py browser_use/__init__.py browser_use/llm/models.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py examples/rust_agent/basic.py examples/rust_agent/real_v8_smoke.py`
@@ -1581,6 +1587,23 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
 
 ## Not Verified Yet
 
+- 2026-06-04 post-non-vision-screenshot-skip five-task real_v8 Agent SDK gate:
+  - Run `kh787xq9gjbpr0e5dd5tdgh69x881z4s` used `BU_RUNTIME=brust`, terminal commit `8af682f`, eval-internal commit `256ff5e`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T11:45:22Z, all five tasks entered Rust-core agent execution, and no CAPTCHA/local-browser misconfiguration appeared.
+  - The screenshot persistence fix was verified live: tasks 8, 9, 10, and 6 each logged `Screenshot persistence disabled for this formatting pass`, no `Uploading ... screenshots` lines appeared, and each saved result had `screenshots=0`.
+  - Saved results before the 10-minute cap: task 8 score `0.85` in 251.64s agent time/325.69s total pipeline, task 9 score `0.5` in 297.43s/363.49s, task 10 score `1.0` in 447.06s/509.38s, and task 6 score `1.0` in 523.14s/590.14s.
+  - Fresh artifacts still did not show direct calls to `http_get_many`, `browser_fetch`, or `browser_fetch_many`, so helper adoption remains unproven in live evals.
+  - The prior fatal Agent SDK `success` exception did not recur. Tool-enabled judge attempts still commonly timed out after 25 seconds and fell back to the no-tools trajectory verdict, then saved normally.
+  - Task 7 was still in agent-stage execution when the cap fired. Its remaining Browser Use cloud session was explicitly stopped after the cap, and no eval/terminal subprocesses remained.
+  - This gate does not justify scaling to 50: saved-task mean score was `0.8375`, but missing-task-as-zero mean score was `0.67` with only 4/5 tasks saved within the iteration budget. The screenshot fix reduces formatting/upload overhead after tasks finish, but the remaining bottleneck is still long-tail agent execution and document/research token growth.
+- 2026-06-04 post-batch-fetch-recipe five-task real_v8 Agent SDK gate:
+  - Run `kh7bsmz0yczk1rb766nx7nvrad88094t` used `BU_RUNTIME=brust`, terminal commit `8af682f`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
+  - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T11:32:05Z, all five tasks entered Rust-core agent execution, and no CAPTCHA/local-browser misconfiguration appeared.
+  - Saved results before the 10-minute cap: task 9 score `0.85` in 225.18s agent time/292.79s total pipeline, task 8 score `0.8` in 386.58s/460.64s, task 6 score `1.0` in 465.71s/538.00s, and task 10 score `0.7` in 487.29s/573.58s.
+  - Fresh artifacts still did not show direct calls to `http_get_many`, `browser_fetch`, or `browser_fetch_many`, so this gate did not prove live adoption of the batch helper recipe.
+  - Repeated general overhead was observed before feature 261: task 9 uploaded 19 screenshots, task 6 uploaded 49 screenshots, and task 10 uploaded 36 screenshots despite `--use-vision false`.
+  - Task 7 was still in agent-stage execution when the cap fired. Its remaining Browser Use cloud session was explicitly stopped after the cap, and no eval/terminal subprocesses remained.
+  - This gate does not justify scaling to 50: saved-task mean score was `0.8375`, but missing-task-as-zero mean score was `0.67` with only 4/5 tasks saved within the iteration budget. The remaining bottleneck is still long-tail document/research execution and cumulative prompt growth.
 - 2026-06-04 post-batch-fetch-helper five-task real_v8 Agent SDK gate:
   - Run `kh7awdj58f4hnkv4dke9237q2h880b5z` used `BU_RUNTIME=brust`, terminal commit `21a180a`, `--browser browser-use-cloud`, `BROWSER_USE_CLOUD_PROXY_COUNTRY_CODE=us`, `BU_BROWSER_SCRIPT_INITIAL_WAIT_MS=7000`, `AGENT_SDK_JUDGE_TIMEOUT_SECONDS=25`, `AGENT_SDK_JUDGE_FALLBACK_ATTEMPTS=3`, fallback timeout default floor `45`, `AGENT_SDK_JUDGE_CONCURRENCY=16`, `LLM_BROWSER_CAPTURE_FPS=0`, `BU_DISABLE_FALLBACK_CAPTURE_GIF=1`, `BU_BROWSER_SCRIPT_SESSION_OUTPUTS=1`, `--use-vision false`, `--judge-type agent_sdk`, `--model claude-sonnet-4-6`, `--eval-model claude-sonnet-4-6`, `--parallel-runs 5`, and `--max-steps 100` for real_v8 tasks 6-10.
   - Browser Use cloud startup was healthy: all five sessions were created around 2026-06-04T11:15:02Z, all five tasks entered Rust-core agent execution, and no CAPTCHA/local-browser misconfiguration appeared.
