@@ -218,9 +218,7 @@ class TestHoverByIndex:
 			session_id=cdp_session.session_id,
 		)
 		display_value = result.get('result', {}).get('value', '')
-		assert display_value == 'block', (
-			f'Submenu should be visible after hover (computed display="block"), got: {display_value}'
-		)
+		assert display_value == 'block', f'Submenu should be visible after hover (computed display="block"), got: {display_value}'
 
 	async def test_hover_triggers_css_tooltip(self, tools, browser_session: BrowserSession, base_url):
 		"""Hover over element to reveal CSS :hover tooltip."""
