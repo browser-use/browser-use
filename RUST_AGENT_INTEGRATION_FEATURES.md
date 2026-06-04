@@ -1436,6 +1436,12 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - This fixes the 2026-06-04 cache gate where dashboard usage showed negative `total_prompt_cost` after Anthropic returned tiny raw `input_tokens` plus large `cache_read_input_tokens`.
    - Proof: terminal `cargo test -p browser-use-llm decoder_normalizes_anthropic_cached_usage_to_inclusive_input -- --nocapture`, terminal `cargo test -p browser-use-agent usage_total_nonzero_is_preserved -- --nocapture`, terminal `cargo test -p browser-use-providers anthropic_messages_provider_parses_text_tool_use_and_usage -- --nocapture`, browser-use `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'anthropic_raw_cache_reads or terminal_usage_prices_token_count_events'`, and browser-use `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`.
 
+275. Rust Agent constructor parity after upstream sync
+   - After merging upstream `browser-use/main`, the Rust-backed `Agent` constructor now accepts the new Python-agent parameters in the same order, including skills, extraction schema, fallback/judge LLMs, demo mode, pricing URL, planning controls, screenshot sizing, message compaction, clickable-element limits, and signal-handler toggles.
+   - The actual runtime defaults now match upstream for constructor-only calls, so positional or keyword construction no longer shifts values into `injected_agent_state` and corrupts file-system initialization.
+   - The Rust wrapper stores the new public settings and forwards screenshot/clickable-element limits into `MessageManager`, preserving the existing top-level `browser_use.Agent` Python implementation while keeping `from browser_use.rust import Agent` as the Rust-core interface.
+   - Proof: browser-use `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'rust_agent_constructor or rust_agent_runtime_signatures or rust_agent_constructor_type_hints or rust_agent_run_type_hints or rust_agent_action_model_helper_type_hints or rust_agent_browser_state_helper_type_hints or rust_agent_llm_message_helper_type_hints or rust_agent_unannotated_helper_type_hints or rust_terminal_usage_prices_anthropic_raw_cache_reads or rust_terminal_usage_prices_token_count_events'` and browser-use `.venv/bin/python -m py_compile browser_use/rust/service.py`.
+
 ## Current Verification
 
 - terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`

@@ -43,6 +43,7 @@ from browser_use.agent.views import (
 	AgentState,
 	AgentStepInfo,
 	AgentStructuredOutput,
+	MessageCompactionSettings,
 	StepMetadata,
 )
 from browser_use.browser import BrowserProfile, BrowserSession
@@ -191,12 +192,14 @@ def _model_name(llm: Any | None) -> str:
 def _llm_timeout_for_model(llm: Any | None) -> int:
 	model_name = str(getattr(llm, 'model', '') or '').lower()
 	if 'gemini' in model_name:
-		return 45
+		if '3-pro' in model_name:
+			return 90
+		return 75
 	if 'groq' in model_name:
 		return 30
 	if 'o3' in model_name or 'claude' in model_name or 'sonnet' in model_name or 'deepseek' in model_name:
 		return 90
-	return 60
+	return 75
 
 
 def _resolve_default_llm(llm: BaseChatModel | None) -> BaseChatModel:
@@ -2922,6 +2925,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser: BrowserSession | None = None,
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,
+		skill_ids: list[str | Literal['*']] | None = None,
+		skills: list[str | Literal['*']] | None = None,
+		skill_service: Any | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		register_new_step_callback: AgentNewStepCallback | None = None,
@@ -2929,55 +2935,95 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		register_should_stop_callback: Callable[[], Awaitable[bool]] | None = None,
 		output_model_schema: type[AgentStructuredOutput] | None = None,
-		use_vision: bool | Literal['auto'] = 'auto',
+		extraction_schema: dict | None = None,
+		use_vision: bool | Literal['auto'] = True,
 		save_conversation_path: str | Path | None = None,
 		save_conversation_path_encoding: str | None = 'utf-8',
-		max_failures: int = 3,
+		max_failures: int = 5,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] | None = None,
-		max_actions_per_step: int = 10,
+		max_actions_per_step: int = 5,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
+		demo_mode: bool | None = None,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
+		fallback_llm: BaseChatModel | None = None,
+		use_judge: bool = True,
+		ground_truth: str | None = None,
+		judge_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
 		source: str | None = None,
 		file_system_path: str | None = None,
 		task_id: str | None = None,
 		calculate_cost: bool = False,
+		pricing_url: str | None = None,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int | None = None,
-		step_timeout: int = 120,
+		step_timeout: int = 180,
 		directly_open_url: bool = True,
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
+		enable_planning: bool = True,
+		planning_replan_on_stall: int = 3,
+		planning_exploration_limit: int = 5,
+		loop_detection_window: int = 20,
+		loop_detection_enabled: bool = True,
+		llm_screenshot_size: tuple[int, int] | None = None,
+		message_compaction: MessageCompactionSettings | bool | None = True,
+		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
+		enable_signal_handler: bool = True,
 		**kwargs,
 	):
+		if llm_screenshot_size is not None:
+			if not isinstance(llm_screenshot_size, tuple) or len(llm_screenshot_size) != 2:
+				raise ValueError('llm_screenshot_size must be a tuple of (width, height)')
+			width, height = llm_screenshot_size
+			if not isinstance(width, int) or not isinstance(height, int):
+				raise ValueError('llm_screenshot_size dimensions must be integers')
+			if width < 100 or height < 100:
+				raise ValueError('llm_screenshot_size dimensions must be at least 100 pixels')
 		llm = _resolve_default_llm(llm)
 		if browser and browser_session:
 			raise ValueError('Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.')
 		if getattr(llm, 'provider', None) == 'browser-use':
 			flash_mode = True
+		if flash_mode:
+			enable_planning = False
+		if llm_screenshot_size is None:
+			model_name = getattr(llm, 'model', '')
+			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
+				llm_screenshot_size = (1400, 850)
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
+		if judge_llm is None:
+			judge_llm = llm
 		if llm_timeout is None:
 			llm_timeout = _llm_timeout_for_model(llm)
 		self.id = task_id or uuid7str()
 		self.task_id = self.id
 		self.llm = llm
+		self.judge_llm = judge_llm
 		self.browser_session, self._browser_profile = _default_browser_session(
 			self.id,
 			browser_profile,
 			browser_session,
 			browser,
 		)
+		if demo_mode is not None and self.browser_profile is not None:
+			profile_demo_mode = getattr(self.browser_profile, 'demo_mode', None)
+			if profile_demo_mode != demo_mode and hasattr(self.browser_profile, 'model_copy'):
+				updated_profile = self.browser_profile.model_copy(update={'demo_mode': demo_mode})
+				self._browser_profile = updated_profile
+				if self.browser_session is not None and hasattr(self.browser_session, 'browser_profile'):
+					self.browser_session.browser_profile = updated_profile
 		self.tools = _resolve_tools(
 			tools,
 			controller,
@@ -2985,6 +3031,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_vision,
 			display_files_in_done_text,
 		)
+		if use_vision != 'auto':
+			self.tools.exclude_action('screenshot')
+		if skills and skill_ids:
+			raise ValueError('Cannot specify both "skills" and "skill_ids" parameters. Use "skills" for the cleaner API.')
+		skill_ids = skills or skill_ids
+		self.skill_service = None
+		self._skills_registered = False
+		if skill_service is not None:
+			self.skill_service = skill_service
+		elif skill_ids:
+			from browser_use.skills import SkillService
+
+			self.skill_service = SkillService(skill_ids=skill_ids)
+		self.extraction_schema = extraction_schema
+		if self.extraction_schema is None and output_model_schema is not None:
+			self.extraction_schema = output_model_schema.model_json_schema()
+		self._fallback_llm = fallback_llm
+		self._using_fallback_llm = False
+		self._original_llm = llm
 		self.sensitive_data = sensitive_data
 		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
@@ -2994,7 +3059,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._set_browser_use_version_and_source(source)
 		self.kwargs = kwargs
 		self.model = _model_name(llm)
+		if isinstance(message_compaction, bool):
+			message_compaction = MessageCompactionSettings(enabled=message_compaction)
 		self.state = injected_agent_state or AgentState()
+		self.state.loop_detector.window_size = loop_detection_window
 		timestamp = int(time.time())
 		self.agent_directory = Path(tempfile.gettempdir()) / f'browser_use_agent_{self.id}_{timestamp}'
 		self._set_file_system(file_system_path)
@@ -3019,6 +3087,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
+			use_judge=use_judge,
+			ground_truth=ground_truth,
+			enable_planning=enable_planning,
+			planning_replan_on_stall=planning_replan_on_stall,
+			planning_exploration_limit=planning_exploration_limit,
+			loop_detection_window=loop_detection_window,
+			loop_detection_enabled=loop_detection_enabled,
+			message_compaction=message_compaction,
+			max_clickable_elements_length=max_clickable_elements_length,
 		)
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
@@ -3037,9 +3114,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f' extraction_model={getattr(self.settings.page_extraction_llm, "model", "Unknown") if self.settings.page_extraction_llm else "Unknown"}'
 			f'{" +file_system" if self.file_system else ""}'
 		)
-		self.token_cost_service = TokenCost(include_cost=calculate_cost)
+		self.token_cost_service = TokenCost(include_cost=calculate_cost, pricing_url=pricing_url)
 		_register_llm_for_usage(self.token_cost_service, llm)
 		_register_llm_for_usage(self.token_cost_service, page_extraction_llm)
+		_register_llm_for_usage(self.token_cost_service, judge_llm)
+		if self.settings.message_compaction and self.settings.message_compaction.compaction_llm:
+			_register_llm_for_usage(self.token_cost_service, self.settings.message_compaction.compaction_llm)
+		self.enable_signal_handler = enable_signal_handler
 		self.telemetry = ProductTelemetry()
 		self.eventbus = EventBus(name=_eventbus_name(self.id))
 		self._eventbus_stopped = False
@@ -3104,6 +3185,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				extend_system_message=self.settings.extend_system_message,
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
+				is_anthropic=str(getattr(self.llm, 'provider', '')).lower() == 'anthropic',
+				is_browser_use_model=str(getattr(self.llm, 'provider', '')).lower() == 'browser-use',
+				model_name=getattr(self.llm, 'model', self.model),
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
@@ -3115,7 +3199,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			include_tool_call_examples=self.settings.include_tool_call_examples,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
+			llm_screenshot_size=llm_screenshot_size,
+			max_clickable_elements_length=self.settings.max_clickable_elements_length,
 		)
+		if self.browser_session is not None:
+			self.browser_session.llm_screenshot_size = llm_screenshot_size
 		self.session_id: str = uuid7str()
 		self.terminal_session_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
