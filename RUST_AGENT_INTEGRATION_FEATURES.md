@@ -1418,8 +1418,19 @@ Terminal core branch: `magnus/browser-use-rust-main-integration` at terminal mai
    - The Python `browser_use.rust.Agent` Laminar replay now passes those messages as the `LLM` span input and adds GenAI-style `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`, and `gen_ai.usage.*` attributes.
    - Proof: terminal `cargo test -p browser-use-agent turn_request_event_carries_sanitized_llm_input_messages -- --nocapture`, browser-use `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span'`, and browser-use `.venv/bin/python -m py_compile browser_use/rust/service.py tests/ci/test_rust_agent.py`.
 
+272. Rust Anthropic prompt-cache breakpoints
+   - The Rust terminal request builder now marks the stable base system prompt with `CacheHint::Ephemeral`, enabling Anthropic prompt-cache reads on repeated agent turns through the active `browser-use-llm` route path.
+   - The Anthropic Messages protocol now marks the final tool definition as the tool-cache breakpoint, so the static browser/action tool schemas can be cached before the volatile conversation messages.
+   - This targets the 2026-06-04 five-task gate where all five tasks reported `total_prompt_cached_tokens: 0` while repeatedly sending hundreds of thousands to millions of prompt tokens.
+   - Proof: terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`, terminal `cargo test -p browser-use-llm build_body_marks_cache_control_breakpoints -- --nocapture`, terminal `cargo test -p browser-use-llm build_body_golden_system_user_and_tool -- --nocapture`, terminal `cargo fmt --check -p browser-use-agent -p browser-use-llm`, terminal `git diff --check -- crates/browser-use-agent/src/turn/sampling.rs crates/browser-use-agent/src/turn/sampling_tests.rs crates/browser-use-llm/src/protocols/anthropic_messages.rs`, and terminal `cargo build -p browser-use-cli`.
+
 ## Current Verification
 
+- terminal `cargo test -p browser-use-agent driver_passes_populated_per_call_request_to_open_stream -- --nocapture`
+- terminal `cargo test -p browser-use-llm build_body_marks_cache_control_breakpoints -- --nocapture`
+- terminal `cargo test -p browser-use-llm build_body_golden_system_user_and_tool -- --nocapture`
+- terminal `cargo fmt --check -p browser-use-agent -p browser-use-llm`
+- terminal `cargo build -p browser-use-cli`
 - terminal `cargo test -p browser-use-agent turn_request_event_carries_sanitized_llm_input_messages -- --nocapture`
 - `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span'`
 - `.venv/bin/python -m pytest -q tests/ci/test_rust_agent.py -k 'laminar_run_summary_populates_current_span or terminal_usage_prices_token_count_events or reconstructs_terminal_token_count_usage or reconstructs_terminal_nested_model_usage'`
