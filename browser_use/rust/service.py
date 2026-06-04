@@ -58,6 +58,7 @@ from browser_use.observability import observe
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
+from browser_use.tokens.custom_pricing import CUSTOM_MODEL_PRICING
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.registry.views import ActionModel
@@ -1090,6 +1091,17 @@ def _result_from_events(events: list[dict[str, Any]]) -> str | None:
 		if isinstance(result, str) and result.strip():
 			return result.strip()
 	return None
+
+
+def _last_streamed_assistant_text_from_events(events: list[dict[str, Any]]) -> str | None:
+	last_request_index = next(
+		(index for index in range(len(events) - 1, -1, -1) if _event_type(events[index]) == 'model.turn.request'),
+		-1,
+	)
+	candidates = events[last_request_index + 1 :] if last_request_index >= 0 else events
+	text = _streaming_text_from_events(candidates, ('model.delta', 'model.stream_delta', 'model.response.output_item'))
+	text = text.strip()
+	return text or None
 
 
 def _attachments_from_events(events: list[dict[str, Any]]) -> list[str] | None:
@@ -2531,6 +2543,33 @@ def _terminal_laminar_usage_summary(raw_usage: dict[str, Any] | None) -> dict[st
 	return summary
 
 
+def _terminal_laminar_usage_cost(model: str, usage: dict[str, int | float] | None) -> dict[str, float] | None:
+	if not usage:
+		return None
+	pricing = CUSTOM_MODEL_PRICING.get(model) or CUSTOM_MODEL_PRICING.get(model.replace('.', '-'))
+	if not pricing:
+		return None
+	input_tokens = int(usage.get('input_tokens') or 0)
+	cached_tokens = int(usage.get('cached_input_tokens') or 0)
+	cache_creation_tokens = int(usage.get('cache_creation_input_tokens') or 0)
+	output_tokens = int(usage.get('output_tokens') or 0)
+	uncached_tokens = max(0, input_tokens - cached_tokens)
+	input_cost = uncached_tokens * float(pricing.get('input_cost_per_token') or 0.0)
+	cache_read_cost = cached_tokens * float(pricing.get('cache_read_input_token_cost') or 0.0)
+	cache_creation_cost = cache_creation_tokens * float(pricing.get('cache_creation_input_token_cost') or 0.0)
+	output_cost = output_tokens * float(pricing.get('output_cost_per_token') or 0.0)
+	total_cost = input_cost + cache_read_cost + cache_creation_cost + output_cost
+	if total_cost <= 0:
+		return None
+	return {
+		'input_cost_usd': input_cost,
+		'input_cached_cost_usd': cache_read_cost,
+		'input_cache_creation_cost_usd': cache_creation_cost,
+		'output_cost_usd': output_cost,
+		'cost_usd': total_cost,
+	}
+
+
 def _terminal_laminar_turn_input(
 	request_payload: dict[str, Any],
 	*,
@@ -2582,8 +2621,8 @@ def _terminal_laminar_turn_output(events: list[dict[str, Any]], raw_usage: dict[
 	assistant_preview = _laminar_preview(assistant_text, limit=2000)
 	thinking_preview = _laminar_preview(thinking_text, limit=1200)
 	output_messages = []
-	if assistant_preview:
-		output_messages.append({'role': 'assistant', 'content': [{'type': 'text', 'text': assistant_preview}]})
+	if assistant_text:
+		output_messages.append({'role': 'assistant', 'content': [{'type': 'text', 'text': assistant_text}]})
 	if tool_calls:
 		output_messages.append(
 			{
@@ -2627,6 +2666,16 @@ def _terminal_laminar_content_part_for_span(part: Any) -> Any:
 	if not isinstance(part, dict):
 		return part
 	part_type = part.get('type')
+	if part_type == 'tool_result':
+		content = part.get('content')
+		if isinstance(content, list):
+			return [_terminal_laminar_content_part_for_span(item) for item in content]
+		if isinstance(content, str):
+			return {'type': 'text', 'text': content}
+	if part_type in {'input_text', 'output_text'}:
+		text = part.get('text')
+		if isinstance(text, str):
+			return {'type': 'text', 'text': text}
 	if part_type == 'media':
 		mime_type = part.get('mime_type')
 		mime_type = mime_type if isinstance(mime_type, str) and mime_type else 'application/octet-stream'
@@ -2645,12 +2694,31 @@ def _terminal_laminar_content_part_for_span(part: Any) -> Any:
 			return {'type': 'image_url', 'image_url': image_url}
 		if resolved_url:
 			return {'type': 'file', 'file_data': resolved_url}
+	if part_type in {'input_image', 'image'}:
+		image_url = part.get('image_url')
+		if isinstance(image_url, str) and image_url:
+			resolved_image: dict[str, Any] = {'url': image_url}
+			detail = part.get('detail')
+			if isinstance(detail, str) and detail:
+				resolved_image['detail'] = detail
+			return {'type': 'image_url', 'image_url': resolved_image}
 	content = part.get('content')
 	if isinstance(content, list):
 		normalized = dict(part)
-		normalized['content'] = [_terminal_laminar_content_part_for_span(item) for item in content]
+		normalized['content'] = _terminal_laminar_content_parts_for_span(content)
 		return normalized
 	return part
+
+
+def _terminal_laminar_content_parts_for_span(parts: list[Any]) -> list[Any]:
+	normalized_parts: list[Any] = []
+	for part in parts:
+		normalized = _terminal_laminar_content_part_for_span(part)
+		if isinstance(normalized, list):
+			normalized_parts.extend(normalized)
+		else:
+			normalized_parts.append(normalized)
+	return normalized_parts
 
 
 def _terminal_laminar_message_for_span(message: Any) -> Any:
@@ -2660,7 +2728,7 @@ def _terminal_laminar_message_for_span(message: Any) -> Any:
 	if not isinstance(content, list):
 		return message
 	normalized = dict(message)
-	normalized['content'] = [_terminal_laminar_content_part_for_span(part) for part in content]
+	normalized['content'] = _terminal_laminar_content_parts_for_span(content)
 	return normalized
 
 
@@ -2735,14 +2803,95 @@ def _terminal_laminar_gen_ai_attributes(
 		attributes.update(
 			{
 				'gen_ai.usage.input_tokens': usage.get('input_tokens'),
+				'gen_ai.usage.input_cached_tokens': usage.get('cached_input_tokens'),
+				'gen_ai.usage.cached_input_tokens': usage.get('cached_input_tokens'),
+				'gen_ai.usage.cache_read_input_tokens': usage.get('cached_input_tokens'),
+				'gen_ai.usage.cache_creation_input_tokens': usage.get('cache_creation_input_tokens') or 0,
+				'gen_ai.usage.input_cache_creation_tokens': usage.get('cache_creation_input_tokens') or 0,
 				'gen_ai.usage.output_tokens': usage.get('output_tokens'),
 				'gen_ai.usage.total_tokens': usage.get('total_tokens'),
+				'llm.usage.input_tokens': usage.get('input_tokens'),
+				'llm.usage.output_tokens': usage.get('output_tokens'),
+				'llm.usage.input_cached_tokens': usage.get('cached_input_tokens'),
+				'llm.usage.cache_creation_input_tokens': usage.get('cache_creation_input_tokens') or 0,
 				'llm.usage.total_tokens': usage.get('total_tokens'),
 			}
 		)
 		if usage.get('cost_usd'):
 			attributes['gen_ai.usage.cost'] = usage.get('cost_usd')
 	return attributes
+
+
+def _terminal_laminar_tool_result_payload(events: list[dict[str, Any]], tool_call_id: str) -> tuple[str, dict[str, Any]] | None:
+	for event in events:
+		event_type = _event_type(event)
+		if event_type not in ('tool.output', 'tool.failed', 'tool.aborted', 'tool.finished', 'exec_command.end'):
+			continue
+		payload = _event_payload(event)
+		call_id = payload.get('tool_call_id') or payload.get('call_id')
+		if call_id is not None and str(call_id) == tool_call_id:
+			return event_type, payload
+	return None
+
+
+def _terminal_laminar_tool_input_message(tool_call: dict[str, Any]) -> list[dict[str, Any]]:
+	return [
+		{
+			'role': 'assistant',
+			'tool_calls': [
+				{
+					'id': tool_call.get('tool_call_id'),
+					'name': tool_call.get('name'),
+					'arguments': tool_call.get('arguments'),
+				}
+			],
+		}
+	]
+
+
+def _terminal_laminar_tool_output_message(event_type: str | None, payload: dict[str, Any]) -> list[dict[str, Any]]:
+	content = payload.get('content')
+	if isinstance(content, list) and content:
+		parts = _terminal_laminar_content_parts_for_span(content)
+	else:
+		text = _tool_result_text(payload)
+		if not text and event_type == 'tool.finished':
+			text = _synthetic_tool_result_text(str(payload.get('name') or 'tool'))
+		parts = [{'type': 'text', 'text': text or ''}]
+	role = 'tool'
+	return [{'role': role, 'content': parts}]
+
+
+def _record_laminar_terminal_tool_spans(events: list[dict[str, Any]], *, max_spans: int) -> None:
+	if not _laminar_ready() or max_spans <= 0:
+		return
+	tool_calls = _tool_started_calls(events)
+	for span_index, tool_call in enumerate(tool_calls[:max_spans], start=1):
+		tool_call_id = str(tool_call.get('tool_call_id') or '')
+		result = _terminal_laminar_tool_result_payload(events, tool_call_id)
+		event_type, payload = result if result is not None else (None, {})
+		input_messages = _terminal_laminar_tool_input_message(tool_call)
+		output_messages = _terminal_laminar_tool_output_message(event_type, payload)
+		with _laminar_start_span(f"rust_core.tool.{tool_call.get('name') or 'tool'}", input=input_messages, span_type='TOOL'):
+			_laminar_set_span_attributes(
+				{
+					'runtime': 'browser_use.rust',
+					'tool_name': tool_call.get('name'),
+					'tool_call_id': tool_call_id,
+					'tool_index': span_index,
+					'event_type': event_type,
+					'ok': payload.get('ok') if payload else None,
+					'status': payload.get('status') if payload else None,
+					'error': payload.get('error') if payload else None,
+					'has_content': bool(payload.get('content')) if payload else False,
+					'has_images': bool(payload.get('images')) if payload else False,
+					'has_outputs': bool(payload.get('outputs')) if payload else False,
+					'has_summary': bool(payload.get('summary')) if payload else False,
+				}
+			)
+			_laminar_set_span_output(output_messages)
+	if len(tool_calls) > max_spans:
+		_laminar_event('rust_core.tool_spans_truncated', {'recorded': max_spans, 'available': len(tool_calls)})
 
 
 def _record_laminar_terminal_llm_spans(
@@ -2769,6 +2918,9 @@ def _record_laminar_terminal_llm_spans(
 		)
 		raw_usage = _terminal_turn_usage_payload(turn_events)
 		usage = _terminal_laminar_usage_summary(raw_usage)
+		cost = _terminal_laminar_usage_cost(str(span_input.get('model') or default_model), usage)
+		if cost and usage is not None:
+			usage.update(cost)
 		start_time = _event_time_seconds(turn_events[0], 0.0)
 		end_time = _event_time_seconds(turn_events[-1], start_time)
 		span_input_messages = _terminal_laminar_span_input_messages(span_input)
@@ -2798,6 +2950,10 @@ def _record_laminar_terminal_llm_spans(
 					'cache_creation_input_tokens': usage.get('cache_creation_input_tokens') if usage else None,
 					'output_tokens': usage.get('output_tokens') if usage else None,
 					'total_tokens': usage.get('total_tokens') if usage else None,
+					'input_cost_usd': usage.get('input_cost_usd') if usage else None,
+					'input_cached_cost_usd': usage.get('input_cached_cost_usd') if usage else None,
+					'input_cache_creation_cost_usd': usage.get('input_cache_creation_cost_usd') if usage else None,
+					'output_cost_usd': usage.get('output_cost_usd') if usage else None,
 					'cost_usd': usage.get('cost_usd') if usage else None,
 					'duration_seconds': max(0.0, end_time - start_time),
 				}
@@ -2823,6 +2979,8 @@ def _history_from_events(
 	events = _events_after_terminal_rollbacks(_events_after_terminal_compaction(events))
 	final_result = _structured_result_text(_result_from_events(events), output_model_schema)
 	failure = process_error or _failure_from_events(events)
+	if final_result is None and failure is not None:
+		final_result = _structured_result_text(_last_streamed_assistant_text_from_events(events), output_model_schema)
 	if final_result is None and failure is None:
 		failure = _recoverable_failure_from_events(events)
 	if final_result is None and failure is None:
@@ -3598,13 +3756,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				{
 					'usage_total_tokens': usage.total_tokens,
 					'usage_prompt_tokens': usage.total_prompt_tokens,
+					'usage_prompt_cost': usage.total_prompt_cost,
+					'usage_prompt_cached_tokens': usage.total_prompt_cached_tokens,
+					'usage_prompt_cached_cost': usage.total_prompt_cached_cost,
+					'usage_prompt_cache_creation_tokens': usage.total_prompt_cache_creation_tokens,
+					'usage_prompt_cache_creation_cost': usage.total_prompt_cache_creation_cost,
 					'usage_completion_tokens': usage.total_completion_tokens,
+					'usage_completion_cost': usage.total_completion_cost,
+					'usage_total_cost': usage.total_cost,
 				}
 			)
 		_record_laminar_terminal_llm_spans(
 			self.last_events or [],
 			default_model=str(model),
 			default_provider=str(provider),
+		)
+		_record_laminar_terminal_tool_spans(
+			self.last_events or [],
+			max_spans=_int_value(os.getenv('BROWSER_USE_RUST_LAMINAR_MAX_TOOL_SPANS') or 160),
 		)
 		_laminar_set_span_attributes(
 			{
@@ -3619,6 +3788,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				'terminal_events_count': summary['terminal_events_count'],
 				'duration_seconds': duration_seconds,
 				'process_error': process_error,
+				'usage_total_cost': usage.total_cost if usage is not None else None,
+				'usage_prompt_cached_tokens': usage.total_prompt_cached_tokens if usage is not None else None,
+				'usage_prompt_cache_creation_tokens': usage.total_prompt_cache_creation_tokens if usage is not None else None,
 			}
 		)
 		_laminar_set_span_output(summary)

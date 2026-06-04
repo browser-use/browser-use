@@ -5878,6 +5878,8 @@ async def test_rust_agent_loads_started_session_events_after_terminal_timeout(mo
 	agent = Agent(task='timeout after start', llm=type('LLM', (), {'model': 'gpt-test'})(), step_timeout=5)
 	process_commands = []
 	stored_events = [
+		{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+		{'event_type': 'model.stream_delta', 'payload': {'text': 'partial answer before timeout'}},
 		{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
 		{'event_type': 'model.usage', 'payload': {'input_tokens': 11, 'output_tokens': 7}},
 	]
@@ -5901,6 +5903,7 @@ async def test_rust_agent_loads_started_session_events_after_terminal_timeout(mo
 	assert agent.terminal_session_id == '12345678-1234-1234-1234-123456789abc'
 	assert agent.last_events == stored_events
 	assert history.urls() == ['https://example.com']
+	assert history.final_result() == 'partial answer before timeout'
 	assert history.usage is not None
 	assert history.usage.total_prompt_tokens == 11
 	assert history.errors() == ['browser-use-terminal timed out after 5 seconds']
@@ -7452,14 +7455,14 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 
 	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
 
-	agent = Agent(task='Trace terminal observability.', llm=type('LLM', (), {'model': 'gpt-test'})())
+	agent = Agent(task='Trace terminal observability.', llm=type('LLM', (), {'model': 'claude-sonnet-4-6'})())
 	agent.terminal_session_id = 'terminal-session-1'
 	agent.last_events = [
 		{
 			'event_type': 'model.turn.request',
 			'ts_ms': 1000,
 			'payload': {
-				'model': 'gpt-test',
+				'model': 'claude-sonnet-4-6',
 				'provider': 'test-provider',
 				'turn_idx': 0,
 				'composition': {
@@ -7487,6 +7490,31 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 				},
 			},
 		},
+		{
+			'event_type': 'tool.started',
+			'ts_ms': 1200,
+			'payload': {
+				'name': 'browser_script',
+				'tool_call_id': 'call-browser',
+				'arguments': {'code': 'emit_output(page_info(), label="page_info")'},
+			},
+		},
+		{
+			'event_type': 'tool.output',
+			'ts_ms': 1400,
+			'payload': {
+				'name': 'browser_script',
+				'tool_call_id': 'call-browser',
+				'ok': True,
+				'text': '',
+				'summary': [{'kind': 'page', 'title': 'Example Domain', 'url': 'https://example.com'}],
+				'outputs': [{'label': 'page_info', 'value': {'title': 'Example Domain'}}],
+				'content': [
+					{'type': 'input_text', 'text': 'Example Domain page info'},
+					{'type': 'input_image', 'image_url': 'data:image/png;base64,iVBORw0KGgo=', 'detail': 'low'},
+				],
+			},
+		},
 		{'event_type': 'model.stream_delta', 'ts_ms': 1500, 'payload': {'text': 'laminar answer'}},
 		{
 			'event_type': 'token_count',
@@ -7495,15 +7523,17 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 				'info': {
 					'last_token_usage': {
 						'cached_input_tokens': 5,
+						'input_cache_creation_tokens': 13,
 						'input_tokens': 100,
 						'output_tokens': 20,
-						'total_tokens': 120,
+						'total_tokens': 133,
 					},
 					'total_token_usage': {
 						'cached_input_tokens': 5,
+						'input_cache_creation_tokens': 13,
 						'input_tokens': 100,
 						'output_tokens': 20,
-						'total_tokens': 120,
+						'total_tokens': 133,
 					},
 				},
 			},
@@ -7512,7 +7542,7 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	]
 	agent.history = _history_from_events(
 		agent.last_events,
-		model='gpt-test',
+		model='claude-sonnet-4-6',
 		started=1.0,
 		finished=4.0,
 		output_model_schema=None,
@@ -7525,7 +7555,7 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.attributes[-1]['terminal_session_id'] == 'terminal-session-1'
 	assert FakeLaminar.outputs[-1]['final_result_preview'] == 'laminar answer'
 	assert FakeLaminar.outputs[-1]['steps'] == agent.history.number_of_steps()
-	assert FakeLaminar.outputs[-1]['terminal_events_count'] == 4
+	assert FakeLaminar.outputs[-1]['terminal_events_count'] == 6
 	assert FakeLaminar.events[-1][0] == 'agent.run.terminal_summary'
 	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
 	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
@@ -7545,10 +7575,14 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert span_attrs['tools_count'] == 2
 	assert 'browser' in span_attrs['tool_names']
 	assert span_attrs['input_tokens'] == 100
+	assert span_attrs['cached_input_tokens'] == 5
+	assert span_attrs['cache_creation_input_tokens'] == 13
 	assert span_attrs['output_tokens'] == 20
-	assert span_attrs['total_tokens'] == 120
+	assert span_attrs['total_tokens'] == 133
+	assert span_attrs['input_cached_cost_usd'] == 5 * (0.30 / 1_000_000)
+	assert span_attrs['input_cache_creation_cost_usd'] == 13 * (3.75 / 1_000_000)
 	assert span_attrs['gen_ai.operation.name'] == 'chat'
-	assert span_attrs['gen_ai.request.model'] == 'gpt-test'
+	assert span_attrs['gen_ai.request.model'] == 'claude-sonnet-4-6'
 	assert span_attrs['gen_ai.prompt.0.role'] == 'system'
 	assert span_attrs['gen_ai.prompt.0.content'] == 'System prompt'
 	assert span_attrs['gen_ai.prompt.1.role'] == 'user'
@@ -7556,10 +7590,24 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert span_attrs['gen_ai.completion.0.role'] == 'assistant'
 	assert span_attrs['gen_ai.completion.0.content'] == 'laminar answer'
 	assert span_attrs['gen_ai.usage.input_tokens'] == 100
+	assert span_attrs['gen_ai.usage.input_cached_tokens'] == 5
+	assert span_attrs['gen_ai.usage.cache_creation_input_tokens'] == 13
 	assert span_attrs['gen_ai.usage.output_tokens'] == 20
-	assert span_attrs['gen_ai.usage.total_tokens'] == 120
+	assert span_attrs['gen_ai.usage.total_tokens'] == 133
 	assert span_attrs['assistant_output_preview'] == 'laminar answer'
 	assert FakeLaminar.spans[0]['outputs'][-1][0]['content'][0]['text'] == 'laminar answer'
+	assert FakeLaminar.spans[1]['name'] == 'rust_core.tool.browser_script'
+	assert FakeLaminar.spans[1]['span_type'] == 'TOOL'
+	tool_attrs = {}
+	for attributes in FakeLaminar.spans[1]['attributes']:
+		tool_attrs.update(attributes)
+	assert tool_attrs['tool_index'] == 1
+	assert FakeLaminar.spans[1]['input'][0]['tool_calls'][0]['arguments']['code'] == 'emit_output(page_info(), label="page_info")'
+	assert FakeLaminar.spans[1]['outputs'][-1][0]['content'][0] == {'type': 'text', 'text': 'Example Domain page info'}
+	assert FakeLaminar.spans[1]['outputs'][-1][0]['content'][1] == {
+		'type': 'image_url',
+		'image_url': {'url': 'data:image/png;base64,iVBORw0KGgo=', 'detail': 'low'},
+	}
 
 
 async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):
