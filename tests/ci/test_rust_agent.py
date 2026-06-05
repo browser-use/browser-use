@@ -2343,6 +2343,51 @@ print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"text": "x" * 70000}}), 
 	assert result == {'text': 'x' * 70000}
 
 
+async def test_rust_sdk_client_queues_agent_notifications_before_response():
+	import browser_use.rust.service as rust_service
+
+	script = r"""
+import json
+import sys
+
+sys.stdin.readline()
+print(json.dumps({
+	"jsonrpc": "2.0",
+	"method": "agent.event",
+	"params": {
+		"run_id": "run-1",
+		"session_id": "session-1",
+		"event": {"kind": "AgentStarted", "payload": {"task": "inspect"}}
+	},
+}), flush=True)
+print(json.dumps({
+	"jsonrpc": "2.0",
+	"method": "agent.projected_event",
+	"params": {
+		"run_id": "run-1",
+		"session_id": "session-1",
+		"event": {"kind": "item_started", "payload": {"name": "browser_script"}}
+	},
+}), flush=True)
+print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}), flush=True)
+"""
+	client = rust_service.RustSdkClient([sys.executable, '-c', script], {'PYTHONUNBUFFERED': '1'})
+
+	try:
+		result = await client.call('run.with.notifications')
+		first_notification = await client.notification_queue.get()
+		second_notification = await client.notification_queue.get()
+	finally:
+		await client.close()
+
+	assert result == {'ok': True}
+	assert [item['method'] for item in client.notifications] == ['agent.event', 'agent.projected_event']
+	assert first_notification['params']['event']['kind'] == 'AgentStarted'
+	assert second_notification['params']['event']['kind'] == 'item_started'
+	assert rust_service._sdk_notification_summary(first_notification) == 'AgentStarted task=inspect'
+	assert rust_service._sdk_notification_summary(second_notification) == 'projected.item_started name=browser_script'
+
+
 def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	from browser_use.rust import Agent
 

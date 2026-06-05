@@ -220,6 +220,8 @@ class RustSdkClient:
 		self._pending: dict[int, asyncio.Future[Any]] = {}
 		self._write_lock = asyncio.Lock()
 		self.stderr_lines: list[str] = []
+		self.notifications: list[dict[str, Any]] = []
+		self.notification_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 		self.stream_limit = int(os.environ.get('BROWSER_USE_SDK_STREAM_LIMIT_BYTES', str(64 * 1024 * 1024)))
 
 	async def start(self) -> None:
@@ -326,6 +328,16 @@ class RustSdkClient:
 		if not isinstance(message, dict):
 			self._fail_all(RustAgentError(f'Rust SDK server emitted non-object JSON-RPC message: {message!r}'))
 			return
+		method = message.get('method')
+		if method in {'agent.event', 'agent.projected_event'}:
+			notification = {
+				'method': method,
+				'params': message.get('params') if isinstance(message.get('params'), dict) else {},
+			}
+			self.notifications.append(notification)
+			del self.notifications[:-2000]
+			self.notification_queue.put_nowait(notification)
+			return
 		if 'id' not in message:
 			return
 		request_id = message.get('id')
@@ -353,6 +365,80 @@ class RustSdkClient:
 			if not future.done():
 				future.set_exception(error)
 		self._pending.clear()
+
+
+def _sdk_preview(value: Any, limit: int = 180) -> str | None:
+	if value is None:
+		return None
+	if isinstance(value, str):
+		text = value
+	else:
+		try:
+			text = json.dumps(value, default=str)
+		except Exception:
+			text = str(value)
+	text = ' '.join(text.split())
+	if not text:
+		return None
+	if len(text) <= limit:
+		return text
+	return text[:limit] + f'...[{len(text) - limit} more chars]'
+
+
+def _sdk_payload_label(payload: dict[str, Any]) -> str | None:
+	for key in ('name', 'tool_name', 'tool', 'task', 'command', 'url', 'title', 'result', 'error', 'message'):
+		value = _sdk_preview(payload.get(key))
+		if value:
+			return f'{key}={value}'
+	arguments = payload.get('arguments')
+	if isinstance(arguments, dict):
+		for key in ('name', 'cmd', 'command', 'code', 'url'):
+			value = _sdk_preview(arguments.get(key))
+			if value:
+				return f'{key}={value}'
+	return None
+
+
+def _sdk_notification_summary(notification: dict[str, Any]) -> str | None:
+	method = notification.get('method')
+	params = notification.get('params')
+	if not isinstance(params, dict):
+		return None
+	event = params.get('event')
+	if not isinstance(event, dict):
+		return None
+	payload = event.get('payload')
+	if not isinstance(payload, dict):
+		payload = {}
+	kind = event.get('kind') or event.get('event_type') or event.get('type')
+	if isinstance(kind, dict):
+		kind = kind.get('type') or kind.get('name')
+	if not isinstance(kind, str) or not kind:
+		kind = str(method or 'sdk.notification')
+
+	observed_type = payload.get('event_type')
+	observed_payload = payload.get('payload')
+	if isinstance(observed_type, str) and observed_type:
+		kind = observed_type
+		if isinstance(observed_payload, dict):
+			payload = observed_payload
+
+	if kind in {
+		'model.stream_delta',
+		'model.thinking_delta',
+		'tool.output_delta',
+		'browser.script.output_delta',
+		'python.output_delta',
+		'exec_command.output_delta',
+	}:
+		return None
+
+	label = _sdk_payload_label(payload)
+	if method == 'agent.projected_event':
+		projected_kind = event.get('kind')
+		if isinstance(projected_kind, str) and projected_kind:
+			kind = f'projected.{projected_kind}'
+	return f'{kind} {label}'.strip() if label else kind
 
 
 class _LegacyProcessSdkClient:
@@ -4669,6 +4755,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		method = 'agent.run' if self._sdk_agent_id or followups else 'agent.run_task'
 		params = self._sdk_run_params(max_steps=max_steps, task=task, followups=followups)
 		self._active_sdk_run_id = self.terminal_session_id or self._sdk_agent_id
+		progress_task: asyncio.Task[Any] | None = None
+		if isinstance(sdk, RustSdkClient):
+			self.logger.info(
+				'Rust SDK %s starting: max_steps=%s browser_mode=%s browser_id=%s',
+				method,
+				params.get('max_steps'),
+				params.get('browser_mode'),
+				params.get('browser_id') or '<new>',
+			)
+			progress_task = asyncio.create_task(self._log_sdk_progress(sdk))
 		try:
 			result = await sdk.call(method, params)
 		except asyncio.CancelledError:
@@ -4679,6 +4775,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise
 			process_error = str(exc) or exc.__class__.__name__
 		finally:
+			if progress_task is not None:
+				progress_task.cancel()
+				with suppress(asyncio.CancelledError):
+					await progress_task
 			self._active_sdk_run_id = None
 		finished = time.time()
 		self.last_stdout = str(getattr(sdk, 'stdout_text', '') or '')
@@ -4732,6 +4832,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._log_final_outcome_messages()
 		await self._finalize_run_cleanup()
 		return self.history
+
+	async def _log_sdk_progress(self, sdk: RustSdkClient) -> None:
+		seen = 0
+		last_summary: str | None = None
+		last_logged_at = 0.0
+		while True:
+			notification = await sdk.notification_queue.get()
+			seen += 1
+			summary = _sdk_notification_summary(notification)
+			if not summary:
+				continue
+			now = time.time()
+			if summary == last_summary and now - last_logged_at < 30:
+				continue
+			last_summary = summary
+			last_logged_at = now
+			self.logger.info('Rust SDK progress #%s: %s', seen, summary)
 
 	follow_up_task = follow_up
 
