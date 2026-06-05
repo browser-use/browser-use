@@ -2608,6 +2608,65 @@ async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monke
 	assert fake_sdk.calls[1][1]['max_steps'] == 5
 
 
+async def test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'fake'
+
+	class FakeSdk:
+		stderr_lines = []
+		notifications = []
+
+		async def call(self, method, params):
+			assert method == 'agent.run_task'
+			parent_events = [
+				{'event_type': 'model.usage', 'payload': {'input_tokens': 7000, 'output_tokens': 20}},
+				{'event_type': 'session.done', 'payload': {'result': 'parent answer', 'success': True}},
+			]
+			child_events = [
+				{
+					'event_type': 'model.usage',
+					'session_id': 'child-1',
+					'payload': {'input_tokens': 3000, 'cached_input_tokens': 1000, 'output_tokens': 10},
+				},
+				{'event_type': 'session.done', 'session_id': 'child-1', 'payload': {'result': 'child answer'}},
+			]
+			return {
+				'agent_id': 'agent-1',
+				'session_id': 'parent-1',
+				'browser_id': 'browser-1',
+				'history': {
+					'output': 'parent answer',
+					'success': True,
+					'done': True,
+					'errors': [],
+					'events': parent_events,
+					'child_events': child_events,
+					'usage_events': [*parent_events, *child_events],
+				},
+			}
+
+	fake_sdk = FakeSdk()
+
+	async def fake_ensure_sdk_client(self):
+		return fake_sdk
+
+	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
+
+	agent = Agent(task='parent task', llm=LLM(), directly_open_url=False)
+	history = await agent.run(max_steps=3)
+
+	assert history.final_result() == 'parent answer'
+	assert agent.last_events[-1]['payload']['result'] == 'parent answer'
+	assert agent.last_child_events[-1]['payload']['result'] == 'child answer'
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 10_000
+	assert history.usage.total_prompt_cached_tokens == 1000
+	assert history.usage.total_completion_tokens == 30
+	assert history.usage.entry_count == 2
+
+
 async def test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error(monkeypatch):
 	from browser_use.rust import Agent
 

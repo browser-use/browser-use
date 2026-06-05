@@ -153,6 +153,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      the terminal web-search merge. URL-finding and general web-search tasks can
      discover candidate pages without spending browser-navigation turns on search
      engine result pages.
+   - Terminal SDK histories now return child-agent events separately from parent
+     events and expose a combined `usage_events` stream. Browser-use prices and
+     traces against that combined stream, so sub-agent model calls contribute to
+     run token/cost totals without letting child `session.done` events override
+     the parent final answer.
 
 ## Current Proof
 
@@ -202,6 +207,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-agent subagent_tools_are_registered_in_the_dispatcher -- --nocapture`
 - terminal `cargo test -p browser-use-agent search -- --nocapture`
 - terminal `cargo test -p browser-use-agent dispatcher -- --nocapture`
+- terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_returns_child_usage_events_separately -- --nocapture`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_runs_through_sdk_and_reuses_session_for_followup tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_preserves_sdk_notification_history_on_cancel -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`

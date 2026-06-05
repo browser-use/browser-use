@@ -4357,6 +4357,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None
 		self.last_events: list[dict[str, Any]] = []
+		self.last_child_events: list[dict[str, Any]] = []
+		self.last_usage_events: list[dict[str, Any]] = []
+		self.last_observability_events: list[dict[str, Any]] = []
 		self.last_stdout = ''
 		self.last_stderr = ''
 		self._last_synced_history_id: int | None = None
@@ -4654,7 +4657,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'final_result_preview': _laminar_preview(final_result, limit=2000),
 			'terminal_session_id': self.terminal_session_id,
 			'browser_use_session_id': self.session_id,
-			'terminal_events_count': len(self.last_events or []),
+			'terminal_events_count': len(self.last_observability_events or self.last_events or []),
 			'duration_seconds': duration_seconds,
 			'process_error': process_error,
 		}
@@ -4673,13 +4676,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					'usage_total_cost': usage.total_cost,
 				}
 			)
+		observability_events = self.last_observability_events or self.last_events or []
 		_record_laminar_terminal_llm_spans(
-			self.last_events or [],
+			observability_events,
 			default_model=str(model),
 			default_provider=str(provider),
 		)
 		_record_laminar_terminal_tool_spans(
-			self.last_events or [],
+			observability_events,
 			max_spans=_int_value(os.getenv('BROWSER_USE_RUST_LAMINAR_MAX_TOOL_SPANS') or 160),
 		)
 		_laminar_set_span_attributes(
@@ -5074,6 +5078,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.last_stdout = str(getattr(sdk, 'stdout_text', '') or '')
 		self.last_stderr = str(getattr(sdk, 'stderr_text', '') or '\n'.join(line for line in sdk.stderr_lines if line))
 		notification_events = _sdk_notification_events(sdk)
+		child_events: list[dict[str, Any]] = []
+		usage_events: list[dict[str, Any]] = []
 		if isinstance(result, dict):
 			agent_id = result.get('agent_id')
 			session_id = result.get('session_id')
@@ -5092,17 +5098,30 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					errors = history_payload.get('errors')
 					if process_error is None and history_payload.get('success') is False and isinstance(errors, list) and errors:
 						process_error = '\n'.join(str(error) for error in errors if error)
+				raw_child_events = history_payload.get('child_events')
+				if isinstance(raw_child_events, list):
+					child_events = [event for event in raw_child_events if isinstance(event, dict)]
+				raw_usage_events = history_payload.get('usage_events')
+				if isinstance(raw_usage_events, list):
+					usage_events = [event for event in raw_usage_events if isinstance(event, dict)]
 		elif process_error is None:
 			process_error = 'Rust SDK server returned an invalid response.'
 		if notification_events and (
 			not events or _sdk_events_truncated_for_transport(events) or len(notification_events) > len(events)
 		):
 			events = notification_events
+			child_events = []
+			usage_events = notification_events
+		if not usage_events:
+			usage_events = [*events, *child_events]
 		if _result_from_events(events) is not None and (
 			process_error == 'CancelledError' or _sdk_transport_error_after_final_result(process_error)
 		):
 			process_error = None
 		self.last_events = events
+		self.last_child_events = child_events
+		self.last_usage_events = usage_events
+		self.last_observability_events = usage_events
 		self.result = _history_from_events(
 			self.last_events,
 			model=self.model,
@@ -5115,7 +5134,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.result.history = [*self._pending_history_prefix, *self.result.history]
 			self._pending_history_prefix = []
 		self.history = self.result
-		await self._apply_terminal_usage_costs(self.last_events)
+		await self._apply_terminal_usage_costs(self.last_usage_events)
 		self._sync_state_from_history()
 		await self._log_run_usage_summary()
 		self._record_laminar_run_observability(
@@ -5154,6 +5173,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		):
 			effective_error = None
 		self.last_events = events
+		self.last_child_events = []
+		self.last_usage_events = events
+		self.last_observability_events = events
 		self.result = _history_from_events(
 			self.last_events,
 			model=self.model,
@@ -5166,7 +5188,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.result.history = [*self._pending_history_prefix, *self.result.history]
 			self._pending_history_prefix = []
 		self.history = self.result
-		await self._apply_terminal_usage_costs(self.last_events)
+		await self._apply_terminal_usage_costs(self.last_usage_events)
 		self._sync_state_from_history()
 
 	async def _log_sdk_progress(self, sdk: RustSdkClient) -> None:
@@ -6493,6 +6515,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'urls': self.history.urls(),
 			'usage': self.history.usage.model_dump() if self.history.usage else None,
 			'events': self.last_events,
+			'child_events': self.last_child_events,
+			'usage_events': self.last_usage_events,
 			'stdout': self.last_stdout,
 			'stderr': self.last_stderr,
 		}
