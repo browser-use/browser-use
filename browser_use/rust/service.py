@@ -170,6 +170,16 @@ def _laminar_force_flush() -> None:
 			logger.debug('Failed to flush Laminar via %s', method_name, exc_info=True)
 
 
+def _laminar_current_trace_id() -> str | None:
+	if not _laminar_ready():
+		return None
+	try:
+		trace_id = Laminar.get_trace_id()
+	except Exception:
+		return None
+	return str(trace_id) if trace_id else None
+
+
 def find_browser_use_terminal_binary() -> str:
 	"""Find the terminal binary used by the Rust-backed Browser Use Agent."""
 	env_path = os.environ.get('BROWSER_USE_TERMINAL_BINARY')
@@ -3732,6 +3742,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.browser_session.llm_screenshot_size = llm_screenshot_size
 		self.session_id: str = uuid7str()
 		self.terminal_session_id: str | None = None
+		self.laminar_trace_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None
 		self.last_events: list[dict[str, Any]] = []
@@ -4229,6 +4240,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
+		self.laminar_trace_id = _laminar_current_trace_id()
 		self._register_run_signal_handler(max_steps)
 		try:
 			return await self._run_terminal(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end)

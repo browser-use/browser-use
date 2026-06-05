@@ -7467,6 +7467,32 @@ async def test_rust_agent_trace_and_cloud_auth_helpers():
 	assert 'trace answer' in trace_object['trace_details']['complete_history']
 
 
+async def test_rust_agent_run_exposes_laminar_trace_id_for_eval_links(monkeypatch):
+	from browser_use.rust import Agent
+	import browser_use.rust.service as rust_service
+
+	class FakeLaminar:
+		@staticmethod
+		def is_initialized():
+			return True
+
+		@staticmethod
+		def get_trace_id():
+			return '01234567-89ab-cdef-0123-456789abcdef'
+
+	async def fake_run_terminal(self, max_steps, on_step_start, on_step_end):
+		return self.history
+
+	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
+	monkeypatch.setattr(rust_service.Agent, '_run_terminal', fake_run_terminal)
+
+	agent = Agent(task='Trace link task.', llm=type('LLM', (), {'model': 'claude-sonnet-4-6'})())
+
+	await agent.run(max_steps=3)
+
+	assert agent.laminar_trace_id == '01234567-89ab-cdef-0123-456789abcdef'
+
+
 def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	from browser_use.rust import Agent
 	import browser_use.rust.service as rust_service
