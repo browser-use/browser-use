@@ -22,11 +22,16 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
    - SDK server `agent.event` / `agent.projected_event` notifications are retained and
      surfaced as concise in-flight progress logs, so GitHub-runner evals can show where
      a Rust-backed run is spending time before the final history response arrives.
+   - Terminal SDK `agent.run` now mirrors the live executor by passing the latest durable
+     task/follow-up input into `RuntimeHandle::run_agent` as `initial_input`, so SDK
+     `agent.run_task` enters the runtime-owned loop with `agent.input.accepted` and
+     `agent.input.consumed` events instead of stalling after browser creation.
 
 ## Current Proof
 
 - terminal `cargo check -p browser-use-cli`
 - terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
+- terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
