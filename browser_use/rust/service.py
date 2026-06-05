@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 import base64
 import hashlib
 import inspect
@@ -2540,15 +2541,52 @@ def _browser_state_candidates(value: Any) -> list[tuple[str, str, str]]:
 		url = _browser_url(value.get('url'))
 		if url:
 			title = str(value.get('title') or '')
+			raw_target = value.get('target')
+			nested_target_id = ''
+			if isinstance(raw_target, dict):
+				nested_target_id = str(
+					raw_target.get('target_id') or raw_target.get('targetId') or raw_target.get('tab_id') or raw_target.get('tabId') or ''
+				)
 			target_id = str(
-				value.get('target_id') or value.get('targetId') or value.get('tab_id') or value.get('tabId') or 'tab-0'
+				value.get('target_id')
+				or value.get('targetId')
+				or value.get('tab_id')
+				or value.get('tabId')
+				or nested_target_id
+				or 'tab-0'
 			)
 			candidates.append((url, title, target_id))
-		for child in value.values():
+		for key, child in value.items():
+			if key in ('url', 'live_url', 'title'):
+				continue
 			candidates.extend(_browser_state_candidates(child))
 	elif isinstance(value, list):
 		for child in value:
 			candidates.extend(_browser_state_candidates(child))
+	elif isinstance(value, str):
+		text = value.strip()
+		url = _browser_url(text)
+		if url:
+			candidates.append((url, '', 'tab-0'))
+		if len(text) > 50_000:
+			return candidates
+		segments = [text]
+		if '\n' in text:
+			segments.extend(line.strip() for line in text.splitlines() if line.strip().startswith(('{', '[')))
+		seen_segments: set[str] = set()
+		for segment in segments:
+			if segment in seen_segments or not segment.startswith(('{', '[')):
+				continue
+			seen_segments.add(segment)
+			parsed = None
+			for parser in (json.loads, ast.literal_eval):
+				try:
+					parsed = parser(segment)
+					break
+				except (SyntaxError, ValueError, TypeError, json.JSONDecodeError):
+					continue
+			if isinstance(parsed, (dict, list)):
+				candidates.extend(_browser_state_candidates(parsed))
 	return candidates
 
 

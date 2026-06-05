@@ -7146,6 +7146,49 @@ def test_rust_history_uses_browser_script_lifecycle_outputs_as_result():
 	assert history.history[0].state.url == 'https://example.com'
 
 
+def test_rust_history_uses_printed_browser_script_page_info_as_state():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {}},
+			{
+				'event_type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': 'info = page_info()\nprint(info)'},
+				},
+			},
+			{
+				'event_type': 'browser_script.completed',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'ok': True,
+					'status': 'finished',
+					'text': (
+						"{'url': 'https://example.com/', 'title': 'Example Domain', "
+						"'target': {'targetId': 'target-1', 'url': 'https://example.com/', 'title': 'Example Domain'}}"
+					),
+				},
+			},
+			{'event_type': 'model.turn.request', 'payload': {}},
+			{'event_type': 'session.done', 'payload': {'result': 'done'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	state = history.history[0].state
+	assert state.url == 'https://example.com/'
+	assert state.title == 'Example Domain'
+	assert state.tabs[0].target_id == 'target-1'
+
+
 async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monkeypatch):
 	from browser_use.rust import Agent
 

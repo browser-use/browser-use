@@ -55,6 +55,14 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      history reconstruction. This prevents the first post-navigation page probe
      from appearing blank in eval/Laminar history when the script emitted only
      `emit_output(...)` or screenshots and no stdout text.
+   - Printed `browser_script` page probes are also used to reconstruct browser
+     state when they contain `page_info()` dictionaries, `list_tabs()` rows, or
+     a bare URL. This keeps `Page State` aligned with visible tool output even
+     when the script used `print(info)` instead of `emit_output(info, ...)`.
+   - Terminal `list_tabs()` hides the internal `Starting agent ...` about:blank
+     placeholder tab. This prevents the model from mistaking the startup tab
+     for a user-relevant target and spending turns on unnecessary
+     reconnect/reattach recovery after a successful navigation.
    - Terminal Rust SDK runs no longer advertise subagent tools unless the run
      has a configured child-agent runner. This prevents eval tasks from spending
      model turns on `spawn_agent` calls that can only fail with "subagents are
@@ -70,6 +78,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_run_runtime_supports_model_transport_blocking_bridge -- --nocapture`
 - terminal `cargo test -p browser-use-agent running_browser_script -- --nocapture`
 - terminal `cargo test -p browser-use-agent runtime_browser_backend_records_script_lifecycle -- --nocapture`
+- terminal `cargo test -p browser-use-browser browser_script_list_tabs_hides_agent_startup_placeholder -- --nocapture`
 - terminal `cargo test -p browser-use-agent subagent_tools -- --nocapture`
 - terminal `cargo test -p browser-use-agent spawn_agent_agent_type_guidance_discourages_default_override -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
@@ -77,6 +86,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'browser_script_lifecycle_outputs_as_result or initial_actions_pre_navigate_existing_cdp_session or run_hands_off_completed_initial_navigation_as_context' -q`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'printed_browser_script_page_info_as_state or browser_script_lifecycle_outputs_as_result or initial_actions_pre_navigate_existing_cdp_session or run_hands_off_completed_initial_navigation_as_context' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_history_surfaces_running_browser_script_observe_instruction -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'initial_actions_pre_navigate_existing_cdp_session or run_executes_initial_actions_before_sdk or run_hands_off_completed_initial_navigation_as_context' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
