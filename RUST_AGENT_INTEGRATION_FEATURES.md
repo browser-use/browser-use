@@ -83,6 +83,15 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      This gives the next model turn concrete evidence that navigation landed,
      instead of a bare "navigation sent" placeholder that can lead to repeated
      navigate/status/recover loops on Cloud Browser CDP sessions.
+   - Terminal `browser_script observe` now waits through the requested observe
+     window instead of returning on the first partial stream event. If a
+     navigation or extraction script emits partial page events and then finishes
+     shortly after, the model receives the final result in the same tool call
+     rather than spending extra LLM turns polling the same `run_id`.
+   - Eval payloads preserve Rust/browser-use usage fields and add dashboard
+     aliases (`input_tokens`, `output_tokens`, cached/cache-creation tokens, and
+     `cost_usd`) before saving. This keeps cost/token displays working for Rust
+     histories without changing the canonical browser-use usage structure.
 
 ## Current Proof
 
@@ -100,6 +109,9 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-llm anthropic_messages -- --nocapture`
 - terminal `cargo test -p browser-use-browser browser_script_navigation_helpers_wait_for_page_state -- --nocapture`
 - terminal `cargo test -p browser-use-browser browser_script_start_observe_finishes_slow_scripts -- --test-threads=1 --nocapture`
+- terminal `cargo test -p browser-use-browser browser_script_observe_waits_for_completion_after_partial_output --lib`
+- terminal `cargo test -p browser-use-browser browser_script_observe --lib`
+- terminal `cargo test -p browser-use-browser browser_script_start_observe_finishes_slow_scripts --lib`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
@@ -114,6 +126,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'rust_sdk_client_reads_large_json_rpc_lines or rust_sdk_client_queues_agent_notifications_before_response' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_sdk_client_reads_large_json_rpc_lines tests/ci/test_rust_agent.py::test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default tests/ci/test_rust_agent.py::test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session tests/ci/test_rust_agent.py::test_rust_agent_translates_browser_use_args_to_terminal -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
+- evaluations-internal `python -m py_compile eval/task_types.py`
+- evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -q -k 'usage_aliases or trims_oversized_history_fields or rust_eval_uses_adapter_initial_navigation_default or rust_eval_preserves_explicit_direct_initial_navigation_override'`
 - evaluations-internal `PYTHONPATH="$PWD" uv run pytest tests/test_service_cli.py::test_progress_updates_tolerate_transient_failures_by_default tests/test_service_cli.py::test_run_stage_with_progress_heartbeat_refreshes_active_stage -q`
 - browser-use process-backed smoke with
   `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`,
