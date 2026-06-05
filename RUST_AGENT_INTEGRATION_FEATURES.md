@@ -83,15 +83,20 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      This gives the next model turn concrete evidence that navigation landed,
      instead of a bare "navigation sent" placeholder that can lead to repeated
      navigate/status/recover loops on Cloud Browser CDP sessions.
-   - Terminal `browser_script observe` now waits through the requested observe
-     window instead of returning on the first partial stream event. If a
-     navigation or extraction script emits partial page events and then finishes
-     shortly after, the model receives the final result in the same tool call
-     rather than spending extra LLM turns polling the same `run_id`.
-   - Eval payloads preserve Rust/browser-use usage fields and add dashboard
-     aliases (`input_tokens`, `output_tokens`, cached/cache-creation tokens, and
-     `cost_usd`) before saving. This keeps cost/token displays working for Rust
-     histories without changing the canonical browser-use usage structure.
+  - Terminal `browser_script observe` now waits through the requested observe
+    window instead of returning on the first partial stream event. If a
+    navigation or extraction script emits partial page events and then finishes
+    shortly after, the model receives the final result in the same tool call
+    rather than spending extra LLM turns polling the same `run_id`.
+  - Terminal `browser_script` start now auto-collects a previous active run
+    that has already finished or timed out. If the model starts another browser
+    action immediately after navigation completed in the background, the tool
+    returns the completed navigation/page result in that same call instead of
+    forcing a separate observe/status/recover turn.
+  - Eval payloads preserve Rust/browser-use usage fields and add dashboard
+    aliases (`input_tokens`, `output_tokens`, cached/cache-creation tokens, and
+    `cost_usd`) before saving. This keeps cost/token displays working for Rust
+    histories without changing the canonical browser-use usage structure.
    - Browser-use Rust CDP initial navigation now waits for a concrete
      post-navigation browser state summary and passes the observed current
      URL/title into the Rust task context. Start-URL tasks should begin by
@@ -117,6 +122,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-browser browser_script_observe_waits_for_completion_after_partial_output --lib`
 - terminal `cargo test -p browser-use-browser browser_script_observe --lib`
 - terminal `cargo test -p browser-use-browser browser_script_start_observe_finishes_slow_scripts --lib`
+- terminal `cargo test -p browser-use-browser browser_script_start_ -- --nocapture`
+- terminal `cargo test -p browser-use-browser browser_script_observe_is_idempotent_after_completion -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
