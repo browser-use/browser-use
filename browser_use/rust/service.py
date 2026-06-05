@@ -156,6 +156,20 @@ def _laminar_start_span(name: str, *, input: Any = None, span_type: str = 'DEFAU
 		return nullcontext()
 
 
+def _laminar_force_flush() -> None:
+	if not _laminar_ready():
+		return
+	for method_name in ('force_flush', 'flush'):
+		method = getattr(Laminar, method_name, None)
+		if method is None:
+			continue
+		try:
+			method()
+			return
+		except Exception:
+			logger.debug('Failed to flush Laminar via %s', method_name, exc_info=True)
+
+
 def find_browser_use_terminal_binary() -> str:
 	"""Find the terminal binary used by the Rust-backed Browser Use Agent."""
 	env_path = os.environ.get('BROWSER_USE_TERMINAL_BINARY')
@@ -3100,6 +3114,7 @@ def _record_laminar_terminal_tool_spans(events: list[dict[str, Any]], *, max_spa
 				}
 			)
 			_laminar_set_span_output(output_messages)
+		_laminar_force_flush()
 	if len(tool_calls) > max_spans:
 		_laminar_event('rust_core.tool_spans_truncated', {'recorded': max_spans, 'available': len(tool_calls)})
 
@@ -3170,6 +3185,7 @@ def _record_laminar_terminal_llm_spans(
 			)
 			_laminar_set_span_attributes(_terminal_laminar_gen_ai_attributes(span_input, span_output, usage))
 			_laminar_set_span_output(span_output_messages)
+		_laminar_force_flush()
 	if len(ranges) > max_spans:
 		_laminar_event(
 			'rust_core.llm_spans_truncated',
