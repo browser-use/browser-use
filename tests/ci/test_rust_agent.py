@@ -7397,6 +7397,69 @@ async def test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session(
 	assert agent.history.history[0].model_output.action == agent.initial_actions
 
 
+async def test_rust_agent_direct_initial_navigation_defaults_on_for_cdp(monkeypatch):
+	from types import SimpleNamespace
+
+	from browser_use.rust import Agent
+
+	class FakeBrowserSession:
+		id = 'browser-cdp'
+		cdp_url = 'wss://cloud-browser.example/devtools/browser/session'
+		browser_profile = SimpleNamespace(cdp_url=cdp_url)
+
+		def __init__(self):
+			self.calls = []
+
+		async def navigate_to(self, url, new_tab=False):
+			self.calls.append((url, new_tab))
+
+	browser_session = FakeBrowserSession()
+	agent = Agent(
+		task='read the page',
+		browser_session=browser_session,
+		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
+	)
+
+	monkeypatch.delenv('BROWSER_USE_RUST_DIRECT_INITIAL_NAVIGATION', raising=False)
+	await agent._execute_initial_actions(allow_terminal_run=False)
+
+	assert browser_session.calls == [('https://example.com', False)]
+	assert agent._initial_actions_executed is True
+	assert agent._completed_initial_navigation_urls == ['https://example.com']
+	assert agent.state.last_result[0].extracted_content == 'Navigated to https://example.com'
+
+
+async def test_rust_agent_direct_initial_navigation_can_be_disabled(monkeypatch):
+	from types import SimpleNamespace
+
+	from browser_use.rust import Agent
+
+	class FakeBrowserSession:
+		id = 'browser-cdp'
+		cdp_url = 'wss://cloud-browser.example/devtools/browser/session'
+		browser_profile = SimpleNamespace(cdp_url=cdp_url)
+
+		def __init__(self):
+			self.calls = []
+
+		async def navigate_to(self, url, new_tab=False):
+			self.calls.append((url, new_tab))
+
+	browser_session = FakeBrowserSession()
+	agent = Agent(
+		task='read the page',
+		browser_session=browser_session,
+		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
+	)
+
+	monkeypatch.setenv('BROWSER_USE_RUST_DIRECT_INITIAL_NAVIGATION', '0')
+	await agent._execute_initial_actions(allow_terminal_run=False)
+
+	assert browser_session.calls == []
+	assert agent._initial_actions_executed is False
+	assert agent.history.history == []
+
+
 async def test_rust_agent_exposes_action_replay_helper_methods(monkeypatch):
 	from types import SimpleNamespace
 

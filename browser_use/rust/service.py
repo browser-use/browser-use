@@ -1068,8 +1068,10 @@ def _string_env_value(value: Any) -> str | None:
 
 
 def _direct_initial_navigation_enabled() -> bool:
-	raw = os.getenv('BROWSER_USE_RUST_DIRECT_INITIAL_NAVIGATION', '')
-	return raw.strip().lower() in {'1', 'true', 'yes', 'on'}
+	raw = os.getenv('BROWSER_USE_RUST_DIRECT_INITIAL_NAVIGATION')
+	if raw is None:
+		return True
+	return raw.strip().lower() not in {'0', 'false', 'no', 'off'}
 
 
 def _llm_provider_name(llm: Any) -> str | None:
