@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Mapping
-from dataclasses import field
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
 
 import httpx
@@ -22,6 +22,7 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 T = TypeVar('T', bound=BaseModel)
 
 
+@dataclass
 class ChatOpenAI(BaseChatModel):
 	"""
 	A wrapper around AsyncOpenAI that implements the BaseLLM protocol.
