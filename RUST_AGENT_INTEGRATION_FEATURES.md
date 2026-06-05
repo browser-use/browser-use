@@ -50,6 +50,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      context and the stale `First navigate to ...` prefix is removed from the
      SDK task. This keeps Rust from repeating a navigation that Python already
      confirmed against the Browser Use Cloud browser.
+   - Structured `browser_script` lifecycle events now preserve outputs, summaries,
+     images, and browser state through terminal event persistence and Python
+     history reconstruction. This prevents the first post-navigation page probe
+     from appearing blank in eval/Laminar history when the script emitted only
+     `emit_output(...)` or screenshots and no stdout text.
    - Terminal Rust SDK runs no longer advertise subagent tools unless the run
      has a configured child-agent runner. This prevents eval tasks from spending
      model turns on `spawn_agent` calls that can only fail with "subagents are
@@ -64,12 +69,14 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_run_runtime_supports_model_transport_blocking_bridge -- --nocapture`
 - terminal `cargo test -p browser-use-agent running_browser_script -- --nocapture`
+- terminal `cargo test -p browser-use-agent runtime_browser_backend_records_script_lifecycle -- --nocapture`
 - terminal `cargo test -p browser-use-agent subagent_tools -- --nocapture`
 - terminal `cargo test -p browser-use-agent spawn_agent_agent_type_guidance_discourages_default_override -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'browser_script_lifecycle_outputs_as_result or initial_actions_pre_navigate_existing_cdp_session or run_hands_off_completed_initial_navigation_as_context' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_history_surfaces_running_browser_script_observe_instruction -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'initial_actions_pre_navigate_existing_cdp_session or run_executes_initial_actions_before_sdk or run_hands_off_completed_initial_navigation_as_context' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`

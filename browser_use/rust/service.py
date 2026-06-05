@@ -1722,17 +1722,21 @@ def _command_waiting_payload(payload: dict[str, Any], previous_payload: dict[str
 	return next_payload
 
 
-_TOOL_OUTPUT_DELTA_EVENTS = ('tool.output_delta', 'exec_command.output_delta')
+_TOOL_OUTPUT_DELTA_EVENTS = ('tool.output_delta', 'exec_command.output_delta', 'browser_script.output_delta')
+_BROWSER_SCRIPT_RESULT_EVENTS = ('browser_script.completed', 'browser_script.cancelled', 'browser_script.failed')
 
 
 _TEXTUAL_TOOL_RESULT_EVENTS = (
 	'tool.output',
 	'tool.output_delta',
 	'exec_command.output_delta',
+	'browser_script.output_delta',
 	'command.waiting',
 	'exec_command.end',
 	'tool.finished',
 	'model.response.input_item',
+	'browser_script.completed',
+	'browser_script.cancelled',
 )
 _MAX_TERMINAL_LONG_TERM_TEXT_LENGTH = 1000
 
@@ -1895,12 +1899,14 @@ def _tool_results_by_call_id(events: list[dict[str, Any]]) -> dict[str, tuple[st
 			'tool.output',
 			'tool.output_delta',
 			'exec_command.output_delta',
+			'browser_script.output_delta',
 			'command.waiting',
 			'exec_command.end',
 			'tool.failed',
 			'tool.aborted',
 			'tool.finished',
 			'model.response.input_item',
+			*_BROWSER_SCRIPT_RESULT_EVENTS,
 		):
 			continue
 		payload = _event_payload(event)
@@ -1976,12 +1982,14 @@ def _unkeyed_tool_results(events: list[dict[str, Any]]) -> list[tuple[str, dict[
 			'tool.output',
 			'tool.output_delta',
 			'exec_command.output_delta',
+			'browser_script.output_delta',
 			'command.waiting',
 			'exec_command.end',
 			'tool.failed',
 			'tool.aborted',
 			'tool.finished',
 			'model.response.input_item',
+			*_BROWSER_SCRIPT_RESULT_EVENTS,
 		):
 			continue
 		payload = _event_payload(event)
@@ -2202,6 +2210,10 @@ def _tool_result_text(payload: dict[str, Any]) -> str | None:
 		text = _structured_tool_output_text(payload.get(key))
 		if text:
 			return text
+	if payload.get('name') == 'browser_script' and payload.get('ok') is True:
+		status = payload.get('status')
+		if status in ('finished', 'completed') or status is None:
+			return 'browser_script completed'
 	return None
 
 
@@ -2402,6 +2414,8 @@ def _action_results_from_tool_calls(
 			text = _synthetic_tool_result_text(str(name))
 		if event_type == 'tool.failed':
 			error = _tool_failure_message(payload)
+		elif event_type == 'browser_script.failed':
+			error = _tool_failure_message(payload) or 'browser_script failed'
 		elif event_type == 'tool.aborted':
 			error = _tool_abort_message(payload)
 		elif event_type == 'exec_command.end':
@@ -2594,7 +2608,7 @@ def _tool_image_attachments_by_name(events: list[dict[str, Any]]) -> list[tuple[
 		image_paths: list[str] = []
 		if event_type == 'tool.image':
 			_append_unique_attachment(image_paths, _image_path(payload.get('image')))
-		elif event_type in ('tool.output', 'tool.failed'):
+		elif event_type in ('tool.output', 'tool.failed', *_BROWSER_SCRIPT_RESULT_EVENTS):
 			images = payload.get('images')
 			if isinstance(images, list):
 				for image in images:
@@ -2614,7 +2628,7 @@ def _screenshot_path_from_events(events: list[dict[str, Any]]) -> str | None:
 			if image_path:
 				screenshot_path = image_path
 			continue
-		if event_type not in ('tool.output', 'tool.failed'):
+		if event_type not in ('tool.output', 'tool.failed', *_BROWSER_SCRIPT_RESULT_EVENTS):
 			continue
 		images = payload.get('images')
 		if not isinstance(images, list):
@@ -2649,7 +2663,7 @@ def _browser_state_from_events(events: list[dict[str, Any]]) -> BrowserStateHist
 	tabs: list[TabInfo] = []
 	for event in events:
 		event_type = _event_type(event)
-		if event_type in ('tool.output', 'tool.started'):
+		if event_type in ('tool.output', 'tool.started', *_BROWSER_SCRIPT_RESULT_EVENTS):
 			payload = _event_payload(event)
 			if event_type == 'tool.started':
 				candidates = _browser_script_navigation_candidates(payload)

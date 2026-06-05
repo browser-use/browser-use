@@ -7100,6 +7100,52 @@ async def test_rust_agent_run_hands_off_completed_initial_navigation_as_context(
 	assert not seen[0].startswith("First navigate to 'https://example.com'")
 
 
+def test_rust_history_uses_browser_script_lifecycle_outputs_as_result():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {}},
+			{
+				'event_type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': 'emit_output(page_info(), label="page_info")'},
+				},
+			},
+			{
+				'event_type': 'browser_script.completed',
+				'payload': {
+					'name': 'browser_script',
+					'ok': True,
+					'status': 'finished',
+					'run_id': 'bs-test',
+					'outputs': [
+						{
+							'label': 'page_info',
+							'value': {'url': 'https://example.com', 'title': 'Example'},
+							'summary': {'kind': 'observed', 'output_label': 'page_info'},
+						}
+					],
+				},
+			},
+			{'event_type': 'model.turn.request', 'payload': {}},
+			{'event_type': 'session.done', 'payload': {'result': 'done'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	result = history.history[0].result[0]
+	assert result.extracted_content is not None
+	assert 'https://example.com' in result.extracted_content
+	assert history.history[0].state.url == 'https://example.com'
+
+
 async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monkeypatch):
 	from browser_use.rust import Agent
 
