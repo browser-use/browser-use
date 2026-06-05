@@ -7635,21 +7635,17 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
 	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
 	llm_input = FakeLaminar.spans[0]['input']
-	assert llm_input['model'] == 'claude-sonnet-4-6'
-	assert llm_input['provider'] == 'test-provider'
-	assert llm_input['messages'][0]['role'] == 'system'
-	assert llm_input['messages'][0]['content'][0]['text'] == 'System prompt'
-	assert llm_input['messages'][1]['content'][0]['text'] == 'Find the title on example.com'
-	assert llm_input['messages'][1]['content'][1] == {
+	assert isinstance(llm_input, list)
+	assert llm_input[0]['role'] == 'system'
+	assert llm_input[0]['content'][0]['text'] == 'System prompt'
+	assert llm_input[1]['content'][0]['text'] == 'Find the title on example.com'
+	assert llm_input[1]['content'][1] == {
 		'type': 'image_url',
 		'image_url': {
 			'url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
 			'detail': 'low',
 		},
 	}
-	assert llm_input['tools'][0]['name'] == 'browser_script'
-	assert 'click_at_xy' in llm_input['tools'][0]['description']
-	assert llm_input['tools'][0]['input_schema']['properties']['code']['type'] == 'string'
 	span_attrs = {}
 	for attributes in FakeLaminar.spans[0]['attributes']:
 		span_attrs.update(attributes)
@@ -7678,6 +7674,8 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert span_attrs['llm.request.functions.0.name'] == 'browser_script'
 	assert 'click_at_xy' in span_attrs['llm.request.functions.0.description']
 	assert '"code"' in span_attrs['llm.request.functions.0.input_schema']
+	assert span_attrs['gen_ai.request.tools.0.name'] == 'browser_script'
+	assert 'click_at_xy' in span_attrs['gen_ai.request.tools.0.description']
 	assert '"browser_script"' in span_attrs['gen_ai.tool.definitions']
 	assert 'click_at_xy' in span_attrs['gen_ai.tool.definitions']
 	assert '"browser_script"' in span_attrs['gen_ai.request.tools']

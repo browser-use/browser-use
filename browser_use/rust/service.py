@@ -2752,15 +2752,7 @@ def _terminal_laminar_tools_for_span(span_input: dict[str, Any]) -> list[dict[st
 
 
 def _terminal_laminar_span_input_payload(span_input: dict[str, Any]) -> Any:
-	payload: dict[str, Any] = {
-		'model': span_input.get('model'),
-		'provider': span_input.get('provider'),
-		'messages': _terminal_laminar_span_input_messages(span_input),
-	}
-	tools = _terminal_laminar_tools_for_span(span_input)
-	if tools:
-		payload['tools'] = tools
-	return payload
+	return _terminal_laminar_span_input_messages(span_input)
 
 
 def _terminal_laminar_span_output_messages(span_output: dict[str, Any]) -> list[dict[str, Any]]:
