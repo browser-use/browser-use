@@ -3048,6 +3048,33 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 	)
 
 
+def _usage_tokens(summary: UsageSummary | None) -> int:
+	if summary is None:
+		return 0
+	return max(
+		_int_value(summary.total_tokens),
+		_int_value(summary.total_prompt_tokens)
+		+ _int_value(summary.total_prompt_cache_creation_tokens)
+		+ _int_value(summary.total_completion_tokens),
+	)
+
+
+def _usage_event_from_sdk_history_usage(raw_usage: Any) -> dict[str, Any] | None:
+	if not isinstance(raw_usage, dict):
+		return None
+	if _chat_invoke_usage_from_payload(raw_usage) is None:
+		return None
+	return {
+		'event_type': 'token_count',
+		'payload': {
+			'info': {
+				'last_token_usage': raw_usage,
+				'total_token_usage': raw_usage,
+			}
+		},
+	}
+
+
 async def _usage_from_events_with_costs(
 	events: list[dict[str, Any]],
 	model: str,
@@ -5092,6 +5119,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		notification_events = _sdk_notification_events(sdk)
 		child_events: list[dict[str, Any]] = []
 		usage_events: list[dict[str, Any]] = []
+		response_usage_event: dict[str, Any] | None = None
 		if isinstance(result, dict):
 			agent_id = result.get('agent_id')
 			session_id = result.get('session_id')
@@ -5116,19 +5144,44 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raw_usage_events = history_payload.get('usage_events')
 				if isinstance(raw_usage_events, list):
 					usage_events = [event for event in raw_usage_events if isinstance(event, dict)]
+				response_usage_event = _usage_event_from_sdk_history_usage(history_payload.get('usage'))
 		elif process_error is None:
 			process_error = 'Rust SDK server returned an invalid response.'
+		events_result = _result_from_events(events)
+		notification_result = _result_from_events(notification_events)
+		used_notification_events = False
 		if notification_events and (
-			not events or _sdk_events_truncated_for_transport(events) or len(notification_events) > len(events)
+			not events
+			or _sdk_events_truncated_for_transport(events)
+			or len(notification_events) > len(events)
+			or (notification_result is not None and events_result is None)
 		):
 			events = notification_events
 			child_events = []
 			usage_events = notification_events
+			events_result = notification_result
+			used_notification_events = True
 		if not usage_events:
 			usage_events = [*events, *child_events]
-		if _result_from_events(events) is not None and (
+		if response_usage_event is not None:
+			current_usage = _usage_from_events(usage_events, self.model)
+			response_usage = _usage_from_events([response_usage_event], self.model)
+			if _usage_tokens(response_usage) > _usage_tokens(current_usage):
+				usage_events = [response_usage_event]
+		if self.logger.isEnabledFor(logging.INFO):
+			self.logger.info(
+				'Rust SDK reconstructed history: response_events=%s notification_events=%s usage_events=%s final_from=%s usage_tokens=%s',
+				len(events),
+				len(notification_events),
+				len(usage_events),
+				'events' if events_result is not None else 'none',
+				_usage_tokens(_usage_from_events(usage_events, self.model)),
+			)
+		if events_result is not None and (
 			process_error == 'CancelledError' or _sdk_transport_error_after_final_result(process_error)
 		):
+			process_error = None
+		if used_notification_events and events_result is not None:
 			process_error = None
 		self.last_events = events
 		self.last_child_events = child_events

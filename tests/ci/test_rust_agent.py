@@ -2774,6 +2774,149 @@ async def test_rust_agent_recovers_nested_sdk_notification_events(monkeypatch):
 	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'session.done']
 
 
+async def test_rust_agent_prefers_notification_final_when_response_history_lacks_result(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'fake'
+
+	def notification(seq: int, event_type: str, payload: dict):
+		return {
+			'method': 'agent.event',
+			'params': {
+				'event': {
+					'seq': seq,
+					'id': f'event-{seq}',
+					'event_type': event_type,
+					'payload': payload,
+				}
+			},
+		}
+
+	class FakeSdk:
+		stderr_lines = []
+
+		def __init__(self):
+			self.notifications = [
+				notification(1, 'session.input', {'text': 'task'}),
+				notification(
+					2,
+					'token_count',
+					{
+						'info': {
+							'last_token_usage': {'input_tokens': 100, 'cached_input_tokens': 40, 'output_tokens': 10, 'total_tokens': 110},
+							'total_token_usage': {'input_tokens': 100, 'cached_input_tokens': 40, 'output_tokens': 10, 'total_tokens': 110},
+						}
+					},
+				),
+				notification(
+					3,
+					'token_count',
+					{
+						'info': {
+							'last_token_usage': {'input_tokens': 200, 'cached_input_tokens': 60, 'output_tokens': 20, 'total_tokens': 220},
+							'total_token_usage': {
+								'input_tokens': 300,
+								'cached_input_tokens': 100,
+								'output_tokens': 30,
+								'total_tokens': 330,
+							},
+						}
+					},
+				),
+				notification(4, 'session.done', {'result': 'final from retained notifications', 'success': True}),
+			]
+
+		async def call(self, method, params):
+			return {
+				'history': {
+					'success': False,
+					'done': True,
+					'errors': ['compacted response did not include final tail'],
+					'events': [
+						{'event_type': 'session.input', 'payload': {'text': 'task'}},
+						{'event_type': 'browser.navigated', 'payload': {'url': 'https://example.com'}},
+						{'event_type': 'sdk.transport.truncated', 'payload': {'omitted_events': 100}},
+						{'event_type': 'browser.released', 'payload': {}},
+						{'event_type': 'agent.turn.completed', 'payload': {}},
+					],
+					'usage_events': [],
+				}
+			}
+
+	fake_sdk = FakeSdk()
+
+	async def fake_ensure_sdk_client(self):
+		return fake_sdk
+
+	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
+
+	agent = Agent(task='task', llm=LLM(), directly_open_url=False)
+	history = await agent.run(max_steps=3)
+
+	assert history.final_result() == 'final from retained notifications'
+	assert history.is_successful() is True
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 300
+	assert history.usage.total_prompt_cached_tokens == 100
+	assert history.usage.total_completion_tokens == 30
+	assert history.usage.total_tokens == 330
+	assert history.usage.entry_count == 2
+	assert [event['event_type'] for event in agent.last_events] == [
+		'session.input',
+		'token_count',
+		'token_count',
+		'session.done',
+	]
+
+
+async def test_rust_agent_uses_sdk_history_usage_when_events_do_not_include_usage(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'fake'
+
+	class FakeSdk:
+		stderr_lines = []
+		notifications = []
+
+		async def call(self, method, params):
+			return {
+				'history': {
+					'success': True,
+					'done': True,
+					'errors': [],
+					'events': [{'event_type': 'session.done', 'payload': {'result': 'answer', 'success': True}}],
+					'usage_events': [],
+					'usage': {
+						'input_tokens': 120,
+						'cached_input_tokens': 30,
+						'input_cache_creation_tokens': 10,
+						'output_tokens': 15,
+						'total_tokens': 145,
+					},
+				}
+			}
+
+	fake_sdk = FakeSdk()
+
+	async def fake_ensure_sdk_client(self):
+		return fake_sdk
+
+	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
+
+	agent = Agent(task='task', llm=LLM(), directly_open_url=False)
+	history = await agent.run(max_steps=3)
+
+	assert history.final_result() == 'answer'
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 120
+	assert history.usage.total_prompt_cached_tokens == 30
+	assert history.usage.total_prompt_cache_creation_tokens == 10
+	assert history.usage.total_completion_tokens == 15
+	assert history.usage.total_tokens == 145
+
+
 async def test_rust_agent_preserves_sdk_notification_history_on_cancel(monkeypatch):
 	import asyncio
 
