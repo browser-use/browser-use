@@ -2964,11 +2964,11 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 				)
 			elif total_cache_creation_tokens:
 				token_count_cache_creation_tokens = total_cache_creation_tokens
-			input_tokens = max(total_input_tokens, token_count_input_tokens)
-			cached_input_tokens = max(total_cached_input_tokens, token_count_cached_input_tokens)
-			cache_creation_tokens = max(total_cache_creation_tokens, token_count_cache_creation_tokens)
-			completion_tokens = max(total_completion_tokens, token_count_completion_tokens)
-			total_tokens = max(total_usage_tokens, token_count_total_tokens)
+			input_tokens = max(input_tokens, total_input_tokens, token_count_input_tokens)
+			cached_input_tokens = max(cached_input_tokens, total_cached_input_tokens, token_count_cached_input_tokens)
+			cache_creation_tokens = max(cache_creation_tokens, total_cache_creation_tokens, token_count_cache_creation_tokens)
+			completion_tokens = max(completion_tokens, total_completion_tokens, token_count_completion_tokens)
+			total_tokens = max(total_tokens, total_usage_tokens, token_count_total_tokens)
 			token_count_invocations += 1
 
 	invocations = max(invocations, token_count_invocations)
@@ -3014,6 +3014,12 @@ async def _usage_from_events_with_costs(
 	total_prompt_cache_creation_cost = 0.0
 	total_cost = 0.0
 	priced_invocations = 0
+	summed_prompt_tokens = 0
+	summed_prompt_cached_tokens = 0
+	summed_prompt_cache_creation_tokens = 0
+	summed_completion_tokens = 0
+	summed_total_tokens = 0
+	summed_invocations = 0
 
 	for event in events:
 		event_type = _event_type(event)
@@ -3028,6 +3034,12 @@ async def _usage_from_events_with_costs(
 		chat_usage = _chat_invoke_usage_from_payload(raw_usage)
 		if chat_usage is None:
 			continue
+		summed_invocations += 1
+		summed_prompt_tokens += chat_usage.prompt_tokens
+		summed_prompt_cached_tokens += chat_usage.prompt_cached_tokens or 0
+		summed_prompt_cache_creation_tokens += chat_usage.prompt_cache_creation_tokens or 0
+		summed_completion_tokens += chat_usage.completion_tokens
+		summed_total_tokens += chat_usage.total_tokens
 		cost = await token_cost_service.calculate_cost(model, chat_usage)
 		if cost is None:
 			continue
@@ -3038,24 +3050,43 @@ async def _usage_from_events_with_costs(
 		total_prompt_cache_creation_cost += cost.prompt_cache_creation_cost or 0.0
 		total_cost += cost.total_cost
 
-	if priced_invocations == 0:
+	if priced_invocations == 0 and summed_invocations == 0:
 		return summary
 
 	model_stats = dict(summary.by_model)
 	stats = model_stats.get(model) or ModelUsageStats(model=model)
-	stats.cost = total_cost
+	if summed_invocations:
+		stats.prompt_tokens = summed_prompt_tokens
+		stats.completion_tokens = summed_completion_tokens
+		stats.total_tokens = summed_total_tokens
+		stats.invocations = max(stats.invocations, summed_invocations)
+	if priced_invocations:
+		stats.cost = total_cost
 	model_stats[model] = stats
 
-	return summary.model_copy(
-		update={
-			'total_prompt_cost': total_prompt_cost,
-			'total_prompt_cached_cost': total_prompt_cached_cost,
-			'total_prompt_cache_creation_cost': total_prompt_cache_creation_cost,
-			'total_completion_cost': total_completion_cost,
-			'total_cost': total_cost,
-			'by_model': model_stats,
-		}
-	)
+	update: dict[str, Any] = {'by_model': model_stats}
+	if summed_invocations:
+		update.update(
+			{
+				'total_prompt_tokens': summed_prompt_tokens,
+				'total_prompt_cached_tokens': summed_prompt_cached_tokens,
+				'total_prompt_cache_creation_tokens': summed_prompt_cache_creation_tokens,
+				'total_completion_tokens': summed_completion_tokens,
+				'total_tokens': summed_total_tokens,
+				'entry_count': max(summary.entry_count, summed_invocations),
+			}
+		)
+	if priced_invocations:
+		update.update(
+			{
+				'total_prompt_cost': total_prompt_cost,
+				'total_prompt_cached_cost': total_prompt_cached_cost,
+				'total_prompt_cache_creation_cost': total_prompt_cache_creation_cost,
+				'total_completion_cost': total_completion_cost,
+				'total_cost': total_cost,
+			}
+		)
+	return summary.model_copy(update=update)
 
 
 def _terminal_model_turn_event_ranges(events: list[dict[str, Any]]) -> list[tuple[int, int]]:

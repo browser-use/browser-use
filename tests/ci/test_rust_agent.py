@@ -1790,6 +1790,58 @@ def test_rust_history_reconstructs_terminal_nested_model_usage():
 	assert history.usage.by_model['gpt-test'].cost == 0.0123
 
 
+def test_rust_history_token_count_does_not_shrink_model_usage_totals():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'model.usage',
+				'payload': {
+					'input_tokens': 120_000,
+					'cached_input_tokens': 119_000,
+					'input_cache_creation_tokens': 4_000,
+					'output_tokens': 2_000,
+					'total_tokens': 126_000,
+				},
+			},
+			{
+				'event_type': 'token_count',
+				'payload': {
+					'info': {
+						'last_token_usage': {
+							'input_tokens': 8_000,
+							'cached_input_tokens': 7_000,
+							'output_tokens': 200,
+							'total_tokens': 8_200,
+						},
+						'total_token_usage': {
+							'input_tokens': 8_000,
+							'cached_input_tokens': 7_000,
+							'output_tokens': 200,
+							'total_tokens': 8_200,
+						},
+					},
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 120_000
+	assert history.usage.total_prompt_cached_tokens == 119_000
+	assert history.usage.total_prompt_cache_creation_tokens == 4_000
+	assert history.usage.total_completion_tokens == 2_000
+	assert history.usage.total_tokens == 126_000
+	assert history.usage.entry_count == 1
+
+
 async def test_rust_terminal_usage_prices_token_count_events(monkeypatch):
 	from browser_use.rust.service import _usage_from_events_with_costs
 	from browser_use.tokens.service import TokenCost
@@ -1980,6 +2032,117 @@ async def test_rust_terminal_usage_sums_token_count_cache_creation(monkeypatch):
 	assert summary.total_prompt_cache_creation_cost == pytest.approx(0.09388125)
 	assert summary.total_completion_cost == pytest.approx(0.00645)
 	assert summary.total_cost == pytest.approx(0.11142345)
+
+
+async def test_rust_terminal_usage_priced_summary_sums_cache_read_tokens(monkeypatch):
+	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.tokens.service import TokenCost
+
+	async def fail_fetch(_self):
+		raise AssertionError('custom model pricing should not fetch remote pricing')
+
+	monkeypatch.setattr(TokenCost, '_fetch_and_cache_pricing_data', fail_fetch)
+
+	events = [
+		{
+			'event_type': 'token_count',
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 1000,
+						'input_cache_creation_tokens': 200,
+						'input_tokens': 1001,
+						'output_tokens': 10,
+						'total_tokens': 1211,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 1000,
+						'input_cache_creation_tokens': 200,
+						'input_tokens': 1001,
+						'output_tokens': 10,
+						'total_tokens': 1211,
+					},
+				},
+			},
+		},
+		{
+			'event_type': 'token_count',
+			'payload': {
+				'info': {
+					'last_token_usage': {
+						'cached_input_tokens': 1000,
+						'input_cache_creation_tokens': 50,
+						'input_tokens': 1001,
+						'output_tokens': 20,
+						'total_tokens': 1071,
+					},
+					'total_token_usage': {
+						'cached_input_tokens': 1000,
+						'input_cache_creation_tokens': 200,
+						'input_tokens': 1001,
+						'output_tokens': 30,
+						'total_tokens': 1231,
+					},
+				},
+			},
+		},
+	]
+
+	summary = await _usage_from_events_with_costs(events, 'claude-sonnet-4-6', TokenCost(include_cost=True))
+
+	assert summary.entry_count == 2
+	assert summary.total_prompt_tokens == 2002
+	assert summary.total_prompt_cached_tokens == 2000
+	assert summary.total_prompt_cache_creation_tokens == 250
+	assert summary.total_completion_tokens == 30
+	assert summary.total_tokens == 2282
+	assert summary.total_prompt_cached_cost == pytest.approx(2000 * (0.30 / 1_000_000))
+	assert summary.total_prompt_cache_creation_cost == pytest.approx(250 * (3.75 / 1_000_000))
+	assert summary.total_completion_cost == pytest.approx(30 * (15 / 1_000_000))
+	assert summary.by_model['claude-sonnet-4-6'].prompt_tokens == 2002
+	assert summary.by_model['claude-sonnet-4-6'].total_tokens == 2282
+	assert summary.by_model['claude-sonnet-4-6'].invocations == 2
+
+
+def test_rust_terminal_usage_mixed_events_do_not_shrink_totals():
+	from browser_use.rust.service import _usage_from_events
+
+	summary = _usage_from_events(
+		[
+			{
+				'event_type': 'model.usage',
+				'payload': {
+					'usage': {
+						'input_tokens': 500,
+						'cached_input_tokens': 200,
+						'input_cache_creation_tokens': 50,
+						'output_tokens': 20,
+						'total_tokens': 570,
+					}
+				},
+			},
+			{
+				'event_type': 'token_count',
+				'payload': {
+					'info': {
+						'total_token_usage': {
+							'input_tokens': 10,
+							'cached_input_tokens': 5,
+							'output_tokens': 1,
+							'total_tokens': 11,
+						}
+					}
+				},
+			},
+		],
+		'claude-sonnet-4-6',
+	)
+
+	assert summary.total_prompt_tokens == 500
+	assert summary.total_prompt_cached_tokens == 200
+	assert summary.total_prompt_cache_creation_tokens == 50
+	assert summary.total_completion_tokens == 20
+	assert summary.total_tokens == 570
 
 
 async def test_rust_token_summary_does_not_double_count_cache_reads(monkeypatch):
