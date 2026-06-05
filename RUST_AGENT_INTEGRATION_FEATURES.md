@@ -146,6 +146,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      `session.done` in GitHub runner progress logs therefore reconstruct the
      final answer even if the final JSON-RPC history response is empty or
      compacted differently.
+   - Browser-use Rust SDK notification recovery now normalizes both
+     `agent.event` and `agent.projected_event` notifications into the retained
+     event history. Runs whose progress logs show projected `session.done` or
+     `agent.completed` events therefore no longer fall back to
+     "Rust terminal session did not produce a final result."
    - Browser-use Rust SDK history reconstruction now prefers retained live
      notifications when the final JSON-RPC response history is present but lacks
      a final result. Stale response-side compaction errors no longer override a
@@ -225,6 +230,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_runs_through_sdk_and_reuses_session_for_followup tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_preserves_sdk_notification_history_on_cancel -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_recovers_nested_sdk_notification_events tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_recovers_nested_sdk_notification_events tests/ci/test_rust_agent.py::test_rust_agent_prefers_notification_final_when_response_history_lacks_result tests/ci/test_rust_agent.py::test_rust_agent_uses_sdk_history_usage_when_events_do_not_include_usage tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_recovers_nested_sdk_notification_events tests/ci/test_rust_agent.py::test_rust_agent_recovers_projected_sdk_final_events tests/ci/test_rust_agent.py::test_rust_agent_prefers_notification_final_when_response_history_lacks_result tests/ci/test_rust_agent.py::test_rust_agent_uses_sdk_history_usage_when_events_do_not_include_usage tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -q -k 'usage_aliases or trims_oversized_history_fields or rust_eval_uses_adapter_initial_navigation_default or rust_eval_preserves_explicit_direct_initial_navigation_override'`

@@ -2774,6 +2774,61 @@ async def test_rust_agent_recovers_nested_sdk_notification_events(monkeypatch):
 	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'session.done']
 
 
+async def test_rust_agent_recovers_projected_sdk_final_events(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'fake'
+
+	class FakeSdk:
+		stderr_lines = []
+
+		def __init__(self):
+			self.notifications = [
+				{
+					'method': 'agent.projected_event',
+					'params': {
+						'event': {
+							'kind': 'observed',
+							'payload': {
+								'event_type': 'session.input',
+								'payload': {'text': 'task'},
+							},
+						}
+					},
+				},
+				{
+					'method': 'agent.projected_event',
+					'params': {
+						'event': {
+							'kind': 'observed',
+							'payload': {
+								'event_type': 'session.done',
+								'payload': {'result': 'final from projected notification', 'success': True},
+							},
+						}
+					},
+				},
+			]
+
+		async def call(self, method, params):
+			return {'history': {'success': True, 'done': True, 'events': []}}
+
+	fake_sdk = FakeSdk()
+
+	async def fake_ensure_sdk_client(self):
+		return fake_sdk
+
+	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
+
+	agent = Agent(task='task', llm=LLM(), directly_open_url=False)
+	history = await agent.run(max_steps=3)
+
+	assert history.final_result() == 'final from projected notification'
+	assert history.is_successful() is True
+	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'session.done']
+
+
 async def test_rust_agent_prefers_notification_final_when_response_history_lacks_result(monkeypatch):
 	from browser_use.rust import Agent
 

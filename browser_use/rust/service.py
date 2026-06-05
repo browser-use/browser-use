@@ -474,8 +474,8 @@ def _sdk_notification_summary(notification: dict[str, Any]) -> str | None:
 def _sdk_notification_events(sdk: Any) -> list[dict[str, Any]]:
 	events: list[dict[str, Any]] = []
 	seen: set[tuple[Any, Any, Any]] = set()
-	for notification in list(getattr(sdk, 'notifications', []) or []):
-		if not isinstance(notification, dict) or notification.get('method') != 'agent.event':
+	for fallback_index, notification in enumerate(list(getattr(sdk, 'notifications', []) or [])):
+		if not isinstance(notification, dict) or notification.get('method') not in {'agent.event', 'agent.projected_event'}:
 			continue
 		params = notification.get('params')
 		if not isinstance(params, dict):
@@ -495,7 +495,18 @@ def _sdk_notification_events(sdk: Any) -> list[dict[str, Any]]:
 				'event_type': payload.get('event_type'),
 				'payload': payload.get('payload') if isinstance(payload.get('payload'), dict) else {},
 			}
+		elif notification.get('method') == 'agent.projected_event':
+			event = {
+				'seq': event.get('seq'),
+				'id': event.get('id'),
+				'session_id': event.get('session_id'),
+				'ts_ms': event.get('ts_ms'),
+				'event_type': event.get('event_type'),
+				'payload': event.get('payload') if isinstance(event.get('payload'), dict) else {},
+			}
 		identity = (event.get('seq'), event.get('id'), event.get('event_type'))
+		if identity[0] is None and identity[1] is None:
+			identity = (fallback_index, notification.get('method'), event.get('event_type'))
 		if identity in seen:
 			continue
 		seen.add(identity)
