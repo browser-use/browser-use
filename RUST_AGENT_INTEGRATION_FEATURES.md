@@ -31,11 +31,16 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      so a provider request that never returns response headers, or a stream that
      opens and then sends no SSE bytes, becomes a retryable transport error instead
      of holding a GitHub eval runner indefinitely after `model.turn.request`.
+   - Terminal SDK `agent.run_task` now drives the runtime on a multi-thread Tokio
+     runtime, matching the live model transport bridge's `block_in_place` usage.
+     This prevents SDK evals from stalling after `model.turn.request` before the
+     configured response-open/stream-idle timeout can make progress.
 
 ## Current Proof
 
 - terminal `cargo check -p browser-use-cli`
 - terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
+- terminal `cargo test -p browser-use-cli sdk_run_runtime_supports_model_transport_blocking_bridge -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`

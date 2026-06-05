@@ -4758,11 +4758,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		progress_task: asyncio.Task[Any] | None = None
 		if isinstance(sdk, RustSdkClient):
 			self.logger.info(
-				'Rust SDK %s starting: max_steps=%s browser_mode=%s browser_id=%s',
+				'Rust SDK %s starting: max_steps=%s browser_mode=%s browser_id=%s llm_timeout=%s',
 				method,
 				params.get('max_steps'),
 				params.get('browser_mode'),
 				params.get('browser_id') or '<new>',
+				params.get('llm', {}).get('timeout'),
 			)
 			progress_task = asyncio.create_task(self._log_sdk_progress(sdk))
 		try:
