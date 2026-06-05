@@ -1127,6 +1127,44 @@ def _task_with_initial_actions(task: str, initial_actions: Any) -> str:
 	return f'Before the task, perform these Browser Use initial actions in order:\n{actions}\n\nThen complete the task.\n\n{task}'
 
 
+def _task_with_completed_initial_navigation_context(
+	task: str, completed_urls: list[str], initial_actions: Any = None
+) -> str:
+	urls = [url for url in completed_urls if isinstance(url, str) and url]
+	if not urls:
+		return task
+	cleaned_task = task
+	if len(urls) == 1:
+		prefix = f'First navigate to {urls[0]!r}, then complete the task.\n\n'
+		if cleaned_task.startswith(prefix):
+			cleaned_task = cleaned_task[len(prefix) :]
+		return (
+			f'The browser session is already open at {urls[0]!r}. '
+			'Continue from the current page. Do not navigate to that same start URL again unless browser status shows a different URL.'
+			f'\n\n{cleaned_task}'
+		)
+	initial_action_urls: list[str] = []
+	if isinstance(initial_actions, list):
+		for action in initial_actions:
+			url = _navigation_url_from_action(action)
+			if url:
+				initial_action_urls.append(url)
+	if initial_action_urls == urls:
+		actions = json.dumps(initial_actions, indent=2, default=str)
+		prefix = (
+			f'Before the task, perform these Browser Use initial actions in order:\n{actions}\n\n'
+			'Then complete the task.\n\n'
+		)
+		if cleaned_task.startswith(prefix):
+			cleaned_task = cleaned_task[len(prefix) :]
+	completed = ', '.join(repr(url) for url in urls)
+	return (
+		f'The browser session has already completed these initial navigations: {completed}. '
+		'Continue from the current browser state. Do not repeat those navigation steps unless browser status shows a different page.'
+		f'\n\n{cleaned_task}'
+	)
+
+
 def _task_with_schema(task: str, output_model_schema: type[BaseModel] | None) -> str:
 	if output_model_schema is None:
 		return task
@@ -4059,6 +4097,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._convert_initial_actions(self.initial_action_payloads) if self.initial_action_payloads else None
 		)
 		self._initial_actions_executed = False
+		self._completed_initial_navigation_urls: list[str] = []
 		self._pending_history_prefix: list[AgentHistory] = []
 		self.task = _task_with_schema(
 			_task_with_available_files(
@@ -4693,14 +4732,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._call_callback(on_step_start, self)
 		self._log_main_execution_start(max_steps)
 		followup = bool(self.state.follow_up_task and self._sdk_agent_id)
+		task = self.task
+		if not followup:
+			task = _task_with_completed_initial_navigation_context(
+				task, self._completed_initial_navigation_urls, self.initial_action_payloads
+			)
 		self.state.follow_up_task = False
 		return await self._run_sdk_agent(
-			task=self.task,
+			task=task,
 			max_steps=max_steps,
 			started=started,
 			on_step_end=on_step_end,
 			source='follow_up' if followup else 'run',
-			followups=[self.task] if followup else None,
+			followups=[task] if followup else None,
 		)
 
 	async def follow_up(
@@ -5553,6 +5597,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _execute_direct_initial_navigation_actions(self) -> list[ActionResult] | None:
 		"""Pre-navigate existing CDP-backed browser sessions before the Rust agent starts."""
+		self._completed_initial_navigation_urls = []
 		if self.browser_session is None:
 			return None
 		if not (_extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)):
@@ -5574,6 +5619,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				results.append(ActionResult(error=message))
 				continue
 			text = f'Navigated to {url}'
+			self._completed_initial_navigation_urls.append(url)
 			results.append(ActionResult(extracted_content=text, long_term_memory=text))
 		return results
 

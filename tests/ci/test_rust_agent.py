@@ -7052,6 +7052,54 @@ async def test_rust_agent_run_executes_initial_actions_before_sdk():
 	assert history.final_result() == 'done'
 
 
+async def test_rust_agent_run_hands_off_completed_initial_navigation_as_context():
+	from types import SimpleNamespace
+
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	class FakeBrowserSession:
+		id = 'browser-cdp'
+		cdp_url = 'wss://cloud-browser.example/devtools/browser/session'
+		browser_profile = SimpleNamespace(cdp_url=cdp_url)
+
+		def __init__(self):
+			self.calls = []
+
+		async def navigate_to(self, url, new_tab=False):
+			self.calls.append((url, new_tab))
+
+	browser_session = FakeBrowserSession()
+	agent = Agent(
+		task='read the page',
+		browser_session=browser_session,
+		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
+	)
+	seen = []
+
+	async def fake_run_sdk_agent(**kwargs):
+		seen.append(kwargs['task'])
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': 'done'}}],
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent._run_sdk_agent = fake_run_sdk_agent
+	agent._initialize_run_lifecycle_state = lambda: None
+
+	history = await agent.run(max_steps=3)
+
+	assert history.final_result() == 'done'
+	assert browser_session.calls == [('https://example.com', False)]
+	assert agent._completed_initial_navigation_urls == ['https://example.com']
+	assert "already open at 'https://example.com'" in seen[0]
+	assert not seen[0].startswith("First navigate to 'https://example.com'")
+
+
 async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monkeypatch):
 	from browser_use.rust import Agent
 
@@ -7251,6 +7299,7 @@ async def test_rust_agent_initial_actions_pre_navigate_existing_cdp_session():
 
 	assert browser_session.calls == [('https://example.com', False)]
 	assert agent._initial_actions_executed is True
+	assert agent._completed_initial_navigation_urls == ['https://example.com']
 	assert agent.state.last_result[0].extracted_content == 'Navigated to https://example.com'
 	assert agent.history.history[0].metadata.step_number == 0
 	assert agent.history.history[0].model_output.action == agent.initial_actions

@@ -46,6 +46,10 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      Browser Use Cloud browser therefore hand Rust a browser already focused on
      the task's start URL instead of relying only on a prompt hint from
      `about:blank`.
+   - Completed initial CDP navigations are passed to the Rust SDK as current-page
+     context and the stale `First navigate to ...` prefix is removed from the
+     SDK task. This keeps Rust from repeating a navigation that Python already
+     confirmed against the Browser Use Cloud browser.
    - Terminal Rust SDK runs no longer advertise subagent tools unless the run
      has a configured child-agent runner. This prevents eval tasks from spending
      model turns on `spawn_agent` calls that can only fail with "subagents are
@@ -67,7 +71,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_history_surfaces_running_browser_script_observe_instruction -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'run_executes_initial_actions_before_sdk or initial_actions_pre_navigate_existing_cdp_session' -q`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'initial_actions_pre_navigate_existing_cdp_session or run_executes_initial_actions_before_sdk or run_hands_off_completed_initial_navigation_as_context' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
