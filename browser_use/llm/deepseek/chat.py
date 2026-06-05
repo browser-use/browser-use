@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.deepseek.serializer import DeepSeekMessageSerializer
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.json_utils import safe_validate_json
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion
@@ -200,7 +201,7 @@ class ChatDeepSeek(BaseChatModel):
 				content = resp.choices[0].message.content
 				if not content:
 					raise ModelProviderError('Empty JSON content in DeepSeek response', model=self.name)
-				parsed = output_format.model_validate_json(content)
+				parsed = safe_validate_json(output_format, content)
 				return ChatInvokeCompletion(
 					completion=parsed,
 					usage=None,

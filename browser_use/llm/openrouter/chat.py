@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.json_utils import safe_validate_json
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openrouter.serializer import OpenRouterMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
@@ -193,7 +194,7 @@ class ChatOpenRouter(BaseChatModel):
 					)
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(response.choices[0].message.content)
+				parsed = safe_validate_json(output_format, response.choices[0].message.content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.json_utils import safe_validate_json
 from browser_use.llm.messages import BaseMessage, ContentPartTextParam, SystemMessage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.vercel.serializer import VercelMessageSerializer
@@ -655,7 +656,7 @@ class ChatVercel(BaseChatModel):
 						)
 
 					usage = self._get_usage(response)
-					parsed = output_format.model_validate_json(content)
+					parsed = safe_validate_json(output_format, content)
 
 					return ChatInvokeCompletion(
 						completion=parsed,

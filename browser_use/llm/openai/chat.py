@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Literal, TypeVar, overload
 
 import httpx
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.json_utils import safe_validate_json
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
@@ -21,7 +22,6 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 T = TypeVar('T', bound=BaseModel)
 
 
-@dataclass
 class ChatOpenAI(BaseChatModel):
 	"""
 	A wrapper around AsyncOpenAI that implements the BaseLLM protocol.
@@ -281,7 +281,7 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				parsed = safe_validate_json(output_format, choice.message.content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
