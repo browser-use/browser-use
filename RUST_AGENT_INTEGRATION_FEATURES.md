@@ -17,8 +17,10 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
    - The returned normalized event history is reconstructed into Browser Use-compatible
      `AgentHistoryList`, callbacks, usage, telemetry, Laminar replay, downloads, and
      final result handling.
-   - The SDK stdout reader accepts large JSON-RPC response lines, which are expected
-     when normalized history includes screenshots, tool output, and observability data.
+   - The SDK stdout reader accepts large JSON-RPC response lines by reading stdout in
+     chunks and splitting newline-delimited JSON-RPC manually. This avoids asyncio's
+     separator-limit failure when normalized history includes screenshots, tool
+     output, and observability data in a single response line.
    - SDK server `agent.event` / `agent.projected_event` notifications are retained and
      surfaced as concise in-flight progress logs, so GitHub-runner evals can show where
      a Rust-backed run is spending time before the final history response arrives.
@@ -92,6 +94,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'rust_sdk_client_reads_large_json_rpc_lines or rust_sdk_client_queues_agent_notifications_before_response' -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `PYTHONPATH="$PWD" uv run pytest tests/test_service_cli.py::test_progress_updates_tolerate_transient_failures_by_default tests/test_service_cli.py::test_run_stage_with_progress_heartbeat_refreshes_active_stage -q`
 - browser-use process-backed smoke with

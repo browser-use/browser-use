@@ -2323,9 +2323,11 @@ async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monke
 	assert fake_sdk.calls[1][1]['max_steps'] == 5
 
 
-async def test_rust_sdk_client_reads_large_json_rpc_lines():
+async def test_rust_sdk_client_reads_large_json_rpc_lines(monkeypatch):
 	import browser_use.rust.service as rust_service
 
+	monkeypatch.setenv('BROWSER_USE_SDK_STREAM_LIMIT_BYTES', '4096')
+	monkeypatch.setenv('BROWSER_USE_SDK_READ_CHUNK_BYTES', '1024')
 	script = """
 import json
 import sys

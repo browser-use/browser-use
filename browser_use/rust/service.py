@@ -224,6 +224,8 @@ class RustSdkClient:
 		self.notifications: list[dict[str, Any]] = []
 		self.notification_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 		self.stream_limit = int(os.environ.get('BROWSER_USE_SDK_STREAM_LIMIT_BYTES', str(64 * 1024 * 1024)))
+		self.read_chunk_size = int(os.environ.get('BROWSER_USE_SDK_READ_CHUNK_BYTES', str(1024 * 1024)))
+		self.max_line_bytes = int(os.environ.get('BROWSER_USE_SDK_MAX_LINE_BYTES', str(512 * 1024 * 1024)))
 
 	async def start(self) -> None:
 		if self.process is not None and self.process.returncode is None:
@@ -295,17 +297,30 @@ class RustSdkClient:
 	async def _read_stdout(self) -> None:
 		assert self.process is not None
 		assert self.process.stdout is not None
+		buffer = bytearray()
 		try:
-			async for raw_line in self.process.stdout:
-				line = raw_line.decode('utf-8', errors='replace').strip()
-				if not line:
-					continue
-				try:
-					message = json.loads(line)
-				except json.JSONDecodeError as exc:
-					self._fail_all(RustAgentError(f'Invalid Rust SDK JSON-RPC line: {line}: {exc}'))
+			while True:
+				chunk = await self.process.stdout.read(self.read_chunk_size)
+				if not chunk:
+					if buffer and not self._handle_stdout_line(bytes(buffer)):
+						return
 					return
-				self._handle_message(message)
+				buffer.extend(chunk)
+				while True:
+					newline_index = buffer.find(b'\n')
+					if newline_index < 0:
+						break
+					raw_line = bytes(buffer[:newline_index])
+					del buffer[: newline_index + 1]
+					if not self._handle_stdout_line(raw_line):
+						return
+				if len(buffer) > self.max_line_bytes:
+					self._fail_all(
+						RustAgentError(
+							f'Rust SDK JSON-RPC line exceeded {self.max_line_bytes} bytes without newline'
+						)
+					)
+					return
 		except Exception as exc:
 			message = f'Rust SDK stdout reader failed: {exc}'
 			self.stderr_lines.append(message)
@@ -317,6 +332,18 @@ class RustSdkClient:
 				if detail:
 					message = f'{message}: {detail}'
 				self._fail_all(RustAgentError(message))
+
+	def _handle_stdout_line(self, raw_line: bytes) -> bool:
+		line = raw_line.decode('utf-8', errors='replace').strip()
+		if not line:
+			return True
+		try:
+			message = json.loads(line)
+		except json.JSONDecodeError as exc:
+			self._fail_all(RustAgentError(f'Invalid Rust SDK JSON-RPC line: {line}: {exc}'))
+			return False
+		self._handle_message(message)
+		return True
 
 	async def _read_stderr(self) -> None:
 		assert self.process is not None
