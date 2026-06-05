@@ -7054,7 +7054,7 @@ async def test_rust_agent_run_executes_initial_actions_before_sdk():
 	assert history.final_result() == 'done'
 
 
-async def test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default():
+async def test_rust_agent_run_pre_navigates_cdp_session_before_sdk_by_default():
 	from types import SimpleNamespace
 
 	from browser_use.rust import Agent
@@ -7096,10 +7096,10 @@ async def test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default():
 	history = await agent.run(max_steps=3)
 
 	assert history.final_result() == 'done'
-	assert browser_session.calls == []
-	assert agent._completed_initial_navigation_urls == []
-	assert seen[0].startswith("First navigate to 'https://example.com'")
-	assert "already open at 'https://example.com'" not in seen[0]
+	assert browser_session.calls == [('https://example.com', False)]
+	assert agent._completed_initial_navigation_urls == ['https://example.com']
+	assert seen[0].startswith("The browser session is already open at 'https://example.com'")
+	assert "First navigate to 'https://example.com'" not in seen[0]
 
 
 def test_rust_history_uses_browser_script_lifecycle_outputs_as_result():
