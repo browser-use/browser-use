@@ -46,6 +46,13 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      Browser Use Cloud browser therefore hand Rust a browser already focused on
      the task's start URL instead of relying only on a prompt hint from
      `about:blank`.
+   - Terminal Rust SDK runs no longer advertise subagent tools unless the run
+     has a configured child-agent runner. This prevents eval tasks from spending
+     model turns on `spawn_agent` calls that can only fail with "subagents are
+     not configured" in the SDK/CDP eval path.
+   - Eval GitHub runners now refresh Convex progress during long `run_agent`
+     and `evaluate` stages, so slow Rust or Agent SDK judge calls stay visible
+     instead of looking stale while they are still legitimately running.
 
 ## Current Proof
 
@@ -53,6 +60,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_run_runtime_supports_model_transport_blocking_bridge -- --nocapture`
 - terminal `cargo test -p browser-use-agent running_browser_script -- --nocapture`
+- terminal `cargo test -p browser-use-agent subagent_tools -- --nocapture`
+- terminal `cargo test -p browser-use-agent spawn_agent_agent_type_guidance_discourages_default_override -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
@@ -62,6 +71,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
+- evaluations-internal `uv run python -m py_compile eval/service.py`
+- evaluations-internal `PYTHONPATH="$PWD" uv run pytest tests/test_service_cli.py::test_progress_updates_tolerate_transient_failures_by_default tests/test_service_cli.py::test_run_stage_with_progress_heartbeat_refreshes_active_stage -q`
 - browser-use process-backed smoke with
   `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`,
   proving `Agent.run()` calls the real SDK server and `Agent.follow_up()` reuses the
