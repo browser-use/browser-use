@@ -1175,7 +1175,8 @@ def _task_with_completed_initial_navigation_context(
 			cleaned_task = cleaned_task[len(prefix) :]
 		return (
 			f'The browser session is already open at {urls[0]!r}. '
-			'Continue from the current page. Do not navigate to that same start URL again unless browser status shows a different URL.'
+			'Continue from the current page. Your first browser step should inspect the current page state before any repeat navigation. '
+			'Do not navigate to that same start URL again unless browser status or page_info shows a different URL.'
 			f'\n\n{cleaned_task}'
 		)
 	initial_action_urls: list[str] = []
