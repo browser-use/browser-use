@@ -5756,6 +5756,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				results.append(ActionResult(error=message))
 				continue
 			state = await self._capture_direct_initial_navigation_state(url)
+			if not self._direct_initial_navigation_state_matches(url, getattr(state, 'url', '') if state else None):
+				observed_url = getattr(state, 'url', None) if state else None
+				self.logger.warning(
+					'Initial navigation to %s was not confirmed by browser state; observed %s. '
+					'Leaving navigation in the Rust task context.',
+					url,
+					observed_url or '<unknown>',
+				)
+				self._completed_initial_navigation_urls = []
+				self._completed_initial_navigation_states = []
+				return None
 			state_context = self._direct_initial_navigation_state_context(url, state)
 			text = f'Navigated to {url}'
 			current_url = state_context.get('url')
@@ -5799,12 +5810,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		requested = str(requested_url or '')
 		if not current:
 			return False
-		if current == requested or current.startswith(requested):
+		if current == requested:
 			return True
 		try:
 			current_parts = urlparse(current)
 			requested_parts = urlparse(requested)
-			return bool(requested_parts.netloc and current_parts.netloc == requested_parts.netloc)
+			if not requested_parts.netloc or current_parts.netloc != requested_parts.netloc:
+				return False
+			requested_path = (requested_parts.path or '/').rstrip('/') or '/'
+			current_path = (current_parts.path or '/').rstrip('/') or '/'
+			if requested_path != '/' and current_path != requested_path:
+				return False
+			if requested_parts.query and current_parts.query != requested_parts.query:
+				return False
+			return True
 		except Exception:
 			return False
 

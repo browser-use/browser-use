@@ -106,6 +106,16 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      URL/title into the Rust task context. Start-URL tasks should begin by
      inspecting or extracting from the already-loaded page instead of spending
      early turns on repeated navigation/status recovery.
+   - Browser-use Rust direct CDP pre-navigation now only records an initial
+     navigation as completed when the observed browser state matches the
+     requested URL. If the Cloud Browser remains on `about:blank` or another
+     mismatched target, the original navigation stays in the Rust task context
+     instead of giving the model a false "already loaded" state.
+   - Eval GitHub runners now preserve visible output for interrupted Rust runs:
+     if an agent is cancelled or errors after collecting history, formatting
+     synthesizes a partial final answer from the latest memory/tool evidence;
+     if no history exists, the saved dashboard payload still includes a
+     non-empty failure response with the stage error.
 
 ## Current Proof
 
@@ -143,10 +153,12 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'rust_sdk_client_reads_large_json_rpc_lines or rust_sdk_client_queues_agent_notifications_before_response' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_sdk_client_reads_large_json_rpc_lines tests/ci/test_rust_agent.py::test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default tests/ci/test_rust_agent.py::test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session tests/ci/test_rust_agent.py::test_rust_agent_translates_browser_use_args_to_terminal -q`
 - browser-use `PYTHONPATH=. uv run pytest tests/ci/test_rust_agent.py -q -k 'pre_navigates_cdp_session_before_sdk_by_default or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp or direct_initial_navigation_can_be_disabled'`
+- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "pre_navigates_cdp_session_before_sdk_by_default or keeps_initial_navigation_when_direct_state_mismatches or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp"`
 - browser-use `python -m py_compile browser_use/rust/service.py`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -q -k 'usage_aliases or trims_oversized_history_fields or rust_eval_uses_adapter_initial_navigation_default or rust_eval_preserves_explicit_direct_initial_navigation_override'`
+- evaluations-internal `PYTHONPATH=. uv run pytest -q tests/test_service_cli.py -k "synthesizes_partial_result_on_timeout or synthesizes_partial_result_without_timeout_marker or server_payload_includes_failure_final_response_without_history"`
 - evaluations-internal `PYTHONPATH="$PWD" uv run pytest tests/test_service_cli.py::test_progress_updates_tolerate_transient_failures_by_default tests/test_service_cli.py::test_run_stage_with_progress_heartbeat_refreshes_active_stage -q`
 - browser-use process-backed smoke with
   `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`,

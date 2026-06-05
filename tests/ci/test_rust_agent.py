@@ -7110,6 +7110,58 @@ async def test_rust_agent_run_pre_navigates_cdp_session_before_sdk_by_default():
 	assert "First navigate to 'https://example.com'" not in seen[0]
 
 
+async def test_rust_agent_run_keeps_initial_navigation_when_direct_state_mismatches():
+	from types import SimpleNamespace
+
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	class FakeBrowserSession:
+		id = 'browser-cdp'
+		cdp_url = 'wss://cloud-browser.example/devtools/browser/session'
+		browser_profile = SimpleNamespace(cdp_url=cdp_url)
+
+		def __init__(self):
+			self.calls = []
+
+		async def navigate_to(self, url, new_tab=False):
+			self.calls.append((url, new_tab))
+
+		async def get_browser_state_summary(self, include_screenshot=False):
+			assert include_screenshot is False
+			return SimpleNamespace(url='about:blank', title='', tabs=[])
+
+	browser_session = FakeBrowserSession()
+	agent = Agent(
+		task='read the page',
+		browser_session=browser_session,
+		initial_actions=[{'navigate': {'url': 'https://example.com/start', 'new_tab': False}}],
+	)
+	seen = []
+
+	async def fake_run_sdk_agent(**kwargs):
+		seen.append(kwargs['task'])
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': 'done'}}],
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent._run_sdk_agent = fake_run_sdk_agent
+	agent._initialize_run_lifecycle_state = lambda: None
+
+	history = await agent.run(max_steps=3)
+
+	assert history.final_result() == 'done'
+	assert browser_session.calls == [('https://example.com/start', False)]
+	assert agent._completed_initial_navigation_urls == []
+	assert seen[0].startswith("First navigate to 'https://example.com/start'")
+	assert 'The browser session is already open at' not in seen[0]
+
+
 def test_rust_history_uses_browser_script_lifecycle_outputs_as_result():
 	from browser_use.rust.service import _history_from_events
 
@@ -7387,6 +7439,10 @@ async def test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session(
 		async def navigate_to(self, url, new_tab=False):
 			self.calls.append((url, new_tab))
 
+		async def get_browser_state_summary(self, include_screenshot=False):
+			assert include_screenshot is False
+			return SimpleNamespace(url='https://example.com', title='Example Domain', tabs=[])
+
 	browser_session = FakeBrowserSession()
 	agent = Agent(
 		task='read the page',
@@ -7400,7 +7456,10 @@ async def test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session(
 	assert browser_session.calls == [('https://example.com', False)]
 	assert agent._initial_actions_executed is True
 	assert agent._completed_initial_navigation_urls == ['https://example.com']
-	assert agent.state.last_result[0].extracted_content == 'Navigated to https://example.com'
+	assert (
+		agent.state.last_result[0].extracted_content
+		== 'Navigated to https://example.com. Current page: https://example.com (Example Domain)'
+	)
 	assert agent.history.history[0].metadata.step_number == 0
 	assert agent.history.history[0].model_output.action == agent.initial_actions
 
@@ -7421,6 +7480,10 @@ async def test_rust_agent_direct_initial_navigation_defaults_on_for_cdp(monkeypa
 		async def navigate_to(self, url, new_tab=False):
 			self.calls.append((url, new_tab))
 
+		async def get_browser_state_summary(self, include_screenshot=False):
+			assert include_screenshot is False
+			return SimpleNamespace(url='https://example.com', title='Example Domain', tabs=[])
+
 	browser_session = FakeBrowserSession()
 	agent = Agent(
 		task='read the page',
@@ -7434,7 +7497,10 @@ async def test_rust_agent_direct_initial_navigation_defaults_on_for_cdp(monkeypa
 	assert browser_session.calls == [('https://example.com', False)]
 	assert agent._initial_actions_executed is True
 	assert agent._completed_initial_navigation_urls == ['https://example.com']
-	assert agent.state.last_result[0].extracted_content == 'Navigated to https://example.com'
+	assert (
+		agent.state.last_result[0].extracted_content
+		== 'Navigated to https://example.com. Current page: https://example.com (Example Domain)'
+	)
 
 
 async def test_rust_agent_direct_initial_navigation_can_be_disabled(monkeypatch):
