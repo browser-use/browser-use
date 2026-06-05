@@ -7477,6 +7477,7 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 		outputs = []
 		events = []
 		spans = []
+		flushes = 0
 		current_span = None
 
 		@staticmethod
@@ -7500,6 +7501,10 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 		@classmethod
 		def event(cls, name, attributes=None):
 			cls.events.append((name, attributes))
+
+		@classmethod
+		def flush(cls):
+			cls.flushes += 1
 
 		@classmethod
 		def start_as_current_span(cls, name, input=None, span_type='DEFAULT'):
@@ -7697,6 +7702,7 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 		'type': 'image_url',
 		'image_url': {'url': 'data:image/png;base64,iVBORw0KGgo=', 'detail': 'low'},
 	}
+	assert FakeLaminar.flushes == 2
 
 
 def test_rust_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
@@ -7724,6 +7730,7 @@ def test_rust_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
 
 	class FakeLaminar:
 		spans = []
+		flushes = 0
 		current_span = None
 
 		@staticmethod
@@ -7743,6 +7750,10 @@ def test_rust_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
 		@classmethod
 		def event(cls, name, attributes=None):
 			return None
+
+		@classmethod
+		def flush(cls):
+			cls.flushes += 1
 
 		@classmethod
 		def start_as_current_span(cls, name, input=None, span_type='DEFAULT'):
@@ -7769,6 +7780,7 @@ def test_rust_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
 
 	output = FakeLaminar.spans[0]['outputs'][-1]
 	assert output[0]['content'] == [{'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,iVBORw0KGgo='}}]
+	assert FakeLaminar.flushes == 1
 
 
 async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):
