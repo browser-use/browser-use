@@ -2260,7 +2260,7 @@ def _structured_tool_output_text(value: Any) -> str | None:
 	return None
 
 
-def _tool_result_text(payload: dict[str, Any]) -> str | None:
+def _tool_result_text(payload: dict[str, Any], *, include_completion_fallback: bool = True) -> str | None:
 	for key in ('text', 'output', 'result'):
 		text = _tool_output_text(payload.get(key))
 		if text:
@@ -2276,7 +2276,7 @@ def _tool_result_text(payload: dict[str, Any]) -> str | None:
 		text = _structured_tool_output_text(payload.get(key))
 		if text:
 			return text
-	if payload.get('name') == 'browser_script' and payload.get('ok') is True:
+	if include_completion_fallback and payload.get('name') == 'browser_script' and payload.get('ok') is True:
 		status = payload.get('status')
 		if status in ('finished', 'completed') or status is None:
 			return 'browser_script completed'
@@ -3643,17 +3643,17 @@ def _terminal_laminar_tool_input_message(tool_call: dict[str, Any]) -> list[dict
 
 
 def _terminal_laminar_tool_output_message(event_type: str | None, payload: dict[str, Any]) -> list[dict[str, Any]]:
+	image_parts = _terminal_laminar_image_parts_for_span(payload)
 	content = payload.get('content')
 	if isinstance(content, list) and content:
 		parts = _terminal_laminar_content_parts_for_span(content)
 	else:
-		text = _tool_result_text(payload)
+		text = _tool_result_text(payload, include_completion_fallback=not bool(image_parts))
 		if not text and event_type == 'tool.finished':
 			text = _synthetic_tool_result_text(str(payload.get('name') or 'tool'))
 		parts = []
 		if text:
 			parts.append({'type': 'text', 'text': text})
-	image_parts = _terminal_laminar_image_parts_for_span(payload)
 	parts.extend(image_parts)
 	if not parts:
 		parts = [{'type': 'text', 'text': ''}]
