@@ -88,6 +88,8 @@ AgentNewStepCallback = (
 AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None]] | Callable[[AgentHistoryList], None]
 logger = logging.getLogger(__name__)
 
+DEFAULT_RUST_SDK_TOOL_ALLOWLIST = ['browser', 'browser_script', 'done']
+
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
@@ -6061,6 +6063,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'calculate_cost': bool(self.settings.calculate_cost),
 			'use_vision': self.settings.use_vision,
 			'max_actions_per_step': int(self.settings.max_actions_per_step),
+			'config_overrides': {
+				'tool_allowlist': list(DEFAULT_RUST_SDK_TOOL_ALLOWLIST),
+			},
 		}
 		if self._sdk_agent_id:
 			params['agent_id'] = self._sdk_agent_id

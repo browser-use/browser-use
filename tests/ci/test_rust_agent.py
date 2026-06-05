@@ -2250,6 +2250,7 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert params['llm'] == {'provider': 'browser-use', 'model': 'gpt-test', 'timeout': 75}
 	assert params['browser']['cdp_url'] == 'wss://browser.example/devtools/browser/1'
 	assert 'cdp_headers' not in params['browser']
+	assert params['config_overrides']['tool_allowlist'] == ['browser', 'browser_script', 'done']
 	assert "First navigate to 'https://example.com'" in params['task']
 
 
