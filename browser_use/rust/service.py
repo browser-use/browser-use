@@ -165,7 +165,6 @@ def find_browser_use_terminal_binary() -> str:
 	candidates = [
 		Path.cwd() / 'target' / 'debug' / 'browser-use-terminal',
 		Path.cwd().parent / 'terminal' / 'target' / 'debug' / 'browser-use-terminal',
-		Path('/home/exedev/Developer/terminal/target/debug/browser-use-terminal'),
 	]
 	for candidate in candidates:
 		if candidate.exists():

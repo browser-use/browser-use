@@ -7,4 +7,3 @@ __all__ = [
 	'RustAgentError',
 	'find_browser_use_terminal_binary',
 ]
-
