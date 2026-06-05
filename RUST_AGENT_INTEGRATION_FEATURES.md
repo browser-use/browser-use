@@ -43,15 +43,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      empty browser tool results while a script is still active and keeps the
      next model turn on the intended observe/cancel path instead of repeatedly
      navigating or reconnecting.
-   - Simple initial navigation actions on existing CDP-backed browser sessions
-     now execute once before the Rust SDK run starts. Evals that provision a
-     Browser Use Cloud browser therefore hand Rust a browser already focused on
-     the task's start URL instead of relying only on a prompt hint from
-     `about:blank`.
-   - Completed initial CDP navigations are passed to the Rust SDK as current-page
-     context and the stale `First navigate to ...` prefix is removed from the
-     SDK task. This keeps Rust from repeating a navigation that Python already
-     confirmed against the Browser Use Cloud browser.
+   - Simple initial navigation actions on CDP-backed Rust runs are now left for
+     the Rust SDK by default, so the first navigation is a model-visible
+     `browser_script` action with terminal page-state output instead of a hidden
+     Python-side BrowserSession preload. The old direct CDP preload remains
+     available behind `BROWSER_USE_RUST_DIRECT_INITIAL_NAVIGATION=1`.
    - Structured `browser_script` lifecycle events now preserve outputs, summaries,
      images, and browser state through terminal event persistence and Python
      history reconstruction. This prevents the first post-navigation page probe
@@ -95,6 +91,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'rust_sdk_client_reads_large_json_rpc_lines or rust_sdk_client_queues_agent_notifications_before_response' -q`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_sdk_client_reads_large_json_rpc_lines tests/ci/test_rust_agent.py::test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default tests/ci/test_rust_agent.py::test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session tests/ci/test_rust_agent.py::test_rust_agent_translates_browser_use_args_to_terminal -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `PYTHONPATH="$PWD" uv run pytest tests/test_service_cli.py::test_progress_updates_tolerate_transient_failures_by_default tests/test_service_cli.py::test_run_stage_with_progress_heartbeat_refreshes_active_stage -q`
 - browser-use process-backed smoke with

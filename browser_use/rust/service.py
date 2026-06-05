@@ -1067,6 +1067,11 @@ def _string_env_value(value: Any) -> str | None:
 	return text or None
 
 
+def _direct_initial_navigation_enabled() -> bool:
+	raw = os.getenv('BROWSER_USE_RUST_DIRECT_INITIAL_NAVIGATION', '')
+	return raw.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 def _llm_provider_name(llm: Any) -> str | None:
 	provider = getattr(llm, 'provider', None)
 	if callable(provider):
@@ -5677,6 +5682,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _execute_direct_initial_navigation_actions(self) -> list[ActionResult] | None:
 		"""Pre-navigate existing CDP-backed browser sessions before the Rust agent starts."""
 		self._completed_initial_navigation_urls = []
+		if not _direct_initial_navigation_enabled():
+			return None
 		if self.browser_session is None:
 			return None
 		if not (_extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)):

@@ -7054,7 +7054,7 @@ async def test_rust_agent_run_executes_initial_actions_before_sdk():
 	assert history.final_result() == 'done'
 
 
-async def test_rust_agent_run_hands_off_completed_initial_navigation_as_context():
+async def test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default():
 	from types import SimpleNamespace
 
 	from browser_use.rust import Agent
@@ -7096,10 +7096,10 @@ async def test_rust_agent_run_hands_off_completed_initial_navigation_as_context(
 	history = await agent.run(max_steps=3)
 
 	assert history.final_result() == 'done'
-	assert browser_session.calls == [('https://example.com', False)]
-	assert agent._completed_initial_navigation_urls == ['https://example.com']
-	assert "already open at 'https://example.com'" in seen[0]
-	assert not seen[0].startswith("First navigate to 'https://example.com'")
+	assert browser_session.calls == []
+	assert agent._completed_initial_navigation_urls == []
+	assert seen[0].startswith("First navigate to 'https://example.com'")
+	assert "already open at 'https://example.com'" not in seen[0]
 
 
 def test_rust_history_uses_browser_script_lifecycle_outputs_as_result():
@@ -7363,7 +7363,7 @@ async def test_rust_agent_multi_act_ignores_later_done_actions():
 	assert results[0].extracted_content == 'clicked only'
 
 
-async def test_rust_agent_initial_actions_pre_navigate_existing_cdp_session():
+async def test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session(monkeypatch):
 	from types import SimpleNamespace
 
 	from browser_use.rust import Agent
@@ -7386,6 +7386,7 @@ async def test_rust_agent_initial_actions_pre_navigate_existing_cdp_session():
 		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
 	)
 
+	monkeypatch.setenv('BROWSER_USE_RUST_DIRECT_INITIAL_NAVIGATION', '1')
 	await agent._execute_initial_actions(allow_terminal_run=False)
 
 	assert browser_session.calls == [('https://example.com', False)]
