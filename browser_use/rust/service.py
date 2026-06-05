@@ -2921,7 +2921,11 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 	cost = 0.0
 	invocations = 0
 	token_count_invocations = 0
+	token_count_input_tokens = 0
+	token_count_cached_input_tokens = 0
 	token_count_cache_creation_tokens = 0
+	token_count_completion_tokens = 0
+	token_count_total_tokens = 0
 
 	for event in events:
 		event_type = _event_type(event)
@@ -2942,16 +2946,29 @@ def _usage_from_events(events: list[dict[str, Any]], model: str) -> UsageSummary
 			token_usage = _token_count_usage(payload)
 			if token_usage is None:
 				continue
-			input_tokens, cached_input_tokens, total_cache_creation_tokens = _input_usage_buckets(token_usage)
+			total_input_tokens, total_cached_input_tokens, total_cache_creation_tokens = _input_usage_buckets(token_usage)
+			total_completion_tokens = _usage_completion_tokens(token_usage)
+			total_usage_tokens = _usage_total_tokens(
+				token_usage, total_input_tokens, total_cache_creation_tokens, total_completion_tokens
+			)
 			last_usage = _token_count_last_usage(payload)
 			if isinstance(last_usage, dict):
-				_, _, last_cache_creation_tokens = _input_usage_buckets(last_usage)
+				last_input_tokens, last_cached_input_tokens, last_cache_creation_tokens = _input_usage_buckets(last_usage)
+				last_completion_tokens = _usage_completion_tokens(last_usage)
+				token_count_input_tokens += last_input_tokens
+				token_count_cached_input_tokens += last_cached_input_tokens
 				token_count_cache_creation_tokens += last_cache_creation_tokens
+				token_count_completion_tokens += last_completion_tokens
+				token_count_total_tokens += _usage_total_tokens(
+					last_usage, last_input_tokens, last_cache_creation_tokens, last_completion_tokens
+				)
 			elif total_cache_creation_tokens:
 				token_count_cache_creation_tokens = total_cache_creation_tokens
-			cache_creation_tokens = token_count_cache_creation_tokens
-			completion_tokens = _usage_completion_tokens(token_usage)
-			total_tokens = _usage_total_tokens(token_usage, input_tokens, cache_creation_tokens, completion_tokens)
+			input_tokens = max(total_input_tokens, token_count_input_tokens)
+			cached_input_tokens = max(total_cached_input_tokens, token_count_cached_input_tokens)
+			cache_creation_tokens = max(total_cache_creation_tokens, token_count_cache_creation_tokens)
+			completion_tokens = max(total_completion_tokens, token_count_completion_tokens)
+			total_tokens = max(total_usage_tokens, token_count_total_tokens)
 			token_count_invocations += 1
 
 	invocations = max(invocations, token_count_invocations)

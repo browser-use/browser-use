@@ -1646,6 +1646,68 @@ def test_rust_history_reconstructs_terminal_token_count_usage():
 	assert history.usage.by_model['gpt-test'].completion_tokens == 31
 
 
+def test_rust_history_sums_token_count_last_usage_when_latest_total_underreports():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{
+				'event_type': 'token_count',
+				'payload': {
+					'info': {
+						'last_token_usage': {
+							'cached_input_tokens': 20,
+							'input_tokens': 100,
+							'output_tokens': 10,
+							'total_tokens': 110,
+						},
+						'total_token_usage': {
+							'cached_input_tokens': 20,
+							'input_tokens': 100,
+							'output_tokens': 10,
+							'total_tokens': 110,
+						},
+					}
+				},
+			},
+			{
+				'event_type': 'token_count',
+				'payload': {
+					'info': {
+						'last_token_usage': {
+							'cached_input_tokens': 80,
+							'input_tokens': 200,
+							'output_tokens': 20,
+							'total_tokens': 220,
+						},
+						# Some terminal recompute paths preserve only the latest context
+						# counters here. Dashboard usage should still reflect the full run.
+						'total_token_usage': {
+							'cached_input_tokens': 80,
+							'input_tokens': 200,
+							'output_tokens': 20,
+							'total_tokens': 220,
+						},
+					}
+				},
+			},
+			{'event_type': 'session.done', 'payload': {'result': 'final answer'}},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	assert history.usage is not None
+	assert history.usage.total_prompt_tokens == 300
+	assert history.usage.total_prompt_cached_tokens == 100
+	assert history.usage.total_completion_tokens == 30
+	assert history.usage.total_tokens == 330
+	assert history.usage.entry_count == 2
+
+
 def test_rust_history_reconstructs_terminal_reasoning_token_usage():
 	from browser_use.rust.service import _history_from_events
 

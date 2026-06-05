@@ -116,6 +116,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      synthesizes a partial final answer from the latest memory/tool evidence;
      if no history exists, the saved dashboard payload still includes a
      non-empty failure response with the stage error.
+   - Rust `token_count` usage reconstruction now treats summed per-turn
+     `last_token_usage` as the billed usage source when it exceeds the latest
+     cumulative context counters. Dashboard usage therefore reflects the whole
+     agent run instead of only the latest context-sized prompt after
+     recompute/compaction paths.
 
 ## Current Proof
 
@@ -154,6 +159,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_sdk_client_reads_large_json_rpc_lines tests/ci/test_rust_agent.py::test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default tests/ci/test_rust_agent.py::test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session tests/ci/test_rust_agent.py::test_rust_agent_translates_browser_use_args_to_terminal -q`
 - browser-use `PYTHONPATH=. uv run pytest tests/ci/test_rust_agent.py -q -k 'pre_navigates_cdp_session_before_sdk_by_default or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp or direct_initial_navigation_can_be_disabled'`
 - browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "pre_navigates_cdp_session_before_sdk_by_default or keeps_initial_navigation_when_direct_state_mismatches or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp"`
+- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_token_count_usage or sums_token_count_last_usage_when_latest_total_underreports or terminal_usage_prices_token_count_events or terminal_usage_sums_token_count_cache_creation"`
 - browser-use `python -m py_compile browser_use/rust/service.py`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
