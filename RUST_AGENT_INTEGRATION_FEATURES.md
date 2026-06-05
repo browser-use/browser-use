@@ -141,6 +141,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      observed stream. If a run is cancelled or the final transport fails after
      `session.done`, Python reconstructs `AgentHistoryList`, usage, and final
      output from the notification stream instead of returning an empty result.
+   - Browser-use Rust SDK notification recovery now accepts both top-level
+     `event_type` records and nested SDK event envelopes. Runs that visibly emit
+     `session.done` in GitHub runner progress logs therefore reconstruct the
+     final answer even if the final JSON-RPC history response is empty or
+     compacted differently.
    - Terminal provider overload errors are treated as retryable transient
      capacity failures. This prevents a single Claude/OpenAI `server overloaded`
      response from becoming an immediate no-output eval failure.
@@ -210,6 +215,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_returns_child_usage_events_separately -- --nocapture`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_runs_through_sdk_and_reuses_session_for_followup tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_preserves_sdk_notification_history_on_cancel -q`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_recovers_nested_sdk_notification_events tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -q -k 'usage_aliases or trims_oversized_history_fields or rust_eval_uses_adapter_initial_navigation_default or rust_eval_preserves_explicit_direct_initial_navigation_override'`

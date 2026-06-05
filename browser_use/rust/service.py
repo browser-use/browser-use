@@ -481,8 +481,20 @@ def _sdk_notification_events(sdk: Any) -> list[dict[str, Any]]:
 		if not isinstance(params, dict):
 			continue
 		event = params.get('event')
-		if not isinstance(event, dict) or not isinstance(event.get('event_type'), str):
+		if not isinstance(event, dict):
 			continue
+		if not isinstance(event.get('event_type'), str):
+			payload = event.get('payload')
+			if not isinstance(payload, dict) or not isinstance(payload.get('event_type'), str):
+				continue
+			event = {
+				'seq': payload.get('seq', event.get('seq')),
+				'id': payload.get('id', event.get('id')),
+				'session_id': payload.get('session_id', event.get('session_id')),
+				'ts_ms': payload.get('ts_ms', event.get('ts_ms')),
+				'event_type': payload.get('event_type'),
+				'payload': payload.get('payload') if isinstance(payload.get('payload'), dict) else {},
+			}
 		identity = (event.get('seq'), event.get('id'), event.get('event_type'))
 		if identity in seen:
 			continue
