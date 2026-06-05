@@ -93,6 +93,10 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
     action immediately after navigation completed in the background, the tool
     returns the completed navigation/page result in that same call instead of
     forcing a separate observe/status/recover turn.
+  - Terminal remote-CDP attach now reuses an existing ordinary blank page target
+    before creating a new `about:blank` tab. Browser Use Cloud sessions therefore
+    begin with one stable controlled tab instead of splitting Python setup and
+    Rust execution across separate blank targets.
   - Eval payloads preserve Rust/browser-use usage fields and add dashboard
     aliases (`input_tokens`, `output_tokens`, cached/cache-creation tokens, and
     `cost_usd`) before saving. This keeps cost/token displays working for Rust
@@ -124,6 +128,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-browser browser_script_start_observe_finishes_slow_scripts --lib`
 - terminal `cargo test -p browser-use-browser browser_script_start_ -- --nocapture`
 - terminal `cargo test -p browser-use-browser browser_script_observe_is_idempotent_after_completion -- --nocapture`
+- terminal `cargo test -p browser-use-browser remote_cdp_attach_reuses_existing_blank_page_before_creating_target -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
