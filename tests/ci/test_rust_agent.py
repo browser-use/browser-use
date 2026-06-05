@@ -2145,6 +2145,65 @@ def test_rust_terminal_usage_mixed_events_do_not_shrink_totals():
 	assert summary.total_tokens == 570
 
 
+async def test_rust_terminal_priced_usage_prefers_model_usage_over_token_count(monkeypatch):
+	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.tokens.service import TokenCost
+
+	async def fail_fetch(_self):
+		raise AssertionError('custom model pricing should not fetch remote pricing')
+
+	monkeypatch.setattr(TokenCost, '_fetch_and_cache_pricing_data', fail_fetch)
+
+	summary = await _usage_from_events_with_costs(
+		[
+			{
+				'event_type': 'model.usage',
+				'payload': {
+					'input_tokens': 500,
+					'cached_input_tokens': 200,
+					'input_cache_creation_tokens': 50,
+					'output_tokens': 20,
+					'total_tokens': 570,
+				},
+			},
+			{
+				'event_type': 'token_count',
+				'payload': {
+					'info': {
+						'last_token_usage': {
+							'input_tokens': 500,
+							'cached_input_tokens': 200,
+							'input_cache_creation_tokens': 50,
+							'output_tokens': 20,
+							'total_tokens': 570,
+						},
+						'total_token_usage': {
+							'input_tokens': 500,
+							'cached_input_tokens': 200,
+							'input_cache_creation_tokens': 50,
+							'output_tokens': 20,
+							'total_tokens': 570,
+						},
+					}
+				},
+			},
+		],
+		'claude-sonnet-4-6',
+		TokenCost(include_cost=True),
+	)
+
+	assert summary.total_prompt_tokens == 500
+	assert summary.total_prompt_cached_tokens == 200
+	assert summary.total_prompt_cache_creation_tokens == 50
+	assert summary.total_completion_tokens == 20
+	assert summary.total_tokens == 570
+	assert summary.entry_count == 1
+	assert summary.total_prompt_cached_cost == pytest.approx(200 * (0.30 / 1_000_000))
+	assert summary.total_prompt_cache_creation_cost == pytest.approx(50 * (3.75 / 1_000_000))
+	assert summary.total_completion_cost == pytest.approx(20 * (15 / 1_000_000))
+	assert summary.total_cost == pytest.approx((300 * 3 + 200 * 0.30 + 50 * 3.75 + 20 * 15) / 1_000_000)
+
+
 async def test_rust_token_summary_does_not_double_count_cache_reads(monkeypatch):
 	from browser_use.llm.views import ChatInvokeUsage
 	from browser_use.tokens.service import TokenCost

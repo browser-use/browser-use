@@ -3020,6 +3020,7 @@ async def _usage_from_events_with_costs(
 	summed_completion_tokens = 0
 	summed_total_tokens = 0
 	summed_invocations = 0
+	has_model_usage = any(_event_type(event) == 'model.usage' for event in events)
 
 	for event in events:
 		event_type = _event_type(event)
@@ -3028,6 +3029,8 @@ async def _usage_from_events_with_costs(
 		if event_type == 'model.usage':
 			raw_usage = _model_usage_payload(payload)
 		elif event_type == 'token_count':
+			if has_model_usage:
+				continue
 			raw_usage = _token_count_last_usage(payload)
 		if not isinstance(raw_usage, dict):
 			continue

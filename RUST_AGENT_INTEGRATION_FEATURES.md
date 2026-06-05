@@ -126,6 +126,10 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      dashboard token counts, cached/cache-creation buckets, and cost fields on
      one basis instead of showing summed cost beside latest-context token
      counters.
+   - Rust cost-enabled usage reconstruction now treats `token_count` as a
+     fallback billing source when provider `model.usage` events are absent.
+     Mixed streams therefore do not double-count usage by pricing both provider
+     usage and context occupancy counters.
 
 ## Current Proof
 
@@ -165,7 +169,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `PYTHONPATH=. uv run pytest tests/ci/test_rust_agent.py -q -k 'pre_navigates_cdp_session_before_sdk_by_default or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp or direct_initial_navigation_can_be_disabled'`
 - browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "pre_navigates_cdp_session_before_sdk_by_default or keeps_initial_navigation_when_direct_state_mismatches or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp"`
 - browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_token_count_usage or sums_token_count_last_usage_when_latest_total_underreports or terminal_usage_prices_token_count_events or terminal_usage_sums_token_count_cache_creation"`
-- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_nested_model_usage or token_count_does_not_shrink_model_usage_totals or terminal_usage_prices_token_count_events or terminal_usage_prices_anthropic_raw_cache_reads or terminal_usage_sums_token_count_cache_creation or priced_summary_sums_cache_read_tokens or mixed_events_do_not_shrink_totals or sums_token_count_last_usage_when_latest_total_underreports"`
+- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_nested_model_usage or token_count_does_not_shrink_model_usage_totals or terminal_usage_prices_token_count_events or terminal_usage_prices_anthropic_raw_cache_reads or terminal_usage_sums_token_count_cache_creation or priced_summary_sums_cache_read_tokens or mixed_events_do_not_shrink_totals or priced_usage_prefers_model_usage_over_token_count or sums_token_count_last_usage_when_latest_total_underreports"`
 - browser-use `python -m py_compile browser_use/rust/service.py`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
