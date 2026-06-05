@@ -2608,6 +2608,104 @@ async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monke
 	assert fake_sdk.calls[1][1]['max_steps'] == 5
 
 
+async def test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'fake'
+
+	class FakeSdk:
+		stderr_lines = []
+
+		def __init__(self):
+			self.notifications = [
+				{
+					'method': 'agent.event',
+					'params': {
+						'event': {'seq': 1, 'id': 'event-1', 'event_type': 'session.input', 'payload': {'text': 'task'}}
+					},
+				},
+				{
+					'method': 'agent.event',
+					'params': {
+						'event': {
+							'seq': 2,
+							'id': 'event-2',
+							'event_type': 'session.done',
+							'payload': {'result': 'final from notification', 'success': True},
+						}
+					},
+				},
+			]
+
+		async def call(self, method, params):
+			raise RuntimeError('Rust SDK JSON-RPC line exceeded 536870912 bytes without newline')
+
+	fake_sdk = FakeSdk()
+
+	async def fake_ensure_sdk_client(self):
+		return fake_sdk
+
+	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
+
+	agent = Agent(task='task', llm=LLM(), directly_open_url=False)
+	history = await agent.run(max_steps=3)
+
+	assert history.final_result() == 'final from notification'
+	assert history.is_successful() is True
+	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'session.done']
+
+
+async def test_rust_agent_preserves_sdk_notification_history_on_cancel(monkeypatch):
+	import asyncio
+
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'fake'
+
+	class FakeSdk:
+		stderr_lines = []
+
+		def __init__(self):
+			self.notifications = [
+				{
+					'method': 'agent.event',
+					'params': {
+						'event': {'seq': 1, 'id': 'event-1', 'event_type': 'session.input', 'payload': {'text': 'task'}}
+					},
+				},
+				{
+					'method': 'agent.event',
+					'params': {
+						'event': {
+							'seq': 2,
+							'id': 'event-2',
+							'event_type': 'tool.output',
+							'payload': {'name': 'browser_script', 'output': 'partial evidence'},
+						}
+					},
+				},
+			]
+
+		async def call(self, method, params):
+			raise asyncio.CancelledError
+
+	fake_sdk = FakeSdk()
+
+	async def fake_ensure_sdk_client(self):
+		return fake_sdk
+
+	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
+
+	agent = Agent(task='task', llm=LLM(), directly_open_url=False)
+	with pytest.raises(asyncio.CancelledError):
+		await agent.run(max_steps=3)
+
+	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'tool.output']
+	assert any('CancelledError' in error for error in agent.history.errors())
+
+
 async def test_rust_sdk_client_reads_large_json_rpc_lines(monkeypatch):
 	import browser_use.rust.service as rust_service
 

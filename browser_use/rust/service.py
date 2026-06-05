@@ -471,6 +471,44 @@ def _sdk_notification_summary(notification: dict[str, Any]) -> str | None:
 	return f'{kind} {label}'.strip() if label else kind
 
 
+def _sdk_notification_events(sdk: Any) -> list[dict[str, Any]]:
+	events: list[dict[str, Any]] = []
+	seen: set[tuple[Any, Any, Any]] = set()
+	for notification in list(getattr(sdk, 'notifications', []) or []):
+		if not isinstance(notification, dict) or notification.get('method') != 'agent.event':
+			continue
+		params = notification.get('params')
+		if not isinstance(params, dict):
+			continue
+		event = params.get('event')
+		if not isinstance(event, dict) or not isinstance(event.get('event_type'), str):
+			continue
+		identity = (event.get('seq'), event.get('id'), event.get('event_type'))
+		if identity in seen:
+			continue
+		seen.add(identity)
+		events.append(event)
+	return events
+
+
+def _sdk_events_truncated_for_transport(events: list[dict[str, Any]]) -> bool:
+	return any(_event_type(event) == 'sdk.transport.truncated' for event in events)
+
+
+def _sdk_transport_error_after_final_result(process_error: str | None) -> bool:
+	if not process_error:
+		return False
+	return any(
+		fragment in process_error
+		for fragment in (
+			'Rust SDK JSON-RPC line exceeded',
+			'Rust SDK stdout reader failed',
+			'Rust SDK server emitted non-object JSON-RPC message',
+			'Invalid Rust SDK JSON-RPC line',
+		)
+	)
+
+
 class _LegacyProcessSdkClient:
 	"""Test-only adapter for old `_run_process` monkeypatches."""
 
@@ -5014,6 +5052,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			result = await sdk.call(method, params)
 		except asyncio.CancelledError:
+			if not isinstance(sdk, _LegacyProcessSdkClient):
+				await self._preserve_sdk_notification_history(
+					sdk,
+					started=started,
+					process_error='CancelledError',
+				)
 			await self._cancel_active_sdk_run()
 			raise
 		except Exception as exc:
@@ -5029,6 +5073,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		finished = time.time()
 		self.last_stdout = str(getattr(sdk, 'stdout_text', '') or '')
 		self.last_stderr = str(getattr(sdk, 'stderr_text', '') or '\n'.join(line for line in sdk.stderr_lines if line))
+		notification_events = _sdk_notification_events(sdk)
 		if isinstance(result, dict):
 			agent_id = result.get('agent_id')
 			session_id = result.get('session_id')
@@ -5044,11 +5089,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raw_events = history_payload.get('events')
 				if isinstance(raw_events, list):
 					events = [event for event in raw_events if isinstance(event, dict)]
-				errors = history_payload.get('errors')
-				if process_error is None and history_payload.get('success') is False and isinstance(errors, list) and errors:
-					process_error = '\n'.join(str(error) for error in errors if error)
+					errors = history_payload.get('errors')
+					if process_error is None and history_payload.get('success') is False and isinstance(errors, list) and errors:
+						process_error = '\n'.join(str(error) for error in errors if error)
 		elif process_error is None:
 			process_error = 'Rust SDK server returned an invalid response.'
+		if notification_events and (
+			not events or _sdk_events_truncated_for_transport(events) or len(notification_events) > len(events)
+		):
+			events = notification_events
+		if _result_from_events(events) is not None and (
+			process_error == 'CancelledError' or _sdk_transport_error_after_final_result(process_error)
+		):
+			process_error = None
 		self.last_events = events
 		self.result = _history_from_events(
 			self.last_events,
@@ -5081,6 +5134,40 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._log_final_outcome_messages()
 		await self._finalize_run_cleanup()
 		return self.history
+
+	async def _preserve_sdk_notification_history(
+		self,
+		sdk: Any,
+		*,
+		started: float,
+		process_error: str,
+	) -> None:
+		events = _sdk_notification_events(sdk)
+		if not events:
+			return
+		finished = time.time()
+		self.last_stdout = str(getattr(sdk, 'stdout_text', '') or '')
+		self.last_stderr = str(getattr(sdk, 'stderr_text', '') or '\n'.join(line for line in getattr(sdk, 'stderr_lines', []) if line))
+		effective_error = process_error
+		if _result_from_events(events) is not None and (
+			process_error == 'CancelledError' or _sdk_transport_error_after_final_result(process_error)
+		):
+			effective_error = None
+		self.last_events = events
+		self.result = _history_from_events(
+			self.last_events,
+			model=self.model,
+			started=started,
+			finished=finished,
+			output_model_schema=self.output_model_schema,
+			process_error=effective_error,
+		)
+		if self._pending_history_prefix:
+			self.result.history = [*self._pending_history_prefix, *self.result.history]
+			self._pending_history_prefix = []
+		self.history = self.result
+		await self._apply_terminal_usage_costs(self.last_events)
+		self._sync_state_from_history()
 
 	async def _log_sdk_progress(self, sdk: RustSdkClient) -> None:
 		seen = 0
