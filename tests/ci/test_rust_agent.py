@@ -2323,6 +2323,26 @@ async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monke
 	assert fake_sdk.calls[1][1]['max_steps'] == 5
 
 
+async def test_rust_sdk_client_reads_large_json_rpc_lines():
+	import browser_use.rust.service as rust_service
+
+	script = """
+import json
+import sys
+
+sys.stdin.readline()
+print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"text": "x" * 70000}}), flush=True)
+"""
+	client = rust_service.RustSdkClient([sys.executable, '-c', script], {'PYTHONUNBUFFERED': '1'})
+
+	try:
+		result = await client.call('large.response')
+	finally:
+		await client.close()
+
+	assert result == {'text': 'x' * 70000}
+
+
 def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	from browser_use.rust import Agent
 

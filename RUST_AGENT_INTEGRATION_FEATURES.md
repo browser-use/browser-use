@@ -17,6 +17,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
    - The returned normalized event history is reconstructed into Browser Use-compatible
      `AgentHistoryList`, callbacks, usage, telemetry, Laminar replay, downloads, and
      final result handling.
+   - The SDK stdout reader accepts large JSON-RPC response lines, which are expected
+     when normalized history includes screenshots, tool output, and observability data.
 
 ## Current Proof
 
@@ -24,6 +26,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use process-backed smoke with
   `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`,
   proving `Agent.run()` calls the real SDK server and `Agent.follow_up()` reuses the

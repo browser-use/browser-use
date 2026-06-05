@@ -220,6 +220,7 @@ class RustSdkClient:
 		self._pending: dict[int, asyncio.Future[Any]] = {}
 		self._write_lock = asyncio.Lock()
 		self.stderr_lines: list[str] = []
+		self.stream_limit = int(os.environ.get('BROWSER_USE_SDK_STREAM_LIMIT_BYTES', str(64 * 1024 * 1024)))
 
 	async def start(self) -> None:
 		if self.process is not None and self.process.returncode is None:
@@ -230,6 +231,7 @@ class RustSdkClient:
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 			env=self.env,
+			limit=self.stream_limit,
 		)
 		self._reader_task = asyncio.create_task(self._read_stdout())
 		self._stderr_task = asyncio.create_task(self._read_stderr())
@@ -280,6 +282,10 @@ class RustSdkClient:
 		for task in (self._reader_task, self._stderr_task):
 			if task is not None:
 				task.cancel()
+		await asyncio.gather(
+			*(task for task in (self._reader_task, self._stderr_task) if task is not None and task is not asyncio.current_task()),
+			return_exceptions=True,
+		)
 		self._fail_all(RustAgentError('Rust SDK server closed'))
 		self.process = None
 
@@ -297,6 +303,10 @@ class RustSdkClient:
 					self._fail_all(RustAgentError(f'Invalid Rust SDK JSON-RPC line: {line}: {exc}'))
 					return
 				self._handle_message(message)
+		except Exception as exc:
+			message = f'Rust SDK stdout reader failed: {exc}'
+			self.stderr_lines.append(message)
+			self._fail_all(RustAgentError(message))
 		finally:
 			if self._pending:
 				detail = '\n'.join(self.stderr_lines[-20:])
