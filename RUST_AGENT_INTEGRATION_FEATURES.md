@@ -73,6 +73,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      while avoiding Claude's many-image 2000px dimension rejection, which was
      causing completed eval tasks to show a one-step HTTP 400 error and an
      empty final result.
+   - Terminal navigation helpers now wait briefly for page readiness and return
+     `navigation_ready` plus `page_info` in the same `browser_script` result.
+     This gives the next model turn concrete evidence that navigation landed,
+     instead of a bare "navigation sent" placeholder that can lead to repeated
+     navigate/status/recover loops on Cloud Browser CDP sessions.
 
 ## Current Proof
 
@@ -86,6 +91,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-agent spawn_agent_agent_type_guidance_discourages_default_override -- --nocapture`
 - terminal `cargo test -p browser-use-providers anthropic_messages_downsamples_oversized_tool_images -- --nocapture`
 - terminal `cargo test -p browser-use-providers anthropic_messages -- --nocapture`
+- terminal `cargo test -p browser-use-browser browser_script_navigation_helpers_wait_for_page_state -- --nocapture`
+- terminal `cargo test -p browser-use-browser browser_script_start_observe_finishes_slow_scripts -- --test-threads=1 --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
