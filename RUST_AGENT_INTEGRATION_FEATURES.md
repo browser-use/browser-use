@@ -27,16 +27,17 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      `agent.run_task` enters the runtime-owned loop with `agent.input.accepted` and
      `agent.input.consumed` events instead of stalling after browser creation.
    - Browser-use `llm_timeout`/SDK `llm.timeout` now reaches the terminal Rust
-     model stream path as a stream-idle timeout, so a provider response that opens
-     and then sends no SSE bytes becomes a retryable transport error instead of
-     holding a GitHub eval runner indefinitely after `model.turn.request`.
+     model stream path as both a response-open timeout and a stream-idle timeout,
+     so a provider request that never returns response headers, or a stream that
+     opens and then sends no SSE bytes, becomes a retryable transport error instead
+     of holding a GitHub eval runner indefinitely after `model.turn.request`.
 
 ## Current Proof
 
 - terminal `cargo check -p browser-use-cli`
 - terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
-- terminal `cargo test -p browser-use-llm stream_idle_timeout_yields_retryable_transport_error -- --nocapture`
+- terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
