@@ -35,16 +35,24 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      runtime, matching the live model transport bridge's `block_in_place` usage.
      This prevents SDK evals from stalling after `model.turn.request` before the
      configured response-open/stream-idle timeout can make progress.
+   - Running `browser_script` calls now preserve the `run_id` and observe
+     instruction in Rust event persistence, replay reconstruction, and Python
+     `AgentHistoryList` reconstruction. This prevents eval traces from showing
+     empty browser tool results while a script is still active and keeps the
+     next model turn on the intended observe/cancel path instead of repeatedly
+     navigating or reconnecting.
 
 ## Current Proof
 
 - terminal `cargo check -p browser-use-cli`
 - terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_run_runtime_supports_model_transport_blocking_bridge -- --nocapture`
+- terminal `cargo test -p browser-use-agent running_browser_script -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_history_surfaces_running_browser_script_observe_instruction -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`

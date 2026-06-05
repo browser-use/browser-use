@@ -2151,11 +2151,28 @@ def _tool_result_text(payload: dict[str, Any]) -> str | None:
 	text = _tool_output_text(content)
 	if text:
 		return text
+	text = _browser_script_running_tool_text(payload)
+	if text:
+		return text
 	for key in ('summary', 'data', 'outputs'):
 		text = _structured_tool_output_text(payload.get(key))
 		if text:
 			return text
 	return None
+
+
+def _browser_script_running_tool_text(payload: dict[str, Any]) -> str | None:
+	if payload.get('name') != 'browser_script' or payload.get('status') != 'running':
+		return None
+	parts = ['browser_script is still running.']
+	run_id = payload.get('run_id')
+	if isinstance(run_id, str) and run_id:
+		parts.append(f'run_id: {run_id}')
+		observe_ms = _int_value(payload.get('next_observe_ms')) or 1000
+		parts.append(
+			f'Next step: call browser_script with action="observe", run_id="{run_id}", and observe_timeout_ms={observe_ms}.'
+		)
+	return '\n'.join(parts)
 
 
 def _synthetic_tool_result_text(name: str) -> str:

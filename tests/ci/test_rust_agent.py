@@ -8388,6 +8388,49 @@ def test_rust_history_surfaces_terminal_tool_failure_message():
 	assert history.action_results()[-1].error == 'browser_script failed: RuntimeError: navigation failed'
 
 
+def test_rust_history_surfaces_running_browser_script_observe_instruction():
+	from browser_use.rust.service import _history_from_events
+
+	history = _history_from_events(
+		[
+			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
+			{
+				'event_type': 'tool.started',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'arguments': {'code': "goto_url('https://example.com')\nwait_for_load(30)"},
+				},
+			},
+			{
+				'event_type': 'tool.output',
+				'payload': {
+					'name': 'browser_script',
+					'tool_call_id': 'call-browser',
+					'ok': True,
+					'status': 'running',
+					'run_id': 'bs-123',
+					'next_observe_ms': 7000,
+					'text': '',
+				},
+			},
+		],
+		model='gpt-test',
+		started=1.0,
+		finished=2.0,
+		output_model_schema=None,
+		process_error=None,
+	)
+
+	tool_result = history.action_results()[0]
+	assert tool_result.error is None
+	assert tool_result.extracted_content is not None
+	assert 'browser_script is still running.' in tool_result.extracted_content
+	assert 'run_id: bs-123' in tool_result.extracted_content
+	assert 'action="observe"' in tool_result.extracted_content
+	assert 'observe_timeout_ms=7000' in tool_result.extracted_content
+
+
 def test_rust_history_surfaces_terminal_cancellation_and_tool_abort_messages():
 	from browser_use.rust.service import _history_from_events
 
