@@ -7493,6 +7493,33 @@ async def test_rust_agent_run_exposes_laminar_trace_id_for_eval_links(monkeypatc
 	assert agent.laminar_trace_id == '01234567-89ab-cdef-0123-456789abcdef'
 
 
+def test_rust_laminar_replay_flush_avoids_context_reset(monkeypatch):
+	import browser_use.rust.service as rust_service
+
+	class FakeLaminar:
+		flushes = 0
+		force_flushes = 0
+
+		@staticmethod
+		def is_initialized():
+			return True
+
+		@classmethod
+		def flush(cls):
+			cls.flushes += 1
+
+		@classmethod
+		def force_flush(cls):
+			cls.force_flushes += 1
+
+	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
+
+	rust_service._laminar_force_flush()
+
+	assert FakeLaminar.flushes == 1
+	assert FakeLaminar.force_flushes == 0
+
+
 def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	from browser_use.rust import Agent
 	import browser_use.rust.service as rust_service

@@ -159,7 +159,7 @@ def _laminar_start_span(name: str, *, input: Any = None, span_type: str = 'DEFAU
 def _laminar_force_flush() -> None:
 	if not _laminar_ready():
 		return
-	for method_name in ('force_flush', 'flush'):
+	for method_name in ('flush', 'force_flush'):
 		method = getattr(Laminar, method_name, None)
 		if method is None:
 			continue
