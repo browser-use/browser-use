@@ -2781,7 +2781,7 @@ def _terminal_laminar_message_text(message: dict[str, Any]) -> str:
 	return '\n'.join(parts)
 
 
-def _terminal_laminar_semconv_content_part(part: Any) -> dict[str, Any]:
+def _terminal_laminar_semconv_content_part(part: Any, *, inline_image_data: bool = True) -> dict[str, Any]:
 	if not isinstance(part, dict):
 		return {'type': 'text', 'content': str(part)}
 	part_type = part.get('type')
@@ -2796,6 +2796,8 @@ def _terminal_laminar_semconv_content_part(part: Any) -> dict[str, Any]:
 			if url.startswith('data:') and ';base64,' in url:
 				header, blob = url.split(';base64,', 1)
 				mime_type = header.removeprefix('data:') or 'application/octet-stream'
+				if not inline_image_data:
+					return {'type': 'blob', 'content': '[image in span input]', 'mimeType': mime_type}
 				return {'type': 'blob', 'blob': blob, 'mimeType': mime_type}
 			return {'type': 'uri', 'uri': url}
 	if part_type in {'tool_use', 'tool_call'}:
@@ -2824,7 +2826,11 @@ def _terminal_laminar_semconv_content_part(part: Any) -> dict[str, Any]:
 	return {'type': 'text', 'content': _terminal_laminar_json_attribute(part)}
 
 
-def _terminal_laminar_semconv_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _terminal_laminar_semconv_messages(
+	messages: list[dict[str, Any]],
+	*,
+	inline_image_data: bool = True,
+) -> list[dict[str, Any]]:
 	semconv_messages: list[dict[str, Any]] = []
 	for message in messages:
 		if not isinstance(message, dict):
@@ -2835,7 +2841,9 @@ def _terminal_laminar_semconv_messages(messages: list[dict[str, Any]]) -> list[d
 		content = message.get('content')
 		parts: list[dict[str, Any]]
 		if isinstance(content, list):
-			parts = [_terminal_laminar_semconv_content_part(part) for part in content]
+			parts = [
+				_terminal_laminar_semconv_content_part(part, inline_image_data=inline_image_data) for part in content
+			]
 		elif isinstance(content, str):
 			parts = [{'type': 'text', 'content': content}]
 		else:
@@ -2935,8 +2943,14 @@ def _terminal_laminar_gen_ai_attributes(
 		'gen_ai.request.model': str(span_input.get('model') or ''),
 		'gen_ai.system': str(span_input.get('provider') or ''),
 		'gen_ai.system_instructions': _terminal_laminar_system_instructions(span_input),
-		'gen_ai.input.messages': _terminal_laminar_json_attribute(_terminal_laminar_semconv_messages(input_messages)),
-		'gen_ai.output.messages': _terminal_laminar_json_attribute(_terminal_laminar_semconv_messages(output_messages)),
+		# Keep the full image-bearing messages in the span input/output. Repeating
+		# base64 blobs in attributes makes OTLP exports exceed Laminar limits.
+		'gen_ai.input.messages': _terminal_laminar_json_attribute(
+			_terminal_laminar_semconv_messages(input_messages, inline_image_data=False)
+		),
+		'gen_ai.output.messages': _terminal_laminar_json_attribute(
+			_terminal_laminar_semconv_messages(output_messages, inline_image_data=False)
+		),
 	}
 	attributes.update(_terminal_laminar_indexed_message_attributes(input_messages, 'gen_ai.prompt'))
 	attributes.update(_terminal_laminar_indexed_message_attributes(output_messages, 'gen_ai.completion'))

@@ -7680,7 +7680,8 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert 'click_at_xy' in span_attrs['gen_ai.tool.definitions']
 	assert '"browser_script"' in span_attrs['gen_ai.request.tools']
 	assert '"System prompt"' in span_attrs['gen_ai.input.messages']
-	assert 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB' in span_attrs['gen_ai.input.messages']
+	assert '[image in span input]' in span_attrs['gen_ai.input.messages']
+	assert 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB' not in span_attrs['gen_ai.input.messages']
 	assert '"laminar answer"' in span_attrs['gen_ai.output.messages']
 	assert span_attrs['assistant_output_preview'] == 'laminar answer'
 	assert FakeLaminar.spans[0]['outputs'][-1][0]['content'][0]['text'] == 'laminar answer'
