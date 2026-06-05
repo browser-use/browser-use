@@ -68,6 +68,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
    - Eval GitHub runners now refresh Convex progress during long `run_agent`
      and `evaluate` stages, so slow Rust or Agent SDK judge calls stay visible
      instead of looking stale while they are still legitimately running.
+   - Terminal provider conversion now downsamples oversized data-URL screenshots
+     before Anthropic requests. This keeps visual context in the model input
+     while avoiding Claude's many-image 2000px dimension rejection, which was
+     causing completed eval tasks to show a one-step HTTP 400 error and an
+     empty final result.
 
 ## Current Proof
 
@@ -79,6 +84,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-browser browser_script_list_tabs_hides_agent_startup_placeholder -- --nocapture`
 - terminal `cargo test -p browser-use-agent subagent_tools -- --nocapture`
 - terminal `cargo test -p browser-use-agent spawn_agent_agent_type_guidance_discourages_default_override -- --nocapture`
+- terminal `cargo test -p browser-use-providers anthropic_messages_downsamples_oversized_tool_images -- --nocapture`
+- terminal `cargo test -p browser-use-providers anthropic_messages -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
