@@ -1,0 +1,37 @@
+# Rust Agent Integration Feature/Proof Ledger
+
+This branch keeps the Python `Agent` unchanged unless callers explicitly import
+`from browser_use.rust import Agent`.
+
+## Current Features
+
+1. Rust SDK server execution path
+   - `browser_use.rust.Agent` now runs normal tasks through the terminal SDK server
+     (`browser-use-terminal sdk-server --transport stdio`) using the normalized
+     `agent.run_task` request/response protocol.
+   - Follow-up tasks reuse the returned SDK `agent_id`, `session_id`, and `browser_id`
+     through `agent.run`, so the Python-facing interface can keep one Rust-owned session.
+   - Browser-use-style options are mapped into SDK params, including model/provider,
+     CDP URL/headers, viewport, user agent, storage state, downloads path, structured
+     output schema, max steps, vision, cost calculation, and action limits.
+   - The returned normalized event history is reconstructed into Browser Use-compatible
+     `AgentHistoryList`, callbacks, usage, telemetry, Laminar replay, downloads, and
+     final result handling.
+
+## Current Proof
+
+- terminal `cargo check -p browser-use-cli`
+- terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
+- browser-use `uv run python -m py_compile browser_use/rust/service.py`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py`
+- browser-use process-backed smoke with
+  `BROWSER_USE_TERMINAL_BINARY=/home/exedev/Developer/terminal/target/debug/browser-use-terminal`,
+  proving `Agent.run()` calls the real SDK server and `Agent.follow_up()` reuses the
+  same SDK session.
+
+## Known Transitional Debt
+
+- `_LegacyProcessSdkClient` exists only to keep older `_run_process` monkeypatch tests
+  meaningful while the production path moves to the SDK server. Once evals prove the
+  SDK path and tests are rewritten around the protocol, the old CLI argv/load-events
+  glue should be removed and `browser_use/rust/service.py` should become much shorter.

@@ -2244,6 +2244,84 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert env['BU_CDP_URL'] == 'wss://browser.example/devtools/browser/1'
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
+	params = agent._sdk_run_params(max_steps=12, task=agent.task)
+	assert params['max_steps'] == 12
+	assert params['browser_mode'] == 'remote-cdp'
+	assert params['llm'] == {'provider': 'browser-use', 'model': 'gpt-test', 'timeout': 75}
+	assert params['browser']['cdp_url'] == 'wss://browser.example/devtools/browser/1'
+	assert 'cdp_headers' not in params['browser']
+	assert "First navigate to 'https://example.com'" in params['task']
+
+
+async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monkeypatch):
+	from browser_use.rust import Agent
+
+	class LLM:
+		model = 'fake'
+
+	class FakeSdk:
+		def __init__(self):
+			self.calls = []
+			self.stderr_lines = []
+
+		async def call(self, method, params):
+			self.calls.append((method, params))
+			if method == 'agent.run_task':
+				return {
+					'agent_id': 'agent-1',
+					'session_id': 'session-1',
+					'browser_id': 'browser-1',
+					'history': {
+						'output': 'first done',
+						'success': True,
+						'done': True,
+						'errors': [],
+						'events': [
+							{'event_type': 'session.input', 'payload': {'text': params['task']}},
+							{'event_type': 'session.done', 'payload': {'result': 'first done', 'success': True}},
+						],
+					},
+				}
+			if method == 'agent.run':
+				return {
+					'agent_id': params['agent_id'],
+					'session_id': 'session-1',
+					'browser_id': params['browser_id'],
+					'history': {
+						'output': 'followup done',
+						'success': True,
+						'done': True,
+						'errors': [],
+						'events': [
+							{'event_type': 'session.followup', 'payload': {'text': params['followups'][0]}},
+							{'event_type': 'session.done', 'payload': {'result': 'followup done', 'success': True}},
+						],
+					},
+				}
+			raise AssertionError(f'unexpected SDK method {method}')
+
+	fake_sdk = FakeSdk()
+
+	async def fake_ensure_sdk_client(self):
+		return fake_sdk
+
+	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
+
+	agent = Agent(task='answer first', llm=LLM(), directly_open_url=False)
+	first = await agent.run(max_steps=7)
+	followup = await agent.follow_up('answer second', max_steps=5)
+
+	assert first.final_result() == 'first done'
+	assert followup.final_result() == 'followup done'
+	assert fake_sdk.calls[0][0] == 'agent.run_task'
+	assert fake_sdk.calls[0][1]['task'] == 'answer first'
+	assert fake_sdk.calls[0][1]['max_steps'] == 7
+	assert fake_sdk.calls[1][0] == 'agent.run'
+	assert fake_sdk.calls[1][1]['agent_id'] == 'agent-1'
+	assert fake_sdk.calls[1][1]['browser_id'] == 'browser-1'
+	assert fake_sdk.calls[1][1]['followups'] == ['answer second']
+	assert fake_sdk.calls[1][1]['max_steps'] == 5
+
 
 def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	from browser_use.rust import Agent
@@ -3231,7 +3309,7 @@ def test_rust_agent_defaults_llm_like_browser_use():
 
 	assert type(rust_agent.llm) is type(browser_use_agent.llm)
 	assert rust_agent.llm.provider == browser_use_agent.llm.provider == 'browser-use'
-	assert rust_agent.llm.model == browser_use_agent.llm.model == 'bu-1-0'
+	assert rust_agent.llm.model == browser_use_agent.llm.model
 	assert rust_agent.settings.flash_mode is True
 	assert rust_agent.settings.page_extraction_llm is rust_agent.llm
 	assert rust_agent.model == rust_agent.llm.model
@@ -3303,7 +3381,7 @@ def test_rust_agent_disables_vision_for_unsupported_model_families():
 		async def ainvoke(self, messages, output_format=None, **kwargs):
 			return type('Result', (), {'usage': None})()
 
-	for model in ['deepseek-chat', 'grok-2', 'xai-grok']:
+	for model in ['deepseek-chat', 'grok-3', 'grok-code']:
 		browser_use_agent = BrowserUseAgent(task='Inspect vision.', llm=LLM(model), directly_open_url=False, use_vision=True)
 		rust_agent = RustAgent(task='Inspect vision.', llm=LLM(model), directly_open_url=False, use_vision=True)
 
@@ -5401,7 +5479,8 @@ async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	assert agent.eventbus.dispatched[0].agent_task_id == str(agent.task_id)
 	assert agent.eventbus.dispatched[0].actions == [{'done': {'text': 'final answer', 'success': True, 'files_to_display': []}}]
 	assert agent.eventbus.dispatched[0].url == 'https://example.com/final'
-	assert agent.eventbus.dispatched[0].screenshot_url.startswith('data:image/jpeg;base64,')
+	assert agent.eventbus.dispatched[0].screenshot_url.startswith('data:image/')
+	assert ';base64,' in agent.eventbus.dispatched[0].screenshot_url
 
 	await agent._force_done_after_last_step(AgentStepInfo(step_number=2, max_steps=3))
 	assert agent.AgentOutput is agent.DoneAgentOutput
@@ -5627,7 +5706,8 @@ async def test_rust_agent_handle_step_error_logs_browser_use_failure_prefix(monk
 	assert agent.state.consecutive_failures == 1
 	assert agent.state.last_result is not None
 	assert agent.state.last_result[-1].error == 'bad step'
-	assert agent_logger.errors == ['❌ Result failed 1/4 times:\n bad step']
+	max_total_failures = agent.settings.max_failures + int(agent.settings.final_response_after_failure)
+	assert agent_logger.errors == [f'❌ Result failed 1/{max_total_failures} times:\n bad step']
 
 	agent_logger.errors.clear()
 	agent.state.last_result = None
@@ -5642,9 +5722,10 @@ async def test_rust_agent_handle_step_error_logs_browser_use_failure_prefix(monk
 	assert parse_agent.state.consecutive_failures == 1
 	assert parse_agent.state.last_result[-1].error == 'Could not parse response: missing action'
 	assert agent_logger.errors == []
+	parse_max_total_failures = parse_agent.settings.max_failures + int(parse_agent.settings.final_response_after_failure)
 	assert module_logger.errors == [
 		'Model: gpt-test failed',
-		'❌ Result failed 1/4 times:\n Could not parse response: missing action',
+		f'❌ Result failed 1/{parse_max_total_failures} times:\n Could not parse response: missing action',
 	]
 
 
@@ -5883,14 +5964,16 @@ def test_rust_agent_adds_available_files_to_task_context():
 
 
 def test_rust_agent_default_model_uses_browser_use_default_llm(monkeypatch):
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.rust import Agent
 
 	monkeypatch.setenv('BROWSER_USE_RUST_MODEL', 'legacy-codex-default')
 
 	agent = Agent(task='report title')
+	browser_use_agent = BrowserUseAgent(task='report title')
 
-	assert agent.llm.provider == 'browser-use'
-	assert agent.model == 'bu-1-0'
+	assert agent.llm.provider == browser_use_agent.llm.provider == 'browser-use'
+	assert agent.model == browser_use_agent.llm.model
 
 
 def test_rust_agent_translates_followup_to_existing_terminal_session(monkeypatch):

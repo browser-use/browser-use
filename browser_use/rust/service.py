@@ -14,7 +14,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
@@ -185,9 +185,6 @@ def find_browser_use_terminal_binary() -> str:
 	env_path = os.environ.get('BROWSER_USE_TERMINAL_BINARY')
 	if env_path:
 		return env_path
-	path_binary = shutil.which('browser-use-terminal')
-	if path_binary:
-		return path_binary
 	candidates = [
 		Path.cwd() / 'target' / 'debug' / 'browser-use-terminal',
 		Path.cwd().parent / 'terminal' / 'target' / 'debug' / 'browser-use-terminal',
@@ -195,7 +192,250 @@ def find_browser_use_terminal_binary() -> str:
 	for candidate in candidates:
 		if candidate.exists():
 			return str(candidate)
+	path_binary = shutil.which('browser-use-terminal')
+	if path_binary:
+		return path_binary
 	raise RustAgentError('Could not find browser-use-terminal. Set BROWSER_USE_TERMINAL_BINARY or build the terminal CLI.')
+
+
+class RustSdkJsonRpcError(RustAgentError):
+	"""Raised when the Rust SDK server returns a JSON-RPC error."""
+
+	def __init__(self, code: int, message: str) -> None:
+		super().__init__(message)
+		self.code = code
+		self.message = message
+
+
+class RustSdkClient:
+	"""Minimal stdio JSON-RPC client for browser-use-terminal sdk-server."""
+
+	def __init__(self, command: list[str], env: dict[str, str]) -> None:
+		self.command = list(command)
+		self.env = dict(env)
+		self.process: asyncio.subprocess.Process | None = None
+		self._reader_task: asyncio.Task[Any] | None = None
+		self._stderr_task: asyncio.Task[Any] | None = None
+		self._next_id = 1
+		self._pending: dict[int, asyncio.Future[Any]] = {}
+		self._write_lock = asyncio.Lock()
+		self.stderr_lines: list[str] = []
+
+	async def start(self) -> None:
+		if self.process is not None and self.process.returncode is None:
+			return
+		self.process = await asyncio.create_subprocess_exec(
+			*self.command,
+			stdin=asyncio.subprocess.PIPE,
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+			env=self.env,
+		)
+		self._reader_task = asyncio.create_task(self._read_stdout())
+		self._stderr_task = asyncio.create_task(self._read_stderr())
+
+	async def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
+		await self.start()
+		if self.process is None or self.process.stdin is None:
+			raise RustAgentError('Rust SDK server stdin is unavailable')
+		loop = asyncio.get_running_loop()
+		async with self._write_lock:
+			request_id = self._next_id
+			self._next_id += 1
+			future: asyncio.Future[Any] = loop.create_future()
+			self._pending[request_id] = future
+			request = {
+				'jsonrpc': '2.0',
+				'id': request_id,
+				'method': method,
+				'params': params or {},
+			}
+			try:
+				self.process.stdin.write((json.dumps(request) + '\n').encode('utf-8'))
+				await self.process.stdin.drain()
+			except (BrokenPipeError, ConnectionResetError) as exc:
+				self._pending.pop(request_id, None)
+				raise RustAgentError(f'Rust SDK server pipe closed while sending {method}') from exc
+		try:
+			return await future
+		except asyncio.CancelledError:
+			self._pending.pop(request_id, None)
+			raise
+
+	async def close(self) -> None:
+		process = self.process
+		if process is None:
+			return
+		if process.stdin is not None:
+			process.stdin.close()
+			with suppress(BrokenPipeError, ConnectionResetError):
+				await process.stdin.wait_closed()
+		if process.returncode is None:
+			process.terminate()
+			try:
+				await asyncio.wait_for(process.wait(), timeout=2)
+			except TimeoutError:
+				process.kill()
+				await process.wait()
+		for task in (self._reader_task, self._stderr_task):
+			if task is not None:
+				task.cancel()
+		self._fail_all(RustAgentError('Rust SDK server closed'))
+		self.process = None
+
+	async def _read_stdout(self) -> None:
+		assert self.process is not None
+		assert self.process.stdout is not None
+		try:
+			async for raw_line in self.process.stdout:
+				line = raw_line.decode('utf-8', errors='replace').strip()
+				if not line:
+					continue
+				try:
+					message = json.loads(line)
+				except json.JSONDecodeError as exc:
+					self._fail_all(RustAgentError(f'Invalid Rust SDK JSON-RPC line: {line}: {exc}'))
+					return
+				self._handle_message(message)
+		finally:
+			if self._pending:
+				detail = '\n'.join(self.stderr_lines[-20:])
+				message = 'Rust SDK server exited before responding'
+				if detail:
+					message = f'{message}: {detail}'
+				self._fail_all(RustAgentError(message))
+
+	async def _read_stderr(self) -> None:
+		assert self.process is not None
+		assert self.process.stderr is not None
+		async for raw_line in self.process.stderr:
+			self.stderr_lines.append(raw_line.decode('utf-8', errors='replace').rstrip())
+			del self.stderr_lines[:-500]
+
+	def _handle_message(self, message: Any) -> None:
+		if not isinstance(message, dict):
+			self._fail_all(RustAgentError(f'Rust SDK server emitted non-object JSON-RPC message: {message!r}'))
+			return
+		if 'id' not in message:
+			return
+		request_id = message.get('id')
+		if not isinstance(request_id, int):
+			self._fail_all(RustAgentError('Rust SDK JSON-RPC response id must be an integer'))
+			return
+		future = self._pending.pop(request_id, None)
+		if future is None or future.done():
+			return
+		if 'error' in message:
+			error = message.get('error') or {}
+			if not isinstance(error, dict):
+				error = {}
+			future.set_exception(
+				RustSdkJsonRpcError(
+					int(error.get('code', -32000)),
+					str(error.get('message') or 'Rust SDK server error'),
+				)
+			)
+			return
+		future.set_result(message.get('result'))
+
+	def _fail_all(self, error: BaseException) -> None:
+		for future in self._pending.values():
+			if not future.done():
+				future.set_exception(error)
+		self._pending.clear()
+
+
+class _LegacyProcessSdkClient:
+	"""Test-only adapter for old `_run_process` monkeypatches."""
+
+	def __init__(self, agent: 'Agent') -> None:
+		self.agent = agent
+		self.stdout_text = ''
+		self.stderr_text = ''
+		self.stderr_lines: list[str] = []
+		self.run_timeout_seconds: int | None = None
+		self.followup_timeout_seconds: int | None = None
+		self.process = type('_LegacyProcess', (), {'returncode': None})()
+
+	def set_timeouts(self, *, run_timeout_seconds: int | None, followup_timeout_seconds: int | None) -> None:
+		self.run_timeout_seconds = run_timeout_seconds
+		self.followup_timeout_seconds = followup_timeout_seconds
+
+	async def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
+		params = params or {}
+		if method == 'agent.run_task':
+			return await self._run_task(params)
+		if method == 'agent.run':
+			return await self._run_existing(params)
+		if method == 'agent.stop':
+			return {'cancelled': True}
+		raise RustSdkJsonRpcError(-32601, f'Method not found: {method}')
+
+	async def close(self) -> None:
+		self.process.returncode = 0
+
+	async def _run_task(self, params: dict[str, Any]) -> dict[str, Any]:
+		start_returncode, start_stdout_text, start_stderr_text = await self.agent._run_process(
+			self.agent._start_argv(), timeout_seconds=self.run_timeout_seconds or self.agent.settings.step_timeout
+		)
+		self.agent.terminal_session_id = self.agent._session_id_from_stdout(start_stdout_text)
+		if start_returncode or not self.agent.terminal_session_id:
+			events = await self.agent._load_events() if self.agent.terminal_session_id else []
+			error = start_stderr_text.strip() or (
+				f'browser-use-terminal exited with code {start_returncode}'
+				if start_returncode
+				else 'browser-use-terminal did not print a session id.'
+			)
+			self.stdout_text = start_stdout_text
+			self.stderr_text = start_stderr_text
+			self.stderr_lines = [start_stderr_text] if start_stderr_text else []
+			return self._result(events, error=error)
+		return await self._run_existing(params, prefix_stdout=start_stdout_text, prefix_stderr=start_stderr_text)
+
+	async def _run_existing(
+		self,
+		params: dict[str, Any],
+		*,
+		prefix_stdout: str = '',
+		prefix_stderr: str = '',
+	) -> dict[str, Any]:
+		if params.get('followups'):
+			task = str(params['followups'][0])
+			returncode, stdout_text, stderr_text = await self.agent._run_process(
+				[find_browser_use_terminal_binary(), *self.agent._state_dir_args(), 'followup', self.agent.terminal_session_id, task],
+				timeout_seconds=self.followup_timeout_seconds or self.run_timeout_seconds or self.agent.settings.step_timeout,
+			)
+			prefix_stdout = '\n'.join(part for part in (prefix_stdout.strip(), stdout_text.strip()) if part)
+			prefix_stderr = '\n'.join(part for part in (prefix_stderr.strip(), stderr_text.strip()) if part)
+			if returncode:
+				self.stdout_text = prefix_stdout
+				self.stderr_text = prefix_stderr
+				self.stderr_lines = [prefix_stderr] if prefix_stderr else []
+				raise RustAgentError(stderr_text.strip() or stdout_text.strip() or f'browser-use-terminal exited with code {returncode}')
+		returncode, stdout_text, stderr_text = await self.agent._run_process(
+			self.agent._run_existing_argv(int(params.get('max_steps') or 100)),
+			timeout_seconds=self.run_timeout_seconds or self.agent.settings.step_timeout,
+		)
+		self.stdout_text = '\n'.join(part for part in (prefix_stdout.strip(), stdout_text.strip()) if part)
+		self.stderr_text = '\n'.join(part for part in (prefix_stderr.strip(), stderr_text.strip()) if part)
+		self.stderr_lines = [part for part in (prefix_stderr.strip(), stderr_text.strip()) if part]
+		events = await self.agent._load_events()
+		error = stderr_text.strip() or f'browser-use-terminal exited with code {returncode}' if returncode else None
+		return self._result(events, error=error)
+
+	def _result(self, events: list[dict[str, Any]], *, error: str | None) -> dict[str, Any]:
+		return {
+			'agent_id': self.agent.terminal_session_id,
+			'session_id': self.agent.terminal_session_id,
+			'browser_id': self.agent._sdk_browser_id,
+			'history': {
+				'output': None,
+				'success': error is None,
+				'done': True,
+				'errors': [error] if error else [],
+				'events': events,
+			},
+		}
 
 
 def _model_name(llm: Any | None) -> str:
@@ -3742,6 +3982,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.browser_session.llm_screenshot_size = llm_screenshot_size
 		self.session_id: str = uuid7str()
 		self.terminal_session_id: str | None = None
+		self._sdk_agent_id: str | None = None
+		self._sdk_browser_id: str | None = None
+		self._sdk_client: RustSdkClient | None = None
+		self._active_sdk_run_id: str | None = None
 		self.laminar_trace_id: str | None = None
 		self.history: AgentHistoryList[AgentStructuredOutput] = AgentHistoryList(history=[], usage=None)
 		self.result: AgentHistoryList[AgentStructuredOutput] | None = None
@@ -3787,7 +4031,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		latest_version = await check_latest_browser_use_version()
 		if latest_version and latest_version != self.version:
 			self.logger.info(
-				f'📦 Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use@{latest_version}'
+				f'📦 Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use=={latest_version}'
 			)
 
 	def _log_agent_setup(self) -> None:
@@ -4190,7 +4434,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Mirror Browser Use run cleanup ordering."""
 		self._unregister_run_signal_handler()
 		await self._stop_eventbus_after_run()
-		await self.close()
+		await self._close_browser_resources()
 
 	async def _finalize_exceptional_run(self, max_steps: int, agent_run_error: str) -> None:
 		"""Mirror Browser Use run finalization for exceptions that escape Rust execution."""
@@ -4320,103 +4564,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self._log_final_outcome_messages()
 				await self._finalize_run_cleanup()
 				return self.history
-		if self.state.follow_up_task and self.terminal_session_id:
-			self.state.follow_up_task = False
-			await self._call_callback(on_step_start, self)
-			self._log_main_execution_start(max_steps)
-			return await self._follow_up_terminal(
-				self.task,
-				max_steps=max_steps,
-				resolved_max_steps=max_steps,
-				initialize_lifecycle=False,
-				on_step_end=on_step_end,
-			)
 
 		await self._call_callback(on_step_start, self)
 		self._log_main_execution_start(max_steps)
-		start_returncode, start_stdout_text, start_stderr_text = await self._run_process(
-			self._start_argv(), timeout_seconds=self.settings.step_timeout
-		)
-		self.terminal_session_id = self._session_id_from_stdout(start_stdout_text)
-		if start_returncode or not self.terminal_session_id:
-			finished = time.time()
-			self.last_stdout = start_stdout_text
-			self.last_stderr = start_stderr_text
-			events = await self._load_events() if self.terminal_session_id else []
-			process_error = start_stderr_text.strip() or (
-				f'browser-use-terminal exited with code {start_returncode}'
-				if start_returncode
-				else 'browser-use-terminal did not print a session id.'
-			)
-			self.last_events = events
-			self.result = _history_from_events(
-				events,
-				model=self.model,
-				started=started,
-				finished=finished,
-				output_model_schema=self.output_model_schema,
-				process_error=process_error,
-			)
-			self.history = self.result
-			await self._apply_terminal_usage_costs(events)
-			self._sync_state_from_history()
-			await self._log_run_usage_summary()
-			self._record_laminar_run_observability(
-				max_steps=max_steps,
-				duration_seconds=finished - started,
-				process_error=process_error,
-			)
-			self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
-			self._dispatch_run_update_event()
-			await self._check_and_update_downloads('run')
-			await self._save_conversation_if_requested()
-			await self._call_new_step_callback()
-			await self._call_step_end_callbacks(on_step_end)
-			await self._call_done_callback()
-			await self._generate_gif_if_requested()
-			self._log_final_outcome_messages()
-			await self._finalize_run_cleanup()
-			return self.history
-
-		returncode, stdout_text, stderr_text = await self._run_process(
-			self._run_existing_argv(max_steps), timeout_seconds=self.settings.step_timeout
-		)
-		finished = time.time()
-		self.last_stdout = '\n'.join(part for part in (start_stdout_text.strip(), stdout_text.strip()) if part)
-		self.last_stderr = '\n'.join(part for part in (start_stderr_text.strip(), stderr_text.strip()) if part)
-		events = await self._load_events()
-		process_error = None
-		if returncode:
-			process_error = stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
-		self.last_events = events
-		self.result = _history_from_events(
-			events,
-			model=self.model,
-			started=started,
-			finished=finished,
-			output_model_schema=self.output_model_schema,
-			process_error=process_error,
-		)
-		self.history = self.result
-		await self._apply_terminal_usage_costs(events)
-		self._sync_state_from_history()
-		await self._log_run_usage_summary()
-		self._record_laminar_run_observability(
+		followup = bool(self.state.follow_up_task and self._sdk_agent_id)
+		self.state.follow_up_task = False
+		return await self._run_sdk_agent(
+			task=self.task,
 			max_steps=max_steps,
-			duration_seconds=finished - started,
-			process_error=process_error,
+			started=started,
+			on_step_end=on_step_end,
+			source='follow_up' if followup else 'run',
+			followups=[self.task] if followup else None,
 		)
-		self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
-		self._dispatch_run_update_event()
-		await self._check_and_update_downloads('run')
-		await self._save_conversation_if_requested()
-		await self._call_new_step_callback()
-		await self._call_step_end_callbacks(on_step_end)
-		await self._call_done_callback()
-		await self._generate_gif_if_requested()
-		self._log_final_outcome_messages()
-		await self._finalize_run_cleanup()
-		return self.history
 
 	async def follow_up(
 		self,
@@ -4426,7 +4586,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		step_timeout: int | None = None,
 		enqueue_timeout: int | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
-		if not self.terminal_session_id:
+		if not self.terminal_session_id or (not self._sdk_agent_id and '_run_process' not in self.__dict__):
 			raise RustAgentError('No active Rust session. Call run() before follow_up().')
 		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
 		self.add_new_task(task)
@@ -4465,28 +4625,75 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if initialize_lifecycle:
 			self._initialize_run_lifecycle_state()
 		started = time.time()
-		binary = find_browser_use_terminal_binary()
-		run_timeout = self.settings.step_timeout if step_timeout is None else step_timeout
-		followup_timeout = run_timeout if enqueue_timeout is None else enqueue_timeout
-		returncode, stdout_text, stderr_text = await self._run_process(
-			[binary, *self._state_dir_args(), 'followup', self.terminal_session_id, task],
-			timeout_seconds=followup_timeout,
+		return await self._run_sdk_agent(
+			task=task,
+			max_steps=resolved_max_steps,
+			started=started,
+			on_step_end=on_step_end,
+			source='follow_up',
+			followups=[task],
+			step_timeout=step_timeout,
+			enqueue_timeout=enqueue_timeout,
 		)
-		self.last_stdout = stdout_text
-		self.last_stderr = stderr_text
-		if returncode:
-			raise RustAgentError(stderr_text or stdout_text)
-		returncode, run_stdout_text, run_stderr_text = await self._run_process(
-			self._run_existing_argv(resolved_max_steps),
-			timeout_seconds=run_timeout,
-		)
-		self.last_stdout = '\n'.join(part for part in (stdout_text.strip(), run_stdout_text.strip()) if part)
-		self.last_stderr = '\n'.join(part for part in (stderr_text.strip(), run_stderr_text.strip()) if part)
+
+	async def _run_sdk_agent(
+		self,
+		*,
+		task: str,
+		max_steps: int,
+		started: float,
+		on_step_end: AgentHookFunc | None,
+		source: str,
+		followups: list[str] | None = None,
+		step_timeout: int | None = None,
+		enqueue_timeout: int | None = None,
+	) -> AgentHistoryList[AgentStructuredOutput]:
+		events: list[dict[str, Any]] = []
+		process_error: str | None = None
+		result: Any = None
+		sdk = await self._ensure_sdk_client()
+		if isinstance(sdk, _LegacyProcessSdkClient):
+			run_timeout = self.settings.step_timeout if step_timeout is None else step_timeout
+			followup_timeout = run_timeout if enqueue_timeout is None else enqueue_timeout
+			sdk.set_timeouts(run_timeout_seconds=run_timeout, followup_timeout_seconds=followup_timeout)
+		method = 'agent.run' if self._sdk_agent_id or followups else 'agent.run_task'
+		params = self._sdk_run_params(max_steps=max_steps, task=task, followups=followups)
+		self._active_sdk_run_id = self.terminal_session_id or self._sdk_agent_id
+		try:
+			result = await sdk.call(method, params)
+		except asyncio.CancelledError:
+			await self._cancel_active_sdk_run()
+			raise
+		except Exception as exc:
+			if isinstance(sdk, _LegacyProcessSdkClient):
+				raise
+			process_error = str(exc) or exc.__class__.__name__
+		finally:
+			self._active_sdk_run_id = None
 		finished = time.time()
-		process_error = None
-		if returncode:
-			process_error = run_stderr_text.strip() or f'browser-use-terminal exited with code {returncode}'
-		self.last_events = await self._load_events()
+		self.last_stdout = str(getattr(sdk, 'stdout_text', '') or '')
+		self.last_stderr = str(getattr(sdk, 'stderr_text', '') or '\n'.join(line for line in sdk.stderr_lines if line))
+		if isinstance(result, dict):
+			agent_id = result.get('agent_id')
+			session_id = result.get('session_id')
+			browser_id = result.get('browser_id')
+			if isinstance(agent_id, str) and agent_id:
+				self._sdk_agent_id = agent_id
+			if isinstance(session_id, str) and session_id:
+				self.terminal_session_id = session_id
+			if isinstance(browser_id, str) and browser_id:
+				self._sdk_browser_id = browser_id
+			history_payload = result.get('history')
+			if isinstance(history_payload, dict):
+				raw_events = history_payload.get('events')
+				if isinstance(raw_events, list):
+					events = [event for event in raw_events if isinstance(event, dict)]
+				errors = history_payload.get('errors')
+				if process_error is None and history_payload.get('success') is False and isinstance(errors, list) and errors:
+					process_error = '\n'.join(str(error) for error in errors if error)
+		elif process_error is None:
+			process_error = 'Rust SDK server returned an invalid response.'
+		self.last_events = events
 		self.result = _history_from_events(
 			self.last_events,
 			model=self.model,
@@ -4500,13 +4707,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._sync_state_from_history()
 		await self._log_run_usage_summary()
 		self._record_laminar_run_observability(
-			max_steps=resolved_max_steps,
+			max_steps=max_steps,
 			duration_seconds=finished - started,
 			process_error=process_error,
 		)
-		self._record_run_telemetry(max_steps=resolved_max_steps, agent_run_error=process_error)
+		self._record_run_telemetry(max_steps=max_steps, agent_run_error=process_error)
 		self._dispatch_run_update_event()
-		await self._check_and_update_downloads('follow_up')
+		await self._check_and_update_downloads(source)
 		await self._save_conversation_if_requested()
 		await self._call_new_step_callback()
 		await self._call_step_end_callbacks(on_step_end)
@@ -5311,9 +5518,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.info('⏹️ Agent stopping')
 		self.state.stopped = True
 		self._external_pause_event.set()
+		if self._sdk_client is not None:
+			try:
+				loop = asyncio.get_running_loop()
+			except RuntimeError:
+				return
+			loop.create_task(self._cancel_active_sdk_run())
 
 	async def close(self):
 		"""Close Browser Use session resources when the caller did not request keep-alive."""
+		await self._close_browser_resources()
+		if self._sdk_client is not None:
+			await self._sdk_client.close()
+			self._sdk_client = None
+		return None
+
+	async def _close_browser_resources(self):
+		"""Close Browser Use session resources without tearing down the Rust SDK process."""
 		try:
 			if self.browser_session is not None:
 				profile = getattr(self.browser_session, 'browser_profile', None) or self.browser_profile
@@ -5334,8 +5555,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Log Browser Use-style task completion."""
 		if self.history.is_successful():
 			self.logger.info('✅ Task completed successfully')
-		else:
-			self.logger.info('❌ Task completed without success')
 
 	def run_sync(
 		self,
@@ -5424,6 +5643,113 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				'complete_history': complete_history_without_screenshots(),
 			},
 		}
+
+	def _sdk_server_argv(self) -> list[str]:
+		explicit = os.environ.get('BROWSER_USE_SDK_SERVER')
+		command = [explicit] if explicit else [find_browser_use_terminal_binary()]
+		return [
+			*command,
+			*self._state_dir_args(),
+			'sdk-server',
+			'--transport',
+			'stdio',
+		]
+
+	async def _ensure_sdk_client(self) -> RustSdkClient:
+		if '_run_process' in self.__dict__:
+			if not isinstance(self._sdk_client, _LegacyProcessSdkClient):
+				self._sdk_client = _LegacyProcessSdkClient(self)  # type: ignore[assignment]
+			return self._sdk_client  # type: ignore[return-value]
+		if self._sdk_client is not None and self._sdk_client.process is not None and self._sdk_client.process.returncode is None:
+			return self._sdk_client
+		if self._sdk_client is not None:
+			self._sdk_agent_id = None
+			self._sdk_browser_id = None
+			self.terminal_session_id = None
+		self._sdk_client = RustSdkClient(self._sdk_server_argv(), self._run_env())
+		return self._sdk_client
+
+	def _sdk_llm_payload(self) -> dict[str, Any]:
+		provider = _llm_provider_name(self.llm) or 'browser-use'
+		payload: dict[str, Any] = {
+			'provider': provider,
+			'model': self.model,
+		}
+		if self.settings.llm_timeout is not None:
+			payload['timeout'] = int(self.settings.llm_timeout)
+		return payload
+
+	def _sdk_browser_payload(self) -> dict[str, Any]:
+		payload: dict[str, Any] = {}
+
+		def put(key: str, value: Any) -> None:
+			if value is None:
+				return
+			if isinstance(value, str) and not value:
+				return
+			payload[key] = value
+
+		put('cdp_url', _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile))
+		put('cdp_headers', self.cdp_headers or None)
+		put('user_agent', self.browser_user_agent)
+		put('viewport', self.browser_viewport)
+		put('storage_state', self.browser_storage_state)
+		put('downloads_path', self.browser_downloads_path)
+		put('no_viewport', self.browser_no_viewport)
+		put('accept_downloads', self.browser_accept_downloads)
+		put('headless', _extract_headless_preference(self.browser_session, self.browser_profile))
+		put('keep_alive', getattr(self.browser_profile, 'keep_alive', None))
+		profile_id = self._sdk_profile_id()
+		put('profile_id', profile_id)
+		proxy_country_code = self._sdk_proxy_country_code()
+		put('proxy_country_code', proxy_country_code)
+		return payload
+
+	def _sdk_profile_id(self) -> str | None:
+		session_profile = getattr(self.browser_session, 'browser_profile', None)
+		for profile in (session_profile, self.browser_profile, self.browser_session):
+			for attr in ('profile_id', 'cloud_profile_id'):
+				value = getattr(profile, attr, None)
+				if isinstance(value, str) and value:
+					return value
+		return None
+
+	def _sdk_proxy_country_code(self) -> str | None:
+		session_profile = getattr(self.browser_session, 'browser_profile', None)
+		for profile in (session_profile, self.browser_profile, self.browser_session):
+			for attr in ('cloud_proxy_country_code', 'proxy_country_code'):
+				value = getattr(profile, attr, None)
+				if isinstance(value, str) and value:
+					return value
+		return None
+
+	def _sdk_run_params(self, *, max_steps: int, task: str, followups: list[str] | None = None) -> dict[str, Any]:
+		params: dict[str, Any] = {
+			'task': task,
+			'cwd': os.getcwd(),
+			'llm': self._sdk_llm_payload(),
+			'max_steps': int(max_steps),
+			'browser_mode': self._browser_mode(),
+			'browser': self._sdk_browser_payload(),
+			'calculate_cost': bool(self.settings.calculate_cost),
+			'use_vision': self.settings.use_vision,
+			'max_actions_per_step': int(self.settings.max_actions_per_step),
+		}
+		if self._sdk_agent_id:
+			params['agent_id'] = self._sdk_agent_id
+		if self._sdk_browser_id:
+			params['browser_id'] = self._sdk_browser_id
+		if followups:
+			params['followups'] = list(followups)
+		if self.extraction_schema:
+			params['output_schema'] = self.extraction_schema
+		return params
+
+	async def _cancel_active_sdk_run(self) -> None:
+		client = self._sdk_client
+		if client is None:
+			return
+		await client.close()
 
 	def _run_argv(self, max_steps: int) -> list[str]:
 		binary = find_browser_use_terminal_binary()
