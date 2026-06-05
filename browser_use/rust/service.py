@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import inspect
 import json
 import keyword
 import logging
+import mimetypes
 import os
 import re
 import shutil
@@ -2750,7 +2752,15 @@ def _terminal_laminar_tools_for_span(span_input: dict[str, Any]) -> list[dict[st
 
 
 def _terminal_laminar_span_input_payload(span_input: dict[str, Any]) -> Any:
-	return _terminal_laminar_span_input_messages(span_input)
+	payload: dict[str, Any] = {
+		'model': span_input.get('model'),
+		'provider': span_input.get('provider'),
+		'messages': _terminal_laminar_span_input_messages(span_input),
+	}
+	tools = _terminal_laminar_tools_for_span(span_input)
+	if tools:
+		payload['tools'] = tools
+	return payload
 
 
 def _terminal_laminar_span_output_messages(span_output: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2974,6 +2984,54 @@ def _terminal_laminar_tool_result_payload(events: list[dict[str, Any]], tool_cal
 	return None
 
 
+def _terminal_laminar_image_part_from_path(path: str, mime_type: str | None = None) -> dict[str, Any] | None:
+	image_path = Path(path)
+	if not image_path.exists() or not image_path.is_file():
+		return None
+	resolved_mime_type = mime_type or mimetypes.guess_type(str(image_path))[0] or 'image/png'
+	try:
+		data = base64.b64encode(image_path.read_bytes()).decode('ascii')
+	except OSError:
+		return None
+	return {'type': 'image_url', 'image_url': {'url': f'data:{resolved_mime_type};base64,{data}'}}
+
+
+def _terminal_laminar_image_part_for_span(image: Any) -> dict[str, Any] | None:
+	if isinstance(image, str):
+		if image.startswith(('http://', 'https://', 'data:image/')):
+			return {'type': 'image_url', 'image_url': {'url': image}}
+		return _terminal_laminar_image_part_from_path(image)
+	if not isinstance(image, dict):
+		return None
+	mime_type = image.get('mime_type') or image.get('mimeType') or image.get('media_type') or image.get('mediaType')
+	mime_type = mime_type if isinstance(mime_type, str) and mime_type else None
+	data = image.get('data') or image.get('base64')
+	if isinstance(data, str) and data:
+		resolved_mime_type = mime_type or 'image/png'
+		return {'type': 'image_url', 'image_url': {'url': f'data:{resolved_mime_type};base64,{data}'}}
+	url = image.get('url') or image.get('image_url')
+	if isinstance(url, str) and url:
+		if url.startswith('file://'):
+			return _terminal_laminar_image_part_from_path(url.removeprefix('file://'), mime_type)
+		return {'type': 'image_url', 'image_url': {'url': url}}
+	path = image.get('path')
+	if isinstance(path, str) and path:
+		return _terminal_laminar_image_part_from_path(path, mime_type)
+	return None
+
+
+def _terminal_laminar_image_parts_for_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
+	images = payload.get('images')
+	if not isinstance(images, list):
+		return []
+	parts: list[dict[str, Any]] = []
+	for image in images:
+		part = _terminal_laminar_image_part_for_span(image)
+		if part is not None:
+			parts.append(part)
+	return parts
+
+
 def _terminal_laminar_tool_input_message(tool_call: dict[str, Any]) -> list[dict[str, Any]]:
 	return [
 		{
@@ -2997,7 +3055,13 @@ def _terminal_laminar_tool_output_message(event_type: str | None, payload: dict[
 		text = _tool_result_text(payload)
 		if not text and event_type == 'tool.finished':
 			text = _synthetic_tool_result_text(str(payload.get('name') or 'tool'))
-		parts = [{'type': 'text', 'text': text or ''}]
+		parts = []
+		if text:
+			parts.append({'type': 'text', 'text': text})
+	image_parts = _terminal_laminar_image_parts_for_span(payload)
+	parts.extend(image_parts)
+	if not parts:
+		parts = [{'type': 'text', 'text': ''}]
 	role = 'tool'
 	return [{'role': role, 'content': parts}]
 

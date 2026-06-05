@@ -7634,17 +7634,22 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.events[-1][0] == 'agent.run.terminal_summary'
 	assert FakeLaminar.spans[0]['name'] == 'rust_core.llm'
 	assert FakeLaminar.spans[0]['span_type'] == 'LLM'
-	assert isinstance(FakeLaminar.spans[0]['input'], list)
-	assert FakeLaminar.spans[0]['input'][0]['role'] == 'system'
-	assert FakeLaminar.spans[0]['input'][0]['content'][0]['text'] == 'System prompt'
-	assert FakeLaminar.spans[0]['input'][1]['content'][0]['text'] == 'Find the title on example.com'
-	assert FakeLaminar.spans[0]['input'][1]['content'][1] == {
+	llm_input = FakeLaminar.spans[0]['input']
+	assert llm_input['model'] == 'claude-sonnet-4-6'
+	assert llm_input['provider'] == 'test-provider'
+	assert llm_input['messages'][0]['role'] == 'system'
+	assert llm_input['messages'][0]['content'][0]['text'] == 'System prompt'
+	assert llm_input['messages'][1]['content'][0]['text'] == 'Find the title on example.com'
+	assert llm_input['messages'][1]['content'][1] == {
 		'type': 'image_url',
 		'image_url': {
 			'url': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
 			'detail': 'low',
 		},
 	}
+	assert llm_input['tools'][0]['name'] == 'browser_script'
+	assert 'click_at_xy' in llm_input['tools'][0]['description']
+	assert llm_input['tools'][0]['input_schema']['properties']['code']['type'] == 'string'
 	span_attrs = {}
 	for attributes in FakeLaminar.spans[0]['attributes']:
 		span_attrs.update(attributes)
@@ -7693,6 +7698,78 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 		'type': 'image_url',
 		'image_url': {'url': 'data:image/png;base64,iVBORw0KGgo=', 'detail': 'low'},
 	}
+
+
+def test_rust_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
+	import browser_use.rust.service as rust_service
+
+	image_path = tmp_path / 'tool.png'
+	image_path.write_bytes(b'\x89PNG\r\n\x1a\n')
+
+	events = [
+		{
+			'event_type': 'tool.started',
+			'payload': {'name': 'browser_script', 'tool_call_id': 'call-1', 'arguments': {'code': 'observe()'}},
+		},
+		{
+			'event_type': 'tool.output',
+			'payload': {
+				'name': 'browser_script',
+				'tool_call_id': 'call-1',
+				'ok': True,
+				'text': '',
+				'images': [{'path': str(image_path), 'mime_type': 'image/png'}],
+			},
+		},
+	]
+
+	class FakeLaminar:
+		spans = []
+		current_span = None
+
+		@staticmethod
+		def is_initialized():
+			return True
+
+		@classmethod
+		def set_span_attributes(cls, attributes):
+			if cls.current_span is not None:
+				cls.current_span['attributes'].append(attributes)
+
+		@classmethod
+		def set_span_output(cls, output):
+			if cls.current_span is not None:
+				cls.current_span['outputs'].append(output)
+
+		@classmethod
+		def event(cls, name, attributes=None):
+			return None
+
+		@classmethod
+		def start_as_current_span(cls, name, input=None, span_type='DEFAULT'):
+			record = {'name': name, 'input': input, 'span_type': span_type, 'attributes': [], 'outputs': []}
+
+			class Span:
+				def __enter__(self):
+					cls.current_span = record
+					cls.spans.append(record)
+					return self
+
+				def __exit__(self, exc_type, exc, tb):
+					cls.current_span = None
+					return False
+
+			return Span()
+
+	original = rust_service.Laminar
+	try:
+		rust_service.Laminar = FakeLaminar
+		rust_service._record_laminar_terminal_tool_spans(events, max_spans=10)
+	finally:
+		rust_service.Laminar = original
+
+	output = FakeLaminar.spans[0]['outputs'][-1]
+	assert output[0]['content'] == [{'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,iVBORw0KGgo='}}]
 
 
 async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):
