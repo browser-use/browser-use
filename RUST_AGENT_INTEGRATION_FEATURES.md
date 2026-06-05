@@ -130,6 +130,24 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      fallback billing source when provider `model.usage` events are absent.
      Mixed streams therefore do not double-count usage by pricing both provider
      usage and context occupancy counters.
+   - Terminal SDK JSON-RPC responses are now bounded before they are written to
+     stdio. Oversized final histories compact durable event payloads while
+     preserving final output, success state, errors, usage, files, and recent
+     events, so a completed run cannot lose its final answer because the Python
+     wrapper hits its newline-delimited frame limit.
+   - Browser-use Rust SDK runs now prefer live `agent.event` notifications when
+     the final SDK response is missing, truncated, or smaller than the already
+     observed stream. If a run is cancelled or the final transport fails after
+     `session.done`, Python reconstructs `AgentHistoryList`, usage, and final
+     output from the notification stream instead of returning an empty result.
+   - Terminal provider overload errors are treated as retryable transient
+     capacity failures. This prevents a single Claude/OpenAI `server overloaded`
+     response from becoming an immediate no-output eval failure.
+   - Terminal `browser_script observe` now defaults to a coarse 30 second wait,
+     clamps too-small observe requests up to that window, and allows waits up to
+     120 seconds. Long navigation/extraction scripts therefore spend fewer model
+     turns polling the same `run_id` and are less likely to hit the step limit
+     before finalizing partial evidence.
 
 ## Current Proof
 
@@ -171,6 +189,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_token_count_usage or sums_token_count_last_usage_when_latest_total_underreports or terminal_usage_prices_token_count_events or terminal_usage_sums_token_count_cache_creation"`
 - browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_nested_model_usage or token_count_does_not_shrink_model_usage_totals or terminal_usage_prices_token_count_events or terminal_usage_prices_anthropic_raw_cache_reads or terminal_usage_sums_token_count_cache_creation or priced_summary_sums_cache_read_tokens or mixed_events_do_not_shrink_totals or priced_usage_prefers_model_usage_over_token_count or sums_token_count_last_usage_when_latest_total_underreports"`
 - browser-use `python -m py_compile browser_use/rust/service.py`
+- terminal `cargo test -p browser-use-cli sdk_transport -- --nocapture`
+- terminal `cargo test -p browser-use-providers server_overloaded -- --nocapture`
+- terminal `cargo test -p browser-use-agent observe_timeout -- --nocapture`
+- terminal `cargo test -p browser-use-agent observe_routes_to_observe_script -- --nocapture`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_runs_through_sdk_and_reuses_session_for_followup tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_preserves_sdk_notification_history_on_cancel -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -q -k 'usage_aliases or trims_oversized_history_fields or rust_eval_uses_adapter_initial_navigation_default or rust_eval_preserves_explicit_direct_initial_navigation_override'`
