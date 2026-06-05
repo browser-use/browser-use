@@ -61,10 +61,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      placeholder tab. This prevents the model from mistaking the startup tab
      for a user-relevant target and spending turns on unnecessary
      reconnect/reattach recovery after a successful navigation.
-   - Terminal Rust SDK runs no longer advertise subagent tools unless the run
-     has a configured child-agent runner. This prevents eval tasks from spending
-     model turns on `spawn_agent` calls that can only fail with "subagents are
-     not configured" in the SDK/CDP eval path.
+   - Terminal Rust runs only advertise sub-agent tools when the run has a
+     configured child-agent runner, and SDK JSON-RPC runs now attach the same
+     runtime-backed child runner as CLI runs. This enables terminal's advanced
+     sub-agent system in `browser_use.rust.Agent` evals without exposing
+     spawn tools on unsupported run surfaces.
    - Eval GitHub runners now refresh Convex progress during long `run_agent`
      and `evaluate` stages, so slow Rust or Agent SDK judge calls stay visible
      instead of looking stale while they are still legitimately running.
@@ -148,6 +149,10 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      120 seconds. Long navigation/extraction scripts therefore spend fewer model
      turns polling the same `run_id` and are less likely to hit the step limit
      before finalizing partial evidence.
+   - Terminal now includes a locally executed DuckDuckGo Lite `search` tool from
+     the terminal web-search merge. URL-finding and general web-search tasks can
+     discover candidate pages without spending browser-navigation turns on search
+     engine result pages.
 
 ## Current Proof
 
@@ -193,6 +198,10 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-providers server_overloaded -- --nocapture`
 - terminal `cargo test -p browser-use-agent observe_timeout -- --nocapture`
 - terminal `cargo test -p browser-use-agent observe_routes_to_observe_script -- --nocapture`
+- terminal `cargo test -p browser-use-cli sdk_ -- --nocapture`
+- terminal `cargo test -p browser-use-agent subagent_tools_are_registered_in_the_dispatcher -- --nocapture`
+- terminal `cargo test -p browser-use-agent search -- --nocapture`
+- terminal `cargo test -p browser-use-agent dispatcher -- --nocapture`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_runs_through_sdk_and_reuses_session_for_followup tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_preserves_sdk_notification_history_on_cancel -q`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
