@@ -1164,21 +1164,48 @@ def _task_with_initial_actions(task: str, initial_actions: Any) -> str:
 	return f'Before the task, perform these Browser Use initial actions in order:\n{actions}\n\nThen complete the task.\n\n{task}'
 
 
+def _initial_navigation_state_lines(completed_states: list[dict[str, Any]] | None) -> list[str]:
+	lines: list[str] = []
+	for state in completed_states or []:
+		requested_url = str(state.get('requested_url') or '')
+		current_url = str(state.get('url') or '')
+		title = str(state.get('title') or '')
+		if not requested_url and not current_url and not title:
+			continue
+		parts = []
+		if requested_url:
+			parts.append(f'requested={requested_url!r}')
+		if current_url:
+			parts.append(f'current_url={current_url!r}')
+		if title:
+			parts.append(f'title={title!r}')
+		lines.append('- ' + ', '.join(parts))
+	return lines
+
+
 def _task_with_completed_initial_navigation_context(
-	task: str, completed_urls: list[str], initial_actions: Any = None
+	task: str,
+	completed_urls: list[str],
+	initial_actions: Any = None,
+	completed_states: list[dict[str, Any]] | None = None,
 ) -> str:
 	urls = [url for url in completed_urls if isinstance(url, str) and url]
 	if not urls:
 		return task
 	cleaned_task = task
+	state_lines = _initial_navigation_state_lines(completed_states)
+	state_context = ''
+	if state_lines:
+		state_context = '\nObserved current page after the completed initial navigation:\n' + '\n'.join(state_lines)
 	if len(urls) == 1:
 		prefix = f'First navigate to {urls[0]!r}, then complete the task.\n\n'
 		if cleaned_task.startswith(prefix):
 			cleaned_task = cleaned_task[len(prefix) :]
 		return (
 			f'The browser session is already open at {urls[0]!r}. '
-			'Continue from the current page. Your first browser step should inspect the current page state before any repeat navigation. '
+			'Continue from the current page. Your first browser step should inspect or extract from the current page before any repeat navigation. '
 			'Do not navigate to that same start URL again unless browser status or page_info shows a different URL.'
+			f'{state_context}'
 			f'\n\n{cleaned_task}'
 		)
 	initial_action_urls: list[str] = []
@@ -1199,6 +1226,7 @@ def _task_with_completed_initial_navigation_context(
 	return (
 		f'The browser session has already completed these initial navigations: {completed}. '
 		'Continue from the current browser state. Do not repeat those navigation steps unless browser status shows a different page.'
+		f'{state_context}'
 		f'\n\n{cleaned_task}'
 	)
 
@@ -4187,6 +4215,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self._initial_actions_executed = False
 		self._completed_initial_navigation_urls: list[str] = []
+		self._completed_initial_navigation_states: list[dict[str, Any]] = []
 		self._pending_history_prefix: list[AgentHistory] = []
 		self.task = _task_with_schema(
 			_task_with_available_files(
@@ -4824,7 +4853,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		task = self.task
 		if not followup:
 			task = _task_with_completed_initial_navigation_context(
-				task, self._completed_initial_navigation_urls, self.initial_action_payloads
+				task,
+				self._completed_initial_navigation_urls,
+				self.initial_action_payloads,
+				self._completed_initial_navigation_states,
 			)
 		self.state.follow_up_task = False
 		return await self._run_sdk_agent(
@@ -5666,10 +5698,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_start_time=time.time(),
 			step_end_time=time.time(),
 		)
+		initial_state_context = self._completed_initial_navigation_states[-1] if self._completed_initial_navigation_states else {}
+		initial_state_url = str(initial_state_context.get('url') or self.initial_url or '')
+		initial_state_title = str(initial_state_context.get('title') or 'Initial Actions')
+		initial_state_tabs = []
+		for index, tab in enumerate(initial_state_context.get('tabs') or []):
+			if not isinstance(tab, dict):
+				continue
+			tab_url = str(tab.get('url') or '')
+			if not tab_url:
+				continue
+			initial_state_tabs.append(
+				TabInfo(url=tab_url, title=str(tab.get('title') or ''), target_id=f'initial-tab-{index}')
+			)
 		state_history = BrowserStateHistory(
-			url=self.initial_url or '',
-			title='Initial Actions',
-			tabs=[],
+			url=initial_state_url,
+			title=initial_state_title,
+			tabs=initial_state_tabs,
 			interacted_element=[None] * len(self.initial_actions),
 			screenshot_path=None,
 		)
@@ -5687,6 +5732,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _execute_direct_initial_navigation_actions(self) -> list[ActionResult] | None:
 		"""Pre-navigate existing CDP-backed browser sessions before the Rust agent starts."""
 		self._completed_initial_navigation_urls = []
+		self._completed_initial_navigation_states = []
 		if not _direct_initial_navigation_enabled():
 			return None
 		if self.browser_session is None:
@@ -5709,10 +5755,83 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.warning(message)
 				results.append(ActionResult(error=message))
 				continue
+			state = await self._capture_direct_initial_navigation_state(url)
+			state_context = self._direct_initial_navigation_state_context(url, state)
 			text = f'Navigated to {url}'
+			current_url = state_context.get('url')
+			title = state_context.get('title')
+			if current_url or title:
+				text += f'. Current page: {current_url or url}'
+				if title:
+					text += f' ({title})'
 			self._completed_initial_navigation_urls.append(url)
+			self._completed_initial_navigation_states.append(state_context)
 			results.append(ActionResult(extracted_content=text, long_term_memory=text))
 		return results
+
+	async def _capture_direct_initial_navigation_state(
+		self, requested_url: str, *, timeout_seconds: float = 7.0
+	) -> BrowserStateSummary | None:
+		if self.browser_session is None:
+			return None
+		get_state = getattr(self.browser_session, 'get_browser_state_summary', None)
+		if not callable(get_state):
+			return None
+		deadline = time.monotonic() + max(0.0, timeout_seconds)
+		last_state: BrowserStateSummary | None = None
+		while True:
+			try:
+				state = await get_state(include_screenshot=False)
+			except Exception as exc:
+				self.logger.debug(f'Initial navigation state probe failed: {exc}')
+				state = None
+			if state is not None:
+				last_state = state
+				if self._direct_initial_navigation_state_matches(requested_url, getattr(state, 'url', '')):
+					return state
+			if time.monotonic() >= deadline:
+				return last_state
+			await asyncio.sleep(0.25)
+
+	@staticmethod
+	def _direct_initial_navigation_state_matches(requested_url: str, current_url: str | None) -> bool:
+		current = str(current_url or '')
+		requested = str(requested_url or '')
+		if not current:
+			return False
+		if current == requested or current.startswith(requested):
+			return True
+		try:
+			current_parts = urlparse(current)
+			requested_parts = urlparse(requested)
+			return bool(requested_parts.netloc and current_parts.netloc == requested_parts.netloc)
+		except Exception:
+			return False
+
+	@staticmethod
+	def _direct_initial_navigation_state_context(
+		requested_url: str, state: BrowserStateSummary | None
+	) -> dict[str, Any]:
+		context: dict[str, Any] = {'requested_url': requested_url}
+		if state is None:
+			return context
+		url = getattr(state, 'url', None)
+		title = getattr(state, 'title', None)
+		if isinstance(url, str) and url:
+			context['url'] = url
+		if isinstance(title, str) and title:
+			context['title'] = title
+		tabs = getattr(state, 'tabs', None)
+		if isinstance(tabs, list) and tabs:
+			tab_summaries = []
+			for tab in tabs[:5]:
+				tab_url = getattr(tab, 'url', None)
+				tab_title = getattr(tab, 'title', None)
+				if isinstance(tab_url, str) and tab_url:
+					tab_summaries.append({'url': tab_url, 'title': tab_title if isinstance(tab_title, str) else ''})
+			if tab_summaries:
+				context['tabs'] = tab_summaries
+		return context
 
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Replay a Browser Use history step when Python action models are available."""

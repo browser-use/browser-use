@@ -92,6 +92,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      aliases (`input_tokens`, `output_tokens`, cached/cache-creation tokens, and
      `cost_usd`) before saving. This keeps cost/token displays working for Rust
      histories without changing the canonical browser-use usage structure.
+   - Browser-use Rust CDP initial navigation now waits for a concrete
+     post-navigation browser state summary and passes the observed current
+     URL/title into the Rust task context. Start-URL tasks should begin by
+     inspecting or extracting from the already-loaded page instead of spending
+     early turns on repeated navigation/status recovery.
 
 ## Current Proof
 
@@ -125,6 +130,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'rust_sdk_client_reads_large_json_rpc_lines or rust_sdk_client_queues_agent_notifications_before_response' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_sdk_client_reads_large_json_rpc_lines tests/ci/test_rust_agent.py::test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default tests/ci/test_rust_agent.py::test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session tests/ci/test_rust_agent.py::test_rust_agent_translates_browser_use_args_to_terminal -q`
+- browser-use `PYTHONPATH=. uv run pytest tests/ci/test_rust_agent.py -q -k 'pre_navigates_cdp_session_before_sdk_by_default or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp or direct_initial_navigation_can_be_disabled'`
+- browser-use `python -m py_compile browser_use/rust/service.py`
 - evaluations-internal `uv run python -m py_compile eval/service.py`
 - evaluations-internal `python -m py_compile eval/task_types.py`
 - evaluations-internal `PYTHONPATH=. uv run pytest tests/test_service_cli.py -q -k 'usage_aliases or trims_oversized_history_fields or rust_eval_uses_adapter_initial_navigation_default or rust_eval_preserves_explicit_direct_initial_navigation_override'`

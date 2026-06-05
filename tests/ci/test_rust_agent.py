@@ -7072,6 +7072,10 @@ async def test_rust_agent_run_pre_navigates_cdp_session_before_sdk_by_default():
 		async def navigate_to(self, url, new_tab=False):
 			self.calls.append((url, new_tab))
 
+		async def get_browser_state_summary(self, include_screenshot=False):
+			assert include_screenshot is False
+			return SimpleNamespace(url='https://example.com/start', title='Example Start', tabs=[])
+
 	browser_session = FakeBrowserSession()
 	agent = Agent(
 		task='read the page',
@@ -7100,7 +7104,9 @@ async def test_rust_agent_run_pre_navigates_cdp_session_before_sdk_by_default():
 	assert browser_session.calls == [('https://example.com', False)]
 	assert agent._completed_initial_navigation_urls == ['https://example.com']
 	assert seen[0].startswith("The browser session is already open at 'https://example.com'")
-	assert 'first browser step should inspect the current page state' in seen[0]
+	assert "current_url='https://example.com/start'" in seen[0]
+	assert "title='Example Start'" in seen[0]
+	assert 'first browser step should inspect or extract from the current page' in seen[0]
 	assert "First navigate to 'https://example.com'" not in seen[0]
 
 
