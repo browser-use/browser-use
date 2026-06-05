@@ -24,6 +24,31 @@ URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a
 
 logger = logging.getLogger(__name__)
 
+
+def is_placeholder_url(url: str) -> bool:
+	"""Return True for mock placeholder hostnames like https://XXX.XX."""
+	parsed_url = urlparse(url if '://' in url else f'https://{url}')
+	hostname = (parsed_url.hostname or '').strip('.').lower()
+	if not hostname:
+		return False
+
+	labels = [label for label in hostname.split('.') if label]
+	if labels and labels[0] == 'www':
+		labels = labels[1:]
+
+	return len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels)
+
+
+def sanitize_url_candidate(url: str) -> str:
+	"""Normalize a URL candidate captured from prose before auto-navigation."""
+	candidate = url.strip()
+	# Some benchmark tasks arrive with escaped newlines in prose, e.g.
+	# "https://example.com/search.\\n2. Next step". Those are task text,
+	# not part of the URL.
+	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
+	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+
+
 # Lazy import for error types
 # Use sentinel to avoid retrying import when package is not installed
 _IMPORT_NOT_FOUND: type = type('_ImportNotFound', (), {})
