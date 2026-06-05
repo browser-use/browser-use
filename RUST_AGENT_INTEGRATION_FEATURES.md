@@ -73,6 +73,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      while avoiding Claude's many-image 2000px dimension rejection, which was
      causing completed eval tasks to show a one-step HTTP 400 error and an
      empty final result.
+   - Terminal direct Anthropic Messages serialization now also downsamples
+     oversized inline `ContentPart::Media` base64 screenshots before request
+     construction. This covers Rust live-model transports that bypass provider
+     JSON normalization and previously still hit the same 2000px many-image
+     rejection.
    - Terminal navigation helpers now wait briefly for page readiness and return
      `navigation_ready` plus `page_info` in the same `browser_script` result.
      This gives the next model turn concrete evidence that navigation landed,
@@ -91,6 +96,8 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-agent spawn_agent_agent_type_guidance_discourages_default_override -- --nocapture`
 - terminal `cargo test -p browser-use-providers anthropic_messages_downsamples_oversized_tool_images -- --nocapture`
 - terminal `cargo test -p browser-use-providers anthropic_messages -- --nocapture`
+- terminal `cargo test -p browser-use-llm build_body_downsamples_oversized_inline_media_for_anthropic -- --nocapture`
+- terminal `cargo test -p browser-use-llm anthropic_messages -- --nocapture`
 - terminal `cargo test -p browser-use-browser browser_script_navigation_helpers_wait_for_page_state -- --nocapture`
 - terminal `cargo test -p browser-use-browser browser_script_start_observe_finishes_slow_scripts -- --test-threads=1 --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
