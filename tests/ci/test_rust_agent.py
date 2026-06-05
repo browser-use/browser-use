@@ -7018,6 +7018,40 @@ async def test_rust_agent_take_step_executes_initial_actions_on_first_step():
 	assert is_valid is True
 
 
+async def test_rust_agent_run_executes_initial_actions_before_sdk():
+	from browser_use.rust import Agent
+	from browser_use.rust.service import _history_from_events
+
+	agent = Agent(
+		task='start on example',
+		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
+	)
+	seen = []
+
+	async def fake_execute_initial_actions(*, allow_terminal_run=True):
+		seen.append(('initial_actions', allow_terminal_run))
+
+	async def fake_run_sdk_agent(**kwargs):
+		seen.append(('sdk', kwargs['max_steps']))
+		return _history_from_events(
+			[{'event_type': 'session.done', 'payload': {'result': 'done'}}],
+			model='gpt-test',
+			started=1.0,
+			finished=2.0,
+			output_model_schema=None,
+			process_error=None,
+		)
+
+	agent._execute_initial_actions = fake_execute_initial_actions
+	agent._run_sdk_agent = fake_run_sdk_agent
+	agent._initialize_run_lifecycle_state = lambda: None
+
+	history = await agent.run(max_steps=3)
+
+	assert seen == [('initial_actions', False), ('sdk', 3)]
+	assert history.final_result() == 'done'
+
+
 async def test_rust_agent_step_runs_single_terminal_turn_and_updates_state(monkeypatch):
 	from browser_use.rust import Agent
 
@@ -7188,6 +7222,38 @@ async def test_rust_agent_multi_act_ignores_later_done_actions():
 	assert 'should not execute' not in seen[0][0]
 	assert '"input_text"' not in seen[0][0]
 	assert results[0].extracted_content == 'clicked only'
+
+
+async def test_rust_agent_initial_actions_pre_navigate_existing_cdp_session():
+	from types import SimpleNamespace
+
+	from browser_use.rust import Agent
+
+	class FakeBrowserSession:
+		id = 'browser-cdp'
+		cdp_url = 'wss://cloud-browser.example/devtools/browser/session'
+		browser_profile = SimpleNamespace(cdp_url=cdp_url)
+
+		def __init__(self):
+			self.calls = []
+
+		async def navigate_to(self, url, new_tab=False):
+			self.calls.append((url, new_tab))
+
+	browser_session = FakeBrowserSession()
+	agent = Agent(
+		task='read the page',
+		browser_session=browser_session,
+		initial_actions=[{'navigate': {'url': 'https://example.com', 'new_tab': False}}],
+	)
+
+	await agent._execute_initial_actions(allow_terminal_run=False)
+
+	assert browser_session.calls == [('https://example.com', False)]
+	assert agent._initial_actions_executed is True
+	assert agent.state.last_result[0].extracted_content == 'Navigated to https://example.com'
+	assert agent.history.history[0].metadata.step_number == 0
+	assert agent.history.history[0].model_output.action == agent.initial_actions
 
 
 async def test_rust_agent_exposes_action_replay_helper_methods(monkeypatch):

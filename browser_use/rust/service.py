@@ -1090,13 +1090,19 @@ def _llm_terminal_command(llm: Any, *, existing_session: bool = False) -> str:
 
 
 def _navigation_url_from_action(action: Any) -> str | None:
+	params = _initial_navigation_params_from_action(action)
+	return params[0] if params is not None else None
+
+
+def _initial_navigation_params_from_action(action: Any) -> tuple[str, bool] | None:
 	if not isinstance(action, dict):
 		return None
 	for name, payload in action.items():
 		if name in ('open_tab', 'go_to_url', 'navigate') and isinstance(payload, dict):
 			url = payload.get('url')
 			if isinstance(url, str) and url:
-				return url
+				new_tab = name == 'open_tab' or bool(payload.get('new_tab'))
+				return url, new_tab
 	return None
 
 
@@ -4052,6 +4058,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.initial_actions = (
 			self._convert_initial_actions(self.initial_action_payloads) if self.initial_action_payloads else None
 		)
+		self._initial_actions_executed = False
+		self._pending_history_prefix: list[AgentHistory] = []
 		self.task = _task_with_schema(
 			_task_with_available_files(
 				_task_with_sensitive_data_context(
@@ -4678,6 +4686,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				await self._finalize_run_cleanup()
 				return self.history
 
+		prefix_start = len(self.history.history)
+		await self._execute_initial_actions(allow_terminal_run=False)
+		if len(self.history.history) > prefix_start:
+			self._pending_history_prefix = list(self.history.history[prefix_start:])
 		await self._call_callback(on_step_start, self)
 		self._log_main_execution_start(max_steps)
 		followup = bool(self.state.follow_up_task and self._sdk_agent_id)
@@ -4830,6 +4842,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			output_model_schema=self.output_model_schema,
 			process_error=process_error,
 		)
+		if self._pending_history_prefix:
+			self.result.history = [*self._pending_history_prefix, *self.result.history]
+			self._pending_history_prefix = []
 		self.history = self.result
 		await self._apply_terminal_usage_costs(self.last_events)
 		self._sync_state_from_history()
@@ -5482,12 +5497,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.task = original_task
 		return history.action_results()
 
-	async def _execute_initial_actions(self) -> None:
+	async def _execute_initial_actions(self, *, allow_terminal_run: bool = True) -> None:
 		"""Execute configured Browser Use initial actions through the Rust-backed action path."""
-		if not self.initial_actions or self.state.follow_up_task:
+		if not self.initial_actions or self.state.follow_up_task or self._initial_actions_executed:
 			return
 		self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
-		result = await self.multi_act(self.initial_actions)
+		result = await self._execute_direct_initial_navigation_actions()
+		if result is None:
+			if not allow_terminal_run:
+				self.logger.debug('Initial actions left for Rust task context; direct CDP navigation was not available')
+				return
+			result = await self.multi_act(self.initial_actions)
+		self._initial_actions_executed = True
 		if result and self.initial_url and result[0].long_term_memory:
 			result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
 		self.state.last_result = result
@@ -5529,6 +5550,32 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		self.logger.debug('📝 Saved initial actions to history as step 0')
 		self.logger.debug('Initial actions completed')
+
+	async def _execute_direct_initial_navigation_actions(self) -> list[ActionResult] | None:
+		"""Pre-navigate existing CDP-backed browser sessions before the Rust agent starts."""
+		if self.browser_session is None:
+			return None
+		if not (_extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)):
+			return None
+		navigate_to = getattr(self.browser_session, 'navigate_to', None)
+		if not callable(navigate_to):
+			return None
+		payloads = [_action_payload(action) for action in self.initial_actions or []]
+		nav_actions = [_initial_navigation_params_from_action(payload) for payload in payloads]
+		if not nav_actions or any(action is None for action in nav_actions):
+			return None
+		results: list[ActionResult] = []
+		for url, new_tab in nav_actions:
+			try:
+				await navigate_to(url, new_tab=new_tab)
+			except Exception as exc:
+				message = f'Initial navigation to {url} failed: {exc}'
+				self.logger.warning(message)
+				results.append(ActionResult(error=message))
+				continue
+			text = f'Navigated to {url}'
+			results.append(ActionResult(extracted_content=text, long_term_memory=text))
+		return results
 
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Replay a Browser Use history step when Python action models are available."""

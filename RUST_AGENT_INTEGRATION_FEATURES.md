@@ -41,6 +41,11 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      empty browser tool results while a script is still active and keeps the
      next model turn on the intended observe/cancel path instead of repeatedly
      navigating or reconnecting.
+   - Simple initial navigation actions on existing CDP-backed browser sessions
+     now execute once before the Rust SDK run starts. Evals that provision a
+     Browser Use Cloud browser therefore hand Rust a browser already focused on
+     the task's start URL instead of relying only on a prompt hint from
+     `about:blank`.
 
 ## Current Proof
 
@@ -53,6 +58,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
 - browser-use `uv run python -m py_compile browser_use/rust/service.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_history_surfaces_running_browser_script_observe_instruction -q`
+- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'run_executes_initial_actions_before_sdk or initial_actions_pre_navigate_existing_cdp_session' -q`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
 - browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
