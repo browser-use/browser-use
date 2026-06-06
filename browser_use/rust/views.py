@@ -134,8 +134,8 @@ class AgentRunResult(BaseModel):
 		return self.final_summary
 
 	def is_done(self) -> bool:
-		"""True once the agent emitted a session.result or exited cleanly."""
-		return self.exit_code == 0 and (self.final_summary is not None or self.failure is None)
+		"""True once the agent emitted a final result without process failure."""
+		return self.exit_code == 0 and self.failure is None and self.final_summary is not None
 
 	def is_successful(self) -> bool | None:
 		"""None when not done; otherwise True/False."""
@@ -310,6 +310,14 @@ class _ActionResultView:
 			or data.get('result')
 			or data.get('output')
 			or data.get('summary')
+			or data.get('final_candidate')
+			or data.get('completion_candidates')
+			or data.get('result_file_candidates')
+			or data.get('final_candidates')
+			or data.get('result_file')
+			or data.get('output_file')
+			or data.get('artifact')
+			or data.get('artifacts')
 			or data.get('outputs')
 			or data.get('data')
 		)
@@ -434,7 +442,7 @@ class _HistoryItemView:
 		# counter agrees with the OnlineMind2Web judge. Without this, tasks
 		# the judge gives 1.0 still showed as "failures" (selfReportSuccess
 		# false because Rust's done tool doesn't set the legacy field).
-		if is_last and (step.tool == 'done' or final_summary) and results[0].success is None:
+		if is_last and step.tool == 'done' and results[0].success is None:
 			results[0].success = True
 			results[0].is_done = True
 		self.result = results
@@ -520,10 +528,11 @@ def build_history_items(result) -> list[_HistoryItemView]:
 		items.append(_HistoryItemView(synthetic, is_last=True, final_summary=result.final_summary))
 		return items
 	for idx, step in enumerate(steps):
+		has_final_result = result.final_summary is not None
 		items.append(
 			_HistoryItemView(
 				step,
-				is_last=idx == len(steps) - 1,
+				is_last=idx == len(steps) - 1 and has_final_result,
 				final_summary=result.final_summary,
 			)
 		)
