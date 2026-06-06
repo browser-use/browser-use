@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
@@ -23,9 +24,7 @@ from starlette.responses import JSONResponse
 
 from browser_use.research import StreamingReasoningTracer
 
-app = FastAPI(title='Research Streaming SSE Demo')
-
-# Module-level tracer — shared between the background task and the endpoint
+# Module-level tracer — shared between the background task and the endpoints
 tracer = StreamingReasoningTracer(buffer_size=64)
 
 
@@ -50,9 +49,13 @@ async def _fake_agent_run() -> None:
 	tracer.on_task_done(len(steps), final_result='Research complete — extracted all page content.')
 
 
-@app.on_event('startup')
-async def _start_agent():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
 	asyncio.create_task(_fake_agent_run())
+	yield
+
+
+app = FastAPI(title='Research Streaming SSE Demo', lifespan=lifespan)
 
 
 @app.get('/stream')

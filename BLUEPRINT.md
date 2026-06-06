@@ -329,7 +329,7 @@ browser-use --mcp    # Exposes browser tools to Claude Desktop / other MCP clien
 - [x] Git repo initialised
 - [x] `ONBOARDING.md` written
 - [x] Pushed to GitHub — `dnzengou/browser-use` · branch `workspace`
-- [x] **Research module implemented** — `browser_use.research` (CitationTracker · ParallelResearchOrchestrator · StreamingReasoningTracer) — 19 CI tests all green · 2026-05-26
+- [x] **Research module implemented** — `browser_use.research` (CitationTracker · ParallelResearchOrchestrator · StreamingReasoningTracer) — 21 CI tests all green · 2026-05-29
 - [x] Pushed to `dnzengou/browser-use-reverse-engineered` — branch `workspace` · 2026-05-26
 - [ ] Run `browser-use profile update` to enable Chrome profile sync
 - [ ] Install `cloudflared` for tunnel support (`winget install cloudflare.cloudflared`)
@@ -417,7 +417,7 @@ async def event_stream():
 | `browser_use/research/citation.py` | CitationTracker implementation |
 | `browser_use/research/orchestrator.py` | ParallelResearchOrchestrator |
 | `browser_use/research/streaming.py` | StreamingReasoningTracer |
-| `tests/ci/test_research_module.py` | 19 CI tests (all pass, real objects, pytest-httpserver) |
+| `tests/ci/test_research_module.py` | 21 CI tests (all pass, real objects, pytest-httpserver) |
 | `conftest.py` | Root conftest: ensures local source wins in shared-venv setups |
 
 ### 11.5 Innovation Recipe
