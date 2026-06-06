@@ -1247,13 +1247,20 @@ class DefaultActionWatchdog(BaseWatchdog):
 			base_key, vk_code = shift_chars[char]
 			return (8, vk_code, base_key)  # Shift=8
 
+		# Some Unicode characters' upper()/lower() expand to multiple code points
+		# (e.g. 'ß'.upper() == 'SS', 'ﬃ'.upper() == 'FFI'). ord() rejects those,
+		# so fall back to the original char's code point for the VK code.
+		def _vk_from(c: str) -> int:
+			up = c.upper()
+			return ord(up) if len(up) == 1 else ord(c)
+
 		# Uppercase letters require Shift
 		if char.isupper():
-			return (8, ord(char), char.lower())  # Shift=8
+			return (8, ord(char), char.lower()[:1] or char)  # Shift=8
 
 		# Lowercase letters
 		if char.islower():
-			return (0, ord(char.upper()), char)
+			return (0, _vk_from(char), char)
 
 		# Numbers
 		if char.isdigit():
@@ -1279,7 +1286,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			return (0, no_shift_chars[char], char)
 
 		# Fallback
-		return (0, ord(char.upper()) if char.isalpha() else ord(char), char)
+		return (0, _vk_from(char) if char.isalpha() else ord(char), char)
 
 	def _get_key_code_for_char(self, char: str) -> str:
 		"""Get the proper key code for a character (like Playwright does)."""

@@ -3,6 +3,7 @@ import sys
 import tempfile
 from collections.abc import Iterable
 from enum import Enum
+from fnmatch import fnmatch
 from functools import cache
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -26,6 +27,13 @@ def _get_enable_default_extensions_default() -> bool:
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
+CHROME_PROFILE_TRANSIENT_FILE_PATTERNS = (
+	'Singleton*',
+	'*.lock',
+	'*-journal',
+	'LOCK',
+	'LOCKFILE',
+)
 CHROME_DISABLED_COMPONENTS = [
 	# Playwright defaults: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
 	# AcceptCHFrame,AutoExpandDetailsElement,AvoidUnnecessaryBeforeUnloadCheckSync,CertificateTransparencyComponentUpdater,DeferRendererTasksAfterInput,DestroyProfileOnBrowserClose,DialMediaRouteProvider,ExtensionManifestV2Disabled,GlobalMediaControls,HttpsUpgrades,ImprovedCookieControls,LazyFrameLoading,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate
@@ -76,6 +84,34 @@ CHROME_DISABLED_COMPONENTS = [
 	'ExtensionDisableUnsupportedDeveloper',
 	'ExtensionManifestV2Unsupported',
 ]
+
+
+def _ignore_chrome_profile_transient_files(_src: str, names: list[str]) -> set[str]:
+	"""Skip Chrome lock/journal files that should not be copied into a temp profile."""
+	return {name for name in names if any(fnmatch(name, pattern) for pattern in CHROME_PROFILE_TRANSIENT_FILE_PATTERNS)}
+
+
+def _is_chrome_profile_lock_error(error: BaseException) -> bool:
+	"""Detect Windows sharing violations or permission errors raised while copying a Chrome profile."""
+	if isinstance(error, PermissionError):
+		return True
+
+	if getattr(error, 'winerror', None) == 32:
+		return True
+
+	# shutil.Error stores copy failures as (src, dst, message/exception) triples.
+	for arg in getattr(error, 'args', ()):
+		if isinstance(arg, (list, tuple)):
+			for item in arg:
+				if isinstance(item, (list, tuple)) and item:
+					detail = item[-1]
+					if isinstance(detail, BaseException) and _is_chrome_profile_lock_error(detail):
+						return True
+					if 'WinError 32' in str(detail) or 'being used by another process' in str(detail):
+						return True
+
+	return False
+
 
 CHROME_HEADLESS_ARGS = [
 	'--headless=new',
@@ -827,7 +863,22 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		if path_original_profile.exists():
 			import shutil
 
-			shutil.copytree(path_original_profile, path_temp_profile)
+			try:
+				shutil.copytree(
+					path_original_profile,
+					path_temp_profile,
+					ignore=_ignore_chrome_profile_transient_files,
+				)
+			except (OSError, shutil.Error) as error:
+				if not _is_chrome_profile_lock_error(error):
+					raise
+
+				shutil.rmtree(temp_dir, ignore_errors=True)
+				raise RuntimeError(
+					f'Unable to copy Chrome profile "{self.profile_directory}" because one or more files are locked. '
+					'Close any Chrome windows using this profile, or start browser-use with --cdp-url to connect to '
+					'an already-running browser instead of copying the profile.'
+				) from error
 			local_state_src = path_original_user_data / 'Local State'
 			local_state_dst = Path(temp_dir) / 'Local State'
 			if local_state_src.exists():
