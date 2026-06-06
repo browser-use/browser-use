@@ -65,27 +65,26 @@ browser
 ```
 # .env
 BROWSER_USE_API_KEY=your-key
-# GOOGLE_API_KEY=your-key
 # ANTHROPIC_API_KEY=your-key
+# OPENAI_API_KEY=your-key
 ```
 
 **3. Run your first agent:**
 ```python
-from browser_use import Agent, Browser, ChatBrowserUse
-# from browser_use import ChatGoogle  # ChatGoogle(model='gemini-3-flash-preview')
-# from browser_use import ChatAnthropic  # ChatAnthropic(model='claude-sonnet-4-6')
+from browser_use import Agent, Browser, ChatAnthropic, ChatBrowserUse, ChatOpenAI
 import asyncio
 
 async def main():
     browser = Browser(
         # use_cloud=True,  # Use a stealth browser on Browser Use Cloud
     )
+    llm = ChatBrowserUse(model='bu-3-max')
+    # llm = ChatAnthropic(model='claude-opus-4-8')
+    # llm = ChatOpenAI(model='gpt-5.5')
 
     agent = Agent(
         task="Find the number of stars of the browser-use repo",
-        llm=ChatBrowserUse(),
-        # llm=ChatGoogle(model='gemini-3-flash-preview'),
-        # llm=ChatAnthropic(model='claude-sonnet-4-6'),
+        llm=llm,
         browser=browser,
     )
     await agent.run()
@@ -225,7 +224,7 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
 <details>
 <summary><b>What's the best model to use?</b></summary>
 
-We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
+We optimized **ChatBrowserUse(model='bu-3-max')** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
 
 **Pricing (per 1M tokens):**
 - Input tokens: $0.20

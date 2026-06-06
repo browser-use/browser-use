@@ -1121,6 +1121,14 @@ def _llm_env_overrides(llm: Any) -> dict[str, str]:
 			overrides['LLM_BROWSER_OPENAI_API_KEY'] = api_key
 		if base_url:
 			overrides['LLM_BROWSER_OPENAI_BASE_URL'] = base_url
+	elif provider == 'browser-use':
+		if api_key:
+			overrides['LLM_BROWSER_BROWSER_USE_API_KEY'] = api_key
+		if base_url:
+			normalized_base_url = base_url.rstrip('/')
+			if not normalized_base_url.endswith('/v1'):
+				normalized_base_url += '/v1'
+			overrides['LLM_BROWSER_BROWSER_USE_BASE_URL'] = normalized_base_url
 	elif provider == 'anthropic':
 		if api_key:
 			overrides['LLM_BROWSER_ANTHROPIC_API_KEY'] = api_key
