@@ -46,7 +46,7 @@ body:
       label: Screenshots, Description, and task prompt given to Agent
       description: |
         A description of the issue + screenshots, and the full task prompt you're giving the agent (redact sensitive data).  
-        To help us fix it even faster, screenshot the Chome devtools [`Computed Styles` pane](https://developer.chrome.com/docs/devtools/css/reference#computed) for each failing element.
+        To help us fix it even faster, screenshot the Chrome DevTools [`Computed Styles` pane](https://developer.chrome.com/docs/devtools/css/reference#computed) for each failing element.
       placeholder: |
         🎯 High-level goal: Compare the prices of 3 items on a few different seller pages
         💬 Agent(task='''
