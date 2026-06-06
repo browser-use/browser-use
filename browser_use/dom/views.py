@@ -616,6 +616,19 @@ class EnhancedDOMTreeNode:
 		if not meaningful_text:
 			meaningful_text = self.get_all_children_text()
 
+		# Icon-only button/link fallback (addresses cases where title/tooltip is the only label, e.g. "+" icon buttons with no aria-label or inner text).
+		# The LLM prompt relies on the text shown here to match instructions like "click the Create Test button".
+		# If after priority and children text we still have nothing, but this is a button-like element with a title, surface the title.
+		if not meaningful_text:
+			tag = getattr(self, 'tag_name', '').lower() if hasattr(self, 'tag_name') else ''
+			role = ''
+			if hasattr(self, 'attributes') and self.attributes:
+				role = str(self.attributes.get('role', '')).lower()
+			if (tag in ('button', 'a') or role == 'button') and hasattr(self, 'attributes') and self.attributes:
+				title = self.attributes.get('title')
+				if title:
+					meaningful_text = str(title)
+
 		return meaningful_text.strip()
 
 	@property
