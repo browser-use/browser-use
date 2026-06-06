@@ -831,12 +831,23 @@ jobs-radar/
 └── package.json
 ```
 
-### Data Sources
+### Data Sources (v2)
 | Source | Type | Volume | Notes |
 |--------|------|--------|-------|
-| **Remotive API** | JSON | ~70 jobs/run | 4 search queries: innovation, space, AI product, GeoAI |
+| **Remotive API** | JSON | ~110 jobs/run | 4 search queries: innovation, space, AI product, GeoAI |
 | **Himalayas API** | JSON | ~20 jobs/run | Innovation-focused query |
+| **Arbeitnow API** | JSON | ~80 jobs/run | EU job board, no auth |
+| **Jobicy API** | JSON | ~50 jobs/run | Remote-Europe-focused |
 | **Seed file** | Manual | 7 picks | EWOR, Gartner 110514, EIT Health, ESA, etc. — always shown |
+
+**Coverage:** 262 raw → 34 scored ≥20% (2.6× vs v1). All sources fetched in parallel via `Promise.allSettled` — one failing never blocks the others.
+
+### Dashboard Features (v2)
+- ★ **Saved jobs** — localStorage bookmarks, persists across visits
+- 📍 **View pills** — All · ★ Saved (count) · New 24h
+- 🔍 **Search + tag filters** — Remote / Sweden / Space / AI / Innovation / EO / Senior / Consulting
+- 🔗 **Delegated click handler** — separates card-open vs bookmark-toggle
+- 📤 **Export** — CSV + JSON, respects current filter
 
 ### Match Scoring
 4-tier weighted keyword matching against `profile.json`:
