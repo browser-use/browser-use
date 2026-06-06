@@ -144,6 +144,23 @@ class ClickCoordinateEvent(BaseEvent[dict]):
 	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClickCoordinateEvent', 15.0))  # seconds
 
 
+class HoverElementEvent(ElementSelectedEvent[dict | None]):
+	"""Hover over an element to trigger CSS :hover effects (dropdowns, tooltips, hover-reveal patterns)."""
+
+	node: 'EnhancedDOMTreeNode'
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverElementEvent', 10.0))  # seconds
+
+
+class HoverCoordinateEvent(BaseEvent[dict]):
+	"""Hover at specific viewport coordinates to trigger CSS :hover effects."""
+
+	coordinate_x: int
+	coordinate_y: int
+
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverCoordinateEvent', 10.0))  # seconds
+
+
 class TypeTextEvent(ElementSelectedEvent[dict | None]):
 	"""Type text into an element."""
 
