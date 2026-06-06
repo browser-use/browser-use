@@ -3616,8 +3616,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			hist_attrs = historical_element.attributes
 			hist_name = historical_element.node_name.lower()
 
-			# Try matching by unique identifiers: name, id, or aria-label
-			for attr_key in ['name', 'id', 'aria-label']:
+			# Try matching by unique identifiers: name, id, aria-label, or title
+			for attr_key in ['name', 'id', 'aria-label', 'title']:
 				if attr_key in hist_attrs and hist_attrs[attr_key]:
 					for idx, elem in selector_map.items():
 						if (
@@ -3633,10 +3633,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						break
 
 			if highlight_index is None:
-				tried_attrs = [k for k in ['name', 'id', 'aria-label'] if k in hist_attrs and hist_attrs[k]]
+				tried_attrs = [k for k in ['name', 'id', 'aria-label', 'title'] if k in hist_attrs and hist_attrs[k]]
 				# Log what was tried and what's available on the page for debugging
 				same_node_elements = [
-					(idx, elem.attributes.get('aria-label') or elem.attributes.get('id') or elem.attributes.get('name'))
+					(idx, elem.attributes.get('aria-label') or elem.attributes.get('title') or elem.attributes.get('id') or elem.attributes.get('name'))
 					for idx, elem in selector_map.items()
 					if elem.node_name.lower() == hist_name and elem.attributes
 				]
@@ -3667,7 +3667,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Add key identifying attributes
 		if elem.attributes:
-			for key in ['name', 'id', 'aria-label', 'type']:
+			for key in ['name', 'id', 'aria-label', 'title', 'type']:
 				if key in elem.attributes and elem.attributes[key]:
 					parts.append(f'{key}="{elem.attributes[key]}"')
 
