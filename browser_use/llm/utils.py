@@ -21,8 +21,12 @@ def clean_and_extract_json(content: str) -> tuple[str, str | None]:
 	cleaned = cleaned.strip()
 
 	# 2. Strip markdown code blocks (e.g. ```json ... ``` or ``` ... ```)
-	# Use regex search so fences are removed even when surrounded by prose text.
-	fence_match = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', cleaned)
+	# Prefer explicitly-labelled ```json blocks; only fall back to a plain ```
+	# block when no json-labelled fence is present. This avoids selecting the
+	# wrong block when multiple fenced sections exist in the response.
+	fence_match = re.search(r'```json\s*\n?([\s\S]*?)\n?```', cleaned)
+	if not fence_match:
+		fence_match = re.search(r'```\s*\n?([\s\S]*?)\n?```', cleaned)
 	if fence_match:
 		cleaned = fence_match.group(1).strip()
 

@@ -49,3 +49,11 @@ def test_clean_and_extract_json_prose_wrapped():
 	cleaned, thinking = clean_and_extract_json(content)
 	assert cleaned == '{"action": "click"}'
 	assert thinking is None
+
+
+def test_clean_and_extract_json_multiple_fences():
+	"""Test that ```json block is preferred over a plain ``` block that appears first."""
+	content = 'Example:\n```python\nx = 1\n```\nActual output:\n```json\n{"action": "done"}\n```'
+	cleaned, thinking = clean_and_extract_json(content)
+	assert cleaned == '{"action": "done"}'
+	assert thinking is None
