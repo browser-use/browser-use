@@ -1,4 +1,4 @@
-"""Test HoverAction functionality.
+"""Test HoverElementAction functionality.
 
 Tests hover action via the Tools interface and via direct event bus dispatch,
 covering index-based hover, coordinate-based hover, and CSS :hover activation.
@@ -294,6 +294,7 @@ class TestHoverByCoordinates:
 
 	async def test_hover_at_coordinates(self, tools, browser_session: BrowserSession, base_url):
 		"""Hover at specific viewport coordinates to trigger mouse events."""
+		tools.set_coordinate_hovering(True)
 		await tools.navigate(url=f'{base_url}/hover-coords', new_tab=False, browser_session=browser_session)
 		await browser_session.get_browser_state_summary()
 
@@ -319,6 +320,7 @@ class TestHoverByCoordinates:
 
 	async def test_hover_at_coordinates_triggers_css_hover(self, tools, browser_session: BrowserSession, base_url):
 		"""Hover at coordinates should trigger CSS :hover state changes."""
+		tools.set_coordinate_hovering(True)
 		await tools.navigate(url=f'{base_url}/hover-coords', new_tab=False, browser_session=browser_session)
 		await browser_session.get_browser_state_summary()
 
@@ -384,3 +386,37 @@ class TestHoverEventBus:
 		assert isinstance(hover_metadata, dict)
 		assert hover_metadata.get('hover_x') == 350
 		assert hover_metadata.get('hover_y') == 150
+
+
+class TestHoverActionRegistration:
+	"""Test hover action registration toggle and edge cases."""
+
+	def test_default_index_only_mode(self, tools):
+		"""By default, hover action should be registered in index-only mode."""
+		assert not tools._coordinate_hovering_enabled
+		hover_action = tools.registry.registry.actions['hover']
+		assert hover_action.param_model.__name__ == 'HoverElementActionIndexOnly'
+
+	def test_coordinate_hovering_toggle(self, tools):
+		"""Toggling coordinate hovering should switch the registered param_model."""
+		# Enable coordinate hovering
+		tools.set_coordinate_hovering(True)
+		assert tools._coordinate_hovering_enabled
+		hover_action = tools.registry.registry.actions['hover']
+		assert hover_action.param_model.__name__ == 'HoverElementAction'
+
+		# Disable coordinate hovering
+		tools.set_coordinate_hovering(False)
+		assert not tools._coordinate_hovering_enabled
+		hover_action = tools.registry.registry.actions['hover']
+		assert hover_action.param_model.__name__ == 'HoverElementActionIndexOnly'
+
+	async def test_hover_index_zero(self, tools, browser_session: BrowserSession, base_url):
+		"""Hover with index=0 should raise ValidationError due to ge=1 constraint."""
+		await tools.navigate(url=f'{base_url}/hover-css', new_tab=False, browser_session=browser_session)
+		await browser_session.get_browser_state_summary()
+
+		from pydantic import ValidationError
+
+		with pytest.raises(ValidationError):
+			await tools.hover(index=0, browser_session=browser_session)

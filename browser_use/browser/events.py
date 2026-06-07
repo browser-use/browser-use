@@ -149,7 +149,7 @@ class HoverElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 
 	node: 'EnhancedDOMTreeNode'
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverElementEvent', 5.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverElementEvent', 10.0))  # seconds
 
 
 class HoverCoordinateEvent(BaseEvent[dict]):
@@ -158,7 +158,7 @@ class HoverCoordinateEvent(BaseEvent[dict]):
 	coordinate_x: int
 	coordinate_y: int
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverCoordinateEvent', 5.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_HoverCoordinateEvent', 10.0))  # seconds
 
 
 class TypeTextEvent(ElementSelectedEvent[dict | None]):

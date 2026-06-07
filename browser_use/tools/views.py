@@ -80,12 +80,16 @@ class ClickElementActionIndexOnly(BaseModel):
 	index: int = Field(ge=1, description='Element index from browser_state')
 
 
-class HoverAction(BaseModel):
-	model_config = ConfigDict(extra='forbid')
-
+class HoverElementAction(BaseModel):
 	index: int | None = Field(default=None, ge=1, description='Element index from browser_state')
 	coordinate_x: int | None = Field(default=None, description='Horizontal coordinate relative to viewport left edge')
 	coordinate_y: int | None = Field(default=None, description='Vertical coordinate relative to viewport top edge')
+
+
+class HoverElementActionIndexOnly(BaseModel):
+	model_config = ConfigDict(title='HoverElementAction')
+
+	index: int = Field(ge=1, description='Element index from browser_state')
 
 
 class InputTextAction(BaseModel):
