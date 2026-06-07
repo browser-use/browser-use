@@ -398,10 +398,21 @@ class Daemon:
 		else:
 			# Unix: socket server
 			Path(sock_path).unlink(missing_ok=True)
-			self._server = await asyncio.start_unix_server(
-				self.handle_connection,
-				sock_path,
-			)
+			# Restrict the socket file to owner-only access. The HMAC auth token
+			# gates dispatch, but a permissive socket lets co-tenants probe.
+			old_umask = os.umask(0o077)
+			try:
+				self._server = await asyncio.start_unix_server(
+					self.handle_connection,
+					sock_path,
+				)
+			finally:
+				os.umask(old_umask)
+			# umask only floors permissions at creation; enforce 0o600 explicitly.
+			try:
+				os.chmod(sock_path, 0o600)
+			except OSError as e:
+				logger.warning(f'Could not chmod socket {sock_path} to 0o600: {e}')
 			logger.info(f'Listening on Unix socket {sock_path}')
 
 		# Write PID file after server is bound
@@ -448,14 +459,29 @@ class Daemon:
 			self._server.close()
 
 		if self._session:
+			# Finalize any in-progress video recording before tearing down the browser,
+			# otherwise the MP4 is truncated since the ffmpeg writer is never closed.
+			# No timeout: stop_recording() already offloads the blocking encoder close
+			# to an executor; a hard timeout here risks os._exit(0) firing before the
+			# writer has flushed, producing the very truncation this hook prevents.
+			bs = self._session.browser_session
+			watchdog = getattr(bs, '_recording_watchdog', None)
+			if watchdog is not None and getattr(watchdog, 'is_recording', False):
+				try:
+					saved = await watchdog.stop_recording()
+					if saved:
+						logger.info(f'Finalized in-progress recording: {saved}')
+				except Exception as e:
+					logger.warning(f'Error finalizing recording during shutdown: {e}')
+
 			try:
 				# Only kill the browser if the daemon launched it.
 				# For external connections (--connect, --cdp-url, cloud), just disconnect.
 				# Timeout ensures daemon exits even if CDP calls hang on a dead connection
 				if self.cdp_url or self.use_cloud:
-					await asyncio.wait_for(self._session.browser_session.stop(), timeout=10.0)
+					await asyncio.wait_for(bs.stop(), timeout=10.0)
 				else:
-					await asyncio.wait_for(self._session.browser_session.kill(), timeout=10.0)
+					await asyncio.wait_for(bs.kill(), timeout=10.0)
 			except TimeoutError:
 				logger.warning('Browser cleanup timed out after 10s, forcing exit')
 			except Exception as e:

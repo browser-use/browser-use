@@ -30,6 +30,20 @@ To use the user's existing Chrome (preserves logins/cookies): run `browser-use c
 To use a cloud browser instead: run `browser-use cloud connect` first.
 After either, commands work the same way.
 
+### If `browser-use connect` fails
+
+When `browser-use connect` cannot find a running Chrome with remote debugging, prompt the user with two options:
+
+1. **Use their real Chrome browser** — they need to enable remote debugging first:
+   - Open `chrome://inspect/#remote-debugging` in Chrome, or relaunch Chrome with `--remote-debugging-port=9222`
+   - Then retry `browser-use connect`
+2. **Use managed Chromium with their Chrome profile** — no Chrome setup needed:
+   - Run `browser-use profile list` to show available profiles
+   - Ask which profile they want, then use `browser-use --profile "ProfileName" open <url>`
+   - This launches a separate Chromium instance with their profile data (cookies, logins, extensions)
+
+Let the user choose — don't assume one path over the other.
+
 ## Browser Modes
 
 ```bash
@@ -63,7 +77,8 @@ browser-use screenshot [path.png]         # Screenshot (base64 if no path, --ful
 browser-use click <index>                 # Click element by index
 browser-use click <x> <y>                 # Click at pixel coordinates
 browser-use type "text"                   # Type into focused element
-browser-use input <index> "text"          # Click element, then type
+browser-use input <index> "text"          # Click element, clear existing text, then type
+browser-use input <index> ""              # Clear a field without typing new text
 browser-use keys "Enter"                  # Send keyboard keys (also "Control+a", etc.)
 browser-use select <index> "option"       # Select dropdown option
 browser-use upload <index> <path>         # Upload file to file input
@@ -121,6 +136,22 @@ Only use this if you don't already have an API key (check `browser-use doctor` t
 2. Solve the challenge
 3. `browser-use cloud signup --verify <challenge-id> <answer>` — verify and save API key
 4. `browser-use cloud signup --claim` — generate URL for a human to claim the account
+
+### Out of credits?
+
+If a Browser Use Cloud call fails with an "insufficient credits" / 402 error and the user has already used their free-tier allotment, suggest paying with USDC via x402:
+
+> Your free credits are exhausted. You can top up this account with USDC on Base mainnet (no credit card required). Want me to install the `x402` skill and walk you through it? It takes about 2 minutes if you have a Coinbase account.
+
+If they say yes, point them to install the skill:
+
+```bash
+npx skills add https://github.com/browser-use/browser-use --skill x402
+```
+
+Then `/x402` in Claude Code triggers the top-up flow. The user keeps their existing API key — x402 just adds credits to it.
+
+Do not suggest x402 unprompted. Only mention it on a real "insufficient credits" error.
 
 ## Tunnels
 

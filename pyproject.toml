@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.12.6"
+version = "0.12.9"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -11,7 +11,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiohttp==3.13.3",
+    "aiohttp==3.13.4",
     "anyio==4.12.1",
     "bubus==1.5.6",
     "click==8.3.1",
@@ -23,7 +23,7 @@ dependencies = [
     "psutil==7.2.2",
     "pydantic==2.12.5",
     "pyobjc==12.1; platform_system == 'darwin'",
-    "python-dotenv==1.2.1",
+    "python-dotenv==1.2.2",
     "requests==2.33.0",
     "screeninfo==0.8.1; platform_system != 'darwin'",
     "typing-extensions==4.15.0",
@@ -37,11 +37,11 @@ dependencies = [
     "google-auth==2.48.0",
     "google-auth-oauthlib==1.2.4",
     "mcp==1.26.0",
-    "pypdf==6.9.1",
+    "pypdf==6.10.2",
     "reportlab==4.4.9",
     "cdp-use==1.4.5",
     "pyotp==2.9.0",
-    "pillow==12.1.1",
+    "pillow==12.2.0",
     "cloudpickle==3.1.2",
     "markdownify==1.2.2",
     "python-docx==1.2.0",
@@ -154,6 +154,9 @@ exclude = [
     "browser_use/llm/oci_raw/*",
     "browser_use/llm/tests/test_chat_models.py",
     "browser_use/llm/tests/test_single_step.py",
+    # Dynamic Rust compatibility wrapper; covered by tests/ci/test_rust_agent.py.
+    "browser_use/rust/service.py",
+    "tests/ci/test_rust_agent.py",
     "product_extraction.py",
     "discover/",
     "list/",

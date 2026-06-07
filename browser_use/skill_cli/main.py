@@ -713,7 +713,7 @@ Setup:
 	p.add_argument('text', help='Text to type')
 
 	# input <index> <text>
-	p = subparsers.add_parser('input', help='Type text into specific element')
+	p = subparsers.add_parser('input', help='Clear-then-type into specific element; pass "" to clear only')
 	p.add_argument('index', type=int, help='Element index')
 	p.add_argument('text', help='Text to type')
 
@@ -781,6 +781,17 @@ Setup:
 	# rightclick <index>
 	p = subparsers.add_parser('rightclick', help='Right-click element')
 	p.add_argument('index', type=int, help='Element index')
+
+	# record (start <path> | stop | status)
+	record_p = subparsers.add_parser('record', help='Record browser session video (start/stop)')
+	record_sub = record_p.add_subparsers(dest='record_command')
+
+	p = record_sub.add_parser('start', help='Start recording to file (.mp4)')
+	p.add_argument('path', help='Output video path (.mp4 recommended)')
+	p.add_argument('--framerate', type=int, default=None, help='Framerate (default: 30)')
+
+	record_sub.add_parser('stop', help='Stop recording and print saved file path')
+	record_sub.add_parser('status', help='Show current recording status')
 
 	# -------------------------------------------------------------------------
 	# Cookies Commands
@@ -1453,6 +1464,8 @@ def main() -> int:
 
 	# Resolve file paths to absolute before sending to daemon (daemon may have different CWD)
 	if args.command == 'upload' and 'path' in params:
+		params['path'] = str(Path(params['path']).expanduser().resolve())
+	if args.command == 'record' and params.get('record_command') == 'start' and 'path' in params:
 		params['path'] = str(Path(params['path']).expanduser().resolve())
 
 	# Add profile to params for commands that need it

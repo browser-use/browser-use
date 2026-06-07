@@ -82,8 +82,8 @@ class ClickElementActionIndexOnly(BaseModel):
 
 class InputTextAction(BaseModel):
 	index: int = Field(ge=0, description='from browser_state')
-	text: str
-	clear: bool = Field(default=True, description='1=clear, 0=append')
+	text: str = Field(description='Text to enter. With clear=True, text="" clears the field without typing.')
+	clear: bool = Field(default=True, description='Clear existing text before typing. Set to False to append instead.')
 
 
 class DoneAction(BaseModel):
