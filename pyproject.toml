@@ -154,6 +154,9 @@ exclude = [
     "browser_use/llm/oci_raw/*",
     "browser_use/llm/tests/test_chat_models.py",
     "browser_use/llm/tests/test_single_step.py",
+    # Dynamic Rust compatibility wrapper; covered by tests/ci/test_rust_agent.py.
+    "browser_use/rust/service.py",
+    "tests/ci/test_rust_agent.py",
     "product_extraction.py",
     "discover/",
     "list/",
