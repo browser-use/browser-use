@@ -9,7 +9,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 if TYPE_CHECKING:
 	from browser_use.skills.views import Skill
@@ -2392,20 +2392,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					token_start = original_position
 					while token_start > 0 and not task_without_emails[token_start - 1].isspace():
 						token_start -= 1
-					local_path_token = task_without_emails[token_start : match.end()]
+					local_path_token = task_without_emails[token_start : match.end()].lstrip('\'"(<[{')
 					if re.match(r'^(?:[A-Za-z]:)?(?:~|\.{1,2})?[/\\]', local_path_token):
 						self.logger.debug(f'Excluding local filesystem path from auto-navigation: {local_path_token}')
 						continue
 
-				# Check if URL ends with a file extension that should be excluded
+				# Exclude URLs that point at a downloadable file, not a web page.
+				# Match the final path segment's extension only: testing whether any
+				# '.ext' appears as a substring wrongly drops everyday sites whose host or
+				# path merely contains a short extension token ('.py' in 'docs.python.org',
+				# '.doc' in 'my.docs.google.com').
 				url_lower = url.lower()
-				should_exclude = False
-				for ext in excluded_extensions:
-					if f'.{ext}' in url_lower:
-						should_exclude = True
-						break
-
-				if should_exclude:
+				url_no_scheme = re.sub(r'^[a-z][a-z0-9+.-]*://', '', url_lower).split('?', 1)[0].split('#', 1)[0]
+				last_segment = unquote(url_no_scheme.rstrip('/').rsplit('/', 1)[-1]).split(';', 1)[0]
+				file_ext = last_segment.rsplit('.', 1)[-1] if '.' in last_segment else ''
+				if file_ext in excluded_extensions:
 					self.logger.debug(f'Excluding URL with file extension from auto-navigation: {url}')
 					continue
 

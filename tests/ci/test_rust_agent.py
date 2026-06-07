@@ -4108,6 +4108,17 @@ def test_rust_agent_exposes_task_helper_methods():
 	numbered_task = '1. Navigate to https://elibrary.ferc.gov/eLibrary/search.\\n2. Ensure "General Search" is selected.'
 	assert agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
+	# Both implementations stay in lockstep on file-extension gating (#4794):
+	# host/path substring extension tokens must NOT exclude real sites, genuine
+	# file URLs (incl. ;path-params) MUST drop, and quoted local paths are skipped.
+	for extract in (agent._extract_start_url, browser_use_agent._extract_start_url):
+		assert extract('Open docs.python.org/3/library and find the os module.') == 'https://docs.python.org/3/library'
+		assert extract('Check my.docs.google.com for the sheet.') == 'https://my.docs.google.com'
+		assert extract('Open https://example.com/report.pdf and summarize it.') is None
+		assert extract('Fetch https://example.com/data.json;v=1 now.') is None
+		assert extract('Open https://example.com/report.pdf/ then stop.') is None
+		assert extract('Open https://example.com/report%2Epdf now.') is None
+		assert extract('Open "/app/x_capabilities.html" and summarize it.') is None
 
 
 def test_rust_agent_exposes_url_text_helper_methods():
@@ -7639,3 +7650,34 @@ def test_extract_start_url_skips_local_filesystem_paths():
 		rust_service._extract_start_url('Go to https://example.com/index.html now.')
 		== 'https://example.com/index.html'
 	)
+
+
+def test_extract_start_url_matches_file_extensions_on_path_not_substring():
+	# Everyday sites whose host/path merely contains a short extension token
+	# ('.py' inside 'docs.python.org', '.doc' inside 'my.docs.google.com') must
+	# still be auto-navigated; only a real trailing file extension is excluded.
+	import browser_use.rust.service as rust_service
+
+	assert (
+		rust_service._extract_start_url('Open docs.python.org/3/library and find the os module.')
+		== 'https://docs.python.org/3/library'
+	)
+	assert rust_service._extract_start_url('Check my.docs.google.com for the sheet.') == 'https://my.docs.google.com'
+	assert rust_service._extract_start_url('Go to www.python.org/downloads now.') == 'https://www.python.org/downloads'
+	# A genuine downloadable file in the path is still dropped (no regression).
+	assert rust_service._extract_start_url('Open https://example.com/report.pdf and summarize it.') is None
+	assert rust_service._extract_start_url('Read example.com/data.json please.') is None
+	# Trailing prose punctuation must not defeat the drop (sanitize_url_candidate
+	# strips trailing .,;:!?()[] before the extension check).
+	assert rust_service._extract_start_url('Open (https://example.com/report.pdf) now.') is None
+	assert rust_service._extract_start_url('See example.com/data.json.') is None
+	assert rust_service._extract_start_url('Grab https://example.com/archive.tar.gz!') is None
+
+
+def test_extract_start_url_skips_quoted_local_filesystem_paths():
+	# Local paths wrapped in quotes/parens must also be skipped: surrounding
+	# delimiters must not defeat the local-path guard.
+	import browser_use.rust.service as rust_service
+
+	assert rust_service._extract_start_url('Open "/app/x_capabilities.html" and summarize it.') is None
+	assert rust_service._extract_start_url('Process (/tmp/data.html) for me.') is None
