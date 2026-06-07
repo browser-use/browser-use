@@ -41,3 +41,11 @@ def test_clean_and_extract_json_stray_tags():
 	cleaned, thinking = clean_and_extract_json(content)
 	assert cleaned == '{"action": "done"}'
 	assert thinking is None
+
+
+def test_clean_and_extract_json_prose_wrapped():
+	"""Test that fenced blocks are extracted even when surrounded by prose text."""
+	content = 'Here is the result:\n```json\n{"action": "click"}\n```\nLet me know if this helps.'
+	cleaned, thinking = clean_and_extract_json(content)
+	assert cleaned == '{"action": "click"}'
+	assert thinking is None
