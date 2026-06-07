@@ -2668,23 +2668,34 @@ class DefaultActionWatchdog(BaseWatchdog):
 					file_mime = mimetypes.guess_type(event.file_path)[0] or ''
 					accepted_types = [t.strip().lower() for t in accept_attr.split(',') if t.strip()]
 					accepted = False
+					mime_required = False  # whether any rule required a MIME match
 					for accept_type in accepted_types:
 						if accept_type.startswith('.'):
 							if file_ext == accept_type:
 								accepted = True
 								break
 						elif accept_type.endswith('/*'):
+							mime_required = True
 							mime_family = accept_type[:-2]
-							if file_mime.startswith(mime_family + '/'):
+							if file_mime and file_mime.startswith(mime_family + '/'):
 								accepted = True
 								break
 						else:
-							if file_mime == accept_type:
+							mime_required = True
+							if file_mime and file_mime == accept_type:
 								accepted = True
 								break
 					if not accepted:
-						msg = f'Upload failed - file type "{file_ext or file_mime or event.file_path}" is not accepted by this input. Accepted types: {accept_attr}'
-						raise BrowserError(message=msg, long_term_memory=msg)
+						# When MIME inference fails, fall back to letting the browser decide
+						# (mimetypes.guess_type is OS-dependent and may return None for valid files).
+						if mime_required and not file_mime:
+							self.logger.warning(
+								f'📎 Could not infer MIME type for {event.file_path}; '
+								f'skipping client-side accept="{accept_attr}" check and deferring to browser.'
+							)
+						else:
+							msg = f'Upload failed - file type "{file_ext or file_mime or event.file_path}" is not accepted by this input. Accepted types: {accept_attr}'
+							raise BrowserError(message=msg, long_term_memory=msg)
 
 			# Set file(s) to upload
 			backend_node_id = element_node.backend_node_id
