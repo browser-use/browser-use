@@ -7623,3 +7623,19 @@ def test_rust_history_surfaces_terminal_session_interrupted_message():
 	assert history.is_done() is False
 	assert history.errors() == ['Rust terminal session was interrupted: interrupted by send_input']
 	assert history.action_results()[-1].error == 'Rust terminal session was interrupted: interrupted by send_input'
+
+
+def test_extract_start_url_skips_local_filesystem_paths():
+	# A local file path (e.g. an uploaded .html) must not be auto-navigated:
+	# the domain regex would otherwise capture the path tail as a bare URL
+	# and force-navigate to it as the agent's first action (issue #4794).
+	import browser_use.rust.service as rust_service
+
+	assert rust_service._extract_start_url('Open the file /app/x_capabilities.html and summarize it.') is None
+	assert rust_service._extract_start_url('Read ~/Downloads/report.htm please.') is None
+	# Real web URLs (with or without scheme) are still detected — no regression.
+	assert rust_service._extract_start_url('Open example.com and report the title.') == 'https://example.com'
+	assert (
+		rust_service._extract_start_url('Go to https://example.com/index.html now.')
+		== 'https://example.com/index.html'
+	)

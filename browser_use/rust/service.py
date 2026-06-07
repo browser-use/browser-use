@@ -1358,6 +1358,17 @@ def _extract_start_url(task: str) -> str | None:
 			url_lower = url.lower()
 			if is_placeholder_url(url):
 				continue
+			# Skip URL-looking tokens that are actually local filesystem paths
+			# (e.g. an uploaded file like "/app/x_capabilities.html"): the domain
+			# pattern excludes '_' from its char class, so the path tail gets
+			# captured as a bare URL and force-navigated. Skip local-path tokens.
+			if not url.startswith(('http://', 'https://')):
+				token_start = match.start()
+				while token_start > 0 and not task_without_emails[token_start - 1].isspace():
+					token_start -= 1
+				local_path_token = task_without_emails[token_start : match.end()]
+				if re.match(r'^(?:[A-Za-z]:)?(?:~|\.{1,2})?[/\\]', local_path_token):
+					continue
 			if any(f'.{ext}' in url_lower for ext in excluded_extensions):
 				continue
 			context_start = max(0, match.start() - 20)

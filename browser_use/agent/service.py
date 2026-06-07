@@ -2383,6 +2383,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.debug(f'Excluding placeholder URL from auto-navigation: {url}')
 					continue
 
+				# Skip URL-looking tokens that are actually local filesystem paths
+				# (e.g. an uploaded file like "/app/x_capabilities.html"): the domain
+				# pattern's [a-zA-Z0-9-] class excludes '_', so the path tail gets
+				# captured (e.g. "capabilities.html") and force-navigated. Skip any
+				# candidate whose whitespace-delimited token is a local path.
+				if not url.startswith(('http://', 'https://')):
+					token_start = original_position
+					while token_start > 0 and not task_without_emails[token_start - 1].isspace():
+						token_start -= 1
+					local_path_token = task_without_emails[token_start : match.end()]
+					if re.match(r'^(?:[A-Za-z]:)?(?:~|\.{1,2})?[/\\]', local_path_token):
+						self.logger.debug(f'Excluding local filesystem path from auto-navigation: {local_path_token}')
+						continue
+
 				# Check if URL ends with a file extension that should be excluded
 				url_lower = url.lower()
 				should_exclude = False
