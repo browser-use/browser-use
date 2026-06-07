@@ -4119,6 +4119,7 @@ def test_rust_agent_exposes_task_helper_methods():
 		assert extract('Open https://example.com/report.pdf/ then stop.') is None
 		assert extract('Open https://example.com/report%2Epdf now.') is None
 		assert extract('Open "/app/x_capabilities.html" and summarize it.') is None
+		assert extract('Open `/app/x_capabilities.html` and summarize it.') is None
 
 
 def test_rust_agent_exposes_url_text_helper_methods():
@@ -7681,3 +7682,4 @@ def test_extract_start_url_skips_quoted_local_filesystem_paths():
 
 	assert rust_service._extract_start_url('Open "/app/x_capabilities.html" and summarize it.') is None
 	assert rust_service._extract_start_url('Process (/tmp/data.html) for me.') is None
+	assert rust_service._extract_start_url('Open `/app/x_capabilities.html` and summarize it.') is None

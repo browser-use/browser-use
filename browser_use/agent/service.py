@@ -2392,7 +2392,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					token_start = original_position
 					while token_start > 0 and not task_without_emails[token_start - 1].isspace():
 						token_start -= 1
-					local_path_token = task_without_emails[token_start : match.end()].lstrip('\'"(<[{')
+					local_path_token = task_without_emails[token_start : match.end()].lstrip('\'"`(<[{')
 					if re.match(r'^(?:[A-Za-z]:)?(?:~|\.{1,2})?[/\\]', local_path_token):
 						self.logger.debug(f'Excluding local filesystem path from auto-navigation: {local_path_token}')
 						continue

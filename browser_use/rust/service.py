@@ -1366,7 +1366,7 @@ def _extract_start_url(task: str) -> str | None:
 				token_start = match.start()
 				while token_start > 0 and not task_without_emails[token_start - 1].isspace():
 					token_start -= 1
-				local_path_token = task_without_emails[token_start : match.end()].lstrip('\'"(<[{')
+				local_path_token = task_without_emails[token_start : match.end()].lstrip('\'"`(<[{')
 				if re.match(r'^(?:[A-Za-z]:)?(?:~|\.{1,2})?[/\\]', local_path_token):
 					continue
 			url_no_scheme = re.sub(r'^[a-z][a-z0-9+.-]*://', '', url_lower).split('?', 1)[0].split('#', 1)[0]
