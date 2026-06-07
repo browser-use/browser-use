@@ -1,7 +1,6 @@
 """Tests for DeepSeek and Ollama LLM usage tracking."""
 
 from types import SimpleNamespace
-import pytest
 
 from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.llm.ollama.chat import ChatOllama
@@ -60,7 +59,7 @@ def test_deepseek_get_usage_none():
 	llm = ChatDeepSeek(api_key='fake')
 	response = SimpleNamespace(usage=None)
 	assert llm._get_usage(response) is None
-	
+
 	response_no_attr = SimpleNamespace()
 	assert llm._get_usage(response_no_attr) is None
 
