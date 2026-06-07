@@ -11,6 +11,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.ollama.serializer import OllamaMessageSerializer
+from browser_use.llm.utils import clean_and_extract_json
 from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
@@ -78,7 +79,13 @@ class ChatOllama(BaseChatModel):
 					options=self.ollama_options,
 				)
 
-				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
+				raw_content = response.message.content or ''
+				cleaned_content, thinking = clean_and_extract_json(raw_content)
+				return ChatInvokeCompletion(
+					completion=cleaned_content,
+					thinking=thinking,
+					usage=None,
+				)
 			else:
 				schema = output_format.model_json_schema()
 
@@ -89,11 +96,18 @@ class ChatOllama(BaseChatModel):
 					options=self.ollama_options,
 				)
 
-				completion = response.message.content or ''
+				raw_content = response.message.content or ''
+				cleaned_content, thinking = clean_and_extract_json(raw_content)
 				if output_format is not None:
-					completion = output_format.model_validate_json(completion)
+					completion = output_format.model_validate_json(cleaned_content)
+				else:
+					completion = cleaned_content
 
-				return ChatInvokeCompletion(completion=completion, usage=None)
+				return ChatInvokeCompletion(
+					completion=completion,
+					thinking=thinking,
+					usage=None,
+				)
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
