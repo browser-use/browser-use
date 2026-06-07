@@ -98,10 +98,7 @@ class ChatOllama(BaseChatModel):
 
 				raw_content = response.message.content or ''
 				cleaned_content, thinking = clean_and_extract_json(raw_content)
-				if output_format is not None:
-					completion = output_format.model_validate_json(cleaned_content)
-				else:
-					completion = cleaned_content
+				completion = output_format.model_validate_json(cleaned_content)
 
 				return ChatInvokeCompletion(
 					completion=completion,
