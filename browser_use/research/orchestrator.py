@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
 from browser_use.research.citation import CitationTracker
+from browser_use.research.streaming import StreamingReasoningTracer
 from browser_use.research.views import CitedResult, ResearchReport, TabResult
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,29 @@ ResearchFn = Callable[[str, str], Coroutine[Any, Any, str]]
 
 # synthesize_fn can be sync OR async — _call_synthesize handles both
 SynthesizeFn = Callable[[str, list[CitedResult]], str] | Callable[[str, list[CitedResult]], Awaitable[str]]
+
+
+class URLNotAllowedError(Exception):
+	"""Raised when a URL is rejected by the orchestrator's allowlist/blocklist."""
+
+
+def _check_url_allowed(url: str, allowlist: list[str] | None, blocklist: list[str] | None) -> None:
+	"""Raise URLNotAllowedError if url violates the configured policy.
+
+	Allowlist takes precedence: if set, only URLs whose host contains one of its
+	substrings are accepted. Blocklist rejects URLs whose host contains any entry.
+	Substring match keeps the policy simple — wildcards live in your config, not here.
+	"""
+	from urllib.parse import urlparse
+
+	host = (urlparse(url).hostname or '').lower()
+	if allowlist:
+		if not any(entry.lower() in host for entry in allowlist):
+			raise URLNotAllowedError(f'{url}: host {host!r} not in allowlist')
+	if blocklist:
+		hit = next((entry for entry in blocklist if entry.lower() in host), None)
+		if hit:
+			raise URLNotAllowedError(f'{url}: host {host!r} matches blocklist entry {hit!r}')
 
 
 async def _call_synthesize(
@@ -85,33 +109,85 @@ def make_llm_synthesize_fn(
 	return _synthesize
 
 
+async def _run_research_with_retry(
+	research_fn: ResearchFn,
+	query: str,
+	url: str,
+	max_retries: int,
+	backoff_base: float,
+	per_tab_timeout: float | None,
+) -> str:
+	"""Call research_fn with exponential backoff on transient failure.
+
+	Each attempt is wrapped in asyncio.wait_for if per_tab_timeout is set.
+	Retries on any Exception except URLNotAllowedError (which is policy, not transient).
+	"""
+	last_exc: Exception | None = None
+	for attempt in range(max_retries + 1):
+		try:
+			if per_tab_timeout is not None:
+				return await asyncio.wait_for(research_fn(query, url), timeout=per_tab_timeout)
+			return await research_fn(query, url)
+		except URLNotAllowedError:
+			raise
+		except Exception as exc:
+			last_exc = exc
+			if attempt < max_retries:
+				delay = backoff_base * (2**attempt)
+				logger.info('Retry %d/%d for %s after %.2fs (%s)', attempt + 1, max_retries, url, delay, exc)
+				await asyncio.sleep(delay)
+	assert last_exc is not None  # unreachable: loop always sets it before exit
+	raise last_exc
+
+
 async def _default_tab_task(
 	query: str,
 	url: str,
 	research_fn: ResearchFn,
 	tracker: CitationTracker,
 	tab_id: str,
+	*,
+	max_retries: int = 0,
+	backoff_base: float = 0.5,
+	per_tab_timeout: float | None = None,
+	allowlist: list[str] | None = None,
+	blocklist: list[str] | None = None,
+	tracer: StreamingReasoningTracer | None = None,
 ) -> TabResult:
 	"""Execute one tab's research and wrap results with citation provenance."""
 	start = time.monotonic()
+	step_idx = int(tab_id.rsplit('-', 1)[-1]) if '-' in tab_id else 0
+	if tracer:
+		tracer.on_step_start(step_idx, state=f'tab={tab_id} url={url}')
+		tracer.on_action(step_idx, 'research', {'url': url, 'query': query})
 	try:
-		raw_text = await research_fn(query, url)
+		_check_url_allowed(url, allowlist, blocklist)
+		raw_text = await _run_research_with_retry(
+			research_fn, query, url, max_retries, backoff_base, per_tab_timeout
+		)
 		cited = tracker.cite(content=raw_text, url=url, page_title=url)
+		duration = round(time.monotonic() - start, 3)
+		if tracer:
+			tracer.on_action_result(step_idx, 'research', f'{len(raw_text)} chars in {duration}s')
+			tracer.on_step_end(step_idx, goal_eval='tab ok', memory=tab_id)
 		return TabResult(
 			tab_id=tab_id,
 			query=query,
 			url_visited=url,
 			cited_results=[cited],
-			duration_seconds=round(time.monotonic() - start, 3),
+			duration_seconds=duration,
 		)
 	except Exception as exc:
+		duration = round(time.monotonic() - start, 3)
 		logger.warning('Tab %s failed for %s: %s', tab_id, url, exc)
+		if tracer:
+			tracer.on_error(step_idx, str(exc))
 		return TabResult(
 			tab_id=tab_id,
 			query=query,
 			url_visited=url,
 			error=str(exc),
-			duration_seconds=round(time.monotonic() - start, 3),
+			duration_seconds=duration,
 		)
 
 
@@ -138,12 +214,31 @@ class ParallelResearchOrchestrator:
 		research_fn: ResearchFn,
 		max_concurrency: int = 4,
 		synthesize_fn: SynthesizeFn | None = None,
+		*,
+		max_retries: int = 0,
+		backoff_base: float = 0.5,
+		per_tab_timeout: float | None = None,
+		allowlist: list[str] | None = None,
+		blocklist: list[str] | None = None,
+		tracer: StreamingReasoningTracer | None = None,
 	) -> None:
 		assert max_concurrency >= 1, 'max_concurrency must be ≥ 1'
+		assert max_retries >= 0, 'max_retries must be ≥ 0'
+		assert backoff_base >= 0, 'backoff_base must be ≥ 0'
+		assert per_tab_timeout is None or per_tab_timeout > 0, 'per_tab_timeout must be positive'
 		self.research_fn = research_fn
 		self.max_concurrency = max_concurrency
 		# Callers can inject an LLM-powered synthesizer (sync or async); default is simple concatenation
 		self.synthesize_fn: SynthesizeFn = synthesize_fn or _default_synthesize
+		# Resilience knobs — all opt-in to preserve existing behavior
+		self.max_retries = max_retries
+		self.backoff_base = backoff_base
+		self.per_tab_timeout = per_tab_timeout
+		# Security policy — substring match against url host
+		self.allowlist = allowlist
+		self.blocklist = blocklist
+		# Optional tracer — receives one step per tab + a synthesis step
+		self.tracer = tracer
 
 	async def run(self, research_question: str, urls: list[str]) -> ResearchReport:
 		"""Run all URLs in parallel (up to max_concurrency at a time)."""
@@ -160,6 +255,12 @@ class ParallelResearchOrchestrator:
 					research_fn=self.research_fn,
 					tracker=tracker,
 					tab_id=tab_id,
+					max_retries=self.max_retries,
+					backoff_base=self.backoff_base,
+					per_tab_timeout=self.per_tab_timeout,
+					allowlist=self.allowlist,
+					blocklist=self.blocklist,
+					tracer=self.tracer,
 				)
 
 		logger.info(

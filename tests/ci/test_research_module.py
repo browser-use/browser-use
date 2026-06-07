@@ -21,6 +21,7 @@ from browser_use.research import (
 	StreamingReasoningTracer,
 	make_llm_synthesize_fn,
 )
+from browser_use.research.orchestrator import URLNotAllowedError
 from browser_use.research.views import CitedResult, ReasoningTrace
 
 
@@ -294,3 +295,123 @@ class TestStreamingReasoningTracer:
 		t = tracer.traces()[0]
 		assert t.event_type == 'error'
 		assert 'Navigation timeout' in t.data['error']
+
+
+# ── RRSS: retry · timeout · allowlist · tracer wiring ─────────────────────────
+
+class TestOrchestratorRRSS:
+	async def test_retry_succeeds_after_transient_failure(self):
+		"""max_retries causes research_fn to be re-invoked on Exception."""
+		call_count = {'n': 0}
+
+		async def flaky_research_fn(query: str, url: str) -> str:
+			call_count['n'] += 1
+			if call_count['n'] < 3:
+				raise RuntimeError(f'transient {call_count["n"]}')
+			return 'finally succeeded'
+
+		orch = ParallelResearchOrchestrator(
+			research_fn=flaky_research_fn,
+			max_retries=3,
+			backoff_base=0.01,  # keep test fast
+		)
+		report = await orch.run(research_question='q', urls=['http://x.example/'])
+		assert report.successful_tabs == 1
+		assert call_count['n'] == 3
+
+	async def test_retry_exhausted_records_error(self):
+		async def always_fail(query: str, url: str) -> str:
+			raise RuntimeError('persistent')
+
+		orch = ParallelResearchOrchestrator(
+			research_fn=always_fail,
+			max_retries=2,
+			backoff_base=0.01,
+		)
+		report = await orch.run(research_question='q', urls=['http://x.example/'])
+		assert report.successful_tabs == 0
+		assert 'persistent' in (report.tab_results[0].error or '')
+
+	async def test_per_tab_timeout_kills_slow_tab(self):
+		async def slow_research_fn(query: str, url: str) -> str:
+			await asyncio.sleep(2.0)
+			return 'never reached'
+
+		orch = ParallelResearchOrchestrator(
+			research_fn=slow_research_fn,
+			per_tab_timeout=0.1,
+			max_retries=0,
+		)
+		report = await orch.run(research_question='q', urls=['http://x.example/'])
+		assert report.successful_tabs == 0
+		# asyncio.TimeoutError or TimeoutError both stringify acceptably
+		assert report.tab_results[0].error is not None
+
+	async def test_allowlist_blocks_unlisted_host(self):
+		async def research_fn(query: str, url: str) -> str:
+			return 'ok'
+
+		orch = ParallelResearchOrchestrator(
+			research_fn=research_fn,
+			allowlist=['allowed.example'],
+		)
+		report = await orch.run(
+			research_question='q',
+			urls=['http://blocked.example/', 'http://allowed.example/'],
+		)
+		assert report.successful_tabs == 1
+		blocked = next(t for t in report.tab_results if 'blocked' in t.url_visited)
+		assert blocked.error is not None
+		assert 'allowlist' in blocked.error
+
+	async def test_blocklist_rejects_listed_host(self):
+		async def research_fn(query: str, url: str) -> str:
+			return 'ok'
+
+		orch = ParallelResearchOrchestrator(
+			research_fn=research_fn,
+			blocklist=['evil.example'],
+		)
+		report = await orch.run(
+			research_question='q',
+			urls=['http://evil.example/', 'http://good.example/'],
+		)
+		assert report.successful_tabs == 1
+		evil = next(t for t in report.tab_results if 'evil' in t.url_visited)
+		assert evil.error is not None
+		assert 'blocklist' in evil.error
+
+	async def test_url_not_allowed_skips_retry(self):
+		"""Policy errors are deterministic — retrying them is wasted work."""
+		call_count = {'n': 0}
+
+		async def research_fn(query: str, url: str) -> str:
+			call_count['n'] += 1
+			return 'ok'
+
+		orch = ParallelResearchOrchestrator(
+			research_fn=research_fn,
+			allowlist=['only.example'],
+			max_retries=5,
+			backoff_base=0.01,
+		)
+		report = await orch.run(research_question='q', urls=['http://bad.example/'])
+		assert report.successful_tabs == 0
+		assert call_count['n'] == 0  # never called
+
+	async def test_tracer_receives_per_tab_events(self):
+		async def research_fn(query: str, url: str) -> str:
+			return 'content'
+
+		tracer = StreamingReasoningTracer()
+		orch = ParallelResearchOrchestrator(research_fn=research_fn, tracer=tracer)
+		await orch.run(research_question='q', urls=['http://x.example/'])
+
+		event_types = [t.event_type for t in tracer.traces()]
+		assert 'step_start' in event_types
+		assert 'action' in event_types
+		assert 'action_result' in event_types
+		assert 'step_end' in event_types
+
+	def test_url_not_allowed_error_is_exception(self):
+		assert issubclass(URLNotAllowedError, Exception)

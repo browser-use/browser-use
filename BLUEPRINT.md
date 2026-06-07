@@ -417,7 +417,7 @@ async def event_stream():
 | `browser_use/research/citation.py` | CitationTracker implementation |
 | `browser_use/research/orchestrator.py` | ParallelResearchOrchestrator |
 | `browser_use/research/streaming.py` | StreamingReasoningTracer |
-| `tests/ci/test_research_module.py` | 21 CI tests (all pass, real objects, pytest-httpserver) |
+| `tests/ci/test_research_module.py` | 29 CI tests (all pass, real objects, pytest-httpserver) |
 | `conftest.py` | Root conftest: ensures local source wins in shared-venv setups |
 
 ### 11.5 Innovation Recipe
@@ -429,6 +429,30 @@ async def event_stream():
 | Grok Build | Live chain-of-thought stream | `StreamingReasoningTracer` + SSE/NDJSON emitters |
 
 **Scaling axis:** `max_concurrency` parameter governs parallelism; `synthesize_fn` injection makes the orchestrator LLM-agnostic for arbitrary scale-out.
+
+### 11.6 RRSS Evolution (2026-05-29)
+
+Four resilience knobs added to `ParallelResearchOrchestrator`, all opt-in:
+
+| Knob | RRSS axis | Default | Effect |
+|------|----------|---------|--------|
+| `max_retries: int` | Robust | `0` | Retry transient research_fn failures with exponential backoff (`backoff_base * 2^attempt`) |
+| `per_tab_timeout: float \| None` | Resistant | `None` | Wrap each research_fn call in `asyncio.wait_for` — slow tabs get killed and counted as failures |
+| `allowlist / blocklist: list[str] \| None` | Secure | `None` | Substring host match; allowlist wins. `URLNotAllowedError` skips retries (it's policy, not transient) |
+| `tracer: StreamingReasoningTracer \| None` | Systematic | `None` | Emits `step_start / action / action_result / step_end` per tab and `error` on failure |
+
+```python
+orch = ParallelResearchOrchestrator(
+    research_fn=my_fn,
+    max_concurrency=4,
+    max_retries=2,
+    per_tab_timeout=10.0,
+    allowlist=['arxiv.org', 'paperswithcode.com'],
+    tracer=StreamingReasoningTracer(),
+)
+```
+
+8 new CI tests cover retry success/exhaust, timeout kill, allow/block lists, retry-skip-on-policy, and tracer wiring.
 
 ---
 
