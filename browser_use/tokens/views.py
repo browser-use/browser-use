@@ -99,6 +99,8 @@ class UsageSummary(BaseModel):
 
 	total_prompt_cached_tokens: int
 	total_prompt_cached_cost: float
+	total_prompt_cache_creation_tokens: int = 0
+	total_prompt_cache_creation_cost: float = 0.0
 
 	total_completion_tokens: int
 	total_completion_cost: float

@@ -55,6 +55,12 @@ uv init && uv add browser-use && uv sync
 # uvx browser-use install  # Run if you don't have Chromium installed
 ```
 
+**Experimental Rust agent:** install Browser Use Terminal for `from browser_use.rust import Agent`:
+```bash
+curl -fsSL https://browser-use.com/terminal/install.sh | sh
+browser
+```
+
 **2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
 ```
 # .env
@@ -83,6 +89,24 @@ async def main():
         browser=browser,
     )
     await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**4. [Optional] Try the experimental Rust core:**
+```python
+from browser_use import ChatBrowserUse
+from browser_use.rust import Agent
+import asyncio
+
+async def main():
+    agent = Agent(
+        task="Find the number of stars of the browser-use repo",
+        llm=ChatBrowserUse(),
+    )
+    history = await agent.run()
+    print(history.final_result())
 
 if __name__ == "__main__":
     asyncio.run(main())
