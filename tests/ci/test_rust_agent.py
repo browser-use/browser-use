@@ -3279,6 +3279,8 @@ def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 		'OPENROUTER_API_KEY',
 		'OPENROUTER_BASE_URL',
 		'DEEPSEEK_API_KEY',
+		'LLM_BROWSER_BROWSER_USE_API_KEY',
+		'LLM_BROWSER_BROWSER_USE_BASE_URL',
 	):
 		monkeypatch.delenv(key, raising=False)
 	monkeypatch.setenv('LLM_BROWSER_OPENAI_API_KEY', 'ambient-openai-key')
@@ -3300,6 +3302,10 @@ def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 		task='OpenRouter credentials.',
 		llm=LLM('openrouter', 'openrouter/model', api_key='llm-openrouter-key', base_url='https://openrouter.example/api/v1'),
 	)
+	browser_use_agent = Agent(
+		task='Browser Use credentials.',
+		llm=LLM('browser-use', 'bu-3-max', api_key='llm-browser-use-key', base_url='https://browser-use.example'),
+	)
 	deepseek_agent = Agent(
 		task='DeepSeek credentials.',
 		llm=LLM('deepseek', 'deepseek-chat', api_key='llm-deepseek-key', base_url='https://ignored.example'),
@@ -3310,6 +3316,7 @@ def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	)._run_env()
 	anthropic_env = anthropic_agent._run_env()
 	openrouter_env = openrouter_agent._run_env()
+	browser_use_env = browser_use_agent._run_env()
 	deepseek_env = deepseek_agent._run_env()
 
 	assert openai_env['LLM_BROWSER_OPENAI_API_KEY'] == 'llm-openai-key'
@@ -3318,6 +3325,8 @@ def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	assert anthropic_env['LLM_BROWSER_ANTHROPIC_BASE_URL'] == 'https://anthropic.example'
 	assert openrouter_env['OPENROUTER_API_KEY'] == 'llm-openrouter-key'
 	assert openrouter_env['OPENROUTER_BASE_URL'] == 'https://openrouter.example/api/v1'
+	assert browser_use_env['LLM_BROWSER_BROWSER_USE_API_KEY'] == 'llm-browser-use-key'
+	assert browser_use_env['LLM_BROWSER_BROWSER_USE_BASE_URL'] == 'https://browser-use.example/v1'
 	assert deepseek_env['DEEPSEEK_API_KEY'] == 'llm-deepseek-key'
 	assert 'LLM_BROWSER_OPENAI_COMPAT_BASE_URL' not in deepseek_env
 	assert ambient_env['LLM_BROWSER_ANTHROPIC_API_KEY'] == 'ambient-anthropic-key'
@@ -3335,6 +3344,11 @@ def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	assert openrouter_agent._sdk_run_params(max_steps=3, task=openrouter_agent.task)['llm'] | {'timeout': None} == {
 		'provider': 'openrouter',
 		'model': 'openrouter/model',
+		'timeout': None,
+	}
+	assert browser_use_agent._sdk_run_params(max_steps=3, task=browser_use_agent.task)['llm'] | {'timeout': None} == {
+		'provider': 'browser-use',
+		'model': 'bu-3-max',
 		'timeout': None,
 	}
 	assert deepseek_agent._sdk_run_params(max_steps=3, task=deepseek_agent.task)['llm'] | {'timeout': None} == {

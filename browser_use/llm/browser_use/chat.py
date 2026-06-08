@@ -58,6 +58,7 @@ class ChatBrowserUse(BaseChatModel):
 
 		Args:
 			model: Model name to use. Options:
+				- 'bu-3-max': BU3 Max
 				- 'bu-2-0' or 'bu-latest': Default model (latest premium)
 				- 'bu-1-0': Previous generation model
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
@@ -69,7 +70,7 @@ class ChatBrowserUse(BaseChatModel):
 			retry_max_delay: Maximum delay in seconds between retries (default: 60.0).
 		"""
 		# Validate model name - allow bu-* and browser-use/* patterns
-		valid_models = ['bu-latest', 'bu-1-0', 'bu-2-0']
+		valid_models = ['bu-latest', 'bu-1-0', 'bu-2-0', 'bu-3-max']
 		is_valid = model in valid_models or model.startswith('browser-use/')
 		if not is_valid:
 			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models} or start with 'browser-use/'")
