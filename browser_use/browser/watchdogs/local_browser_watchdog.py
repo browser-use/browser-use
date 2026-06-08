@@ -179,8 +179,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 				# Keep only the in-use directory for cleanup during browser kill
 				if currently_used_dir and (
-					'browseruse-tmp-' in currently_used_dir
-					or 'browser-use-user-data-dir-' in currently_used_dir
+					'browseruse-tmp-' in currently_used_dir or 'browser-use-user-data-dir-' in currently_used_dir
 				):
 					self._temp_dirs_to_cleanup = [Path(currently_used_dir)]
 				else:

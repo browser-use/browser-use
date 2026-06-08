@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "https://github.com/anthropics/dxt/blob/main/dist/dxt-manifest.schema.json",
   "dxt_version": "0.1",
   "name": "browser-use",

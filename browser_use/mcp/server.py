@@ -641,12 +641,8 @@ class BrowserUseServer:
 			# creating a temp directory (mkdtemp) that would never be used
 			# and never be cleaned up by the local-browser watchdog.
 			_user_data_dir = profile_data.get('user_data_dir')
-			if not _user_data_dir or (
-				isinstance(_user_data_dir, str) and not _user_data_dir.strip()
-			):
-				profile_data['user_data_dir'] = (
-					'~/.config/browseruse/profiles/default'
-				)
+			if not _user_data_dir or (isinstance(_user_data_dir, str) and not _user_data_dir.strip()):
+				profile_data['user_data_dir'] = '~/.config/browseruse/profiles/default'
 
 		# Normalize user_data_dir: treat empty / whitespace-only values as
 		# "not set" so that BrowserProfile creates a temp directory instead
