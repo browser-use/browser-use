@@ -20,7 +20,7 @@ from contextlib import nullcontext, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from bubus import EventBus
 from pydantic import BaseModel, ValidationError, create_model
@@ -1372,7 +1372,21 @@ def _extract_start_url(task: str) -> str | None:
 			url_lower = url.lower()
 			if is_placeholder_url(url):
 				continue
-			if any(f'.{ext}' in url_lower for ext in excluded_extensions):
+			# Skip URL-looking tokens that are actually local filesystem paths
+			# (e.g. an uploaded file like "/app/x_capabilities.html"): the domain
+			# pattern excludes '_' from its char class, so the path tail gets
+			# captured as a bare URL and force-navigated. Skip local-path tokens.
+			if not url.startswith(('http://', 'https://')):
+				token_start = match.start()
+				while token_start > 0 and not task_without_emails[token_start - 1].isspace():
+					token_start -= 1
+				local_path_token = task_without_emails[token_start : match.end()].lstrip('\'"`(<[{')
+				if re.match(r'^(?:[A-Za-z]:)?(?:~|\.{1,2})?[/\\]', local_path_token):
+					continue
+			url_no_scheme = re.sub(r'^[a-z][a-z0-9+.-]*://', '', url_lower).split('?', 1)[0].split('#', 1)[0]
+			last_segment = unquote(url_no_scheme.rstrip('/').rsplit('/', 1)[-1]).split(';', 1)[0]
+			file_ext = last_segment.rsplit('.', 1)[-1] if '.' in last_segment else ''
+			if file_ext in excluded_extensions:
 				continue
 			context_start = max(0, match.start() - 20)
 			context_text = task_without_emails[context_start : match.start()]
