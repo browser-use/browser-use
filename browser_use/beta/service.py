@@ -204,7 +204,47 @@ def find_browser_use_terminal_binary() -> str:
 		return path_binary
 	raise BetaAgentError(
 		f'Could not find browser-use-terminal. Install Browser Use Terminal with `{TERMINAL_INSTALL_COMMAND}`, '
-		'install browser-use-core, or set BROWSER_USE_TERMINAL_BINARY to a built terminal CLI.'
+		'install browser-use-core, set BROWSER_USE_TERMINAL_SOURCE_DIR to a terminal checkout, '
+		'or set BROWSER_USE_TERMINAL_BINARY to a built terminal CLI.'
+	)
+
+
+def find_browser_use_terminal_command() -> list[str]:
+	"""Find the command prefix used to start the Rust-backed Browser Use Agent."""
+	env_path = os.environ.get('BROWSER_USE_TERMINAL_BINARY')
+	if env_path:
+		return [env_path]
+	source_command = _find_terminal_source_command()
+	if source_command:
+		return source_command
+	return [find_browser_use_terminal_binary()]
+
+
+def _find_terminal_source_command() -> list[str] | None:
+	source_dir = os.environ.get('BROWSER_USE_TERMINAL_SOURCE_DIR')
+	if not source_dir:
+		return None
+	source_root = _resolve_terminal_source_root(source_dir)
+	return [
+		'cargo',
+		'run',
+		'-q',
+		'--manifest-path',
+		str(source_root / 'Cargo.toml'),
+		'-p',
+		'browser-use-cli',
+		'--',
+	]
+
+
+def _resolve_terminal_source_root(source_dir: str) -> Path:
+	source_path = Path(source_dir).expanduser()
+	for candidate in (source_path, *source_path.parents):
+		if (candidate / 'Cargo.toml').exists() and (candidate / 'crates' / 'browser-use-cli' / 'Cargo.toml').exists():
+			return candidate
+	raise BetaAgentError(
+		'BROWSER_USE_TERMINAL_SOURCE_DIR must point to the browser-use terminal source checkout, or a path inside it. '
+		'Expected to find Cargo.toml and crates/browser-use-cli/Cargo.toml.'
 	)
 
 
@@ -279,6 +319,7 @@ class RustSdkClient:
 			raise BetaAgentError(
 				f'Could not start Rust SDK server command {command!r}. '
 				f'Install Browser Use Terminal with `{TERMINAL_INSTALL_COMMAND}`, '
+				'set BROWSER_USE_TERMINAL_SOURCE_DIR to a terminal checkout, '
 				'or set BROWSER_USE_TERMINAL_BINARY to a built terminal CLI.'
 			) from exc
 		self._reader_task = asyncio.create_task(self._read_stdout())
@@ -6257,7 +6298,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def _sdk_server_argv(self) -> list[str]:
 		explicit = os.environ.get('BROWSER_USE_SDK_SERVER')
-		command = [explicit] if explicit else [find_browser_use_terminal_binary()]
+		command = [explicit] if explicit else find_browser_use_terminal_command()
 		return [
 			*command,
 			*self._state_dir_args(),
@@ -6284,13 +6325,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._sdk_client = None
 			raise BetaAgentError(
 				'Failed to negotiate browser-use-terminal SDK protocol via runtime.ping. '
-				'Install a compatible browser-use-core package or set BROWSER_USE_TERMINAL_BINARY to a compatible binary.'
+				'Install a compatible browser-use-core package, set BROWSER_USE_TERMINAL_SOURCE_DIR to a terminal checkout, '
+				'or set BROWSER_USE_TERMINAL_BINARY to a compatible binary.'
 			) from exc
 		await self._sdk_client.close()
 		self._sdk_client = None
 		raise BetaAgentError(
 			f'Unsupported browser-use-terminal SDK protocol {protocol_version!r}; expected 1. '
-			'Install a compatible browser-use-core package or set BROWSER_USE_TERMINAL_BINARY to a compatible binary.'
+			'Install a compatible browser-use-core package, set BROWSER_USE_TERMINAL_SOURCE_DIR to a terminal checkout, '
+			'or set BROWSER_USE_TERMINAL_BINARY to a compatible binary.'
 		)
 
 	def _sdk_llm_payload(self) -> dict[str, Any]:
