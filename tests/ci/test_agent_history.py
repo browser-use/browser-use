@@ -19,8 +19,8 @@ def _make_history_with_partial_metadata(
 					memory='Need to report the result',
 					next_goal='Finish',
 					action=[
-						ActionModel(done={'text': 'first action', 'success': False}),
-						ActionModel(done={'text': 'second action', 'success': True}),
+						ActionModel.model_validate({'done': {'text': 'first action', 'success': False}}),
+						ActionModel.model_validate({'done': {'text': 'second action', 'success': True}}),
 					],
 				),
 				result=results,
