@@ -81,8 +81,12 @@ class ScreenshotWatchdog(BaseWatchdog):
 			last_error: Exception | None = None
 			for attempt in range(_SCREENSHOT_MAX_RETRIES):
 				try:
-					self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params} (attempt {attempt + 1}/{_SCREENSHOT_MAX_RETRIES})')
-					result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
+					self.logger.debug(
+						f'[ScreenshotWatchdog] Taking screenshot with params: {params} (attempt {attempt + 1}/{_SCREENSHOT_MAX_RETRIES})'
+					)
+					result = await cdp_session.cdp_client.send.Page.captureScreenshot(
+						params=params, session_id=cdp_session.session_id
+					)
 
 					# Return base64-encoded screenshot data
 					if result and 'data' in result:
@@ -93,7 +97,9 @@ class ScreenshotWatchdog(BaseWatchdog):
 				except RuntimeError as e:
 					if 'timed out' in str(e) and attempt < _SCREENSHOT_MAX_RETRIES - 1:
 						last_error = e
-						self.logger.warning(f'[ScreenshotWatchdog] Screenshot timed out (attempt {attempt + 1}/{_SCREENSHOT_MAX_RETRIES}), retrying in {_SCREENSHOT_RETRY_DELAY}s...')
+						self.logger.warning(
+							f'[ScreenshotWatchdog] Screenshot timed out (attempt {attempt + 1}/{_SCREENSHOT_MAX_RETRIES}), retrying in {_SCREENSHOT_RETRY_DELAY}s...'
+						)
 						await asyncio.sleep(_SCREENSHOT_RETRY_DELAY)
 						continue
 					raise

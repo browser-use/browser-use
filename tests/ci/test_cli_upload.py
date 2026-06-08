@@ -242,7 +242,6 @@ class TestUploadCommandHandler:
 		finally:
 			await session.kill()
 
-
 	async def test_upload_happy_path(self, httpserver):
 		"""Upload to a file input element succeeds."""
 		from browser_use.browser.events import NavigateToUrlEvent
