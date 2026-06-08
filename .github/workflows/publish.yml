@@ -19,6 +19,12 @@ on:
   # schedule:
   #   - cron: "0 17 * * FRI" # tag a pre-release on Github every Friday at 5 PM UTC
   workflow_dispatch:
+    inputs:
+      create_tag:
+        description: "Create the next pre-release tag before publishing"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -26,7 +32,7 @@ permissions:
 
 jobs:
   tag_pre_release:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.create_tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
