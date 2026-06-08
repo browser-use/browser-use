@@ -842,12 +842,36 @@ jobs-radar/
 
 **Coverage:** 262 raw → 34 scored ≥20% (2.6× vs v1). All sources fetched in parallel via `Promise.allSettled` — one failing never blocks the others.
 
-### Dashboard Features (v2)
+### Dashboard Features (v3)
 - ★ **Saved jobs** — localStorage bookmarks, persists across visits
-- 📍 **View pills** — All · ★ Saved (count) · New 24h
+- 🎯 **Application Tracker** — 3 states per job (👀 Interested · ✓ Applied · ✗ Pass), counters in view pills
+- 📍 **View pills** — All · ★ Saved · New 24h · 👀 Interested · ✓ Applied
 - 🔍 **Search + tag filters** — Remote / Sweden / Space / AI / Innovation / EO / Senior / Consulting
-- 🔗 **Delegated click handler** — separates card-open vs bookmark-toggle
+- 🔗 **Delegated click handler** — separates card-open vs bookmark vs track
 - 📤 **Export** — CSV + JSON, respects current filter
+
+### News Pulse (v3)
+RSS aggregation, server-side from cron (CORS-free), 11 feeds → 40 deduped items:
+
+| Source | Category |
+|--------|----------|
+| SpaceNews · Space.com · ESA News | space |
+| TechCrunch AI · VentureBeat AI · MIT Tech Review | ai |
+| Reuters Tech | policy |
+| Sifted · Crunchbase | startup |
+| African Business · TechCabal | africa |
+
+- Tiny inline regex-based RSS+Atom parser (zero deps; KafCa)
+- Dedup by link, sort by date desc
+- Categorised pills + per-feed health (✓/✗) shown in sidebar
+- Show-more pagination
+
+### Source Health Monitor (v3)
+Each cron run records `feeds[].ok` + `feeds[].err` in `news.json`. Dashboard renders pills:
+- 🟢 ✓ {feed} — last fetch succeeded
+- 🔴 ✗ {feed} — last fetch failed (hover for HTTP error)
+
+Resilient: news fetch step uses `continue-on-error` so RSS failures never block job refresh or alerts.
 
 ### Match Scoring
 4-tier weighted keyword matching against `profile.json`:
