@@ -5,7 +5,7 @@ returned plain JSON, fenced ```json``` blocks, or a JSON object embedded in
 prose.
 
 Run:
-    python examples/terminal/06_output_model.py
+    python examples/rust/06_output_model.py
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ async def main() -> None:
 			'Open https://news.ycombinator.com and respond with ONLY a JSON object of the form '
 			'{"stories": ["title1", "title2", "title3"]}. No prose, no fences.'
 		),
+		show_events=True,
 		output_model=StoryList,
 	)
 	result = await agent.run(interactive=False)

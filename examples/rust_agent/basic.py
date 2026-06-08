@@ -17,7 +17,7 @@ async def main() -> None:
 	task = os.environ.get('BU_TASK', 'Open https://example.com and report the page title.')
 	max_steps = int(os.environ.get('BU_MAX_STEPS', '20'))
 
-	agent = Agent(task=task, browser_session=browser_session)
+	agent = Agent(task=task, browser_session=browser_session, show_events=True)
 	history = await agent.run(max_steps=max_steps)
 	print(history.final_result() or '(no final result)')
 

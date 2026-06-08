@@ -20,6 +20,10 @@ through a Python `Agent` interface that mirrors the classic
    prior `codex login`, etc. Run `browser-use-terminal auth status` to
    confirm.
 
+   Current `browser-use-terminal` releases support OpenAI, Anthropic,
+   OpenRouter, DeepSeek, and Codex provider subcommands. `ChatBrowserUse`
+   needs a native terminal provider before the Rust wrapper can route it.
+
 ## What's here
 
 | File | What it shows |
@@ -41,6 +45,10 @@ through a Python `Agent` interface that mirrors the classic
 # from the browser-use repo root
 uv run python examples/rust/01_simple_task.py
 ```
+
+For normal scripts, pass `show_events=True` to `browser_use.rust.Agent` to
+print the Rust session, model turns, tool calls, browser script summaries, token
+counts, and final result live while `await agent.run()` is running.
 
 ## Backward compatibility
 

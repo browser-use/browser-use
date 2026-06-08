@@ -76,8 +76,8 @@ class CloudBrowserResponse(BaseModel):
 
 	id: str
 	status: str
-	liveUrl: str = Field(alias='liveUrl')
-	cdpUrl: str = Field(alias='cdpUrl')
+	liveUrl: str | None = Field(alias='liveUrl')
+	cdpUrl: str | None = Field(alias='cdpUrl')
 	timeoutAt: str = Field(alias='timeoutAt')
 	startedAt: str = Field(alias='startedAt')
 	finishedAt: str | None = Field(alias='finishedAt', default=None)

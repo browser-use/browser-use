@@ -4,7 +4,7 @@ session so the agent's context (browser state, message history, compaction)
 carries over without re-attaching a browser.
 
 Run:
-    python examples/terminal/02_follow_up.py
+    python examples/rust/02_follow_up.py
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from browser_use.rust import Agent
 
 
 async def main() -> None:
-	agent = Agent(task='open hackernews and tell me the top story title')
+	agent = Agent(task='open hackernews and tell me the top story title', show_events=True)
 	first = await agent.run(interactive=False)
 	print(f'[example] first session_id:    {first.session_id}')
 	print(f'[example] first final_summary:\n{first.final_summary}\n')

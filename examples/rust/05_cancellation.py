@@ -7,7 +7,7 @@ asyncio.CancelledError on the task → `Agent.cancel()` →
 exit.
 
 Run:
-    python examples/terminal/05_cancellation.py
+    python examples/rust/05_cancellation.py
 """
 
 from __future__ import annotations
@@ -18,7 +18,10 @@ from browser_use.rust import Agent
 
 
 async def main() -> None:
-	agent = Agent(task='go to https://news.ycombinator.com and summarise every story on the front page in detail')
+	agent = Agent(
+		task='go to https://news.ycombinator.com and summarise every story on the front page in detail',
+		show_events=True,
+	)
 
 	async def stop_after_3s() -> None:
 		await asyncio.sleep(3)

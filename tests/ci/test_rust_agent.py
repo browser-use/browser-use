@@ -15,10 +15,18 @@ import warnings
 import pytest
 from pydantic import BaseModel
 
-from browser_use.rust import Agent, Provider, parse_event
-from browser_use.rust.events import RawEvent, SessionInput, SessionResult
+from browser_use.rust import Agent, Provider
+from browser_use.rust import parse_event as _parse_event
+from browser_use.rust.events import AnyAgentEvent, RawEvent, SessionInput, SessionResult
 from browser_use.rust.runner import ButNotInstalledError, find_browser_use_terminal_binary
-from browser_use.rust.service import _AgentSessionState
+from browser_use.rust.service import _AgentSessionState, _RustEventPrinter
+
+
+def parse_event(raw) -> AnyAgentEvent:
+	event = _parse_event(raw)
+	assert event is not None
+	return event
+
 
 # ---------------------------------------------------------------------------
 # llm/browser introspection (the entire user-facing surface)
@@ -171,12 +179,8 @@ def test_rust_wrapper_enables_multi_agent_v2_in_eval_mode(monkeypatch):
 
 	assert 'features.multi_agent_v2.enabled=true' in flags
 	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=11' in flags
-	root_hint = next(
-		flag for flag in flags if flag.startswith('features.multi_agent_v2.root_agent_usage_hint_text=')
-	)
-	subagent_hint = next(
-		flag for flag in flags if flag.startswith('features.multi_agent_v2.subagent_usage_hint_text=')
-	)
+	root_hint = next(flag for flag in flags if flag.startswith('features.multi_agent_v2.root_agent_usage_hint_text='))
+	subagent_hint = next(flag for flag in flags if flag.startswith('features.multi_agent_v2.subagent_usage_hint_text='))
 	assert 'Spawn one focused helper per item/document/site' in root_hint
 	assert 'Sequential browser walks are the known failure mode for real_v8' in root_hint
 	assert 'complete only the single item/document/site assigned' in subagent_hint
@@ -201,9 +205,7 @@ def test_rust_wrapper_respects_explicit_multi_agent_v2_eval_override(monkeypatch
 
 	assert 'features.multi_agent_v2.enabled=true' not in flags
 	assert 'features.multi_agent_v2.max_concurrent_threads_per_session=11' not in flags
-	assert not any(
-		'Sequential browser walks are the known failure mode for real_v8' in flag for flag in flags
-	)
+	assert not any('Sequential browser walks are the known failure mode for real_v8' in flag for flag in flags)
 	assert not any('complete only the single item/document/site assigned' in flag for flag in flags)
 
 
@@ -382,6 +384,21 @@ def test_event_parse_known_type():
 	assert event.text == 'hello'
 
 
+def test_event_parse_current_session_done_type():
+	event = parse_event(
+		{
+			'seq': 100,
+			'id': 'abc',
+			'session_id': 'sess',
+			'ts_ms': 1700000000,
+			'type': 'session.done',
+			'payload': {'result': 'hello'},
+		}
+	)
+	assert isinstance(event, SessionResult)
+	assert event.text == 'hello'
+
+
 def test_event_parse_unknown_falls_back_to_raw():
 	payload = {
 		'seq': 1,
@@ -397,17 +414,17 @@ def test_event_parse_unknown_falls_back_to_raw():
 
 
 def test_event_parse_blank_or_garbage_yields_none():
-	assert parse_event('') is None
-	assert parse_event('   ') is None
-	assert parse_event('not json') is None
-	assert parse_event(b'{"missing":"fields"}') is None
+	assert _parse_event('') is None
+	assert _parse_event('   ') is None
+	assert _parse_event('not json') is None
+	assert _parse_event(b'{"missing":"fields"}') is None
 
 
 def test_event_parse_accepts_bytes_and_str_and_dict():
 	payload = '{"seq":1,"id":"a","session_id":"s","ts_ms":1,"type":"session.input","payload":{"text":"hi"}}'
-	assert isinstance(parse_event(payload), SessionInput)
-	assert isinstance(parse_event(payload.encode()), SessionInput)
-	assert isinstance(parse_event(json.loads(payload)), SessionInput)
+	assert isinstance(_parse_event(payload), SessionInput)
+	assert isinstance(_parse_event(payload.encode()), SessionInput)
+	assert isinstance(_parse_event(json.loads(payload)), SessionInput)
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +454,49 @@ def test_session_state_pairs_tool_call_with_result():
 	assert state.steps[0].tool_output == {'call_id': 'c1', 'ok': True}
 
 
+def test_session_state_creates_step_from_current_tool_started_event():
+	state = _AgentSessionState()
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.started',
+				{'name': 'browser_script', 'tool_call_id': 'tc1', 'arguments': {'code': 'page_info()'}},
+				seq=1,
+			)
+		)
+	)
+	state.absorb(
+		parse_event(
+			_event(
+				'browser_script.completed',
+				{
+					'name': 'browser_script',
+					'tool_call_id': 'tc1',
+					'summary': [{'kind': 'navigation', 'title': 'Example Domain'}],
+					'images': [{'path': '/tmp/step.png'}],
+				},
+				seq=2,
+			)
+		)
+	)
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.output',
+				{'name': 'browser_script', 'tool_call_id': 'tc1', 'text': 'Example Domain\n', 'ok': True},
+				seq=3,
+			)
+		)
+	)
+	assert len(state.steps) == 1
+	step = state.steps[0]
+	assert step.tool == 'browser_script'
+	assert step.tool_input == {'name': 'browser_script', 'tool_call_id': 'tc1', 'arguments': {'code': 'page_info()'}}
+	assert step.tool_output is not None
+	assert step.tool_output.get('text') == 'Example Domain\n'
+	assert step.screenshot_paths == ['/tmp/step.png']
+
+
 def test_session_state_accumulates_token_usage_from_model_usage():
 	state = _AgentSessionState()
 	state.absorb(
@@ -460,6 +520,46 @@ def test_session_state_accumulates_token_usage_from_model_usage():
 	assert state.token_input_total == 300
 	assert state.token_output_total == 80
 	assert abs(state.cost_total_usd - 0.005) < 1e-9
+
+
+def test_session_state_reads_current_token_count_totals():
+	state = _AgentSessionState()
+	state.absorb(
+		parse_event(
+			_event(
+				'token_count',
+				{
+					'info': {
+						'total_token_usage': {
+							'input_tokens': 123,
+							'output_tokens': 45,
+							'total_tokens': 168,
+						}
+					}
+				},
+				seq=1,
+			)
+		)
+	)
+	assert state.token_input_total == 123
+	assert state.token_output_total == 45
+
+
+def test_rust_event_printer_outputs_current_tool_and_token_events(capsys):
+	printer = _RustEventPrinter()
+	printer(parse_event(_event('tool.started', {'name': 'browser_script', 'arguments': {'code': 'page_info()'}}, seq=1)))
+	printer(
+		parse_event(
+			_event(
+				'token_count',
+				{'info': {'total_token_usage': {'input_tokens': 10, 'output_tokens': 2, 'total_tokens': 12}}},
+				seq=2,
+			)
+		)
+	)
+	out = capsys.readouterr().out
+	assert '[tool:start] browser_script' in out
+	assert '[tokens] {"input_tokens":10,"output_tokens":2,"total_tokens":12}' in out
 
 
 def test_session_state_collects_input_messages_for_last_input_messages():
@@ -490,11 +590,7 @@ def test_session_state_attaches_tool_image_path_to_matching_step(tmp_path):
 	attach the on-disk PNG path to the corresponding step so the eval judge can
 	render screenshots."""
 	state = _AgentSessionState()
-	state.absorb(
-		parse_event(
-			_event('model.tool_call', {'name': 'browser_script', 'call_id': 'c1'}, seq=1)
-		)
-	)
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'call_id': 'c1'}, seq=1)))
 	state.absorb(parse_event(_event('tool.started', {'call_id': 'c1'}, seq=2)))
 	state.absorb(
 		parse_event(
@@ -531,9 +627,7 @@ def test_session_state_tool_output_images_array_attached_to_step():
 	"""tool.output for browser_script carries an `images` array — those paths
 	should also land on the step (alongside tool.image events)."""
 	state = _AgentSessionState()
-	state.absorb(
-		parse_event(_event('model.tool_call', {'name': 'browser_script', 'call_id': 'c2'}, seq=1))
-	)
+	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'call_id': 'c2'}, seq=1)))
 	state.absorb(
 		parse_event(
 			_event(
@@ -729,7 +823,9 @@ def test_laminar_trace_url_formats_hex_as_uuid():
 
 	# End-to-end URL
 	state = _AgentSessionState()
-	state.absorb(parse_event(_event('telemetry.trace', {'backend': 'laminar', 'trace_id': '97db9503a669d1d1507e6459b46660f7'}, seq=1)))
+	state.absorb(
+		parse_event(_event('telemetry.trace', {'backend': 'laminar', 'trace_id': '97db9503a669d1d1507e6459b46660f7'}, seq=1))
+	)
 	r = AgentRunResult(exit_code=0, events=state.events, steps=state.steps)
 	url = r.laminar_trace_url(project_id='proj-123')
 	assert url == 'https://laminar.sh/project/proj-123/traces?traceId=97db9503-a669-d1d1-507e-6459b46660f7'
@@ -741,12 +837,15 @@ def test_step_timing_populated_from_tool_started_and_finished():
 	state = _AgentSessionState()
 	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'id': 'tc1'}, seq=1, ts_ms=1_700_000_000_000)))
 	state.absorb(parse_event(_event('tool.started', {'tool_call_id': 'tc1'}, seq=2, ts_ms=1_700_000_000_100)))
-	state.absorb(parse_event(_event('tool.finished', {'name': 'browser_script', 'tool_call_id': 'tc1'}, seq=3, ts_ms=1_700_000_003_500)))
+	state.absorb(
+		parse_event(_event('tool.finished', {'name': 'browser_script', 'tool_call_id': 'tc1'}, seq=3, ts_ms=1_700_000_003_500))
+	)
 	step = state.steps[0]
 	assert step.started_ts_ms == 1_700_000_000_100
 	assert step.finished_ts_ms == 1_700_000_003_500
 
 	from browser_use.rust.views import _HistoryItemView
+
 	hv = _HistoryItemView(step, is_last=True, final_summary=None)
 	assert abs(hv.metadata.duration_seconds - 3.4) < 0.01
 	assert hv.metadata.step_start_time > 1_000_000_000  # sane unix timestamp
@@ -757,10 +856,22 @@ def test_tool_output_text_promoted_to_extracted_content():
 	The wrapper must merge that into step.tool_output (alongside tool.finished's
 	{name, tool_call_id}) and synthesise extracted_content for the judge."""
 	state = _AgentSessionState()
-	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'id': 'tc1', 'arguments': {'code': 'print(page_info())'}}, seq=1)))
+	state.absorb(
+		parse_event(
+			_event('model.tool_call', {'name': 'browser_script', 'id': 'tc1', 'arguments': {'code': 'print(page_info())'}}, seq=1)
+		)
+	)
 	state.absorb(parse_event(_event('tool.started', {'tool_call_id': 'tc1'}, seq=2)))
 	state.absorb(parse_event(_event('tool.finished', {'name': 'browser_script', 'tool_call_id': 'tc1'}, seq=3)))
-	state.absorb(parse_event(_event('tool.output', {'name': 'browser_script', 'tool_call_id': 'tc1', 'text': 'Example Domain\n', 'status': 'finished', 'ok': True}, seq=4)))
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.output',
+				{'name': 'browser_script', 'tool_call_id': 'tc1', 'text': 'Example Domain\n', 'status': 'finished', 'ok': True},
+				seq=4,
+			)
+		)
+	)
 	step = state.steps[0]
 	assert step.tool_output is not None
 	assert step.tool_output.get('text') == 'Example Domain\n'
@@ -773,14 +884,22 @@ def test_tool_output_structured_ready_signals_promoted_to_extracted_content():
 	without a text transcript. Keep those visible to the judge/history view."""
 	state = _AgentSessionState()
 	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser_script', 'id': 'tc1'}, seq=1)))
-	state.absorb(parse_event(_event('tool.output', {
-		'name': 'browser_script',
-		'tool_call_id': 'tc1',
-		'final_candidate': {'ready_for_done': True, 'answer': '42'},
-		'result_file_candidates': [{'path': '/tmp/result.json', 'bytes': 18}],
-		'status': 'finished',
-		'ok': True,
-	}, seq=2)))
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.output',
+				{
+					'name': 'browser_script',
+					'tool_call_id': 'tc1',
+					'final_candidate': {'ready_for_done': True, 'answer': '42'},
+					'result_file_candidates': [{'path': '/tmp/result.json', 'bytes': 18}],
+					'status': 'finished',
+					'ok': True,
+				},
+				seq=2,
+			)
+		)
+	)
 	step = state.steps[0]
 	assert step.tool_output is not None
 	assert step.tool_output.get('final_candidate') == {'ready_for_done': True, 'answer': '42'}
@@ -796,26 +915,36 @@ def test_response_input_tool_output_attaches_wait_agent_results_to_step():
 	state = _AgentSessionState()
 	state.absorb(parse_event(_event('model.tool_call', {'name': 'wait_agent', 'id': 'tc1'}, seq=1)))
 	state.absorb(parse_event(_event('tool.finished', {'name': 'wait_agent', 'tool_call_id': 'tc1'}, seq=2)))
-	state.absorb(parse_event(_event('model.response.input_item', {
-		'source': 'tool_output',
-		'name': 'wait_agent',
-		'call_id': 'tc1',
-		'item': {
-			'type': 'function_call_output',
-			'call_id': 'tc1',
-			'output': json.dumps({
-				'message': 'Wait completed.',
-				'timed_out': False,
-				'agents': [
-					{
-						'agent_name': '/root/item_1',
-						'agent_status': {'completed': 'child answer'},
-						'last_task_message': 'inspect item 1',
-					}
-				],
-			}),
-		},
-	}, seq=3)))
+	state.absorb(
+		parse_event(
+			_event(
+				'model.response.input_item',
+				{
+					'source': 'tool_output',
+					'name': 'wait_agent',
+					'call_id': 'tc1',
+					'item': {
+						'type': 'function_call_output',
+						'call_id': 'tc1',
+						'output': json.dumps(
+							{
+								'message': 'Wait completed.',
+								'timed_out': False,
+								'agents': [
+									{
+										'agent_name': '/root/item_1',
+										'agent_status': {'completed': 'child answer'},
+										'last_task_message': 'inspect item 1',
+									}
+								],
+							}
+						),
+					},
+				},
+				seq=3,
+			)
+		)
+	)
 	step = state.steps[0]
 	assert step.tool_output is not None
 	assert step.tool_output['message'] == 'Wait completed.'
@@ -837,17 +966,27 @@ def test_large_wait_agent_result_extracted_content_remains_valid_json():
 		for idx in range(12)
 	]
 	state.absorb(parse_event(_event('model.tool_call', {'name': 'wait_agent', 'id': 'tc1'}, seq=1)))
-	state.absorb(parse_event(_event('model.response.input_item', {
-		'source': 'tool_output',
-		'name': 'wait_agent',
-		'call_id': 'tc1',
-		'item': {
-			'type': 'function_call_output',
-			'call_id': 'tc1',
-			'output': json.dumps({'message': 'Wait completed.', 'timed_out': False, 'agents': agents}),
-		},
-	}, seq=2)))
-	extracted = state.steps[0].tool_output['extracted_content']
+	state.absorb(
+		parse_event(
+			_event(
+				'model.response.input_item',
+				{
+					'source': 'tool_output',
+					'name': 'wait_agent',
+					'call_id': 'tc1',
+					'item': {
+						'type': 'function_call_output',
+						'call_id': 'tc1',
+						'output': json.dumps({'message': 'Wait completed.', 'timed_out': False, 'agents': agents}),
+					},
+				},
+				seq=2,
+			)
+		)
+	)
+	tool_output = state.steps[0].tool_output
+	assert tool_output is not None
+	extracted = tool_output['extracted_content']
 	assert len(extracted) <= 8000
 	parsed = json.loads(extracted)
 	assert parsed['truncated'] is True
@@ -862,7 +1001,15 @@ def test_response_output_item_message_text_attached_to_step():
 	state = _AgentSessionState()
 	state.absorb(parse_event(_event('model.tool_call', {'name': 'browser', 'id': 'tc1'}, seq=1)))
 	# OpenAI/Codex output_item with content list
-	state.absorb(parse_event(_event('model.response.output_item', {'type': 'message', 'content': [{'type': 'output_text', 'text': 'I went to example.com and read the title.'}]}, seq=2)))
+	state.absorb(
+		parse_event(
+			_event(
+				'model.response.output_item',
+				{'type': 'message', 'content': [{'type': 'output_text', 'text': 'I went to example.com and read the title.'}]},
+				seq=2,
+			)
+		)
+	)
 	assert state.steps[0].model_text == 'I went to example.com and read the title.'
 
 	# Reasoning items must NOT leak into model_text
@@ -882,31 +1029,50 @@ def test_looks_like_skip_classification():
 	assert _looks_like_skip(r) is True
 
 	# Only browser admin
-	r = AgentRunResult(exit_code=0, steps=[
-		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
-	])
+	r = AgentRunResult(
+		exit_code=0,
+		steps=[
+			StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+		],
+	)
 	assert _looks_like_skip(r) is True
 
 	# observe-mode browser_script is still a skip (no real page interaction)
-	r = AgentRunResult(exit_code=0, steps=[
-		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
-		StepRecord(seq=2, tool='browser_script', tool_input={'arguments': {'action': 'observe', 'observe_timeout_ms': 2000}}, model_text=''),
-	])
+	r = AgentRunResult(
+		exit_code=0,
+		steps=[
+			StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+			StepRecord(
+				seq=2,
+				tool='browser_script',
+				tool_input={'arguments': {'action': 'observe', 'observe_timeout_ms': 2000}},
+				model_text='',
+			),
+		],
+	)
 	assert _looks_like_skip(r) is True
 
 	# code-mode browser_script = real browsing
-	r = AgentRunResult(exit_code=0, steps=[
-		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
-		StepRecord(seq=2, tool='browser_script', tool_input={'arguments': {'code': 'new_tab("https://example.com")'}}, model_text=''),
-	])
+	r = AgentRunResult(
+		exit_code=0,
+		steps=[
+			StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+			StepRecord(
+				seq=2, tool='browser_script', tool_input={'arguments': {'code': 'new_tab("https://example.com")'}}, model_text=''
+			),
+		],
+	)
 	assert _looks_like_skip(r) is False
 
 	# 3+ steps → automatically not a skip
-	r = AgentRunResult(exit_code=0, steps=[
-		StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
-		StepRecord(seq=2, tool='browser', tool_input={'arguments': {'cmd': 'connect managed --headless'}}, model_text=''),
-		StepRecord(seq=3, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
-	])
+	r = AgentRunResult(
+		exit_code=0,
+		steps=[
+			StepRecord(seq=1, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+			StepRecord(seq=2, tool='browser', tool_input={'arguments': {'cmd': 'connect managed --headless'}}, model_text=''),
+			StepRecord(seq=3, tool='browser', tool_input={'arguments': {'cmd': 'status --json'}}, model_text=''),
+		],
+	)
 	assert _looks_like_skip(r) is False
 
 
@@ -921,6 +1087,7 @@ def test_compact_tool_input_strips_observe_noise():
 		'name': 'browser_script',
 	}
 	out = _compact_tool_input('browser_script', noisy)
+	assert out is not None
 	assert out['arguments'] == {'action': 'observe', 'note': 'internal browser-state poll'}
 	assert out['id'] == 'call_xyz'  # passthrough
 
@@ -931,6 +1098,7 @@ def test_compact_tool_input_strips_observe_noise():
 		'name': 'browser_script',
 	}
 	out2 = _compact_tool_input('browser_script', code_call)
+	assert out2 is not None
 	assert out2['arguments']['code'].startswith('screenshot')
 
 	# Non-browser_script tools pass through unchanged
@@ -988,7 +1156,12 @@ def test_laminar_trace_id_extracted_from_telemetry_trace_event():
 		parse_event(
 			_event(
 				'telemetry.trace',
-				{'backend': 'laminar', 'transport': 'otlp_http_proto', 'trace_id': '0123456789abcdef', 'endpoint': 'https://api.lmnr.ai'},
+				{
+					'backend': 'laminar',
+					'transport': 'otlp_http_proto',
+					'trace_id': '0123456789abcdef',
+					'endpoint': 'https://api.lmnr.ai',
+				},
 				seq=1,
 			)
 		)

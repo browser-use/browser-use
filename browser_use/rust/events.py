@@ -55,7 +55,7 @@ class SessionStatus(_BaseEvent):
 
 
 class SessionResult(_BaseEvent):
-	type: Literal['session.result']
+	type: Literal['session.result', 'session.done']
 	payload: dict[str, Any] = Field(default_factory=dict)
 
 	@property
@@ -299,7 +299,7 @@ class ContextBaseline(_BaseEvent):
 
 
 class BrowserScript(_BaseEvent):
-	type: Literal['browser_script.response']
+	type: Literal['browser_script.response', 'browser_script.started', 'browser_script.completed']
 	payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -439,9 +439,8 @@ __all__ = [
 	'AnyAgentEvent',
 	'BrowserScript',
 	'ModelConfig',
+	'ModelStreamDelta',
 	'ModelTextDelta',
-	'ModelThinkingDelta',
-	'ModelTurnComplete',
 	'RawEvent',
 	'SessionCreated',
 	'SessionFailure',
@@ -449,8 +448,11 @@ __all__ = [
 	'SessionResult',
 	'SessionStartupWarning',
 	'SessionStatus',
+	'TokenCount',
 	'ToolCall',
+	'ToolOutput',
 	'ToolResult',
+	'ToolStarted',
 	'WorkspaceContext',
 	'parse_event',
 ]

@@ -24,6 +24,7 @@ async def main() -> None:
 	agent = Agent(
 		task='visit https://news.ycombinator.com and list the top 3 story titles',
 		llm=llm,
+		show_events=True,
 	)
 	result = await agent.run()
 	print(f'session_id:    {result.session_id}')

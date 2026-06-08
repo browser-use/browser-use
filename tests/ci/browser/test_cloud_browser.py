@@ -206,6 +206,41 @@ class TestCloudBrowserClient:
 			assert call_args.kwargs['json'] == {'action': 'stop'}
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 
+	async def test_stop_browser_accepts_null_urls(self, mock_auth_config, monkeypatch):
+		"""Stopped sessions can return null liveUrl/cdpUrl from the API."""
+
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+
+		mock_response_data = {
+			'id': 'test-browser-id',
+			'status': 'stopped',
+			'liveUrl': None,
+			'cdpUrl': None,
+			'timeoutAt': '2025-09-17T04:35:36.049892',
+			'startedAt': '2025-09-17T03:35:36.049974',
+			'finishedAt': '2025-09-17T04:35:36.049892',
+		}
+
+		with patch('httpx.AsyncClient') as mock_client_class:
+			mock_response = AsyncMock()
+			mock_response.status_code = 200
+			mock_response.is_success = True
+			mock_response.json = lambda: mock_response_data
+
+			mock_client = AsyncMock()
+			mock_client.patch.return_value = mock_response
+			mock_client_class.return_value = mock_client
+
+			client = CloudBrowserClient()
+			client.client = mock_client
+			client.current_session_id = 'test-browser-id'
+
+			result = await client.stop_browser()
+
+			assert result.status == 'stopped'
+			assert result.liveUrl is None
+			assert result.cdpUrl is None
+
 	async def test_stop_browser_session_not_found(self, mock_auth_config, monkeypatch):
 		"""Test stopping a browser session that doesn't exist."""
 

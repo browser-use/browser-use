@@ -11,7 +11,7 @@ from browser_use.rust import Agent
 
 
 async def main() -> None:
-	result = await Agent(task='go to https://example.com and tell me the page title').run()
+	result = await Agent(task='go to hackernews and get the last 5 posts', show_events=True).run()
 	print(result.final_summary)
 
 

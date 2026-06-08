@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from browser_use import BrowserSession
 from browser_use.llm import ChatOpenAI
-from browser_use.rust import Agent, SessionResult, ToolCall
+from browser_use.rust import Agent
 
 
 # Pydantic output model — the final agent message gets parsed into it.
@@ -43,10 +43,11 @@ class TopStories(BaseModel):
 
 
 async def on_event(event):
-	if isinstance(event, ToolCall):
-		print(f'  → tool {event.tool_name}')
-	elif isinstance(event, SessionResult):
-		print(f'  → result ({len(event.text)} chars)')
+	if event.type == 'tool.started':
+		print(f'  -> tool {event.payload.get("name")}')
+	elif event.type in {'session.done', 'session.result'}:
+		text = event.payload.get('result') or event.payload.get('text') or ''
+		print(f'  -> result ({len(text)} chars)')
 
 
 async def main() -> None:
@@ -74,11 +75,12 @@ async def main() -> None:
 		task='Open https://news.ycombinator.com and return JSON of the top 5 stories.',
 		llm=llm,
 		browser=browser,
-		timeout=180.0,                # cancel ladder fires on expiry
-		on_event=on_event,            # typed event callback (sync or async)
-		output_model=TopStories,      # parse the final summary into this pydantic class
+		timeout=180.0,  # cancel ladder fires on expiry
+		on_event=on_event,  # typed event callback (sync or async)
+		show_events=True,  # built-in live Rust event log
+		output_model=TopStories,  # parse the final summary into this pydantic class
 		state_dir=Path.home() / '.browser-use-terminal',  # override Rust SQLite dir
-		extra_args=[],                # rare CLI escape hatch
+		extra_args=[],  # rare CLI escape hatch
 	)
 
 	# Inspect what the wrapper resolved without actually running.

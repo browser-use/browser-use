@@ -10,6 +10,7 @@ Minimal interface — exactly the kwargs you'd expect:
         browser:       BrowserSession  | None = None, # owns cdp_url, profile, headless, name
         timeout:       float           | None = None, # cancel ladder when exceeded
         on_event:      Callable        | None = None, # fires per typed event
+        show_events:   bool            = False,        # print Rust events live
         output_model:  type[BaseModel] | None = None, # parse final summary into pydantic
         state_dir:     str | Path      | None = None, # override Rust state dir
         extra_args:    list[str]       | None = None, # rare CLI escape hatch
@@ -42,14 +43,17 @@ from pydantic import BaseModel
 
 from browser_use.rust.events import (
 	AnyAgentEvent,
+	BrowserScript,
 	ModelDelta,
 	ModelResponseInputItem,
 	ModelStreamDelta,
 	ModelToolCall,
+	ModelTurnRequest,
 	ModelUsage,
 	SessionCreated,
 	SessionFailure,
 	SessionResult,
+	TokenCount,
 	ToolFinished,
 	ToolImage,
 	ToolOutput,
@@ -132,6 +136,7 @@ class _MessageManagerStub:
 
 	def __init__(self) -> None:
 		self.last_input_messages: list[Any] = []
+
 
 DEFAULT_POLL_INTERVAL_MS = 250
 GRACEFUL_CANCEL_TIMEOUT_S = 5.0
@@ -282,9 +287,7 @@ def _bounded_json_for_extracted_content(payload: dict[str, Any], *, limit: int) 
 			if isinstance(agent.get('agent_status'), dict):
 				for status_key in ('completed', 'errored'):
 					if status_key in agent['agent_status']:
-						agent['agent_status'][status_key] = _truncate_text(
-							str(agent['agent_status'][status_key]), 240
-						)
+						agent['agent_status'][status_key] = _truncate_text(str(agent['agent_status'][status_key]), 240)
 			if 'last_task_message' in agent:
 				agent['last_task_message'] = _truncate_text(str(agent['last_task_message']), 120)
 	result = json.dumps(compact, ensure_ascii=False, sort_keys=True)
@@ -369,7 +372,7 @@ def _tool_output_payload_from_response_input_item(payload: dict[str, Any]) -> di
 	output = item.get('output')
 	if isinstance(output, str):
 		try:
-			parsed = json.loads(output)
+			parsed: dict[str, Any] | Any = json.loads(output)
 		except Exception:
 			parsed = {'text': output}
 	elif isinstance(output, dict):
@@ -378,14 +381,16 @@ def _tool_output_payload_from_response_input_item(payload: dict[str, Any]) -> di
 		parsed = {'output': output}
 	if not isinstance(parsed, dict):
 		parsed = {'output': parsed}
-	if payload.get('name') is not None:
-		parsed.setdefault('name', payload.get('name'))
-	if payload.get('call_id') is not None:
-		parsed.setdefault('tool_call_id', payload.get('call_id'))
+	name = payload.get('name')
+	if name is not None:
+		parsed.setdefault('name', name)
+	call_id = payload.get('call_id')
+	if call_id is not None:
+		parsed.setdefault('tool_call_id', call_id)
 	return parsed
 
 
-def _attach_response_input_tool_output_to_step(state: '_AgentSessionState', payload: dict[str, Any]) -> None:
+def _attach_response_input_tool_output_to_step(state: _AgentSessionState, payload: dict[str, Any]) -> None:
 	tool_payload = _tool_output_payload_from_response_input_item(payload)
 	if not tool_payload:
 		return
@@ -394,7 +399,7 @@ def _attach_response_input_tool_output_to_step(state: '_AgentSessionState', payl
 		_merge_step_tool_output(step, tool_payload)
 
 
-def _binary_supports_max_turns(cli: 'Path', subcommand: str) -> bool:
+def _binary_supports_max_turns(cli: Path, subcommand: str) -> bool:
 	"""Detect whether `<cli> <subcommand> --help` advertises `--max-turns`.
 
 	The flag was added to run-* subcommands in browser-use/terminal
@@ -403,6 +408,7 @@ def _binary_supports_max_turns(cli: 'Path', subcommand: str) -> bool:
 	per (cli, subcommand) pair and cache to avoid spamming `--help`.
 	"""
 	import subprocess
+
 	key = f'{cli}::{subcommand}'
 	cached = _MAX_TURNS_SUPPORT_CACHE.get(key)
 	if cached is not None:
@@ -430,7 +436,8 @@ def _extract_message_text(payload: dict[str, Any]) -> str:
 		return ''
 	item_type = payload.get('type')
 	# Some Rust builds nest under `item` instead of flattening
-	inner = payload.get('item') if isinstance(payload.get('item'), dict) else payload
+	item = payload.get('item')
+	inner = item if isinstance(item, dict) else payload
 	inner_type = inner.get('type') or item_type
 	if inner_type not in (None, 'message', 'response.output_text'):
 		return ''
@@ -521,10 +528,7 @@ def _maybe_inject_initial_navigation(task: str | None, url: str | None) -> str |
 		return task
 	if '[INITIAL NAVIGATION]' in task:
 		return task
-	return (
-		f'[INITIAL NAVIGATION]\nAfter any required browser attach, first navigate to: {url}\n\n'
-		+ task
-	)
+	return f'[INITIAL NAVIGATION]\nAfter any required browser attach, first navigate to: {url}\n\n' + task
 
 
 def _eval_mode_enabled() -> bool:
@@ -609,7 +613,7 @@ def _maybe_inject_cdp_connect(task: str | None, cdp_url: str | None) -> str | No
 		f'Your first browser command MUST be: `browser connect remote-cdp {flag} {cdp_url}`\n'
 		'NEVER call `browser connect managed`, `browser connect local`, or '
 		'`browser connect cloud` — they spawn a fresh Chromium that bypasses '
-		'the cloud browser\'s proxy + stealth and IP. A real production '
+		"the cloud browser's proxy + stealth and IP. A real production "
 		'browser with proxy + stealth headers is already running at the URL '
 		'above; the only correct action is to attach to it. Skip the connect '
 		'step entirely on subsequent turns — it is already connected.\n\n'
@@ -642,6 +646,7 @@ class _AgentSessionState:
 		'token_input_total',
 		'token_output_total',
 		'cost_total_usd',
+		'model_name',
 		'_pending_tool_calls',
 		'_pending_started_tool_calls',
 		'_last_model_text',
@@ -661,6 +666,7 @@ class _AgentSessionState:
 		self.token_input_total = 0
 		self.token_output_total = 0
 		self.cost_total_usd = 0.0
+		self.model_name: str | None = None
 		self._pending_tool_calls: dict[str, StepRecord] = {}
 		self._pending_started_tool_calls: dict[str, StepRecord] = {}
 		self._last_model_text: str = ''
@@ -686,11 +692,24 @@ class _AgentSessionState:
 			self.failure = event.message
 			return
 
+		if isinstance(event, ModelTurnRequest):
+			model = event.payload.get('model')
+			if isinstance(model, str) and model:
+				self.model_name = model
+			return
+
 		# Token / cost accounting from real `model.usage` events.
 		if isinstance(event, ModelUsage):
 			self.token_input_total += event.input_tokens
 			self.token_output_total += event.output_tokens
 			self.cost_total_usd += event.cost_usd
+			return
+		if isinstance(event, TokenCount):
+			usage = _token_count_usage(event.payload)
+			if usage:
+				# token_count carries cumulative totals in current terminal builds.
+				self.token_input_total = usage.get('input_tokens', self.token_input_total)
+				self.token_output_total = usage.get('output_tokens', self.token_output_total)
 			return
 
 		# Streamed assistant text — buffer until the next tool call so we
@@ -751,17 +770,27 @@ class _AgentSessionState:
 		if isinstance(event, ToolStarted):
 			call_id = _call_id(event.payload, event.seq)
 			step = self._pending_tool_calls.get(call_id)
-			if step is not None:
-				self._pending_started_tool_calls[call_id] = step
-				# tool.started is the canonical start moment — always overrides
-				# the model.tool_call ts_ms fallback we set as an initial estimate.
-				step.started_ts_ms = event.ts_ms
+			if step is None:
+				# Current browser-use-terminal often emits tool.started without
+				# a preceding model.tool_call. Treat it as the canonical step
+				# anchor so Python users see live steps and screenshots.
+				step = StepRecord(
+					seq=event.seq,
+					tool=event.tool_name or '?',
+					tool_input=event.payload,
+					model_text=self._last_model_text,
+					started_ts_ms=event.ts_ms,
+				)
+				self.steps.append(step)
+				self._last_model_text = ''
+			self._pending_started_tool_calls[call_id] = step
+			# tool.started is the canonical start moment — always overrides
+			# the model.tool_call ts_ms fallback we set as an initial estimate.
+			step.started_ts_ms = event.ts_ms
 			return
 		if isinstance(event, ToolFinished):
 			call_id = _call_id(event.payload, event.seq)
-			step = self._pending_tool_calls.pop(call_id, None) or self._pending_started_tool_calls.pop(
-				call_id, None
-			)
+			step = self._pending_tool_calls.pop(call_id, None) or self._pending_started_tool_calls.pop(call_id, None)
 			if step is not None:
 				# Merge, don't overwrite. For browser_script the event order is
 				# tool.output (with data/text/outputs) -> tool.finished (just
@@ -822,6 +851,15 @@ class _AgentSessionState:
 			payload = event.payload if isinstance(event.payload, dict) else {}
 			_merge_step_tool_output(step, payload)
 			return
+		if isinstance(event, BrowserScript):
+			step = _step_for_call_id(self, None, {'name': event.payload.get('name') or 'browser_script'})
+			if step is None:
+				return
+			for path in _payload_image_paths(event.payload):
+				if path and path not in step.screenshot_paths:
+					step.screenshot_paths.append(path)
+			_merge_step_tool_output(step, event.payload)
+			return
 
 
 def _call_id(payload: dict[str, Any], seq: int) -> str:
@@ -832,11 +870,41 @@ def _call_id(payload: dict[str, Any], seq: int) -> str:
 	return str(seq)
 
 
+def _token_count_usage(payload: dict[str, Any]) -> dict[str, int]:
+	info = payload.get('info')
+	if not isinstance(info, dict):
+		return {}
+	raw = info.get('total_token_usage') or info.get('last_token_usage')
+	if not isinstance(raw, dict):
+		return {}
+	out: dict[str, int] = {}
+	for key in ('input_tokens', 'output_tokens', 'total_tokens', 'cached_input_tokens'):
+		value = raw.get(key)
+		if isinstance(value, int):
+			out[key] = value
+	return out
+
+
+def _payload_image_paths(payload: dict[str, Any]) -> list[str]:
+	paths: list[str] = []
+	for key in ('images', 'artifacts'):
+		items = payload.get(key)
+		if not isinstance(items, list):
+			continue
+		for item in items:
+			if not isinstance(item, dict):
+				continue
+			path = item.get('path')
+			if isinstance(path, str) and path:
+				paths.append(path)
+	return paths
+
+
 def _step_for_call_id(
-	state: '_AgentSessionState',
+	state: _AgentSessionState,
 	tool_call_id: str | None,
 	payload: dict[str, Any],
-) -> 'StepRecord | None':
+) -> StepRecord | None:
 	"""Find the StepRecord for a given tool_call_id, falling back to the most
 	recent in-flight tool call. Used by `tool.image` / `tool.output` events
 	that fire after the matching `model.tool_call`."""
@@ -861,6 +929,69 @@ def _step_for_call_id(
 	return state.steps[-1] if state.steps else None
 
 
+class _RustEventPrinter:
+	"""Small human-readable live view for the current Rust event stream."""
+
+	def __init__(self) -> None:
+		self._in_model_stream = False
+
+	def __call__(self, event: AnyAgentEvent) -> None:
+		if line := self._line(event):
+			self._close_model_stream()
+			print(line, flush=True)
+			return
+		if event.type in {'model.delta', 'model.stream_delta'}:
+			delta = str(event.payload.get('delta') or event.payload.get('text') or '')
+			if delta:
+				print(delta, end='', flush=True)
+				self._in_model_stream = True
+
+	def _close_model_stream(self) -> None:
+		if self._in_model_stream:
+			print('', flush=True)
+			self._in_model_stream = False
+
+	def _line(self, event: AnyAgentEvent) -> str | None:
+		payload = event.payload
+		if event.type == 'session.created':
+			return f'[session] {event.session_id}'
+		if event.type == 'model.turn.request':
+			return f'[model:req] {payload.get("provider")} {payload.get("model")} turn={payload.get("turn_idx")}'
+		if event.type == 'tool.started':
+			name = payload.get('name') or payload.get('tool') or '?'
+			arguments = payload.get('arguments') or payload.get('input') or {}
+			return f'[tool:start] {name} {_compact_json(arguments)}'
+		if event.type == 'browser_script.completed':
+			return f'[browser_script] {_compact_json(payload.get("summary") or [])}'
+		if event.type == 'tool.output':
+			name = payload.get('name') or payload.get('tool') or '?'
+			text = str(payload.get('text') or '')
+			return f'[tool:output] {name} {text[:600]}'.rstrip()
+		if event.type == 'tool.finished':
+			return f'[tool:done] {payload.get("name") or payload.get("tool") or "?"}'
+		if event.type == 'token_count':
+			return f'[tokens] {_compact_json(_token_count_usage(payload))}'
+		if event.type in {'session.done', 'session.result'}:
+			return f'[done] {payload.get("result") or payload.get("text") or ""}'
+		if event.type == 'session.failure':
+			return f'[error] {payload.get("error") or payload.get("message") or ""}'
+		if event.type == 'browser.connected':
+			return f'[browser] connected {payload.get("cdp_url") or payload.get("cdp_ws_url") or ""}'.rstrip()
+		if event.type == 'browser.live_url':
+			return f'[browser] live {payload.get("url") or payload.get("live_url") or ""}'.rstrip()
+		return None
+
+
+def _compact_json(value: Any, *, limit: int = 600) -> str:
+	try:
+		text = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+	except TypeError:
+		text = str(value)
+	if len(text) <= limit:
+		return text
+	return text[: limit - 3] + '...'
+
+
 class Agent:
 	"""
 	Rust-backed agent. Mirrors `browser_use.Agent(task, llm, browser, ...)`.
@@ -879,6 +1010,7 @@ class Agent:
 		browser: Any | None = None,
 		timeout: float | None = None,
 		on_event: OnEvent | None = None,
+		show_events: bool = False,
 		output_model: type[BaseModel] | None = None,
 		state_dir: str | Path | None = None,
 		extra_args: list[str] | None = None,
@@ -893,6 +1025,8 @@ class Agent:
 		self.browser = browser
 		self.timeout = timeout
 		self.on_event = on_event
+		self.show_events = bool(show_events or _unsupported.pop('stream_events', False))
+		self._event_printer = _RustEventPrinter() if self.show_events else None
 		self.output_model = output_model or _unsupported.pop('output_model_schema', None)
 		self.state_dir = Path(state_dir) if state_dir else None
 		self.extra_args: list[str] = list(extra_args or [])
@@ -958,14 +1092,14 @@ class Agent:
 		else:
 			if self.task is None:
 				raise ValueError('Agent.run(interactive=False) requires a task.')
-			task_text = _maybe_inject_cdp_connect(
+			base_task = (
 				_maybe_inject_initial_navigation(
 					_maybe_inject_eval_directive(self.task, effective_max) or self.task,
 					self._initial_navigation_url,
 				)
-				or self.task,
-				_browser_cdp_url(self.browser),
+				or self.task
 			)
+			task_text = _maybe_inject_cdp_connect(base_task, _browser_cdp_url(self.browser)) or base_task
 			result = await self._run_headless(task_text, attach_to_session=None, max_turns=effective_max)
 
 			# Retry-on-skip safety net. When the agent finished without doing
@@ -975,15 +1109,12 @@ class Agent:
 			# triggered; bounded to one retry. Default-on when FORCE_SCREENSHOTS
 			# is set (i.e. we're in eval mode where skip = guaranteed failure).
 			# Disable explicitly with BU_RUST_RETRY_ON_SKIP=0.
-			retry_skip_enabled = (
-				os.environ.get('BU_RUST_RETRY_ON_SKIP') == '1'
-				or (
-					os.environ.get('BU_RUST_FORCE_SCREENSHOTS') == '1'
-					and os.environ.get('BU_RUST_RETRY_ON_SKIP') != '0'
-				)
+			retry_skip_enabled = os.environ.get('BU_RUST_RETRY_ON_SKIP') == '1' or (
+				os.environ.get('BU_RUST_FORCE_SCREENSHOTS') == '1' and os.environ.get('BU_RUST_RETRY_ON_SKIP') != '0'
 			)
 			if retry_skip_enabled and _looks_like_skip(result):
 				import logging
+
 				logging.getLogger('browser_use.rust.Agent').warning(
 					'Detected skipped-browsing on initial run (%d steps); retrying with explicit preamble',
 					len(result.steps),
@@ -1003,10 +1134,8 @@ class Agent:
 		"""Continue the current session with another user turn."""
 		if self.session_id is None:
 			raise RuntimeError('No active session — call run() first or Agent.attach(...).')
-		task_text = _maybe_inject_cdp_connect(
-			_maybe_inject_eval_directive(task) or task,
-			_browser_cdp_url(self.browser),
-		)
+		base_task = _maybe_inject_eval_directive(task) or task
+		task_text = _maybe_inject_cdp_connect(base_task, _browser_cdp_url(self.browser)) or base_task
 		result = await self._run_headless(task_text, attach_to_session=self.session_id, subcommand='followup')
 		self.result = result
 		return result
@@ -1076,9 +1205,9 @@ class Agent:
 			# No judge LLM available (Gemini key missing AND no fallback) —
 			# leave unjudged rather than billing the user for an agent-LLM judge.
 			import logging
+
 			logging.getLogger('browser_use.rust.Agent').warning(
-				'Judge LLM unavailable (no GEMINI_API_KEY / GOOGLE_API_KEY '
-				'and no fallback llm) — skipping ComprehensiveV1 judge.'
+				'Judge LLM unavailable (no GEMINI_API_KEY / GOOGLE_API_KEY and no fallback llm) — skipping ComprehensiveV1 judge.'
 			)
 			return
 
@@ -1109,9 +1238,7 @@ class Agent:
 		except Exception as exc:
 			import logging
 
-			logging.getLogger('browser_use.rust.Agent').warning(
-				'Judge LLM call failed: %s', exc, exc_info=True
-			)
+			logging.getLogger('browser_use.rust.Agent').warning('Judge LLM call failed: %s', exc, exc_info=True)
 			return
 
 		# Store the verdict as a plain dict — the eval harness reads
@@ -1135,12 +1262,12 @@ class Agent:
 			proc.send_signal(signal.SIGINT)
 		try:
 			await asyncio.wait_for(proc.wait(), timeout=GRACEFUL_CANCEL_TIMEOUT_S)
-		except asyncio.TimeoutError:
+		except TimeoutError:
 			with contextlib.suppress(ProcessLookupError):
 				proc.terminate()
 			try:
 				await asyncio.wait_for(proc.wait(), timeout=2.0)
-			except asyncio.TimeoutError:
+			except TimeoutError:
 				with contextlib.suppress(ProcessLookupError):
 					proc.kill()
 
@@ -1186,7 +1313,7 @@ class Agent:
 		return driver()
 
 	@classmethod
-	def attach(cls, session_id: str, **kwargs: Any) -> 'Agent':
+	def attach(cls, session_id: str, **kwargs: Any) -> Agent:
 		"""Reattach to an existing session."""
 		agent = cls(**kwargs)
 		agent.session_id = session_id
@@ -1234,6 +1361,7 @@ class Agent:
 		subcommand: str | None = None,
 		max_turns: int | None = None,
 	) -> AgentRunResult:
+		self._cancelled = False
 		cli = find_browser_use_terminal_binary()
 		if subcommand is None:
 			subcommand = self.provider.subcommand
@@ -1324,7 +1452,7 @@ class Agent:
 				exit_code = await asyncio.wait_for(proc.wait(), timeout=self.timeout)
 			else:
 				exit_code = await proc.wait()
-		except asyncio.TimeoutError:
+		except TimeoutError:
 			await self.cancel()
 			exit_code = 124
 		except asyncio.CancelledError:
@@ -1365,7 +1493,13 @@ class Agent:
 
 		# Loud diagnostics when the run produced nothing — helps debug eval
 		# wrapper-vs-rust handoff issues. Prints argv, exit, and stderr.
-		if not state.events and not state.final_summary:
+		if (
+			not state.events
+			and not state.final_summary
+			and exit_code == 0
+			and not self._cancelled
+			and (state.session_id is not None or stderr_blob)
+		):
 			import logging
 			import sys
 
@@ -1393,6 +1527,7 @@ class Agent:
 		usage.input_tokens = state.token_input_total
 		usage.output_tokens = state.token_output_total
 		usage.cost = state.cost_total_usd
+		usage.model = state.model_name
 		# Pull the model name from the first model.config event if present.
 		for ev in state.events:
 			if ev.type == 'model.config':
@@ -1456,6 +1591,8 @@ class Agent:
 					if event is None or event.seq <= state._max_seen_seq:
 						continue
 					state.absorb(event)
+					if self._event_printer is not None:
+						self._event_printer(event)
 					if self.on_event is not None:
 						res = self.on_event(event)
 						if asyncio.iscoroutine(res):
