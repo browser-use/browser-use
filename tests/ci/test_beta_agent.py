@@ -21,6 +21,7 @@ def _disable_beta_agent_latest_version_check(monkeypatch):
 
 	monkeypatch.setattr(beta_service, 'check_latest_browser_use_version', no_latest_version)
 	monkeypatch.delenv('DEFAULT_LLM', raising=False)
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_SOURCE_DIR', raising=False)
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-browser-use-api-key')
 
 
@@ -2658,6 +2659,7 @@ def test_rust_terminal_binary_missing_error_mentions_install(monkeypatch):
 	message = str(exc_info.value)
 	assert 'https://browser-use.com/terminal/install.sh' in message
 	assert 'browser-use-core' in message
+	assert 'BROWSER_USE_TERMINAL_SOURCE_DIR' in message
 	assert 'BROWSER_USE_TERMINAL_BINARY' in message
 
 
@@ -2676,6 +2678,99 @@ def test_rust_terminal_binary_prefers_packaged_binary(monkeypatch):
 	monkeypatch.setattr(beta_service.shutil, 'which', lambda binary_name: None)
 
 	assert beta_service.find_browser_use_terminal_binary() == '/tmp/packaged-browser-use-terminal'
+
+
+def test_rust_terminal_command_uses_terminal_source_dir(monkeypatch, tmp_path):
+	import browser_use.beta.service as beta_service
+
+	source_root = tmp_path / 'terminal'
+	(source_root / 'crates' / 'browser-use-cli').mkdir(parents=True)
+	(source_root / 'Cargo.toml').write_text('[workspace]\n')
+	(source_root / 'crates' / 'browser-use-cli' / 'Cargo.toml').write_text('[package]\nname = "browser-use-cli"\n')
+
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_SOURCE_DIR', str(source_root))
+	monkeypatch.setitem(sys.modules, 'browser_use_core', None)
+
+	assert beta_service.find_browser_use_terminal_command() == [
+		'cargo',
+		'run',
+		'-q',
+		'--manifest-path',
+		str(source_root / 'Cargo.toml'),
+		'-p',
+		'browser-use-cli',
+		'--',
+	]
+
+
+def test_beta_agent_sdk_server_argv_uses_terminal_source_dir(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
+
+	class LLM:
+		model = 'gpt-test'
+
+	source_root = tmp_path / 'terminal'
+	(source_root / 'crates' / 'browser-use-cli').mkdir(parents=True)
+	(source_root / 'Cargo.toml').write_text('[workspace]\n')
+	(source_root / 'crates' / 'browser-use-cli' / 'Cargo.toml').write_text('[package]\nname = "browser-use-cli"\n')
+
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_SOURCE_DIR', str(source_root))
+
+	agent = Agent(task='report title', llm=LLM())
+
+	assert agent._sdk_server_argv() == [
+		'cargo',
+		'run',
+		'-q',
+		'--manifest-path',
+		str(source_root / 'Cargo.toml'),
+		'-p',
+		'browser-use-cli',
+		'--',
+		'sdk-server',
+		'--transport',
+		'stdio',
+	]
+
+
+def test_rust_terminal_command_accepts_package_dir_inside_source_checkout(monkeypatch, tmp_path):
+	import browser_use.beta.service as beta_service
+
+	source_root = tmp_path / 'terminal'
+	package_dir = source_root / 'packages' / 'browser-use-core'
+	(source_root / 'crates' / 'browser-use-cli').mkdir(parents=True)
+	package_dir.mkdir(parents=True)
+	(source_root / 'Cargo.toml').write_text('[workspace]\n')
+	(source_root / 'crates' / 'browser-use-cli' / 'Cargo.toml').write_text('[package]\nname = "browser-use-cli"\n')
+
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_SOURCE_DIR', str(package_dir))
+
+	assert beta_service.find_browser_use_terminal_command()[:7] == [
+		'cargo',
+		'run',
+		'-q',
+		'--manifest-path',
+		str(source_root / 'Cargo.toml'),
+		'-p',
+		'browser-use-cli',
+	]
+
+
+def test_rust_terminal_command_invalid_source_dir_errors(monkeypatch, tmp_path):
+	import browser_use.beta.service as beta_service
+
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+	monkeypatch.setenv('BROWSER_USE_TERMINAL_SOURCE_DIR', str(tmp_path / 'missing-terminal'))
+
+	with pytest.raises(beta_service.BetaAgentError) as exc_info:
+		beta_service.find_browser_use_terminal_command()
+
+	message = str(exc_info.value)
+	assert 'BROWSER_USE_TERMINAL_SOURCE_DIR' in message
+	assert 'crates/browser-use-cli/Cargo.toml' in message
 
 
 def test_rust_terminal_binary_finds_default_terminal_install(monkeypatch, tmp_path):
