@@ -36,8 +36,9 @@ if '--mcp' in sys.argv:
 	import asyncio
 
 	from browser_use.mcp.server import main as mcp_main
+	from browser_use.mcp.server import parse_mcp_server_args
 
-	asyncio.run(mcp_main())
+	asyncio.run(mcp_main(**parse_mcp_server_args(sys.argv[1:])))
 	sys.exit(0)
 
 
