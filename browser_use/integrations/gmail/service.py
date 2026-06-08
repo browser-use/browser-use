@@ -5,6 +5,7 @@ This service provides a clean interface for agents to interact with Gmail.
 """
 
 import base64
+import binascii
 import logging
 import os
 from pathlib import Path
@@ -205,21 +206,62 @@ class GmailService:
 			'raw_message': message,
 		}
 
+	@staticmethod
+	def _decode_part_data(data: str | None) -> str | None:
+		"""Best-effort base64url -> utf-8 decode; returns ``None`` on missing/malformed data."""
+		if not data:
+			return None
+		try:
+			return base64.urlsafe_b64decode(data).decode('utf-8')
+		except (binascii.Error, ValueError, UnicodeDecodeError):
+			return None
+
 	def _extract_body(self, payload: dict[str, Any]) -> str:
-		"""Extract email body from payload"""
-		body = ''
+		"""Extract the email body, recursing into nested ``multipart/*`` containers.
 
-		if payload.get('body', {}).get('data'):
-			# Simple email body
-			body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
-		elif payload.get('parts'):
-			# Multi-part email
-			for part in payload['parts']:
-				if part['mimeType'] == 'text/plain' and part.get('body', {}).get('data'):
-					part_body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-					body += part_body
-				elif part['mimeType'] == 'text/html' and not body and part.get('body', {}).get('data'):
-					# Fallback to HTML if no plain text
-					body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+		Gmail nests the actual text leaves inside intermediate ``multipart/*`` parts for
+		most real HTML and 2FA/OTP emails (e.g. ``multipart/mixed`` -> ``multipart/alternative``
+		-> ``text/plain``). The previous implementation only scanned the top-level ``parts``
+		and matched ``text/plain``/``text/html`` directly, so any body wrapped in an
+		intermediate ``multipart/*`` part was silently returned as ``''``.
 
-		return body
+		Traversal is depth- and count-bounded and decodes each leaf defensively, so a
+		malformed or adversarially nested MIME tree degrades to a best-effort body (or
+		``''``) instead of raising.
+		"""
+		# Simple, single-part body
+		simple = self._decode_part_data(payload.get('body', {}).get('data'))
+		if simple is not None:
+			return simple
+
+		plain_chunks: list[str] = []
+		html_fallback = ''
+		max_depth = 50  # real emails nest a few levels; guards against hostile/recursive trees
+		budget = [5000]  # cap total parts visited
+
+		def walk(part: dict[str, Any], depth: int) -> None:
+			nonlocal html_fallback
+			if depth > max_depth or budget[0] <= 0:
+				return
+			budget[0] -= 1
+			mime_type = part.get('mimeType', '')
+			if mime_type == 'text/plain':
+				text = self._decode_part_data(part.get('body', {}).get('data'))
+				if text is not None:
+					plain_chunks.append(text)
+			elif mime_type == 'text/html' and not html_fallback:
+				text = self._decode_part_data(part.get('body', {}).get('data'))
+				if text is not None:
+					html_fallback = text
+			elif part.get('parts'):
+				# ``multipart/*`` container (or any part carrying nested parts) -> recurse
+				for sub_part in part['parts']:
+					walk(sub_part, depth + 1)
+
+		for part in payload.get('parts', []):
+			walk(part, 1)
+
+		# Prefer concatenated plain text; fall back to HTML only when no plain text exists
+		if plain_chunks:
+			return ''.join(plain_chunks)
+		return html_fallback
