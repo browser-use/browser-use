@@ -846,6 +846,22 @@ jobs-radar/
 ### Score Explainability (v3.1)
 Every job card now shows 🎯 **why:** with the actual keywords that triggered the match (from `hits[]`). Removes scoring opacity — you see precisely *why* a 78% job scored 78%.
 
+### Multi-Profile Scoring (v3.2) — matches the 3-tab resume site
+Every job scored against **3 parallel profiles** (`data/profiles.json`):
+
+| Profile | Tier-1 focus | Use case |
+|---------|--------------|----------|
+| 🛰️ **BD / Space Tech** | Space/EO/EU programmes, BD/GTM/partnerships | Active CASSINI/EUSPA/ESA roles |
+| ⚙️ **Tech / Product** | AI/ML/Agentic/GeoAI, Product/Engineering | Senior IC / lead roles |
+| 🚀 **Startup / Innovation** | Founder/EIR/Venture, Innovation Mgmt/Coaching | EWOR, Antler, EIT, accelerators |
+
+- Header has profile selector: **🎯 Best · 🛰️ BD · ⚙️ Tech · 🚀 Startup**
+- localStorage persists choice
+- "🎯 why:" pills update live based on selected profile
+- Scoring data: `scores: {bd: 78, tech: 45, startup: 92}` per job; `profile: 'startup'` field for the winning profile
+- Coverage: 40 → 65 scored jobs (multi-profile catches more nuanced matches)
+- Backward-compat: falls back to legacy `profile.json` if `profiles.json` missing
+
 ### Dashboard Features (v3)
 - ★ **Saved jobs** — localStorage bookmarks, persists across visits
 - 🎯 **Application Tracker** — 3 states per job (👀 Interested · ✓ Applied · ✗ Pass), counters in view pills
