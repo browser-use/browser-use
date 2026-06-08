@@ -846,6 +846,23 @@ jobs-radar/
 ### Score Explainability (v3.1)
 Every job card now shows 🎯 **why:** with the actual keywords that triggered the match (from `hits[]`). Removes scoring opacity — you see precisely *why* a 78% job scored 78%.
 
+### CV ↔ Jobs Bridge (v3.3)
+The 3 resume tabs and 3 profiles now wired end-to-end:
+
+- **Compare bar** per job: `BD 78 · TECH 45 · STARTUP 92` (winner highlighted)
+- **"Apply with X CV" button** deep-links to `cv.desiredsolutions.space?tab=biz|tech|startup` — the matching CV tab opens directly, ready to download
+- **`cv.desiredsolutions.space` is LIVE** ✅ (DNS resolved 2026-06-07)
+- Resume site accepts `?tab=biz|tech|startup` query param for direct tab routing
+
+### Deadline Urgency Boost (v3.3)
+Jobs closing within 30 days receive up to +10 score points, with urgency badges:
+- 🔴 **closing soon** — <7 days
+- 🟠 **2 weeks** — 7-14 days
+- 🟢 **<30d** — 14-30 days
+- ⚫ **expired** — past deadline (excluded from boosts)
+
+Original match preserved in `matchOriginal` field. RRSS: makes the system reactive to time pressure without losing audit trail.
+
 ### Multi-Profile Scoring (v3.2) — matches the 3-tab resume site
 Every job scored against **3 parallel profiles** (`data/profiles.json`):
 
