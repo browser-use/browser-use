@@ -611,7 +611,12 @@ class BrowserUseServer:
 			'downloads_path': str(Path.home() / 'Downloads' / 'browser-use-mcp'),
 			'wait_between_actions': 0.5,
 			'keep_alive': True,
-			'user_data_dir': '~/.config/browseruse/profiles/default',
+			# user_data_dir intentionally NOT set here -- when None,
+			# BrowserProfile.validate_user_data_dir creates a unique temp
+			# directory (mkdtemp).  Each MCP session gets a fully isolated
+			# profile, preventing conflicts with residual Chrome processes
+			# from previous sessions.  Users who need persistent browser
+			# state should connect via --cdp-url.
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
@@ -629,6 +634,31 @@ class BrowserUseServer:
 		# Create browser profile
 		if self.cdp_url:
 			profile_data['cdp_url'] = self.cdp_url
+			# When connecting to a remote CDP endpoint we never launch a
+			# local browser, so user_data_dir is irrelevant.  If the user
+			# hasn't explicitly configured a non-empty user_data_dir, set a
+			# fixed value to prevent BrowserProfile's validator from
+			# creating a temp directory (mkdtemp) that would never be used
+			# and never be cleaned up by the local-browser watchdog.
+			_user_data_dir = profile_data.get('user_data_dir')
+			if not _user_data_dir or (
+				isinstance(_user_data_dir, str) and not _user_data_dir.strip()
+			):
+				profile_data['user_data_dir'] = (
+					'~/.config/browseruse/profiles/default'
+				)
+
+		# Normalize user_data_dir: treat empty / whitespace-only values as
+		# "not set" so that BrowserProfile creates a temp directory instead
+		# of resolving the empty string to the current working directory.
+		# This guards against MCP config UIs or manifest installers that
+		# write user_data_dir="" as the default.
+		# NOTE: when cdp_url is set the block above has already replaced a
+		# missing / empty user_data_dir with a fixed path, so this
+		# normalize only affects the local-browser (non-cdp_url) path.
+		user_data_dir = profile_data.get('user_data_dir')
+		if isinstance(user_data_dir, str) and not user_data_dir.strip():
+			profile_data.pop('user_data_dir')
 		profile = BrowserProfile(**profile_data)
 
 		# Create browser session. Only publish it on the server after start()
