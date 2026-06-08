@@ -831,16 +831,20 @@ jobs-radar/
 └── package.json
 ```
 
-### Data Sources (v2)
+### Data Sources (v3.1)
 | Source | Type | Volume | Notes |
 |--------|------|--------|-------|
 | **Remotive API** | JSON | ~110 jobs/run | 4 search queries: innovation, space, AI product, GeoAI |
 | **Himalayas API** | JSON | ~20 jobs/run | Innovation-focused query |
 | **Arbeitnow API** | JSON | ~80 jobs/run | EU job board, no auth |
 | **Jobicy API** | JSON | ~50 jobs/run | Remote-Europe-focused |
+| **RemoteOK API** | JSON | ~80 jobs/run | Public feed, no auth |
 | **Seed file** | Manual | 7 picks | EWOR, Gartner 110514, EIT Health, ESA, etc. — always shown |
 
-**Coverage:** 262 raw → 34 scored ≥20% (2.6× vs v1). All sources fetched in parallel via `Promise.allSettled` — one failing never blocks the others.
+**Coverage:** 341 raw → 40 scored ≥20% (3.1× vs v1). All sources fetched in parallel via `Promise.allSettled` — one failing never blocks the others.
+
+### Score Explainability (v3.1)
+Every job card now shows 🎯 **why:** with the actual keywords that triggered the match (from `hits[]`). Removes scoring opacity — you see precisely *why* a 78% job scored 78%.
 
 ### Dashboard Features (v3)
 - ★ **Saved jobs** — localStorage bookmarks, persists across visits
