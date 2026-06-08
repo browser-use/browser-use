@@ -2,16 +2,30 @@
 
 Set BROWSER_USE_TERMINAL_BINARY when the terminal binary is not on PATH.
 Set BU_CDP_URL or BROWSER_USE_CDP_URL to attach to a remote Browser Use cloud browser.
+Set BU_PROVIDER=openai or BU_PROVIDER=anthropic to choose a provider explicitly.
+Set BU_MODEL to override the provider default.
 """
 
 import asyncio
 import os
 
-from browser_use.beta import Agent, BrowserSession, ChatBrowserUse
+from browser_use.beta import Agent, BrowserSession, ChatAnthropic, ChatOpenAI
 
-# from browser_use.beta import ChatOpenAI  # ChatOpenAI(model='gpt-5.5')
-# from browser_use.beta import ChatGoogle  # ChatGoogle(model='gemini-3.1-pro-preview')
-# from browser_use.beta import ChatAnthropic  # ChatAnthropic(model='claude-opus-4-8')
+
+def build_llm():
+	provider = os.environ.get('BU_PROVIDER', '').strip().lower()
+	if not provider:
+		if os.environ.get('OPENAI_API_KEY'):
+			provider = 'openai'
+		elif os.environ.get('ANTHROPIC_API_KEY'):
+			provider = 'anthropic'
+
+	if provider == 'openai':
+		return ChatOpenAI(model=os.environ.get('BU_MODEL', 'gpt-5-mini'))
+	if provider == 'anthropic':
+		return ChatAnthropic(model=os.environ.get('BU_MODEL', 'claude-sonnet-4-6'))
+
+	raise RuntimeError('Set OPENAI_API_KEY or ANTHROPIC_API_KEY, or set BU_PROVIDER=openai|anthropic.')
 
 
 async def main() -> None:
@@ -22,10 +36,7 @@ async def main() -> None:
 
 	agent = Agent(
 		task=task,
-		llm=ChatBrowserUse(),
-		# llm=ChatOpenAI(model='gpt-5.5'),
-		# llm=ChatGoogle(model='gemini-3.1-pro-preview'),
-		# llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well.
+		llm=build_llm(),
 		browser_session=browser_session,
 	)
 	history = await agent.run(max_steps=max_steps)
