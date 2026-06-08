@@ -242,4 +242,9 @@ dev-dependencies = [
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout==2.4.0",
     "pydantic_settings==2.12.0",
+    "browser-use-core==0.13.0rc2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "browser-use-core==0.13.0rc2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "browser-use-core==0.13.0rc2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "browser-use-core==0.13.0rc2; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "browser-use-core==0.13.0rc2; sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'x86_64')",
 ]
