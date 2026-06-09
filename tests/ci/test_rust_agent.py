@@ -19,7 +19,7 @@ from browser_use.rust import Agent, Provider
 from browser_use.rust import parse_event as _parse_event
 from browser_use.rust.events import AnyAgentEvent, RawEvent, SessionInput, SessionResult
 from browser_use.rust.runner import ButNotInstalledError, find_browser_use_terminal_binary
-from browser_use.rust.service import _AgentSessionState, _RustEventPrinter
+from browser_use.rust.service import _AgentSessionState, _normalise_final_summary, _RustEventPrinter
 
 
 def parse_event(raw) -> AnyAgentEvent:
@@ -615,6 +615,34 @@ def test_session_state_handles_out_of_order_seq_idempotently():
 	state.absorb(parse_event(_event('session.result', {'result': 'older'}, seq=10)))
 	assert state.final_summary == 'done'
 	assert [e.seq for e in state.events] == [42]
+
+
+def test_session_state_strips_terminal_done_prefix_from_final_summary():
+	state = _AgentSessionState()
+	state.absorb(parse_event(_event('session.result', {'result': 'done: Example Domain'}, seq=1)))
+	assert state.final_summary == 'Example Domain'
+
+
+def test_session_state_prefers_done_tool_arguments_over_tool_transcript():
+	state = _AgentSessionState()
+	state.absorb(
+		parse_event(
+			_event(
+				'tool.started',
+				{
+					'name': 'done',
+					'arguments': {'result': 'Clean final answer'},
+				},
+				seq=1,
+			)
+		)
+	)
+	state.absorb(parse_event(_event('session.result', {'result': 'web_search(hosted): provider transcript'}, seq=2)))
+	assert state.final_summary == 'Clean final answer'
+
+
+def test_normalise_final_summary_strips_show_result_done_prefix():
+	assert _normalise_final_summary('done: Final from show command') == 'Final from show command'
 
 
 def test_session_state_captures_failure():

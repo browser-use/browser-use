@@ -654,6 +654,59 @@ def _prepend_retry_browse_directive(task: str) -> str:
 	return RETRY_BROWSE_DIRECTIVE + task
 
 
+_DONE_STDOUT_PREFIX = 'done:'
+
+
+def _strip_done_stdout_prefix(text: str) -> str:
+	"""Remove terminal's tool-stdout completion marker from user-facing answers."""
+	stripped = text.strip()
+	if stripped.lower().startswith(_DONE_STDOUT_PREFIX):
+		return stripped[len(_DONE_STDOUT_PREFIX) :].strip()
+	return stripped
+
+
+def _string_from_done_payload(value: Any) -> str | None:
+	if isinstance(value, str):
+		value = _strip_done_stdout_prefix(value)
+		return value or None
+	if isinstance(value, dict):
+		for key in ('result', 'text', 'answer', 'stdout', 'output', 'message', 'summary'):
+			nested = _string_from_done_payload(value.get(key))
+			if nested:
+				return nested
+	return None
+
+
+def _done_tool_result_from_events(events: list[AnyAgentEvent]) -> str | None:
+	"""Prefer the explicit `done(result=...)` value over tool stdout transcripts."""
+	for event in reversed(events):
+		payload = getattr(event, 'payload', None)
+		if not isinstance(payload, dict):
+			continue
+		if (payload.get('name') or payload.get('tool')) != 'done':
+			continue
+
+		for key in ('arguments', 'input', 'params'):
+			result = _string_from_done_payload(payload.get(key))
+			if result:
+				return result
+		result = _string_from_done_payload(payload)
+		if result:
+			return result
+	return None
+
+
+def _normalise_final_summary(text: str | None, events: list[AnyAgentEvent] | None = None) -> str | None:
+	if events:
+		done_result = _done_tool_result_from_events(events)
+		if done_result:
+			return done_result
+	if not text:
+		return None
+	text = _strip_done_stdout_prefix(text)
+	return text or None
+
+
 class _AgentSessionState:
 	"""Internal — accumulates per-session state from the event stream."""
 
@@ -708,7 +761,7 @@ class _AgentSessionState:
 			self.session_id = event.session_id
 			return
 		if isinstance(event, SessionResult):
-			self.final_summary = event.text or self.final_summary
+			self.final_summary = _normalise_final_summary(event.text, self.events) or self.final_summary
 			return
 		if isinstance(event, SessionFailure):
 			self.failure = event.message
@@ -1541,6 +1594,7 @@ class Agent:
 
 		if state.final_summary is None and state.session_id:
 			state.final_summary = await self._fetch_show_result(cli, state.session_id, env)
+		state.final_summary = _normalise_final_summary(state.final_summary, state.events)
 
 		result = AgentRunResult(
 			session_id=state.session_id,
@@ -1680,7 +1734,7 @@ class Agent:
 		marker = '\nResult\n'
 		idx = out.find(marker)
 		if idx >= 0:
-			return out[idx + len(marker) :].strip() or None
+			return _normalise_final_summary(out[idx + len(marker) :])
 		return None
 
 	async def _start_headless_session(
