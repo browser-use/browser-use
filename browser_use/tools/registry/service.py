@@ -67,8 +67,10 @@ class Registry(Generic[Context]):
 			'page_extraction_llm': BaseChatModel,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
+			'sensitive_data': None,  # dict | None, skip type validation
 			'file_system': FileSystem,
 			'extraction_schema': None,  # dict | None, skip type validation
+			'account_service': None,  # AccountService or None, skip type validation
 		}
 
 	def _normalize_action_function_signature(
@@ -337,6 +339,7 @@ class Registry(Generic[Context]):
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
+		account_service: Any | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -371,6 +374,7 @@ class Registry(Generic[Context]):
 				'has_sensitive_data': action_name == 'input' and bool(sensitive_data),
 				'file_system': file_system,
 				'extraction_schema': extraction_schema,
+				'account_service': account_service,
 			}
 
 			# Only pass sensitive_data to actions that explicitly need it (input)

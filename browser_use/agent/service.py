@@ -146,6 +146,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		skill_service: Any | None = None,
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		accounts_file: str | Path | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
@@ -377,6 +378,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._url_shortening_limit = _url_shortening_limit
 
 		self.sensitive_data = sensitive_data
+
+		# Account management integration
+		self.account_service = None
+		if accounts_file is not None:
+			from browser_use.accounts.service import AccountService
+
+			self.account_service = AccountService(path=accounts_file)
+			# Merge account credentials into sensitive_data
+			accounts_sensitive = self._load_accounts_as_sensitive_data()
+			if accounts_sensitive:
+				if self.sensitive_data is None:
+					self.sensitive_data = {}
+				self.sensitive_data.update(accounts_sensitive)
 
 		self.sample_images = sample_images
 
@@ -618,6 +632,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug(f'Could not parse output schema: {e}')
 
 		return task
+
+	def _load_accounts_as_sensitive_data(self) -> dict[str, str | dict[str, str]]:
+		"""Load all accounts from AccountService and convert to sensitive_data format."""
+		if self.account_service is None:
+			return {}
+		try:
+			accounts = self.account_service.get_all_accounts()
+			result: dict[str, str | dict[str, str]] = {}
+			for account in accounts:
+				partial = self.account_service.to_sensitive_data(account=account)
+				result.update(partial)
+			return result
+		except Exception as e:
+			logger.warning(f'Failed to load accounts as sensitive_data: {e}')
+			return {}
 
 	@property
 	def logger(self) -> logging.Logger:
@@ -2768,6 +2797,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
+					account_service=self.account_service,
 				)
 
 				if result.error:

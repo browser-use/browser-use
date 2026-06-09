@@ -85,6 +85,8 @@ _LAZY_IMPORTS = {
 	# Tools (moderate weight)
 	'Tools': ('browser_use.tools.service', 'Tools'),
 	'Controller': ('browser_use.tools.service', 'Controller'),  # alias
+	# Account management
+	'AccountService': ('browser_use.accounts.service', 'AccountService'),
 	# DOM service (moderate weight)
 	'DomService': ('browser_use.dom.service', 'DomService'),
 	# Chat models (very heavy imports)
@@ -153,6 +155,7 @@ __all__ = [
 	'ChatVercel',
 	'Tools',
 	'Controller',
+	'AccountService',
 	# LLM models module
 	'models',
 	# Sandbox execution

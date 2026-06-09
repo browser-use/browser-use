@@ -179,3 +179,21 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int
 	text: str = Field(description='exact text/value')
+
+
+class UseAccountAction(BaseModel):
+	"""Action to load and activate a specific user account for the current page."""
+
+	label: str = Field(description='Account label or platform name to use (e.g. "my github", "taobao")')
+
+
+class GitHubNavigateAction(BaseModel):
+	"""Action to navigate within a GitHub repository."""
+
+	action_type: str = Field(
+		description='Navigation type: "search_code", "go_to_file", "go_to_function", "browse_tree", "view_issues", "view_prs", "view_commits"'
+	)
+	query: str | None = Field(default=None, description='Search query for code/function search')
+	path: str | None = Field(default=None, description='File or directory path within the repo')
+	repo: str | None = Field(default=None, description='Repository in owner/name format. Auto-detected from current URL if not provided.')
+	branch: str | None = Field(default=None, description='Branch name. Defaults to main/master.')

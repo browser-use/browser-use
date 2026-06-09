@@ -3,7 +3,7 @@ import json
 import logging
 import math
 import os
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import anyio
 
@@ -45,6 +45,7 @@ from browser_use.tools.views import (
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	GitHubNavigateAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -58,6 +59,7 @@ from browser_use.tools.views import (
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
+	UseAccountAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
 
@@ -415,6 +417,30 @@ def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
 	if haspopup and haspopup != 'false' and (attrs.get('aria-controls') or attrs.get('aria-owns')):
 		return True
 	return False
+
+
+def _extract_github_repo(url: str) -> str | None:
+	"""Extract owner/repo from a GitHub URL."""
+	import re
+
+	match = re.match(r'https?://github\.com/([^/]+/[^/]+?)(?:/.*)?$', url)
+	if match:
+		repo = match.group(1)
+		# Strip .git suffix if present
+		if repo.endswith('.git'):
+			repo = repo[:-4]
+		return repo
+	return None
+
+
+def _extract_github_branch(url: str) -> str | None:
+	"""Extract branch name from a GitHub URL (tree/blob paths)."""
+	import re
+
+	match = re.match(r'https?://github\.com/[^/]+/[^/]+/(?:tree|blob)/([^/]+)', url)
+	if match:
+		return match.group(1)
+	return None
 
 
 class Tools(Generic[Context]):
@@ -1142,6 +1168,7 @@ You will be given a query, a JSON Schema, and the markdown of a webpage that has
 - Extract ONLY information present in the webpage. Do not guess or fabricate values.
 - Your response MUST conform to the provided JSON Schema exactly.
 - If a required field's value cannot be found on the page, use null (if the schema allows it) or an empty string / empty array as appropriate.
+- If the query involves comparison, recommendation, or ranking, populate the schema fields with analysis derived from page data (prices, ratings, reviews, specs). Analytical conclusions drawn from visible data are valid values, not fabrication.
 - If the content was truncated, extract what is available from the visible portion.
 - If <already_collected> items are provided, skip any items whose name/title/URL matches those listed — do not include duplicates.
 </instructions>
@@ -1208,7 +1235,7 @@ You will be given a query, a JSON Schema, and the markdown of a webpage that has
 
 			# --- Free-text extraction path (default) ---
 			system_prompt = """
-You are an expert at extracting data from the markdown of a webpage.
+You are an expert at extracting and analyzing data from the markdown of a webpage.
 
 <input>
 You will be given a query and the markdown of a webpage that has been filtered to remove noise and advertising content.
@@ -1219,12 +1246,15 @@ You will be given a query and the markdown of a webpage that has been filtered t
 - You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge.
 - If the information relevant to the query is not available in the page, your response should mention that.
 - If the query asks for all items, products, etc., make sure to directly list all of them.
+- If the query asks you to compare, recommend, rank, or summarize products/items/options, you MUST provide your analysis based on the data present on the page. Compare prices, ratings, features, reviews, or other attributes visible on the page and give a clear recommendation or ranking.
+- For recommendation queries: extract relevant attributes (price, rating, reviews, specs) and provide a reasoned recommendation. This is NOT fabrication — it is analysis of page data.
 - If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
 - If <already_collected> items are provided, exclude any results whose name/title/URL matches those already collected — do not include duplicates.
 </instructions>
 
 <output>
 - Your output should present ALL the information relevant to the query in a concise way.
+- For comparison/recommendation queries, structure your output with: key attributes per item, comparison summary, and final recommendation with reasoning.
 - Do not answer in conversational format - directly output the relevant information or that the information is unavailable.
 </output>
 """.strip()
@@ -1880,6 +1910,139 @@ Validated Code (after quote fixing):
 				logger.debug(f'JavaScript code that failed: {code[:200]}...')
 				return ActionResult(error=error_msg)
 
+		# --- Account management action ---
+		@self.registry.action(
+			'Load a user account for auto-filling credentials on the current platform. Use when you need to log in.',
+			param_model=UseAccountAction,
+		)
+		async def use_account(params: UseAccountAction, account_service=None):
+			try:
+				if account_service is None:
+					return ActionResult(
+						error='No account service configured. Pass accounts_file parameter to the Agent.'
+					)
+
+				account = account_service.get_account_by_label(params.label)
+				if account is None:
+					account = account_service.get_account_by_platform(params.label)
+				if account is None:
+					all_accounts = account_service.get_all_accounts()
+					available = ', '.join(f'"{a.label}" ({a.platform})' for a in all_accounts)
+					return ActionResult(
+						error=f'Account "{params.label}" not found. Available accounts: {available}'
+					)
+
+				# Return account info as guidance for the agent
+				creds = account.credentials.model_dump(exclude_none=True)
+
+				memory = (
+					f'Loaded account "{account.label}" for platform {account.platform}. '
+					f'Credentials available: {", ".join(creds.keys())}. '
+					f'Use <secret>{account.platform}_username</secret> and <secret>{account.platform}_password</secret> '
+					f'as values when filling login forms.'
+				)
+				logger.info(f'🔑 Loaded account: {account.label} ({account.platform})')
+				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			except Exception as e:
+				return ActionResult(error=f'Failed to load account: {str(e)}')
+
+		# --- GitHub navigation action ---
+		@self.registry.action(
+			'Navigate within a GitHub repository. Search code, browse files, jump to functions, or view issues/PRs/commits.',
+			param_model=GitHubNavigateAction,
+			terminates_sequence=True,
+		)
+		async def github_navigate(params: GitHubNavigateAction, browser_session: BrowserSession):
+			import urllib.parse
+
+			# Try to detect repo from current URL if not provided
+			repo = params.repo
+			branch = params.branch or 'main'
+
+			if repo is None:
+				current_url = await browser_session.get_current_page_url()
+				repo = _extract_github_repo(current_url)
+				# Also try to detect branch from URL
+				detected_branch = _extract_github_branch(current_url)
+				if detected_branch and params.branch is None:
+					branch = detected_branch
+
+			if repo is None:
+				return ActionResult(
+					error='Could not detect GitHub repository. Provide repo parameter (e.g. "owner/repo") or navigate to a GitHub repo first.'
+				)
+
+			base_url = f'https://github.com/{repo}'
+
+			action_type = params.action_type.lower().replace(' ', '_')
+
+			if action_type == 'search_code':
+				if not params.query:
+					return ActionResult(error='query parameter required for search_code')
+				encoded_query = urllib.parse.quote_plus(params.query)
+				target_url = f'{base_url}/search?q={encoded_query}&type=code'
+
+			elif action_type == 'go_to_file':
+				if not params.path:
+					return ActionResult(error='path parameter required for go_to_file')
+				# Clean path
+				file_path = params.path.lstrip('/')
+				target_url = f'{base_url}/blob/{branch}/{file_path}'
+
+			elif action_type == 'go_to_function':
+				if not params.query:
+					return ActionResult(error='query parameter required for go_to_function')
+				# Search for function definition in code
+				# Use GitHub code search with function definition patterns
+				func_query = f'def {params.query} OR function {params.query} OR fn {params.query}'
+				if params.path:
+					func_query += f' path:{params.path}'
+				encoded_query = urllib.parse.quote_plus(func_query)
+				target_url = f'{base_url}/search?q={encoded_query}&type=code'
+
+			elif action_type == 'browse_tree':
+				path = (params.path or '').lstrip('/')
+				if path:
+					target_url = f'{base_url}/tree/{branch}/{path}'
+				else:
+					target_url = f'{base_url}/tree/{branch}'
+
+			elif action_type == 'view_issues':
+				target_url = f'{base_url}/issues'
+				if params.query:
+					encoded_query = urllib.parse.quote_plus(params.query)
+					target_url += f'?q={encoded_query}'
+
+			elif action_type == 'view_prs':
+				target_url = f'{base_url}/pulls'
+				if params.query:
+					encoded_query = urllib.parse.quote_plus(params.query)
+					target_url += f'?q={encoded_query}'
+
+			elif action_type == 'view_commits':
+				target_url = f'{base_url}/commits/{branch}'
+				if params.path:
+					target_url = f'{base_url}/commits/{branch}/{params.path.lstrip("/")}'
+
+			else:
+				return ActionResult(
+					error=f'Unknown action_type: "{params.action_type}". '
+					f'Use: search_code, go_to_file, go_to_function, browse_tree, view_issues, view_prs, view_commits'
+				)
+
+			# Navigate to the constructed URL
+			try:
+				from browser_use.browser.events import NavigateToUrlEvent
+
+				event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=target_url, new_tab=False))
+				await event
+				await event.event_result(raise_if_any=True, raise_if_none=False)
+				memory = f'GitHub: navigated to {target_url}'
+				logger.info(f'🐙 {memory}')
+				return ActionResult(extracted_content=memory, long_term_memory=memory)
+			except Exception as e:
+				return ActionResult(error=f'Failed to navigate to GitHub: {str(e)}')
+
 	def _validate_and_fix_javascript(self, code: str) -> str:
 		"""Validate and fix common JavaScript issues before execution"""
 
@@ -2124,6 +2287,7 @@ Validated Code (after quote fixing):
 		file_system: FileSystem | None = None,
 		extraction_schema: dict | None = None,
 		action_timeout: float | None = None,
+		account_service: Any | None = None,
 	) -> ActionResult:
 		"""Execute an action.
 
@@ -2166,6 +2330,7 @@ Validated Code (after quote fixing):
 								sensitive_data=sensitive_data,
 								available_file_paths=available_file_paths,
 								extraction_schema=extraction_schema,
+								account_service=account_service,
 							),
 							timeout=timeout_s,
 						)
