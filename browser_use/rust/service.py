@@ -3369,7 +3369,7 @@ class _CloudEventLLMProxy:
 
 
 class _CloudEventAgentProxy:
-	def __init__(self, agent: 'Agent'):
+	def __init__(self, agent: Agent):
 		self._agent = agent
 		self.llm = _CloudEventLLMProxy(getattr(agent, 'model', None) or _model_name(getattr(agent, 'llm', None)))
 

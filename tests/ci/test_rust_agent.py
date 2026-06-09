@@ -3786,6 +3786,7 @@ async def test_rust_agent_run_records_terminal_telemetry(monkeypatch):
 	assert event.max_steps == 5
 	assert event.model == 'gpt-test'
 	assert event.model_provider == 'test-provider'
+	# Keep the Rust wrapper identifiable independently of the selected LLM provider.
 	assert event.agent_type == 'rust'
 	assert event.urls_visited == ['https://example.com']
 	assert event.total_input_tokens == 13
