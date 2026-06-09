@@ -71,7 +71,7 @@ _PROVIDER_BY_CLASS: dict[str, Provider] = {
 	'ChatOpenAI': Provider.OPENAI,
 	'ChatAzureOpenAI': Provider.OPENAI,
 	'ChatLiteLLM': Provider.OPENAI,
-	'ChatBrowserUse': Provider.OPENAI,
+	'ChatBrowserUse': Provider.BROWSER_USE,
 	'ChatAnthropic': Provider.ANTHROPIC,
 	'ChatGroq': Provider.OPENROUTER,
 	'ChatOpenRouter': Provider.OPENROUTER,
@@ -978,10 +978,7 @@ class _RustEventPrinter:
 		if event.type == 'session.created':
 			return f'[session] {event.session_id}'
 		if event.type == 'model.turn.request':
-			return (
-				f'[llm] turn {payload.get("turn_idx")} '
-				f'provider={payload.get("provider")} model={payload.get("model")}'
-			)
+			return f'[llm] turn {payload.get("turn_idx")} provider={payload.get("provider")} model={payload.get("model")}'
 		if event.type == 'tool.started':
 			name = payload.get('name') or payload.get('tool') or '?'
 			arguments = payload.get('arguments') or payload.get('input') or {}
@@ -1102,6 +1099,7 @@ class Agent:
 		self.provider: Provider = _provider_from_llm(llm)
 		self._model: str | None = _model_from_llm(llm)
 		self._api_key: str | None = _api_key_from_llm(llm)
+		self._base_url: str | None = _base_url_from_llm(llm)
 
 		# Swallow known legacy kwargs silently; warn only on truly unknown ones.
 		unknown = {k: v for k, v in _unsupported.items() if k not in _KNOWN_LEGACY_KWARGS}
@@ -1832,6 +1830,10 @@ class Agent:
 		env: dict[str, str] = {}
 		if self._api_key:
 			env[self.provider.api_key_env] = self._api_key
+		if self.provider is Provider.BROWSER_USE:
+			env['LLM_BROWSER_BROWSER_USE_REQUEST_TYPE'] = 'rust_agent'
+			if self._base_url:
+				env['LLM_BROWSER_BROWSER_USE_BASE_URL'] = _normalize_browser_use_base_url(self._base_url)
 		# Always set browser_mode — without it the Rust core's
 		# default_base_instructions_for_model returns the terminal-only
 		# codex prompt instead of the full browser-agent-instructions
@@ -1955,6 +1957,8 @@ async def _compute_cost_usd(model: str | None, input_tokens: int, output_tokens:
 def _provider_from_llm(llm: Any) -> Provider:
 	if llm is None:
 		return Provider.OPENAI
+	if _is_browser_use_llm(llm):
+		return Provider.BROWSER_USE
 	return _PROVIDER_BY_CLASS.get(type(llm).__name__, Provider.OPENAI)
 
 
@@ -1978,6 +1982,29 @@ def _api_key_from_llm(llm: Any) -> str | None:
 		return value.get_secret_value()
 	value = str(value)
 	return value or None
+
+
+def _base_url_from_llm(llm: Any) -> str | None:
+	if llm is None:
+		return None
+	value = getattr(llm, 'base_url', None)
+	if isinstance(value, str) and value:
+		return value
+	return None
+
+
+def _is_browser_use_llm(llm: Any) -> bool:
+	provider = getattr(llm, 'provider', None)
+	if provider == 'browser-use':
+		return True
+	return any(cls.__name__ == 'ChatBrowserUse' for cls in type(llm).__mro__)
+
+
+def _normalize_browser_use_base_url(base_url: str) -> str:
+	normalized = base_url.rstrip('/')
+	if normalized.endswith('/v1'):
+		return normalized
+	return f'{normalized}/v1'
 
 
 def _browser_label(browser: Any) -> str | None:

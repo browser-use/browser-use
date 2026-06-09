@@ -34,9 +34,10 @@ def parse_event(raw) -> AnyAgentEvent:
 
 
 class _FakeChat:
-	def __init__(self, model: str | None = None, api_key: str | None = None):
+	def __init__(self, model: str | None = None, api_key: str | None = None, base_url: str | None = None):
 		self.model = model
 		self.api_key = api_key
+		self.base_url = base_url
 
 
 def _llm_class(name: str) -> type[_FakeChat]:
@@ -48,6 +49,7 @@ def _llm_class(name: str) -> type[_FakeChat]:
 	[
 		('ChatOpenAI', Provider.OPENAI),
 		('ChatAzureOpenAI', Provider.OPENAI),
+		('ChatBrowserUse', Provider.BROWSER_USE),
 		('ChatAnthropic', Provider.ANTHROPIC),
 		('ChatGoogle', Provider.OPENROUTER),
 		('ChatGemini', Provider.OPENROUTER),
@@ -81,6 +83,36 @@ def test_api_key_routes_openrouter_for_google_class():
 	llm = _llm_class('ChatGoogle')(model='g', api_key='sk-or-test')
 	env = Agent(task='x', llm=llm)._env_overrides()
 	assert env.get('OPENROUTER_API_KEY') == 'sk-or-test'
+
+
+def test_browser_use_llm_routes_to_browser_use_terminal_backend():
+	llm = _llm_class('ChatBrowserUse')(
+		model='bu-3',
+		api_key='bu-test',
+		base_url='https://llm.api-staging.example.browser-use.com',
+	)
+	agent = Agent(task='x', llm=llm)
+
+	assert agent.provider is Provider.BROWSER_USE
+	assert agent.provider.subcommand == 'run-browser-use'
+	env = agent._env_overrides()
+	assert env['LLM_BROWSER_BROWSER_USE_API_KEY'] == 'bu-test'
+	assert env['LLM_BROWSER_BROWSER_USE_BASE_URL'] == 'https://llm.api-staging.example.browser-use.com/v1'
+	assert env['LLM_BROWSER_BROWSER_USE_REQUEST_TYPE'] == 'rust_agent'
+	assert 'BROWSER_USE_API_KEY' not in env
+
+
+def test_browser_use_llm_detection_handles_eval_telemetry_subclass():
+	ChatBrowserUse = _llm_class('ChatBrowserUse')
+
+	class EvalTelemetryChatBrowserUse(ChatBrowserUse):
+		pass
+
+	llm = EvalTelemetryChatBrowserUse(model='bu-3-max', api_key='bu-test', base_url='https://llm.example.com/v1')
+	env = Agent(task='x', llm=llm)._env_overrides()
+
+	assert Agent(task='x', llm=llm).provider is Provider.BROWSER_USE
+	assert env['LLM_BROWSER_BROWSER_USE_BASE_URL'] == 'https://llm.example.com/v1'
 
 
 def test_default_browser_mode_is_managed_headless_to_skip_chrome_dialog():

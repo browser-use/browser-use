@@ -27,6 +27,7 @@ class Provider(str, Enum):
 	"""
 
 	OPENAI = 'openai'
+	BROWSER_USE = 'browser-use'
 	ANTHROPIC = 'anthropic'
 	OPENROUTER = 'openrouter'
 	DEEPSEEK = 'deepseek'
@@ -41,6 +42,7 @@ class Provider(str, Enum):
 		"""Conventional environment variable name for this provider's key."""
 		return {
 			Provider.OPENAI: 'OPENAI_API_KEY',
+			Provider.BROWSER_USE: 'LLM_BROWSER_BROWSER_USE_API_KEY',
 			Provider.ANTHROPIC: 'ANTHROPIC_API_KEY',
 			Provider.OPENROUTER: 'OPENROUTER_API_KEY',
 			Provider.DEEPSEEK: 'DEEPSEEK_API_KEY',
@@ -326,6 +328,7 @@ class _ActionResultView:
 		if self.extracted_content is not None and not isinstance(self.extracted_content, str):
 			try:
 				import json as _json
+
 				self.extracted_content = _json.dumps(self.extracted_content)[:8000]
 			except Exception:
 				self.extracted_content = str(self.extracted_content)[:8000]
