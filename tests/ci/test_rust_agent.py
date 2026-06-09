@@ -3736,6 +3736,7 @@ async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
 	assert captured_events
 	assert captured_events[0].model == 'gpt-test'
 	assert captured_events[0].model_provider == 'test-provider'
+	assert captured_events[0].agent_type == 'rust'
 	assert captured_events[0].cdp_url == 'browser.example'
 	assert captured_events[0].action_history == [[{'done': {'text': 'done', 'success': True}}]]
 	assert captured_events[0].urls_visited == ['https://example.com']
@@ -3785,6 +3786,7 @@ async def test_rust_agent_run_records_terminal_telemetry(monkeypatch):
 	assert event.max_steps == 5
 	assert event.model == 'gpt-test'
 	assert event.model_provider == 'test-provider'
+	assert event.agent_type == 'rust'
 	assert event.urls_visited == ['https://example.com']
 	assert event.total_input_tokens == 13
 	assert event.total_output_tokens == 5
@@ -7468,8 +7470,8 @@ async def test_rust_agent_trace_and_cloud_auth_helpers():
 
 
 async def test_rust_agent_run_exposes_laminar_trace_id_for_eval_links(monkeypatch):
-	from browser_use.rust import Agent
 	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
 
 	class FakeLaminar:
 		@staticmethod
@@ -7521,8 +7523,8 @@ def test_rust_laminar_replay_flush_avoids_context_reset(monkeypatch):
 
 
 def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
-	from browser_use.rust import Agent
 	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events
 
 	class FakeLaminar:
@@ -7878,8 +7880,8 @@ async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monke
 
 
 def test_rust_agent_trace_metadata_matches_browser_use_helpers(monkeypatch):
-	from browser_use.rust import Agent
 	import browser_use.rust.service as rust_service
+	from browser_use.rust import Agent
 	from browser_use.rust.service import _history_from_events
 
 	monkeypatch.setattr(rust_service, 'get_browser_use_version', lambda: '9.9.9-test')

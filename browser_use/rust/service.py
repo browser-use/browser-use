@@ -33,8 +33,8 @@ from browser_use.agent.cloud_events import (
 	UpdateAgentTaskEvent,
 )
 from browser_use.agent.judge import construct_judge_messages
-from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.message_manager.service import MessageManager
+from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
@@ -68,8 +68,8 @@ from browser_use.tokens.views import ModelUsageStats, UsageSummary
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import (
-	SignalHandler,
 	URL_PATTERN,
+	SignalHandler,
 	_log_pretty_path,
 	check_latest_browser_use_version,
 	get_browser_use_version,
@@ -78,7 +78,6 @@ from browser_use.utils import (
 	sanitize_url_candidate,
 )
 
-
 Context = TypeVar('Context')
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 AgentNewStepCallback = (
@@ -86,6 +85,7 @@ AgentNewStepCallback = (
 )
 AgentDoneCallback = Callable[[AgentHistoryList], Awaitable[None]] | Callable[[AgentHistoryList], None]
 logger = logging.getLogger(__name__)
+RUST_AGENT_TYPE = 'rust'
 
 try:
 	from lmnr import Laminar  # type: ignore
@@ -2865,9 +2865,7 @@ def _terminal_laminar_semconv_messages(
 		content = message.get('content')
 		parts: list[dict[str, Any]]
 		if isinstance(content, list):
-			parts = [
-				_terminal_laminar_semconv_content_part(part, inline_image_data=inline_image_data) for part in content
-			]
+			parts = [_terminal_laminar_semconv_content_part(part, inline_image_data=inline_image_data) for part in content]
 		elif isinstance(content, str):
 			parts = [{'type': 'text', 'content': content}]
 		else:
@@ -3989,7 +3987,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				version=self.version or '',
 				source=self.source,
 				cdp_url=urlparse(cdp_url).hostname if cdp_url else None,
-				agent_type=None,
+				agent_type=RUST_AGENT_TYPE,
 				action_errors=self.history.errors(),
 				action_history=action_history_data,
 				urls_visited=self.history.urls(),
