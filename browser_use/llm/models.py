@@ -130,6 +130,8 @@ def get_llm_by_name(model_name: str):
 		model = model_part.replace('gpt_4o_mini', 'gpt-4o-mini')
 	elif 'gpt_4o' in model_part:
 		model = model_part.replace('gpt_4o', 'gpt-4o')
+	elif 'gpt_5_4' in model_part:
+		model = model_part.replace('gpt_5_4', 'gpt-5.4').replace('_', '-')
 	elif 'gemini_2_0' in model_part:
 		model = model_part.replace('gemini_2_0', 'gemini-2.0').replace('_', '-')
 	elif 'gemini_2_5' in model_part:
@@ -164,7 +166,8 @@ def get_llm_by_name(model_name: str):
 	# OpenAI Models
 	if provider == 'openai':
 		api_key = os.getenv('OPENAI_API_KEY')
-		return ChatOpenAI(model=model, api_key=api_key)
+		base_url = os.getenv('OPENAI_BASE_URL') or None
+		return ChatOpenAI(model=model, api_key=api_key, base_url=base_url)
 
 	# Azure OpenAI Models
 	elif provider == 'azure':

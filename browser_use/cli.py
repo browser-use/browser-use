@@ -244,6 +244,7 @@ def get_default_config() -> dict[str, Any]:
 	return {
 		'model': {
 			'name': llm_config.get('model'),
+			'base_url': llm_config.get('base_url', CONFIG.OPENAI_BASE_URL),
 			'temperature': llm_config.get('temperature', 0.0),
 			'api_keys': {
 				'OPENAI_API_KEY': llm_config.get('api_key', CONFIG.OPENAI_API_KEY),
@@ -356,6 +357,7 @@ def get_llm(config: dict[str, Any]):
 	model_config = config.get('model', {})
 	model_name = model_config.get('name')
 	temperature = model_config.get('temperature', 0.0)
+	base_url = model_config.get('base_url') or CONFIG.OPENAI_BASE_URL or None
 
 	# Get API key from config or environment
 	api_key = model_config.get('api_keys', {}).get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
@@ -365,7 +367,12 @@ def get_llm(config: dict[str, Any]):
 			if not api_key and not CONFIG.OPENAI_API_KEY:
 				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
-			return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
+			return ChatOpenAI(
+				model=model_name,
+				temperature=temperature,
+				api_key=api_key or CONFIG.OPENAI_API_KEY,
+				base_url=base_url,
+			)
 		elif model_name.startswith('claude'):
 			if not CONFIG.ANTHROPIC_API_KEY:
 				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
@@ -385,7 +392,12 @@ def get_llm(config: dict[str, Any]):
 
 	# Auto-detect based on available API keys
 	if api_key or CONFIG.OPENAI_API_KEY:
-		return ChatOpenAI(model='gpt-5-mini', temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
+		return ChatOpenAI(
+			model=model_name or 'gpt-5-mini',
+			temperature=temperature,
+			api_key=api_key or CONFIG.OPENAI_API_KEY,
+			base_url=base_url,
+		)
 	elif CONFIG.ANTHROPIC_API_KEY:
 		return ChatAnthropic(model='claude-4-sonnet', temperature=temperature)
 	elif CONFIG.GOOGLE_API_KEY:

@@ -212,7 +212,9 @@ allow-direct-references = true
 #     "sys_platform == 'win32' and platform_machine == 'x86_64'",
 #     # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
 # ]
-dev-dependencies = [
+
+[dependency-groups]
+dev = [
     "ruff==0.14.14",
     "tokencost==0.1.26",
     "build==1.4.0",

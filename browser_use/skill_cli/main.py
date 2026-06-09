@@ -569,7 +569,14 @@ def ensure_daemon(
 	sys.exit(1)
 
 
-def send_command(action: str, params: dict, *, session: str = 'default', agent_id: str = '__shared__') -> dict:
+def send_command(
+	action: str,
+	params: dict,
+	*,
+	session: str = 'default',
+	agent_id: str = '__shared__',
+	timeout: float = 60.0,
+) -> dict:
 	"""Send command to daemon and get response."""
 	request = {
 		'id': f'r{int(time.time() * 1000000) % 1000000}',
@@ -579,7 +586,7 @@ def send_command(action: str, params: dict, *, session: str = 'default', agent_i
 		'token': _read_auth_token(session),
 	}
 
-	sock = _connect_to_daemon(session=session)
+	sock = _connect_to_daemon(timeout=timeout, session=session)
 	try:
 		# Send request
 		sock.sendall((json.dumps(request) + '\n').encode())
@@ -618,11 +625,14 @@ def build_parser() -> argparse.ArgumentParser:
   browser-use cloud v2 poll <task-id>           # Poll task until done
   browser-use cloud v2 --help                   # Show API endpoints""")
 
-	epilog_parts.append("""
-Setup:
-  browser-use open https://example.com          # Navigate to URL
-  browser-use install                           # Install Chromium browser
-  browser-use init                              # Generate template file""")
+	epilog_parts.append(
+		'\n'
+		'Setup:\n'
+		'  browser-use open https://example.com          # Navigate to URL\n'
+		'  browser-use install                           # Install Chromium browser\n'
+		'  browser-use init                              # Generate template file\n'
+		'  browser-use assistant "recommend earbuds under $150"'
+	)
 
 	parser = argparse.ArgumentParser(
 		prog='browser-use',
@@ -699,6 +709,31 @@ Setup:
 	# -------------------------------------------------------------------------
 	# Browser Control Commands
 	# -------------------------------------------------------------------------
+
+	p = subparsers.add_parser('assistant', help='Run a multi-source research/recommendation browser assistant')
+	p.add_argument('task', help='Task to investigate, compare, or recommend')
+	p.add_argument('--model', help='Explicit model override, e.g. openai_gpt_5_4 or gpt-5.4')
+	p.add_argument('--locale', help='Locale hint such as zh-CN or en-US')
+	p.add_argument('--max-steps', type=int, default=18, help='Maximum browser agent steps')
+	p.add_argument('--llm-timeout', type=int, default=120, help='Per-call LLM timeout in seconds')
+	p.add_argument('--max-actions-per-step', type=int, default=2, help='Maximum browser actions per reasoning step')
+	p.add_argument('--max-recommendations', type=int, default=3, help='Maximum final recommendations')
+	p.add_argument('--vision', action='store_true', help='Enable vision/screenshot input for tougher pages')
+	p.add_argument('--shopping-site', dest='shopping_sites', action='append', default=[], help='Preferred shopping source domain')
+	p.add_argument('--review-site', dest='review_sites', action='append', default=[], help='Preferred review/community source domain')
+	p.add_argument('--official-site', dest='official_sites', action='append', default=[], help='Preferred official source domain')
+	p.add_argument('--web-site', dest='web_sites', action='append', default=[], help='Preferred general web or documentation source domain')
+
+	p = subparsers.add_parser('sidepanel-server', help='Run the local bridge for the Chrome side-panel extension')
+	p.add_argument('--host', default='127.0.0.1', help='Host to bind, default: 127.0.0.1')
+	p.add_argument('--port', type=int, default=8765, help='Port to bind, default: 8765')
+	p.add_argument('--model', default=None, help='Model override, e.g. gpt-5.4')
+	p.add_argument('--cdp-url', default=None, help='CDP URL for the real Chrome instance, e.g. http://localhost:9222')
+	p.add_argument('--no-auto-cdp', action='store_true', help='Do not auto-discover a running Chrome CDP endpoint')
+	p.add_argument('--max-steps', type=int, default=14, help='Default max browser assistant steps per request')
+	p.add_argument('--max-recommendations', type=int, default=3, help='Default max final recommendations')
+	p.add_argument('--llm-timeout', type=int, default=180, help='Default per-call LLM timeout in seconds')
+	p.add_argument('--credential-store', default=None, help='Local JSON file for side-panel autofill profiles')
 
 	# open <url>
 	p = subparsers.add_parser('open', help='Navigate to URL')
@@ -1210,6 +1245,23 @@ def main() -> int:
 		return handle_cloud_command(cloud_args)
 
 	# Handle profile subcommand — passthrough to profile-use Go binary
+	if args.command == 'sidepanel-server':
+		from browser_use.skill_cli.sidepanel_server import SidePanelServerConfig, run_server
+
+		config = SidePanelServerConfig(
+			host=args.host,
+			port=args.port,
+			model=args.model,
+			cdp_url=args.cdp_url,
+			auto_discover_cdp=not args.no_auto_cdp,
+			max_steps=args.max_steps,
+			max_recommendations=args.max_recommendations,
+			llm_timeout=args.llm_timeout,
+			credential_store_path=args.credential_store,
+		)
+		asyncio.run(run_server(config))
+		return 0
+
 	if args.command == 'profile':
 		from browser_use.skill_cli.profile_use import run_profile_use
 
@@ -1473,7 +1525,11 @@ def main() -> int:
 		params['profile'] = args.profile
 
 	# Send command to daemon
-	response = send_command(args.command, params, session=session)
+	command_timeout = 60.0
+	if args.command == 'assistant':
+		command_timeout = float(params.get('max_steps', 18) * params.get('llm_timeout', 120) + 300)
+
+	response = send_command(args.command, params, session=session, timeout=command_timeout)
 
 	# Output response
 	if args.json:

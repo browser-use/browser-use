@@ -306,7 +306,7 @@ class Daemon:
 					result_data['live_url'] = f'https://live.browser-use.com/?wss={quote(bs.cdp_url, safe="")}'
 				return {'id': req_id, 'success': True, 'data': result_data}
 
-			from browser_use.skill_cli.commands import browser, python_exec
+			from browser_use.skill_cli.commands import assistant, browser, python_exec
 
 			# Get or create the single session
 			session = await self._get_or_create_session()
@@ -314,6 +314,8 @@ class Daemon:
 			# Dispatch to handler
 			if action in browser.COMMANDS:
 				result = await browser.handle(action, session, params)
+			elif action == 'assistant':
+				result = await assistant.handle(session, params)
 			elif action == 'python':
 				result = await python_exec.handle(session, params)
 			else:

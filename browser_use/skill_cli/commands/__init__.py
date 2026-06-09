@@ -1,6 +1,7 @@
 """Command handlers for browser-use CLI."""
 
 from browser_use.skill_cli.commands import (
+	assistant,
 	browser,
 	doctor,
 	python_exec,
@@ -8,6 +9,7 @@ from browser_use.skill_cli.commands import (
 )
 
 __all__ = [
+	'assistant',
 	'browser',
 	'doctor',
 	'python_exec',

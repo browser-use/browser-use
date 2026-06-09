@@ -1,0 +1,66 @@
+# .understandignore - patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore
+# Suggested entries are commented out. Uncomment to exclude them.
+#
+# --- From .gitignore ---
+# .DS_Store
+# *.py[cod]
+# *$py.class
+# .mypy_cache/
+# .ruff_cache/
+# .pytest_cache/
+# .ipynb_checkpoints
+# ~/
+# .venv*
+# *.txt
+# *.csv
+# *.json
+# *.jsonl
+# *.bak
+# secrets.env
+# .env
+# browser_cookies.json
+# cookies.json
+# gcp-login.json
+# saved_trajectories/
+# old_tests/
+# AgentHistory.json
+# AgentHistoryList.json
+# private_example.py
+# private_example
+# CLAUDE.local.md
+# uv.lock
+# temp
+# tmp
+# credentials.json
+# token.json
+# !docs/docs.json
+# temp-profile-*
+# screenshot.png
+# all_github_issues_progress.md
+# all_github_issues.md
+# todo-input-token.md
+# TOOL_CHANGES_SUMMARY.md
+# claude-code-todo
+# result_judge.md
+# result.md
+# result2.md
+# result3.md
+# Brainstorm.md
+# example.ipynb
+# *SUMMARY.md
+# todo.md
+# product_extraction.ipynb
+# product_extraction.py
+# *report.md
+# plot.py
+# .claude/
+
+# --- Detected directories ---
+# tests/
+# examples/
+
+# --- Test file patterns ---
+# *.test.*
+# *.spec.*
+# *.snap

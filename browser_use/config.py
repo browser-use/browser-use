@@ -135,6 +135,10 @@ class OldConfig:
 		return os.getenv('OPENAI_API_KEY', '')
 
 	@property
+	def OPENAI_BASE_URL(self) -> str:
+		return os.getenv('OPENAI_BASE_URL', '')
+
+	@property
 	def ANTHROPIC_API_KEY(self) -> str:
 		return os.getenv('ANTHROPIC_API_KEY', '')
 
@@ -211,6 +215,7 @@ class FlatEnvConfig(BaseSettings):
 
 	# LLM API keys
 	OPENAI_API_KEY: str = Field(default='')
+	OPENAI_BASE_URL: str = Field(default='')
 	ANTHROPIC_API_KEY: str = Field(default='')
 	GOOGLE_API_KEY: str = Field(default='')
 	DEEPSEEK_API_KEY: str = Field(default='')
@@ -267,6 +272,7 @@ class LLMEntry(DBStyleEntry):
 	"""LLM configuration entry."""
 
 	api_key: str | None = None
+	base_url: str | None = None
 	model: str | None = None
 	temperature: float | None = None
 	max_tokens: int | None = None
@@ -303,7 +309,12 @@ def create_default_config() -> DBStyleConfigJSON:
 	new_config.browser_profile[profile_id] = BrowserProfileEntry(id=profile_id, default=True, headless=False, user_data_dir=None)
 
 	# Create default LLM entry
-	new_config.llm[llm_id] = LLMEntry(id=llm_id, default=True, model='gpt-4.1-mini', api_key='your-openai-api-key-here')
+	new_config.llm[llm_id] = LLMEntry(
+		id=llm_id,
+		default=True,
+		model='gpt-4.1-mini',
+		api_key='your-openai-api-key-here',
+	)
 
 	# Create default agent entry
 	new_config.agent[agent_id] = AgentEntry(id=agent_id, default=True)
@@ -494,6 +505,9 @@ class Config:
 
 		if env_config.OPENAI_API_KEY:
 			config['llm']['api_key'] = env_config.OPENAI_API_KEY
+
+		if env_config.OPENAI_BASE_URL:
+			config['llm']['base_url'] = env_config.OPENAI_BASE_URL.rstrip('/')
 
 		if env_config.BROWSER_USE_LLM_MODEL:
 			config['llm']['model'] = env_config.BROWSER_USE_LLM_MODEL

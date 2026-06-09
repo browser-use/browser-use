@@ -11,7 +11,7 @@ load_dotenv()
 from browser_use import Agent, ChatOpenAI
 from browser_use.browser import BrowserProfile, BrowserSession
 
-llm = ChatOpenAI(model='gpt-4o-mini')
+llm = ChatOpenAI(model=os.getenv('BROWSER_USE_LLM_MODEL', 'gpt-4o-mini'))
 
 # Example task: Try to navigate to various sites including blocked ones
 task = 'Navigate to example.com, then try to go to x.com, then facebook.com, and finally visit google.com. Tell me which sites you were able to access.'

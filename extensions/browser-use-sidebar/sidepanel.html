@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser Use Assistant</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Browser Use</h1>
+          <p id="status">Checking local bridge...</p>
+        </div>
+        <button id="refresh" title="Refresh page context">Refresh</button>
+      </header>
+
+      <section class="context">
+        <label>Current Page</label>
+        <div id="pageTitle" class="title">No page attached</div>
+        <div id="pageUrl" class="url"></div>
+      </section>
+
+      <section class="autofill">
+        <label>Autofill</label>
+        <div id="autofillStatus" class="hint">No matching local profile.</div>
+        <button id="autofill" disabled>Autofill current page</button>
+      </section>
+
+      <section class="composer">
+        <label for="task">Task</label>
+        <textarea id="task" rows="7" placeholder="例如：帮我推荐一款 1000 元以内的头戴式耳机，结合当前页面、购物价格和测评证据给出推荐"></textarea>
+        <div class="controls">
+          <label class="check"><input id="includePage" type="checkbox" checked /> Include current page</label>
+          <label class="check"><input id="autoObserve" type="checkbox" checked /> Auto observe</label>
+          <button id="run">Run</button>
+        </div>
+      </section>
+
+      <section class="result">
+        <label>Result</label>
+        <pre id="output">Start the local bridge, then run a task.</pre>
+      </section>
+    </main>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

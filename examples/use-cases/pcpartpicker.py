@@ -1,12 +1,21 @@
 import asyncio
+import os
 
-from browser_use import Agent, Browser, ChatBrowserUse, Tools
+from dotenv import load_dotenv
+
+from browser_use import Agent, Browser, ChatOpenAI, Tools
+
+load_dotenv()
 
 
 async def main():
 	browser = Browser(cdp_url='http://localhost:9222')
 
-	llm = ChatBrowserUse(model='bu-2-0')
+	llm = ChatOpenAI(
+		model=os.getenv('BROWSER_USE_LLM_MODEL', 'gpt-5.4'),
+		api_key=os.getenv('OPENAI_API_KEY'),
+		base_url=os.getenv('OPENAI_BASE_URL') or None,
+	)
 
 	tools = Tools()
 
@@ -24,6 +33,12 @@ async def main():
 		browser=browser,
 		tools=tools,
 		llm=llm,
+		use_thinking=False,
+		use_vision=False,
+		max_actions_per_step=2,
+		max_failures=8,
+		llm_timeout=180,
+		step_timeout=240,
 	)
 
 	history = await agent.run(max_steps=100000)
