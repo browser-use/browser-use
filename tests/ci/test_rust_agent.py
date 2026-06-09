@@ -1372,6 +1372,27 @@ def test_result_quacks_like_agent_history_list():
 	assert set(dump) >= {'input_tokens', 'output_tokens', 'cost', 'model'}
 
 
+def test_history_view_strips_terminal_done_stdout_prefix_from_final_result():
+	from browser_use.rust import AgentRunResult
+	from browser_use.rust.views import StepRecord
+
+	result = AgentRunResult(
+		session_id='sess',
+		exit_code=0,
+		final_summary='done:the answer is 42',
+		steps=[
+			StepRecord(
+				seq=1,
+				tool='done',
+				tool_output={'extracted_content': 'done:the answer is 42'},
+			),
+		],
+	)
+
+	assert result.final_result() == 'the answer is 42'
+	assert result.history[-1].result[0].extracted_content == 'the answer is 42'
+
+
 def test_history_view_surfaces_completion_candidates_without_extracted_content():
 	from browser_use.rust import AgentRunResult
 	from browser_use.rust.views import StepRecord

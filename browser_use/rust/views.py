@@ -133,7 +133,7 @@ class AgentRunResult(BaseModel):
 
 	def final_result(self) -> str | None:
 		"""Top-1 hit in the classic API. Returns the agent's last message."""
-		return self.final_summary
+		return _strip_terminal_done_stdout_prefix(self.final_summary)
 
 	def is_done(self) -> bool:
 		"""True once the agent emitted a final result without process failure."""
@@ -291,6 +291,18 @@ def _format_trace_id_as_uuid(trace_id: str) -> str:
 # AgentHistoryList compatibility views (formerly compat.py)
 # ----------------------------------------------------------------------
 
+_DONE_STDOUT_PREFIX = 'done:'
+
+
+def _strip_terminal_done_stdout_prefix(text: str | None) -> str | None:
+	"""Remove terminal's done-tool stdout marker from legacy history fields."""
+	if text is None:
+		return None
+	stripped = text.strip()
+	if stripped.lower().startswith(_DONE_STDOUT_PREFIX):
+		stripped = stripped[len(_DONE_STDOUT_PREFIX) :].strip()
+	return stripped or None
+
 
 class _ActionResultView:
 	"""Shape: ActionResult — what the legacy harness reads off result[i]."""
@@ -437,8 +449,10 @@ class _HistoryItemView:
 		raw_results = step.tool_output or {}
 		results = [_ActionResultView(raw_results, is_done=is_last)]
 		if is_last and final_summary and not results[0].extracted_content:
-			results[0].extracted_content = final_summary
+			results[0].extracted_content = _strip_terminal_done_stdout_prefix(final_summary)
 			results[0].is_done = True
+		if is_last or step.tool == 'done':
+			results[0].extracted_content = _strip_terminal_done_stdout_prefix(results[0].extracted_content)
 		# `selfReportSuccess` in the eval dashboard mirrors the agent's own
 		# success flag on its done action. If the agent reached `done` with a
 		# real final answer, surface success=True so the dashboard's success
