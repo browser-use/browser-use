@@ -115,6 +115,12 @@ def test_browser_use_llm_detection_handles_eval_telemetry_subclass():
 	assert env['LLM_BROWSER_BROWSER_USE_BASE_URL'] == 'https://llm.example.com/v1'
 
 
+def test_history_from_events_compat_export():
+	from browser_use.rust.service import _history_from_events
+
+	assert isinstance(_history_from_events([]), list)
+
+
 def test_default_browser_mode_is_managed_headless_to_skip_chrome_dialog():
 	"""Eval-critical: without this, the agent calls `browser connect local`
 	on macOS, which waits for an "Allow remote debugging" click — infinite

@@ -1984,6 +1984,11 @@ def _api_key_from_llm(llm: Any) -> str | None:
 	return value or None
 
 
+def _history_from_events(events: list[Any]) -> list[Any]:
+	"""Backward-compatible import target for eval workflow provenance checks."""
+	return AgentRunResult(exit_code=0, events=list(events)).history
+
+
 def _base_url_from_llm(llm: Any) -> str | None:
 	if llm is None:
 		return None
