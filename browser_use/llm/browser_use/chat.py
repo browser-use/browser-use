@@ -60,6 +60,7 @@ class ChatBrowserUse(BaseChatModel):
 			model: Model name to use. Options:
 				- 'bu-2-0' or 'bu-latest': Default model (latest premium)
 				- 'bu-1-0': Previous generation model
+				- 'bu-3' or 'bu-3-max': Latest generation models
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
@@ -68,11 +69,10 @@ class ChatBrowserUse(BaseChatModel):
 			retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0).
 			retry_max_delay: Maximum delay in seconds between retries (default: 60.0).
 		"""
-		# Validate model name - allow bu-* and browser-use/* patterns
-		valid_models = ['bu-latest', 'bu-1-0', 'bu-2-0']
-		is_valid = model in valid_models or model.startswith('browser-use/')
+		# Allow new Browser Use model handles to be used before this client ships a new hard-coded list.
+		is_valid = model.startswith('bu-') or model.startswith('browser-use/')
 		if not is_valid:
-			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models} or start with 'browser-use/'")
+			raise ValueError(f"Invalid model: '{model}'. Must start with 'bu-' or 'browser-use/'")
 
 		# Normalize bu-latest to the current latest model
 		if model == 'bu-latest':
