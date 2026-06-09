@@ -15,8 +15,8 @@ REFERENCE_JSON = DATA_DIR / 'reference_answer.json'
 WEBARENA_JSON = DATA_DIR / 'webarena_test.raw.json'
 
 # --- provider ------------------------------------------------------------- #
-DEFAULT_MODEL = 'qwen-max'
-DEFAULT_JUDGE_MODEL = 'qwen-vl-max'  # multimodal, for the WebVoyager success judge
+DEFAULT_MODEL = 'qwen3.5-omni-plus-2026-03-15'  # multimodal (text+image); fallback: 'qwen3-vl-plus'
+DEFAULT_JUDGE_MODEL = 'qwen3.5-omni-plus-2026-03-15'  # multimodal, for the WebVoyager success judge
 DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 
 # Appended to every agent's system prompt so it routes around CAPTCHAs itself
@@ -37,9 +37,9 @@ class RunConfig:
 	batch_size: int = 2
 	source: str = 'both'  # 'webvoyager' | 'gaia' | 'both'
 	model: str = DEFAULT_MODEL
-	max_steps: int = 25
-	task_timeout: float = 600.0  # heavy sites under several headed browsers run ~30-50s/step
+	max_steps: int = 20
+	task_timeout: float = 300.0  # heavy sites under several headed browsers run ~30-50s/step
 	max_wait: float = 1.5  # how long to wait to fill a batch before dispatching a partial one (see note below)
-	use_vision: bool = False  # qwen-max is text-only
+	use_vision: bool = True  # send the screenshot to the model each step (multimodal)
 	shuffle: bool = False
 	seed: int = 0

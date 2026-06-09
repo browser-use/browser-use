@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import tempfile
 import time
 import uuid
@@ -71,9 +72,10 @@ async def execute_task(
 	on_finish: Callable[[Agent, str, bool | None], None] | None = None,
 ) -> TaskOutcome:
 	"""Run one task in its own headed window with a wall-clock timeout, then clean up."""
+	udir = profile_root / f'slot{slot}_{uuid.uuid4().hex[:8]}'
 	browser = Browser(
 		headless=False,
-		user_data_dir=str(profile_root / f'slot{slot}_{uuid.uuid4().hex[:8]}'),
+		user_data_dir=str(udir),
 		max_iframes=15,  # ad-heavy sites (e.g. Allrecipes) have many iframes; cap AX-tree work
 	)
 	agent = Agent(
@@ -82,6 +84,7 @@ async def execute_task(
 		browser=browser,
 		initial_actions=[{'navigate': {'url': task.start_url, 'new_tab': False}}],
 		use_vision=cfg.use_vision,
+		llm_screenshot_size=(1280, 720),  # downscale the per-step vision image (full-HD PNGs are ~3MB each)
 		use_judge=False,
 		enable_planning=False,
 		calculate_cost=False,
@@ -111,6 +114,9 @@ async def execute_task(
 			await browser.kill()
 		except Exception:  # noqa: BLE001
 			pass
+		# Delete this task's browser profile (Chrome caches ~40MB each); otherwise profiles
+		# accumulate under the temp dir and fill the disk over a long run.
+		shutil.rmtree(udir, ignore_errors=True)
 
 	result = (history.final_result() or '')[:500] if history is not None else None
 	return TaskOutcome(task, slot, status, round(time.time() - t0, 1), result=result, error=err)
@@ -121,7 +127,9 @@ def _profile_root() -> Path:
 
 
 def _coordinator(cfg: RunConfig) -> BatchCoordinator:
-	return BatchCoordinator(ChatDashScope(model=cfg.model), max_batch=cfg.batch_size, max_wait_s=cfg.max_wait)
+	# temperature/max_completion_tokens match the reference request format
+	llm = ChatDashScope(model=cfg.model, temperature=0.2, max_completion_tokens=4096)
+	return BatchCoordinator(llm, max_batch=cfg.batch_size, max_wait_s=cfg.max_wait)
 
 
 async def run_batch(cfg: RunConfig) -> list[TaskOutcome]:
@@ -148,7 +156,23 @@ async def run_capture(cfg: RunConfig, out_dir: Path | None = None) -> Path:
 	out_dir = out_dir or (RUNS_DIR / f'run_{int(time.time())}')
 	out_dir.mkdir(parents=True, exist_ok=True)
 	tasks = load_tasks(cfg.task_num, cfg.shuffle, cfg.seed, cfg.source)
-	print(f'Capturing {len(tasks)} tasks -> {out_dir} | batch_size={cfg.batch_size} | source={cfg.source}')
+
+	# Resume support: skip tasks already captured (meta.json has a final 'status').
+	def _already_captured(task: WebVoyagerTask) -> bool:
+		mp = out_dir / task.folder_name / 'meta.json'
+		if not mp.exists():
+			return False
+		try:
+			return 'status' in json.loads(mp.read_text())
+		except Exception:  # noqa: BLE001
+			return False
+
+	todo = [t for t in tasks if not _already_captured(t)]
+	skipped = len(tasks) - len(todo)
+	print(f'Capturing {len(todo)} tasks ({skipped} already captured) -> {out_dir} | batch_size={cfg.batch_size} | source={cfg.source}')
+	if not todo:
+		print('all tasks already captured — nothing to do')
+		return out_dir
 	coord = _coordinator(cfg)
 	profile_root = _profile_root()
 
@@ -170,7 +194,7 @@ async def run_capture(cfg: RunConfig, out_dir: Path | None = None) -> Path:
 		print(f'  [slot {slot}] ■ {outcome.status} steps={recorder.step} -> {task.folder_name}', flush=True)
 		return outcome
 
-	outcomes = await run_pool(tasks, cfg.batch_size, handler)
+	outcomes = await run_pool(todo, cfg.batch_size, handler)
 	summary = [
 		{
 			'id': o.task.id,

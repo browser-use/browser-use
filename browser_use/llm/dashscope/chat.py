@@ -22,11 +22,10 @@ T = TypeVar('T', bound=BaseModel)
 class ChatDashScope(ChatOpenAI):
 	"""Alibaba DashScope (Qwen) wrapper via the OpenAI-compatible endpoint.
 
-	Qwen does not do constrained decoding for an OpenAI-style ``response_format``
-	json_schema (it returns valid-but-unconstrained JSON, so deeply nested action
-	unions come back mis-shaped). It does, however, follow forced function-call
-	argument schemas reliably, so structured output is produced via a single
-	forced tool call instead of ``response_format``.
+	Structured output uses ``response_format`` json_schema. Newer Qwen models
+	(qwen3.x, qwen-omni, qwen3-vl) enforce it correctly, including nested arrays.
+	Forced function-calling is avoided: some of these models reject a forced
+	``tool_choice``, and others return nested array fields as stringified JSON.
 
 	The API key is read from ``DASHSCOPE_API_KEY`` when not passed explicitly
 	(the OpenAI SDK would otherwise look for OPENAI_API_KEY).
@@ -86,42 +85,35 @@ class ChatDashScope(ChatOpenAI):
 					stop_reason=choice.finish_reason,
 				)
 
-			# Structured output via a single forced tool call (Qwen follows this reliably)
+			# Structured output via response_format json_schema (the agent prompt already
+			# instructs JSON output, which Qwen requires for this mode).
 			schema = SchemaOptimizer.create_optimized_json_schema(
 				output_format,
 				remove_min_items=self.remove_min_items_from_schema,
 				remove_defaults=self.remove_defaults_from_schema,
 			)
 			schema.pop('title', None)
-			tool_name = output_format.__name__
 
 			response = await self.get_client().chat.completions.create(
 				model=self.model,
 				messages=openai_messages,
-				tools=[
-					{
-						'type': 'function',
-						'function': {
-							'name': tool_name,
-							'description': f'Return a JSON object of type {tool_name}',
-							'parameters': schema,
-						},
-					}
-				],
-				tool_choice={'type': 'function', 'function': {'name': tool_name}},
+				response_format={
+					'type': 'json_schema',
+					'json_schema': {'name': output_format.__name__, 'strict': True, 'schema': schema},
+				},
 				**model_params,
 			)
 
 			choice = response.choices[0]
-			tool_calls = choice.message.tool_calls
-			if not tool_calls:
+			content = choice.message.content
+			if not content:
 				raise ModelProviderError(
-					message='Expected a tool call in DashScope response but got none',
+					message='Expected structured content in DashScope response but got none',
 					status_code=502,
 					model=self.name,
 				)
 
-			parsed = output_format.model_validate_json(tool_calls[0].function.arguments)
+			parsed = output_format.model_validate_json(content)
 			return ChatInvokeCompletion(
 				completion=parsed,
 				usage=self._get_usage(response),

@@ -31,29 +31,20 @@ def _action_names(action_list) -> list[str]:
 
 
 async def _predict(judge: AsyncOpenAI, model: str, messages_bm, schema_obj: dict) -> dict:
-	name = schema_obj['name']
 	resp = await judge.chat.completions.create(
 		model=model,
 		messages=OpenAIMessageSerializer.serialize_messages(messages_bm),
-		tools=[
-			{
-				'type': 'function',
-				'function': {
-					'name': name,
-					'description': f'Return a JSON object of type {name}',
-					'parameters': schema_obj['schema'],
-				},
-			}
-		],
-		tool_choice={'type': 'function', 'function': {'name': name}},
+		response_format={
+			'type': 'json_schema',
+			'json_schema': {'name': schema_obj['name'], 'strict': True, 'schema': schema_obj['schema']},
+		},
 		temperature=0.2,
-		frequency_penalty=0.3,
 		max_completion_tokens=4096,
 	)
-	tc = resp.choices[0].message.tool_calls
-	if not tc:
-		raise RuntimeError('model returned no tool call')
-	return json.loads(tc[0].function.arguments)
+	content = resp.choices[0].message.content
+	if not content:
+		raise RuntimeError('model returned empty content')
+	return json.loads(content)
 
 
 async def evaluate_replay(path: Path, model: str = DEFAULT_MODEL) -> list[dict]:

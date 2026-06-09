@@ -10,19 +10,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from simulator.config import DEFAULT_MODEL, RunConfig
+from simulator.config import RunConfig
 
 
 def _add_run_args(p: argparse.ArgumentParser) -> None:
-	p.add_argument('--task-num', type=int, default=2, help='Total number of tasks to complete.')
-	p.add_argument('--batch-size', type=int, default=2, help='Concurrent tasks / windows / LLM batch size.')
-	p.add_argument('--source', choices=['both', 'webvoyager', 'gaia'], default='both', help='Which task set(s) to draw from.')
-	p.add_argument('--model', default=DEFAULT_MODEL, help='DashScope model.')
-	p.add_argument('--max-steps', type=int, default=15, help='Max agent steps per task.')
-	p.add_argument('--task-timeout', type=float, default=180.0, help='Per-task wall-clock timeout (seconds).')
-	p.add_argument('--max-wait', type=float, default=8.0, help='Max seconds the coordinator waits to fill a batch.')
+	# Defaults come from RunConfig so config.py is the single source of truth.
+	d = RunConfig()
+	p.add_argument('--task-num', type=int, default=d.task_num, help='Total number of tasks to complete.')
+	p.add_argument('--batch-size', type=int, default=d.batch_size, help='Concurrent tasks / windows / LLM batch size.')
+	p.add_argument('--source', choices=['both', 'webvoyager', 'gaia'], default=d.source, help='Which task set(s) to draw from.')
+	p.add_argument('--model', default=d.model, help='DashScope model.')
+	p.add_argument('--max-steps', type=int, default=d.max_steps, help='Max agent steps per task.')
+	p.add_argument('--task-timeout', type=float, default=d.task_timeout, help='Per-task wall-clock timeout (seconds).')
+	p.add_argument('--max-wait', type=float, default=d.max_wait, help='Max seconds the coordinator waits to fill a batch.')
 	p.add_argument('--shuffle', action='store_true')
-	p.add_argument('--seed', type=int, default=0)
+	p.add_argument('--seed', type=int, default=d.seed)
 
 
 def _cfg(a: argparse.Namespace) -> RunConfig:

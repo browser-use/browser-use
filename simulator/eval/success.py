@@ -120,7 +120,18 @@ async def evaluate_success(path: Path, model: str = DEFAULT_JUDGE_MODEL, k: int 
 		raise SystemExit(f'No task folders with step_* found under {path}')
 	judge = client()
 	print(f'WebVoyager success-judging {len(task_dirs)} task(s) | judge={model} | last {k} screenshot(s) (no web)\n')
-	results = [await judge_success(judge, model, td, k) for td in task_dirs]
+	results = []
+	for td in task_dirs:
+		ef = td / 'webvoyager_eval.json'
+		if ef.exists():  # resume: reuse a prior non-error verdict
+			try:
+				prev = json.loads(ef.read_text())
+				if prev.get('error') is None and prev.get('success') is not None:
+					results.append(prev)
+					continue
+			except Exception:  # noqa: BLE001
+				pass
+		results.append(await judge_success(judge, model, td, k))
 	n_succ = sum(1 for r in results if r['success'] is True)
 	n_ref = sum(1 for r in results if r['used_reference'])
 	print('\n' + '=' * 64)
