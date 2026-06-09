@@ -247,6 +247,7 @@ OnEvent = Callable[[AnyAgentEvent], None] | Callable[[AnyAgentEvent], Awaitable[
 
 
 _MAX_TURNS_SUPPORT_CACHE: dict[str, bool] = {}
+_SUBCOMMAND_SUPPORT_CACHE: dict[str, bool] = {}
 
 
 def _structured_extracted_content(payload: dict[str, Any], *, limit: int = 8000) -> str | None:
@@ -424,6 +425,27 @@ def _binary_supports_max_turns(cli: Path, subcommand: str) -> bool:
 	except Exception:
 		supported = False
 	_MAX_TURNS_SUPPORT_CACHE[key] = supported
+	return supported
+
+
+def _binary_supports_subcommand(cli: Path, subcommand: str) -> bool:
+	import subprocess
+
+	key = f'{cli}::{subcommand}'
+	cached = _SUBCOMMAND_SUPPORT_CACHE.get(key)
+	if cached is not None:
+		return cached
+	try:
+		out = subprocess.run(
+			[str(cli), subcommand, '--help'],
+			capture_output=True,
+			text=True,
+			timeout=5,
+		)
+		supported = out.returncode == 0 and 'Usage:' in (out.stdout + out.stderr)
+	except Exception:
+		supported = False
+	_SUBCOMMAND_SUPPORT_CACHE[key] = supported
 	return supported
 
 
@@ -956,21 +978,29 @@ class _RustEventPrinter:
 		if event.type == 'session.created':
 			return f'[session] {event.session_id}'
 		if event.type == 'model.turn.request':
-			return f'[model:req] {payload.get("provider")} {payload.get("model")} turn={payload.get("turn_idx")}'
+			return (
+				f'[llm] turn {payload.get("turn_idx")} '
+				f'provider={payload.get("provider")} model={payload.get("model")}'
+			)
 		if event.type == 'tool.started':
 			name = payload.get('name') or payload.get('tool') or '?'
 			arguments = payload.get('arguments') or payload.get('input') or {}
-			return f'[tool:start] {name} {_compact_json(arguments)}'
+			return f'[tool] start {name} {_compact_json(arguments)}'
 		if event.type == 'browser_script.completed':
-			return f'[browser_script] {_compact_json(payload.get("summary") or [])}'
+			return f'[browser_script] {_format_browser_script_summary(payload.get("summary") or [])}'
 		if event.type == 'tool.output':
 			name = payload.get('name') or payload.get('tool') or '?'
 			text = str(payload.get('text') or '')
-			return f'[tool:output] {name} {text[:600]}'.rstrip()
+			return f'[tool] output {name} {text[:600]}'.rstrip()
 		if event.type == 'tool.finished':
-			return f'[tool:done] {payload.get("name") or payload.get("tool") or "?"}'
+			return f'[tool] done {payload.get("name") or payload.get("tool") or "?"}'
 		if event.type == 'token_count':
-			return f'[tokens] {_compact_json(_token_count_usage(payload))}'
+			usage = _token_count_usage(payload)
+			return (
+				f'[tokens] input={usage.get("input_tokens", 0)} '
+				f'output={usage.get("output_tokens", 0)} total={usage.get("total_tokens", 0)} '
+				f'cached={usage.get("cached_input_tokens", 0)}'
+			)
 		if event.type in {'session.done', 'session.result'}:
 			return f'[done] {payload.get("result") or payload.get("text") or ""}'
 		if event.type == 'session.failure':
@@ -980,6 +1010,30 @@ class _RustEventPrinter:
 		if event.type == 'browser.live_url':
 			return f'[browser] live {payload.get("url") or payload.get("live_url") or ""}'.rstrip()
 		return None
+
+
+def _format_browser_script_summary(summary: Any, *, limit: int = 600) -> str:
+	if not isinstance(summary, list):
+		return _compact_json(summary, limit=limit)
+
+	parts: list[str] = []
+	for item in summary:
+		if not isinstance(item, dict):
+			parts.append(str(item))
+			continue
+		label = item.get('output_label') or item.get('kind') or 'output'
+		message = item.get('message') or item.get('status') or item.get('title') or item.get('url') or ''
+		detail = str(message)
+		title = item.get('title')
+		url = item.get('url')
+		if title and title != message:
+			detail = f'{detail} title={title}' if detail else f'title={title}'
+		if url and url != message:
+			detail = f'{detail} url={url}' if detail else f'url={url}'
+		parts.append(f'{label}: {detail}'.rstrip())
+
+	text = ' | '.join(parts)
+	return text if len(text) <= limit else text[: limit - 3] + '...'
 
 
 def _compact_json(value: Any, *, limit: int = 600) -> str:
@@ -1366,19 +1420,41 @@ class Agent:
 		if subcommand is None:
 			subcommand = self.provider.subcommand
 
-		# Headless argv shape:
+		env = {**os.environ, **self._env_overrides()}
+		runtime_cwd = _runtime_cwd(self.state_dir)
+		runtime_cwd.mkdir(parents=True, exist_ok=True)
+
+		started = time.monotonic()
+		state = _AgentSessionState()
+		if attach_to_session:
+			state.session_id = attach_to_session
+			self.session_id = attach_to_session
+
 		#   browser-use-terminal <global flags> <subcommand> <text> <subcmd flags>
 		# Global flags (--state-dir, --collaboration-mode) MUST precede the
 		# subcommand or clap errors out. Subcommand flags (--model) come after.
 		global_extra_args, subcommand_extra_args = _split_global_config_args(self.extra_args)
+		launch_subcommand = subcommand
+		launch_text = text
+		if attach_to_session is None and subcommand.startswith('run-'):
+			session_subcommand = f'{subcommand}-session'
+			if _binary_supports_subcommand(cli, session_subcommand):
+				session_id = await self._start_headless_session(cli, text, global_extra_args, env, runtime_cwd)
+				if session_id is not None:
+					state.session_id = session_id
+					self.session_id = session_id
+					launch_subcommand = session_subcommand
+					launch_text = session_id
+
+		# Headless argv shape:
 		argv: list[str] = [str(cli)]
 		argv.extend(self._global_cli_flags())
 		argv.extend(global_extra_args)
-		argv.append(subcommand)
-		if attach_to_session and subcommand == 'followup':
+		argv.append(launch_subcommand)
+		if attach_to_session and launch_subcommand == 'followup':
 			argv.append(attach_to_session)
-		argv.append(text)
-		if self._model and subcommand != 'followup':
+		argv.append(launch_text)
+		if self._model and launch_subcommand != 'followup':
 			argv.extend(['--model', self._model])
 		# Forward --max-turns when caller specified or constructor stored it.
 		# Rust core default is 80; long research tasks (real_v8 #4 UniFi
@@ -1390,22 +1466,12 @@ class Agent:
 		effective_turns = max_turns or self._ctor_max_steps
 		if (
 			effective_turns
-			and subcommand != 'followup'
+			and launch_subcommand != 'followup'
 			and not _has_max_turns_arg(self.extra_args)
-			and _binary_supports_max_turns(cli, subcommand)
+			and _binary_supports_max_turns(cli, launch_subcommand)
 		):
 			argv.extend(['--max-turns', str(int(effective_turns))])
 		argv.extend(subcommand_extra_args)
-
-		env = {**os.environ, **self._env_overrides()}
-		runtime_cwd = _runtime_cwd(self.state_dir)
-		runtime_cwd.mkdir(parents=True, exist_ok=True)
-
-		started = time.monotonic()
-		state = _AgentSessionState()
-		if attach_to_session:
-			state.session_id = attach_to_session
-			self.session_id = attach_to_session
 
 		try:
 			proc = await asyncio.create_subprocess_exec(
@@ -1446,6 +1512,7 @@ class Agent:
 							await _maybe_start_poller()
 
 		stdout_task = asyncio.create_task(_read_stdout())
+		await _maybe_start_poller()
 
 		try:
 			if self.timeout:
@@ -1616,6 +1683,37 @@ class Agent:
 		idx = out.find(marker)
 		if idx >= 0:
 			return out[idx + len(marker) :].strip() or None
+		return None
+
+	async def _start_headless_session(
+		self,
+		cli: Path,
+		text: str,
+		global_extra_args: list[str],
+		env: dict[str, str],
+		cwd: Path,
+	) -> str | None:
+		argv = [str(cli)]
+		argv.extend(self._global_cli_flags())
+		argv.extend(global_extra_args)
+		argv.extend(['start', text])
+		try:
+			proc = await asyncio.create_subprocess_exec(
+				*argv,
+				stdout=asyncio.subprocess.PIPE,
+				stderr=asyncio.subprocess.PIPE,
+				env=env,
+				cwd=cwd,
+			)
+		except FileNotFoundError:
+			return None
+		stdout_bytes, _ = await proc.communicate()
+		if proc.returncode != 0:
+			return None
+		for line in stdout_bytes.decode(errors='replace').splitlines():
+			token = line.strip()
+			if all(c in '0123456789abcdef-' for c in token) and len(token) >= 8:
+				return token
 		return None
 
 	async def _run_oneoff(

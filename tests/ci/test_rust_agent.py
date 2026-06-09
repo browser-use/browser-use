@@ -558,8 +558,8 @@ def test_rust_event_printer_outputs_current_tool_and_token_events(capsys):
 		)
 	)
 	out = capsys.readouterr().out
-	assert '[tool:start] browser_script' in out
-	assert '[tokens] {"input_tokens":10,"output_tokens":2,"total_tokens":12}' in out
+	assert '[tool] start browser_script' in out
+	assert '[tokens] input=10 output=2 total=12 cached=0' in out
 
 
 def test_session_state_collects_input_messages_for_last_input_messages():
