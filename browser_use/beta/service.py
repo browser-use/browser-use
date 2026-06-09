@@ -12,6 +12,8 @@ import mimetypes
 import os
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
@@ -93,8 +95,8 @@ except ImportError:
 	Laminar = None  # type: ignore
 
 
-class RustAgentError(RuntimeError):
-	"""Raised when the Rust terminal core cannot run a task."""
+class BetaAgentError(RuntimeError):
+	"""Raised when the beta agent cannot run a task."""
 
 
 def _laminar_ready() -> bool:
@@ -185,27 +187,54 @@ def find_browser_use_terminal_binary() -> str:
 	env_path = os.environ.get('BROWSER_USE_TERMINAL_BINARY')
 	if env_path:
 		return env_path
+	packaged_path = _find_packaged_browser_use_terminal_binary()
+	if packaged_path:
+		return packaged_path
 	but_home = Path(os.environ.get('BUT_HOME', '~/.browser-use-terminal')).expanduser()
 	but_install_dir = Path(os.environ.get('BUT_INSTALL_DIR', '~/.local/bin')).expanduser()
 	candidates = [
-		Path.cwd() / 'target' / 'debug' / 'browser-use-terminal',
-		Path.cwd().parent / 'terminal' / 'target' / 'debug' / 'browser-use-terminal',
 		but_home / 'packages' / 'standalone' / 'current' / 'bin' / 'browser-use-terminal',
 		but_install_dir / 'browser-use-terminal',
 	]
 	for candidate in candidates:
-		if candidate.exists():
+		if candidate.exists() and _terminal_supports_sdk_server(candidate):
 			return str(candidate)
 	path_binary = shutil.which('browser-use-terminal')
-	if path_binary:
+	if path_binary and _terminal_supports_sdk_server(Path(path_binary)):
 		return path_binary
-	raise RustAgentError(
+	raise BetaAgentError(
 		f'Could not find browser-use-terminal. Install Browser Use Terminal with `{TERMINAL_INSTALL_COMMAND}`, '
-		'or set BROWSER_USE_TERMINAL_BINARY to a built terminal CLI.'
+		'install browser-use-core, or set BROWSER_USE_TERMINAL_BINARY to a built terminal CLI.'
 	)
 
 
-class RustSdkJsonRpcError(RustAgentError):
+def _find_packaged_browser_use_terminal_binary() -> str | None:
+	try:
+		from browser_use_core import binary_path
+	except Exception:
+		return None
+	try:
+		return binary_path('browser-use-terminal')
+	except Exception:
+		return None
+
+
+def _terminal_supports_sdk_server(binary: Path) -> bool:
+	"""Return whether a terminal binary supports the SDK server subcommand required by this wrapper."""
+	try:
+		result = subprocess.run(
+			[str(binary), '--help'],
+			capture_output=True,
+			text=True,
+			timeout=5,
+			check=False,
+		)
+	except (OSError, subprocess.SubprocessError):
+		return False
+	return 'sdk-server' in f'{result.stdout}\n{result.stderr}'
+
+
+class RustSdkJsonRpcError(BetaAgentError):
 	"""Raised when the Rust SDK server returns a JSON-RPC error."""
 
 	def __init__(self, code: int, message: str) -> None:
@@ -247,7 +276,7 @@ class RustSdkClient:
 			)
 		except (FileNotFoundError, PermissionError) as exc:
 			command = self.command[0] if self.command else 'browser-use-terminal'
-			raise RustAgentError(
+			raise BetaAgentError(
 				f'Could not start Rust SDK server command {command!r}. '
 				f'Install Browser Use Terminal with `{TERMINAL_INSTALL_COMMAND}`, '
 				'or set BROWSER_USE_TERMINAL_BINARY to a built terminal CLI.'
@@ -258,7 +287,7 @@ class RustSdkClient:
 	async def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
 		await self.start()
 		if self.process is None or self.process.stdin is None:
-			raise RustAgentError('Rust SDK server stdin is unavailable')
+			raise BetaAgentError('Rust SDK server stdin is unavailable')
 		loop = asyncio.get_running_loop()
 		async with self._write_lock:
 			request_id = self._next_id
@@ -276,7 +305,7 @@ class RustSdkClient:
 				await self.process.stdin.drain()
 			except (BrokenPipeError, ConnectionResetError) as exc:
 				self._pending.pop(request_id, None)
-				raise RustAgentError(f'Rust SDK server pipe closed while sending {method}') from exc
+				raise BetaAgentError(f'Rust SDK server pipe closed while sending {method}') from exc
 		try:
 			return await future
 		except asyncio.CancelledError:
@@ -305,7 +334,7 @@ class RustSdkClient:
 			*(task for task in (self._reader_task, self._stderr_task) if task is not None and task is not asyncio.current_task()),
 			return_exceptions=True,
 		)
-		self._fail_all(RustAgentError('Rust SDK server closed'))
+		self._fail_all(BetaAgentError('Rust SDK server closed'))
 		self.process = None
 
 	async def _read_stdout(self) -> None:
@@ -329,19 +358,19 @@ class RustSdkClient:
 					if not self._handle_stdout_line(raw_line):
 						return
 				if len(buffer) > self.max_line_bytes:
-					self._fail_all(RustAgentError(f'Rust SDK JSON-RPC line exceeded {self.max_line_bytes} bytes without newline'))
+					self._fail_all(BetaAgentError(f'Rust SDK JSON-RPC line exceeded {self.max_line_bytes} bytes without newline'))
 					return
 		except Exception as exc:
 			message = f'Rust SDK stdout reader failed: {exc}'
 			self.stderr_lines.append(message)
-			self._fail_all(RustAgentError(message))
+			self._fail_all(BetaAgentError(message))
 		finally:
 			if self._pending:
 				detail = '\n'.join(self.stderr_lines[-20:])
 				message = 'Rust SDK server exited before responding'
 				if detail:
 					message = f'{message}: {detail}'
-				self._fail_all(RustAgentError(message))
+				self._fail_all(BetaAgentError(message))
 
 	def _handle_stdout_line(self, raw_line: bytes) -> bool:
 		line = raw_line.decode('utf-8', errors='replace').strip()
@@ -350,7 +379,7 @@ class RustSdkClient:
 		try:
 			message = json.loads(line)
 		except json.JSONDecodeError as exc:
-			self._fail_all(RustAgentError(f'Invalid Rust SDK JSON-RPC line: {line}: {exc}'))
+			self._fail_all(BetaAgentError(f'Invalid Rust SDK JSON-RPC line: {line}: {exc}'))
 			return False
 		self._handle_message(message)
 		return True
@@ -364,7 +393,7 @@ class RustSdkClient:
 
 	def _handle_message(self, message: Any) -> None:
 		if not isinstance(message, dict):
-			self._fail_all(RustAgentError(f'Rust SDK server emitted non-object JSON-RPC message: {message!r}'))
+			self._fail_all(BetaAgentError(f'Rust SDK server emitted non-object JSON-RPC message: {message!r}'))
 			return
 		method = message.get('method')
 		if method in {'agent.event', 'agent.projected_event'}:
@@ -380,7 +409,7 @@ class RustSdkClient:
 			return
 		request_id = message.get('id')
 		if not isinstance(request_id, int):
-			self._fail_all(RustAgentError('Rust SDK JSON-RPC response id must be an integer'))
+			self._fail_all(BetaAgentError('Rust SDK JSON-RPC response id must be an integer'))
 			return
 		future = self._pending.pop(request_id, None)
 		if future is None or future.done():
@@ -3728,7 +3757,7 @@ def _record_laminar_terminal_tool_spans(events: list[dict[str, Any]], *, max_spa
 		with _laminar_start_span(f'rust_core.tool.{tool_call.get("name") or "tool"}', input=input_messages, span_type='TOOL'):
 			_laminar_set_span_attributes(
 				{
-					'runtime': 'browser_use.rust',
+					'runtime': 'browser_use.beta',
 					'tool_name': tool_call.get('name'),
 					'tool_call_id': tool_call_id,
 					'tool_index': span_index,
@@ -3783,7 +3812,7 @@ def _record_laminar_terminal_llm_spans(
 			span_output_messages = _terminal_laminar_span_output_messages(span_output)
 			_laminar_set_span_attributes(
 				{
-					'runtime': 'browser_use.rust',
+					'runtime': 'browser_use.beta',
 					'model': str(span_input.get('model') or default_model),
 					'provider': str(span_input.get('provider') or default_provider),
 					'turn_index': span_index,
@@ -3889,7 +3918,7 @@ def _load_rust_history(file_path: str | Path) -> AgentHistoryList:
 	with open(file_path, encoding='utf-8') as history_file:
 		data = json.load(history_file)
 	if not isinstance(data, dict):
-		raise RustAgentError(f'Invalid Browser Use history file: {file_path}')
+		raise BetaAgentError(f'Invalid Browser Use history file: {file_path}')
 	for item in data.get('history', []):
 		if isinstance(item, dict):
 			item['model_output'] = None
@@ -4654,7 +4683,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		model = getattr(self.llm, 'model', None) or self.model
 		provider = getattr(self.llm, 'provider', None) or 'rust-terminal'
 		summary = {
-			'runtime': 'browser_use.rust',
+			'runtime': 'browser_use.beta',
 			'model': model,
 			'provider': provider,
 			'max_steps': max_steps,
@@ -4815,6 +4844,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._unregister_run_signal_handler()
 		await self._stop_eventbus_after_run()
 		await self._close_browser_resources()
+		await self._close_sdk_client_if_not_keep_alive()
 
 	async def _finalize_exceptional_run(self, max_steps: int, agent_run_error: str) -> None:
 		"""Mirror Browser Use run finalization for exceptions that escape Rust execution."""
@@ -4899,7 +4929,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				started=started,
 				finished=finished,
 				output_model_schema=self.output_model_schema,
-				process_error='Rust agent stopped before terminal run.',
+				process_error='Beta agent stopped before terminal run.',
 			)
 			self.history = self.result
 			await self._apply_terminal_usage_costs([])
@@ -4907,9 +4937,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._record_laminar_run_observability(
 				max_steps=max_steps,
 				duration_seconds=finished - started,
-				process_error='Rust agent stopped before terminal run.',
+				process_error='Beta agent stopped before terminal run.',
 			)
-			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
+			self._record_run_telemetry(max_steps=max_steps, agent_run_error='Beta agent stopped before terminal run.')
 			self._dispatch_run_update_event()
 			self._log_final_outcome_messages()
 			await self._finalize_run_cleanup()
@@ -4929,7 +4959,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					started=started,
 					finished=finished,
 					output_model_schema=self.output_model_schema,
-					process_error='Rust agent stopped before terminal run.',
+					process_error='Beta agent stopped before terminal run.',
 				)
 				self.history = self.result
 				await self._apply_terminal_usage_costs([])
@@ -4937,9 +4967,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self._record_laminar_run_observability(
 					max_steps=max_steps,
 					duration_seconds=finished - started,
-					process_error='Rust agent stopped before terminal run.',
+					process_error='Beta agent stopped before terminal run.',
 				)
-				self._record_run_telemetry(max_steps=max_steps, agent_run_error='Rust agent stopped before terminal run.')
+				self._record_run_telemetry(max_steps=max_steps, agent_run_error='Beta agent stopped before terminal run.')
 				self._dispatch_run_update_event()
 				self._log_final_outcome_messages()
 				await self._finalize_run_cleanup()
@@ -4979,7 +5009,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		enqueue_timeout: int | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		if not self.terminal_session_id or not self._sdk_agent_id:
-			raise RustAgentError('No active Rust session. Call run() before follow_up().')
+			raise BetaAgentError('No active Rust session. Call run() before follow_up().')
 		resolved_max_steps = max_steps if max_steps is not None else self.kwargs.get('max_steps', 100)
 		self.add_new_task(task)
 		self.state.follow_up_task = False
@@ -5898,7 +5928,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.debug('Initial actions completed')
 
 	async def _execute_direct_initial_navigation_actions(self) -> list[ActionResult] | None:
-		"""Pre-navigate existing CDP-backed browser sessions before the Rust agent starts."""
+		"""Pre-navigate existing CDP-backed browser sessions before the Beta agent starts."""
 		self._completed_initial_navigation_urls = []
 		self._completed_initial_navigation_states = []
 		if not _direct_initial_navigation_enabled():
@@ -6110,17 +6140,48 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def close(self):
 		"""Close Browser Use session resources when the caller did not request keep-alive."""
 		await self._close_browser_resources()
-		if self._sdk_client is not None:
-			await self._sdk_client.close()
-			self._sdk_client = None
+		await self._close_sdk_client_if_not_keep_alive()
 		return None
+
+	def _should_keep_browser_alive(self) -> bool:
+		profile = getattr(self.browser_session, 'browser_profile', None) or self.browser_profile
+		return bool(getattr(profile, 'keep_alive', False))
+
+	async def _close_sdk_browser_resources(self) -> None:
+		"""Close Rust-owned SDK agent/browser resources when this run is not keep-alive."""
+		if self._should_keep_browser_alive() or self._sdk_client is None:
+			return
+		if isinstance(self._sdk_client, RustSdkClient) and self._sdk_client.process is None:
+			return
+		client = self._sdk_client
+		agent_id = self._sdk_agent_id
+		browser_id = self._sdk_browser_id
+		if agent_id:
+			with suppress(Exception):
+				await client.call('agent.close', {'agent_id': agent_id})
+		if browser_id:
+			with suppress(Exception):
+				await client.call('browser.close', {'browser_id': browser_id})
+		self._sdk_agent_id = None
+		self._sdk_browser_id = None
+		self.terminal_session_id = None
+
+	async def _close_sdk_client_if_not_keep_alive(self) -> None:
+		if self._should_keep_browser_alive() or self._sdk_client is None:
+			return
+		try:
+			await self._sdk_client.close()
+		except Exception as exc:
+			self.logger.error(f'Error closing Rust SDK client: {exc}')
+		else:
+			self._sdk_client = None
 
 	async def _close_browser_resources(self):
 		"""Close Browser Use session resources without tearing down the Rust SDK process."""
 		try:
+			await self._close_sdk_browser_resources()
 			if self.browser_session is not None:
-				profile = getattr(self.browser_session, 'browser_profile', None) or self.browser_profile
-				if not getattr(profile, 'keep_alive', False):
+				if not self._should_keep_browser_alive():
 					kill = getattr(self.browser_session, 'kill', None)
 					if callable(kill):
 						result = kill()
@@ -6245,7 +6306,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._sdk_browser_id = None
 			self.terminal_session_id = None
 		self._sdk_client = RustSdkClient(self._sdk_server_argv(), self._run_env())
-		return self._sdk_client
+		try:
+			ping = await self._sdk_client.call('runtime.ping')
+			protocol_version = ping.get('sdk_protocol_version') if isinstance(ping, dict) else None
+			if protocol_version == 1:
+				return self._sdk_client
+		except Exception as exc:
+			await self._sdk_client.close()
+			self._sdk_client = None
+			raise BetaAgentError(
+				'Failed to negotiate browser-use-terminal SDK protocol via runtime.ping. '
+				'Install a compatible browser-use-core package or set BROWSER_USE_TERMINAL_BINARY to a compatible binary.'
+			) from exc
+		await self._sdk_client.close()
+		self._sdk_client = None
+		raise BetaAgentError(
+			f'Unsupported browser-use-terminal SDK protocol {protocol_version!r}; expected 1. '
+			'Install a compatible browser-use-core package or set BROWSER_USE_TERMINAL_BINARY to a compatible binary.'
+		)
 
 	def _sdk_llm_payload(self) -> dict[str, Any]:
 		provider = _llm_provider_name(self.llm) or 'browser-use'
@@ -6418,7 +6496,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def _conversation_snapshot(self) -> dict[str, Any]:
 		return {
-			'agent': 'browser_use.rust.Agent',
+			'agent': 'browser_use.beta.Agent',
 			'task_id': self.task_id,
 			'session_id': self.session_id,
 			'terminal_session_id': self.terminal_session_id,
@@ -6512,6 +6590,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				env['LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE'] = 'true'
 		browser_mode = self._browser_mode()
 		env['LLM_BROWSER_BROWSER_MODE'] = browser_mode
+		env.setdefault('BROWSER_USE_PYTHON', sys.executable)
 		cdp_url = _extract_cdp_url(self.browser_session) or _extract_profile_cdp_url(self.browser_profile)
 		if cdp_url:
 			env['BU_CDP_URL'] = cdp_url
@@ -6565,12 +6644,12 @@ def _align_browser_use_agent_signatures() -> None:
 	for name, browser_use_method in vars(_PythonAgent).items():
 		if name.startswith('__') and name != '__init__':
 			continue
-		rust_method = getattr(Agent, name, None)
-		if rust_method is None or not callable(browser_use_method) or not callable(rust_method):
+		beta_method = getattr(Agent, name, None)
+		if beta_method is None or not callable(browser_use_method) or not callable(beta_method):
 			continue
 		try:
-			rust_method.__signature__ = inspect.signature(browser_use_method)
-			rust_method.__annotations__ = dict(getattr(browser_use_method, '__annotations__', {}))
+			beta_method.__signature__ = inspect.signature(browser_use_method)
+			beta_method.__annotations__ = dict(getattr(browser_use_method, '__annotations__', {}))
 		except (TypeError, ValueError, AttributeError):
 			continue
 	try:
@@ -6579,12 +6658,12 @@ def _align_browser_use_agent_signatures() -> None:
 		pass
 	agent_hook_func = Callable[[_PythonAgent], Awaitable[None]]
 	for name in ('run', 'run_sync'):
-		rust_method = getattr(Agent, name, None)
-		if rust_method is None:
+		beta_method = getattr(Agent, name, None)
+		if beta_method is None:
 			continue
 		try:
-			rust_method.__annotations__['on_step_start'] = agent_hook_func | None
-			rust_method.__annotations__['on_step_end'] = agent_hook_func | None
+			beta_method.__annotations__['on_step_start'] = agent_hook_func | None
+			beta_method.__annotations__['on_step_end'] = agent_hook_func | None
 		except (TypeError, AttributeError, KeyError):
 			continue
 

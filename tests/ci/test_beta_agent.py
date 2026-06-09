@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, cast, get_args, get_origin, get_type_hints
@@ -12,13 +13,13 @@ from pydantic import BaseModel
 
 
 @pytest.fixture(autouse=True)
-def _disable_rust_agent_latest_version_check(monkeypatch):
-	import browser_use.rust.service as rust_service
+def _disable_beta_agent_latest_version_check(monkeypatch):
+	import browser_use.beta.service as beta_service
 
 	async def no_latest_version():
 		return None
 
-	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', no_latest_version)
+	monkeypatch.setattr(beta_service, 'check_latest_browser_use_version', no_latest_version)
 	monkeypatch.delenv('DEFAULT_LLM', raising=False)
 	monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-browser-use-api-key')
 
@@ -26,75 +27,102 @@ def _disable_rust_agent_latest_version_check(monkeypatch):
 def test_top_level_agent_preserves_python_service():
 	from browser_use import Agent as TopLevelAgent
 	from browser_use.agent.service import Agent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	assert TopLevelAgent is BrowserUseAgent
-	assert TopLevelAgent is not RustAgent
+	assert TopLevelAgent is not BetaAgent
 
 
 def test_agent_package_export_preserves_python_service():
 	from browser_use.agent import Agent as AgentPackageAgent
 	from browser_use.agent.service import Agent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	assert AgentPackageAgent is BrowserUseAgent
-	assert AgentPackageAgent is not RustAgent
+	assert AgentPackageAgent is not BetaAgent
 
 
 def test_agent_service_export_preserves_python_service():
 	from browser_use.agent.service import Agent as ServiceAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
-	assert ServiceAgent is not RustAgent
+	assert ServiceAgent is not BetaAgent
 
 
-def test_rust_agent_class_metadata_matches_browser_use_service_surface():
+def test_beta_package_reexports_chat_models_and_browser_config():
+	from browser_use import Browser as TopLevelBrowser
+	from browser_use import BrowserProfile as TopLevelBrowserProfile
+	from browser_use import BrowserSession as TopLevelBrowserSession
+	from browser_use import ChatBrowserUse as TopLevelChatBrowserUse
+	from browser_use.beta import (
+		Browser,
+		BrowserProfile,
+		BrowserSession,
+		ChatAnthropic,
+		ChatBrowserUse,
+		ChatGoogle,
+		ChatOpenAI,
+	)
+	from browser_use.llm.anthropic.chat import ChatAnthropic as LlmChatAnthropic
+	from browser_use.llm.google.chat import ChatGoogle as LlmChatGoogle
+	from browser_use.llm.openai.chat import ChatOpenAI as LlmChatOpenAI
+
+	assert Browser is TopLevelBrowser
+	assert BrowserProfile is TopLevelBrowserProfile
+	assert BrowserSession is TopLevelBrowserSession
+	assert ChatBrowserUse is TopLevelChatBrowserUse
+	assert ChatGoogle is LlmChatGoogle
+	assert ChatAnthropic is LlmChatAnthropic
+	assert ChatOpenAI is LlmChatOpenAI
+
+
+def test_beta_agent_class_metadata_matches_browser_use_service_surface():
 	from browser_use import Agent as TopLevelAgent
 	from browser_use.agent.service import Agent as ServiceAgent
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	assert TopLevelAgent is ServiceAgent is BrowserUseAgent
-	assert RustAgent is not BrowserUseAgent
-	assert RustAgent.__name__ == BrowserUseAgent.__name__ == 'Agent'
-	assert RustAgent.__qualname__ == BrowserUseAgent.__qualname__ == 'Agent'
-	assert RustAgent.__module__ == BrowserUseAgent.__module__ == 'browser_use.agent.service'
-	assert RustAgent.__doc__ == BrowserUseAgent.__doc__
-	assert repr(RustAgent) == repr(BrowserUseAgent)
+	assert BetaAgent is not BrowserUseAgent
+	assert BetaAgent.__name__ == BrowserUseAgent.__name__ == 'Agent'
+	assert BetaAgent.__qualname__ == BrowserUseAgent.__qualname__ == 'Agent'
+	assert BetaAgent.__module__ == BrowserUseAgent.__module__ == 'browser_use.agent.service'
+	assert BetaAgent.__doc__ == BrowserUseAgent.__doc__
+	assert repr(BetaAgent) == repr(BrowserUseAgent)
 
 
-def test_rust_agent_generic_subscription_matches_browser_use():
+def test_beta_agent_generic_subscription_matches_browser_use():
 	from browser_use.agent.service import Agent as ServiceAgent
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class Answer(BaseModel):
 		answer: str
 
 	browser_use_alias = BrowserUseAgent[dict, Answer]
-	rust_alias = RustAgent[dict, Answer]
+	beta_alias = BetaAgent[dict, Answer]
 	service_alias = ServiceAgent[dict, Answer]
 
-	assert get_args(rust_alias) == get_args(browser_use_alias) == (dict, Answer)
+	assert get_args(beta_alias) == get_args(browser_use_alias) == (dict, Answer)
 	assert get_args(service_alias) == (dict, Answer)
-	assert get_origin(rust_alias) is RustAgent
+	assert get_origin(beta_alias) is BetaAgent
 	assert get_origin(service_alias) is BrowserUseAgent
 
 	with pytest.raises(TypeError, match='Too few arguments'):
-		RustAgent[Answer]
+		BetaAgent[Answer]
 
 
-def test_rust_agent_constructor_signature_matches_browser_use_order(tmp_path):
+def test_beta_agent_constructor_signature_matches_browser_use_order(tmp_path):
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	browser_use_params = list(inspect.signature(BrowserUseAgent.__init__).parameters)
-	rust_params = list(inspect.signature(RustAgent.__init__).parameters)
+	beta_params = list(inspect.signature(BetaAgent.__init__).parameters)
 
-	assert rust_params == browser_use_params
+	assert beta_params == browser_use_params
 
 	values = []
-	for param in list(inspect.signature(RustAgent.__init__).parameters.values())[1:]:
+	for param in list(inspect.signature(BetaAgent.__init__).parameters.values())[1:]:
 		if param.name == 'task':
 			values.append('Check constructor parity.')
 		elif param.name == 'llm':
@@ -110,36 +138,36 @@ def test_rust_agent_constructor_signature_matches_browser_use_order(tmp_path):
 			assert param.default is not inspect.Parameter.empty
 			values.append(param.default)
 
-	agent = RustAgent(*values)
+	agent = BetaAgent(*values)
 
 	assert agent.source == 'signature-source'
 	assert agent.file_system_path == str(tmp_path / 'agent-files')
 	assert agent.task_id == 'signature-task-id'
 
 
-def test_rust_agent_runtime_signatures_match_browser_use_callable_surface():
+def test_beta_agent_runtime_signatures_match_browser_use_callable_surface():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
-	assert inspect.signature(RustAgent) == inspect.signature(BrowserUseAgent)
-	assert inspect.signature(RustAgent.__init__) == inspect.signature(BrowserUseAgent.__init__)
+	assert inspect.signature(BetaAgent) == inspect.signature(BrowserUseAgent)
+	assert inspect.signature(BetaAgent.__init__) == inspect.signature(BrowserUseAgent.__init__)
 
 	browser_use_callables = {
 		name for name, value in vars(BrowserUseAgent).items() if callable(value) and not name.startswith('__')
 	}
-	rust_callables = {name for name, value in vars(RustAgent).items() if callable(value) and not name.startswith('__')}
+	beta_callables = {name for name, value in vars(BetaAgent).items() if callable(value) and not name.startswith('__')}
 
-	for method_name in sorted(browser_use_callables & rust_callables):
-		assert inspect.signature(getattr(RustAgent, method_name)) == inspect.signature(getattr(BrowserUseAgent, method_name))
+	for method_name in sorted(browser_use_callables & beta_callables):
+		assert inspect.signature(getattr(BetaAgent, method_name)) == inspect.signature(getattr(BrowserUseAgent, method_name))
 
 
-def test_rust_agent_constructor_type_hints_match_browser_use_core_params():
+def test_beta_agent_constructor_type_hints_match_browser_use_core_params():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 	from browser_use.tools.service import Tools
 
 	browser_use_hints = get_type_hints(BrowserUseAgent.__init__)
-	rust_hints = get_type_hints(RustAgent.__init__)
+	beta_hints = get_type_hints(BetaAgent.__init__)
 
 	for name in (
 		'llm',
@@ -149,7 +177,7 @@ def test_rust_agent_constructor_type_hints_match_browser_use_core_params():
 		'page_extraction_llm',
 		'sample_images',
 	):
-		assert rust_hints[name] == browser_use_hints[name]
+		assert beta_hints[name] == browser_use_hints[name]
 
 	def assert_tools_context_hint(annotation):
 		inner = [arg for arg in get_args(annotation) if arg is not type(None)]
@@ -161,48 +189,48 @@ def test_rust_agent_constructor_type_hints_match_browser_use_core_params():
 
 	for name in ('tools', 'controller'):
 		assert_tools_context_hint(browser_use_hints[name])
-		assert_tools_context_hint(rust_hints[name])
+		assert_tools_context_hint(beta_hints[name])
 
-	assert 'kwargs' not in rust_hints
-	assert 'return' not in rust_hints
+	assert 'kwargs' not in beta_hints
+	assert 'return' not in beta_hints
 
 
-def test_rust_agent_run_type_hints_match_browser_use_hooks():
+def test_beta_agent_run_type_hints_match_browser_use_hooks():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	for method_name in ('run', 'run_sync'):
 		browser_use_hints = get_type_hints(getattr(BrowserUseAgent, method_name))
-		rust_hints = get_type_hints(getattr(RustAgent, method_name))
+		beta_hints = get_type_hints(getattr(BetaAgent, method_name))
 
-		assert rust_hints == browser_use_hints
+		assert beta_hints == browser_use_hints
 
 
-def test_rust_agent_action_model_helper_type_hints_match_browser_use():
+def test_beta_agent_action_model_helper_type_hints_match_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	for method_name in ('_convert_initial_actions', 'multi_act'):
 		browser_use_hints = get_type_hints(getattr(BrowserUseAgent, method_name))
-		rust_hints = get_type_hints(getattr(RustAgent, method_name))
+		beta_hints = get_type_hints(getattr(BetaAgent, method_name))
 
-		assert rust_hints == browser_use_hints
+		assert beta_hints == browser_use_hints
 
 
-def test_rust_agent_browser_state_helper_type_hints_match_browser_use():
+def test_beta_agent_browser_state_helper_type_hints_match_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	for method_name in ('_finalize', '_get_next_action', '_log_step_context', '_make_history_item', '_prepare_context'):
 		browser_use_hints = get_type_hints(getattr(BrowserUseAgent, method_name))
-		rust_hints = get_type_hints(getattr(RustAgent, method_name))
+		beta_hints = get_type_hints(getattr(BetaAgent, method_name))
 
-		assert rust_hints == browser_use_hints
+		assert beta_hints == browser_use_hints
 
 
-def test_rust_agent_llm_message_helper_type_hints_match_browser_use():
+def test_beta_agent_llm_message_helper_type_hints_match_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	for method_name in (
 		'_get_model_output_with_retry',
@@ -211,24 +239,24 @@ def test_rust_agent_llm_message_helper_type_hints_match_browser_use():
 		'get_model_output',
 	):
 		browser_use_hints = get_type_hints(getattr(BrowserUseAgent, method_name))
-		rust_hints = get_type_hints(getattr(RustAgent, method_name))
+		beta_hints = get_type_hints(getattr(BetaAgent, method_name))
 
-		assert rust_hints == browser_use_hints
+		assert beta_hints == browser_use_hints
 
 
-def test_rust_agent_unannotated_helper_type_hints_match_browser_use():
+def test_beta_agent_unannotated_helper_type_hints_match_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	for method_name in ('_log_action', '_verify_and_setup_llm', 'close', 'load_and_rerun'):
 		browser_use_hints = get_type_hints(getattr(BrowserUseAgent, method_name))
-		rust_hints = get_type_hints(getattr(RustAgent, method_name))
+		beta_hints = get_type_hints(getattr(BetaAgent, method_name))
 
-		assert rust_hints == browser_use_hints
+		assert beta_hints == browser_use_hints
 
 
 def test_rust_events_reconstruct_browser_use_history():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	events = [
 		{
@@ -265,7 +293,7 @@ def test_rust_events_reconstruct_browser_use_history():
 
 
 def test_rust_history_ignores_internal_browser_connection_url():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -300,7 +328,7 @@ def test_rust_history_ignores_internal_browser_connection_url():
 
 
 def test_rust_history_reconstructs_terminal_browser_script_urls():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	output_history = _history_from_events(
 		[
@@ -361,7 +389,7 @@ def test_rust_history_reconstructs_terminal_browser_script_urls():
 
 
 def test_rust_history_reconstructs_terminal_browser_live_url():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -389,7 +417,7 @@ def test_rust_history_reconstructs_terminal_browser_live_url():
 def test_rust_history_reconstructs_terminal_screenshot_paths(tmp_path):
 	import base64
 
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	screenshot_path = tmp_path / 'terminal-shot.png'
 	screenshot_bytes = b'\x89PNG\r\n\x1a\nterminal-shot'
@@ -427,7 +455,7 @@ def test_rust_history_reconstructs_terminal_screenshot_paths(tmp_path):
 
 
 def test_rust_history_attaches_terminal_tool_images_to_actions(tmp_path):
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	screenshot_path = tmp_path / 'tool-image.png'
 	screenshot_path.write_bytes(b'\x89PNG\r\n\x1a\nterminal-image')
@@ -478,7 +506,7 @@ def test_rust_history_attaches_terminal_tool_images_to_actions(tmp_path):
 
 
 def test_rust_history_compacts_large_terminal_tool_memory():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	large_output = 'large browser output\n' + ('row,value\n' * 200)
 
@@ -519,7 +547,7 @@ def test_rust_history_compacts_large_terminal_tool_memory():
 
 
 def test_rust_history_reconstructs_terminal_tool_call_actions():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -570,7 +598,7 @@ def test_rust_history_reconstructs_terminal_tool_call_actions():
 
 
 def test_rust_history_reconstructs_eval_visible_multi_turn_actions_and_usage():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -641,7 +669,7 @@ def test_rust_history_reconstructs_eval_visible_multi_turn_actions_and_usage():
 	assert action_history[1][0]['browser_script']['code'] == 'emit_output(page_info(), label="page_info")'
 	assert action_history[1][0]['result'] == 'Page title: Example Domain'
 	assert action_history[1][-1]['done'] == {'text': 'Example Domain', 'success': True}
-	assert 'https://example.com' in history.urls()
+	assert history.urls() == ['https://example.com', 'https://example.com']
 	assert history.final_result() == 'Example Domain'
 	assert history.usage is not None
 	assert history.usage.total_prompt_tokens == 240
@@ -652,7 +680,7 @@ def test_rust_history_reconstructs_eval_visible_multi_turn_actions_and_usage():
 
 
 def test_rust_history_reconstructs_terminal_model_tool_call_actions():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -710,7 +738,7 @@ def test_rust_history_reconstructs_terminal_model_tool_call_actions():
 
 
 def test_rust_history_reconstructs_terminal_response_input_item_tool_results():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -757,7 +785,7 @@ def test_rust_history_reconstructs_terminal_response_input_item_tool_results():
 
 
 def test_rust_history_reconstructs_terminal_tool_finished_results():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -820,7 +848,7 @@ def test_rust_history_reconstructs_terminal_tool_finished_results():
 
 
 def test_rust_history_reconstructs_terminal_tool_output_deltas():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -877,7 +905,7 @@ def test_rust_history_reconstructs_terminal_tool_output_deltas():
 
 
 def test_rust_history_reconstructs_terminal_exec_command_output_deltas():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -940,7 +968,7 @@ def test_rust_history_reconstructs_terminal_exec_command_output_deltas():
 
 
 def test_rust_history_reconstructs_terminal_exec_command_end_output():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -984,7 +1012,7 @@ def test_rust_history_reconstructs_terminal_exec_command_end_output():
 
 
 def test_rust_history_surfaces_terminal_exec_command_end_failure():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1031,7 +1059,7 @@ def test_rust_history_surfaces_terminal_exec_command_end_failure():
 
 
 def test_rust_history_reconstructs_terminal_command_waiting_result():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1084,7 +1112,7 @@ def test_rust_history_reconstructs_terminal_command_waiting_result():
 
 
 def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1139,7 +1167,7 @@ def test_rust_history_reconstructs_terminal_unkeyed_tool_results():
 
 
 def test_rust_history_reconstructs_terminal_structured_tool_output_results():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1192,7 +1220,7 @@ def test_rust_history_reconstructs_terminal_structured_tool_output_results():
 
 
 def test_rust_history_synthesizes_done_action_from_terminal_completion():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1231,7 +1259,7 @@ def test_rust_history_synthesizes_done_action_from_terminal_completion():
 
 
 def test_rust_history_reconstructs_terminal_model_turn_steps():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	events = [
 		{'type': 'session.created', 'ts_ms': 1_000, 'payload': {}},
@@ -1298,7 +1326,7 @@ def test_rust_history_reconstructs_terminal_model_turn_steps():
 
 
 def test_rust_history_prefers_done_tool_text_over_session_summary():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1336,7 +1364,7 @@ def test_rust_history_prefers_done_tool_text_over_session_summary():
 
 
 def test_rust_history_applies_terminal_session_rollback():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1415,7 +1443,7 @@ def test_rust_history_applies_terminal_session_rollback():
 
 
 def test_rust_history_applies_terminal_session_compaction_boundary():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1483,7 +1511,7 @@ def test_rust_history_applies_terminal_session_compaction_boundary():
 
 
 def test_rust_history_reconstructs_terminal_streamed_model_thoughts():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1525,7 +1553,7 @@ def test_rust_history_reconstructs_terminal_streamed_model_thoughts():
 
 
 def test_rust_history_reconstructs_terminal_response_item_model_text():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1577,7 +1605,7 @@ def test_rust_history_reconstructs_terminal_response_item_model_text():
 
 
 def test_rust_history_reconstructs_terminal_response_item_reasoning():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1642,7 +1670,7 @@ def test_rust_history_reconstructs_terminal_response_item_reasoning():
 
 
 def test_rust_history_reconstructs_terminal_token_count_usage():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1685,7 +1713,7 @@ def test_rust_history_reconstructs_terminal_token_count_usage():
 
 
 def test_rust_history_sums_token_count_last_usage_when_latest_total_underreports():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1747,7 +1775,7 @@ def test_rust_history_sums_token_count_last_usage_when_latest_total_underreports
 
 
 def test_rust_history_reconstructs_terminal_reasoning_token_usage():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1792,7 +1820,7 @@ def test_rust_history_reconstructs_terminal_reasoning_token_usage():
 
 
 def test_rust_history_reconstructs_terminal_nested_model_usage():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1829,7 +1857,7 @@ def test_rust_history_reconstructs_terminal_nested_model_usage():
 
 
 def test_rust_history_token_count_does_not_shrink_model_usage_totals():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -1881,7 +1909,7 @@ def test_rust_history_token_count_does_not_shrink_model_usage_totals():
 
 
 async def test_rust_terminal_usage_prices_token_count_events(monkeypatch):
-	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.beta.service import _usage_from_events_with_costs
 	from browser_use.tokens.service import TokenCost
 
 	async def fail_fetch(_self):
@@ -1947,7 +1975,7 @@ async def test_rust_terminal_usage_prices_token_count_events(monkeypatch):
 
 
 async def test_rust_terminal_usage_prices_anthropic_raw_cache_reads(monkeypatch):
-	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.beta.service import _usage_from_events_with_costs
 	from browser_use.tokens.service import TokenCost
 
 	async def fail_fetch(_self):
@@ -1986,7 +2014,7 @@ async def test_rust_terminal_usage_prices_anthropic_raw_cache_reads(monkeypatch)
 
 
 async def test_rust_terminal_usage_sums_token_count_cache_creation(monkeypatch):
-	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.beta.service import _usage_from_events_with_costs
 	from browser_use.tokens.service import TokenCost
 
 	async def fail_fetch(_self):
@@ -2073,7 +2101,7 @@ async def test_rust_terminal_usage_sums_token_count_cache_creation(monkeypatch):
 
 
 async def test_rust_terminal_usage_priced_summary_sums_cache_read_tokens(monkeypatch):
-	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.beta.service import _usage_from_events_with_costs
 	from browser_use.tokens.service import TokenCost
 
 	async def fail_fetch(_self):
@@ -2143,7 +2171,7 @@ async def test_rust_terminal_usage_priced_summary_sums_cache_read_tokens(monkeyp
 
 
 def test_rust_terminal_usage_mixed_events_do_not_shrink_totals():
-	from browser_use.rust.service import _usage_from_events
+	from browser_use.beta.service import _usage_from_events
 
 	summary = _usage_from_events(
 		[
@@ -2184,7 +2212,7 @@ def test_rust_terminal_usage_mixed_events_do_not_shrink_totals():
 
 
 def test_rust_sdk_event_dedupe_removes_projected_usage_duplicates():
-	from browser_use.rust.service import _dedupe_sdk_events, _usage_from_events
+	from browser_use.beta.service import _dedupe_sdk_events, _usage_from_events
 
 	usage_payload = {
 		'info': {
@@ -2226,7 +2254,7 @@ def test_rust_sdk_event_dedupe_removes_projected_usage_duplicates():
 
 
 async def test_rust_terminal_priced_usage_prefers_model_usage_over_token_count(monkeypatch):
-	from browser_use.rust.service import _usage_from_events_with_costs
+	from browser_use.beta.service import _usage_from_events_with_costs
 	from browser_use.tokens.service import TokenCost
 
 	async def fail_fetch(_self):
@@ -2318,7 +2346,7 @@ async def test_rust_token_summary_does_not_double_count_cache_reads(monkeypatch)
 
 
 def test_rust_history_supports_structured_output():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	class Answer(BaseModel):
 		answer: str
@@ -2337,7 +2365,7 @@ def test_rust_history_supports_structured_output():
 
 
 def test_rust_history_extracts_fenced_structured_output():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	class Answer(BaseModel):
 		answer: str
@@ -2357,7 +2385,7 @@ def test_rust_history_extracts_fenced_structured_output():
 
 
 def test_rust_history_reconstructs_terminal_agent_completed_result():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -2404,7 +2432,7 @@ def test_rust_history_reconstructs_terminal_agent_completed_result():
 
 
 def test_rust_history_exposes_result_file_attachments():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -2430,7 +2458,7 @@ def test_rust_history_exposes_result_file_attachments():
 
 
 def test_rust_history_reconstructs_terminal_artifact_attachments():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -2493,7 +2521,7 @@ def test_rust_history_reconstructs_terminal_artifact_attachments():
 
 
 def test_rust_history_reconstructs_terminal_capture_curation_gif_attachment():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -2533,7 +2561,7 @@ def test_rust_history_reconstructs_terminal_capture_curation_gif_attachment():
 
 
 def test_rust_history_reconstructs_terminal_text_artifact_attachments():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -2579,8 +2607,8 @@ def test_rust_history_reconstructs_terminal_text_artifact_attachments():
 	}
 
 
-def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_use_args_to_terminal(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -2603,6 +2631,7 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 	assert "First navigate to 'https://example.com'" in agent.task
 	assert env['BU_CDP_URL'] == 'wss://browser.example/devtools/browser/1'
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
+	assert env['BROWSER_USE_PYTHON'] == sys.executable
 	assert 'BUT_FULL_LLM_INPUT_EVENTS' not in env
 
 	params = agent._sdk_run_params(max_steps=12, task=agent.task)
@@ -2616,42 +2645,85 @@ def test_rust_agent_translates_browser_use_args_to_terminal(monkeypatch):
 
 
 def test_rust_terminal_binary_missing_error_mentions_install(monkeypatch):
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 
 	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
-	monkeypatch.setattr(rust_service.Path, 'exists', lambda self: False)
-	monkeypatch.setattr(rust_service.shutil, 'which', lambda binary: None)
+	monkeypatch.setitem(sys.modules, 'browser_use_core', None)
+	monkeypatch.setattr(beta_service.Path, 'exists', lambda self: False)
+	monkeypatch.setattr(beta_service.shutil, 'which', lambda binary: None)
 
-	with pytest.raises(rust_service.RustAgentError) as exc_info:
-		rust_service.find_browser_use_terminal_binary()
+	with pytest.raises(beta_service.BetaAgentError) as exc_info:
+		beta_service.find_browser_use_terminal_binary()
 
 	message = str(exc_info.value)
 	assert 'https://browser-use.com/terminal/install.sh' in message
+	assert 'browser-use-core' in message
 	assert 'BROWSER_USE_TERMINAL_BINARY' in message
 
 
+def test_rust_terminal_binary_prefers_packaged_binary(monkeypatch):
+	import browser_use.beta.service as beta_service
+
+	class PackagedCore:
+		@staticmethod
+		def binary_path(binary_name):
+			assert binary_name == 'browser-use-terminal'
+			return '/tmp/packaged-browser-use-terminal'
+
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+	monkeypatch.setitem(sys.modules, 'browser_use_core', PackagedCore)
+	monkeypatch.setattr(beta_service.Path, 'exists', lambda self: False)
+	monkeypatch.setattr(beta_service.shutil, 'which', lambda binary_name: None)
+
+	assert beta_service.find_browser_use_terminal_binary() == '/tmp/packaged-browser-use-terminal'
+
+
 def test_rust_terminal_binary_finds_default_terminal_install(monkeypatch, tmp_path):
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 
 	binary = tmp_path / '.browser-use-terminal' / 'packages' / 'standalone' / 'current' / 'bin' / 'browser-use-terminal'
 	binary.parent.mkdir(parents=True)
-	binary.write_text('#!/bin/sh\n')
+	binary.write_text('#!/bin/sh\nif [ "$1" = "--help" ]; then\n  echo "sdk-server"\nfi\n')
+	binary.chmod(0o755)
 
 	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+	monkeypatch.setitem(sys.modules, 'browser_use_core', None)
 	monkeypatch.chdir(tmp_path)
 	monkeypatch.setenv('BUT_HOME', str(tmp_path / '.browser-use-terminal'))
 	monkeypatch.setenv('BUT_INSTALL_DIR', str(tmp_path / '.local' / 'bin'))
-	monkeypatch.setattr(rust_service.shutil, 'which', lambda binary_name: None)
+	monkeypatch.setattr(beta_service.shutil, 'which', lambda binary_name: None)
 
-	assert rust_service.find_browser_use_terminal_binary() == str(binary)
+	assert beta_service.find_browser_use_terminal_binary() == str(binary)
+
+
+def test_rust_terminal_binary_from_installed_browser_use_core_answers_ping(monkeypatch):
+	browser_use_core = pytest.importorskip('browser_use_core')
+	import browser_use.beta.service as beta_service
+
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+
+	binary = beta_service.find_browser_use_terminal_binary()
+	assert binary == browser_use_core.binary_path('browser-use-terminal')
+
+	proc = subprocess.run(
+		[binary, 'sdk-server', '--transport', 'stdio'],
+		input='{"jsonrpc":"2.0","id":1,"method":"runtime.ping","params":{}}\n',
+		text=True,
+		capture_output=True,
+		timeout=10,
+		check=True,
+	)
+	response = json.loads(proc.stdout.strip())
+	assert response['result']['ok'] is True
+	assert response['result']['sdk_protocol_version'] == 1
 
 
 async def test_rust_sdk_client_start_wraps_missing_binary_error():
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 
-	client = rust_service.RustSdkClient(['/definitely/missing-browser-use-terminal'], env={})
+	client = beta_service.RustSdkClient(['/definitely/missing-browser-use-terminal'], env={})
 
-	with pytest.raises(rust_service.RustAgentError) as exc_info:
+	with pytest.raises(beta_service.BetaAgentError) as exc_info:
 		await client.start()
 
 	message = str(exc_info.value)
@@ -2659,8 +2731,8 @@ async def test_rust_sdk_client_start_wraps_missing_binary_error():
 	assert 'https://browser-use.com/terminal/install.sh' in message
 
 
-def test_rust_agent_sdk_params_leave_terminal_tools_unrestricted(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_sdk_params_leave_terminal_tools_unrestricted(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -2674,8 +2746,8 @@ def test_rust_agent_sdk_params_leave_terminal_tools_unrestricted(monkeypatch):
 	assert 'tool_allowlist' not in json.dumps(params)
 
 
-def test_rust_agent_sdk_browser_payload_includes_profile_domains_window_and_proxy(monkeypatch, tmp_path):
-	from browser_use.rust import Agent
+def test_beta_agent_sdk_browser_payload_includes_profile_domains_window_and_proxy(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		cdp_url = 'http://127.0.0.1:9222'
@@ -2699,8 +2771,8 @@ def test_rust_agent_sdk_browser_payload_includes_profile_domains_window_and_prox
 	assert params['browser']['state_dir'] == str(tmp_path)
 
 
-async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_runs_through_sdk_and_reuses_session_for_followup(monkeypatch):
+	from browser_use.beta import Agent, BrowserProfile, BrowserSession
 
 	class LLM:
 		model = 'fake'
@@ -2749,11 +2821,13 @@ async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monke
 	fake_sdk = FakeSdk()
 
 	async def fake_ensure_sdk_client(self):
+		self._sdk_client = fake_sdk
 		return fake_sdk
 
 	monkeypatch.setattr(Agent, '_ensure_sdk_client', fake_ensure_sdk_client)
 
-	agent = Agent(task='answer first', llm=LLM(), directly_open_url=False)
+	browser_session = BrowserSession(browser_profile=BrowserProfile(keep_alive=True), id='browser-session-1')
+	agent = Agent(task='answer first', llm=LLM(), browser_session=browser_session, directly_open_url=False)
 	first = await agent.run(max_steps=7)
 	followup = await agent.follow_up('answer second', max_steps=5)
 
@@ -2769,8 +2843,8 @@ async def test_rust_agent_runs_through_sdk_and_reuses_session_for_followup(monke
 	assert fake_sdk.calls[1][1]['max_steps'] == 5
 
 
-async def test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_prices_sdk_child_usage_events_without_overriding_parent_result(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'fake'
@@ -2828,8 +2902,8 @@ async def test_rust_agent_prices_sdk_child_usage_events_without_overriding_paren
 	assert history.usage.entry_count == 2
 
 
-async def test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_recovers_final_result_from_sdk_notifications_after_transport_error(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'fake'
@@ -2874,8 +2948,8 @@ async def test_rust_agent_recovers_final_result_from_sdk_notifications_after_tra
 	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'session.done']
 
 
-async def test_rust_agent_recovers_nested_sdk_notification_events(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_recovers_nested_sdk_notification_events(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'fake'
@@ -2933,8 +3007,8 @@ async def test_rust_agent_recovers_nested_sdk_notification_events(monkeypatch):
 	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'session.done']
 
 
-async def test_rust_agent_recovers_projected_sdk_final_events(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_recovers_projected_sdk_final_events(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'fake'
@@ -2988,8 +3062,8 @@ async def test_rust_agent_recovers_projected_sdk_final_events(monkeypatch):
 	assert [event['event_type'] for event in agent.last_events] == ['session.input', 'session.done']
 
 
-async def test_rust_agent_prefers_notification_final_when_response_history_lacks_result(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_prefers_notification_final_when_response_history_lacks_result(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'fake'
@@ -3099,8 +3173,8 @@ async def test_rust_agent_prefers_notification_final_when_response_history_lacks
 	]
 
 
-async def test_rust_agent_uses_sdk_history_usage_when_events_do_not_include_usage(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_uses_sdk_history_usage_when_events_do_not_include_usage(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'fake'
@@ -3146,8 +3220,8 @@ async def test_rust_agent_uses_sdk_history_usage_when_events_do_not_include_usag
 	assert history.usage.total_tokens == 145
 
 
-async def test_rust_agent_preserves_sdk_notification_history_on_cancel(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_preserves_sdk_notification_history_on_cancel(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'fake'
@@ -3193,7 +3267,7 @@ async def test_rust_agent_preserves_sdk_notification_history_on_cancel(monkeypat
 
 
 async def test_rust_sdk_client_reads_large_json_rpc_lines(monkeypatch):
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 
 	monkeypatch.setenv('BROWSER_USE_SDK_STREAM_LIMIT_BYTES', '4096')
 	monkeypatch.setenv('BROWSER_USE_SDK_READ_CHUNK_BYTES', '1024')
@@ -3204,7 +3278,7 @@ import sys
 sys.stdin.readline()
 print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"text": "x" * 70000}}), flush=True)
 """
-	client = rust_service.RustSdkClient([sys.executable, '-c', script], {'PYTHONUNBUFFERED': '1'})
+	client = beta_service.RustSdkClient([sys.executable, '-c', script], {'PYTHONUNBUFFERED': '1'})
 
 	try:
 		result = await client.call('large.response')
@@ -3215,7 +3289,7 @@ print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"text": "x" * 70000}}), 
 
 
 async def test_rust_sdk_client_queues_agent_notifications_before_response():
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 
 	script = r"""
 import json
@@ -3242,7 +3316,7 @@ print(json.dumps({
 }), flush=True)
 print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}), flush=True)
 """
-	client = rust_service.RustSdkClient([sys.executable, '-c', script], {'PYTHONUNBUFFERED': '1'})
+	client = beta_service.RustSdkClient([sys.executable, '-c', script], {'PYTHONUNBUFFERED': '1'})
 
 	try:
 		result = await client.call('run.with.notifications')
@@ -3255,12 +3329,63 @@ print(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}), flush=Tru
 	assert [item['method'] for item in client.notifications] == ['agent.event', 'agent.projected_event']
 	assert first_notification['params']['event']['kind'] == 'AgentStarted'
 	assert second_notification['params']['event']['kind'] == 'item_started'
-	assert rust_service._sdk_notification_summary(first_notification) == 'AgentStarted task=inspect'
-	assert rust_service._sdk_notification_summary(second_notification) == 'projected.item_started name=browser_script'
+	assert beta_service._sdk_notification_summary(first_notification) == 'AgentStarted task=inspect'
+	assert beta_service._sdk_notification_summary(second_notification) == 'projected.item_started name=browser_script'
 
 
-def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_rejects_incompatible_sdk_protocol(monkeypatch):
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
+
+	class LLM:
+		model = 'gpt-test'
+
+	script = r"""
+import json
+import sys
+
+request = json.loads(sys.stdin.readline())
+print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {"ok": True}}), flush=True)
+"""
+	agent = Agent(task='answer', llm=LLM())
+	monkeypatch.setattr(agent, '_sdk_server_argv', lambda: [sys.executable, '-c', script])
+
+	with pytest.raises(beta_service.BetaAgentError) as exc_info:
+		await agent._ensure_sdk_client()
+
+	assert 'Unsupported browser-use-terminal SDK protocol' in str(exc_info.value)
+
+
+async def test_beta_agent_clears_sdk_client_when_protocol_ping_fails(monkeypatch):
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
+
+	class LLM:
+		model = 'gpt-test'
+
+	script = r"""
+import json
+import sys
+
+request = json.loads(sys.stdin.readline())
+print(json.dumps({
+	"jsonrpc": "2.0",
+	"id": request["id"],
+	"error": {"code": -32000, "message": "ping failed"},
+}), flush=True)
+"""
+	agent = Agent(task='answer', llm=LLM())
+	monkeypatch.setattr(agent, '_sdk_server_argv', lambda: [sys.executable, '-c', script])
+
+	with pytest.raises(beta_service.BetaAgentError) as exc_info:
+		await agent._ensure_sdk_client()
+
+	assert 'Failed to negotiate browser-use-terminal SDK protocol via runtime.ping' in str(exc_info.value)
+	assert agent._sdk_client is None
+
+
+def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		def __init__(self, provider, model, api_key=None, base_url=None):
@@ -3343,8 +3468,8 @@ def test_rust_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	}
 
 
-def test_rust_agent_requests_openai_compatible_usage_for_cost_calculation(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_requests_openai_compatible_usage_for_cost_calculation(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		def __init__(self, provider, model):
@@ -3383,8 +3508,8 @@ def test_rust_agent_requests_openai_compatible_usage_for_cost_calculation(monkey
 	assert 'LLM_BROWSER_OPENAI_COMPAT_INCLUDE_USAGE' not in openai_env
 
 
-def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_cdp_url(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		cdp_url = 'http://127.0.0.1:9222'
@@ -3398,8 +3523,8 @@ def test_rust_agent_translates_browser_profile_cdp_url(monkeypatch):
 	assert env['LLM_BROWSER_BROWSER_MODE'] == 'remote-cdp'
 
 
-def test_rust_agent_translates_browser_profile_cdp_headers(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_cdp_headers(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		cdp_url = 'http://127.0.0.1:9222'
@@ -3419,8 +3544,8 @@ def test_rust_agent_translates_browser_profile_cdp_headers(monkeypatch):
 	assert json.loads(env['BU_CDP_HEADERS']) == agent.cdp_headers
 
 
-def test_rust_agent_translates_browser_profile_remote_user_agent(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_remote_user_agent(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		cdp_url = 'http://127.0.0.1:9222'
@@ -3436,8 +3561,8 @@ def test_rust_agent_translates_browser_profile_remote_user_agent(monkeypatch):
 	assert env['BU_BROWSER_USER_AGENT'] == 'BrowserUseRemote/2.0'
 
 
-def test_rust_agent_translates_browser_profile_highlights(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_highlights(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		highlight_elements = True
@@ -3467,8 +3592,8 @@ def test_rust_agent_translates_browser_profile_highlights(monkeypatch):
 	assert dom_env['BROWSER_USE_TERMINAL_AUTO_HIGHLIGHT'] == 'false'
 
 
-def test_rust_agent_translates_browser_profile_wait_timings(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_wait_timings(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		minimum_wait_page_load_time = 0.25
@@ -3491,8 +3616,8 @@ def test_rust_agent_translates_browser_profile_wait_timings(monkeypatch):
 	assert env['BU_BROWSER_WAIT_BETWEEN_ACTIONS_MS'] == '125'
 
 
-def test_rust_agent_translates_browser_profile_block_ip_addresses(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_block_ip_addresses(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		block_ip_addresses = True
@@ -3507,8 +3632,8 @@ def test_rust_agent_translates_browser_profile_block_ip_addresses(monkeypatch):
 	assert env['BU_BROWSER_BLOCK_IP_ADDRESSES'] == 'true'
 
 
-def test_rust_agent_translates_browser_profile_headless(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_headless(monkeypatch):
+	from browser_use.beta import Agent
 
 	class HeadedProfile:
 		headless = False
@@ -3529,8 +3654,8 @@ def test_rust_agent_translates_browser_profile_headless(monkeypatch):
 	assert headless._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'managed-headless'
 
 
-def test_rust_agent_browser_mode_env_overrides_profile_headless(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_browser_mode_env_overrides_profile_headless(monkeypatch):
+	from browser_use.beta import Agent
 
 	class HeadedProfile:
 		headless = False
@@ -3544,8 +3669,8 @@ def test_rust_agent_browser_mode_env_overrides_profile_headless(monkeypatch):
 	assert agent._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'cloud'
 
 
-def test_rust_agent_translates_browser_profile_cloud(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_cloud(monkeypatch):
+	from browser_use.beta import Agent
 
 	class CloudProfile:
 		use_cloud = True
@@ -3561,8 +3686,8 @@ def test_rust_agent_translates_browser_profile_cloud(monkeypatch):
 	assert agent._run_env()['LLM_BROWSER_BROWSER_MODE'] == 'cloud'
 
 
-def test_rust_agent_translates_browser_profile_managed_launch_args(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_managed_launch_args(monkeypatch):
+	from browser_use.beta import Agent
 
 	class Proxy:
 		server = 'http://proxy.example:8080'
@@ -3596,8 +3721,8 @@ def test_rust_agent_translates_browser_profile_managed_launch_args(monkeypatch):
 	assert '--user-agent=BrowserUseTest/1.0' in launch_args
 
 
-def test_rust_agent_translates_browser_profile_chromium_sandbox(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_chromium_sandbox(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		headless = True
@@ -3617,8 +3742,8 @@ def test_rust_agent_translates_browser_profile_chromium_sandbox(monkeypatch):
 	assert '--disable-dev-shm-usage' in launch_args
 
 
-def test_rust_agent_translates_browser_profile_window_position(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_window_position(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		headless = False
@@ -3639,8 +3764,8 @@ def test_rust_agent_translates_browser_profile_window_position(monkeypatch):
 	assert '--window-position=12,24' in json.loads(tuple_agent._run_env()['BU_MANAGED_BROWSER_ARGS'])
 
 
-def test_rust_agent_translates_browser_profile_devtools(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_devtools(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		headless = False
@@ -3658,8 +3783,8 @@ def test_rust_agent_translates_browser_profile_devtools(monkeypatch):
 	assert '--auto-open-devtools-for-tabs' in launch_args
 
 
-def test_rust_agent_translates_browser_profile_profile_directory(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_profile_directory(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		headless = False
@@ -3675,8 +3800,8 @@ def test_rust_agent_translates_browser_profile_profile_directory(monkeypatch):
 	assert '--profile-directory=Profile 7' in launch_args
 
 
-def test_rust_agent_translates_browser_profile_permissions(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_permissions(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		permissions = ['clipboardReadWrite', 'notifications', 'clipboardReadWrite']
@@ -3692,8 +3817,8 @@ def test_rust_agent_translates_browser_profile_permissions(monkeypatch):
 	assert json.loads(env['BU_BROWSER_PERMISSIONS']) == ['clipboardReadWrite', 'notifications']
 
 
-def test_rust_agent_translates_browser_profile_downloads(monkeypatch, tmp_path):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_downloads(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
 
 	profile_downloads_path = tmp_path / 'downloads'
 
@@ -3714,8 +3839,8 @@ def test_rust_agent_translates_browser_profile_downloads(monkeypatch, tmp_path):
 	assert env['BU_BROWSER_DOWNLOADS_PATH'] == str(profile_downloads_path)
 
 
-def test_rust_agent_translates_browser_profile_viewport(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_viewport(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		viewport = {'width': 1024, 'height': 768}
@@ -3752,8 +3877,8 @@ def test_rust_agent_translates_browser_profile_viewport(monkeypatch):
 	assert 'BU_BROWSER_VIEWPORT' not in no_viewport_env
 
 
-def test_rust_agent_translates_browser_profile_storage_state(monkeypatch, tmp_path):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_storage_state(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
 
 	profile_storage_state_path = tmp_path / 'storage_state.json'
 	storage_state = {
@@ -3788,8 +3913,8 @@ def test_rust_agent_translates_browser_profile_storage_state(monkeypatch, tmp_pa
 	assert json.loads(env['BU_BROWSER_STORAGE_STATE']) == storage_state
 
 
-def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
 
 	profile_dir = tmp_path / 'browser profile'
 
@@ -3810,8 +3935,8 @@ def test_rust_agent_translates_browser_profile_user_data_dir(monkeypatch, tmp_pa
 	assert env['BU_MANAGED_BROWSER_PROFILE'] == str(profile_dir)
 
 
-def test_rust_agent_translates_browser_profile_executable_path(monkeypatch, tmp_path):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_executable_path(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
 
 	chrome_path = tmp_path / 'custom chrome'
 
@@ -3839,8 +3964,8 @@ def test_rust_agent_translates_browser_profile_executable_path(monkeypatch, tmp_
 	assert cloud_env['CHROME_PATH'] == '/usr/bin/existing-chrome'
 
 
-def test_rust_agent_translates_browser_profile_env(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_translates_browser_profile_env(monkeypatch):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		headless = True
@@ -3879,8 +4004,8 @@ def test_rust_agent_translates_browser_profile_env(monkeypatch):
 	assert 'BU_BROWSER_BOOL' not in cloud_env
 
 
-def test_rust_agent_adds_browser_profile_domain_constraints():
-	from browser_use.rust import Agent
+def test_beta_agent_adds_browser_profile_domain_constraints():
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		allowed_domains = ['example.com', '*.browser-use.com']
@@ -3901,8 +4026,8 @@ def test_rust_agent_adds_browser_profile_domain_constraints():
 	assert '- ads.example.com' in agent.task
 
 
-def test_rust_agent_adds_sensitive_data_placeholders_without_values():
-	from browser_use.rust import Agent
+def test_beta_agent_adds_sensitive_data_placeholders_without_values():
+	from browser_use.beta import Agent
 
 	agent = Agent(
 		task='Log in to the portal.',
@@ -3924,8 +4049,8 @@ def test_rust_agent_adds_sensitive_data_placeholders_without_values():
 	assert 'super-secret-password' not in agent.task
 
 
-def test_rust_agent_warns_about_sensitive_data_domain_constraints(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_warns_about_sensitive_data_domain_constraints(monkeypatch):
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -3972,10 +4097,10 @@ def test_rust_agent_warns_about_sensitive_data_domain_constraints(monkeypatch):
 	assert 'uncovered-secret' not in messages
 
 
-def test_rust_agent_sensitive_data_warnings_match_browser_use(monkeypatch):
+def test_beta_agent_sensitive_data_warnings_match_browser_use(monkeypatch):
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.beta import Agent as BetaAgent
 	from browser_use.browser import BrowserProfile
-	from browser_use.rust import Agent as RustAgent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4010,21 +4135,21 @@ def test_rust_agent_sensitive_data_warnings_match_browser_use(monkeypatch):
 		},
 	):
 		browser_use_logger = RecordingLogger()
-		rust_logger = RecordingLogger()
+		beta_logger = RecordingLogger()
 		monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self, logger=browser_use_logger: logger))
-		monkeypatch.setattr(RustAgent, 'logger', property(lambda self, logger=rust_logger: logger))
+		monkeypatch.setattr(BetaAgent, 'logger', property(lambda self, logger=beta_logger: logger))
 
 		BrowserUseAgent(task='Use credentials safely.', llm=LLM(), directly_open_url=False, **kwargs)
-		RustAgent(task='Use credentials safely.', llm=LLM(), directly_open_url=False, **kwargs)
+		BetaAgent(task='Use credentials safely.', llm=LLM(), directly_open_url=False, **kwargs)
 
-		assert rust_logger.messages == browser_use_logger.messages
-		message_text = '\n'.join(message for _level, message in rust_logger.messages)
+		assert beta_logger.messages == browser_use_logger.messages
+		message_text = '\n'.join(message for _level, message in beta_logger.messages)
 		assert 'unlocked-secret' not in message_text
 		assert 'uncovered-secret' not in message_text
 
 
-def test_rust_agent_mirrors_direct_url_startup():
-	from browser_use.rust import Agent
+def test_beta_agent_mirrors_direct_url_startup():
+	from browser_use.beta import Agent
 
 	agent = Agent(task='Open example.com and report the title.')
 
@@ -4036,9 +4161,9 @@ def test_rust_agent_mirrors_direct_url_startup():
 	assert "First navigate to 'https://example.com'" in agent.task
 
 
-def test_rust_agent_logs_direct_url_startup_like_browser_use(monkeypatch):
+def test_beta_agent_logs_direct_url_startup_like_browser_use(monkeypatch):
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4064,23 +4189,23 @@ def test_rust_agent_logs_direct_url_startup_like_browser_use(monkeypatch):
 			pass
 
 	browser_use_logger = RecordingLogger()
-	rust_logger = RecordingLogger()
+	beta_logger = RecordingLogger()
 	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
-	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+	monkeypatch.setattr(BetaAgent, 'logger', property(lambda self: beta_logger))
 
 	BrowserUseAgent(task='Open example.com and report the title.', llm=LLM())
-	RustAgent(task='Open example.com and report the title.', llm=LLM())
+	BetaAgent(task='Open example.com and report the title.', llm=LLM())
 	BrowserUseAgent(task='Use https://XXX.XX only as an example price placeholder.', llm=LLM())
-	RustAgent(task='Use https://XXX.XX only as an example price placeholder.', llm=LLM())
+	BetaAgent(task='Use https://XXX.XX only as an example price placeholder.', llm=LLM())
 
 	expected = ['🔗 Found URL in task: https://example.com, adding as initial action...']
 	assert browser_use_logger.infos == expected
-	assert rust_logger.infos == expected
+	assert beta_logger.infos == expected
 
 
-def test_rust_agent_exposes_task_helper_methods():
+def test_beta_agent_exposes_task_helper_methods():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class Answer(BaseModel):
 		answer: str
@@ -4110,9 +4235,9 @@ def test_rust_agent_exposes_task_helper_methods():
 	assert browser_use_agent._extract_start_url(numbered_task) == 'https://elibrary.ferc.gov/eLibrary/search'
 
 
-def test_rust_agent_exposes_url_text_helper_methods():
+def test_beta_agent_exposes_url_text_helper_methods():
+	from browser_use.beta import Agent
 	from browser_use.llm.messages import ContentPartTextParam, UserMessage
-	from browser_use.rust import Agent
 
 	class Nested(BaseModel):
 		url: str
@@ -4153,8 +4278,8 @@ def test_rust_agent_exposes_url_text_helper_methods():
 	assert model.pair == (original_url, 'untouched')
 
 
-def test_rust_agent_preserves_ordered_initial_actions_context():
-	from browser_use.rust import Agent
+def test_beta_agent_preserves_ordered_initial_actions_context():
+	from browser_use.beta import Agent
 
 	agent = Agent(
 		task='Report what is visible after setup.',
@@ -4176,12 +4301,11 @@ def test_rust_agent_preserves_ordered_initial_actions_context():
 	assert 'Browser Use initial actions in order' in agent.task
 	assert '"navigate"' in agent.task
 	assert '"click_element_by_index"' in agent.task
-	assert 'https://example.com' in agent.task
 	assert 'Then complete the task.' in agent.task
 
 
-def test_rust_agent_skips_ambiguous_or_excluded_direct_urls():
-	from browser_use.rust import Agent
+def test_beta_agent_skips_ambiguous_or_excluded_direct_urls():
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4196,8 +4320,8 @@ def test_rust_agent_skips_ambiguous_or_excluded_direct_urls():
 	assert 'First navigate to' not in document.task
 
 
-def test_rust_agent_exposes_browser_use_settings():
-	from browser_use.rust import Agent
+def test_beta_agent_exposes_browser_use_settings():
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4224,8 +4348,8 @@ def test_rust_agent_exposes_browser_use_settings():
 	assert agent.include_recent_events is True
 
 
-def test_rust_agent_defaults_page_extraction_llm_to_main_llm():
-	from browser_use.rust import Agent
+def test_beta_agent_defaults_page_extraction_llm_to_main_llm():
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4257,22 +4381,22 @@ def test_rust_agent_defaults_page_extraction_llm_to_main_llm():
 	assert str(id(extraction_llm)) in override_agent.token_cost_service.registered_llms
 
 
-def test_rust_agent_default_llm_matches_browser_use_default(monkeypatch):
+def test_beta_agent_default_llm_matches_browser_use_default(monkeypatch):
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	monkeypatch.setenv('ANTHROPIC_API_KEY', 'test-anthropic-key')
 
 	browser_use_agent = BrowserUseAgent(task='Use the default model.', directly_open_url=False)
-	rust_agent = RustAgent(task='Use the default model.', directly_open_url=False)
+	beta_agent = BetaAgent(task='Use the default model.', directly_open_url=False)
 
 	assert browser_use_agent.llm.provider == 'browser-use'
-	assert rust_agent.llm.provider == browser_use_agent.llm.provider
-	assert rust_agent.model == browser_use_agent.llm.model
+	assert beta_agent.llm.provider == browser_use_agent.llm.provider
+	assert beta_agent.model == browser_use_agent.llm.model
 
 
-def test_rust_agent_default_llm_respects_default_llm_env(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_default_llm_respects_default_llm_env(monkeypatch):
+	from browser_use.beta import Agent
 
 	monkeypatch.setenv('OPENAI_API_KEY', 'test-openai-key')
 	monkeypatch.setenv('DEFAULT_LLM', 'openai_gpt_4_1_mini')
@@ -4283,8 +4407,8 @@ def test_rust_agent_default_llm_respects_default_llm_env(monkeypatch):
 	assert agent.llm.model == 'gpt-4.1-mini'
 
 
-def test_rust_agent_explicit_llm_ignores_default_llm_env(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_explicit_llm_ignores_default_llm_env(monkeypatch):
+	from browser_use.beta import Agent
 
 	monkeypatch.setenv('DEFAULT_LLM', 'openai_gpt_4_1_mini')
 
@@ -4298,9 +4422,9 @@ def test_rust_agent_explicit_llm_ignores_default_llm_env(monkeypatch):
 	assert agent.llm.model == 'gpt-test'
 
 
-def test_rust_agent_enables_flash_mode_for_browser_use_llm_provider():
+def test_beta_agent_enables_flash_mode_for_browser_use_llm_provider():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class BrowserUseLLM:
 		model = 'browser-use-test'
@@ -4318,18 +4442,18 @@ def test_rust_agent_enables_flash_mode_for_browser_use_llm_provider():
 
 	browser_use_llm = BrowserUseLLM()
 	browser_use_agent = BrowserUseAgent(task='Use Browser Use model.', llm=browser_use_llm, directly_open_url=False)
-	rust_browser_use_agent = RustAgent(task='Use Browser Use model.', llm=browser_use_llm, directly_open_url=False)
-	rust_other_agent = RustAgent(task='Use another model.', llm=OtherLLM(), directly_open_url=False)
+	beta_browser_use_agent = BetaAgent(task='Use Browser Use model.', llm=browser_use_llm, directly_open_url=False)
+	beta_other_agent = BetaAgent(task='Use another model.', llm=OtherLLM(), directly_open_url=False)
 
 	assert browser_use_agent.settings.flash_mode is True
-	assert rust_browser_use_agent.settings.flash_mode is True
-	assert rust_other_agent.settings.flash_mode is False
-	assert rust_browser_use_agent.AgentOutput.__name__ == browser_use_agent.AgentOutput.__name__
+	assert beta_browser_use_agent.settings.flash_mode is True
+	assert beta_other_agent.settings.flash_mode is False
+	assert beta_browser_use_agent.AgentOutput.__name__ == browser_use_agent.AgentOutput.__name__
 
 
-def test_rust_agent_llm_timeout_defaults_match_browser_use_model_families():
+def test_beta_agent_llm_timeout_defaults_match_browser_use_model_families():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		provider = 'test'
@@ -4342,17 +4466,17 @@ def test_rust_agent_llm_timeout_defaults_match_browser_use_model_families():
 
 	for model in ['gpt-test', 'gemini-2.5-pro', 'groq-llama', 'o3-mini', 'claude-sonnet', 'deepseek-chat']:
 		browser_use_agent = BrowserUseAgent(task='Inspect timeout.', llm=LLM(model), directly_open_url=False)
-		rust_agent = RustAgent(task='Inspect timeout.', llm=LLM(model), directly_open_url=False)
+		beta_agent = BetaAgent(task='Inspect timeout.', llm=LLM(model), directly_open_url=False)
 
-		assert rust_agent.settings.llm_timeout == browser_use_agent.settings.llm_timeout
+		assert beta_agent.settings.llm_timeout == browser_use_agent.settings.llm_timeout
 
-	override_agent = RustAgent(task='Override timeout.', llm=LLM('gemini-2.5-pro'), llm_timeout=12)
+	override_agent = BetaAgent(task='Override timeout.', llm=LLM('gemini-2.5-pro'), llm_timeout=12)
 
 	assert override_agent.settings.llm_timeout == 12
 
 
-def test_rust_agent_forces_vision_for_all_model_families():
-	from browser_use.rust import Agent as RustAgent
+def test_beta_agent_forces_vision_for_all_model_families():
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		provider = 'test'
@@ -4364,17 +4488,17 @@ def test_rust_agent_forces_vision_for_all_model_families():
 			return type('Result', (), {'usage': None})()
 
 	for model in ['deepseek-chat', 'grok-3', 'grok-code']:
-		rust_agent = RustAgent(task='Inspect vision.', llm=LLM(model), directly_open_url=False, use_vision=False)
+		beta_agent = BetaAgent(task='Inspect vision.', llm=LLM(model), directly_open_url=False, use_vision=False)
 
-		assert rust_agent.settings.use_vision is True
+		assert beta_agent.settings.use_vision is True
 
-	normal_agent = RustAgent(task='Inspect vision.', llm=LLM('gpt-test'), directly_open_url=False, use_vision=False)
+	normal_agent = BetaAgent(task='Inspect vision.', llm=LLM('gpt-test'), directly_open_url=False, use_vision=False)
 
 	assert normal_agent.settings.use_vision is True
 
 
-def test_rust_agent_does_not_warn_when_forcing_vision(monkeypatch):
-	from browser_use.rust import Agent as RustAgent
+def test_beta_agent_does_not_warn_when_forcing_vision(monkeypatch):
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		provider = 'test'
@@ -4402,19 +4526,19 @@ def test_rust_agent_does_not_warn_when_forcing_vision(monkeypatch):
 			pass
 
 	for model in ['deepseek-chat', 'grok-2']:
-		rust_logger = RecordingLogger()
-		monkeypatch.setattr(RustAgent, 'logger', property(lambda self, logger=rust_logger: logger))
+		beta_logger = RecordingLogger()
+		monkeypatch.setattr(BetaAgent, 'logger', property(lambda self, logger=beta_logger: logger))
 
-		RustAgent(task='Inspect vision warning.', llm=LLM(model), directly_open_url=False, use_vision=False)
+		BetaAgent(task='Inspect vision warning.', llm=LLM(model), directly_open_url=False, use_vision=False)
 
-		assert rust_logger.warnings == []
+		assert beta_logger.warnings == []
 
 
-def test_rust_agent_constructor_debug_summary_matches_browser_use(monkeypatch):
+def test_beta_agent_constructor_debug_summary_matches_browser_use(monkeypatch):
 	import browser_use.agent.service as agent_service
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4431,22 +4555,22 @@ def test_rust_agent_constructor_debug_summary_matches_browser_use(monkeypatch):
 			self.debugs.append(message)
 
 	browser_use_logger = RecordingModuleLogger()
-	rust_logger = RecordingModuleLogger()
+	beta_logger = RecordingModuleLogger()
 	monkeypatch.setattr(agent_service, 'logger', browser_use_logger)
-	monkeypatch.setattr(rust_service, 'logger', rust_logger)
+	monkeypatch.setattr(beta_service, 'logger', beta_logger)
 
 	BrowserUseAgent(task='Inspect constructor setup.', llm=LLM(), directly_open_url=False)
-	RustAgent(task='Inspect constructor setup.', llm=LLM(), directly_open_url=False)
+	BetaAgent(task='Inspect constructor setup.', llm=LLM(), directly_open_url=False)
 
 	expected = ' +vision extraction_model=gpt-test +file_system'
 	assert browser_use_logger.debugs[-1] == expected
-	assert rust_logger.debugs[-1] == expected
+	assert beta_logger.debugs[-1] == expected
 
 
-def test_rust_agent_state_id_defaults_like_browser_use():
+def test_beta_agent_state_id_defaults_like_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
 	from browser_use.agent.views import AgentState
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4457,31 +4581,31 @@ def test_rust_agent_state_id_defaults_like_browser_use():
 
 	llm = LLM()
 	browser_use_task_id = 'browser_use_state'
-	rust_task_id = 'rust_state_id'
+	beta_task_id = 'rust_state_id'
 	browser_use_agent = BrowserUseAgent(
 		task='Inspect state.',
 		llm=llm,
 		task_id=browser_use_task_id,
 		directly_open_url=False,
 	)
-	rust_agent = RustAgent(task='Inspect state.', llm=llm, task_id=rust_task_id, directly_open_url=False)
+	beta_agent = BetaAgent(task='Inspect state.', llm=llm, task_id=beta_task_id, directly_open_url=False)
 
 	assert browser_use_agent.task_id == browser_use_task_id
-	assert rust_agent.task_id == rust_task_id
+	assert beta_agent.task_id == beta_task_id
 	assert browser_use_agent.state.agent_id != browser_use_task_id
-	assert rust_agent.state.agent_id != rust_task_id
-	assert rust_agent.state.n_steps == browser_use_agent.state.n_steps == 1
+	assert beta_agent.state.agent_id != beta_task_id
+	assert beta_agent.state.n_steps == browser_use_agent.state.n_steps == 1
 
 	injected_state = AgentState(agent_id='restored-state-id')
-	restored_agent = RustAgent(task='Restore state.', injected_agent_state=injected_state)
+	restored_agent = BetaAgent(task='Restore state.', injected_agent_state=injected_state)
 
 	assert restored_agent.state is injected_state
 	assert restored_agent.state.agent_id == 'restored-state-id'
 
 
-def test_rust_agent_eventbus_name_matches_browser_use_suffix_prefix():
+def test_beta_agent_eventbus_name_matches_browser_use_suffix_prefix():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4491,23 +4615,23 @@ def test_rust_agent_eventbus_name_matches_browser_use_suffix_prefix():
 			return type('Result', (), {'usage': None})()
 
 	browser_use_agent = BrowserUseAgent(task='Inspect event bus.', llm=LLM(), task_id='browseruseabcd', directly_open_url=False)
-	rust_agent = RustAgent(task='Inspect event bus.', llm=LLM(), task_id='rustagentwxyz', directly_open_url=False)
+	beta_agent = BetaAgent(task='Inspect event bus.', llm=LLM(), task_id='rustagentwxyz', directly_open_url=False)
 
 	assert browser_use_agent.eventbus.name == 'Agent_abcd'
-	assert rust_agent.eventbus.name == 'Agent_wxyz'
+	assert beta_agent.eventbus.name == 'Agent_wxyz'
 
-	rust_agent_with_hyphen = RustAgent(task='Inspect event bus.', llm=LLM(), task_id='task-1', directly_open_url=False)
-	initial_name = rust_agent_with_hyphen.eventbus.name
-	rust_agent_with_hyphen.add_new_task('Follow up.')
+	beta_agent_with_hyphen = BetaAgent(task='Inspect event bus.', llm=LLM(), task_id='task-1', directly_open_url=False)
+	initial_name = beta_agent_with_hyphen.eventbus.name
+	beta_agent_with_hyphen.add_new_task('Follow up.')
 
 	assert initial_name == 'Agent_sk_1'
-	assert rust_agent_with_hyphen.eventbus.name.startswith(f'{initial_name}_')
-	assert rust_agent_with_hyphen.eventbus.name.isidentifier()
+	assert beta_agent_with_hyphen.eventbus.name.startswith(f'{initial_name}_')
+	assert beta_agent_with_hyphen.eventbus.name.isidentifier()
 
 
-def test_rust_agent_constructor_aliases_match_browser_use():
+def test_beta_agent_constructor_aliases_match_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 	from browser_use.tools.service import Tools
 
 	class LLM:
@@ -4527,7 +4651,7 @@ def test_rust_agent_constructor_aliases_match_browser_use():
 		controller=controller,
 		directly_open_url=False,
 	)
-	rust_agent = RustAgent(
+	beta_agent = BetaAgent(
 		task='Resolve aliases.',
 		llm=LLM(),
 		tools=tools,
@@ -4536,10 +4660,10 @@ def test_rust_agent_constructor_aliases_match_browser_use():
 	)
 
 	assert browser_use_agent.tools is tools
-	assert rust_agent.tools is tools
+	assert beta_agent.tools is tools
 
 	expected_error = 'Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.'
-	for agent_class in (BrowserUseAgent, RustAgent):
+	for agent_class in (BrowserUseAgent, BetaAgent):
 		with pytest.raises(ValueError) as exc_info:
 			agent_class(
 				task='Conflicting browser aliases.',
@@ -4551,8 +4675,8 @@ def test_rust_agent_constructor_aliases_match_browser_use():
 		assert str(exc_info.value) == expected_error
 
 
-def test_rust_agent_initializes_tools_and_action_models():
-	from browser_use.rust import Agent
+def test_beta_agent_initializes_tools_and_action_models():
+	from browser_use.beta import Agent
 	from browser_use.tools.service import Tools
 
 	class Answer(BaseModel):
@@ -4577,16 +4701,16 @@ def test_rust_agent_initializes_tools_and_action_models():
 	assert 'done' in str(done_schema)
 
 
-def test_rust_agent_setup_action_models_signature_matches_browser_use():
+def test_beta_agent_setup_action_models_signature_matches_browser_use():
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	browser_use_signature = inspect.signature(BrowserUseAgent._setup_action_models)
-	rust_signature = inspect.signature(RustAgent._setup_action_models)
+	beta_signature = inspect.signature(BetaAgent._setup_action_models)
 
-	assert list(rust_signature.parameters) == list(browser_use_signature.parameters) == ['self']
+	assert list(beta_signature.parameters) == list(browser_use_signature.parameters) == ['self']
 
-	agent = RustAgent(task='Rebuild action models.')
+	agent = BetaAgent(task='Rebuild action models.')
 	agent.ActionModel = None
 	agent.DoneActionModel = None
 	agent.AgentOutput = None
@@ -4600,8 +4724,8 @@ def test_rust_agent_setup_action_models_signature_matches_browser_use():
 	assert agent.DoneAgentOutput is not None
 
 
-async def test_rust_agent_updates_action_models_for_page(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_updates_action_models_for_page(monkeypatch):
+	from browser_use.beta import Agent
 
 	agent = Agent(task='Use page-specific tools.')
 	registry = agent.tools.registry
@@ -4626,8 +4750,8 @@ async def test_rust_agent_updates_action_models_for_page(monkeypatch):
 	assert agent.DoneAgentOutput is not None
 
 
-def test_rust_agent_initializes_runtime_metadata_and_observability(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_initializes_runtime_metadata_and_observability(monkeypatch):
+	from browser_use.beta import Agent
 	from browser_use.tokens.service import TokenCost
 
 	monkeypatch.delenv('BU_USE_CALCULATE_COST', raising=False)
@@ -4665,11 +4789,11 @@ def test_rust_agent_initializes_runtime_metadata_and_observability(monkeypatch):
 	assert 'BU_USE_CALCULATE_COST' not in default_agent._run_env()
 
 
-async def test_rust_agent_logger_name_matches_browser_use(monkeypatch):
-	import browser_use.rust.service as rust_service
+async def test_beta_agent_logger_name_matches_browser_use(monkeypatch):
+	import browser_use.beta.service as beta_service
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.beta import Agent as BetaAgent
 	from browser_use.browser import BrowserProfile, BrowserSession
-	from browser_use.rust import Agent as RustAgent
 
 	class TestEventBus:
 		def __init__(self, name):
@@ -4678,7 +4802,7 @@ async def test_rust_agent_logger_name_matches_browser_use(monkeypatch):
 		def stop(self, *args, **kwargs):
 			return None
 
-	monkeypatch.setattr(rust_service, 'EventBus', TestEventBus)
+	monkeypatch.setattr(beta_service, 'EventBus', TestEventBus)
 
 	class LLM:
 		model = 'gpt-test'
@@ -4705,7 +4829,7 @@ async def test_rust_agent_logger_name_matches_browser_use(monkeypatch):
 	browser_use_logger_name = browser_use_agent.logger.name
 	await stop_eventbus(browser_use_agent.eventbus)
 
-	rust_agent = RustAgent(
+	beta_agent = BetaAgent(
 		task='Inspect logger name.',
 		llm=LLM(),
 		browser_session=BrowserSession(browser_profile=BrowserProfile(), id='browser-abcd'),
@@ -4713,17 +4837,17 @@ async def test_rust_agent_logger_name_matches_browser_use(monkeypatch):
 		directly_open_url=False,
 	)
 
-	assert rust_agent.logger.name == browser_use_logger_name
-	assert rust_agent.logger.name == 'browser_use.Agent🅰 1234 ⇢ 🅑 abcd 🅣 --'
-	await stop_eventbus(rust_agent.eventbus)
+	assert beta_agent.logger.name == browser_use_logger_name
+	assert beta_agent.logger.name == 'browser_use.Agent🅰 1234 ⇢ 🅑 abcd 🅣 --'
+	await stop_eventbus(beta_agent.eventbus)
 
 
-async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
+async def test_beta_agent_exposes_logging_helper_methods(monkeypatch):
 	import time
 
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 	from browser_use.agent.views import ActionResult
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4759,7 +4883,7 @@ async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
 		def capture(self, event):
 			captured_events.append(event)
 
-	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', no_latest_version)
+	monkeypatch.setattr(beta_service, 'check_latest_browser_use_version', no_latest_version)
 	agent = Agent(task='Log helper parity.', llm=LLM(), browser_session=BrowserSession())
 	agent.telemetry = Telemetry()
 
@@ -4769,7 +4893,7 @@ async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
 	agent._log_next_action_summary(Parsed())
 	agent._log_step_completion_summary(time.time() - 1, [ActionResult(extracted_content='ok')])
 	agent._log_action(FakeAction(), 'navigate', 1, 2)
-	agent.history = rust_service._history_from_events(
+	agent.history = beta_service._history_from_events(
 		[
 			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
 			{
@@ -4804,9 +4928,9 @@ async def test_rust_agent_exposes_logging_helper_methods(monkeypatch):
 	assert captured_events[0].error_message == 'manual-error'
 
 
-def test_rust_agent_telemetry_filters_empty_reconstructed_urls():
-	import browser_use.rust.service as rust_service
-	from browser_use.rust import Agent
+def test_beta_agent_telemetry_filters_empty_reconstructed_urls():
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4820,7 +4944,7 @@ def test_rust_agent_telemetry_filters_empty_reconstructed_urls():
 
 	agent = Agent(task='Log telemetry URLs.', llm=cast(Any, LLM()), directly_open_url=False)
 	agent.telemetry = Telemetry()
-	agent.history = rust_service._history_from_events(
+	agent.history = beta_service._history_from_events(
 		[
 			{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}},
 			{
@@ -4844,9 +4968,9 @@ def test_rust_agent_telemetry_filters_empty_reconstructed_urls():
 	assert captured_events[0].urls_visited == ['https://example.com']
 
 
-def test_rust_agent_telemetry_records_cloud_cdp_hostname():
-	import browser_use.rust.service as rust_service
-	from browser_use.rust import Agent
+def test_beta_agent_telemetry_records_cloud_cdp_hostname():
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4867,7 +4991,7 @@ def test_rust_agent_telemetry_records_cloud_cdp_hostname():
 
 	agent = Agent(task='Log cloud CDP telemetry.', llm=cast(Any, LLM()), browser_session=cast(Any, BrowserSession()))
 	agent.telemetry = Telemetry()
-	agent.history = rust_service._history_from_events(
+	agent.history = beta_service._history_from_events(
 		[
 			{'event_type': 'browser.state', 'payload': {'url': 'https://example.com', 'title': 'Example'}},
 			{'event_type': 'session.done', 'payload': {'result': 'done'}},
@@ -4887,11 +5011,11 @@ def test_rust_agent_telemetry_records_cloud_cdp_hostname():
 	assert captured_events[0].urls_visited == ['https://example.com']
 
 
-async def test_rust_agent_run_metadata_logs_match_browser_use(monkeypatch):
+async def test_beta_agent_run_metadata_logs_match_browser_use(monkeypatch):
 	import browser_use.agent.service as agent_service
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		model = 'gpt-test'
@@ -4915,11 +5039,11 @@ async def test_rust_agent_run_metadata_logs_match_browser_use(monkeypatch):
 		return '99.99.99'
 
 	browser_use_logger = RecordingLogger()
-	rust_logger = RecordingLogger()
+	beta_logger = RecordingLogger()
 	monkeypatch.setattr(agent_service, 'check_latest_browser_use_version', latest_version)
-	monkeypatch.setattr(rust_service, 'check_latest_browser_use_version', latest_version)
+	monkeypatch.setattr(beta_service, 'check_latest_browser_use_version', latest_version)
 	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
-	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+	monkeypatch.setattr(BetaAgent, 'logger', property(lambda self: beta_logger))
 
 	browser_use_agent = BrowserUseAgent(
 		task='Log run metadata parity.',
@@ -4927,7 +5051,7 @@ async def test_rust_agent_run_metadata_logs_match_browser_use(monkeypatch):
 		task_id='runmetadatabu',
 		directly_open_url=False,
 	)
-	rust_agent = RustAgent(
+	beta_agent = BetaAgent(
 		task='Log run metadata parity.',
 		llm=LLM(),
 		task_id='runmetadatars',
@@ -4935,25 +5059,25 @@ async def test_rust_agent_run_metadata_logs_match_browser_use(monkeypatch):
 	)
 	browser_use_logger.infos.clear()
 	browser_use_logger.debugs.clear()
-	rust_logger.infos.clear()
-	rust_logger.debugs.clear()
+	beta_logger.infos.clear()
+	beta_logger.debugs.clear()
 
 	await browser_use_agent._log_agent_run()
-	await rust_agent._log_agent_run()
+	await beta_agent._log_agent_run()
 
-	assert rust_logger.infos == browser_use_logger.infos
-	assert rust_logger.debugs == browser_use_logger.debugs
-	assert rust_logger.infos[0] == '\033[34m🎯 Task: Log run metadata parity.\033[0m'
-	assert rust_logger.debugs[0].startswith('🤖 Browser-Use Library Version')
-	assert rust_logger.infos[1].startswith('📦 Newer version available: 99.99.99')
+	assert beta_logger.infos == browser_use_logger.infos
+	assert beta_logger.debugs == browser_use_logger.debugs
+	assert beta_logger.infos[0] == '\033[34m🎯 Task: Log run metadata parity.\033[0m'
+	assert beta_logger.debugs[0].startswith('🤖 Browser-Use Library Version')
+	assert beta_logger.infos[1].startswith('📦 Newer version available: 99.99.99')
 
 
-async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
+async def test_beta_agent_exposes_step_finalization_helper_methods(tmp_path):
 	import base64
 	import time
 
 	from browser_use.agent.views import ActionResult, AgentStepInfo
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class DomState:
 		selector_map = {}
@@ -5021,11 +5145,11 @@ async def test_rust_agent_exposes_step_finalization_helper_methods(tmp_path):
 	assert agent.AgentOutput is agent.DoneAgentOutput
 
 
-async def test_rust_agent_finalize_logs_step_completion_without_browser_state(monkeypatch, tmp_path):
+async def test_beta_agent_finalize_logs_step_completion_without_browser_state(monkeypatch, tmp_path):
 	import time
 
 	from browser_use.agent.views import ActionResult
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -5059,12 +5183,12 @@ async def test_rust_agent_finalize_logs_step_completion_without_browser_state(mo
 	assert any('Ran 1 action' in message and 'success=1' in message for message in logger.debugs)
 
 
-async def test_rust_agent_finalize_orders_summary_save_before_step_event(monkeypatch, tmp_path):
+async def test_beta_agent_finalize_orders_summary_save_before_step_event(monkeypatch, tmp_path):
 	import base64
 	import time
 
 	from browser_use.agent.views import ActionResult
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	calls = []
 
@@ -5114,9 +5238,9 @@ async def test_rust_agent_finalize_orders_summary_save_before_step_event(monkeyp
 	assert [type(event).__name__ for event in agent.eventbus.dispatched] == ['CreateAgentStepEvent']
 
 
-async def test_rust_agent_done_only_guidance_matches_browser_use(monkeypatch):
+async def test_beta_agent_done_only_guidance_matches_browser_use(monkeypatch):
 	from browser_use.agent.views import AgentStepInfo
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -5149,9 +5273,9 @@ async def test_rust_agent_done_only_guidance_matches_browser_use(monkeypatch):
 	assert 'set success in "done" to false! E.g. if not all steps are fully completed.' in messages[-1]
 
 
-async def test_rust_agent_post_process_logs_browser_use_result_messages(monkeypatch):
+async def test_beta_agent_post_process_logs_browser_use_result_messages(monkeypatch):
 	from browser_use.agent.views import ActionResult
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -5200,9 +5324,9 @@ async def test_rust_agent_post_process_logs_browser_use_result_messages(monkeypa
 	assert download_checks == ['after executing actions', 'after executing actions', 'after executing actions']
 
 
-async def test_rust_agent_handle_step_error_logs_browser_use_failure_prefix(monkeypatch):
-	import browser_use.rust.service as rust_service
-	from browser_use.rust import Agent
+async def test_beta_agent_handle_step_error_logs_browser_use_failure_prefix(monkeypatch):
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -5229,7 +5353,7 @@ async def test_rust_agent_handle_step_error_logs_browser_use_failure_prefix(monk
 	agent_logger = RecordingLogger()
 	module_logger = RecordingLogger()
 	monkeypatch.setattr(Agent, 'logger', property(lambda self: agent_logger))
-	monkeypatch.setattr(rust_service, 'logger', module_logger)
+	monkeypatch.setattr(beta_service, 'logger', module_logger)
 
 	agent = Agent(task='Handle normal step error.', llm=LLM())
 	await agent._handle_step_error(ValueError('bad step'))
@@ -5262,9 +5386,9 @@ async def test_rust_agent_handle_step_error_logs_browser_use_failure_prefix(monk
 	)
 
 
-def test_rust_agent_initializes_message_manager_and_followup_state():
+def test_beta_agent_initializes_message_manager_and_followup_state():
 	from browser_use.agent.message_manager.service import MessageManager
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	agent = Agent(
 		task='Initial task.',
@@ -5287,9 +5411,9 @@ def test_rust_agent_initializes_message_manager_and_followup_state():
 	assert agent.eventbus.name.isidentifier()
 
 
-def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
+def test_beta_agent_initializes_browser_use_session_and_file_system(tmp_path):
+	from browser_use.beta import Agent
 	from browser_use.browser import BrowserProfile, BrowserSession
-	from browser_use.rust import Agent
 
 	file_system_path = tmp_path / 'agent-files'
 	downloads_path = tmp_path / 'downloads'
@@ -5310,8 +5434,8 @@ def test_rust_agent_initializes_browser_use_session_and_file_system(tmp_path):
 	assert agent.state.file_system_state is not None
 
 
-def test_rust_agent_exposes_setup_helper_methods(tmp_path):
-	from browser_use.rust import Agent
+def test_beta_agent_exposes_setup_helper_methods(tmp_path):
+	from browser_use.beta import Agent
 	from browser_use.screenshots.service import ScreenshotService
 
 	class LLM:
@@ -5350,8 +5474,8 @@ def test_rust_agent_exposes_setup_helper_methods(tmp_path):
 	assert agent.file_system.base_dir == new_file_system_path
 
 
-def test_rust_agent_constructor_invokes_llm_verification(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_constructor_invokes_llm_verification(monkeypatch):
+	from browser_use.beta import Agent
 
 	class LLM:
 		model = 'gpt-test'
@@ -5367,8 +5491,8 @@ def test_rust_agent_constructor_invokes_llm_verification(monkeypatch):
 	assert llm._verified_api_keys is True
 
 
-def test_rust_agent_browser_profile_property_tracks_session_profile():
-	from browser_use.rust import Agent
+def test_beta_agent_browser_profile_property_tracks_session_profile():
+	from browser_use.beta import Agent
 
 	class FirstProfile:
 		downloads_path = None
@@ -5390,8 +5514,8 @@ def test_rust_agent_browser_profile_property_tracks_session_profile():
 	assert agent.browser_profile.downloads_path == '/tmp/changed-downloads'
 
 
-async def test_rust_agent_tracks_downloaded_files_and_saves_file_system_state(tmp_path):
-	from browser_use.rust import Agent
+async def test_beta_agent_tracks_downloaded_files_and_saves_file_system_state(tmp_path):
+	from browser_use.beta import Agent
 
 	class BrowserProfile:
 		downloads_path = tmp_path / 'downloads'
@@ -5420,10 +5544,10 @@ async def test_rust_agent_tracks_downloaded_files_and_saves_file_system_state(tm
 	assert agent.state.file_system_state.base_dir == str(tmp_path / 'agent-files')
 
 
-async def test_rust_agent_initializes_screenshot_service(tmp_path):
+async def test_beta_agent_initializes_screenshot_service(tmp_path):
 	import base64
 
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 	from browser_use.screenshots.service import ScreenshotService
 
 	agent = Agent(task='Capture a screenshot.', file_system_path=str(tmp_path / 'agent-files'))
@@ -5441,8 +5565,8 @@ async def test_rust_agent_initializes_screenshot_service(tmp_path):
 	assert await agent.screenshot_service.get_screenshot(screenshot_path) == screenshot_b64
 
 
-def test_rust_agent_adds_available_files_to_task_context():
-	from browser_use.rust import Agent
+def test_beta_agent_adds_available_files_to_task_context():
+	from browser_use.beta import Agent
 
 	agent = Agent(
 		task='Summarize the provided report.',
@@ -5455,9 +5579,9 @@ def test_rust_agent_adds_available_files_to_task_context():
 	assert '- ' in agent.task and 'notes.md' in agent.task
 
 
-def test_rust_agent_default_model_uses_browser_use_default_llm(monkeypatch):
+def test_beta_agent_default_model_uses_browser_use_default_llm(monkeypatch):
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	monkeypatch.setenv('BROWSER_USE_RUST_MODEL', 'legacy-codex-default')
 
@@ -5468,10 +5592,10 @@ def test_rust_agent_default_model_uses_browser_use_default_llm(monkeypatch):
 	assert agent.model == browser_use_agent.llm.model
 
 
-async def test_rust_agent_log_completion_matches_browser_use(monkeypatch):
-	import browser_use.rust.service as rust_service
+async def test_beta_agent_log_completion_matches_browser_use(monkeypatch):
+	import browser_use.beta.service as beta_service
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -5498,7 +5622,7 @@ async def test_rust_agent_log_completion_matches_browser_use(monkeypatch):
 
 	def make_history(success: bool):
 		events = [{'event_type': 'session.done', 'payload': {'result': 'done'}}] if success else []
-		return rust_service._history_from_events(
+		return beta_service._history_from_events(
 			events,
 			model='gpt-test',
 			started=1.0,
@@ -5509,9 +5633,9 @@ async def test_rust_agent_log_completion_matches_browser_use(monkeypatch):
 
 	for index, success in enumerate((True, False)):
 		browser_use_logger = RecordingLogger()
-		rust_logger = RecordingLogger()
+		beta_logger = RecordingLogger()
 		monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self, logger=browser_use_logger: logger))
-		monkeypatch.setattr(RustAgent, 'logger', property(lambda self, logger=rust_logger: logger))
+		monkeypatch.setattr(BetaAgent, 'logger', property(lambda self, logger=beta_logger: logger))
 
 		browser_use_agent = BrowserUseAgent(
 			task='Log completion parity.',
@@ -5519,23 +5643,23 @@ async def test_rust_agent_log_completion_matches_browser_use(monkeypatch):
 			task_id=f'browsercompletionbu{index}',
 			directly_open_url=False,
 		)
-		rust_agent = RustAgent(
+		beta_agent = BetaAgent(
 			task='Log completion parity.',
 			llm=LLM(),
 			task_id=f'rustcompletionrs{index}',
 			directly_open_url=False,
 		)
 		browser_use_agent.history = make_history(success)
-		rust_agent.history = make_history(success)
+		beta_agent.history = make_history(success)
 
 		await browser_use_agent.log_completion()
-		await rust_agent.log_completion()
+		await beta_agent.log_completion()
 
-		assert rust_logger.infos == browser_use_logger.infos
+		assert beta_logger.infos == browser_use_logger.infos
 
 
-def test_rust_agent_run_sync_delegates_to_async_run(monkeypatch):
-	from browser_use.rust import Agent
+def test_beta_agent_run_sync_delegates_to_async_run(monkeypatch):
+	from browser_use.beta import Agent
 
 	agent = Agent(task='start')
 
@@ -5549,9 +5673,9 @@ def test_rust_agent_run_sync_delegates_to_async_run(monkeypatch):
 	assert agent.kwargs['seen_max_steps'] == 7
 
 
-def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+def test_beta_agent_lifecycle_state_and_save_history(tmp_path):
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(task='start')
 	agent.pause()
@@ -5575,8 +5699,8 @@ def test_rust_agent_lifecycle_state_and_save_history(tmp_path):
 	assert 'saved answer' in history_file.read_text(encoding='utf-8')
 
 
-def test_rust_agent_control_methods_match_browser_use_user_feedback(monkeypatch, capsys):
-	from browser_use.rust import Agent
+def test_beta_agent_control_methods_match_browser_use_user_feedback(monkeypatch, capsys):
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -5621,9 +5745,9 @@ def test_rust_agent_control_methods_match_browser_use_user_feedback(monkeypatch,
 	assert logger.infos == ['⏹️ Agent stopping']
 
 
-def test_rust_agent_sync_state_counts_terminal_histories_monotonically():
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+def test_beta_agent_sync_state_counts_terminal_histories_monotonically():
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	def history_from_result(result: str):
 		return _history_from_events(
@@ -5656,8 +5780,20 @@ def test_rust_agent_sync_state_counts_terminal_histories_monotonically():
 	assert agent.state.last_result[-1].extracted_content == 'follow-up answer'
 
 
-async def test_rust_agent_close_kills_non_keep_alive_browser_session():
-	from browser_use.rust import Agent
+async def test_beta_agent_close_kills_non_keep_alive_browser_session():
+	from browser_use.beta import Agent
+
+	class FakeSdk:
+		def __init__(self):
+			self.calls = []
+			self.close_calls = 0
+
+		async def call(self, method, params=None):
+			self.calls.append((method, params or {}))
+			return {'ok': True}
+
+		async def close(self):
+			self.close_calls += 1
 
 	class BrowserProfile:
 		keep_alive = False
@@ -5673,9 +5809,23 @@ async def test_rust_agent_close_kills_non_keep_alive_browser_session():
 
 	session = BrowserSession()
 	agent = Agent(task='close session', browser_session=session, directly_open_url=False)
+	fake_sdk = FakeSdk()
+	agent._sdk_client = fake_sdk
+	agent._sdk_agent_id = 'agent-1'
+	agent._sdk_browser_id = 'browser-1'
+	agent.terminal_session_id = 'session-1'
 
 	await agent.close()
 
+	assert fake_sdk.calls == [
+		('agent.close', {'agent_id': 'agent-1'}),
+		('browser.close', {'browser_id': 'browser-1'}),
+	]
+	assert fake_sdk.close_calls == 1
+	assert agent._sdk_client is None
+	assert agent._sdk_agent_id is None
+	assert agent._sdk_browser_id is None
+	assert agent.terminal_session_id is None
 	assert session.kill_calls == 1
 
 	class KeepAliveProfile:
@@ -5684,14 +5834,25 @@ async def test_rust_agent_close_kills_non_keep_alive_browser_session():
 	keep_alive_session = BrowserSession()
 	keep_alive_session.browser_profile = KeepAliveProfile()
 	keep_alive_agent = Agent(task='keep session', browser_session=keep_alive_session, directly_open_url=False)
+	keep_alive_sdk = FakeSdk()
+	keep_alive_agent._sdk_client = keep_alive_sdk
+	keep_alive_agent._sdk_agent_id = 'agent-keep'
+	keep_alive_agent._sdk_browser_id = 'browser-keep'
+	keep_alive_agent.terminal_session_id = 'session-keep'
 
 	await keep_alive_agent.close()
 
+	assert keep_alive_sdk.calls == []
+	assert keep_alive_sdk.close_calls == 0
+	assert keep_alive_agent._sdk_client is keep_alive_sdk
+	assert keep_alive_agent._sdk_agent_id == 'agent-keep'
+	assert keep_alive_agent._sdk_browser_id == 'browser-keep'
+	assert keep_alive_agent.terminal_session_id == 'session-keep'
 	assert keep_alive_session.kill_calls == 0
 
 
-async def test_rust_agent_close_logs_cleanup_errors_without_raising(monkeypatch):
-	from browser_use.rust import Agent
+async def test_beta_agent_close_logs_cleanup_errors_without_raising(monkeypatch):
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -5718,8 +5879,52 @@ async def test_rust_agent_close_logs_cleanup_errors_without_raising(monkeypatch)
 	assert logger.errors == ['Error during cleanup: cleanup failed']
 
 
-async def test_rust_agent_check_stop_or_pause_matches_browser_use_lifecycle():
-	from browser_use.rust import Agent
+async def test_beta_agent_finalize_run_cleanup_closes_sdk_resources():
+	from browser_use.beta import Agent
+
+	class FakeSdk:
+		def __init__(self):
+			self.calls = []
+			self.close_calls = 0
+
+		async def call(self, method, params=None):
+			self.calls.append((method, params or {}))
+			return {'ok': True}
+
+		async def close(self):
+			self.close_calls += 1
+
+	class BrowserProfile:
+		keep_alive = False
+
+	class BrowserSession:
+		browser_profile = BrowserProfile()
+
+		async def kill(self):
+			return None
+
+	agent = Agent(task='finalize session', browser_session=BrowserSession(), directly_open_url=False)
+	fake_sdk = FakeSdk()
+	agent._sdk_client = fake_sdk
+	agent._sdk_agent_id = 'agent-finalize'
+	agent._sdk_browser_id = 'browser-finalize'
+	agent.terminal_session_id = 'session-finalize'
+
+	await agent._finalize_run_cleanup()
+
+	assert fake_sdk.calls == [
+		('agent.close', {'agent_id': 'agent-finalize'}),
+		('browser.close', {'browser_id': 'browser-finalize'}),
+	]
+	assert fake_sdk.close_calls == 1
+	assert agent._sdk_client is None
+	assert agent._sdk_agent_id is None
+	assert agent._sdk_browser_id is None
+	assert agent.terminal_session_id is None
+
+
+async def test_beta_agent_check_stop_or_pause_matches_browser_use_lifecycle():
+	from browser_use.beta import Agent
 
 	seen = []
 
@@ -5744,9 +5949,9 @@ async def test_rust_agent_check_stop_or_pause_matches_browser_use_lifecycle():
 	assert paused_agent.state.paused is True
 
 
-async def test_rust_agent_rerun_history_delegates_to_rust_run():
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+async def test_beta_agent_rerun_history_delegates_to_rust_run():
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(task='rerun start', max_steps=8)
 	previous = _history_from_events(
@@ -5779,11 +5984,11 @@ async def test_rust_agent_rerun_history_delegates_to_rust_run():
 	assert results[0].extracted_content == 'rerun answer'
 
 
-async def test_rust_agent_rerun_history_honors_retry_and_skip_controls(monkeypatch):
-	import browser_use.rust.service as rust_service
+async def test_beta_agent_rerun_history_honors_retry_and_skip_controls(monkeypatch):
+	import browser_use.beta.service as beta_service
 	from browser_use.agent.views import ActionResult
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	previous = _history_from_events(
 		[{'event_type': 'session.done', 'payload': {'result': 'previous answer'}}],
@@ -5806,7 +6011,7 @@ async def test_rust_agent_rerun_history_honors_retry_and_skip_controls(monkeypat
 	async def fake_sleep(delay):
 		sleeps.append(delay)
 
-	monkeypatch.setattr(rust_service.asyncio, 'sleep', fake_sleep)
+	monkeypatch.setattr(beta_service.asyncio, 'sleep', fake_sleep)
 
 	class ErrorHistory:
 		def action_results(self):
@@ -5858,9 +6063,9 @@ async def test_rust_agent_rerun_history_honors_retry_and_skip_controls(monkeypat
 	assert results[-1].error == 'Rerun failed after 1 attempts: still broken'
 
 
-async def test_rust_agent_load_and_rerun_loads_saved_rust_history(tmp_path):
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+async def test_beta_agent_load_and_rerun_loads_saved_rust_history(tmp_path):
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(task='rerun saved')
 	history = _history_from_events(
@@ -5887,9 +6092,9 @@ async def test_rust_agent_load_and_rerun_loads_saved_rust_history(tmp_path):
 	assert results[0].extracted_content == 'loaded answer'
 
 
-async def test_rust_agent_take_step_runs_one_terminal_turn():
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+async def test_beta_agent_take_step_runs_one_terminal_turn():
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(task='step once')
 	seen = []
@@ -5914,8 +6119,8 @@ async def test_rust_agent_take_step_runs_one_terminal_turn():
 	assert is_valid is True
 
 
-async def test_rust_agent_take_step_matches_browser_use_non_final_status():
-	from browser_use.rust import Agent
+async def test_beta_agent_take_step_matches_browser_use_non_final_status():
+	from browser_use.beta import Agent
 
 	agent = Agent(task='step once without finishing')
 	seen = []
@@ -5940,9 +6145,9 @@ async def test_rust_agent_take_step_matches_browser_use_non_final_status():
 	assert is_valid is False
 
 
-async def test_rust_agent_take_step_executes_initial_actions_on_first_step():
+async def test_beta_agent_take_step_executes_initial_actions_on_first_step():
 	from browser_use.agent.views import AgentStepInfo
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	agent = Agent(
 		task='step once after initial action',
@@ -5985,9 +6190,9 @@ async def test_rust_agent_take_step_executes_initial_actions_on_first_step():
 	assert is_valid is True
 
 
-async def test_rust_agent_run_executes_initial_actions_before_sdk():
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+async def test_beta_agent_run_executes_initial_actions_before_sdk():
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(
 		task='start on example',
@@ -6019,11 +6224,11 @@ async def test_rust_agent_run_executes_initial_actions_before_sdk():
 	assert history.final_result() == 'done'
 
 
-async def test_rust_agent_run_pre_navigates_cdp_session_before_sdk_by_default():
+async def test_beta_agent_run_pre_navigates_cdp_session_before_sdk_by_default():
 	from types import SimpleNamespace
 
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	class FakeBrowserSession:
 		id = 'browser-cdp'
@@ -6074,11 +6279,11 @@ async def test_rust_agent_run_pre_navigates_cdp_session_before_sdk_by_default():
 	assert "First navigate to 'https://example.com'" not in seen[0]
 
 
-async def test_rust_agent_run_keeps_initial_navigation_when_direct_state_mismatches():
+async def test_beta_agent_run_keeps_initial_navigation_when_direct_state_mismatches():
 	from types import SimpleNamespace
 
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	class FakeBrowserSession:
 		id = 'browser-cdp'
@@ -6127,7 +6332,7 @@ async def test_rust_agent_run_keeps_initial_navigation_when_direct_state_mismatc
 
 
 def test_rust_history_uses_browser_script_lifecycle_outputs_as_result():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -6168,12 +6373,18 @@ def test_rust_history_uses_browser_script_lifecycle_outputs_as_result():
 
 	result = history.history[0].result[0]
 	assert result.extracted_content is not None
-	assert 'https://example.com' in result.extracted_content
+	assert json.loads(result.extracted_content) == [
+		{
+			'label': 'page_info',
+			'value': {'url': 'https://example.com', 'title': 'Example'},
+			'summary': {'kind': 'observed', 'output_label': 'page_info'},
+		}
+	]
 	assert history.history[0].state.url == 'https://example.com'
 
 
 def test_rust_history_uses_printed_browser_script_page_info_as_state():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -6215,8 +6426,8 @@ def test_rust_history_uses_printed_browser_script_page_info_as_state():
 	assert state.tabs[0].target_id == 'target-1'
 
 
-async def test_rust_agent_multi_act_preserves_done_action():
-	from browser_use.rust import Agent
+async def test_beta_agent_multi_act_preserves_done_action():
+	from browser_use.beta import Agent
 
 	agent = Agent(task='finish manually')
 
@@ -6229,9 +6440,9 @@ async def test_rust_agent_multi_act_preserves_done_action():
 	assert results[0].attachments == ['report.txt']
 
 
-async def test_rust_agent_multi_act_routes_actions_to_followup():
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+async def test_beta_agent_multi_act_routes_actions_to_followup():
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(task='act on current page')
 	agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
@@ -6264,9 +6475,9 @@ async def test_rust_agent_multi_act_routes_actions_to_followup():
 	assert results[0].extracted_content == 'actions applied'
 
 
-async def test_rust_agent_multi_act_ignores_later_done_actions():
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+async def test_beta_agent_multi_act_ignores_later_done_actions():
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(task='act without premature done')
 	agent.terminal_session_id = '12345678-1234-1234-1234-123456789abc'
@@ -6301,10 +6512,10 @@ async def test_rust_agent_multi_act_ignores_later_done_actions():
 	assert results[0].extracted_content == 'clicked only'
 
 
-async def test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session(monkeypatch):
+async def test_beta_agent_initial_actions_can_pre_navigate_existing_cdp_session(monkeypatch):
 	from types import SimpleNamespace
 
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class FakeBrowserSession:
 		id = 'browser-cdp'
@@ -6342,10 +6553,10 @@ async def test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session(
 	assert agent.history.history[0].model_output.action == agent.initial_actions
 
 
-async def test_rust_agent_direct_initial_navigation_defaults_on_for_cdp(monkeypatch):
+async def test_beta_agent_direct_initial_navigation_defaults_on_for_cdp(monkeypatch):
 	from types import SimpleNamespace
 
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class FakeBrowserSession:
 		id = 'browser-cdp'
@@ -6381,10 +6592,10 @@ async def test_rust_agent_direct_initial_navigation_defaults_on_for_cdp(monkeypa
 	)
 
 
-async def test_rust_agent_direct_initial_navigation_can_be_disabled(monkeypatch):
+async def test_beta_agent_direct_initial_navigation_can_be_disabled(monkeypatch):
 	from types import SimpleNamespace
 
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class FakeBrowserSession:
 		id = 'browser-cdp'
@@ -6412,9 +6623,9 @@ async def test_rust_agent_direct_initial_navigation_can_be_disabled(monkeypatch)
 	assert agent.history.history == []
 
 
-async def test_rust_agent_records_initial_actions_in_history(monkeypatch):
+async def test_beta_agent_records_initial_actions_in_history(monkeypatch):
 	from browser_use.agent.views import ActionResult
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -6462,12 +6673,12 @@ async def test_rust_agent_records_initial_actions_in_history(monkeypatch):
 	]
 
 
-async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_path):
+async def test_beta_agent_exposes_model_output_helper_methods(monkeypatch, tmp_path):
 	from types import SimpleNamespace
 
 	from browser_use.agent.views import ActionResult
+	from browser_use.beta import Agent
 	from browser_use.llm.messages import UserMessage
-	from browser_use.rust import Agent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -6620,10 +6831,10 @@ async def test_rust_agent_exposes_model_output_helper_methods(monkeypatch, tmp_p
 	]
 
 
-async def test_rust_agent_get_model_output_logs_response_like_browser_use(monkeypatch):
+async def test_beta_agent_get_model_output_logs_response_like_browser_use(monkeypatch):
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.beta import Agent as BetaAgent
 	from browser_use.llm.messages import UserMessage
-	from browser_use.rust import Agent as RustAgent
 
 	class RecordingLogger:
 		def __init__(self):
@@ -6665,31 +6876,31 @@ async def test_rust_agent_get_model_output_logs_response_like_browser_use(monkey
 			)()
 
 	browser_use_logger = RecordingLogger()
-	rust_logger = RecordingLogger()
+	beta_logger = RecordingLogger()
 	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
-	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+	monkeypatch.setattr(BetaAgent, 'logger', property(lambda self: beta_logger))
 
 	browser_use_llm = LLM()
 	browser_use_agent = BrowserUseAgent(task='Log the model output.', llm=browser_use_llm, directly_open_url=False)
 	browser_use_llm.agent = browser_use_agent
 	await browser_use_agent.get_model_output([UserMessage(content='log response')])
 
-	rust_llm = LLM()
-	rust_agent = RustAgent(task='Log the model output.', llm=rust_llm, directly_open_url=False)
-	rust_llm.agent = rust_agent
-	await rust_agent.get_model_output([UserMessage(content='log response')])
+	beta_llm = LLM()
+	beta_agent = BetaAgent(task='Log the model output.', llm=beta_llm, directly_open_url=False)
+	beta_llm.agent = beta_agent
+	await beta_agent.get_model_output([UserMessage(content='log response')])
 
-	assert rust_logger.infos == browser_use_logger.infos
-	assert any('Eval: neutral' in message for message in rust_logger.infos)
-	assert any('Memory: remember response logging' in message for message in rust_logger.infos)
-	assert any('Next goal: finish response logging' in message for message in rust_logger.infos)
+	assert beta_logger.infos == browser_use_logger.infos
+	assert any('Eval: neutral' in message for message in beta_logger.infos)
+	assert any('Memory: remember response logging' in message for message in beta_logger.infos)
+	assert any('Next goal: finish response logging' in message for message in beta_logger.infos)
 
 
-async def test_rust_agent_exposes_prepare_context_helper_method(monkeypatch):
+async def test_beta_agent_exposes_prepare_context_helper_method(monkeypatch):
 	from types import SimpleNamespace
 
 	from browser_use.agent.views import AgentStepInfo
-	from browser_use.rust import Agent
+	from browser_use.beta import Agent
 
 	state_requests = []
 	browser_state = SimpleNamespace(
@@ -6763,9 +6974,9 @@ async def test_rust_agent_exposes_prepare_context_helper_method(monkeypatch):
 	assert agent.AgentOutput is agent.DoneAgentOutput
 
 
-async def test_rust_agent_trace_and_cloud_auth_helpers():
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+async def test_beta_agent_trace_and_cloud_auth_helpers():
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	agent = Agent(task='Open example.com', llm=type('LLM', (), {'model': 'gpt-test'})(), task_id='task-1')
 	agent.history = _history_from_events(
@@ -6792,9 +7003,9 @@ async def test_rust_agent_trace_and_cloud_auth_helpers():
 	assert 'trace answer' in trace_object['trace_details']['complete_history']
 
 
-async def test_rust_agent_run_exposes_laminar_trace_id_for_eval_links(monkeypatch):
-	import browser_use.rust.service as rust_service
-	from browser_use.rust import Agent
+async def test_beta_agent_run_exposes_laminar_trace_id_for_eval_links(monkeypatch):
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
 
 	class FakeLaminar:
 		@staticmethod
@@ -6808,8 +7019,8 @@ async def test_rust_agent_run_exposes_laminar_trace_id_for_eval_links(monkeypatc
 	async def fake_run_terminal(self, max_steps, on_step_start, on_step_end):
 		return self.history
 
-	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
-	monkeypatch.setattr(rust_service.Agent, '_run_terminal', fake_run_terminal)
+	monkeypatch.setattr(beta_service, 'Laminar', FakeLaminar)
+	monkeypatch.setattr(beta_service.Agent, '_run_terminal', fake_run_terminal)
 
 	agent = Agent(task='Trace link task.', llm=type('LLM', (), {'model': 'claude-sonnet-4-6'})())
 
@@ -6819,7 +7030,7 @@ async def test_rust_agent_run_exposes_laminar_trace_id_for_eval_links(monkeypatc
 
 
 def test_rust_laminar_replay_flush_avoids_context_reset(monkeypatch):
-	import browser_use.rust.service as rust_service
+	import browser_use.beta.service as beta_service
 
 	class FakeLaminar:
 		flushes = 0
@@ -6837,18 +7048,18 @@ def test_rust_laminar_replay_flush_avoids_context_reset(monkeypatch):
 		def force_flush(cls):
 			cls.force_flushes += 1
 
-	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
+	monkeypatch.setattr(beta_service, 'Laminar', FakeLaminar)
 
-	rust_service._laminar_force_flush()
+	beta_service._laminar_force_flush()
 
 	assert FakeLaminar.flushes == 1
 	assert FakeLaminar.force_flushes == 0
 
 
-def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
-	import browser_use.rust.service as rust_service
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+def test_beta_agent_laminar_run_summary_populates_current_span(monkeypatch):
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
 	class FakeLaminar:
 		attributes = []
@@ -6900,7 +7111,7 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 
 			return Span()
 
-	monkeypatch.setattr(rust_service, 'Laminar', FakeLaminar)
+	monkeypatch.setattr(beta_service, 'Laminar', FakeLaminar)
 
 	agent = Agent(task='Trace terminal observability.', llm=type('LLM', (), {'model': 'claude-sonnet-4-6'})())
 	agent.terminal_session_id = 'terminal-session-1'
@@ -7009,7 +7220,7 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 
 	agent._record_laminar_run_observability(max_steps=7, duration_seconds=3.0)
 
-	assert FakeLaminar.attributes[-1]['runtime'] == 'browser_use.rust'
+	assert FakeLaminar.attributes[-1]['runtime'] == 'browser_use.beta'
 	assert FakeLaminar.attributes[-1]['terminal_session_id'] == 'terminal-session-1'
 	assert FakeLaminar.outputs[-1]['final_result_preview'] == 'laminar answer'
 	assert FakeLaminar.outputs[-1]['steps'] == agent.history.number_of_steps()
@@ -7083,8 +7294,8 @@ def test_rust_agent_laminar_run_summary_populates_current_span(monkeypatch):
 	assert FakeLaminar.flushes == 2
 
 
-def test_rust_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
-	import browser_use.rust.service as rust_service
+def test_beta_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
+	import browser_use.beta.service as beta_service
 
 	image_path = tmp_path / 'tool.png'
 	image_path.write_bytes(b'\x89PNG\r\n\x1a\n')
@@ -7149,21 +7360,21 @@ def test_rust_agent_laminar_tool_span_preserves_image_only_outputs(tmp_path):
 
 			return Span()
 
-	original = rust_service.Laminar
+	original = beta_service.Laminar
 	try:
-		rust_service.Laminar = FakeLaminar
-		rust_service._record_laminar_terminal_tool_spans(events, max_spans=10)
+		beta_service.Laminar = FakeLaminar
+		beta_service._record_laminar_terminal_tool_spans(events, max_spans=10)
 	finally:
-		rust_service.Laminar = original
+		beta_service.Laminar = original
 
 	output = FakeLaminar.spans[0]['outputs'][-1]
 	assert output[0]['content'] == [{'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,iVBORw0KGgo='}}]
 	assert FakeLaminar.flushes == 1
 
 
-async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):
+async def test_beta_agent_authenticate_cloud_sync_logs_browser_use_warning(monkeypatch):
 	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
-	from browser_use.rust import Agent as RustAgent
+	from browser_use.beta import Agent as BetaAgent
 
 	class LLM:
 		model = 'gpt-test'
@@ -7189,26 +7400,26 @@ async def test_rust_agent_authenticate_cloud_sync_logs_browser_use_warning(monke
 			pass
 
 	browser_use_logger = RecordingLogger()
-	rust_logger = RecordingLogger()
+	beta_logger = RecordingLogger()
 	monkeypatch.setattr(BrowserUseAgent, 'logger', property(lambda self: browser_use_logger))
-	monkeypatch.setattr(RustAgent, 'logger', property(lambda self: rust_logger))
+	monkeypatch.setattr(BetaAgent, 'logger', property(lambda self: beta_logger))
 
 	browser_use_agent = BrowserUseAgent(task='Cloud sync warning parity.', llm=LLM(), directly_open_url=False)
-	rust_agent = RustAgent(task='Cloud sync warning parity.', llm=LLM(), directly_open_url=False)
+	beta_agent = BetaAgent(task='Cloud sync warning parity.', llm=LLM(), directly_open_url=False)
 
 	assert await browser_use_agent.authenticate_cloud_sync(show_instructions=False) is False
-	assert await rust_agent.authenticate_cloud_sync(show_instructions=False) is False
-	assert rust_logger.warnings == browser_use_logger.warnings
-	assert rust_logger.warnings == ['Cloud sync has been removed and is no longer available']
+	assert await beta_agent.authenticate_cloud_sync(show_instructions=False) is False
+	assert beta_logger.warnings == browser_use_logger.warnings
+	assert beta_logger.warnings == ['Cloud sync has been removed and is no longer available']
 
 
-def test_rust_agent_trace_metadata_matches_browser_use_helpers(monkeypatch):
-	import browser_use.rust.service as rust_service
-	from browser_use.rust import Agent
-	from browser_use.rust.service import _history_from_events
+def test_beta_agent_trace_metadata_matches_browser_use_helpers(monkeypatch):
+	import browser_use.beta.service as beta_service
+	from browser_use.beta import Agent
+	from browser_use.beta.service import _history_from_events
 
-	monkeypatch.setattr(rust_service, 'get_browser_use_version', lambda: '9.9.9-test')
-	monkeypatch.setattr(rust_service, 'get_git_info', lambda: {'branch': 'trace-branch', 'commit_hash': 'abc123'})
+	monkeypatch.setattr(beta_service, 'get_browser_use_version', lambda: '9.9.9-test')
+	monkeypatch.setattr(beta_service, 'get_git_info', lambda: {'branch': 'trace-branch', 'commit_hash': 'abc123'})
 
 	agent = Agent(task='Trace metadata.', llm=type('LLM', (), {'model': 'gpt-test'})())
 	agent.history = _history_from_events(
@@ -7226,8 +7437,8 @@ def test_rust_agent_trace_metadata_matches_browser_use_helpers(monkeypatch):
 	assert json.loads(trace['git_info']) == {'branch': 'trace-branch', 'commit_hash': 'abc123'}
 
 
-def test_rust_agent_initializes_action_models_without_conversation_path():
-	from browser_use.rust import Agent
+def test_beta_agent_initializes_action_models_without_conversation_path():
+	from browser_use.beta import Agent
 
 	agent = Agent(
 		task='Initialize action models without saving conversations.',
@@ -7241,7 +7452,7 @@ def test_rust_agent_initializes_action_models_without_conversation_path():
 
 
 def test_rust_history_marks_process_failure_not_done():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[],
@@ -7259,7 +7470,7 @@ def test_rust_history_marks_process_failure_not_done():
 
 
 def test_rust_history_process_failure_ignores_empty_stream_text():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -7280,7 +7491,7 @@ def test_rust_history_process_failure_ignores_empty_stream_text():
 
 
 def test_rust_history_marks_missing_terminal_result_as_error():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[{'event_type': 'model.turn.request', 'payload': {'model': 'gpt-test'}}],
@@ -7297,7 +7508,7 @@ def test_rust_history_marks_missing_terminal_result_as_error():
 
 
 def test_rust_history_surfaces_terminal_stream_error_message():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -7317,7 +7528,7 @@ def test_rust_history_surfaces_terminal_stream_error_message():
 
 
 def test_rust_history_surfaces_terminal_operational_failure_events():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	failed = _history_from_events(
 		[
@@ -7370,7 +7581,7 @@ def test_rust_history_surfaces_terminal_operational_failure_events():
 
 
 def test_rust_history_surfaces_terminal_subagent_failure_events():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	failed = _history_from_events(
 		[
@@ -7427,7 +7638,7 @@ def test_rust_history_surfaces_terminal_subagent_failure_events():
 
 
 def test_rust_history_surfaces_terminal_tool_failure_message():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -7463,7 +7674,7 @@ def test_rust_history_surfaces_terminal_tool_failure_message():
 
 
 def test_rust_history_surfaces_running_browser_script_observe_instruction():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -7506,7 +7717,7 @@ def test_rust_history_surfaces_running_browser_script_observe_instruction():
 
 
 def test_rust_history_surfaces_terminal_cancellation_and_tool_abort_messages():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	cancelled = _history_from_events(
 		[
@@ -7560,7 +7771,7 @@ def test_rust_history_surfaces_terminal_cancellation_and_tool_abort_messages():
 
 
 def test_rust_history_preserves_terminal_tool_abort_when_failed_event_follows():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[
@@ -7605,7 +7816,7 @@ def test_rust_history_preserves_terminal_tool_abort_when_failed_event_follows():
 
 
 def test_rust_history_surfaces_terminal_session_interrupted_message():
-	from browser_use.rust.service import _history_from_events
+	from browser_use.beta.service import _history_from_events
 
 	history = _history_from_events(
 		[

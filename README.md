@@ -49,17 +49,19 @@
 
 # 👋 Human Quickstart
 
-**1. Create environment and install Browser-Use with [uv](https://docs.astral.sh/uv/) (Python>=3.11):**
-```bash
-uv init && uv add browser-use && uv sync
-# uvx browser-use install  # Run if you don't have Chromium installed
+Browser Use 0.13 introduces a new beta agent powered by a Rust core and a browser harness built for current frontier models. It gives the model a real browser/computer action space, persistent tools, and recovery loops inspired by coding agents.
+
+```text
+Python API -> Rust core -> Browser harness -> Web task done
 ```
 
-**Experimental Rust agent:** install Browser Use Terminal for `from browser_use.rust import Agent`:
+**1. Install Browser Use with the native core runtime (Python>=3.11):**
 ```bash
-curl -fsSL https://browser-use.com/terminal/install.sh | sh
-browser
+uv add "browser-use[core]"
+# or: pip install "browser-use[core]"
 ```
+
+The `[core]` extra installs the native Browser Use runtime for your platform.
 
 **2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
 ```
@@ -71,39 +73,23 @@ BROWSER_USE_API_KEY=your-key
 
 **3. Run your first agent:**
 ```python
-from browser_use import Agent, Browser, ChatBrowserUse
-# from browser_use import ChatGoogle  # ChatGoogle(model='gemini-3-flash-preview')
-# from browser_use import ChatAnthropic  # ChatAnthropic(model='claude-sonnet-4-6')
-import asyncio
-
-async def main():
-    browser = Browser(
-        # use_cloud=True,  # Use a stealth browser on Browser Use Cloud
-    )
-
-    agent = Agent(
-        task="Find the number of stars of the browser-use repo",
-        llm=ChatBrowserUse(),
-        # llm=ChatGoogle(model='gemini-3-flash-preview'),
-        # llm=ChatAnthropic(model='claude-sonnet-4-6'),
-        browser=browser,
-    )
-    await agent.run()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-**4. [Optional] Try the experimental Rust core:**
-```python
-from browser_use import ChatBrowserUse
-from browser_use.rust import Agent
+from browser_use.beta import Agent, BrowserProfile, ChatBrowserUse
+# from browser_use.beta import ChatOpenAI  # ChatOpenAI(model='gpt-5.5')
+# from browser_use.beta import ChatGoogle  # ChatGoogle(model='gemini-3.1-pro-preview')
+# from browser_use.beta import ChatAnthropic  # ChatAnthropic(model='claude-opus-4-8')
 import asyncio
 
 async def main():
     agent = Agent(
         task="Find the number of stars of the browser-use repo",
         llm=ChatBrowserUse(),
+        # llm=ChatOpenAI(model='gpt-5.5'),
+        # llm=ChatGoogle(model='gemini-3.1-pro-preview'),
+        # llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well.
+        browser_profile=BrowserProfile(
+            headless=False,
+            allowed_domains=["*.github.com"],
+        ),
     )
     history = await agent.run()
     print(history.final_result())
@@ -111,6 +97,8 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+Existing Python agent users can keep using `from browser_use import Agent`. The new Rust-powered beta agent is `from browser_use.beta import Agent`.
 
 Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme-cloud-docs) for more!
 

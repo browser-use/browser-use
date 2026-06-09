@@ -670,18 +670,49 @@ async def check_latest_browser_use_version() -> str | None:
 	"""Check the latest version of browser-use from PyPI asynchronously.
 
 	Returns:
-		The latest version string if successful, None if failed
+		The latest version string if PyPI has a newer version, None otherwise.
 	"""
 	try:
 		async with httpx.AsyncClient(timeout=3.0) as client:
 			response = await client.get('https://pypi.org/pypi/browser-use/json')
 			if response.status_code == 200:
 				data = response.json()
-				return data['info']['version']
+				latest_version = data['info']['version']
+				if _is_newer_browser_use_version(latest_version, get_browser_use_version()):
+					return latest_version
 	except Exception:
 		# Silently fail - we don't want to break agent startup due to network issues
 		pass
 	return None
+
+
+def _is_newer_browser_use_version(latest_version: str, current_version: str) -> bool:
+	"""Return True when latest_version should be considered an upgrade for current_version."""
+	try:
+		from packaging.version import Version
+
+		return Version(latest_version) > Version(current_version)
+	except Exception:
+		latest_key = _browser_use_version_key(latest_version)
+		current_key = _browser_use_version_key(current_version)
+		if latest_key is None or current_key is None:
+			return latest_version != current_version
+		return latest_key > current_key
+
+
+def _browser_use_version_key(version: str) -> tuple[tuple[int, ...], int, int, int] | None:
+	"""Small PEP 440-ish fallback for browser-use versions when packaging is unavailable."""
+	match = re.match(r'^v?(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?(?:\.post(\d+))?', version.strip().lower())
+	if not match:
+		return None
+
+	release = tuple(int(part) for part in match.group(1).split('.'))
+	phase = match.group(2)
+	phase_number = int(match.group(3) or 0)
+	post_number = int(match.group(4) or 0)
+	phase_rank = {'a': 0, 'b': 1, 'rc': 2}.get(phase, 3)
+
+	return release, phase_rank, phase_number, post_number
 
 
 @cache

@@ -1,12 +1,12 @@
 # Rust Agent Integration Feature/Proof Ledger
 
 This branch keeps the Python `Agent` unchanged unless callers explicitly import
-`from browser_use.rust import Agent`.
+`from browser_use.beta import Agent`.
 
 ## Current Features
 
 1. Rust SDK server execution path
-   - `browser_use.rust.Agent` now runs normal tasks through the terminal SDK server
+   - `browser_use.beta.Agent` now runs normal tasks through the terminal SDK server
      (`browser-use-terminal sdk-server --transport stdio`) using the normalized
      `agent.run_task` request/response protocol.
    - Follow-up tasks reuse the returned SDK `agent_id`, `session_id`, and `browser_id`
@@ -64,7 +64,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
    - Terminal Rust runs only advertise sub-agent tools when the run has a
      configured child-agent runner, and SDK JSON-RPC runs now attach the same
      runtime-backed child runner as CLI runs. This enables terminal's advanced
-     sub-agent system in `browser_use.rust.Agent` evals without exposing
+     sub-agent system in `browser_use.beta.Agent` evals without exposing
      spawn tools on unsupported run surfaces.
    - Eval GitHub runners now refresh Convex progress during long `run_agent`
      and `evaluate` stages, so slow Rust or Agent SDK judge calls stay visible
@@ -176,7 +176,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      traces against that combined stream, so sub-agent model calls contribute to
      run token/cost totals without letting child `session.done` events override
      the parent final answer.
-   - `browser_use.rust.Agent` no longer treats `_run_process` monkeypatches as an
+   - `browser_use.beta.Agent` no longer treats `_run_process` monkeypatches as an
      alternate runtime. Production `run()` and `follow_up()` now require the
      Rust SDK server path, so the legacy terminal CLI adapter cannot silently
      replace the new server protocol while the normal Python `browser_use.Agent`
@@ -193,7 +193,7 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
      telemetry payloads when the terminal server returns both live and projected
      event streams.
    - Browser-use no longer sends a Rust SDK `tool_allowlist` override. The
-     terminal SDK server now owns its tool registry for `browser_use.rust.Agent`
+     terminal SDK server now owns its tool registry for `browser_use.beta.Agent`
      runs, so local search, web/search helpers, and v2 sub-agent controls are
      available in evals when the Rust core registers them.
    - Reconstructed browser history ignores internal browser-control endpoint
@@ -244,21 +244,21 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_task_executes_fake_backend_with_normalized_history -- --nocapture`
 - terminal `cargo test -p browser-use-llm stream_ -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
-- browser-use `uv run python -m py_compile browser_use/rust/service.py`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'browser_script_lifecycle_outputs_as_result or initial_actions_pre_navigate_existing_cdp_session or run_hands_off_completed_initial_navigation_as_context' -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'printed_browser_script_page_info_as_state or browser_script_lifecycle_outputs_as_result or initial_actions_pre_navigate_existing_cdp_session or run_hands_off_completed_initial_navigation_as_context' -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_history_surfaces_running_browser_script_observe_instruction -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'initial_actions_pre_navigate_existing_cdp_session or run_executes_initial_actions_before_sdk or run_hands_off_completed_initial_navigation_as_context' -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -k 'rust_sdk_client_reads_large_json_rpc_lines or rust_sdk_client_queues_agent_notifications_before_response' -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_sdk_client_reads_large_json_rpc_lines tests/ci/test_rust_agent.py::test_rust_agent_run_leaves_initial_navigation_for_sdk_by_default tests/ci/test_rust_agent.py::test_rust_agent_initial_actions_can_pre_navigate_existing_cdp_session tests/ci/test_rust_agent.py::test_rust_agent_translates_browser_use_args_to_terminal -q`
-- browser-use `PYTHONPATH=. uv run pytest tests/ci/test_rust_agent.py -q -k 'pre_navigates_cdp_session_before_sdk_by_default or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp or direct_initial_navigation_can_be_disabled'`
-- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "pre_navigates_cdp_session_before_sdk_by_default or keeps_initial_navigation_when_direct_state_mismatches or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp"`
-- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_token_count_usage or sums_token_count_last_usage_when_latest_total_underreports or terminal_usage_prices_token_count_events or terminal_usage_sums_token_count_cache_creation"`
-- browser-use `uv run pytest -q tests/ci/test_rust_agent.py -k "terminal_nested_model_usage or token_count_does_not_shrink_model_usage_totals or terminal_usage_prices_token_count_events or terminal_usage_prices_anthropic_raw_cache_reads or terminal_usage_sums_token_count_cache_creation or priced_summary_sums_cache_read_tokens or mixed_events_do_not_shrink_totals or priced_usage_prefers_model_usage_over_token_count or sums_token_count_last_usage_when_latest_total_underreports"`
-- browser-use `python -m py_compile browser_use/rust/service.py`
+- browser-use `uv run python -m py_compile browser_use/beta/service.py`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py -k 'browser_script_lifecycle_outputs_as_result or initial_actions_pre_navigate_existing_cdp_session or run_hands_off_completed_initial_navigation_as_context' -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py -k 'printed_browser_script_page_info_as_state or browser_script_lifecycle_outputs_as_result or initial_actions_pre_navigate_existing_cdp_session or run_hands_off_completed_initial_navigation_as_context' -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_rust_history_surfaces_running_browser_script_observe_instruction -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py -k 'initial_actions_pre_navigate_existing_cdp_session or run_executes_initial_actions_before_sdk or run_hands_off_completed_initial_navigation_as_context' -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py -k 'sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py -k 'sdk_client_queues_agent_notifications_before_response or sdk_client_reads_large_json_rpc_lines or sdk_and_reuses_session or translates_browser_use_args_to_terminal'`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py -k 'rust_sdk_client_reads_large_json_rpc_lines or rust_sdk_client_queues_agent_notifications_before_response' -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_rust_sdk_client_reads_large_json_rpc_lines tests/ci/test_beta_agent.py::test_beta_agent_run_leaves_initial_navigation_for_sdk_by_default tests/ci/test_beta_agent.py::test_beta_agent_initial_actions_can_pre_navigate_existing_cdp_session tests/ci/test_beta_agent.py::test_beta_agent_translates_browser_use_args_to_terminal -q`
+- browser-use `PYTHONPATH=. uv run pytest tests/ci/test_beta_agent.py -q -k 'pre_navigates_cdp_session_before_sdk_by_default or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp or direct_initial_navigation_can_be_disabled'`
+- browser-use `uv run pytest -q tests/ci/test_beta_agent.py -k "pre_navigates_cdp_session_before_sdk_by_default or keeps_initial_navigation_when_direct_state_mismatches or initial_actions_can_pre_navigate_existing_cdp_session or direct_initial_navigation_defaults_on_for_cdp"`
+- browser-use `uv run pytest -q tests/ci/test_beta_agent.py -k "terminal_token_count_usage or sums_token_count_last_usage_when_latest_total_underreports or terminal_usage_prices_token_count_events or terminal_usage_sums_token_count_cache_creation"`
+- browser-use `uv run pytest -q tests/ci/test_beta_agent.py -k "terminal_nested_model_usage or token_count_does_not_shrink_model_usage_totals or terminal_usage_prices_token_count_events or terminal_usage_prices_anthropic_raw_cache_reads or terminal_usage_sums_token_count_cache_creation or priced_summary_sums_cache_read_tokens or mixed_events_do_not_shrink_totals or priced_usage_prefers_model_usage_over_token_count or sums_token_count_last_usage_when_latest_total_underreports"`
+- browser-use `python -m py_compile browser_use/beta/service.py`
 - terminal `cargo test -p browser-use-cli sdk_transport -- --nocapture`
 - terminal `cargo test -p browser-use-providers server_overloaded -- --nocapture`
 - terminal `cargo test -p browser-use-agent observe_timeout -- --nocapture`
@@ -269,22 +269,22 @@ This branch keeps the Python `Agent` unchanged unless callers explicitly import
 - terminal `cargo test -p browser-use-agent search -- --nocapture`
 - terminal `cargo test -p browser-use-agent dispatcher -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_agent_run_returns_child_usage_events_separately -- --nocapture`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_runs_through_sdk_and_reuses_session_for_followup tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_preserves_sdk_notification_history_on_cancel -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_recovers_nested_sdk_notification_events tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_recovers_nested_sdk_notification_events tests/ci/test_rust_agent.py::test_rust_agent_prefers_notification_final_when_response_history_lacks_result tests/ci/test_rust_agent.py::test_rust_agent_uses_sdk_history_usage_when_events_do_not_include_usage tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_rust_agent.py::test_rust_agent_recovers_nested_sdk_notification_events tests/ci/test_rust_agent.py::test_rust_agent_recovers_projected_sdk_final_events tests/ci/test_rust_agent.py::test_rust_agent_prefers_notification_final_when_response_history_lacks_result tests/ci/test_rust_agent.py::test_rust_agent_uses_sdk_history_usage_when_events_do_not_include_usage tests/ci/test_rust_agent.py::test_rust_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_runs_through_sdk_and_reuses_session_for_followup -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_runs_through_sdk_and_reuses_session_for_followup tests/ci/test_beta_agent.py::test_beta_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_beta_agent.py::test_beta_agent_preserves_sdk_notification_history_on_cancel -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_beta_agent.py::test_beta_agent_recovers_nested_sdk_notification_events tests/ci/test_beta_agent.py::test_beta_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_recovers_nested_sdk_notification_events tests/ci/test_beta_agent.py::test_beta_agent_prefers_notification_final_when_response_history_lacks_result tests/ci/test_beta_agent.py::test_beta_agent_uses_sdk_history_usage_when_events_do_not_include_usage tests/ci/test_beta_agent.py::test_beta_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_recovers_final_result_from_sdk_notifications_after_transport_error tests/ci/test_beta_agent.py::test_beta_agent_recovers_nested_sdk_notification_events tests/ci/test_beta_agent.py::test_beta_agent_recovers_projected_sdk_final_events tests/ci/test_beta_agent.py::test_beta_agent_prefers_notification_final_when_response_history_lacks_result tests/ci/test_beta_agent.py::test_beta_agent_uses_sdk_history_usage_when_events_do_not_include_usage tests/ci/test_beta_agent.py::test_beta_agent_prices_sdk_child_usage_events_without_overriding_parent_result -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_runs_through_sdk_and_reuses_session_for_followup -q`
 - terminal `cargo fmt --check`
 - terminal `cargo test -p browser-use-cli sdk_json_rpc_browser_create_preserves_browser_use_settings -- --nocapture`
 - terminal `cargo test -p browser-use-cli sdk_provider_run_config_maps_browser_use_options_to_rust_core -- --nocapture`
 - terminal `cargo test -p browser-use-agent stored_cloud_profile_uses_sdk_proxy_country_env_when_connecting -- --nocapture`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_sdk_browser_payload_includes_profile_domains_window_and_proxy -q`
-- browser-use `uv run python -m py_compile browser_use/rust/service.py`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_sdk_event_dedupe_removes_projected_usage_duplicates tests/ci/test_rust_agent.py::test_rust_history_ignores_internal_browser_connection_url tests/ci/test_rust_agent.py::test_rust_agent_default_llm_matches_browser_use_default tests/ci/test_rust_agent.py::test_rust_agent_default_llm_respects_default_llm_env tests/ci/test_rust_agent.py::test_rust_agent_exposes_logging_helper_methods tests/ci/test_rust_agent.py::test_rust_agent_telemetry_filters_empty_reconstructed_urls -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py::test_rust_agent_translates_browser_use_args_to_terminal tests/ci/test_rust_agent.py::test_rust_agent_sdk_params_leave_terminal_tools_unrestricted -q`
-- browser-use `uv run pytest tests/ci/test_rust_agent.py -q`
-- browser-use `uv run ruff check browser_use/rust/service.py tests/ci/test_rust_agent.py tests/ci/models/test_llm_model_factory.py`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_sdk_browser_payload_includes_profile_domains_window_and_proxy -q`
+- browser-use `uv run python -m py_compile browser_use/beta/service.py`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_rust_sdk_event_dedupe_removes_projected_usage_duplicates tests/ci/test_beta_agent.py::test_rust_history_ignores_internal_browser_connection_url tests/ci/test_beta_agent.py::test_beta_agent_default_llm_matches_browser_use_default tests/ci/test_beta_agent.py::test_beta_agent_default_llm_respects_default_llm_env tests/ci/test_beta_agent.py::test_beta_agent_exposes_logging_helper_methods tests/ci/test_beta_agent.py::test_beta_agent_telemetry_filters_empty_reconstructed_urls -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py::test_beta_agent_translates_browser_use_args_to_terminal tests/ci/test_beta_agent.py::test_beta_agent_sdk_params_leave_terminal_tools_unrestricted -q`
+- browser-use `uv run pytest tests/ci/test_beta_agent.py -q`
+- browser-use `uv run ruff check browser_use/beta/service.py tests/ci/test_beta_agent.py tests/ci/models/test_llm_model_factory.py`
 - terminal `cargo test -p browser-use-browser browser_script_http_get_many_preserves_order_and_errors -- --nocapture`
 - terminal `cargo test -p browser-use-browser browser_script_browser_fetch_single_returns_structured_errors_by_default -- --nocapture`
 - terminal `cargo test -p browser-use-browser browser_script_js_accepts_anonymous_function_snippets -- --nocapture`
