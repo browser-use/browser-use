@@ -22,6 +22,7 @@ class TestChatBrowserUseRetries:
 		from browser_use.llm.browser_use.chat import ChatBrowserUse
 
 		assert ChatBrowserUse(model='bu-3').model == 'bu-3'
+		assert ChatBrowserUse(model='bu-3-0').model == 'bu-3'
 		assert ChatBrowserUse(model='bu-3-max').model == 'bu-3-max'
 		assert ChatBrowserUse(model='bu-future-preview').model == 'bu-future-preview'
 		assert ChatBrowserUse(model='bu-latest').model == 'bu-2-0'

@@ -74,11 +74,11 @@ class ChatBrowserUse(BaseChatModel):
 		if not is_valid:
 			raise ValueError(f"Invalid model: '{model}'. Must start with 'bu-' or 'browser-use/'")
 
-		# Normalize bu-latest to the current latest model
-		if model == 'bu-latest':
-			self.model = 'bu-2-0'
-		else:
-			self.model = model
+		model_aliases = {
+			'bu-latest': 'bu-2-0',
+			'bu-3-0': 'bu-3',
+		}
+		self.model = model_aliases.get(model, model)
 
 		self.fast = False
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
