@@ -32,15 +32,19 @@ def _resolve_llm(model_name: str):
 	low = model_name.lower()
 	if low.startswith('claude') or 'sonnet' in low or 'haiku' in low or 'opus' in low:
 		from browser_use.llm.anthropic.chat import ChatAnthropic
+
 		return ChatAnthropic(model=model_name)
 	if low.startswith('gemini') or 'gemini' in low:
 		from browser_use.llm.google.chat import ChatGoogle
+
 		return ChatGoogle(model=model_name)
 	if low.startswith('deepseek'):
 		from browser_use.llm.deepseek.chat import ChatDeepSeek
+
 		return ChatDeepSeek(model=model_name)
 	if low.startswith('openrouter'):
 		from browser_use.llm.openrouter.chat import ChatOpenRouter
+
 		return ChatOpenRouter(model=model_name)
 	return ChatOpenAI(model=model_name)
 
@@ -93,7 +97,7 @@ async def main() -> None:
 	result = await agent.run(max_steps=int(os.environ.get('BU_MAX_STEPS', '15')))
 
 	u = result.usage
-	print(f'\n== run ==')
+	print('\n== run ==')
 	print(f'  steps        : {len(result.steps)}')
 	print(f'  duration     : {result.duration_seconds:.1f}s')
 	print(f'  exit_code    : {result.exit_code}')
@@ -106,16 +110,16 @@ async def main() -> None:
 	if url:
 		print(f'  laminar      : {url}')
 
-	print(f'\n== final ==')
+	print('\n== final ==')
 	print(f'  {(result.final_summary or "(no summary)")[:500]}')
 
 	# Per-step screenshot count
-	print(f'\n== per-step screenshot count ==')
+	print('\n== per-step screenshot count ==')
 	for i, step in enumerate(result.steps):
 		print(f'  step {i:>2d} {step.tool:<14s} screenshots={len(step.screenshot_paths)}')
 
 	# Run comprehensive judge (Gemini if available, else gpt-4o-mini)
-	print(f'\n== judge ==')
+	print('\n== judge ==')
 	await agent._judge_and_log()
 	j = result.judgement()
 	if j:

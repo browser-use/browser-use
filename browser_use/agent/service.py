@@ -77,7 +77,6 @@ from browser_use.utils import (
 	_log_pretty_path,
 	check_latest_browser_use_version,
 	get_browser_use_version,
-	get_git_info,
 	is_placeholder_url,
 	sanitize_url_candidate,
 	time_execution_async,

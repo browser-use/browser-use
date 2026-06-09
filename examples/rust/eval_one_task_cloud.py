@@ -141,10 +141,12 @@ async def run_one(args: argparse.Namespace) -> int:
 	browser_id: str | None = None
 	try:
 		cloud_response = await cloud.create_browser(
-			CreateBrowserRequest(
-				timeout=args.cloud_timeout_minutes,
-				proxy_country_code=args.cloud_proxy_country_code,
-				enable_recording=args.enable_recording,
+			CreateBrowserRequest.model_validate(
+				{
+					'cloud_timeout': args.cloud_timeout_minutes,
+					'cloud_proxy_country_code': args.cloud_proxy_country_code,
+					'enableRecording': args.enable_recording,
+				}
 			)
 		)
 		browser_id = cloud_response.id
@@ -221,7 +223,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 	parser.add_argument('--model', default=os.environ.get('BU_MODEL', 'claude-sonnet-4-6'))
 	parser.add_argument('--max-steps', type=int, default=int(os.environ.get('BU_MAX_STEPS', '150')))
 	parser.add_argument('--state-dir', default=os.environ.get('BU_RUST_STATE_DIR'))
-	parser.add_argument('--cloud-api-base-url', default=os.environ.get('BROWSER_USE_CLOUD_API_URL', 'https://api.browser-use.com'))
+	parser.add_argument(
+		'--cloud-api-base-url', default=os.environ.get('BROWSER_USE_CLOUD_API_URL', 'https://api.browser-use.com')
+	)
 	parser.add_argument('--cloud-timeout-minutes', type=int, default=int(os.environ.get('BU_CLOUD_TIMEOUT_MINUTES', '30')))
 	parser.add_argument('--cloud-proxy-country-code', default=os.environ.get('BU_CLOUD_PROXY_COUNTRY_CODE'))
 	parser.add_argument('--enable-recording', action='store_true', default=os.environ.get('BU_CLOUD_ENABLE_RECORDING') == '1')

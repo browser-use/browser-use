@@ -19,7 +19,7 @@ import sqlite3
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 FINALIZATION_SIGNAL_KEYS = (
 	'final_candidate',
@@ -53,7 +53,8 @@ def _short(value: Any, limit: int = 140) -> str:
 
 
 def _event_payload(event: dict[str, Any]) -> dict[str, Any]:
-	return event.get('payload') if isinstance(event.get('payload'), dict) else {}
+	payload = event.get('payload')
+	return cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
 
 
 def _tool_name(payload: dict[str, Any]) -> str:
@@ -127,9 +128,7 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def latest_session_id(conn: sqlite3.Connection) -> str:
-	row = conn.execute(
-		'SELECT id FROM sessions ORDER BY updated_ms DESC, created_ms DESC LIMIT 1'
-	).fetchone()
+	row = conn.execute('SELECT id FROM sessions ORDER BY updated_ms DESC, created_ms DESC LIMIT 1').fetchone()
 	if row is None:
 		raise RuntimeError('no sessions found')
 	return str(row['id'])
@@ -148,8 +147,7 @@ def load_session(conn: sqlite3.Connection, session_id: str) -> dict[str, Any]:
 
 def load_events(conn: sqlite3.Connection, session_id: str) -> list[dict[str, Any]]:
 	rows = conn.execute(
-		'SELECT seq, id, session_id, ts_ms, type, payload_json '
-		'FROM events WHERE session_id = ? ORDER BY seq ASC',
+		'SELECT seq, id, session_id, ts_ms, type, payload_json FROM events WHERE session_id = ? ORDER BY seq ASC',
 		(session_id,),
 	).fetchall()
 	events: list[dict[str, Any]] = []
@@ -278,7 +276,8 @@ def timeline_line(event: dict[str, Any], started_ms: int | None) -> str:
 			elif detail == 'browser_script' and args.get('code'):
 				detail += f' code={len(str(args["code"]))} chars'
 	elif event_type == 'tool.image':
-		image = payload.get('image') if isinstance(payload.get('image'), dict) else {}
+		raw_image = payload.get('image')
+		image = cast(dict[str, Any], raw_image) if isinstance(raw_image, dict) else {}
 		detail = str(image.get('label') or image.get('path') or '')
 	elif event_type == 'model.usage':
 		detail = (

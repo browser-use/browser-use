@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
 	from browser_use.agent.service import Agent
-	from browser_use.rust.service import RustAgentError
 	from browser_use.beta.service import BetaAgentError
+	from browser_use.rust import RustAgentError
 
 _LAZY_IMPORTS = {
 	'Agent': ('browser_use.agent.service', 'Agent'),
 	'BetaAgentError': ('browser_use.beta.service', 'BetaAgentError'),
-	'RustAgentError': ('browser_use.rust.service', 'RustAgentError'),
+	'RustAgentError': ('browser_use.rust', 'RustAgentError'),
 }
 
 
