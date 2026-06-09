@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from browser_use.agent.service import Agent
 	from browser_use.rust.service import RustAgentError
+	from browser_use.beta.service import BetaAgentError
 
 _LAZY_IMPORTS = {
 	'Agent': ('browser_use.agent.service', 'Agent'),
+	'BetaAgentError': ('browser_use.beta.service', 'BetaAgentError'),
 	'RustAgentError': ('browser_use.rust.service', 'RustAgentError'),
 }
 
@@ -28,5 +30,6 @@ def __getattr__(name: str):
 
 __all__ = [
 	'Agent',
+	'BetaAgentError',
 	'RustAgentError',
 ]

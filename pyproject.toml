@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.12.9"
+version = "0.13.0"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -59,6 +59,13 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = ["textual==7.4.0"]
+core = [
+    "browser-use-core==0.13.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "browser-use-core==0.13.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "browser-use-core==0.13.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "browser-use-core==0.13.0; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "browser-use-core==0.13.0; sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'x86_64')",
+]
 aws = ["boto3==1.42.37"]
 oci = ["oci==2.166.0"]
 video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
@@ -155,6 +162,9 @@ exclude = [
     "browser_use/llm/oci_raw/*",
     "browser_use/llm/tests/test_chat_models.py",
     "browser_use/llm/tests/test_single_step.py",
+    # Dynamic beta agent wrapper; covered by tests/ci/test_beta_agent.py.
+    "browser_use/beta/service.py",
+    "tests/ci/test_beta_agent.py",
     "product_extraction.py",
     "discover/",
     "list/",

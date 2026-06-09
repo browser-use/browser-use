@@ -101,7 +101,7 @@ def _should_auto_download_network_response(
 		return False
 	if _is_generic_text_attachment(url, content_type, suggested_filename):
 		return False
-	return _has_file_extension(suggested_filename) or _has_file_extension(url) or 'application/octet-stream' in content_type
+	return True
 
 
 class DownloadsWatchdog(BaseWatchdog):

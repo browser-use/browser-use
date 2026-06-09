@@ -39,3 +39,13 @@ def test_downloads_watchdog_keeps_text_attachment_with_file_url():
 		is_download_attachment=True,
 		suggested_filename='f.txt',
 	)
+
+
+def test_downloads_watchdog_keeps_attachment_without_known_extension():
+	assert _should_auto_download_network_response(
+		url='https://example.com/download?id=123',
+		content_type='application/vnd.example.custom',
+		is_pdf=False,
+		is_download_attachment=True,
+		suggested_filename='statement',
+	)
