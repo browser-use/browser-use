@@ -187,6 +187,7 @@ class TokenCost:
 				max_output_tokens=data.get('max_output_tokens'),
 				cache_read_input_token_cost=data.get('cache_read_input_token_cost'),
 				cache_creation_input_token_cost=data.get('cache_creation_input_token_cost'),
+				cache_creation_1h_input_token_cost=data.get('cache_creation_1h_input_token_cost'),
 			)
 
 		# Ensure we're initialized before checking remote LiteLLM pricing.
@@ -212,6 +213,7 @@ class TokenCost:
 				max_output_tokens=data.get('max_output_tokens'),
 				cache_read_input_token_cost=data.get('cache_read_input_token_cost'),
 				cache_creation_input_token_cost=data.get('cache_creation_input_token_cost'),
+				cache_creation_1h_input_token_cost=data.get('cache_creation_1h_input_token_cost'),
 			)
 
 		return await get_openrouter_model_pricing(model_name)
@@ -226,23 +228,37 @@ class TokenCost:
 			return None
 
 		uncached_prompt_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0)
+		pricing_multiplier = usage.pricing_multiplier or 1.0
+
+		cache_creation_5m_tokens = usage.prompt_cache_creation_5m_tokens
+		cache_creation_1h_tokens = usage.prompt_cache_creation_1h_tokens
+		if cache_creation_5m_tokens is not None or cache_creation_1h_tokens is not None:
+			prompt_cache_creation_cost = (cache_creation_5m_tokens or 0) * (data.cache_creation_input_token_cost or 0) + (
+				cache_creation_1h_tokens or 0
+			) * (data.cache_creation_1h_input_token_cost or data.cache_creation_input_token_cost or 0)
+		else:
+			prompt_cache_creation_cost = (
+				usage.prompt_cache_creation_tokens * data.cache_creation_input_token_cost
+				if data.cache_creation_input_token_cost and usage.prompt_cache_creation_tokens
+				else None
+			)
 
 		return TokenCostCalculated(
 			new_prompt_tokens=usage.prompt_tokens,
-			new_prompt_cost=uncached_prompt_tokens * (data.input_cost_per_token or 0),
+			new_prompt_cost=uncached_prompt_tokens * (data.input_cost_per_token or 0) * pricing_multiplier,
 			# Cached tokens
 			prompt_read_cached_tokens=usage.prompt_cached_tokens,
-			prompt_read_cached_cost=usage.prompt_cached_tokens * data.cache_read_input_token_cost
+			prompt_read_cached_cost=usage.prompt_cached_tokens * data.cache_read_input_token_cost * pricing_multiplier
 			if usage.prompt_cached_tokens and data.cache_read_input_token_cost
 			else None,
 			# Cache creation tokens
 			prompt_cached_creation_tokens=usage.prompt_cache_creation_tokens,
-			prompt_cache_creation_cost=usage.prompt_cache_creation_tokens * data.cache_creation_input_token_cost
-			if data.cache_creation_input_token_cost and usage.prompt_cache_creation_tokens
+			prompt_cache_creation_cost=prompt_cache_creation_cost * pricing_multiplier
+			if prompt_cache_creation_cost is not None
 			else None,
 			# Completion tokens
 			completion_tokens=usage.completion_tokens,
-			completion_cost=usage.completion_tokens * float(data.output_cost_per_token or 0),
+			completion_cost=usage.completion_tokens * float(data.output_cost_per_token or 0) * pricing_multiplier,
 		)
 
 	def add_usage(self, model: str, usage: ChatInvokeUsage) -> TokenUsageEntry:

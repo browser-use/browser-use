@@ -3,6 +3,7 @@ import pytest
 from browser_use.llm.openrouter.chat import ChatOpenRouter
 from browser_use.llm.views import ChatInvokeUsage
 from browser_use.tokens import openrouter_pricing
+from browser_use.tokens.custom_pricing import CUSTOM_MODEL_PRICING
 from browser_use.tokens.openrouter_pricing import model_pricing_from_openrouter_metadata
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import ModelPricing
@@ -34,6 +35,23 @@ def test_model_pricing_from_openrouter_metadata() -> None:
 	assert pricing.max_tokens == 1_048_576
 	assert pricing.max_input_tokens == 1_048_576
 	assert pricing.max_output_tokens == 16_384
+
+
+@pytest.mark.parametrize(
+	('model', 'input_cost', 'output_cost', 'cache_read_cost'),
+	[
+		('bu-3', 2.00, 11.00, 0.20),
+		('bu-3-max', 2.50, 50.00, 0.25),
+	],
+)
+def test_custom_browser_use_pricing_includes_bu3_models(
+	model: str, input_cost: float, output_cost: float, cache_read_cost: float
+) -> None:
+	pricing = CUSTOM_MODEL_PRICING[model]
+
+	assert pricing['input_cost_per_token'] == pytest.approx(input_cost / 1_000_000)
+	assert pricing['output_cost_per_token'] == pytest.approx(output_cost / 1_000_000)
+	assert pricing['cache_read_input_token_cost'] == pytest.approx(cache_read_cost / 1_000_000)
 
 
 async def test_openrouter_pricing_accepts_litellm_prefixed_model_ids(monkeypatch: pytest.MonkeyPatch) -> None:

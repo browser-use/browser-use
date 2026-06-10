@@ -55,6 +55,7 @@ class ModelPricing(BaseModel):
 
 	cache_read_input_token_cost: float | None
 	cache_creation_input_token_cost: float | None
+	cache_creation_1h_input_token_cost: float | None = None
 
 	max_tokens: int | None
 	max_input_tokens: int | None
