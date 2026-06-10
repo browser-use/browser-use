@@ -324,7 +324,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Enable coordinate clicking for models that support it
 		model_name = getattr(llm, 'model', '').lower()
 		supports_coordinate_clicking = any(
-			pattern in model_name for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/']
+			pattern in model_name
+			for pattern in ['claude-sonnet-4', 'claude-opus-4', 'claude-fable-5', 'gemini-3-pro', 'browser-use/']
 		)
 		if supports_coordinate_clicking:
 			self.tools.set_coordinate_clicking(True)

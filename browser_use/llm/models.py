@@ -72,6 +72,7 @@ codestral: 'BaseChatModel'
 pixtral_large: 'BaseChatModel'
 
 anthropic_claude_sonnet_4_0: 'BaseChatModel'
+anthropic_claude_fable_5: 'BaseChatModel'
 anthropic_claude_3_5_sonnet_latest: 'BaseChatModel'
 anthropic_claude_3_5_haiku_latest: 'BaseChatModel'
 
@@ -305,6 +306,7 @@ __all__ += [
 	'google_gemini_2_5_flash_lite',
 	# Anthropic instances - created on demand
 	'anthropic_claude_sonnet_4_0',
+	'anthropic_claude_fable_5',
 	'anthropic_claude_3_5_sonnet_latest',
 	'anthropic_claude_3_5_haiku_latest',
 	# Mistral instances - created on demand

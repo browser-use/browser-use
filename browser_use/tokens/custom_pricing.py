@@ -27,11 +27,30 @@ CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
 		'max_input_tokens': None,  # Not specified
 		'max_output_tokens': None,  # Not specified
 	},
+	'bu-3': {
+		'input_cost_per_token': 2.00 / 1_000_000,  # $2.00 per 1M tokens
+		'output_cost_per_token': 11.00 / 1_000_000,  # $11.00 per 1M tokens
+		'cache_read_input_token_cost': 0.20 / 1_000_000,  # $0.20 per 1M tokens
+		'cache_creation_input_token_cost': None,  # Not charged
+		'max_tokens': None,  # Not specified
+		'max_input_tokens': None,  # Not specified
+		'max_output_tokens': None,  # Not specified
+	},
+	'bu-3-max': {
+		'input_cost_per_token': 2.50 / 1_000_000,  # $2.50 per 1M tokens
+		'output_cost_per_token': 50.00 / 1_000_000,  # $50.00 per 1M tokens
+		'cache_read_input_token_cost': 0.25 / 1_000_000,  # $0.25 per 1M tokens
+		'cache_creation_input_token_cost': None,  # Not charged
+		'max_tokens': None,  # Not specified
+		'max_input_tokens': None,  # Not specified
+		'max_output_tokens': None,  # Not specified
+	},
 	'claude-sonnet-4-6': {
 		'input_cost_per_token': 3.00 / 1_000_000,
 		'output_cost_per_token': 15.00 / 1_000_000,
 		'cache_read_input_token_cost': 0.30 / 1_000_000,
 		'cache_creation_input_token_cost': 3.75 / 1_000_000,
+		'cache_creation_1h_input_token_cost': 6.00 / 1_000_000,
 		'max_tokens': None,
 		'max_input_tokens': None,
 		'max_output_tokens': None,
@@ -41,6 +60,7 @@ CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
 		'output_cost_per_token': 15.00 / 1_000_000,
 		'cache_read_input_token_cost': 0.30 / 1_000_000,
 		'cache_creation_input_token_cost': 3.75 / 1_000_000,
+		'cache_creation_1h_input_token_cost': 6.00 / 1_000_000,
 		'max_tokens': None,
 		'max_input_tokens': None,
 		'max_output_tokens': None,
@@ -50,6 +70,7 @@ CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
 		'output_cost_per_token': 25.00 / 1_000_000,
 		'cache_read_input_token_cost': 0.50 / 1_000_000,
 		'cache_creation_input_token_cost': 6.25 / 1_000_000,
+		'cache_creation_1h_input_token_cost': 10.00 / 1_000_000,
 		'max_tokens': None,
 		'max_input_tokens': None,
 		'max_output_tokens': None,
@@ -59,9 +80,30 @@ CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
 		'output_cost_per_token': 25.00 / 1_000_000,
 		'cache_read_input_token_cost': 0.50 / 1_000_000,
 		'cache_creation_input_token_cost': 6.25 / 1_000_000,
+		'cache_creation_1h_input_token_cost': 10.00 / 1_000_000,
 		'max_tokens': None,
 		'max_input_tokens': None,
 		'max_output_tokens': None,
+	},
+	'claude-fable-5': {
+		'input_cost_per_token': 10.00 / 1_000_000,
+		'output_cost_per_token': 50.00 / 1_000_000,
+		'cache_read_input_token_cost': 1.00 / 1_000_000,
+		'cache_creation_input_token_cost': 12.50 / 1_000_000,
+		'cache_creation_1h_input_token_cost': 20.00 / 1_000_000,
+		'max_tokens': 1_000_000,
+		'max_input_tokens': 1_000_000,
+		'max_output_tokens': 128_000,
+	},
+	'anthropic/claude-fable-5': {
+		'input_cost_per_token': 10.00 / 1_000_000,
+		'output_cost_per_token': 50.00 / 1_000_000,
+		'cache_read_input_token_cost': 1.00 / 1_000_000,
+		'cache_creation_input_token_cost': 12.50 / 1_000_000,
+		'cache_creation_1h_input_token_cost': 20.00 / 1_000_000,
+		'max_tokens': 1_000_000,
+		'max_input_tokens': 1_000_000,
+		'max_output_tokens': 128_000,
 	},
 }
 CUSTOM_MODEL_PRICING['bu-latest'] = CUSTOM_MODEL_PRICING['bu-2-0']
