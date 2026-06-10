@@ -1,13 +1,36 @@
 :root {
-  color-scheme: light;
-  --bg: #f7f4ee;
-  --panel: #fffdf8;
-  --ink: #1c1a16;
-  --muted: #6d665b;
-  --line: #d7cec0;
-  --accent: #0b6b5a;
+  color-scheme: light dark;
+  --bg: #f5f5f7;
+  --panel: #ffffff;
+  --ink: #1d1d1f;
+  --muted: #86868b;
+  --line: #d2d2d7;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
   --accent-ink: #ffffff;
-  --danger: #a33a2f;
+  --success: #34c759;
+  --warning: #ff9f0a;
+  --danger: #ff3b30;
+  --thinking-bg: #f0f7ff;
+  --thinking-border: #bde0fe;
+  --step-dot: #0071e3;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --panel: #2c2c2e;
+    --ink: #f5f5f7;
+    --muted: #98989d;
+    --line: #3a3a3c;
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+    --thinking-bg: #1a2a3a;
+    --thinking-border: #2a4a6a;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
 }
 
 * {
@@ -19,52 +42,82 @@ body {
   min-width: 320px;
   background: var(--bg);
   color: var(--ink);
-  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .shell {
-  display: grid;
-  gap: 14px;
-  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  max-width: 100%;
 }
 
+/* Header */
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 
-h1 {
+.brand h1 {
   margin: 0;
-  font-size: 18px;
-  line-height: 1.2;
+  font-size: 16px;
+  font-weight: 700;
 }
 
-p {
-  margin: 4px 0 0;
+.brand p {
+  margin: 2px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
+/* Sections */
 section {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel);
+  box-shadow: var(--shadow);
 }
 
-label {
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-header label {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Context */
 .title {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
 .url {
@@ -76,74 +129,229 @@ label {
 .hint {
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.4;
+}
+
+/* Composer */
+.composer label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 textarea {
   width: 100%;
   resize: vertical;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 10px;
-  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
   color: var(--ink);
   font: inherit;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
+  transition: border-color 0.2s;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+}
+
+.check-group {
+  display: flex;
+  gap: 12px;
 }
 
 .check {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  font-size: 11px;
   font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
 }
 
-button {
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  padding: 7px 10px;
+.check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+/* Buttons */
+.btn-primary {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
   background: var(--accent);
   color: var(--accent-ink);
   font: inherit;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  transition: background 0.2s;
 }
 
-button:disabled {
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
+}
+
+.btn-secondary {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 #refresh {
+  border: none;
   background: transparent;
   color: var(--accent);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
 }
 
-#autofill {
-  justify-self: start;
+#refresh:hover {
+  background: var(--bg);
 }
 
-pre {
-  min-height: 180px;
-  max-height: 440px;
+/* Thinking Process Timeline */
+.thinking {
+  border-color: var(--thinking-border);
+  background: var(--thinking-bg);
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.timeline::-webkit-scrollbar {
+  width: 4px;
+}
+
+.timeline::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 2px;
+}
+
+.step-item {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.4;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.step-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--step-dot);
+}
+
+.step-dot.success { background: var(--success); }
+.step-dot.error { background: var(--danger); }
+.step-dot.running { background: var(--warning); animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.step-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-action {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.step-detail {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-thinking {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--thinking-bg);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Result */
+.output-content {
+  min-height: 120px;
+  max-height: 500px;
   margin: 0;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--line);
 }
 
-.error {
+.output-content.error {
   color: var(--danger);
+  border-color: var(--danger);
+  background: #fff5f5;
+}
+
+.output-content.success {
+  border-color: var(--success);
 }

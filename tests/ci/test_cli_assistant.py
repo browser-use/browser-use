@@ -173,11 +173,20 @@ def test_sidepanel_server_health_and_bad_request(tmp_path):
 
 	async def run_checks():
 		server = SidePanelServer(
-			SidePanelServerConfig(model='gpt-5.4', cdp_url='http://localhost:9222', credential_store_path=str(tmp_path / 'profiles.json'))
+			SidePanelServerConfig(
+				model='gpt-5.4', cdp_url='http://localhost:9222', credential_store_path=str(tmp_path / 'profiles.json')
+			)
 		)
 		health = await server.health(None)
 		assert health.status == 200
-		assert json.loads(health.text) == {'ok': True, 'model': 'gpt-5.4', 'cdp_url': 'http://localhost:9222'}
+		assert json.loads(health.text) == {
+			'ok': True,
+			'model': 'gpt-5.4',
+			'fallback_model': None,
+			'cdp_url': 'http://localhost:9222',
+			'use_vision': True,
+			'accounts_loaded': False,
+		}
 
 		bad_request = await server.assistant(EmptyJsonRequest())
 		assert bad_request.status == 400
@@ -235,7 +244,10 @@ def test_sidepanel_server_autofill_preview_and_resolve(tmp_path):
 def test_sidepanel_server_passes_cdp_url_to_assistant(monkeypatch):
 	class JsonRequest:
 		async def json(self):
-			return {'task': 'recommend headphones under 1000 RMB', 'page_context': {'title': 'JD', 'url': 'https://search.jd.com'}}
+			return {
+				'task': 'recommend headphones under 1000 RMB',
+				'page_context': {'title': 'JD', 'url': 'https://search.jd.com'},
+			}
 
 	class FakeModel:
 		def model_dump(self, mode='json'):
@@ -488,7 +500,9 @@ def test_fallback_task_plan_for_generic_research_prefers_web_sources():
 
 
 def test_fallback_task_plan_extracts_explicit_urls_and_domains_for_web_stage():
-	config = ResearchAssistantConfig(task='Check https://docs.browser-use.com and github.com/browser-use/browser-use for OpenAI compatibility details')
+	config = ResearchAssistantConfig(
+		task='Check https://docs.browser-use.com and github.com/browser-use/browser-use for OpenAI compatibility details'
+	)
 	plan = fallback_task_plan(config)
 	assert 'https://docs.browser-use.com' in plan.web_sources
 	assert 'github.com' in plan.web_sources
@@ -508,7 +522,9 @@ def test_fallback_task_plan_dedupes_domain_when_explicit_url_exists():
 
 
 def test_fallback_task_plan_infers_repo_url_from_docs_slug_and_github_repo_wording():
-	config = ResearchAssistantConfig(task='Investigate whether browser-use supports OpenAI-compatible APIs. Prefer docs.browser-use.com and the browser-use GitHub repo.')
+	config = ResearchAssistantConfig(
+		task='Investigate whether browser-use supports OpenAI-compatible APIs. Prefer docs.browser-use.com and the browser-use GitHub repo.'
+	)
 	plan = fallback_task_plan(config)
 	assert 'https://github.com/browser-use/browser-use' in plan.web_sources
 
@@ -550,7 +566,7 @@ def test_stage_prompt_for_dynamic_shopping_sources_mentions_rendered_page_observ
 
 
 def test_chinese_default_stage_schedule_tries_three_shopping_sources(monkeypatch):
-	async def fake_run_stage(self, plan, source_type, sources, queries, max_steps, cdp_url):
+	async def fake_run_stage(self, plan, source_type, sources, queries, max_steps, cdp_url, prior_findings=None):
 		return StageResult(
 			stage_name=f'{source_type.value}_collection',
 			source_type=source_type,
@@ -568,7 +584,7 @@ def test_chinese_default_stage_schedule_tries_three_shopping_sources(monkeypatch
 
 
 def test_explicit_shopping_source_keeps_stage_schedule_narrow(monkeypatch):
-	async def fake_run_stage(self, plan, source_type, sources, queries, max_steps, cdp_url):
+	async def fake_run_stage(self, plan, source_type, sources, queries, max_steps, cdp_url, prior_findings=None):
 		return StageResult(
 			stage_name=f'{source_type.value}_collection',
 			source_type=source_type,
@@ -589,7 +605,7 @@ def test_explicit_shopping_source_keeps_stage_schedule_narrow(monkeypatch):
 
 
 def test_generated_stages_extend_default_stage_schedule(monkeypatch):
-	async def fake_run_stage(self, plan, source_type, sources, queries, max_steps, cdp_url):
+	async def fake_run_stage(self, plan, source_type, sources, queries, max_steps, cdp_url, prior_findings=None):
 		return StageResult(
 			stage_name=f'{source_type.value}_collection',
 			source_type=source_type,
@@ -644,7 +660,9 @@ def test_build_source_entry_urls_prefers_site_search_pages():
 
 
 def test_build_source_entry_urls_supports_web_search_and_direct_urls():
-	urls = build_source_entry_urls(SourceType.web, ['bing.com', 'https://docs.browser-use.com'], ['browser-use openai compatible api'])
+	urls = build_source_entry_urls(
+		SourceType.web, ['bing.com', 'https://docs.browser-use.com'], ['browser-use openai compatible api']
+	)
 	assert urls[0].startswith('https://www.bing.com/search?q=')
 	assert urls[1] == 'https://docs.browser-use.com'
 
@@ -782,8 +800,12 @@ def test_extract_site_candidate_urls_for_review_sites():
 	<a href="https://www.soundguys.com/category/headphones/">Category</a>
 	</body></html>
 	"""
-	assert extract_site_candidate_urls('rtings.com', rtings_html) == ['https://www.rtings.com/headphones/reviews/best/wireless-bluetooth-headphones']
-	assert extract_site_candidate_urls('soundguys.com', soundguys_html) == ['https://www.soundguys.com/best-wireless-headphones-12345/']
+	assert extract_site_candidate_urls('rtings.com', rtings_html) == [
+		'https://www.rtings.com/headphones/reviews/best/wireless-bluetooth-headphones'
+	]
+	assert extract_site_candidate_urls('soundguys.com', soundguys_html) == [
+		'https://www.soundguys.com/best-wireless-headphones-12345/'
+	]
 
 
 def test_extract_site_candidate_urls_for_soundguys_filters_news_and_deals():
@@ -809,7 +831,9 @@ def test_extract_site_candidate_urls_for_soundguys_respects_over_ear_query():
 	<a href="https://www.soundguys.com/sony-ult-wear-review-113412/">Review</a>
 	</body></html>
 	"""
-	assert extract_site_candidate_urls('soundguys.com', soundguys_html, query='best over-ear headphones balanced sound comfort review') == [
+	assert extract_site_candidate_urls(
+		'soundguys.com', soundguys_html, query='best over-ear headphones balanced sound comfort review'
+	) == [
 		'https://www.soundguys.com/best-budget-noise-cancelling-headphones-7142/',
 		'https://www.soundguys.com/sony-ult-wear-review-113412/',
 	]
@@ -823,7 +847,9 @@ def test_extract_site_candidate_urls_for_tomsguide_review_pages():
 	<a href="https://www.tomsguide.com/best-picks/best-over-ear-headphones">Best pick</a>
 	</body></html>
 	"""
-	assert extract_site_candidate_urls('tomsguide.com', tomsguide_html, query='best over-ear headphones balanced sound comfort review') == [
+	assert extract_site_candidate_urls(
+		'tomsguide.com', tomsguide_html, query='best over-ear headphones balanced sound comfort review'
+	) == [
 		'https://www.tomsguide.com/best-picks/best-over-ear-headphones',
 		'https://www.tomsguide.com/audio/headphones/dyson-ontrac-headphones-review',
 	]
@@ -1031,7 +1057,9 @@ def test_extract_review_candidates_for_rtings_roundup():
 		{&quot;title&quot;:&quot;Best Headphones Under $200&quot;,&quot;subtitle&quot;:&quot;Flagship level ANC, great app, but plasticky build.&quot;,&quot;description&quot;:&quot;&lt;p&gt;The Anker Soundcore Space Q45 Wireless are the best headphones under $200 that we've tested. They have a somewhat v-shaped sound and are comfortable.&lt;/p&gt;&quot;,&quot;product&quot;:{&quot;fullname&quot;:&quot;Anker Soundcore Space Q45 Wireless&quot;,&quot;review_url&quot;:&quot;/headphones/reviews/anker/soundcore-space-q45-wireless&quot;},&quot;featured_deals&quot;:[]}
 	]}}}}" ></div>
 	"""
-	candidates = extract_review_candidates('rtings.com', rtings_html, 'https://www.rtings.com/headphones/reviews/best/by-price/under-200')
+	candidates = extract_review_candidates(
+		'rtings.com', rtings_html, 'https://www.rtings.com/headphones/reviews/best/by-price/under-200'
+	)
 	assert candidates[0].title == 'Anker Soundcore Space Q45 Wireless'
 	assert candidates[0].source == 'rtings.com'
 	assert candidates[0].url == 'https://www.rtings.com/headphones/reviews/anker/soundcore-space-q45-wireless'
@@ -1050,7 +1078,9 @@ def test_extract_review_candidates_for_soundguys_best_list():
 	</script>
 	</body></html>
 	"""
-	candidates = extract_review_candidates('soundguys.com', soundguys_html, 'https://www.soundguys.com/best-budget-noise-cancelling-headphones-7142/')
+	candidates = extract_review_candidates(
+		'soundguys.com', soundguys_html, 'https://www.soundguys.com/best-budget-noise-cancelling-headphones-7142/'
+	)
 	assert candidates[0].title == 'Sony ULT WEAR'
 	assert candidates[0].source == 'soundguys.com'
 	assert candidates[0].url == 'https://www.soundguys.com/sony-ult-wear-review-113412/'
@@ -1068,7 +1098,9 @@ def test_extract_review_candidates_for_tomsguide_review_page():
 	<p>Price: $499.99</p>
 	</body></html>
 	"""
-	candidates = extract_review_candidates('tomsguide.com', tomsguide_html, 'https://www.tomsguide.com/audio/headphones/dyson-ontrac-headphones-review')
+	candidates = extract_review_candidates(
+		'tomsguide.com', tomsguide_html, 'https://www.tomsguide.com/audio/headphones/dyson-ontrac-headphones-review'
+	)
 	assert candidates[0].title == 'Dyson OnTrac'
 	assert candidates[0].source == 'tomsguide.com'
 	assert candidates[0].price_text == '$499.99'
@@ -1099,7 +1131,9 @@ def test_extract_review_candidates_for_tomsguide_best_picks_page():
 	</div>
 	</body></html>
 	"""
-	candidates = extract_review_candidates('tomsguide.com', tomsguide_html, 'https://www.tomsguide.com/best-picks/best-over-ear-headphones')
+	candidates = extract_review_candidates(
+		'tomsguide.com', tomsguide_html, 'https://www.tomsguide.com/best-picks/best-over-ear-headphones'
+	)
 	assert [candidate.title for candidate in candidates[:2]] == ['Bowers & Wilkins PX7 S3', 'CMF Headphone Pro']
 	assert candidates[0].url == 'https://www.tomsguide.com/audio/bowers-and-wilkins-px7-s3-review'
 	assert candidates[0].price_text == '$399.00'
@@ -1182,7 +1216,9 @@ def test_review_candidate_matches_query_filters_ambiguous_chinese_earphone_witho
 
 
 def test_rank_candidate_catalog_prefers_review_backed_balanced_option():
-	plan = fallback_task_plan(ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort'))
+	plan = fallback_task_plan(
+		ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort')
+	)
 	catalog = [
 		build_candidate_catalog(
 			[
@@ -1296,7 +1332,9 @@ def test_rank_candidate_catalog_uses_rough_cny_budget_comparison():
 
 
 def test_normalize_recommendations_to_shortlist_filters_and_backfills():
-	plan = fallback_task_plan(ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort'))
+	plan = fallback_task_plan(
+		ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort')
+	)
 	catalog = build_candidate_catalog(
 		[
 			StageResult(
@@ -1354,7 +1392,9 @@ def test_normalize_recommendations_to_shortlist_filters_and_backfills():
 
 
 def test_normalize_recommendations_to_shortlist_prefers_shopping_url_and_price_when_merged():
-	plan = fallback_task_plan(ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort'))
+	plan = fallback_task_plan(
+		ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort')
+	)
 	catalog = build_candidate_catalog(
 		[
 			StageResult(
@@ -1402,7 +1442,9 @@ def test_normalize_recommendations_to_shortlist_prefers_shopping_url_and_price_w
 
 
 def test_normalize_recommendations_to_shortlist_excludes_over_budget_candidates_when_enough_alternatives_exist():
-	plan = fallback_task_plan(ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort'))
+	plan = fallback_task_plan(
+		ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort')
+	)
 	catalog = build_candidate_catalog(
 		[
 			StageResult(
@@ -1505,7 +1547,9 @@ def test_normalize_recommendations_to_shortlist_excludes_over_budget_candidates_
 
 
 def test_normalize_recommendations_to_shortlist_inherits_shopping_offer_from_nearby_title_match():
-	plan = fallback_task_plan(ResearchAssistantConfig(task='Recommend over-ear headphones under 200 dollars with balanced sound and good comfort'))
+	plan = fallback_task_plan(
+		ResearchAssistantConfig(task='Recommend over-ear headphones under 200 dollars with balanced sound and good comfort')
+	)
 	catalog = build_candidate_catalog(
 		[
 			StageResult(
@@ -1608,7 +1652,9 @@ def test_normalize_recommendations_to_shortlist_rejects_mismatched_shopping_mode
 
 
 def test_apply_report_confidence_marks_recommendation_report_high_when_review_and_shopping_evidence_exist():
-	plan = fallback_task_plan(ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort'))
+	plan = fallback_task_plan(
+		ResearchAssistantConfig(task='Recommend over-ear headphones under 150 dollars with balanced sound and good comfort')
+	)
 	catalog = build_candidate_catalog(
 		[
 			StageResult(

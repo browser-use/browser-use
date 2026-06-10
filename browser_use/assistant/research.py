@@ -6,10 +6,10 @@ import os
 import re
 from datetime import date
 from enum import Enum
+from typing import Literal
 from urllib.parse import quote_plus, urljoin, urlparse
 
 import httpx
-
 from pydantic import BaseModel, Field
 
 from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
@@ -117,12 +117,13 @@ class AssistantReport(BaseModel):
 class ResearchAssistantConfig(BaseModel):
 	task: str
 	model: str | None = None
+	fallback_model: str | None = None
 	locale: str | None = None
 	max_steps: int = 18
 	llm_timeout: int = 120
 	max_actions_per_step: int = 2
 	max_recommendations: int = 3
-	use_vision: bool = False
+	use_vision: bool = True
 	shopping_sites: list[str] = Field(default_factory=list)
 	review_sites: list[str] = Field(default_factory=list)
 	official_sites: list[str] = Field(default_factory=list)
@@ -134,6 +135,24 @@ class GeneratedStageSpec(BaseModel):
 	source: str
 	queries: list[str] = Field(default_factory=list)
 	purpose: str | None = None
+
+
+class OrchestratorDecision(BaseModel):
+	"""Structured decision emitted by the LLM-driven stage orchestration loop.
+
+	This mirrors the core Agent's AgentOutput contract: the model observes the
+	accumulated findings and decides the next action (run another stage or finish),
+	rather than the orchestration following a fixed precomputed sequence.
+	"""
+
+	reasoning: str
+	action: Literal['run_stage', 'finish']
+	next_stage: GeneratedStageSpec | None = None
+	finish_reason: str | None = None
+
+
+# Minimum step budget a single stage is allowed to draw from the shared pool.
+MIN_STAGE_STEPS = 2
 
 
 class TaskPlan(BaseModel):
@@ -169,6 +188,7 @@ class StageResult(BaseModel):
 	visited_urls: list[str] = Field(default_factory=list)
 	errors: list[str] = Field(default_factory=list)
 	run_error: str | None = None
+	steps_used: int = 0
 
 
 class AssistantRunArtifacts(BaseModel):
@@ -303,7 +323,9 @@ def _filter_web_sources_for_explicit_seeds(sources: list[str], seed_sources: lis
 
 
 def _dedupe_web_sources_preserve_explicit_urls(sources: list[str]) -> list[str]:
-	url_domains = {_normalize_site(urlparse(source).netloc) for source in sources if re.match(r'^https?://', source, flags=re.IGNORECASE)}
+	url_domains = {
+		_normalize_site(urlparse(source).netloc) for source in sources if re.match(r'^https?://', source, flags=re.IGNORECASE)
+	}
 	deduped: list[str] = []
 	for source in sources:
 		if not re.match(r'^https?://', source, flags=re.IGNORECASE):
@@ -486,7 +508,7 @@ SITE_ADAPTERS: dict[str, SiteAdapter] = {
 		domain='tomsguide.com',
 		source_type=SourceType.review,
 		search_url_template='https://www.tomsguide.com/search?searchTerm={query}',
-		note='Tom\'s Guide search',
+		note="Tom's Guide search",
 		preferred_fetch_mode='hybrid',
 	),
 	'sspai.com': SiteAdapter(
@@ -557,7 +579,16 @@ def infer_mode(task: str) -> AssistantMode:
 def default_sources(mode: AssistantMode, locale: str) -> dict[SourceType, list[str]]:
 	if locale == 'zh-CN':
 		shopping = ['jd.com', 'tmall.com', 'taobao.com', 'walmart.com', 'adorama.com']
-		reviews = ['sspai.com', 'ifanr.com', 'zol.com.cn', 'zhihu.com', 'bilibili.com', 'rtings.com', 'tomsguide.com', 'soundguys.com']
+		reviews = [
+			'sspai.com',
+			'ifanr.com',
+			'zol.com.cn',
+			'zhihu.com',
+			'bilibili.com',
+			'rtings.com',
+			'tomsguide.com',
+			'soundguys.com',
+		]
 		official = ['mi.com', 'huawei.com', 'sony.com']
 	else:
 		shopping = ['amazon.com', 'walmart.com', 'adorama.com', 'bestbuy.com']
@@ -825,11 +856,43 @@ def _review_candidate_matches_query(candidate: CandidateEvidence, query: str | N
 		if part
 	).lower()
 	if hints['over_ear'] and any(
-		token in text for token in ('earbud', 'earbuds', 'in-ear', 'in ear', 'open ear', 'clip-on', '真无线', '入耳', '半入耳', '耳夹', '开放真无线', '耳塞', '挂耳')
+		token in text
+		for token in (
+			'earbud',
+			'earbuds',
+			'in-ear',
+			'in ear',
+			'open ear',
+			'clip-on',
+			'真无线',
+			'入耳',
+			'半入耳',
+			'耳夹',
+			'开放真无线',
+			'耳塞',
+			'挂耳',
+		)
 	):
 		return False
-	if hints['headphones'] and not hints['earbuds'] and any(
-		token in text for token in ('earbud', 'earbuds', 'speaker', 'speakers', 'microphone', 'mic pro', '真无线', '入耳', '半入耳', '耳夹', '耳塞')
+	if (
+		hints['headphones']
+		and not hints['earbuds']
+		and any(
+			token in text
+			for token in (
+				'earbud',
+				'earbuds',
+				'speaker',
+				'speakers',
+				'microphone',
+				'mic pro',
+				'真无线',
+				'入耳',
+				'半入耳',
+				'耳夹',
+				'耳塞',
+			)
+		)
 	):
 		return False
 	if hints['over_ear'] and _contains_cjk(query):
@@ -852,8 +915,26 @@ def _shopping_has_model_signal(text: str) -> bool:
 def _shopping_signal_score(candidate: ShoppingCandidate, query: str | None) -> int:
 	text = f'{candidate.title} {candidate.url}'.lower()
 	trusted_brands = (
-		'sony', 'audio-technica', 'sennheiser', 'bose', 'anker', 'soundcore', '1more', 'koss', 'panasonic', 'jlab',
-		'oneodio', 'jbl', 'edifier', 'philips', 'beyerdynamic', 'akg', 'skullcandy', 'nothing', 'rode', 'meze',
+		'sony',
+		'audio-technica',
+		'sennheiser',
+		'bose',
+		'anker',
+		'soundcore',
+		'1more',
+		'koss',
+		'panasonic',
+		'jlab',
+		'oneodio',
+		'jbl',
+		'edifier',
+		'philips',
+		'beyerdynamic',
+		'akg',
+		'skullcandy',
+		'nothing',
+		'rode',
+		'meze',
 	)
 	signal = 0
 	has_trusted_brand = any(brand in text for brand in trusted_brands)
@@ -869,9 +950,22 @@ def _shopping_signal_score(candidate: ShoppingCandidate, query: str | None) -> i
 	marketing_phrase_hits = sum(
 		1
 		for phrase in (
-			'120h playtime', '100h playtime', '72 h playtime', 'low latency', 'rgb', 'led', 'deep bass',
-			'knob control', 'card insertion', 'shareports', 'dual plugs', 'sports wireless', 'hifi stereo',
-			'transparency mode', 'spatial audio', 'protein earpads',
+			'120h playtime',
+			'100h playtime',
+			'72 h playtime',
+			'low latency',
+			'rgb',
+			'led',
+			'deep bass',
+			'knob control',
+			'card insertion',
+			'shareports',
+			'dual plugs',
+			'sports wireless',
+			'hifi stereo',
+			'transparency mode',
+			'spatial audio',
+			'protein earpads',
 		)
 		if phrase in text
 	)
@@ -892,8 +986,24 @@ def _shopping_candidate_score(candidate: ShoppingCandidate, query: str | None) -
 	tokens = _keyword_tokens(query)
 	matches = sum(1 for token in tokens if token in text)
 	trusted_brands = (
-		'sony', 'audio-technica', 'sennheiser', 'bose', 'anker', 'soundcore', '1more', 'koss', 'panasonic', 'jlab',
-		'oneodio', 'jbl', 'edifier', 'philips', 'beyerdynamic', 'akg', 'skullcandy', 'nothing',
+		'sony',
+		'audio-technica',
+		'sennheiser',
+		'bose',
+		'anker',
+		'soundcore',
+		'1more',
+		'koss',
+		'panasonic',
+		'jlab',
+		'oneodio',
+		'jbl',
+		'edifier',
+		'philips',
+		'beyerdynamic',
+		'akg',
+		'skullcandy',
+		'nothing',
 	)
 	for negative in ('earbud', 'earbuds', 'kid', 'kids', 'controller'):
 		if negative in text:
@@ -905,8 +1015,19 @@ def _shopping_candidate_score(candidate: ShoppingCandidate, query: str | None) -
 		if brand in text:
 			matches += 2
 	for penalty in (
-		'120h playtime', '100h playtime', '72 h playtime', 'low latency', 'rgb', 'led', 'deep bass',
-		'knob control', 'card insertion', 'shareports', 'dual plugs', 'sports wireless', 'hifi stereo',
+		'120h playtime',
+		'100h playtime',
+		'72 h playtime',
+		'low latency',
+		'rgb',
+		'led',
+		'deep bass',
+		'knob control',
+		'card insertion',
+		'shareports',
+		'dual plugs',
+		'sports wireless',
+		'hifi stereo',
 	):
 		if penalty in text:
 			matches -= 2
@@ -941,11 +1062,53 @@ def _shopping_candidate_score(candidate: ShoppingCandidate, query: str | None) -
 def _candidate_identity_tokens(title: str) -> list[str]:
 	tokens = re.findall(r'[a-z0-9]+(?:-[a-z0-9]+)*', title.lower())
 	stopwords = {
-		'headphone', 'headphones', 'wireless', 'wired', 'bluetooth', 'noise', 'cancelling', 'canceling', 'over', 'ear',
-		'over-ear', 'on-ear', 'in-ear',
-		'closed', 'back', 'open', 'studio', 'professional', 'monitor', 'with', 'and', 'the', 'for', 'black', 'white',
-		'silver', 'blue', 'pink', 'red', 'gray', 'grey', 'green', 'brown', 'pro', 'anc', 'audio', 'sound', 'stereo',
-		'lightweight', 'foldable', 'home', 'office', 'microphone', 'mic', 'battery', 'hour', 'playtime',
+		'headphone',
+		'headphones',
+		'wireless',
+		'wired',
+		'bluetooth',
+		'noise',
+		'cancelling',
+		'canceling',
+		'over',
+		'ear',
+		'over-ear',
+		'on-ear',
+		'in-ear',
+		'closed',
+		'back',
+		'open',
+		'studio',
+		'professional',
+		'monitor',
+		'with',
+		'and',
+		'the',
+		'for',
+		'black',
+		'white',
+		'silver',
+		'blue',
+		'pink',
+		'red',
+		'gray',
+		'grey',
+		'green',
+		'brown',
+		'pro',
+		'anc',
+		'audio',
+		'sound',
+		'stereo',
+		'lightweight',
+		'foldable',
+		'home',
+		'office',
+		'microphone',
+		'mic',
+		'battery',
+		'hour',
+		'playtime',
 	}
 	filtered = [token for token in tokens if token not in stopwords]
 	model_tokens = [token for token in filtered if any(char.isdigit() for char in token) or '-' in token]
@@ -1007,8 +1170,10 @@ def _candidate_cross_entry_match_score(target_title: str, candidate_title: str) 
 			if target_model == candidate_model:
 				has_model_match = True
 				score = max(score, 6)
-			elif len(target_model) >= 4 and len(candidate_model) >= 4 and (
-				target_model in candidate_model or candidate_model in target_model
+			elif (
+				len(target_model) >= 4
+				and len(candidate_model) >= 4
+				and (target_model in candidate_model or candidate_model in target_model)
 			):
 				has_model_match = True
 				score = max(score, 5)
@@ -1016,7 +1181,12 @@ def _candidate_cross_entry_match_score(target_title: str, candidate_title: str) 
 	if target_models or candidate_models:
 		if not has_model_match:
 			return 0
-	elif not (target_token_list and candidate_token_list and target_token_list[0] == candidate_token_list[0] and len(target_tokens & candidate_tokens) >= 2):
+	elif not (
+		target_token_list
+		and candidate_token_list
+		and target_token_list[0] == candidate_token_list[0]
+		and len(target_tokens & candidate_tokens) >= 2
+	):
 		return 0
 
 	return score
@@ -1113,14 +1283,31 @@ def _ifanr_article_score(title: str, excerpt: str, url: str, query: str | None) 
 
 	hints = _query_hints(query)
 	if hints['headphones']:
-		if any(token in text for token in ('耳机', 'headphone', 'headphones', 'airpods', 'sony', 'bose', 'sonos', 'wh-', 'wf-', 'buds')):
+		if any(
+			token in text
+			for token in ('耳机', 'headphone', 'headphones', 'airpods', 'sony', 'bose', 'sonos', 'wh-', 'wf-', 'buds')
+		):
 			score += 2
 		if any(token in text for token in ('soundbar', 'speaker', 'speakers', '条形音响', '音响')):
 			score -= 3
 		if any(token in text for token in ('手机', 'phone', 'iphone', '平板', '电脑', 'macbook', '折叠屏', '无人机')):
 			score -= 4
 	if hints['over_ear']:
-		if any(token in text for token in ('头戴', 'over-ear', 'over ear', 'headphones', 'wh-', 'qc ultra', 'airpods max', 'sonos ace', '罩耳', '包耳')):
+		if any(
+			token in text
+			for token in (
+				'头戴',
+				'over-ear',
+				'over ear',
+				'headphones',
+				'wh-',
+				'qc ultra',
+				'airpods max',
+				'sonos ace',
+				'罩耳',
+				'包耳',
+			)
+		):
 			score += 4
 		if any(token in text for token in ('airpods pro', 'wf-', 'earbud', 'earbuds', '入耳', '真无线', '耳夹', '开放式')):
 			score -= 5
@@ -1145,7 +1332,19 @@ def _query_hints(query: str) -> dict[str, bool]:
 	return {
 		'headphones': any(token in lowered for token in ('headphone', 'headphones', '\u8033\u673a')),
 		'over_ear': any(token in lowered for token in ('over-ear', 'over ear', '\u5934\u6234')),
-		'earbuds': any(token in lowered for token in ('earbud', 'earbuds', 'in-ear', 'in ear', '\u5165\u8033', '\u771f\u65e0\u7ebf', '\u534a\u5165\u8033', '\u8033\u5939')),
+		'earbuds': any(
+			token in lowered
+			for token in (
+				'earbud',
+				'earbuds',
+				'in-ear',
+				'in ear',
+				'\u5165\u8033',
+				'\u771f\u65e0\u7ebf',
+				'\u534a\u5165\u8033',
+				'\u8033\u5939',
+			)
+		),
 		'balanced': any(token in lowered for token in ('balanced', 'neutral', '\u5747\u8861', '\u4e2d\u6027')),
 		'comfort': any(token in lowered for token in ('comfort', 'comfortable', '\u8212\u9002')),
 		'anc': any(token in lowered for token in ('noise cancelling', 'noise-cancelling', 'anc', '\u964d\u566a')),
@@ -1203,7 +1402,18 @@ def extract_ifanr_api_candidate_urls(payload: dict, query: str | None = None, li
 			if hints['over_ear']:
 				has_over_ear_signal = any(
 					token in text
-					for token in ('头戴', 'over-ear', 'over ear', 'headphones', 'wh-', 'qc ultra', 'airpods max', 'sonos ace', '罩耳', '包耳')
+					for token in (
+						'头戴',
+						'over-ear',
+						'over ear',
+						'headphones',
+						'wh-',
+						'qc ultra',
+						'airpods max',
+						'sonos ace',
+						'罩耳',
+						'包耳',
+					)
 				)
 				if not has_over_ear_signal:
 					continue
@@ -1244,15 +1454,61 @@ def _ifanr_review_candidate_matches_query(candidate: CandidateEvidence, query: s
 	if hints['headphones']:
 		has_headphone_signal = any(
 			token in text
-			for token in ('耳机', 'headphone', 'headphones', 'airpods', 'wh-', 'wf-', 'bose', 'sony', 'sonos ace', '头戴', '罩耳', '包耳')
+			for token in (
+				'耳机',
+				'headphone',
+				'headphones',
+				'airpods',
+				'wh-',
+				'wf-',
+				'bose',
+				'sony',
+				'sonos ace',
+				'头戴',
+				'罩耳',
+				'包耳',
+			)
 		)
 		if not has_headphone_signal:
 			return False
-		if any(token in text for token in ('手机', 'phone', 'iphone', '折叠屏', 'macbook', '电脑', '平板', '无人机', '云台', '相机', '音响', 'soundbar', 'speaker')):
-			if not any(token in text for token in ('耳机', 'headphone', 'headphones', 'airpods', 'wh-', 'wf-', '头戴', '罩耳', '包耳')):
+		if any(
+			token in text
+			for token in (
+				'手机',
+				'phone',
+				'iphone',
+				'折叠屏',
+				'macbook',
+				'电脑',
+				'平板',
+				'无人机',
+				'云台',
+				'相机',
+				'音响',
+				'soundbar',
+				'speaker',
+			)
+		):
+			if not any(
+				token in text for token in ('耳机', 'headphone', 'headphones', 'airpods', 'wh-', 'wf-', '头戴', '罩耳', '包耳')
+			):
 				return False
 	if hints['over_ear']:
-		return any(token in text for token in ('头戴', 'over-ear', 'over ear', 'headphones', 'wh-', 'qc ultra', 'airpods max', 'sonos ace', '罩耳', '包耳'))
+		return any(
+			token in text
+			for token in (
+				'头戴',
+				'over-ear',
+				'over ear',
+				'headphones',
+				'wh-',
+				'qc ultra',
+				'airpods max',
+				'sonos ace',
+				'罩耳',
+				'包耳',
+			)
+		)
 	if hints['earbuds']:
 		return any(token in text for token in ('airpods pro', 'wf-', 'earbud', 'earbuds', '入耳', '真无线', '耳夹'))
 	return True
@@ -1314,7 +1570,9 @@ def rank_candidate_catalog(plan: TaskPlan, candidate_catalog: list[CandidateCata
 			reasons.append('Looks like a bundle/accessory or the wrong product category.')
 
 		if hints['balanced']:
-			if _text_has_any(text, ('balanced sound', 'balanced tuning', 'balanced sound profile', 'well-balanced', 'neutral', 'natural')):
+			if _text_has_any(
+				text, ('balanced sound', 'balanced tuning', 'balanced sound profile', 'well-balanced', 'neutral', 'natural')
+			):
 				score += 6
 				reasons.append('Evidence points to balanced or neutral sound.')
 			if _text_has_any(text, ('v-shaped', 'bass-heavy', 'boomy', 'muddy', 'recessed mids')):
@@ -1605,20 +1863,28 @@ def _extract_tomsguide_roundup_candidates(html_text: str, page_url: str) -> list
 		evidence_parts = [part for part in [section_label, subtitle] if part]
 		if spec_texts:
 			evidence_parts.append(f'Specs: {"; ".join(spec_texts[:3])}')
-		evidence_text = ' | '.join(evidence_parts) or f'Tom\'s Guide best-picks entry on {page_url}.'
+		evidence_text = ' | '.join(evidence_parts) or f"Tom's Guide best-picks entry on {page_url}."
 		price_text = _tomsguide_price_text(segment)
 
 		signal_text = ' '.join([section_label or '', subtitle or '', ' '.join(spec_texts)]).lower()
-		sound_notes = evidence_text if re.search(
-			r'sound|audio|balanced|neutral|bass|detailed|clarity|immersive|anc|noise cancellation|noise cancelling',
-			signal_text,
-			flags=re.IGNORECASE,
-		) else None
-		comfort_notes = evidence_text if re.search(
-			r'comfort|comfortable|fit|lightweight|wear|padded|clamp',
-			signal_text,
-			flags=re.IGNORECASE,
-		) else None
+		sound_notes = (
+			evidence_text
+			if re.search(
+				r'sound|audio|balanced|neutral|bass|detailed|clarity|immersive|anc|noise cancellation|noise cancelling',
+				signal_text,
+				flags=re.IGNORECASE,
+			)
+			else None
+		)
+		comfort_notes = (
+			evidence_text
+			if re.search(
+				r'comfort|comfortable|fit|lightweight|wear|padded|clamp',
+				signal_text,
+				flags=re.IGNORECASE,
+			)
+			else None
+		)
 
 		candidates.append(
 			CandidateEvidence(
@@ -1714,7 +1980,9 @@ def extract_shopping_candidates(site: str, html_text: str, limit: int = 5, query
 
 	budget_limit = _query_budget_limit(query)
 	if budget_limit is not None:
-		under_budget = [candidate for candidate in candidates if (_price_value(candidate.price_text) or budget_limit + 1) <= budget_limit]
+		under_budget = [
+			candidate for candidate in candidates if (_price_value(candidate.price_text) or budget_limit + 1) <= budget_limit
+		]
 		if under_budget:
 			candidates = under_budget
 
@@ -1950,7 +2218,11 @@ def extract_review_candidates(site: str, html_text: str, page_url: str) -> list[
 		evidence_parts = [part for part in [page_title, description] if part]
 		sound_notes = None
 		comfort_notes = None
-		if description and re.search(r'sound|audio|bass|balanced|neutral|immersion|detailed|noise cancellation|noise cancelling|anc', description, flags=re.IGNORECASE):
+		if description and re.search(
+			r'sound|audio|bass|balanced|neutral|immersion|detailed|noise cancellation|noise cancelling|anc',
+			description,
+			flags=re.IGNORECASE,
+		):
 			sound_notes = description
 		if description and re.search(r'comfort|comfortable|fit|lightweight|wear', description, flags=re.IGNORECASE):
 			comfort_notes = description
@@ -1964,7 +2236,7 @@ def extract_review_candidates(site: str, html_text: str, page_url: str) -> list[
 				price_text=price_text,
 				sound_notes=sound_notes,
 				comfort_notes=comfort_notes,
-				evidence=' | '.join(evidence_parts) or f'Tom\'s Guide review on {page_url}.',
+				evidence=' | '.join(evidence_parts) or f"Tom's Guide review on {page_url}.",
 			)
 		]
 
@@ -1983,16 +2255,24 @@ def extract_review_candidates(site: str, html_text: str, page_url: str) -> list[
 		price_text = _extract_price_hint(text_excerpt) or _extract_price_hint(description)
 		evidence_parts = [part for part in [page_title, description] if part]
 		signal_text = ' '.join(part for part in [product_title, page_title or '', description or '']).lower()
-		sound_notes = description if re.search(
-			r'sound|audio|balanced|neutral|bass|anc|noise cancellation|noise cancelling|调音|声音|音质|降噪',
-			signal_text,
-			flags=re.IGNORECASE,
-		) else None
-		comfort_notes = description if re.search(
-			r'comfort|comfortable|fit|lightweight|wear|佩戴|舒适|头梁|耳罩',
-			signal_text,
-			flags=re.IGNORECASE,
-		) else None
+		sound_notes = (
+			description
+			if re.search(
+				r'sound|audio|balanced|neutral|bass|anc|noise cancellation|noise cancelling|调音|声音|音质|降噪',
+				signal_text,
+				flags=re.IGNORECASE,
+			)
+			else None
+		)
+		comfort_notes = (
+			description
+			if re.search(
+				r'comfort|comfortable|fit|lightweight|wear|佩戴|舒适|头梁|耳罩',
+				signal_text,
+				flags=re.IGNORECASE,
+			)
+			else None
+		)
 		return [
 			CandidateEvidence(
 				title=product_title,
@@ -2021,16 +2301,24 @@ def extract_review_candidates(site: str, html_text: str, page_url: str) -> list[
 		price_text = _extract_price_hint(text_excerpt) or _extract_price_hint(description)
 		evidence_parts = [part for part in [page_title, description] if part]
 		signal_text = ' '.join(part for part in [product_title, page_title or '', description or '', text_excerpt]).lower()
-		sound_notes = description if re.search(
-			r'sound|audio|balanced|neutral|bass|anc|noise cancellation|noise cancelling|音质|声音|调音|三频|低频|中频|高频|降噪',
-			signal_text,
-			flags=re.IGNORECASE,
-		) else None
-		comfort_notes = description if re.search(
-			r'comfort|comfortable|fit|lightweight|wear|佩戴|舒适|头梁|耳罩|夹头|闷热|重量',
-			signal_text,
-			flags=re.IGNORECASE,
-		) else None
+		sound_notes = (
+			description
+			if re.search(
+				r'sound|audio|balanced|neutral|bass|anc|noise cancellation|noise cancelling|音质|声音|调音|三频|低频|中频|高频|降噪',
+				signal_text,
+				flags=re.IGNORECASE,
+			)
+			else None
+		)
+		comfort_notes = (
+			description
+			if re.search(
+				r'comfort|comfortable|fit|lightweight|wear|佩戴|舒适|头梁|耳罩|夹头|闷热|重量',
+				signal_text,
+				flags=re.IGNORECASE,
+			)
+			else None
+		)
 		return [
 			CandidateEvidence(
 				title=product_title,
@@ -2117,7 +2405,12 @@ def extract_site_candidate_urls(site: str, html_text: str, limit: int = 3, query
 def build_bing_rss_search_url(query: str, source: str | None = None) -> str:
 	search_query = clean_query(query)
 	normalized_source = _normalize_site(source) if source else ''
-	if source and normalized_source and normalized_source != 'bing.com' and not re.match(r'^https?://', source, flags=re.IGNORECASE):
+	if (
+		source
+		and normalized_source
+		and normalized_source != 'bing.com'
+		and not re.match(r'^https?://', source, flags=re.IGNORECASE)
+	):
 		search_query = f'site:{normalized_source} {search_query}'
 	return f'https://www.bing.com/search?format=rss&q={quote_plus(search_query)}'
 
@@ -2517,6 +2810,7 @@ def build_stage_prompt(
 	queries: list[str],
 	max_recommendations: int,
 	initial_urls: list[str] | None = None,
+	prior_findings: str | None = None,
 ) -> str:
 	source_urls = '\n'.join(f'- {url}' for url in (initial_urls or build_source_entry_urls(source_type, sources, queries)))
 	query_text = '\n'.join(f'- {query}' for query in queries) if queries else '- Use the task wording directly'
@@ -2536,6 +2830,8 @@ Dynamic-page guidance:
 - If the page becomes usable after normal rendering or existing user session state, extract from what is visible; do not rely on initial HTML.
 """.rstrip()
 
+	prior_block = f'\n\n{prior_findings.strip()}\n' if prior_findings and prior_findings.strip() else ''
+
 	return f"""
 You are running the {source_type.value} collection stage for a browser research assistant on {date.today().isoformat()}.
 
@@ -2549,7 +2845,7 @@ Interpreted topic:
 
 Decision criteria:
 {chr(10).join(f'- {item}' for item in plan.decision_criteria)}
-
+{prior_block}
 Stage objective:
 {stage_goal}
 
@@ -2657,7 +2953,10 @@ def build_candidate_catalog(stage_results: list[StageResult]) -> list[CandidateC
 			if candidate.evidence and candidate.evidence not in entry.evidence_points:
 				entry.evidence_points.append(candidate.evidence)
 			record_key = (candidate.source_type.value, candidate.source, candidate.url or '', candidate.title)
-			if all((existing.source_type.value, existing.source, existing.url or '', existing.title) != record_key for existing in entry.evidence_records):
+			if all(
+				(existing.source_type.value, existing.source, existing.url or '', existing.title) != record_key
+				for existing in entry.evidence_records
+			):
 				entry.evidence_records.append(candidate.model_copy(deep=True))
 
 	def sort_key(entry: CandidateCatalogEntry) -> tuple[int, int, int, str]:
@@ -2745,7 +3044,9 @@ def _candidate_matches_title(candidate: CandidateCatalogEntry, title: str) -> bo
 	return any(target_key == _candidate_identity_key(alias) for alias in candidate.aliases)
 
 
-def _candidate_best_evidence(candidate: CandidateCatalogEntry, preferred_type: SourceType | None = None) -> CandidateEvidence | None:
+def _candidate_best_evidence(
+	candidate: CandidateCatalogEntry, preferred_type: SourceType | None = None
+) -> CandidateEvidence | None:
 	if not candidate.evidence_records:
 		return None
 
@@ -2874,7 +3175,9 @@ def _normalize_recommendations_to_shortlist(
 	filtered_shortlist = _filtered_recommendation_candidates(shortlisted_candidates, max_recommendations)
 
 	for recommendation in recommendations:
-		matched = next((ranked for ranked in filtered_shortlist if _candidate_matches_title(ranked.candidate, recommendation.title)), None)
+		matched = next(
+			(ranked for ranked in filtered_shortlist if _candidate_matches_title(ranked.candidate, recommendation.title)), None
+		)
 		if matched is None:
 			continue
 		candidate_key = _candidate_identity_key(matched.candidate.title)
@@ -3045,10 +3348,7 @@ def _normalize_report_sources(report: AssistantReport) -> AssistantReport:
 		unique_sources.append(source)
 
 	domain_limit = 2 if report.mode in {AssistantMode.recommendation, AssistantMode.comparison} else 3
-	scored_sources = [
-		(_source_score(source, report), index, source)
-		for index, source in enumerate(unique_sources)
-	]
+	scored_sources = [(_source_score(source, report), index, source) for index, source in enumerate(unique_sources)]
 	scored_sources.sort(key=lambda item: (item[0], -item[1]), reverse=True)
 
 	selected: list[EvidenceSource] = []
@@ -3087,7 +3387,10 @@ def _report_confidence(
 		if report.recommendations and review_backed_candidates >= 2 and shopping_backed_candidates >= 1:
 			return 'high', 'Multiple review-backed candidates were compared and at least one shopping-price source was captured.'
 		if report.recommendations and (review_backed_candidates >= 1 or medium_sources >= 2):
-			return 'medium', 'The shortlist is grounded in review or retailer evidence, but some pricing or availability details remain incomplete.'
+			return (
+				'medium',
+				'The shortlist is grounded in review or retailer evidence, but some pricing or availability details remain incomplete.',
+			)
 		return 'low', 'The recommendation relies on limited or incomplete source coverage.'
 
 	if high_sources >= 2 and len(report.supporting_findings) >= 2:
@@ -3144,7 +3447,13 @@ def _fallback_report_from_ranked_candidates(
 			if not record.url or record.url in seen_urls:
 				continue
 			seen_urls.add(record.url)
-			key_takeaway = record.evidence or record.sound_notes or record.comfort_notes or record.price_text or 'Relevant source captured during browser research.'
+			key_takeaway = (
+				record.evidence
+				or record.sound_notes
+				or record.comfort_notes
+				or record.price_text
+				or 'Relevant source captured during browser research.'
+			)
 			sources.append(
 				EvidenceSource(
 					title=record.source or record.title,
@@ -3162,7 +3471,9 @@ def _fallback_report_from_ranked_candidates(
 	if recommendations:
 		summary = 'Generated a deterministic recommendation from the collected shopping and review evidence because the model returned an invalid report schema.'
 	else:
-		summary = 'Collected evidence, but there was not enough structured candidate support to produce confident recommendations.'
+		summary = (
+			'Collected evidence, but there was not enough structured candidate support to produce confident recommendations.'
+		)
 
 	report = AssistantReport(
 		user_task=plan.user_task,
@@ -3176,7 +3487,9 @@ def _fallback_report_from_ranked_candidates(
 			'The final model synthesis returned an invalid structured schema, so this report was generated from deterministic ranking and extracted evidence.',
 			f'Synthesis error: {error[:500]}',
 		],
-		next_steps=['Re-run with more steps or add preferred shopping/review sites if you need stronger price or availability coverage.'],
+		next_steps=[
+			'Re-run with more steps or add preferred shopping/review sites if you need stronger price or availability coverage.'
+		],
 	)
 	return _apply_report_confidence(plan, report, candidate_catalog)
 
@@ -3185,6 +3498,7 @@ class BrowserResearchAssistant:
 	def __init__(self, config: ResearchAssistantConfig, llm: BaseChatModel | None = None):
 		self.config = config
 		self.llm = llm or resolve_llm(config.model)
+		self.fallback_llm: BaseChatModel | None = resolve_llm(config.fallback_model) if config.fallback_model else None
 
 	async def run(self, cdp_url: str | None = None) -> AssistantRunArtifacts:
 		task_plan = await self._analyze_task()
@@ -3228,14 +3542,18 @@ class BrowserResearchAssistant:
 			response = await self.llm.ainvoke(messages, output_format=TaskPlan)
 			plan = response.completion
 			plan.user_task = self.config.task
-			plan.locale = self.config.locale or fallback.locale if _contains_cjk(self.config.task) else (plan.locale or fallback.locale)
+			plan.locale = (
+				self.config.locale or fallback.locale if _contains_cjk(self.config.task) else (plan.locale or fallback.locale)
+			)
 			if fallback.mode in {AssistantMode.recommendation, AssistantMode.comparison}:
 				plan.mode = fallback.mode
 			else:
 				plan.mode = plan.mode or fallback.mode
 			fallback_budget_currency = _currency_code(fallback.budget)
 			plan_budget_currency = _currency_code(plan.budget)
-			if fallback.budget and (plan.budget is None or (fallback_budget_currency and fallback_budget_currency != plan_budget_currency)):
+			if fallback.budget and (
+				plan.budget is None or (fallback_budget_currency and fallback_budget_currency != plan_budget_currency)
+			):
 				plan.budget = fallback.budget
 			plan.shopping_sources = _normalize_stage_sources(
 				self.config.shopping_sites,
@@ -3260,7 +3578,9 @@ class BrowserResearchAssistant:
 				plan.official_sources = _normalize_stage_sources([], [], fallback.official_sources, SourceType.official)
 			else:
 				plan.official_sources = []
-			llm_web_sources = plan.web_sources + plan.official_sources if plan.mode in {AssistantMode.research, AssistantMode.generic} else []
+			llm_web_sources = (
+				plan.web_sources + plan.official_sources if plan.mode in {AssistantMode.research, AssistantMode.generic} else []
+			)
 			if plan.mode in {AssistantMode.recommendation, AssistantMode.comparison}:
 				plan.web_sources = _normalize_stage_sources(self.config.web_sites, [], fallback.web_sources, SourceType.web)
 			else:
@@ -3278,7 +3598,9 @@ class BrowserResearchAssistant:
 				review_queries = [self.config.task, *review_queries]
 			plan.shopping_queries = normalize_stage_queries(shopping_queries, plan.shopping_sources)
 			plan.review_queries = normalize_stage_queries(review_queries, plan.review_sources)
-			plan.official_queries = normalize_stage_queries(plan.official_queries or fallback.official_queries, plan.official_sources)
+			plan.official_queries = normalize_stage_queries(
+				plan.official_queries or fallback.official_queries, plan.official_sources
+			)
 			plan.web_queries = normalize_stage_queries(plan.web_queries or fallback.web_queries, plan.web_sources)
 			plan.generated_stages = _normalize_generated_stages(plan.generated_stages, fallback)
 			if plan.mode in {AssistantMode.recommendation, AssistantMode.comparison}:
@@ -3291,8 +3613,14 @@ class BrowserResearchAssistant:
 		except Exception:
 			return fallback
 
-	async def _run_stages(self, plan: TaskPlan, cdp_url: str | None) -> list[StageResult]:
-		stage_specs: list[tuple[SourceType, str, list[str]]] = []
+	def _build_stage_queue(self, plan: TaskPlan) -> list[GeneratedStageSpec]:
+		"""Build the priority-ordered candidate queue of stages from the plan.
+
+		This is the orchestrator's default menu: the LLM loop may run these in order,
+		reorder, skip, synthesize new stages, or finish early. The selection/priority/
+		dedup logic is unchanged from the previous static pipeline.
+		"""
+		queue: list[GeneratedStageSpec] = []
 		seen_stage_specs: set[tuple[str, str]] = set()
 		review_stage_limit = 5 if plan.locale == 'zh-CN' else 3
 		web_stage_limit = 3 if plan.mode in {AssistantMode.research, AssistantMode.generic} else 1
@@ -3303,35 +3631,192 @@ class BrowserResearchAssistant:
 			if key in seen_stage_specs:
 				return
 			seen_stage_specs.add(key)
-			stage_specs.append((source_type, source, queries))
+			queue.append(GeneratedStageSpec(source_type=source_type, source=source, queries=queries))
 
-		for source in sorted(plan.web_sources, key=lambda item: _source_priority_key(SourceType.web, item, plan.locale))[:web_stage_limit]:
+		for source in sorted(plan.web_sources, key=lambda item: _source_priority_key(SourceType.web, item, plan.locale))[
+			:web_stage_limit
+		]:
 			add_stage(SourceType.web, source, plan.web_queries)
-		for source in sorted(plan.shopping_sources, key=lambda item: _source_priority_key(SourceType.shopping, item, plan.locale))[:shopping_stage_limit]:
+		for source in sorted(
+			plan.shopping_sources, key=lambda item: _source_priority_key(SourceType.shopping, item, plan.locale)
+		)[:shopping_stage_limit]:
 			add_stage(SourceType.shopping, source, plan.shopping_queries)
-		for source in sorted(plan.review_sources, key=lambda item: _source_priority_key(SourceType.review, item, plan.locale))[:review_stage_limit]:
+		for source in sorted(plan.review_sources, key=lambda item: _source_priority_key(SourceType.review, item, plan.locale))[
+			:review_stage_limit
+		]:
 			add_stage(SourceType.review, source, plan.review_queries)
-		for source in sorted(plan.official_sources, key=lambda item: _source_priority_key(SourceType.official, item, plan.locale))[:1]:
+		for source in sorted(
+			plan.official_sources, key=lambda item: _source_priority_key(SourceType.official, item, plan.locale)
+		)[:1]:
 			add_stage(SourceType.official, source, plan.official_queries)
 		for generated_stage in plan.generated_stages:
 			add_stage(generated_stage.source_type, generated_stage.source, generated_stage.queries)
 
-		if not stage_specs:
+		return queue
+
+	async def _run_stages(self, plan: TaskPlan, cdp_url: str | None) -> list[StageResult]:
+		queue = self._build_stage_queue(plan)
+		if not queue:
 			return []
 
-		total_budget = max(self.config.max_steps, len(stage_specs) * 2)
-		base_steps = max(2, total_budget // len(stage_specs))
-		stage_results: list[StageResult] = []
+		# Total step budget shared across the whole run, drawn down by a dynamic pool so
+		# stages that finish early (e.g. HTTP fast-path) return their slack to later stages.
+		total_budget = max(self.config.max_steps, len(queue) * 2)
+		base_steps = max(2, total_budget // len(queue))
+		max_stages = len(queue) + 2  # safety ceiling so a runaway LLM loop can't fan out forever
 
-		for index, (source_type, source, queries) in enumerate(stage_specs):
-			remaining_stages = len(stage_specs) - index
-			stage_steps = max(2, total_budget - base_steps * index)
-			if remaining_stages > 1:
-				stage_steps = max(2, min(base_steps, stage_steps - 2 * (remaining_stages - 1)))
-			stage_result = await self._run_stage(plan, source_type, [source], queries[:2], stage_steps, cdp_url)
+		step_pool = total_budget
+		stage_results: list[StageResult] = []
+		used_keys: set[tuple[str, str]] = set()
+
+		while step_pool >= MIN_STAGE_STEPS and len(stage_results) < max_stages and (queue or stage_results):
+			decision = await self._decide_next_stage(plan, stage_results, queue, step_pool)
+			if decision is None:
+				# Orchestrator LLM unavailable: fall back to draining the queue in priority order.
+				return await self._run_stages_static(plan, queue, stage_results, used_keys, step_pool, base_steps, cdp_url)
+			if decision.action == 'finish':
+				break
+
+			spec = decision.next_stage
+			if spec is None:
+				if not queue:
+					break
+				spec = queue.pop(0)
+			else:
+				# Drop the chosen spec from the default queue if it matches one still pending.
+				queue = [
+					item
+					for item in queue
+					if (item.source_type, _normalize_site(item.source)) != (spec.source_type, _normalize_site(spec.source))
+				]
+
+			key = (spec.source_type.value, _normalize_site(spec.source))
+			if key in used_keys:
+				continue
+			used_keys.add(key)
+
+			stage_steps = max(MIN_STAGE_STEPS, min(base_steps, step_pool))
+			prior_findings = self._build_running_dossier(plan, stage_results)
+			stage_result = await self._run_stage(
+				plan, spec.source_type, [spec.source], spec.queries[:2], stage_steps, cdp_url, prior_findings=prior_findings
+			)
 			stage_results.append(stage_result)
+			step_pool -= max(MIN_STAGE_STEPS, stage_result.steps_used)
 
 		return stage_results
+
+	async def _run_stages_static(
+		self,
+		plan: TaskPlan,
+		queue: list[GeneratedStageSpec],
+		stage_results: list[StageResult],
+		used_keys: set[tuple[str, str]],
+		step_pool: int,
+		base_steps: int,
+		cdp_url: str | None,
+	) -> list[StageResult]:
+		"""Deterministic fallback: drain the queue in priority order (legacy behavior)."""
+		for spec in queue:
+			if step_pool < MIN_STAGE_STEPS:
+				break
+			key = (spec.source_type.value, _normalize_site(spec.source))
+			if key in used_keys:
+				continue
+			used_keys.add(key)
+			stage_steps = max(MIN_STAGE_STEPS, min(base_steps, step_pool))
+			prior_findings = self._build_running_dossier(plan, stage_results)
+			stage_result = await self._run_stage(
+				plan, spec.source_type, [spec.source], spec.queries[:2], stage_steps, cdp_url, prior_findings=prior_findings
+			)
+			stage_results.append(stage_result)
+			step_pool -= max(MIN_STAGE_STEPS, stage_result.steps_used)
+		return stage_results
+
+	def _build_running_dossier(self, plan: TaskPlan, stage_results: list[StageResult]) -> str:
+		"""Compact incremental working-memory snapshot injected into the next stage's prompt.
+
+		Unlike _build_research_dossier (full report context, used only at synthesis time),
+		this is built mid-loop so each stage can see what prior stages already found and
+		avoid re-collecting the same evidence.
+		"""
+		if not stage_results:
+			return ''
+		catalog = build_candidate_catalog(stage_results)
+		chunks: list[str] = ['## Prior findings from earlier stages (do not re-collect these)']
+		if catalog:
+			ranked = rank_candidate_catalog(plan, catalog)
+			for entry in ranked[:8]:
+				candidate = entry.candidate
+				price = f' | {", ".join(candidate.price_texts[:1])}' if candidate.price_texts else ''
+				url = f' | {candidate.urls[0]}' if candidate.urls else ''
+				chunks.append(f'- {candidate.title}{price}{url}')
+		else:
+			chunks.append('- No concrete candidates collected yet.')
+		covered = ', '.join(sorted({stage.source_type.value for stage in stage_results}))
+		chunks.append(f'Stages already run: {covered}.')
+		failures = [stage.stage_name for stage in stage_results if stage.run_error or stage.blocked_reason]
+		if failures:
+			chunks.append(f'Stages that failed or were blocked: {", ".join(failures)}.')
+		return '\n'.join(chunks)
+
+	async def _decide_next_stage(
+		self,
+		plan: TaskPlan,
+		stage_results: list[StageResult],
+		queue: list[GeneratedStageSpec],
+		step_pool: int,
+	) -> OrchestratorDecision | None:
+		"""LLM-driven orchestration decision: observe accumulated findings, decide next stage or finish.
+
+		Returns None if the orchestration LLM is unavailable/erroring, signaling the caller to
+		fall back to the deterministic static drain. This mirrors the core Agent's observe→decide
+		loop, but at stage granularity.
+		"""
+		catalog = build_candidate_catalog(stage_results)
+		done_summary = (
+			'\n'.join(
+				f'- {stage.stage_name} (mode={stage.fetch_mode_used}, candidates={len(stage.candidate_evidence)}'
+				+ (f', error={stage.run_error}' if stage.run_error else '')
+				+ (f', blocked={stage.blocked_reason}' if stage.blocked_reason else '')
+				+ ')'
+				for stage in stage_results
+			)
+			or '- none yet'
+		)
+		queue_summary = '\n'.join(f'- {spec.source_type.value}: {spec.source}' for spec in queue) or '- (default queue is empty)'
+		target = self.config.max_recommendations
+		system = SystemMessage(
+			content=(
+				'You orchestrate a multi-stage browser research run. After each stage you decide whether to '
+				'run another stage or finish. Prefer finishing early once there is enough grounded evidence to '
+				f'satisfy the task (target: {target} solid candidates/findings) — do not burn budget on redundant '
+				'stages. Choose run_stage and pick the most valuable pending source, or synthesize a new stage '
+				'(set next_stage) if a different source type would close an evidence gap. Choose finish when '
+				'evidence is sufficient, the remaining queue is low-value, or budget is nearly exhausted.'
+			)
+		)
+		user = UserMessage(
+			content=(
+				f'Task: {plan.user_task}\n'
+				f'Mode: {plan.mode.value} | Locale: {plan.locale} | Budget: {plan.budget or "n/a"}\n'
+				f'Remaining step budget (shared pool): {step_pool}\n\n'
+				f'Stages completed so far:\n{done_summary}\n\n'
+				f'Candidates collected so far: {len(catalog)}\n\n'
+				f'Pending default queue (priority order):\n{queue_summary}\n\n'
+				'Decide the next action.'
+			)
+		)
+		try:
+			response = await self.llm.ainvoke([system, user], output_format=OrchestratorDecision)
+			return response.completion
+		except Exception:
+			if self.fallback_llm is not None:
+				try:
+					response = await self.fallback_llm.ainvoke([system, user], output_format=OrchestratorDecision)
+					return response.completion
+				except Exception:
+					return None
+			return None
 
 	async def _run_stage(
 		self,
@@ -3341,10 +3826,15 @@ class BrowserResearchAssistant:
 		queries: list[str],
 		max_steps: int,
 		cdp_url: str | None,
+		prior_findings: str | None = None,
 	) -> StageResult:
-		stage_result = await self._execute_stage_once(plan, source_type, sources, queries, max_steps, cdp_url)
+		stage_result = await self._execute_stage_once(
+			plan, source_type, sources, queries, max_steps, cdp_url, prior_findings=prior_findings
+		)
 		if cdp_url and stage_result.run_error and not stage_result.visited_urls:
-			fallback_result = await self._execute_stage_once(plan, source_type, sources, queries, max_steps, None)
+			fallback_result = await self._execute_stage_once(
+				plan, source_type, sources, queries, max_steps, None, prior_findings=prior_findings
+			)
 			fallback_result.errors = [
 				*([f'CDP fallback trigger: {stage_result.run_error}'] if stage_result.run_error else []),
 				*fallback_result.errors,
@@ -3387,8 +3877,7 @@ class BrowserResearchAssistant:
 			page_chunks.append(
 				f'Shopping source: {sources[0]}\n'
 				f'Search URL: {search_url}\n'
-				'Extracted product candidates:\n'
-				+ '\n'.join(candidate_lines)
+				'Extracted product candidates:\n' + '\n'.join(candidate_lines)
 			)
 
 		if source_type == SourceType.review:
@@ -3444,8 +3933,7 @@ class BrowserResearchAssistant:
 					f'Source type: {source_type.value}\n'
 					f'Sources: {", ".join(sources)}\n'
 					f'Queries: {", ".join(queries)}\n\n'
-					'Fetched evidence:\n\n'
-					+ '\n\n---\n\n'.join(page_chunks)
+					'Fetched evidence:\n\n' + '\n\n---\n\n'.join(page_chunks)
 				)
 			),
 		]
@@ -3482,13 +3970,7 @@ class BrowserResearchAssistant:
 					'Return a structured candidate list.'
 				)
 			),
-			UserMessage(
-				content=(
-					f'Source type: {source_type.value}\n'
-					f'Source domain: {sources[0]}\n\n'
-					f'Stage text:\n{stage_text}'
-				)
-			),
+			UserMessage(content=(f'Source type: {source_type.value}\nSource domain: {sources[0]}\n\nStage text:\n{stage_text}')),
 		]
 
 		try:
@@ -3572,6 +4054,7 @@ class BrowserResearchAssistant:
 		queries: list[str],
 		max_steps: int,
 		cdp_url: str | None,
+		prior_findings: str | None = None,
 	) -> StageResult:
 		targets = await resolve_stage_targets(source_type, sources, queries)
 		prompt = build_stage_prompt(
@@ -3581,6 +4064,7 @@ class BrowserResearchAssistant:
 			queries,
 			self.config.max_recommendations,
 			initial_urls=targets.initial_urls,
+			prior_findings=prior_findings,
 		)
 		history: AgentHistoryList | None = None
 		run_error: str | None = None
@@ -3622,6 +4106,7 @@ class BrowserResearchAssistant:
 				visited_urls=targets.resolved_urls,
 				errors=[],
 				run_error=None,
+				steps_used=0,
 			)
 
 		try:
@@ -3645,6 +4130,7 @@ class BrowserResearchAssistant:
 			agent = Agent(
 				task=prompt,
 				llm=self.llm,
+				fallback_llm=self.fallback_llm,
 				browser=browser,
 				initial_actions=initial_actions,
 				use_vision=_stage_use_vision(self.config, source_type, sources),
@@ -3653,7 +4139,9 @@ class BrowserResearchAssistant:
 				max_actions_per_step=self.config.max_actions_per_step,
 			)
 			history = await agent.run(max_steps=max_steps)
-			candidate_evidence = await self._extract_stage_candidates(source_type, sources, history.final_result() if history else None)
+			candidate_evidence = await self._extract_stage_candidates(
+				source_type, sources, history.final_result() if history else None
+			)
 		except Exception as exc:
 			run_error = str(exc)
 
@@ -3671,6 +4159,7 @@ class BrowserResearchAssistant:
 			visited_urls=[url for url in history.urls() if url] if history else [],
 			errors=[error for error in history.errors() if error] if history else [],
 			run_error=run_error,
+			steps_used=history.number_of_steps() if history else 0,
 		)
 
 	def _build_research_dossier(

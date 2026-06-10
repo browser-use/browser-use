@@ -42,6 +42,7 @@ from browser_use.tools.views import (
 	ClickElementActionIndexOnly,
 	CloseTabAction,
 	DoneAction,
+	EvaluateJsAction,
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
@@ -49,6 +50,7 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	ReplaceFileAction,
 	SaveAsPdfAction,
 	ScreenshotAction,
 	ScrollAction,
@@ -60,6 +62,8 @@ from browser_use.tools.views import (
 	SwitchTabAction,
 	UploadFileAction,
 	UseAccountAction,
+	WaitForUserInputAction,
+	WriteFileAction,
 )
 from browser_use.utils import create_task_with_error_handling, sanitize_surrogates, time_execution_sync
 
@@ -529,17 +533,17 @@ class Tools(Generic[Context]):
 					url_is_http = state.url.lower().startswith(('http://', 'https://'))
 					if url_is_http and _page_appears_empty(state):
 						browser_session.logger.warning(
-							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 3s and rechecking...'
+							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 1.5s and rechecking...'
 						)
-						await asyncio.sleep(3.0)
+						await asyncio.sleep(1.5)
 						state = await browser_session.get_browser_state_summary(include_screenshot=False)
 						if state.url.lower().startswith(('http://', 'https://')) and _page_appears_empty(state):
-							# Second attempt: reload the page and wait longer
-							browser_session.logger.warning(f'⚠️ Still empty after 3s, attempting page reload for {params.url}...')
+							# Second attempt: reload the page and wait a bit longer
+							browser_session.logger.warning(f'⚠️ Still empty after 1.5s, attempting page reload for {params.url}...')
 							reload_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=False))
 							await reload_event
 							await reload_event.event_result(raise_if_any=False, raise_if_none=False)
-							await asyncio.sleep(5.0)
+							await asyncio.sleep(2.5)
 							state = await browser_session.get_browser_state_summary(include_screenshot=False)
 							if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
 								return ActionResult(
@@ -699,8 +703,8 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
-				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
-				return ActionResult(error=error_msg)
+				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}). Use screenshot to re-examine the page and try different coordinates.'
+				return ActionResult(error=error_msg, metadata={'include_screenshot': True})
 
 		async def _click_by_index(
 			params: ClickElementAction | ClickElementActionIndexOnly, browser_session: BrowserSession
@@ -762,8 +766,8 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
-				error_msg = f'Failed to click element {params.index}: {str(e)}'
-				return ActionResult(error=error_msg)
+				error_msg = f'Failed to click element {params.index}: {str(e)}. Try using screenshot to verify the element location.'
+				return ActionResult(error=error_msg, metadata={'include_screenshot': True})
 
 		# Store click handlers for re-registration
 		self._click_by_index = _click_by_index
@@ -1728,21 +1732,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'FILENAME RULES: Use only letters, numbers, underscores, hyphens, dots, parentheses. Spaces are auto-converted to hyphens. '
 			'SUPPORTED EXTENSIONS: .txt, .md, .json, .jsonl, .csv, .html, .xml, .pdf, .docx. '
 			'CANNOT write binary/image files (.png, .jpg, .mp4, etc.) - do not attempt to save screenshots as files. '
-			'For PDF files, write content in markdown format and it will be auto-converted to PDF.'
+			'For PDF files, write content in markdown format and it will be auto-converted to PDF.',
+			param_model=WriteFileAction,
 		)
-		async def write_file(
-			file_name: str,
-			content: str,
-			file_system: FileSystem,
-			append: bool = False,
-			trailing_newline: bool = True,
-			leading_newline: bool = False,
-		):
-			if trailing_newline:
+		async def write_file(params: WriteFileAction, file_system: FileSystem):
+			content = params.content
+			file_name = params.file_name
+			if params.trailing_newline:
 				content += '\n'
-			if leading_newline:
+			if params.leading_newline:
 				content = '\n' + content
-			if append:
+			if params.append:
 				result = await file_system.append_file(file_name, content)
 			else:
 				result = await file_system.write_file(file_name, content)
@@ -1755,10 +1755,13 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action(
-			'Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file.'
+			'Replace specific text within a file by searching for old_str and replacing with new_str. '
+			'This is for TARGETED edits (e.g. updating a todo checkbox or one line) — provide old_str (exact existing text) and new_str (replacement). '
+			'Do NOT pass whole-file content here; use write_file to overwrite an entire file.',
+			param_model=ReplaceFileAction,
 		)
-		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
-			result = await file_system.replace_file_str(file_name, old_str, new_str)
+		async def replace_file(params: ReplaceFileAction, file_system: FileSystem):
+			result = await file_system.replace_file_str(params.file_name, params.old_str, params.new_str)
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
@@ -1802,9 +1805,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",
+			param_model=EvaluateJsAction,
 			terminates_sequence=True,
 		)
-		async def evaluate(code: str, browser_session: BrowserSession):
+		async def evaluate(params: EvaluateJsAction, browser_session: BrowserSession):
+			code = params.code
 			# Execute JavaScript with proper error handling and promise support
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
@@ -2042,6 +2047,55 @@ Validated Code (after quote fixing):
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
 				return ActionResult(error=f'Failed to navigate to GitHub: {str(e)}')
+
+		# --- Wait for user input action (e.g. SMS verification code) ---
+		@self.registry.action(
+			'Pause execution and wait for the user to manually enter an SMS verification code they received on their phone. '
+			'Use this ONLY for interactive SMS-code login: after you click "send verification code" and a human must type the code. '
+			'Do NOT use this for CAPTCHAs or general waiting — in unattended runs there is no human to respond and it will simply time out. '
+			'For CAPTCHAs, wait briefly then switch strategy instead.',
+			param_model=WaitForUserInputAction,
+		)
+		async def wait_for_user_input(params: WaitForUserInputAction, browser_session: BrowserSession):
+			import sys
+
+			# Display prominent message to user
+			message = params.message
+			timeout = min(params.timeout_seconds, 300)  # Cap at 5 minutes
+
+			separator = '=' * 50
+			print(f'\n{separator}', flush=True)
+			print(f'⏸️  WAITING FOR USER INPUT', flush=True)
+			print(f'{separator}', flush=True)
+			print(f'📱 {message}', flush=True)
+			print(f'⏱️  Timeout: {timeout} seconds', flush=True)
+			print(f'{separator}', flush=True)
+			print(f'👉 Please complete the action in the browser, then press ENTER to continue...', flush=True)
+
+			# Wait for user to press Enter (blocking read with timeout)
+			try:
+				import select
+
+				# Use select for timeout on stdin (Unix only)
+				ready, _, _ = select.select([sys.stdin], [], [], timeout)
+				if ready:
+					user_input = sys.stdin.readline().strip()
+					memory = f'User confirmed input complete. User typed: "{user_input}"' if user_input else 'User confirmed input complete (pressed Enter).'
+				else:
+					memory = f'Timed out after {timeout}s waiting for user input. Continuing anyway.'
+					print(f'\n⚠️  Timed out after {timeout}s. Continuing...', flush=True)
+			except Exception:
+				# Fallback: simple blocking input (works on all platforms)
+				try:
+					user_input = input()
+					memory = f'User confirmed input complete. User typed: "{user_input}"' if user_input else 'User confirmed input complete (pressed Enter).'
+				except EOFError:
+					memory = 'No stdin available. Waiting for configured timeout then continuing.'
+					await asyncio.sleep(min(timeout, 60))
+
+			print(f'✅ Resuming agent execution...\n', flush=True)
+			logger.info(f'⏸️→▶️ {memory}')
+			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
 		"""Validate and fix common JavaScript issues before execution"""

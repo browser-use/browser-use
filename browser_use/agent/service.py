@@ -240,12 +240,26 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if flash_mode:
 			enable_planning = False
 
+		# Vision mode for multimodal models (GPT-5/4o):
+		# Use 'auto' (screenshot only when an action requests it, e.g. failed clicks) instead of
+		# every-step screenshots. This cuts image token cost + encode/transfer latency dramatically
+		# while keeping the screenshot tool available for when the model genuinely needs to "look".
+		model_name_lower = getattr(llm, 'model', '').lower() if hasattr(llm, 'model') else ''
+		self._force_keep_screenshot_tool = False
+		if use_vision is True and any(p in model_name_lower for p in ['gpt-5', 'gpt-4o', 'gpt-4-vision']):
+			use_vision = 'auto'
+			self._force_keep_screenshot_tool = True
+			logger.info(f'👁️  Multimodal model ({getattr(llm, "model", "")}): on-demand screenshots (use_vision=auto) for speed')
+
 		# Auto-configure llm_screenshot_size for Claude Sonnet models
 		if llm_screenshot_size is None:
 			model_name = getattr(llm, 'model', '')
 			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
 				llm_screenshot_size = (1400, 850)
 				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
+			elif isinstance(model_name, str) and ('gpt-5' in model_name or 'gpt-4o' in model_name):
+				llm_screenshot_size = (1280, 800)
+				logger.info(f'🖼️  Auto-configured LLM screenshot size for {model_name}: 1280x800')
 
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -312,18 +326,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		elif controller is not None:
 			self.tools = controller
 		else:
-			# Exclude screenshot tool when use_vision is not auto
-			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
+			# Exclude screenshot tool when use_vision is not auto (unless multimodal model forces it)
+			exclude_actions = ['screenshot'] if (use_vision != 'auto' and not self._force_keep_screenshot_tool) else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
-		if use_vision != 'auto':
+		if use_vision != 'auto' and not self._force_keep_screenshot_tool:
 			self.tools.exclude_action('screenshot')
 
 		# Enable coordinate clicking for models that support it
 		model_name = getattr(llm, 'model', '').lower()
 		supports_coordinate_clicking = any(
-			pattern in model_name for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/']
+			pattern in model_name for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'gpt-5', 'gpt-4o', 'browser-use/']
 		)
 		if supports_coordinate_clicking:
 			self.tools.set_coordinate_clicking(True)
@@ -1108,10 +1122,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
+		# Decide whether to capture a screenshot this step.
+		# Capturing via CDP has real cost on heavy pages. We only NEED it when:
+		#   - use_vision is True (every step sends it to the LLM), or
+		#   - cloud sync is enabled (screenshots make the cloud timeline useful)
+		# When use_vision='auto' and cloud sync is off, skip capture for speed —
+		# the screenshot tool can still trigger an on-demand capture when the model asks.
+		from browser_use.config import CONFIG as _CONFIG
+
+		_cloud_sync_on = bool(getattr(_CONFIG, 'BROWSER_USE_CLOUD_SYNC', False))
+		_capture_screenshot = (self.settings.use_vision is True) or _cloud_sync_on
+		self.logger.debug(f'📸 Requesting browser state with include_screenshot={_capture_screenshot}')
 		browser_state_summary = await self.browser_session.get_browser_state_summary(
-			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
+			include_screenshot=_capture_screenshot,
 			include_recent_events=self.include_recent_events,
 		)
 		if browser_state_summary.screenshot:

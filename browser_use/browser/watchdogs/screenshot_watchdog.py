@@ -1,5 +1,6 @@
 """Screenshot watchdog for handling screenshot requests using CDP."""
 
+import asyncio
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from bubus import BaseEvent
@@ -12,6 +13,12 @@ from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
 	pass
+
+# Bounded timeout for the CDP captureScreenshot call. Without this, a silent/stuck
+# CDP WebSocket makes the screenshot hang until the much larger step timeout (180s),
+# creating a long tail on heavy/anti-bot pages. 15s is well above a normal capture
+# (tens of ms) but bounds the worst case so the agent can recover quickly.
+_SCREENSHOT_CDP_TIMEOUT_S = 15.0
 
 
 class ScreenshotWatchdog(BaseWatchdog):
@@ -73,9 +80,18 @@ class ScreenshotWatchdog(BaseWatchdog):
 				}
 			params = CaptureScreenshotParameters(**params_dict)
 
-			# Take screenshot using CDP
+			# Take screenshot using CDP (bounded timeout to avoid hanging on a stuck CDP socket)
 			self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params}')
-			result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
+			try:
+				result = await asyncio.wait_for(
+					cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id),
+					timeout=_SCREENSHOT_CDP_TIMEOUT_S,
+				)
+			except (TimeoutError, asyncio.TimeoutError) as e:
+				raise BrowserError(
+					f'[ScreenshotWatchdog] Screenshot timed out after {_SCREENSHOT_CDP_TIMEOUT_S:.0f}s '
+					f'— the CDP connection may be unresponsive.'
+				) from e
 
 			# Return base64-encoded screenshot data
 			if result and 'data' in result:

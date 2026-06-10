@@ -12,9 +12,9 @@ from typing import Any
 from aiohttp import web
 from dotenv import load_dotenv
 
+from browser_use.accounts.service import AccountService
 from browser_use.assistant.research import BrowserResearchAssistant, ResearchAssistantConfig, render_report
 from browser_use.skill_cli.credential_store import CredentialStore, ensure_credential_store
-
 
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 8765
@@ -25,12 +25,15 @@ class SidePanelServerConfig:
 	host: str = DEFAULT_HOST
 	port: int = DEFAULT_PORT
 	model: str | None = None
+	fallback_model: str | None = None
 	cdp_url: str | None = None
 	auto_discover_cdp: bool = True
 	max_steps: int = 14
 	max_recommendations: int = 3
 	llm_timeout: int = 180
 	credential_store_path: str | None = None
+	accounts_file: str | None = None
+	use_vision: bool = True
 
 
 def _cors_response(data: dict[str, Any], status: int = 200) -> web.Response:
@@ -81,10 +84,24 @@ class SidePanelServer:
 		self.config = config
 		self._discovered_cdp_url: str | None = None
 		self.credential_store = CredentialStore(config.credential_store_path)
+		# Initialize account service if accounts file is configured
+		self.account_service: AccountService | None = None
+		accounts_path = config.accounts_file or os.getenv('BROWSER_USE_ACCOUNTS_FILE')
+		if accounts_path:
+			self.account_service = AccountService(path=accounts_path)
 
 	async def health(self, request: web.Request) -> web.Response:
 		model = self.config.model or os.getenv('BROWSER_USE_LLM_MODEL') or os.getenv('DEFAULT_LLM') or 'auto'
-		return _cors_response({'ok': True, 'model': model, 'cdp_url': self._resolve_cdp_url()})
+		return _cors_response(
+			{
+				'ok': True,
+				'model': model,
+				'fallback_model': self.config.fallback_model,
+				'cdp_url': self._resolve_cdp_url(),
+				'use_vision': self.config.use_vision,
+				'accounts_loaded': self.account_service is not None and len(self.account_service.get_all_accounts()) > 0,
+			}
+		)
 
 	async def options(self, request: web.Request) -> web.Response:
 		return _cors_response({})
@@ -160,14 +177,21 @@ class SidePanelServer:
 		requested_cdp_url = str(payload.get('cdp_url') or '').strip() or None
 		cdp_url = self._resolve_cdp_url(requested_cdp_url)
 		enriched_task = task + _page_context_prompt(page_context)
+
+		# Determine use_vision: prefer request payload, then server config
+		use_vision = payload.get('use_vision')
+		if use_vision is None:
+			use_vision = self.config.use_vision
+
 		config = ResearchAssistantConfig(
 			task=enriched_task,
 			model=str(payload.get('model') or self.config.model or '') or None,
+			fallback_model=str(payload.get('fallback_model') or self.config.fallback_model or '') or None,
 			locale=payload.get('locale'),
 			max_steps=int(payload.get('max_steps') or self.config.max_steps),
 			max_recommendations=int(payload.get('max_recommendations') or self.config.max_recommendations),
 			llm_timeout=int(payload.get('llm_timeout') or self.config.llm_timeout),
-			use_vision=bool(payload.get('use_vision', False)),
+			use_vision=bool(use_vision),
 			shopping_sites=list(payload.get('shopping_sites') or []),
 			review_sites=list(payload.get('review_sites') or []),
 			official_sites=list(payload.get('official_sites') or []),
@@ -239,23 +263,31 @@ def main() -> None:
 	parser.add_argument('--host', default=DEFAULT_HOST)
 	parser.add_argument('--port', type=int, default=DEFAULT_PORT)
 	parser.add_argument('--model', default=None)
+	parser.add_argument(
+		'--fallback-model', default=None, help='Fallback LLM used when the primary model errors (e.g. bad schema output)'
+	)
 	parser.add_argument('--cdp-url', default=None)
 	parser.add_argument('--no-auto-cdp', action='store_true')
 	parser.add_argument('--max-steps', type=int, default=14)
 	parser.add_argument('--max-recommendations', type=int, default=3)
 	parser.add_argument('--llm-timeout', type=int, default=180)
 	parser.add_argument('--credential-store', default=None)
+	parser.add_argument('--accounts-file', default=None, help='Path to accounts.json for credential management')
+	parser.add_argument('--no-vision', action='store_true', help='Disable vision/screenshot mode')
 	args = parser.parse_args()
 	config = SidePanelServerConfig(
 		host=args.host,
 		port=args.port,
 		model=args.model,
+		fallback_model=args.fallback_model,
 		cdp_url=args.cdp_url,
 		auto_discover_cdp=not args.no_auto_cdp,
 		max_steps=args.max_steps,
 		max_recommendations=args.max_recommendations,
 		llm_timeout=args.llm_timeout,
 		credential_store_path=args.credential_store,
+		accounts_file=args.accounts_file,
+		use_vision=not args.no_vision,
 	)
 	asyncio.run(run_server(config))
 

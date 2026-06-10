@@ -9,7 +9,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
@@ -19,6 +19,60 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _extract_json_object(text: str) -> str | None:
+	"""Best-effort local repair of near-JSON model output.
+
+	Handles the two most common OpenAI-compatible gateway defects that don't require
+	another model round-trip:
+	  - markdown code fences (```json ... ```)
+	  - leading/trailing prose around the JSON object ("trailing characters" decode errors)
+
+	Returns the substring spanning the outermost balanced {...} object, or None if no
+	plausible object is found. Brace counting is string-literal aware so braces inside
+	JSON string values don't throw off the balance.
+	"""
+	if not text:
+		return None
+	s = text.strip()
+	# Strip markdown fences
+	if s.startswith('```'):
+		s = s.split('\n', 1)[1] if '\n' in s else s
+		if s.endswith('```'):
+			s = s[: -3]
+		s = s.strip()
+		# Drop a leading "json" language tag if it survived
+		if s[:4].lower() == 'json':
+			s = s[4:].lstrip()
+
+	start = s.find('{')
+	if start == -1:
+		return None
+
+	depth = 0
+	in_string = False
+	escape = False
+	for i in range(start, len(s)):
+		ch = s[i]
+		if in_string:
+			if escape:
+				escape = False
+			elif ch == '\\':
+				escape = True
+			elif ch == '"':
+				in_string = False
+			continue
+		if ch == '"':
+			in_string = True
+		elif ch == '{':
+			depth += 1
+		elif ch == '}':
+			depth -= 1
+			if depth == 0:
+				candidate = s[start : i + 1]
+				return candidate if candidate != text.strip() else candidate
+	return None
 
 
 @dataclass
@@ -42,6 +96,7 @@ class ChatOpenAI(BaseChatModel):
 	top_p: float | None = None
 	add_schema_to_system_prompt: bool = False  # Add JSON schema to system prompt instead of using response_format
 	dont_force_structured_output: bool = False  # If True, the model will not be forced to output a structured output
+	repair_structured_output: bool = True  # Retry once in plain JSON mode when OpenAI-compatible proxies return invalid schema output
 	remove_min_items_from_schema: bool = (
 		False  # If True, remove minItems from JSON schema (for compatibility with some providers)
 	)
@@ -142,6 +197,68 @@ class ChatOpenAI(BaseChatModel):
 			usage = None
 
 		return usage
+
+	async def _repair_structured_output(
+		self,
+		raw_content: str,
+		output_format: type[T],
+		response_format: JSONSchema,
+		model_params: dict[str, Any],
+		validation_error: Exception,
+	) -> ChatInvokeCompletion[T]:
+		"""Repair malformed structured output from OpenAI-compatible proxies.
+
+		Some proxy endpoints accept `response_format=json_schema` but return JSON
+		with wrong field names when schemas contain enum/anyOf/nested objects. A
+		single plain-chat repair keeps strict Pydantic validation as the final gate.
+		"""
+		repair_messages: list[dict[str, Any]] = [
+			{
+				'role': 'system',
+				'content': (
+					'You repair malformed structured-output JSON. Return only one valid JSON object. '
+					'Do not wrap it in markdown. The object must validate against the JSON schema exactly.'
+				),
+			},
+			{
+				'role': 'user',
+				'content': (
+					'JSON schema:\n'
+					f'{response_format.get("schema", "")}\n\n'
+					'Validation error:\n'
+					f'{validation_error}\n\n'
+					'Malformed model output:\n'
+					f'{raw_content}\n\n'
+					'Return the corrected JSON object only.'
+				),
+			},
+		]
+		response = await self.get_client().chat.completions.create(
+			model=self.model,
+			messages=repair_messages,  # type: ignore[arg-type]
+			**model_params,
+		)
+		choice = response.choices[0] if response.choices else None
+		if choice is None or choice.message.content is None:
+			raise ModelProviderError(
+				message='Failed to repair structured output from model response',
+				status_code=500,
+				model=self.name,
+			)
+
+		try:
+			parsed = output_format.model_validate_json(choice.message.content)
+		except (ValidationError, ValueError):
+			# Last-resort local extraction if the repair model still wrapped/append-ed prose.
+			local_fixed = _extract_json_object(choice.message.content or '')
+			if local_fixed is None:
+				raise
+			parsed = output_format.model_validate_json(local_fixed)
+		return ChatInvokeCompletion(
+			completion=parsed,
+			usage=self._get_usage(response),
+			stop_reason=choice.finish_reason,
+		)
 
 	@overload
 	async def ainvoke(
@@ -283,7 +400,33 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				try:
+					parsed = output_format.model_validate_json(choice.message.content)
+				except (ValidationError, ValueError) as e:
+					# 1) Cheap local repair first: strip code fences / trailing prose and
+					#    re-extract the outermost JSON object. Avoids an extra LLM round-trip
+					#    for the common "trailing characters" / fenced-output gateway defects.
+					local_fixed = _extract_json_object(choice.message.content or '')
+					if local_fixed is not None:
+						try:
+							parsed = output_format.model_validate_json(local_fixed)
+							return ChatInvokeCompletion(
+								completion=parsed,
+								usage=usage,
+								stop_reason=choice.finish_reason,
+							)
+						except (ValidationError, ValueError):
+							pass
+					# 2) Fall back to an LLM-based repair round if enabled.
+					if self.repair_structured_output:
+						return await self._repair_structured_output(
+							raw_content=choice.message.content,
+							output_format=output_format,
+							response_format=response_format,
+							model_params=model_params,
+							validation_error=e,
+						)
+					raise
 
 				return ChatInvokeCompletion(
 					completion=parsed,

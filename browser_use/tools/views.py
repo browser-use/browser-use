@@ -1,6 +1,6 @@
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
 
@@ -28,7 +28,13 @@ class ExtractAction(BaseModel):
 
 
 class SearchPageAction(BaseModel):
-	pattern: str = Field(description='Text or regex pattern to search for in page content')
+	# Accept `query` as an alias for `pattern` — models frequently emit search_page.query.
+	model_config = ConfigDict(populate_by_name=True)
+
+	pattern: str = Field(
+		validation_alias=AliasChoices('pattern', 'query', 'text'),
+		description='Text or regex pattern to search for in page content',
+	)
 	regex: bool = Field(default=False, description='Treat pattern as regex (default: literal text match)')
 	case_sensitive: bool = Field(default=False, description='Case-sensitive search (default: case-insensitive)')
 	context_chars: int = Field(default=150, description='Characters of surrounding context per match')
@@ -184,7 +190,9 @@ class SelectDropdownOptionAction(BaseModel):
 class UseAccountAction(BaseModel):
 	"""Action to load and activate a specific user account for the current page."""
 
-	label: str = Field(description='Account label or platform name to use (e.g. "my github", "taobao")')
+	model_config = ConfigDict(extra='ignore')
+
+	label: str = Field(description='Account label or platform name (e.g. "my github", "淘宝账号", "taobao")')
 
 
 class GitHubNavigateAction(BaseModel):
@@ -197,3 +205,51 @@ class GitHubNavigateAction(BaseModel):
 	path: str | None = Field(default=None, description='File or directory path within the repo')
 	repo: str | None = Field(default=None, description='Repository in owner/name format. Auto-detected from current URL if not provided.')
 	branch: str | None = Field(default=None, description='Branch name. Defaults to main/master.')
+
+
+class WaitForUserInputAction(BaseModel):
+	"""Pause and wait for the user to manually input something (e.g. SMS verification code) in the browser."""
+
+	model_config = ConfigDict(extra='ignore')
+
+	message: str = Field(description='Message to display to the user explaining what input is needed (e.g. "Please enter the SMS verification code sent to 185****6106")')
+	timeout_seconds: int = Field(default=120, description='How long to wait for user input before timing out (default 120s)')
+
+
+class EvaluateJsAction(BaseModel):
+	"""Execute JavaScript in the page. Accepts `code` (canonical) or `script`/`js`/`expression` aliases."""
+
+	model_config = ConfigDict(populate_by_name=True)
+
+	code: str = Field(
+		validation_alias=AliasChoices('code', 'script', 'js', 'javascript', 'expression'),
+		description='JavaScript code to execute in the browser page context.',
+	)
+
+
+class WriteFileAction(BaseModel):
+	"""Write/overwrite a file. Accepts `content` (canonical) or `text`/`data` aliases."""
+
+	model_config = ConfigDict(populate_by_name=True)
+
+	file_name: str = Field(validation_alias=AliasChoices('file_name', 'filename', 'path', 'name'), description='File name to write')
+	content: str = Field(validation_alias=AliasChoices('content', 'text', 'data'), description='Full file content to write')
+	append: bool = Field(default=False, description='Append instead of overwrite')
+	trailing_newline: bool = Field(default=True, description='Add trailing newline')
+	leading_newline: bool = Field(default=False, description='Add leading newline')
+
+
+class ReplaceFileAction(BaseModel):
+	"""Replace a substring within a file. Use old_str/new_str for targeted edits (NOT whole-file replacement)."""
+
+	model_config = ConfigDict(populate_by_name=True)
+
+	file_name: str = Field(validation_alias=AliasChoices('file_name', 'filename', 'path', 'name'), description='File name to edit')
+	old_str: str = Field(
+		validation_alias=AliasChoices('old_str', 'old_string', 'old', 'find', 'search'),
+		description='Exact existing text to find and replace',
+	)
+	new_str: str = Field(
+		validation_alias=AliasChoices('new_str', 'new_string', 'new', 'replace', 'replacement'),
+		description='Replacement text',
+	)

@@ -9,38 +9,55 @@
   <body>
     <main class="shell">
       <header class="topbar">
-        <div>
-          <h1>Browser Use</h1>
+        <div class="brand">
+          <h1>🌐 Browser Use</h1>
           <p id="status">Checking local bridge...</p>
         </div>
-        <button id="refresh" title="Refresh page context">Refresh</button>
+        <button id="refresh" title="Refresh page context">↻</button>
       </header>
 
       <section class="context">
-        <label>Current Page</label>
+        <div class="section-header">
+          <label>📄 Current Page</label>
+        </div>
         <div id="pageTitle" class="title">No page attached</div>
         <div id="pageUrl" class="url"></div>
       </section>
 
       <section class="autofill">
-        <label>Autofill</label>
+        <div class="section-header">
+          <label>🔑 Autofill</label>
+        </div>
         <div id="autofillStatus" class="hint">No matching local profile.</div>
-        <button id="autofill" disabled>Autofill current page</button>
+        <button id="autofill" class="btn-secondary" disabled>Autofill current page</button>
       </section>
 
       <section class="composer">
-        <label for="task">Task</label>
-        <textarea id="task" rows="7" placeholder="例如：帮我推荐一款 1000 元以内的头戴式耳机，结合当前页面、购物价格和测评证据给出推荐"></textarea>
+        <label for="task">✏️ Task</label>
+        <textarea id="task" rows="5" placeholder="例如：帮我推荐一款 1000 元以内的头戴式耳机&#10;或：在 GitHub 上搜索 browser-use 仓库的 AccountService 类"></textarea>
         <div class="controls">
-          <label class="check"><input id="includePage" type="checkbox" checked /> Include current page</label>
-          <label class="check"><input id="autoObserve" type="checkbox" checked /> Auto observe</label>
-          <button id="run">Run</button>
+          <div class="check-group">
+            <label class="check"><input id="includePage" type="checkbox" checked /> Include page</label>
+            <label class="check"><input id="autoObserve" type="checkbox" checked /> Auto observe</label>
+          </div>
+          <button id="run" class="btn-primary">▶ Run</button>
         </div>
       </section>
 
+      <section class="thinking" id="thinkingSection" style="display:none">
+        <div class="section-header">
+          <label>🧠 Thinking Process</label>
+          <span id="stepCounter" class="badge">Step 0</span>
+        </div>
+        <div id="thinkingTimeline" class="timeline"></div>
+      </section>
+
       <section class="result">
-        <label>Result</label>
-        <pre id="output">Start the local bridge, then run a task.</pre>
+        <div class="section-header">
+          <label>📋 Result</label>
+          <span id="resultTime" class="badge"></span>
+        </div>
+        <div id="output" class="output-content">Start the local bridge, then run a task.</div>
       </section>
     </main>
     <script src="sidepanel.js"></script>
