@@ -527,7 +527,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			raise BrowserError(
 				message=f'Failed to hover over element: {str(e)}',
-				long_term_memory=f'Failed to hover over element. The element may have changed or the page may have been updated.',
+				long_term_memory='Failed to hover over element. The element may have changed or the page may have been updated.',
 			)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='hover_coordinate_event')
@@ -588,9 +588,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				long_term_memory=f'Failed to hover at coordinates ({event.coordinate_x}, {event.coordinate_y}). The coordinates may be outside viewport.',
 			)
 
-	async def _hover_element_js_fallback(
-		self, element_node: EnhancedDOMTreeNode, cdp_session, session_id: str
-	) -> dict | None:
+	async def _hover_element_js_fallback(self, element_node: EnhancedDOMTreeNode, cdp_session, session_id: str) -> dict | None:
 		"""Fallback: dispatch mouseover + mouseenter + mousemove via JavaScript on the element."""
 		try:
 			backend_node_id = element_node.backend_node_id
@@ -645,16 +643,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 			await asyncio.sleep(0.1)
 
 			hover_result = js_result.get('result', {}).get('value', {})
-			self.logger.debug(f'🖱️ JS hover fallback succeeded for element at ({hover_result.get("hover_x", 0):.0f}, {hover_result.get("hover_y", 0):.0f})')
+			self.logger.debug(
+				f'🖱️ JS hover fallback succeeded for element at ({hover_result.get("hover_x", 0):.0f}, {hover_result.get("hover_y", 0):.0f})'
+			)
 			return hover_result if isinstance(hover_result, dict) else {}
 
 		except Exception as e:
 			self.logger.error(f'JS hover fallback failed: {type(e).__name__}: {e}')
 			raise BrowserError(f'Failed to hover over element via JS fallback: {e}')
 
-	async def _hover_coordinate_js_fallback(
-		self, x: float, y: float, cdp_session, session_id: str
-	) -> dict | None:
+	async def _hover_coordinate_js_fallback(self, x: float, y: float, cdp_session, session_id: str) -> dict | None:
 		"""Fallback: dispatch hover events via JavaScript at specific coordinates."""
 		try:
 			js_code = f"""

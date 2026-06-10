@@ -19,10 +19,10 @@ from browser_use.browser.events import (
 	ClickCoordinateEvent,
 	ClickElementEvent,
 	CloseTabEvent,
-	HoverCoordinateEvent,
-	HoverElementEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
+	HoverCoordinateEvent,
+	HoverElementEvent,
 	NavigateToUrlEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -40,14 +40,14 @@ from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
-		HoverElementAction,
-		ClickElementAction,
+	ClickElementAction,
 	ClickElementActionIndexOnly,
 	CloseTabAction,
 	DoneAction,
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	HoverElementAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -744,7 +744,6 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to click element {params.index}: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		
 			async def _hover_by_index(params: HoverElementAction, browser_session: BrowserSession) -> ActionResult:
 				"""Hover over an element by index to trigger CSS :hover effects (dropdowns, tooltips, hover-reveal patterns)."""
 				assert params.index is not None
@@ -765,7 +764,9 @@ class Tools(Generic[Context]):
 
 					# Highlight the element being hovered (truly non-blocking)
 					create_task_with_error_handling(
-						browser_session.highlight_interaction_element(node), name='highlight_hover_element', suppress_exceptions=True
+						browser_session.highlight_interaction_element(node),
+						name='highlight_hover_element',
+						suppress_exceptions=True,
 					)
 
 					event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
@@ -801,9 +802,7 @@ class Tools(Generic[Context]):
 					asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
 					# Dispatch HoverCoordinateEvent
-					event = browser_session.event_bus.dispatch(
-						HoverCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y)
-					)
+					event = browser_session.event_bus.dispatch(HoverCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y))
 					await event
 					hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
@@ -2173,7 +2172,6 @@ Validated Code (after quote fixing):
 			async def click(params: ClickElementActionIndexOnly, browser_session: BrowserSession):
 				return await self._click_by_index(params, browser_session)
 
-	
 	def _register_hover_action(self) -> None:
 		"""Register the hover action with both index and coordinate support."""
 		# Remove existing hover action if present
