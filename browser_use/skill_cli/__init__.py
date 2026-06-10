@@ -11,6 +11,11 @@ Usage:
     browser-use close
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+	from browser_use.skill_cli.main import main
+
 __all__ = ['main']
 
 
