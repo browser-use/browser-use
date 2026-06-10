@@ -3636,7 +3636,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				tried_attrs = [k for k in ['name', 'id', 'aria-label', 'title'] if k in hist_attrs and hist_attrs[k]]
 				# Log what was tried and what's available on the page for debugging
 				same_node_elements = [
-					(idx, elem.attributes.get('aria-label') or elem.attributes.get('title') or elem.attributes.get('id') or elem.attributes.get('name'))
+					(
+						idx,
+						elem.attributes.get('aria-label')
+						or elem.attributes.get('title')
+						or elem.attributes.get('id')
+						or elem.attributes.get('name'),
+					)
 					for idx, elem in selector_map.items()
 					if elem.node_name.lower() == hist_name and elem.attributes
 				]

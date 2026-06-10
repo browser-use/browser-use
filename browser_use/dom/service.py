@@ -1173,7 +1173,13 @@ class DomService:
 					{
 						'button_type': button_type,
 						'backend_node_id': index,
-						'text': node.get_all_children_text().strip() or aria_label or title or data_tooltip or data_original_title or data_bs_title or data_title,
+						'text': node.get_all_children_text().strip()
+						or aria_label
+						or title
+						or data_tooltip
+						or data_original_title
+						or data_bs_title
+						or data_title,
 						'selector': node.xpath,
 						'is_disabled': is_disabled,
 					}
