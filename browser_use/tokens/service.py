@@ -175,10 +175,6 @@ class TokenCost:
 
 	async def get_model_pricing(self, model_name: str) -> ModelPricing | None:
 		"""Get pricing information for a specific model"""
-		# Ensure we're initialized
-		if not self._initialized:
-			await self.initialize()
-
 		# Check custom pricing first
 		if model_name in CUSTOM_MODEL_PRICING:
 			data = CUSTOM_MODEL_PRICING[model_name]
@@ -191,7 +187,12 @@ class TokenCost:
 				max_output_tokens=data.get('max_output_tokens'),
 				cache_read_input_token_cost=data.get('cache_read_input_token_cost'),
 				cache_creation_input_token_cost=data.get('cache_creation_input_token_cost'),
+				cache_creation_1h_input_token_cost=data.get('cache_creation_1h_input_token_cost'),
 			)
+
+		# Ensure we're initialized before checking remote LiteLLM pricing.
+		if not self._initialized:
+			await self.initialize()
 
 		if is_openrouter_pricing_model(model_name):
 			openrouter_pricing = await get_openrouter_model_pricing(model_name)
@@ -212,6 +213,7 @@ class TokenCost:
 				max_output_tokens=data.get('max_output_tokens'),
 				cache_read_input_token_cost=data.get('cache_read_input_token_cost'),
 				cache_creation_input_token_cost=data.get('cache_creation_input_token_cost'),
+				cache_creation_1h_input_token_cost=data.get('cache_creation_1h_input_token_cost'),
 			)
 
 		return await get_openrouter_model_pricing(model_name)
@@ -226,23 +228,37 @@ class TokenCost:
 			return None
 
 		uncached_prompt_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0)
+		pricing_multiplier = usage.pricing_multiplier or 1.0
+
+		cache_creation_5m_tokens = usage.prompt_cache_creation_5m_tokens
+		cache_creation_1h_tokens = usage.prompt_cache_creation_1h_tokens
+		if cache_creation_5m_tokens is not None or cache_creation_1h_tokens is not None:
+			prompt_cache_creation_cost = (cache_creation_5m_tokens or 0) * (data.cache_creation_input_token_cost or 0) + (
+				cache_creation_1h_tokens or 0
+			) * (data.cache_creation_1h_input_token_cost or data.cache_creation_input_token_cost or 0)
+		else:
+			prompt_cache_creation_cost = (
+				usage.prompt_cache_creation_tokens * data.cache_creation_input_token_cost
+				if data.cache_creation_input_token_cost and usage.prompt_cache_creation_tokens
+				else None
+			)
 
 		return TokenCostCalculated(
 			new_prompt_tokens=usage.prompt_tokens,
-			new_prompt_cost=uncached_prompt_tokens * (data.input_cost_per_token or 0),
+			new_prompt_cost=uncached_prompt_tokens * (data.input_cost_per_token or 0) * pricing_multiplier,
 			# Cached tokens
 			prompt_read_cached_tokens=usage.prompt_cached_tokens,
-			prompt_read_cached_cost=usage.prompt_cached_tokens * data.cache_read_input_token_cost
+			prompt_read_cached_cost=usage.prompt_cached_tokens * data.cache_read_input_token_cost * pricing_multiplier
 			if usage.prompt_cached_tokens and data.cache_read_input_token_cost
 			else None,
 			# Cache creation tokens
 			prompt_cached_creation_tokens=usage.prompt_cache_creation_tokens,
-			prompt_cache_creation_cost=usage.prompt_cache_creation_tokens * data.cache_creation_input_token_cost
-			if data.cache_creation_input_token_cost and usage.prompt_cache_creation_tokens
+			prompt_cache_creation_cost=prompt_cache_creation_cost * pricing_multiplier
+			if prompt_cache_creation_cost is not None
 			else None,
 			# Completion tokens
 			completion_tokens=usage.completion_tokens,
-			completion_cost=usage.completion_tokens * float(data.output_cost_per_token or 0),
+			completion_cost=usage.completion_tokens * float(data.output_cost_per_token or 0) * pricing_multiplier,
 		)
 
 	def add_usage(self, model: str, usage: ChatInvokeUsage) -> TokenUsageEntry:
@@ -420,6 +436,8 @@ class TokenCost:
 				total_prompt_cost=0.0,
 				total_prompt_cached_tokens=0,
 				total_prompt_cached_cost=0.0,
+				total_prompt_cache_creation_tokens=0,
+				total_prompt_cache_creation_cost=0.0,
 				total_completion_tokens=0,
 				total_completion_cost=0.0,
 				total_tokens=0,
@@ -432,12 +450,14 @@ class TokenCost:
 		total_completion = sum(u.usage.completion_tokens for u in filtered_usage)
 		total_tokens = total_prompt + total_completion
 		total_prompt_cached = sum(u.usage.prompt_cached_tokens or 0 for u in filtered_usage)
+		total_prompt_cache_creation = sum(u.usage.prompt_cache_creation_tokens or 0 for u in filtered_usage)
 
 		# Calculate per-model stats with record-by-record cost calculation
 		model_stats: dict[str, ModelUsageStats] = {}
 		total_prompt_cost = 0.0
 		total_completion_cost = 0.0
 		total_prompt_cached_cost = 0.0
+		total_prompt_cache_creation_cost = 0.0
 
 		for entry in filtered_usage:
 			if entry.model not in model_stats:
@@ -457,6 +477,7 @@ class TokenCost:
 					total_prompt_cost += cost.prompt_cost
 					total_completion_cost += cost.completion_cost
 					total_prompt_cached_cost += cost.prompt_read_cached_cost or 0
+					total_prompt_cache_creation_cost += cost.prompt_cache_creation_cost or 0
 
 		# Calculate averages
 		for stats in model_stats.values():
@@ -468,10 +489,12 @@ class TokenCost:
 			total_prompt_cost=total_prompt_cost,
 			total_prompt_cached_tokens=total_prompt_cached,
 			total_prompt_cached_cost=total_prompt_cached_cost,
+			total_prompt_cache_creation_tokens=total_prompt_cache_creation,
+			total_prompt_cache_creation_cost=total_prompt_cache_creation_cost,
 			total_completion_tokens=total_completion,
 			total_completion_cost=total_completion_cost,
 			total_tokens=total_tokens,
-			total_cost=total_prompt_cost + total_completion_cost + total_prompt_cached_cost,
+			total_cost=total_prompt_cost + total_completion_cost,
 			entry_count=len(filtered_usage),
 			by_model=model_stats,
 		)

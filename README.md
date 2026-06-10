@@ -49,11 +49,19 @@
 
 # 👋 Human Quickstart
 
-**1. Create environment and install Browser-Use with [uv](https://docs.astral.sh/uv/) (Python>=3.11):**
-```bash
-uv init && uv add browser-use && uv sync
-# uvx browser-use install  # Run if you don't have Chromium installed
+Browser Use 0.13 introduces a new beta agent powered by a Rust core and a browser harness built for current frontier models. It gives the model a real browser/computer action space, persistent tools, and recovery loops inspired by coding agents.
+
+```text
+Python API -> Rust core -> Browser harness -> Web task done
 ```
+
+**1. Install Browser Use with the native core runtime (Python>=3.11):**
+```bash
+uv add "browser-use[core]"
+# or: pip install "browser-use[core]"
+```
+
+The `[core]` extra installs the native Browser Use runtime for your platform.
 
 **2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
 ```
@@ -65,28 +73,30 @@ BROWSER_USE_API_KEY=your-key
 
 **3. Run your first agent:**
 ```python
-from browser_use import Agent, Browser, ChatBrowserUse
-# from browser_use import ChatGoogle  # ChatGoogle(model='gemini-3-flash-preview')
-# from browser_use import ChatAnthropic  # ChatAnthropic(model='claude-sonnet-4-6')
+from browser_use.beta import Agent, BrowserProfile, ChatBrowserUse
+# from browser_use.beta import ChatOpenAI  # ChatOpenAI(model='gpt-5.5')
+# from browser_use.beta import ChatAnthropic  # ChatAnthropic(model='claude-opus-4-8')
 import asyncio
 
 async def main():
-    browser = Browser(
-        # use_cloud=True,  # Use a stealth browser on Browser Use Cloud
-    )
-
     agent = Agent(
         task="Find the number of stars of the browser-use repo",
-        llm=ChatBrowserUse(),
-        # llm=ChatGoogle(model='gemini-3-flash-preview'),
-        # llm=ChatAnthropic(model='claude-sonnet-4-6'),
-        browser=browser,
+        llm=ChatBrowserUse(model='bu-3-max'),
+        # llm=ChatOpenAI(model='gpt-5.5'),
+        # llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well.
+        browser_profile=BrowserProfile(
+            headless=False,
+            allowed_domains=["*.github.com"],
+        ),
     )
-    await agent.run()
+    history = await agent.run()
+    print(history.final_result())
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+Existing Python agent users can keep using `from browser_use import Agent`. The new Rust-powered beta agent is `from browser_use.beta import Agent`.
 
 Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme-cloud-docs) for more!
 
@@ -203,10 +213,15 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
 
 We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
 
-**Pricing (per 1M tokens):**
-- Input tokens: $0.20
-- Cached input tokens: $0.02
-- Output tokens: $2.00
+**bu-3 pricing (per 1M tokens):**
+- Input tokens: $2.00
+- Cached input tokens: $0.20
+- Output tokens: $11.00
+
+**bu-3-max pricing (per 1M tokens):**
+- Input tokens: $2.50
+- Cached input tokens: $0.25
+- Output tokens: $50.00
 
 For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
 </details>
