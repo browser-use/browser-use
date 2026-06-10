@@ -155,7 +155,7 @@ class SessionManager:
 		"""
 		page_targets = []
 		for target in self._targets.values():
-			if target.target_type in ('page', 'tab'):
+			if target.target_type in ('page', 'tab') and not target.url.startswith('chrome-extension://'):
 				page_targets.append(target)
 		return page_targets
 
