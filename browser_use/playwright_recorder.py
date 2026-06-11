@@ -123,7 +123,7 @@ def _chrome_wrapper(chromium_path: Path, cdp_port: int):
 		logger.debug('Chrome wrapper removed, original binary restored')
 
 
-def _wait_for_cdp(cdp_url: str, timeout: int = 30) -> bool:
+async def _wait_for_cdp(cdp_url: str, timeout: int = 30) -> bool:
 	"""Poll the CDP /json/version endpoint until Chrome is ready.
 
 	Args:
@@ -137,10 +137,10 @@ def _wait_for_cdp(cdp_url: str, timeout: int = 30) -> bool:
 	version_url = f'{cdp_url}/json/version'
 	while time.monotonic() < deadline:
 		try:
-			urllib.request.urlopen(version_url, timeout=1)
+			await asyncio.to_thread(urllib.request.urlopen, version_url, timeout=1)
 			return True
 		except Exception:
-			time.sleep(0.4)
+			await asyncio.sleep(0.4)
 	return False
 
 
@@ -256,7 +256,7 @@ async def record_playwright_script(
 			)
 
 			logger.info(f'   Waiting for Chrome on {cdp_url}…')
-			if not _wait_for_cdp(cdp_url, timeout=cdp_timeout):
+			if not await _wait_for_cdp(cdp_url, timeout=cdp_timeout):
 				raise RuntimeError(
 					f'Chrome did not expose a CDP endpoint on port {port} '
 					f'within {cdp_timeout}s. '
