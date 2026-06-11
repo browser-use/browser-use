@@ -17,7 +17,23 @@ from abc import ABC, abstractmethod
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+# Ed25519 verification is optional at import time (mirrors the pydantic/httpx
+# guard pattern in this package): we only need it when actually verifying a
+# signed JWT, and we raise a clear, actionable error at that point if missing.
+try:
+	from cryptography.exceptions import InvalidSignature
+	from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+	_HAS_CRYPTO = True
+except ImportError:
+	_HAS_CRYPTO = False
+
 logger = logging.getLogger(__name__)
+
+
+def _b64url_decode(segment: str) -> bytes:
+	"""Decode a base64url JWT segment, restoring stripped padding."""
+	return base64.urlsafe_b64decode(segment + '=' * (-len(segment) % 4))
 
 
 class TrustClaims(BaseModel):
@@ -97,11 +113,24 @@ class AgentIDTrustProvider(TrustProvider):
 	BASE_URL = 'https://getagentid.dev/api/v1'
 	CACHE_TTL_SECONDS = 3500  # slightly under 1 hour
 
-	def __init__(self, api_key: str | None = None, base_url: str | None = None):
+	JWKS_TTL_SECONDS = 86400  # cache the provider key for 24h (spec §4.1)
+
+	def __init__(self, api_key: str | None = None, base_url: str | None = None, public_key_b64: str | None = None):
+		"""
+		Args:
+			api_key: Optional bearer token for the AgentID API.
+			base_url: Override the API base URL (defaults to the public endpoint).
+			public_key_b64: Optional base64url Ed25519 public key (32 bytes) to verify
+				signatures against. When omitted, the provider's key is fetched from its
+				JWKS and cached. Inject it to verify offline / in tests without a network call.
+		"""
 		self.api_key = api_key
 		if base_url:
 			self.BASE_URL = base_url
 		self._cache: dict[str, tuple[str, float]] = {}
+		# Pinned/injected verification key, plus a (raw_key, expiry) JWKS cache.
+		self._pinned_key_b64 = public_key_b64
+		self._verify_key_cache: tuple[bytes, float] | None = None
 
 	async def get_no_trust_header(self, reason: str = 'provider_unreachable') -> str:
 		"""Return a minimal JWT indicating no trust data is available.
@@ -189,17 +218,42 @@ class AgentIDTrustProvider(TrustProvider):
 			logger.warning(f'Failed to fetch trust JWT for agent {agent_id}: {e}')
 			return await self.get_no_trust_header(reason=str(e))
 
+	async def _resolve_verify_key(self) -> bytes:
+		"""Return the provider's raw 32-byte Ed25519 public key.
+
+		Uses the pinned/injected key if one was given; otherwise fetches the
+		provider's JWKS (cached for JWKS_TTL_SECONDS) and extracts the Ed25519 key.
+		"""
+		if self._pinned_key_b64:
+			return _b64url_decode(self._pinned_key_b64)
+		now = time.time()
+		if self._verify_key_cache and now < self._verify_key_cache[1]:
+			return self._verify_key_cache[0]
+		root = self.BASE_URL.split('/api/')[0].rstrip('/')
+		jwks_url = f'{root}/.well-known/jwks.json'
+		async with httpx.AsyncClient() as client:
+			resp = await client.get(jwks_url, timeout=10)
+			resp.raise_for_status()
+			jwks = resp.json()
+		keys = jwks.get('keys', []) if isinstance(jwks, dict) else []
+		ed = next((k for k in keys if k.get('kty') == 'OKP' and k.get('crv') == 'Ed25519' and k.get('x')), None)
+		if not ed:
+			raise ValueError(f'No Ed25519 key found in provider JWKS at {jwks_url}')
+		raw = _b64url_decode(ed['x'])
+		if len(raw) != 32:
+			raise ValueError(f'Provider Ed25519 key has wrong length: {len(raw)} bytes')
+		self._verify_key_cache = (raw, now + self.JWKS_TTL_SECONDS)
+		return raw
+
 	async def verify_trust_jwt(self, jwt: str) -> TrustClaims:
 		"""
-		Decode and verify an Agent-Trust-Score JWT.
+		Decode and cryptographically verify an Agent-Trust-Score JWT.
 
-		Decodes the JWT header and payload, validates structural requirements,
-		and checks the ``alg`` field. Unsigned JWTs (``alg: none``) are only
-		accepted when the payload carries ``no_trust_data: true`` — all other
-		JWTs must have a non-empty signature segment.
-
-		Full cryptographic signature verification should be done server-side
-		or with the provider's public key.
+		Decodes the header + payload, then for any signed JWT verifies the Ed25519
+		signature against the provider's public key (injected, or fetched from its
+		JWKS and cached) BEFORE trusting any field (spec CR-4). Unsigned JWTs
+		(``alg: none`` / empty signature) are only accepted when the payload carries
+		``no_trust_data: true``; a forged or unverifiable signature is rejected.
 
 		Args:
 			jwt: The raw JWT string (three dot-separated base64url segments).
@@ -239,13 +293,29 @@ class AgentIDTrustProvider(TrustProvider):
 		signature_segment = parts[2]
 		is_no_trust = payload.get('no_trust_data', False)
 
-		# Reject unsigned JWTs that claim to carry real trust data
 		if alg == 'none' or not signature_segment:
+			# Unsigned: only ever acceptable as an explicit "no trust data" signal.
 			if not is_no_trust:
 				raise ValueError(
 					'Unsigned JWT (alg=none / empty signature) is only accepted '
 					'for no_trust_data payloads — refusing unverified trust claims'
 				)
+		else:
+			# Signed trust claim — the signature MUST be verified before any field
+			# is trusted (spec CR-4). Only Ed25519/EdDSA is supported.
+			if alg not in ('EdDSA', 'Ed25519'):
+				raise ValueError(f'Unsupported JWT alg {alg!r}: only Ed25519/EdDSA signatures are verifiable')
+			if not _HAS_CRYPTO:
+				raise ImportError(
+					'Verifying signed Agent-Trust-Score JWTs requires the "cryptography" package. '
+					'Install it with: pip install cryptography'
+				)
+			try:
+				raw_key = await self._resolve_verify_key()
+				signature = _b64url_decode(signature_segment)
+				Ed25519PublicKey.from_public_bytes(raw_key).verify(signature, f'{parts[0]}.{parts[1]}'.encode('ascii'))
+			except InvalidSignature:
+				raise ValueError('JWT signature verification failed — refusing forged trust claims')
 
 		claims = TrustClaims(**payload)
 

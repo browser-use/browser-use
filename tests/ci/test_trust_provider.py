@@ -9,9 +9,28 @@ import json
 import time
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from browser_use.integrations.trust.policy import TrustPolicy, TrustPolicyChain
 from browser_use.integrations.trust.service import AgentIDTrustProvider, TrustClaims
+
+# Real Ed25519 test keypair — sign JWTs the way the AgentID endpoint does, and
+# inject the matching public key into the provider so verification runs offline.
+_TEST_SK = Ed25519PrivateKey.generate()
+_TEST_PUB_B64 = base64.urlsafe_b64encode(_TEST_SK.public_key().public_bytes_raw()).rstrip(b'=').decode()
+
+
+def _sign_jwt(payload: dict) -> str:
+	"""Build a real Ed25519-signed Agent-Trust-Score JWT for the test key."""
+	header = base64.urlsafe_b64encode(json.dumps({'alg': 'Ed25519', 'typ': 'Agent-Trust-Score'}).encode()).rstrip(b'=').decode()
+	body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=').decode()
+	sig = base64.urlsafe_b64encode(_TEST_SK.sign(f'{header}.{body}'.encode('ascii'))).rstrip(b'=').decode()
+	return f'{header}.{body}.{sig}'
+
+
+def _signed_provider() -> AgentIDTrustProvider:
+	"""Provider that verifies against the injected test public key (no network)."""
+	return AgentIDTrustProvider(public_key_b64=_TEST_PUB_B64)
 
 
 def _make_jwt(payload: dict) -> str:
@@ -103,41 +122,53 @@ class TestTrustClaims:
 
 
 class TestVerifyTrustJWT:
-	async def test_verify_valid_jwt(self):
-		provider = AgentIDTrustProvider()
-		jwt = _make_jwt(_default_payload())
-		claims = await provider.verify_trust_jwt(jwt)
+	async def test_verify_valid_signed_jwt(self):
+		provider = _signed_provider()
+		claims = await provider.verify_trust_jwt(_sign_jwt(_default_payload()))
 		assert claims.agent_id == 'agent_test_001'
 		assert claims.trust_score == 75
 		assert claims.provider == 'agentid'
 
+	async def test_verify_forged_signature_raises(self):
+		"""A signed JWT whose signature doesn't match must be rejected, not trusted."""
+		provider = _signed_provider()
+		header, body, _sig = _sign_jwt(_default_payload()).split('.')
+		forged = f'{header}.{body}.' + base64.urlsafe_b64encode(b'\x00' * 64).rstrip(b'=').decode()
+		with pytest.raises(ValueError, match='signature verification failed'):
+			await provider.verify_trust_jwt(forged)
+
+	async def test_verify_fake_unsigned_trust_claim_rejected(self):
+		"""A fake-signed (alg:HS256) JWT carrying real trust data is refused."""
+		provider = _signed_provider()
+		with pytest.raises(ValueError, match='Unsupported JWT alg'):
+			await provider.verify_trust_jwt(_make_jwt(_default_payload()))
+
 	async def test_verify_expired_jwt_raises(self):
-		provider = AgentIDTrustProvider()
-		jwt = _make_jwt(_default_payload(exp=int(time.time()) - 100))
+		provider = _signed_provider()
+		jwt = _sign_jwt(_default_payload(exp=int(time.time()) - 100))
 		with pytest.raises(ValueError, match='expired'):
 			await provider.verify_trust_jwt(jwt)
 
 	async def test_verify_bad_format_raises(self):
-		provider = AgentIDTrustProvider()
+		provider = _signed_provider()
 		with pytest.raises(ValueError, match='Invalid JWT format'):
 			await provider.verify_trust_jwt('not.a.valid.jwt.at.all')
 
 	async def test_verify_unknown_provider_raises(self):
-		provider = AgentIDTrustProvider()
-		jwt = _make_jwt(_default_payload(provider='unknown_provider'))
+		provider = _signed_provider()
+		jwt = _sign_jwt(_default_payload(provider='unknown_provider'))
 		with pytest.raises(ValueError, match='Unknown provider'):
 			await provider.verify_trust_jwt(jwt)
 
 	async def test_verify_empty_jwt_raises(self):
-		provider = AgentIDTrustProvider()
+		provider = _signed_provider()
 		with pytest.raises(ValueError, match='jwt must not be empty'):
 			await provider.verify_trust_jwt('')
 
 	async def test_verify_no_provider_field_ok(self):
-		"""A JWT with empty provider should pass (backwards compatibility)."""
-		provider = AgentIDTrustProvider()
-		jwt = _make_jwt(_default_payload(provider=''))
-		claims = await provider.verify_trust_jwt(jwt)
+		"""A signed JWT with empty provider should pass (backwards compatibility)."""
+		provider = _signed_provider()
+		claims = await provider.verify_trust_jwt(_sign_jwt(_default_payload(provider='')))
 		assert claims.provider == ''
 
 
