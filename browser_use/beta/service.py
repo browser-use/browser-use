@@ -39,6 +39,10 @@ from browser_use.agent.judge import construct_judge_messages
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.prompts import SystemPrompt
+from browser_use.agent.qa_testing_prompt import (
+	extend_with_qa_testing_system_prompt,
+	task_with_qa_testing_preamble,
+)
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -1580,9 +1584,6 @@ def _result_from_events(events: list[dict[str, Any]]) -> str | None:
 		result = payload.get('result')
 		if isinstance(result, str) and result.strip():
 			return result.strip()
-		result_file = _result_file_pointer(payload)
-		if result_file:
-			return f'Saved result file.\n\nFile:\n{result_file}'
 	for event in reversed(events):
 		if _event_type(event) != 'agent.completed':
 			continue
@@ -1977,6 +1978,8 @@ def _tool_calls_with_final_done(
 	is_done: bool,
 ) -> list[dict[str, Any]]:
 	if not is_done or final_result is None:
+		return tool_calls
+	if final_result.lstrip().startswith('Saved result file.'):
 		return tool_calls
 	if tool_calls and tool_calls[-1].get('name') == 'done':
 		return tool_calls
@@ -4186,6 +4189,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			model_name = getattr(llm, 'model', '')
 			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
 				llm_screenshot_size = (1400, 850)
+		extend_system_message = extend_with_qa_testing_system_prompt(
+			extend_system_message,
+			task=task,
+			source=source,
+		)
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
 		if judge_llm is None:
@@ -6390,9 +6398,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		return None
 
 	def _sdk_run_params(self, *, max_steps: int, task: str, followups: list[str] | None = None) -> dict[str, Any]:
+		task = task_with_qa_testing_preamble(task, source=self.source)
 		params: dict[str, Any] = {
 			'task': task,
-			'cwd': os.getcwd(),
+			'cwd': str(self.agent_directory),
 			'llm': self._sdk_llm_payload(),
 			'max_steps': int(max_steps),
 			'browser_mode': self._browser_mode(),

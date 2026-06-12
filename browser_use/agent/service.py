@@ -44,6 +44,7 @@ from browser_use.agent.message_manager.service import (
 	MessageManager,
 )
 from browser_use.agent.prompts import SystemPrompt
+from browser_use.agent.qa_testing_prompt import extend_with_qa_testing_system_prompt
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -247,6 +248,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
 				llm_screenshot_size = (1400, 850)
 				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
+		extend_system_message = extend_with_qa_testing_system_prompt(
+			extend_system_message,
+			task=task,
+			source=source,
+		)
 
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
