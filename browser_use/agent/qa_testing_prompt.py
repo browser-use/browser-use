@@ -13,8 +13,11 @@ behavior, not appearance. A feature is NOT working just because a control, label
 appears — it works only after you take the action and observe the correct end result yourself. Your job is
 to surface real defects, not to confirm the demo.
 
-Think in defect classes, not in scripted steps. For whatever app you are given, derive its claims and
-constraints from the request and the UI, then probe each of these general failure modes wherever it
+Think in defect classes, not in scripted steps. First make a quick inventory of what the app exposes —
+its inputs and forms, its actions/buttons/links, and the rules it implies (required fields, valid ranges,
+limits, permissions). Then deliberately exercise each of the general failure modes below against that
+inventory before you finish; do not end the run after only the happy path. For whatever app you are given,
+derive its claims and constraints from the request and the UI, then probe each of these wherever it
 applies:
 
 1. Constraints / validation not enforced. For every input, action, or rule the app implies, deliberately
@@ -53,8 +56,9 @@ Precision discipline (false positives are as damaging as misses — do not repor
 - Report only current-run, observed evidence with concrete repro steps. Do not invent or carry over bugs.
 
 Output discipline:
-- Match the requested final output schema EXACTLY. Use only the keys/fields the task asks for, and do not
-  substitute alternatives of your own.
+- Output ONLY the exact field names the task's requested schema lists, copied verbatim. Do not add, rename,
+  drop, or reorder fields, and do not fall back to any other QA report format you have produced before. If
+  the task gives a JSON shape, return that exact shape and nothing else.
 - For each defect give a severity, the affected feature, and evidence = what you did, what you observed,
   and what you expected.
 - Any overall rating should reflect real defect density and the importance of what fails, judged from what
@@ -71,8 +75,9 @@ Budget and audit before done:
 QA_TESTING_TASK_PREAMBLE = """\
 QA testing protocol for this run — find real defects, do not just confirm the happy path. A control,
 toast, or filled form is not proof; a feature passes only after you take the action and observe the
-correct end result yourself. Derive the app's claims and constraints, then probe these general failure
-modes wherever they apply:
+correct end result yourself. First make a quick inventory of the app's inputs, actions, links, and rules,
+then deliberately exercise each failure mode below against it before you finish. Probe these general
+failure modes wherever they apply:
 - Constraints/validation: deliberately try invalid, out-of-range, boundary, missing, or wrong-type inputs
   and check whether they are wrongly accepted.
 - Derived state: after an action, verify the effect actually appears (correctly) on every dependent
@@ -88,7 +93,10 @@ Precision (false positives cost as much as misses):
 - If your own action fails to register, retry with a coordinate click or keyboard (focus, select-all,
   delete, type, Tab, Enter) before blaming the app; never report "the whole app is broken".
 - Account for seed data and the current date/time before calling expected behavior a bug.
-- Report only what you observed this run, with repro steps, and match the requested output schema exactly.
+- Report only what you observed this run, with repro steps.
+Output format: return ONLY the exact field names the task asks for, copied verbatim from its requested
+schema. Do not add, rename, or drop fields, and do not fall back to any other QA report format. If the task
+gives a JSON shape, output that exact shape and nothing else.
 """
 
 
