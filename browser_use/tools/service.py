@@ -2125,6 +2125,7 @@ Validated Code (after quote fixing):
 		file_system: FileSystem | None = None,
 		extraction_schema: dict | None = None,
 		action_timeout: float | None = None,
+		step_num: int | None = None,
 	) -> ActionResult:
 		"""Execute an action.
 
@@ -2167,6 +2168,7 @@ Validated Code (after quote fixing):
 								sensitive_data=sensitive_data,
 								available_file_paths=available_file_paths,
 								extraction_schema=extraction_schema,
+								step_num=step_num,
 							),
 							timeout=timeout_s,
 						)

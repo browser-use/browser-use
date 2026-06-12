@@ -14,8 +14,10 @@ from pydantic import BaseModel, Field, RootModel, create_model
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
+from browser_use.logger import try_get_current_logger
 from browser_use.observability import observe_debug
 from browser_use.telemetry.service import ProductTelemetry
+from browser_use.tools.registry.capture import build_element_record
 from browser_use.tools.registry.views import (
 	ActionModel,
 	ActionRegistry,
@@ -337,12 +339,42 @@ class Registry(Generic[Context]):
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
+		step_num: int | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
 			raise ValueError(f'Action {action_name} not found')
 
 		action = self.registry.actions[action_name]
+
+		# ── Trajectory capture (optional, see browser_use/tools/registry/capture.py) ──
+		# For index-bearing actions, record a rich element snapshot (retargeted to the
+		# real interaction owner, with capture-time verified selector candidates) into
+		# the per-task event log. Strictly best-effort: never breaks the action.
+		events_logger = try_get_current_logger()
+		element: dict[str, Any] = {}
+		if browser_session is not None and isinstance(params, dict) and params.get('index') is not None:
+			try:
+				node = await browser_session.get_dom_element_by_index(params.get('index'))
+				if node is not None:
+					element = await build_element_record(node, browser_session)
+			except Exception as e:
+				logger.warning(f'Element capture failed for action {action_name}: {type(e).__name__}: {e}')
+
+		if events_logger is not None:
+			try:
+				events_logger.log_start(tool=action_name, action={**params, 'element': element}, step_num=step_num)
+			except Exception as e:
+				logger.warning(f'Event logging (start) failed for action {action_name}: {e}')
+
+		def _log_end(status: str, error: str | None = None) -> None:
+			if events_logger is None:
+				return
+			try:
+				events_logger.log_end(action_name, status, error, step_num=step_num)
+			except Exception as e:
+				logger.warning(f'Event logging (end) failed for action {action_name}: {e}')
+
 		try:
 			# Create the validated Pydantic model
 			try:
@@ -391,12 +423,15 @@ class Registry(Generic[Context]):
 			# All functions are now normalized to accept kwargs only
 			# Call with params and unpacked special context
 			try:
-				return await action.function(params=validated_params, **special_context)
+				result = await action.function(params=validated_params, **special_context)
 			except Exception as e:
 				raise
+			_log_end('success')
+			return result
 
 		except ValueError as e:
 			# Preserve ValueError messages from validation
+			_log_end('failure', str(e))
 			if 'requires browser_session but none provided' in str(e) or 'requires page_extraction_llm but none provided' in str(
 				e
 			):
@@ -404,8 +439,10 @@ class Registry(Generic[Context]):
 			else:
 				raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 		except TimeoutError as e:
+			_log_end('failure', str(e))
 			raise RuntimeError(f'Error executing action {action_name} due to timeout.') from e
 		except Exception as e:
+			_log_end('failure', str(e))
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 
 	def _log_sensitive_data_usage(self, placeholders_used: set[str], current_url: str | None) -> None:
