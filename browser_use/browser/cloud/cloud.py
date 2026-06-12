@@ -11,7 +11,6 @@ import os
 import httpx
 
 from browser_use.browser.cloud.views import CloudBrowserAuthError, CloudBrowserError, CloudBrowserResponse, CreateBrowserRequest
-from browser_use.sync.auth import CloudAuthConfig
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +36,8 @@ class CloudBrowserClient:
 		"""
 		url = f'{self.api_base_url}/api/v2/browsers'
 
-		# Try to get API key from environment variable first, then auth config
+		# Cloud sync/auth has been removed; cloud browsers now require an explicit API key.
 		api_token = os.getenv('BROWSER_USE_API_KEY')
-
-		if not api_token:
-			# Fallback to auth config file
-			try:
-				auth_config = CloudAuthConfig.load_from_file()
-				api_token = auth_config.api_token
-			except Exception:
-				pass
 
 		if not api_token:
 			raise CloudBrowserAuthError(
@@ -126,16 +117,8 @@ class CloudBrowserClient:
 
 		url = f'{self.api_base_url}/api/v2/browsers/{session_id}'
 
-		# Try to get API key from environment variable first, then auth config
+		# Cloud sync/auth has been removed; cloud browsers now require an explicit API key.
 		api_token = os.getenv('BROWSER_USE_API_KEY')
-
-		if not api_token:
-			# Fallback to auth config file
-			try:
-				auth_config = CloudAuthConfig.load_from_file()
-				api_token = auth_config.api_token
-			except Exception:
-				pass
 
 		if not api_token:
 			raise CloudBrowserAuthError(

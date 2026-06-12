@@ -25,22 +25,6 @@ from pathlib import Path
 # These commands don't need the daemon infrastructure
 # =============================================================================
 
-# Handle --mcp flag early to prevent logging initialization
-if '--mcp' in sys.argv:
-	import logging
-
-	os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
-	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
-	logging.disable(logging.CRITICAL)
-
-	import asyncio
-
-	from browser_use.mcp.server import main as mcp_main
-
-	asyncio.run(mcp_main())
-	sys.exit(0)
-
-
 # Helper to find the subcommand (first non-flag argument)
 def _get_subcommand() -> str | None:
 	"""Get the first non-flag argument (the subcommand)."""
@@ -663,7 +647,6 @@ def build_parser() -> argparse.ArgumentParser:
 	)
 	parser.add_argument('--session', default=None, help='Session name (default: "default")')
 	parser.add_argument('--json', action='store_true', help='Output as JSON')
-	parser.add_argument('--mcp', action='store_true', help='Run as MCP server (JSON-RPC via stdin/stdout)')
 	parser.add_argument('--template', help='Generate template file (use with --output for custom path)')
 
 	subparsers = parser.add_subparsers(dest='command', help='Command to execute')

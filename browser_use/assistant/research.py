@@ -12,7 +12,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 import httpx
 from pydantic import BaseModel, Field
 
-from browser_use import Agent, Browser, ChatBrowserUse, ChatOpenAI
+from browser_use import Agent, Browser, ChatOpenAI
 from browser_use.agent.views import AgentHistoryList
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
@@ -2787,19 +2787,16 @@ def resolve_llm(model_name: str | None = None) -> BaseChatModel:
 			return get_llm_by_name(explicit)
 		if os.getenv('OPENAI_API_KEY') or os.getenv('OPENAI_BASE_URL'):
 			return ChatOpenAI(model=explicit, api_key=os.getenv('OPENAI_API_KEY'), base_url=os.getenv('OPENAI_BASE_URL') or None)
-		if os.getenv('BROWSER_USE_API_KEY'):
-			return ChatBrowserUse(model=explicit, api_key=os.getenv('BROWSER_USE_API_KEY'))
 
 	if raw_model and (os.getenv('OPENAI_API_KEY') or os.getenv('OPENAI_BASE_URL')):
 		return ChatOpenAI(model=raw_model, api_key=os.getenv('OPENAI_API_KEY'), base_url=os.getenv('OPENAI_BASE_URL') or None)
 
-	if os.getenv('BROWSER_USE_API_KEY'):
-		return ChatBrowserUse(model='bu-2-0', api_key=os.getenv('BROWSER_USE_API_KEY'))
+	if os.getenv('OPENAI_API_KEY'):
+		return ChatOpenAI(model='gpt-5-mini', api_key=os.getenv('OPENAI_API_KEY'), base_url=os.getenv('OPENAI_BASE_URL') or None)
 
 	raise ValueError(
 		'No supported LLM configuration found. Set DEFAULT_LLM=openai_gpt_5_4, '
-		'or set BROWSER_USE_LLM_MODEL plus OPENAI_API_KEY/OPENAI_BASE_URL, '
-		'or configure BROWSER_USE_API_KEY for ChatBrowserUse.'
+		'or set BROWSER_USE_LLM_MODEL plus OPENAI_API_KEY/OPENAI_BASE_URL.'
 	)
 
 

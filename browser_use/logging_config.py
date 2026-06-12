@@ -65,7 +65,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 	"""Setup logging configuration for browser-use.
 
 	Args:
-		stream: Output stream for logs (default: sys.stdout). Can be sys.stderr for MCP mode.
+		stream: Output stream for logs (default: sys.stdout).
 		log_level: Override log level (default: uses CONFIG.BROWSER_USE_LOGGING_LEVEL)
 		force_setup: Force reconfiguration even if handlers already exist
 		debug_log_file: Path to log file for debug level logs only

@@ -7,28 +7,13 @@ Usage:
     # Simple model access
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
-    model = llm.google_gemini_2_5_pro
-    model = llm.bu_latest  # or bu_1_0, bu_2_0
 """
 
 import os
 from typing import TYPE_CHECKING
 
 from browser_use.llm.azure.chat import ChatAzureOpenAI
-from browser_use.llm.browser_use.chat import ChatBrowserUse
-from browser_use.llm.cerebras.chat import ChatCerebras
-from browser_use.llm.google.chat import ChatGoogle
-from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
-
-# Optional OCI import
-try:
-	from browser_use.llm.oci_raw.chat import ChatOCIRaw
-
-	OCI_AVAILABLE = True
-except ImportError:
-	ChatOCIRaw = None
-	OCI_AVAILABLE = False
 
 if TYPE_CHECKING:
 	from browser_use.llm.base import BaseChatModel
@@ -60,31 +45,6 @@ azure_o3_pro: 'BaseChatModel'
 azure_gpt_5: 'BaseChatModel'
 azure_gpt_5_mini: 'BaseChatModel'
 
-google_gemini_2_0_flash: 'BaseChatModel'
-google_gemini_2_0_pro: 'BaseChatModel'
-google_gemini_2_5_pro: 'BaseChatModel'
-google_gemini_2_5_flash: 'BaseChatModel'
-google_gemini_2_5_flash_lite: 'BaseChatModel'
-mistral_large: 'BaseChatModel'
-mistral_medium: 'BaseChatModel'
-mistral_small: 'BaseChatModel'
-codestral: 'BaseChatModel'
-pixtral_large: 'BaseChatModel'
-
-cerebras_llama3_1_8b: 'BaseChatModel'
-cerebras_llama3_3_70b: 'BaseChatModel'
-cerebras_gpt_oss_120b: 'BaseChatModel'
-cerebras_llama_4_scout_17b_16e_instruct: 'BaseChatModel'
-cerebras_llama_4_maverick_17b_128e_instruct: 'BaseChatModel'
-cerebras_qwen_3_32b: 'BaseChatModel'
-cerebras_qwen_3_235b_a22b_instruct_2507: 'BaseChatModel'
-cerebras_qwen_3_235b_a22b_thinking_2507: 'BaseChatModel'
-cerebras_qwen_3_coder_480b: 'BaseChatModel'
-
-bu_latest: 'BaseChatModel'
-bu_1_0: 'BaseChatModel'
-bu_2_0: 'BaseChatModel'
-
 
 def get_llm_by_name(model_name: str):
 	"""
@@ -101,19 +61,6 @@ def get_llm_by_name(model_name: str):
 	"""
 	if not model_name:
 		raise ValueError('Model name cannot be empty')
-
-	# Handle top-level Mistral aliases without provider prefix
-	mistral_aliases = {
-		'mistral_large': 'mistral-large-latest',
-		'mistral_medium': 'mistral-medium-latest',
-		'mistral_small': 'mistral-small-latest',
-		'codestral': 'codestral-latest',
-		'pixtral_large': 'pixtral-large-latest',
-	}
-	if model_name in mistral_aliases:
-		api_key = os.getenv('MISTRAL_API_KEY')
-		base_url = os.getenv('MISTRAL_BASE_URL', 'https://api.mistral.ai/v1')
-		return ChatMistral(model=mistral_aliases[model_name], api_key=api_key, base_url=base_url)
 
 	# Parse model name
 	parts = model_name.split('_', 1)
@@ -132,34 +79,6 @@ def get_llm_by_name(model_name: str):
 		model = model_part.replace('gpt_4o', 'gpt-4o')
 	elif 'gpt_5_4' in model_part:
 		model = model_part.replace('gpt_5_4', 'gpt-5.4').replace('_', '-')
-	elif 'gemini_2_0' in model_part:
-		model = model_part.replace('gemini_2_0', 'gemini-2.0').replace('_', '-')
-	elif 'gemini_2_5' in model_part:
-		model = model_part.replace('gemini_2_5', 'gemini-2.5').replace('_', '-')
-	elif 'llama3_1' in model_part:
-		model = model_part.replace('llama3_1', 'llama3.1').replace('_', '-')
-	elif 'llama3_3' in model_part:
-		model = model_part.replace('llama3_3', 'llama-3.3').replace('_', '-')
-	elif 'llama_4_scout' in model_part:
-		model = model_part.replace('llama_4_scout', 'llama-4-scout').replace('_', '-')
-	elif 'llama_4_maverick' in model_part:
-		model = model_part.replace('llama_4_maverick', 'llama-4-maverick').replace('_', '-')
-	elif 'gpt_oss_120b' in model_part:
-		model = model_part.replace('gpt_oss_120b', 'gpt-oss-120b')
-	elif 'qwen_3_32b' in model_part:
-		model = model_part.replace('qwen_3_32b', 'qwen-3-32b')
-	elif 'qwen_3_235b_a22b_instruct' in model_part:
-		if model_part.endswith('_2507'):
-			model = model_part.replace('qwen_3_235b_a22b_instruct_2507', 'qwen-3-235b-a22b-instruct-2507')
-		else:
-			model = model_part.replace('qwen_3_235b_a22b_instruct', 'qwen-3-235b-a22b-instruct-2507')
-	elif 'qwen_3_235b_a22b_thinking' in model_part:
-		if model_part.endswith('_2507'):
-			model = model_part.replace('qwen_3_235b_a22b_thinking_2507', 'qwen-3-235b-a22b-thinking-2507')
-		else:
-			model = model_part.replace('qwen_3_235b_a22b_thinking', 'qwen-3-235b-a22b-thinking-2507')
-	elif 'qwen_3_coder_480b' in model_part:
-		model = model_part.replace('qwen_3_coder_480b', 'qwen-3-coder-480b')
 	else:
 		model = model_part.replace('_', '-')
 
@@ -175,72 +94,18 @@ def get_llm_by_name(model_name: str):
 		azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
 		return ChatAzureOpenAI(model=model, api_key=api_key, azure_endpoint=azure_endpoint)
 
-	# Google Models
-	elif provider == 'google':
-		api_key = os.getenv('GOOGLE_API_KEY')
-		return ChatGoogle(model=model, api_key=api_key)
-
-	# Mistral Models
-	elif provider == 'mistral':
-		api_key = os.getenv('MISTRAL_API_KEY')
-		base_url = os.getenv('MISTRAL_BASE_URL', 'https://api.mistral.ai/v1')
-		mistral_map = {
-			'large': 'mistral-large-latest',
-			'medium': 'mistral-medium-latest',
-			'small': 'mistral-small-latest',
-			'codestral': 'codestral-latest',
-			'pixtral-large': 'pixtral-large-latest',
-		}
-		normalized_model_part = model_part.replace('_', '-')
-		resolved_model = mistral_map.get(normalized_model_part, model.replace('_', '-'))
-		return ChatMistral(model=resolved_model, api_key=api_key, base_url=base_url)
-
-	# OCI Models
-	elif provider == 'oci':
-		# OCI requires more complex configuration that can't be easily inferred from env vars
-		# Users should use ChatOCIRaw directly with proper configuration
-		raise ValueError('OCI models require manual configuration. Use ChatOCIRaw directly with your OCI credentials.')
-
-	# Cerebras Models
-	elif provider == 'cerebras':
-		api_key = os.getenv('CEREBRAS_API_KEY')
-		return ChatCerebras(model=model, api_key=api_key)
-
-	# Browser Use Models
-	elif provider == 'bu':
-		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
-		model = f'bu-{model_part.replace("_", "-")}'
-		api_key = os.getenv('BROWSER_USE_API_KEY')
-		return ChatBrowserUse(model=model, api_key=api_key)
-
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
-
+		available_providers = ['openai', 'azure']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
 # Pre-configured model instances (lazy loaded via __getattr__)
 def __getattr__(name: str) -> 'BaseChatModel':
 	"""Create model instances on demand with API keys from environment."""
-	# Handle chat classes first
 	if name == 'ChatOpenAI':
 		return ChatOpenAI  # type: ignore
 	elif name == 'ChatAzureOpenAI':
 		return ChatAzureOpenAI  # type: ignore
-	elif name == 'ChatGoogle':
-		return ChatGoogle  # type: ignore
-
-	elif name == 'ChatMistral':
-		return ChatMistral  # type: ignore
-
-	elif name == 'ChatOCIRaw':
-		if not OCI_AVAILABLE:
-			raise ImportError('OCI integration not available. Install with: pip install "browser-use[oci]"')
-		return ChatOCIRaw  # type: ignore
-	elif name == 'ChatCerebras':
-		return ChatCerebras  # type: ignore
-	elif name == 'ChatBrowserUse':
-		return ChatBrowserUse  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -249,20 +114,9 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
-# Export all classes and preconfigured instances, conditionally including ChatOCIRaw
 __all__ = [
 	'ChatOpenAI',
 	'ChatAzureOpenAI',
-	'ChatGoogle',
-	'ChatMistral',
-	'ChatCerebras',
-	'ChatBrowserUse',
-]
-
-if OCI_AVAILABLE:
-	__all__.append('ChatOCIRaw')
-
-__all__ += [
 	'get_llm_by_name',
 	# OpenAI instances - created on demand
 	'openai_gpt_4o',
@@ -290,33 +144,4 @@ __all__ += [
 	'azure_o3_pro',
 	'azure_gpt_5',
 	'azure_gpt_5_mini',
-	# Google instances - created on demand
-	'google_gemini_2_0_flash',
-	'google_gemini_2_0_pro',
-	'google_gemini_2_5_pro',
-	'google_gemini_2_5_flash',
-	'google_gemini_2_5_flash_lite',
-	# Mistral instances - created on demand
-	'mistral_large',
-	'mistral_medium',
-	'mistral_small',
-	'codestral',
-	'pixtral_large',
-	# Cerebras instances - created on demand
-	'cerebras_llama3_1_8b',
-	'cerebras_llama3_3_70b',
-	'cerebras_gpt_oss_120b',
-	'cerebras_llama_4_scout_17b_16e_instruct',
-	'cerebras_llama_4_maverick_17b_128e_instruct',
-	'cerebras_qwen_3_32b',
-	'cerebras_qwen_3_235b_a22b_instruct_2507',
-	'cerebras_qwen_3_235b_a22b_thinking_2507',
-	'cerebras_qwen_3_coder_480b',
-	# Browser Use instances - created on demand
-	'bu_latest',
-	'bu_1_0',
-	'bu_2_0',
 ]
-
-# NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required
-# so this module can be imported without browser-use[oci] installed.

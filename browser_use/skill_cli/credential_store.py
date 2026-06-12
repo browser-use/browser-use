@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
-
+from uuid_extensions import uuid7str
 
 SENSITIVE_FIELD_TYPES = {'password', 'token', 'api_key', 'secret'}
 
@@ -114,6 +114,41 @@ class CredentialStore:
 		except json.JSONDecodeError as exc:
 			raise ValueError(f'Invalid credential store JSON: {self.path}') from exc
 		return CredentialStoreData.model_validate(raw)
+
+	def save(self, data: CredentialStoreData) -> None:
+		"""Persist credential store data."""
+
+		self.path.write_text(
+			json.dumps(data.model_dump(mode='json'), indent=2, ensure_ascii=False),
+			encoding='utf-8',
+		)
+
+	def add_profile(
+		self,
+		label: str,
+		url: str,
+		fields: list[AutofillField],
+		profile_id: str | None = None,
+	) -> AutofillProfile:
+		"""Create and persist an autofill profile for a URL."""
+
+		parsed = urlparse(url)
+		host = _normalize_domain(parsed.netloc)
+		if not host:
+			raise ValueError('url must include a valid http(s) domain')
+
+		profile = AutofillProfile(
+			id=profile_id or uuid7str(),
+			label=label,
+			domains=[host],
+			urls=[url],
+			fields=fields,
+		)
+		data = self.load()
+		data.profiles = [existing for existing in data.profiles if existing.id != profile.id]
+		data.profiles.append(profile)
+		self.save(data)
+		return profile
 
 	def matching_profiles(self, url: str) -> list[AutofillProfile]:
 		data = self.load()

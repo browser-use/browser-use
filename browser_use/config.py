@@ -59,10 +59,6 @@ class OldConfig:
 		return os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[:1] in 'ty1'
 
 	@property
-	def BROWSER_USE_CLOUD_SYNC(self) -> bool:
-		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
-
-	@property
 	def BROWSER_USE_CLOUD_API_URL(self) -> str:
 		url = os.getenv('BROWSER_USE_CLOUD_API_URL', 'https://api.browser-use.com')
 		assert '://' in url, 'BROWSER_USE_CLOUD_API_URL must be a valid URL'
@@ -203,7 +199,6 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_DEBUG_LOG_FILE: str | None = Field(default=None)
 	BROWSER_USE_INFO_LOG_FILE: str | None = Field(default=None)
 	ANONYMIZED_TELEMETRY: bool = Field(default=True)
-	BROWSER_USE_CLOUD_SYNC: bool | None = Field(default=None)
 	BROWSER_USE_CLOUD_API_URL: str = Field(default='https://api.browser-use.com')
 	BROWSER_USE_CLOUD_UI_URL: str = Field(default='')
 	BROWSER_USE_MODEL_PRICING_URL: str = Field(default='')
@@ -232,11 +227,12 @@ class FlatEnvConfig(BaseSettings):
 	WIN_FONT_DIR: str = Field(default='C:\\Windows\\Fonts')
 	BROWSER_USE_VERSION_CHECK: bool = Field(default=True)
 
-	# MCP-specific env vars
 	BROWSER_USE_CONFIG_PATH: str | None = Field(default=None)
 	BROWSER_USE_HEADLESS: bool | None = Field(default=None)
+	BROWSERUSE_HEADLESS: bool | None = Field(default=None)
 	BROWSER_USE_ALLOWED_DOMAINS: str | None = Field(default=None)
 	BROWSER_USE_LLM_MODEL: str | None = Field(default=None)
+	BROWSERUSE_LLM_MODEL: str | None = Field(default=None)
 
 	# Proxy env vars
 	BROWSER_USE_PROXY_URL: str | None = Field(default=None)
@@ -394,7 +390,7 @@ class Config:
 		if hasattr(old_config, name):
 			return getattr(old_config, name)
 
-		# For new MCP-specific attributes not in old config
+		# For new flat env attributes not in old config
 		env_config = FlatEnvConfig()
 		if hasattr(env_config, name):
 			return getattr(env_config, name)
@@ -469,7 +465,7 @@ class Config:
 		return {}
 
 	def _load_config(self) -> dict[str, Any]:
-		"""Load configuration with env var overrides for MCP components."""
+		"""Load configuration with env var overrides."""
 		config = {
 			'browser_profile': self._get_default_profile(),
 			'llm': self._get_default_llm(),
@@ -479,9 +475,9 @@ class Config:
 		# Fresh env config for overrides
 		env_config = FlatEnvConfig()
 
-		# Apply MCP-specific env var overrides
-		if env_config.BROWSER_USE_HEADLESS is not None:
-			config['browser_profile']['headless'] = env_config.BROWSER_USE_HEADLESS
+		headless_str = os.getenv('BROWSER_USE_HEADLESS') or os.getenv('BROWSERUSE_HEADLESS')
+		if headless_str is not None:
+			config['browser_profile']['headless'] = headless_str.lower()[:1] in 'ty1'
 
 		if env_config.BROWSER_USE_ALLOWED_DOMAINS:
 			domains = [d.strip() for d in env_config.BROWSER_USE_ALLOWED_DOMAINS.split(',') if d.strip()]
@@ -509,8 +505,9 @@ class Config:
 		if env_config.OPENAI_BASE_URL:
 			config['llm']['base_url'] = env_config.OPENAI_BASE_URL.rstrip('/')
 
-		if env_config.BROWSER_USE_LLM_MODEL:
-			config['llm']['model'] = env_config.BROWSER_USE_LLM_MODEL
+		llm_model = os.getenv('BROWSER_USE_LLM_MODEL') or os.getenv('BROWSERUSE_LLM_MODEL')
+		if llm_model:
+			config['llm']['model'] = llm_model
 
 		# Extension settings
 		if env_config.BROWSER_USE_DISABLE_EXTENSIONS is not None:
@@ -523,9 +520,8 @@ class Config:
 CONFIG = Config()
 
 
-# Helper functions for MCP components
 def load_browser_use_config() -> dict[str, Any]:
-	"""Load browser-use configuration for MCP components."""
+	"""Load browser-use configuration."""
 	return CONFIG.load_config()
 
 

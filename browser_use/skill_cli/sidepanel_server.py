@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,7 +15,8 @@ from dotenv import load_dotenv
 
 from browser_use.accounts.service import AccountService
 from browser_use.assistant.research import BrowserResearchAssistant, ResearchAssistantConfig, render_report
-from browser_use.skill_cli.credential_store import CredentialStore, ensure_credential_store
+from browser_use.browser import BrowserSession
+from browser_use.skill_cli.credential_store import AutofillField, CredentialStore, ensure_credential_store
 
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 8765
@@ -79,6 +81,42 @@ def _page_context_prompt(page_context: dict[str, Any] | None) -> str:
 	)
 
 
+def _is_browser_action_task(task: str) -> bool:
+	"""Return True for direct browser-control tasks that should run the Agent."""
+
+	text = task.strip().lower()
+	if re.search(r'https?://', text) and re.search(
+		r'\b(go|open|visit|navigate|click|fill|type|login|log in|sign in|submit|solve|complete|download|upload)\b',
+		text,
+	):
+		return True
+	if re.search(
+		r'\b(go to|open|visit|navigate to|click|fill|type|login|log in|sign in|submit|solve|complete|download|upload)\b',
+		text,
+	):
+		return True
+	if re.search(r'(打开|访问|进入|点击|填写|输入|登录|登陆|提交|完成|下载|上传|验证码)', task):
+		return True
+	return False
+
+
+def _should_use_research_assistant(task: str, payload: dict[str, Any]) -> bool:
+	"""Route side-panel requests to report mode only when they are research-like."""
+
+	if payload.get('assistant_mode') == 'agent':
+		return False
+	if payload.get('assistant_mode') == 'research':
+		return True
+	if _is_browser_action_task(task):
+		return False
+	text = task.lower()
+	if re.search(r'\b(recommend|compare|comparison|research|investigate|analyze|analysis|survey|best|buy|choose)\b', text):
+		return True
+	if re.search(r'(推荐|比较|对比|调研|研究|分析|总结|选购|购买|哪个好|哪款)', task):
+		return True
+	return False
+
+
 class SidePanelServer:
 	def __init__(self, config: SidePanelServerConfig):
 		self.config = config
@@ -140,6 +178,64 @@ class SidePanelServer:
 			return _cors_response({'error': 'No matching autofill profile for this URL'}, status=404)
 		return _cors_response({'profile': resolved})
 
+	async def autofill_create(self, request: web.Request) -> web.Response:
+		try:
+			payload = await request.json()
+		except json.JSONDecodeError:
+			return _cors_response({'error': 'Invalid JSON body'}, status=400)
+
+		label = str(payload.get('label') or '').strip()
+		url = str(payload.get('url') or '').strip()
+		login_method = str(payload.get('login_method') or '').strip()
+		if not label:
+			return _cors_response({'error': 'label is required'}, status=400)
+		if not url.lower().startswith(('http://', 'https://')):
+			return _cors_response({'error': 'url must start with http:// or https://'}, status=400)
+		if login_method not in {'password', 'phone'}:
+			return _cors_response({'error': 'login_method must be "password" or "phone"'}, status=400)
+
+		fields: list[AutofillField] = []
+		if login_method == 'password':
+			username = str(payload.get('username') or '').strip()
+			password = str(payload.get('password') or '')
+			if not username or not password:
+				return _cors_response({'error': 'username and password are required'}, status=400)
+			fields.extend(
+				[
+					AutofillField(
+						name='username',
+						value=username,
+						field_type='username',
+						aliases=['email', 'login', 'account', '账号', '用户名'],
+					),
+					AutofillField(
+						name='password',
+						value=password,
+						field_type='password',
+						aliases=['password', 'pwd', '密码'],
+					),
+				]
+			)
+		else:
+			phone = str(payload.get('phone') or '').strip()
+			if not phone:
+				return _cors_response({'error': 'phone is required'}, status=400)
+			fields.append(
+				AutofillField(
+					name='phone',
+					value=phone,
+					field_type='phone',
+					aliases=['phone', 'mobile', 'tel', '手机号', '手机'],
+				)
+			)
+
+		try:
+			profile = self.credential_store.add_profile(label=label, url=url, fields=fields)
+			preview = self.credential_store.preview_matches(url)
+		except Exception as exc:
+			return _cors_response({'error': str(exc)}, status=500)
+		return _cors_response({'profile': profile.model_dump(mode='json'), 'matches': preview}, status=201)
+
 	def _resolve_cdp_url(self, requested_cdp_url: str | None = None) -> str | None:
 		if requested_cdp_url:
 			return requested_cdp_url
@@ -160,6 +256,47 @@ class SidePanelServer:
 			self._discovered_cdp_url = None
 		return self._discovered_cdp_url
 
+	async def _run_browser_agent(
+		self,
+		task: str,
+		payload: dict[str, Any],
+		cdp_url: str | None,
+		use_vision: bool,
+	) -> dict[str, Any]:
+		from browser_use.agent.service import Agent
+		from browser_use.assistant.research import resolve_llm
+
+		llm = resolve_llm(str(payload.get('model') or self.config.model or '') or None)
+		fallback_model = str(payload.get('fallback_model') or self.config.fallback_model or '') or None
+		fallback_llm = resolve_llm(fallback_model) if fallback_model else None
+		browser_kwargs: dict[str, Any] = {'enable_default_extensions': True}
+		if cdp_url:
+			browser_kwargs['cdp_url'] = cdp_url
+		else:
+			browser_kwargs['headless'] = False
+		browser = BrowserSession(**browser_kwargs)
+		agent = Agent(
+			task=task,
+			llm=llm,
+			fallback_llm=fallback_llm,
+			browser=browser,
+			accounts_file=self.config.accounts_file or os.getenv('BROWSER_USE_ACCOUNTS_FILE'),
+			use_vision='auto' if use_vision else False,
+			llm_timeout=int(payload.get('llm_timeout') or self.config.llm_timeout),
+			max_actions_per_step=3,
+		)
+		history = await agent.run(max_steps=int(payload.get('max_steps') or self.config.max_steps))
+		return {
+			'result': history.final_result() if history else '',
+			'mode': 'agent',
+			'is_done': history.is_done() if history else False,
+			'is_successful': history.is_successful() if history else None,
+			'visited_urls': history.urls() if history else [],
+			'action_names': history.action_names() if history else [],
+			'errors': [error for error in (history.errors() if history else []) if error],
+			'cdp_url': cdp_url,
+		}
+
 	async def assistant(self, request: web.Request) -> web.Response:
 		try:
 			payload = await request.json()
@@ -176,12 +313,19 @@ class SidePanelServer:
 
 		requested_cdp_url = str(payload.get('cdp_url') or '').strip() or None
 		cdp_url = self._resolve_cdp_url(requested_cdp_url)
-		enriched_task = task + _page_context_prompt(page_context)
 
 		# Determine use_vision: prefer request payload, then server config
 		use_vision = payload.get('use_vision')
 		if use_vision is None:
 			use_vision = self.config.use_vision
+
+		if not _should_use_research_assistant(task, payload):
+			try:
+				return _cors_response(await self._run_browser_agent(task, payload, cdp_url, bool(use_vision)))
+			except Exception as exc:
+				return _cors_response({'error': str(exc), 'mode': 'agent'}, status=500)
+
+		enriched_task = task + _page_context_prompt(page_context)
 
 		config = ResearchAssistantConfig(
 			task=enriched_task,
@@ -238,6 +382,8 @@ def create_app(config: SidePanelServerConfig) -> web.Application:
 	app.router.add_options('/autofill/preview', server.options)
 	app.router.add_post('/autofill/resolve', server.autofill_resolve)
 	app.router.add_options('/autofill/resolve', server.options)
+	app.router.add_post('/autofill/create', server.autofill_create)
+	app.router.add_options('/autofill/create', server.options)
 	return app
 
 
@@ -252,8 +398,7 @@ async def run_server(config: SidePanelServerConfig) -> None:
 	print(f'Browser Use side-panel bridge listening on http://{config.host}:{config.port}', flush=True)
 	print(f'Autofill profile store: {store_path}', flush=True)
 	try:
-		while True:
-			await asyncio.sleep(3600)
+		await asyncio.Event().wait()
 	finally:
 		await runner.cleanup()
 

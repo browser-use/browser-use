@@ -1,13 +1,11 @@
 """Tests for the accounts management module."""
 
 import json
-import tempfile
-from pathlib import Path
 
 import pytest
 
 from browser_use.accounts.service import AccountService
-from browser_use.accounts.views import Account, AccountCredentials, AccountsData, PLATFORM_DOMAINS
+from browser_use.accounts.views import Account, AccountCredentials, AccountsData
 
 
 @pytest.fixture
@@ -189,6 +187,58 @@ class TestAccountService:
 		data = json.loads(new_path.read_text())
 		assert data['version'] == 1
 		assert data['accounts'] == []
+
+
+class TestAccountAutofillHelpers:
+	def test_auto_fill_login_action_is_registered(self):
+		from browser_use.tools.service import Tools
+
+		tools = Tools()
+		assert 'auto_fill_login' in tools.registry.registry.actions
+
+	def test_resolve_account_for_autofill_by_url(self, service):
+		from browser_use.tools.service import _resolve_account_for_autofill
+
+		account = _resolve_account_for_autofill(service, None, 'https://github.com/login')
+		assert account is not None
+		assert account.platform == 'github'
+
+	def test_resolve_account_for_autofill_by_label(self, service):
+		from browser_use.tools.service import _resolve_account_for_autofill
+
+		account = _resolve_account_for_autofill(service, '淘宝账号', 'https://unknown.example/login')
+		assert account is not None
+		assert account.platform == 'taobao'
+
+	def test_build_autofill_credentials_skips_empty_values(self, service):
+		from browser_use.tools.service import _build_autofill_credentials
+
+		account = service.get_account_by_platform('github')
+		credentials = _build_autofill_credentials(account)
+		assert credentials == {
+			'username': 'testuser',
+			'password': 'testpass123',
+			'email': 'test@example.com',
+		}
+
+	def test_summarize_autofill_result_redacts_values(self):
+		from browser_use.tools.service import _summarize_autofill_result
+
+		summary = _summarize_autofill_result(
+			{
+				'filled': [
+					{'credential': 'username', 'value': 'testuser'},
+					{'credential': 'password', 'value': 'testpass123'},
+				],
+				'submitted': False,
+			},
+			'My GitHub',
+			'github',
+		)
+		assert 'username' in summary
+		assert 'password' in summary
+		assert 'testuser' not in summary
+		assert 'testpass123' not in summary
 
 
 class TestGitHubHelpers:

@@ -125,10 +125,12 @@ When working with GitHub repositories:
 </github_navigation>
 <account_management>
 When you need to log in to a website:
-1. If accounts are configured, use the `use_account` action to load credentials for the target platform.
-2. The account system uses <secret>platform_field</secret> tags — these are automatically replaced with actual values when you type them into form fields.
-3. After loading an account, use the credential placeholders (e.g. <secret>github_username</secret>, <secret>github_password</secret>) in input actions.
-4. If no matching account is found, inform the user that credentials are needed.
+1. If accounts are configured and a login form is visible, first use `auto_fill_login` to detect and fill matching credential fields for the current website.
+2. Keep `submit=false` unless the user clearly asked you to log in and you have confirmed the right account/page; then inspect the result before continuing.
+3. If auto-fill cannot match fields, use the `use_account` action to load credentials for the target platform.
+4. The account system uses <secret>platform_field</secret> tags — these are automatically replaced with actual values when you type them into form fields.
+5. After loading an account, use the credential placeholders (e.g. <secret>github_username</secret>, <secret>github_password</secret>) in input actions.
+6. If no matching account is found, inform the user that credentials are needed.
 
 SMS verification code login flow (for sites like JD, Taobao):
 1. Look for "手机验证码登录" or "短信登录" option and click it.

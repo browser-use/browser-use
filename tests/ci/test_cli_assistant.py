@@ -1,3 +1,7 @@
+import asyncio
+import json
+from pathlib import Path
+
 from browser_use.assistant.research import (
 	AssistantMode,
 	AssistantReport,
@@ -6,58 +10,54 @@ from browser_use.assistant.research import (
 	CandidateEvidence,
 	EvidenceSource,
 	GeneratedStageSpec,
+	RankedCandidate,
 	ResearchAssistantConfig,
 	SourceType,
 	StageResult,
-	_apply_report_confidence,
+	SuggestedOption,
 	_apply_recommendation_metadata,
+	_apply_report_confidence,
+	_ifanr_review_candidate_matches_query,
+	_normalize_generated_stages,
+	_normalize_recommendations_to_shortlist,
 	_normalize_report_sources,
-	build_rtings_direct_urls,
-	build_soundguys_direct_urls,
-	build_sspai_direct_urls,
-	build_tomsguide_direct_urls,
-	build_ifanr_direct_urls,
-	build_docs_direct_urls,
-	build_github_repo_direct_urls,
+	_normalize_stage_sources,
+	_query_budget_limit,
+	_requires_browser_observation,
+	_review_candidate_matches_query,
+	_source_priority_key,
+	_stage_use_vision,
+	_valid_sources,
+	adapt_query_for_source,
 	build_bing_rss_search_url,
 	build_candidate_catalog,
+	build_docs_direct_urls,
+	build_github_repo_direct_urls,
+	build_ifanr_direct_urls,
+	build_rtings_direct_urls,
+	build_soundguys_direct_urls,
 	build_source_entry_urls,
+	build_sspai_direct_urls,
 	build_stage_prompt,
-	adapt_query_for_source,
-	_normalize_recommendations_to_shortlist,
+	build_tomsguide_direct_urls,
 	extract_bing_rss_results,
 	extract_ifanr_api_candidate_urls,
 	extract_review_candidates,
-	extract_site_candidate_urls,
 	extract_shopping_candidates,
+	extract_site_candidate_urls,
 	fallback_task_plan,
 	get_site_adapter,
-	plain_text_excerpt,
-	render_report,
 	infer_locale,
 	infer_mode,
+	plain_text_excerpt,
 	rank_candidate_catalog,
+	render_report,
 	resolve_llm,
-	RankedCandidate,
-	SuggestedOption,
-	_ifanr_review_candidate_matches_query,
-	_review_candidate_matches_query,
-	_source_priority_key,
-	_normalize_generated_stages,
-	_normalize_stage_sources,
-	_requires_browser_observation,
-	_stage_use_vision,
-	_query_budget_limit,
-	_valid_sources,
 )
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.skill_cli.credential_store import CredentialStore, ensure_credential_store
 from browser_use.skill_cli.main import build_parser
-from browser_use.skill_cli.sidepanel_server import SidePanelServer, SidePanelServerConfig
-
-import asyncio
-import json
-from pathlib import Path
+from browser_use.skill_cli.sidepanel_server import SidePanelServer, SidePanelServerConfig, _is_browser_action_task
 
 
 def test_assistant_command_parsing():
@@ -123,7 +123,10 @@ def test_sidepanel_extension_manifest_and_static_files():
 	assert 'chrome.tabs.onUpdated.addListener' in sidepanel_js
 	assert '/autofill/preview' in sidepanel_js
 	assert '/autofill/resolve' in sidepanel_js
+	assert '/autofill/create' in sidepanel_js
 	assert 'Autofill current page' in sidepanel_html
+	assert 'Add account' in sidepanel_html
+	assert 'Account password' in sidepanel_html
 	assert 'Auto observe' in sidepanel_html
 
 
@@ -237,6 +240,132 @@ def test_sidepanel_server_autofill_preview_and_resolve(tmp_path):
 		resolved = json.loads(resolve_response.text)
 		assert resolve_response.status == 200
 		assert resolved['profile']['fields'][1]['value'] == 'secret'
+
+	asyncio.run(run_checks())
+
+
+def test_sidepanel_server_autofill_create_password_profile(tmp_path):
+	store_path = tmp_path / 'profiles.json'
+
+	class CreateRequest:
+		async def json(self):
+			return {
+				'label': 'Example Login',
+				'url': 'https://example.com/login',
+				'login_method': 'password',
+				'username': 'demo@example.com',
+				'password': 'secret',
+			}
+
+	async def run_checks():
+		server = SidePanelServer(SidePanelServerConfig(credential_store_path=str(store_path)))
+		response = await server.autofill_create(CreateRequest())
+		data = json.loads(response.text)
+		assert response.status == 201
+		assert data['profile']['label'] == 'Example Login'
+		assert data['profile']['fields'][1]['field_type'] == 'password'
+		assert data['matches'][0]['fields'][1]['masked'] is True
+		assert 'value' not in data['matches'][0]['fields'][1]
+
+		store = CredentialStore(store_path)
+		resolved = store.resolve_values('https://example.com/login')
+		assert resolved['fields'][0]['value'] == 'demo@example.com'
+		assert resolved['fields'][1]['value'] == 'secret'
+
+	asyncio.run(run_checks())
+
+
+def test_sidepanel_server_autofill_create_phone_profile(tmp_path):
+	store_path = tmp_path / 'profiles.json'
+
+	class CreateRequest:
+		async def json(self):
+			return {
+				'label': 'SMS Login',
+				'url': 'https://m.example.com/signin',
+				'login_method': 'phone',
+				'phone': '13800001234',
+			}
+
+	async def run_checks():
+		server = SidePanelServer(SidePanelServerConfig(credential_store_path=str(store_path)))
+		response = await server.autofill_create(CreateRequest())
+		data = json.loads(response.text)
+		assert response.status == 201
+		assert data['profile']['fields'][0]['field_type'] == 'phone'
+		assert data['matches'][0]['fields'][0]['masked'] is False
+
+	asyncio.run(run_checks())
+
+
+def test_sidepanel_routes_direct_browser_tasks_to_agent(monkeypatch):
+	class JsonRequest:
+		async def json(self):
+			return {
+				'task': 'go to https://captcha.com/demos/features/captcha-demo.aspx and solve the captcha',
+				'use_vision': True,
+			}
+
+	async def fake_run_browser_agent(self, task, payload, cdp_url, use_vision):
+		return {
+			'result': 'agent ran',
+			'mode': 'agent',
+			'task': task,
+			'use_vision': use_vision,
+			'cdp_url': cdp_url,
+		}
+
+	assert _is_browser_action_task('go to https://example.com and click login')
+	monkeypatch.setattr(SidePanelServer, '_run_browser_agent', fake_run_browser_agent)
+
+	async def run_checks():
+		server = SidePanelServer(SidePanelServerConfig(cdp_url='http://localhost:9222'))
+		response = await server.assistant(JsonRequest())
+		data = json.loads(response.text)
+		assert response.status == 200
+		assert data['mode'] == 'agent'
+		assert data['result'] == 'agent ran'
+		assert data['task'] == 'go to https://captcha.com/demos/features/captcha-demo.aspx and solve the captcha'
+
+	asyncio.run(run_checks())
+
+
+def test_sidepanel_keeps_recommendation_tasks_on_research_assistant(monkeypatch):
+	class JsonRequest:
+		async def json(self):
+			return {'task': 'Recommend headphones under 1000 yuan'}
+
+	class FakeModel:
+		def model_dump(self, mode='json'):
+			return {}
+
+	class FakeArtifacts:
+		report = FakeModel()
+		task_plan = FakeModel()
+		stage_results = []
+		candidate_catalog = []
+
+	class FakeAssistant:
+		def __init__(self, config):
+			self.config = config
+
+		async def run(self, cdp_url=None):
+			return FakeArtifacts()
+
+	async def fail_agent(self, task, payload, cdp_url, use_vision):
+		raise AssertionError('browser agent should not run for recommendation tasks')
+
+	monkeypatch.setattr(SidePanelServer, '_run_browser_agent', fail_agent)
+	monkeypatch.setattr('browser_use.skill_cli.sidepanel_server.BrowserResearchAssistant', FakeAssistant)
+	monkeypatch.setattr('browser_use.skill_cli.sidepanel_server.render_report', lambda report: 'research ran')
+
+	async def run_checks():
+		server = SidePanelServer(SidePanelServerConfig())
+		response = await server.assistant(JsonRequest())
+		data = json.loads(response.text)
+		assert response.status == 200
+		assert data['result'] == 'research ran'
+		assert 'task_plan' in data
 
 	asyncio.run(run_checks())
 

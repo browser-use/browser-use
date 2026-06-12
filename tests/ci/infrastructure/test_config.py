@@ -70,6 +70,20 @@ class TestLazyConfig:
 			else:
 				os.environ.pop('OPENAI_API_KEY', None)
 
+	def test_legacy_browseruse_env_aliases(self, monkeypatch):
+		"""Accept historical BROWSERUSE_* aliases found in user .env files."""
+		from browser_use.config import Config
+
+		monkeypatch.delenv('BROWSER_USE_HEADLESS', raising=False)
+		monkeypatch.delenv('BROWSER_USE_LLM_MODEL', raising=False)
+		monkeypatch.setenv('BROWSERUSE_HEADLESS', 'false')
+		monkeypatch.setenv('BROWSERUSE_LLM_MODEL', 'custom-browser-model')
+
+		config = Config().load_config()
+
+		assert config['browser_profile']['headless'] is False
+		assert config['llm']['model'] == 'custom-browser-model'
+
 	def test_path_configuration(self):
 		"""Test path configuration variables."""
 		original_value = os.environ.get('XDG_CACHE_HOME', '')
@@ -90,31 +104,3 @@ class TestLazyConfig:
 				os.environ['XDG_CACHE_HOME'] = original_value
 			else:
 				os.environ.pop('XDG_CACHE_HOME', None)
-
-	def test_cloud_sync_inherits_telemetry(self):
-		"""Test BROWSER_USE_CLOUD_SYNC inherits from ANONYMIZED_TELEMETRY when not set."""
-		telemetry_original = os.environ.get('ANONYMIZED_TELEMETRY', '')
-		sync_original = os.environ.get('BROWSER_USE_CLOUD_SYNC', '')
-		try:
-			# When BROWSER_USE_CLOUD_SYNC is not set, it should inherit from ANONYMIZED_TELEMETRY
-			os.environ['ANONYMIZED_TELEMETRY'] = 'true'
-			os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
-			assert CONFIG.BROWSER_USE_CLOUD_SYNC is True
-
-			os.environ['ANONYMIZED_TELEMETRY'] = 'false'
-			os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)
-			assert CONFIG.BROWSER_USE_CLOUD_SYNC is False
-
-			# When explicitly set, it should use its own value
-			os.environ['ANONYMIZED_TELEMETRY'] = 'false'
-			os.environ['BROWSER_USE_CLOUD_SYNC'] = 'true'
-			assert CONFIG.BROWSER_USE_CLOUD_SYNC is True
-		finally:
-			if telemetry_original:
-				os.environ['ANONYMIZED_TELEMETRY'] = telemetry_original
-			else:
-				os.environ.pop('ANONYMIZED_TELEMETRY', None)
-			if sync_original:
-				os.environ['BROWSER_USE_CLOUD_SYNC'] = sync_original
-			else:
-				os.environ.pop('BROWSER_USE_CLOUD_SYNC', None)

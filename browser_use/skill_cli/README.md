@@ -316,7 +316,6 @@ BROWSER_USE_SESSION=work browser-use state
 | `--cdp-url <url>` | Connect to existing browser via CDP URL (`http://` or `ws://`) |
 | `--session NAME` | Target a named session (default: "default", env: `BROWSER_USE_SESSION`) |
 | `--json` | Output as JSON |
-| `--mcp` | Run as MCP server via stdin/stdout |
 
 ## Examples
 

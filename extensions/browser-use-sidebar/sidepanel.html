@@ -29,7 +29,29 @@
           <label>🔑 Autofill</label>
         </div>
         <div id="autofillStatus" class="hint">No matching local profile.</div>
-        <button id="autofill" class="btn-secondary" disabled>Autofill current page</button>
+        <div class="row-actions">
+          <button id="autofill" class="btn-secondary" disabled>Autofill current page</button>
+          <button id="toggleAccountForm" class="btn-secondary" type="button">Add account</button>
+        </div>
+        <form id="accountForm" class="account-form" hidden>
+          <input id="accountLabel" type="text" autocomplete="off" placeholder="Account name" />
+          <input id="accountUrl" type="url" autocomplete="off" placeholder="https://example.com/login" />
+          <div class="segmented" role="radiogroup" aria-label="Login method">
+            <label><input type="radio" name="loginMethod" value="password" checked /> Account password</label>
+            <label><input type="radio" name="loginMethod" value="phone" /> Phone</label>
+          </div>
+          <div id="passwordFields" class="form-fields">
+            <input id="accountUsername" type="text" autocomplete="username" placeholder="Username / email" />
+            <input id="accountPassword" type="password" autocomplete="current-password" placeholder="Password" />
+          </div>
+          <div id="phoneFields" class="form-fields" hidden>
+            <input id="accountPhone" type="tel" autocomplete="tel" placeholder="Phone number" />
+          </div>
+          <div class="form-footer">
+            <span id="accountFormStatus" class="hint"></span>
+            <button id="saveAccount" class="btn-primary" type="submit">Save</button>
+          </div>
+        </form>
       </section>
 
       <section class="composer">

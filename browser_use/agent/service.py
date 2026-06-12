@@ -227,14 +227,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				llm = get_llm_by_name(default_llm_name)
 			else:
-				# No default LLM specified, use the original default
-				from browser_use import ChatBrowserUse
+				# No default LLM specified, use ChatOpenAI as default
+				from browser_use import ChatOpenAI
 
-				llm = ChatBrowserUse()
-
-		# set flashmode = True if llm is ChatBrowserUse
-		if llm.provider == 'browser-use':
-			flash_mode = True
+				llm = ChatOpenAI()
 
 		# Flash mode strips plan fields from the output schema, so planning is structurally impossible
 		if flash_mode:
@@ -514,10 +510,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Store llm_screenshot_size in browser_session so tools can access it
 		self.browser_session.llm_screenshot_size = llm_screenshot_size
 
-		# Check if LLM is ChatAnthropic instance
-		from browser_use.llm.anthropic.chat import ChatAnthropic
-
-		is_anthropic = isinstance(self.llm, ChatAnthropic)
+		# Check if LLM is Anthropic-like (provider == 'anthropic')
+		is_anthropic = getattr(self.llm, 'provider', '') == 'anthropic'
 
 		# Check if model is a browser-use fine-tuned model (uses simplified prompts)
 		is_browser_use_model = 'browser-use/' in self.llm.model.lower()
@@ -1123,15 +1117,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
 		# Decide whether to capture a screenshot this step.
-		# Capturing via CDP has real cost on heavy pages. We only NEED it when:
-		#   - use_vision is True (every step sends it to the LLM), or
-		#   - cloud sync is enabled (screenshots make the cloud timeline useful)
-		# When use_vision='auto' and cloud sync is off, skip capture for speed —
-		# the screenshot tool can still trigger an on-demand capture when the model asks.
-		from browser_use.config import CONFIG as _CONFIG
-
-		_cloud_sync_on = bool(getattr(_CONFIG, 'BROWSER_USE_CLOUD_SYNC', False))
-		_capture_screenshot = (self.settings.use_vision is True) or _cloud_sync_on
+		# Capturing via CDP has real cost on heavy pages. We only need it when
+		# use_vision is True; otherwise the screenshot tool can still trigger
+		# an on-demand capture when the model asks.
+		_capture_screenshot = self.settings.use_vision is True
 		self.logger.debug(f'📸 Requesting browser state with include_screenshot={_capture_screenshot}')
 		browser_state_summary = await self.browser_session.get_browser_state_summary(
 			include_screenshot=_capture_screenshot,

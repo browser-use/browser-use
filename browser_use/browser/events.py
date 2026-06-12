@@ -130,7 +130,7 @@ class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 	# click_count: int = 1           # TODO
 	# expect_download: bool = False  # moved to downloads_watchdog.py
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClickElementEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClickElementEvent', 30.0))  # seconds
 
 
 class ClickCoordinateEvent(BaseEvent[dict]):
@@ -141,7 +141,7 @@ class ClickCoordinateEvent(BaseEvent[dict]):
 	button: Literal['left', 'right', 'middle'] = 'left'
 	force: bool = False  # If True, skip safety checks (file input, print, select)
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClickCoordinateEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ClickCoordinateEvent', 30.0))  # seconds
 
 
 class TypeTextEvent(ElementSelectedEvent[dict | None]):
@@ -188,7 +188,7 @@ class ScreenshotEvent(BaseEvent[str]):
 	full_page: bool = False
 	clip: dict[str, float] | None = None  # {x, y, width, height}
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ScreenshotEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_ScreenshotEvent', 30.0))  # seconds
 
 
 class BrowserStateRequestEvent(BaseEvent[BrowserStateSummary]):
@@ -213,19 +213,19 @@ class BrowserStateRequestEvent(BaseEvent[BrowserStateSummary]):
 class GoBackEvent(BaseEvent[None]):
 	"""Navigate back in browser history."""
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_GoBackEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_GoBackEvent', 30.0))  # seconds
 
 
 class GoForwardEvent(BaseEvent[None]):
 	"""Navigate forward in browser history."""
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_GoForwardEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_GoForwardEvent', 30.0))  # seconds
 
 
 class RefreshEvent(BaseEvent[None]):
 	"""Refresh/reload the current page."""
 
-	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_RefreshEvent', 15.0))  # seconds
+	event_timeout: float | None = Field(default_factory=lambda: _get_timeout('TIMEOUT_RefreshEvent', 30.0))  # seconds
 
 
 class WaitEvent(BaseEvent[None]):

@@ -1,7 +1,5 @@
 """Tests for cloud browser functionality."""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,38 +12,15 @@ from browser_use.browser.cloud.cloud import (
 from browser_use.browser.cloud.views import CreateBrowserRequest
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
-from browser_use.sync.auth import CloudAuthConfig
-
-
-@pytest.fixture
-def temp_config_dir(monkeypatch):
-	"""Create temporary config directory."""
-	with tempfile.TemporaryDirectory() as tmpdir:
-		temp_dir = Path(tmpdir) / '.config' / 'browseruse'
-		temp_dir.mkdir(parents=True, exist_ok=True)
-
-		# Use monkeypatch to set the environment variable
-		monkeypatch.setenv('BROWSER_USE_CONFIG_DIR', str(temp_dir))
-
-		yield temp_dir
-
-
-@pytest.fixture
-def mock_auth_config(temp_config_dir):
-	"""Create a mock auth config with valid token."""
-	auth_config = CloudAuthConfig(api_token='test-token', user_id='test-user-id', authorized_at=None)
-	auth_config.save_to_file()
-	return auth_config
 
 
 class TestCloudBrowserClient:
 	"""Test CloudBrowserClient class."""
 
-	async def test_create_browser_success(self, mock_auth_config, monkeypatch):
+	async def test_create_browser_success(self, monkeypatch):
 		"""Test successful cloud browser creation."""
 
-		# Clear environment variable so test uses mock_auth_config
-		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+		monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-token')
 
 		# Mock response data matching the API
 		mock_response_data = {
@@ -84,7 +59,7 @@ class TestCloudBrowserClient:
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'test-token'
 
-	async def test_create_browser_auth_error(self, temp_config_dir, monkeypatch):
+	async def test_create_browser_auth_error(self, monkeypatch):
 		"""Test cloud browser creation with auth error."""
 
 		# Clear environment variable and don't create auth config - should trigger auth error
@@ -97,11 +72,10 @@ class TestCloudBrowserClient:
 
 		assert 'BROWSER_USE_API_KEY is not set' in str(exc_info.value)
 
-	async def test_create_browser_http_401(self, mock_auth_config, monkeypatch):
+	async def test_create_browser_http_401(self, monkeypatch):
 		"""Test cloud browser creation with HTTP 401 response."""
 
-		# Clear environment variable so test uses mock_auth_config
-		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+		monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-token')
 
 		with patch('httpx.AsyncClient') as mock_client_class:
 			mock_response = AsyncMock()
@@ -120,7 +94,7 @@ class TestCloudBrowserClient:
 
 			assert 'BROWSER_USE_API_KEY is invalid' in str(exc_info.value)
 
-	async def test_create_browser_with_env_var(self, temp_config_dir, monkeypatch):
+	async def test_create_browser_with_env_var(self, monkeypatch):
 		"""Test cloud browser creation using BROWSER_USE_API_KEY environment variable."""
 
 		# Set environment variable
@@ -162,11 +136,10 @@ class TestCloudBrowserClient:
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'env-test-token'
 
-	async def test_stop_browser_success(self, mock_auth_config, monkeypatch):
+	async def test_stop_browser_success(self, monkeypatch):
 		"""Test successful cloud browser session stop."""
 
-		# Clear environment variable so test uses mock_auth_config
-		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+		monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-token')
 
 		# Mock response data for stop
 		mock_response_data = {
@@ -206,11 +179,10 @@ class TestCloudBrowserClient:
 			assert call_args.kwargs['json'] == {'action': 'stop'}
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 
-	async def test_stop_browser_session_not_found(self, mock_auth_config, monkeypatch):
+	async def test_stop_browser_session_not_found(self, monkeypatch):
 		"""Test stopping a browser session that doesn't exist."""
 
-		# Clear environment variable so test uses mock_auth_config
-		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+		monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-token')
 
 		with patch('httpx.AsyncClient') as mock_client_class:
 			mock_response = AsyncMock()
@@ -243,11 +215,8 @@ class TestBrowserSessionCloudIntegration:
 		assert session.cloud_browser is True
 		assert session.browser_profile.use_cloud is True
 
-	async def test_browser_session_cloud_browser_logic(self, mock_auth_config, monkeypatch):
+	async def test_browser_session_cloud_browser_logic(self):
 		"""Test that cloud browser profile settings work correctly."""
-
-		# Clear environment variable so test uses mock_auth_config
-		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 		# Test cloud browser profile creation
 		profile = BrowserProfile(use_cloud=True)

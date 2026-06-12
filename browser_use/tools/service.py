@@ -38,6 +38,7 @@ from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
+	AutoFillLoginAction,
 	ClickElementAction,
 	ClickElementActionIndexOnly,
 	CloseTabAction,
@@ -447,6 +448,193 @@ def _extract_github_branch(url: str) -> str | None:
 	return None
 
 
+def _resolve_account_for_autofill(account_service: Any, label: str | None, url: str | None):
+	"""Resolve the most likely account for an autofill request."""
+	if label:
+		account = account_service.get_account_by_label(label)
+		if account is None:
+			account = account_service.get_account_by_platform(label)
+		return account
+	if url:
+		matches = account_service.get_accounts_for_url(url)
+		if matches:
+			return matches[0]
+	return None
+
+
+def _build_autofill_credentials(account: Any) -> dict[str, str]:
+	"""Convert an account model to page-fill credentials."""
+	raw_credentials = account.credentials.model_dump(exclude_none=True)
+	credentials: dict[str, str] = {}
+	for key, value in raw_credentials.items():
+		if value is not None and str(value) != '':
+			credentials[key] = str(value)
+	return credentials
+
+
+def _summarize_autofill_result(result: dict[str, Any], account_label: str, account_platform: str) -> str:
+	"""Create a redacted summary for autofill action results."""
+	filled = result.get('filled') if isinstance(result.get('filled'), list) else []
+	filled_types = sorted({str(item.get('credential', 'field')) for item in filled if isinstance(item, dict)})
+	missing = result.get('missing_required_credentials') if isinstance(result.get('missing_required_credentials'), list) else []
+	submitted = bool(result.get('submitted'))
+
+	if filled_types:
+		message = (
+			f'Auto-filled {len(filled)} login field(s) for account "{account_label}" ({account_platform}): '
+			f'{", ".join(filled_types)}.'
+		)
+	else:
+		message = f'No login fields were auto-filled for account "{account_label}" ({account_platform}).'
+
+	if missing:
+		message += f' Missing stored credential(s): {", ".join(str(item) for item in missing)}.'
+	if submitted:
+		message += ' Submitted the detected login form.'
+	return message
+
+
+async def _collect_done_page_evidence(browser_session: BrowserSession | None) -> str:
+	"""Capture a small current-page evidence snippet for final answers."""
+	if browser_session is None:
+		return ''
+	try:
+		state = await asyncio.wait_for(browser_session.get_browser_state_summary(include_screenshot=False), timeout=8.0)
+	except Exception as e:
+		logger.debug(f'Could not collect done page evidence: {type(e).__name__}: {e}')
+		return ''
+
+	parts = ['\n\nFinal page evidence observed at done():']
+	if state.url:
+		parts.append(f'URL: {state.url}')
+	if state.title:
+		parts.append(f'Title: {state.title}')
+	try:
+		text = state.dom_state.llm_representation(max_text_length=140)
+	except Exception:
+		text = ''
+	text = ' '.join(text.split())
+	if text:
+		parts.append(f'Visible/extracted page text excerpt: {text[:1200]}')
+	return '\n'.join(parts)
+
+
+_AUTO_FILL_LOGIN_JS = r"""(function() {
+	const credentials = CREDENTIALS;
+	const shouldSubmit = SHOULD_SUBMIT;
+	const filled = [];
+	const missingRequiredCredentials = [];
+	const fieldCandidates = Array.from(document.querySelectorAll('input, textarea')).filter((el) => {
+		if (!el || el.disabled || el.readOnly) return false;
+		const rect = el.getBoundingClientRect();
+		const style = window.getComputedStyle(el);
+		if (style.visibility === 'hidden' || style.display === 'none') return false;
+		if (rect.width <= 0 || rect.height <= 0) return false;
+		const type = (el.getAttribute('type') || '').toLowerCase();
+		return !['hidden', 'submit', 'button', 'checkbox', 'radio', 'file', 'image', 'reset'].includes(type);
+	});
+
+	function labelText(el) {
+		const bits = [];
+		for (const attr of ['name', 'id', 'autocomplete', 'type', 'placeholder', 'aria-label', 'title']) {
+			const value = el.getAttribute(attr);
+			if (value) bits.push(value);
+		}
+		if (el.id) {
+			const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+			if (label && label.innerText) bits.push(label.innerText);
+		}
+		const wrappingLabel = el.closest('label');
+		if (wrappingLabel && wrappingLabel.innerText) bits.push(wrappingLabel.innerText);
+		return bits.join(' ').toLowerCase();
+	}
+
+	function fieldKind(el) {
+		const text = labelText(el);
+		const type = (el.getAttribute('type') || '').toLowerCase();
+		const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+		if (type === 'password' || /(current-password|new-password|password|passwd|pwd|密码|密碼)/i.test(text)) return 'password';
+		if (type === 'email' || autocomplete === 'email' || /(email|e-mail|mail|邮箱|郵箱|电子邮件|電子郵件)/i.test(text)) return 'email';
+		if (type === 'tel' || autocomplete === 'tel' || /(phone|mobile|tel|手机号|手機|电话|電話)/i.test(text)) return 'phone';
+		if (/(username|user name|login|account|userid|user-id|账号|帐号|用戶|用户|會員|会员)/i.test(text)) return 'username';
+		return 'identity';
+	}
+
+	function credentialFor(kind) {
+		if (kind === 'password') return credentials.password ? ['password', credentials.password] : null;
+		if (kind === 'email') return credentials.email ? ['email', credentials.email] : (credentials.username ? ['username', credentials.username] : null);
+		if (kind === 'phone') return credentials.phone ? ['phone', credentials.phone] : null;
+		if (kind === 'username') return credentials.username ? ['username', credentials.username] : (credentials.email ? ['email', credentials.email] : (credentials.phone ? ['phone', credentials.phone] : null));
+		if (credentials.username) return ['username', credentials.username];
+		if (credentials.email) return ['email', credentials.email];
+		if (credentials.phone) return ['phone', credentials.phone];
+		return null;
+	}
+
+	function setNativeValue(el, value) {
+		const prototype = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+		const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+		if (descriptor && descriptor.set) descriptor.set.call(el, value);
+		else el.value = value;
+		el.dispatchEvent(new Event('input', { bubbles: true }));
+		el.dispatchEvent(new Event('change', { bubbles: true }));
+		el.dispatchEvent(new Event('blur', { bubbles: true }));
+	}
+
+	const passwordFields = fieldCandidates.filter((el) => fieldKind(el) === 'password');
+	const identityFields = fieldCandidates.filter((el) => fieldKind(el) !== 'password');
+	const targets = [];
+	if (identityFields.length) targets.push(identityFields[0]);
+	if (passwordFields.length) targets.push(passwordFields[0]);
+
+	for (const el of targets) {
+		const kind = fieldKind(el);
+		const credential = credentialFor(kind);
+		if (!credential) {
+			missingRequiredCredentials.push(kind);
+			continue;
+		}
+		setNativeValue(el, credential[1]);
+		filled.push({
+			credential: credential[0],
+			field_kind: kind,
+			tag: el.tagName.toLowerCase(),
+			type: (el.getAttribute('type') || '').toLowerCase() || null,
+			name: el.getAttribute('name') || null,
+			id: el.id || null,
+			autocomplete: el.getAttribute('autocomplete') || null,
+		});
+	}
+
+	let submitted = false;
+	if (shouldSubmit && filled.length) {
+		const form = targets[0] ? targets[0].closest('form') : null;
+		const buttons = Array.from((form || document).querySelectorAll('button, input[type="submit"], input[type="button"]')).filter((button) => {
+			if (button.disabled) return false;
+			const rect = button.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0) return false;
+			const text = ((button.innerText || button.value || '') + ' ' + (button.getAttribute('aria-label') || '')).toLowerCase();
+			return /login|log in|sign in|submit|continue|next|登录|登入|登陆|提交|下一步|继续/.test(text);
+		});
+		if (buttons[0]) {
+			buttons[0].click();
+			submitted = true;
+		} else if (form) {
+			form.requestSubmit ? form.requestSubmit() : form.submit();
+			submitted = true;
+		}
+	}
+
+	return {
+		filled,
+		submitted,
+		missing_required_credentials: Array.from(new Set(missingRequiredCredentials)),
+		visible_fillable_fields: fieldCandidates.length,
+		password_fields: passwordFields.length,
+	};
+})()"""
+
+
 class Tools(Generic[Context]):
 	def __init__(
 		self,
@@ -462,6 +650,16 @@ class Tools(Generic[Context]):
 		"""Register all default browser actions"""
 
 		self._register_done_action(output_model)
+
+		def _navigation_allowed(url: str, browser_session: BrowserSession) -> bool:
+			from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern
+
+			if is_new_tab_page(url):
+				return True
+			allowed_domains = browser_session.browser_profile.allowed_domains
+			if not allowed_domains:
+				return True
+			return any(match_url_with_domain_pattern(url, domain_pattern) for domain_pattern in allowed_domains)
 
 		# Basic Navigation Actions
 		@self.registry.action(
@@ -486,6 +684,13 @@ class Tools(Generic[Context]):
 				return ActionResult(error=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing')
 
 			search_url = search_engines[params.engine.lower()]
+			if not _navigation_allowed(search_url, browser_session):
+				return ActionResult(
+					error=(
+						f'Navigation to search engine URL {search_url} is blocked by browser allowed_domains. '
+						'Stay on the user-specified website or report that the site is inaccessible.'
+					)
+				)
 
 			# Simple tab logic: use current tab by default
 			use_new_tab = False
@@ -514,43 +719,109 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def navigate(params: NavigateAction, browser_session: BrowserSession):
+			if not _navigation_allowed(params.url, browser_session):
+				return ActionResult(
+					error=(
+						f'Navigation to {params.url} is blocked by browser allowed_domains. '
+						'Use only the user-specified website, or call done with success=false if it is inaccessible.'
+					)
+				)
+
+			def _is_non_html_resource_url(url: str) -> bool:
+				from urllib.parse import urlparse
+
+				parsed = urlparse(url)
+				path = parsed.path.lower()
+				if path.endswith(
+					(
+						'.pdf',
+						'.json',
+						'.xml',
+						'.txt',
+						'.csv',
+						'.jpg',
+						'.jpeg',
+						'.png',
+						'.gif',
+						'.webp',
+						'.svg',
+					)
+				):
+					return True
+				if any(host in parsed.netloc.lower() for host in ('api.', 'api2.', 'r.jina.ai')):
+					return True
+				return False
+
+			def _page_appears_empty(state) -> bool:
+				return state.dom_state._root is None or not state.dom_state.llm_representation().strip()
+
+			def _page_is_unloadable(state) -> bool:
+				return state.dom_state._root is None
+
+			async def _check_for_empty_page_after_navigation() -> ActionResult | None:
+				if params.new_tab:
+					return None
+
+				try:
+					state = await browser_session.get_browser_state_summary(include_screenshot=False)
+				except Exception as e:
+					browser_session.logger.warning(f'⚠️ Could not inspect page content after navigation: {type(e).__name__}: {e}')
+					return None
+
+				if not state.url.lower().startswith(('http://', 'https://')) or not _page_appears_empty(state):
+					return None
+
+				if _is_non_html_resource_url(params.url):
+					return ActionResult(
+						extracted_content=(
+							f'Navigated to non-HTML resource {params.url}. The page has little or no DOM. '
+							'Use extract/search_page or inspect the visible browser text; do not keep reloading this resource.'
+						),
+						long_term_memory=f'Opened non-HTML resource {params.url}; use extraction instead of DOM interaction.',
+					)
+
+				browser_session.logger.warning(f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 1.0s and rechecking...')
+				await asyncio.sleep(1.0)
+
+				try:
+					state = await browser_session.get_browser_state_summary(include_screenshot=False)
+				except Exception as e:
+					browser_session.logger.warning(f'⚠️ Could not recheck page content after navigation: {type(e).__name__}: {e}')
+					return None
+
+				if not state.url.lower().startswith(('http://', 'https://')) or not _page_appears_empty(state):
+					return None
+
+				browser_session.logger.warning(f'⚠️ Still empty after 1.0s, attempting page reload for {params.url}...')
+				reload_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=False))
+				await reload_event
+				await reload_event.event_result(raise_if_any=False, raise_if_none=False)
+				await asyncio.sleep(1.5)
+
+				try:
+					state = await browser_session.get_browser_state_summary(include_screenshot=False)
+				except Exception as e:
+					browser_session.logger.warning(f'⚠️ Could not inspect page content after reload: {type(e).__name__}: {e}')
+					return None
+
+				if state.url.lower().startswith(('http://', 'https://')) and _page_is_unloadable(state):
+					return ActionResult(
+						error=f'Page loaded but returned empty content for {params.url}. '
+						f'The page may still be rendering JavaScript, blocking automation, or waiting on slow network requests. '
+						f'Try waiting, reloading, opening a simpler URL, or using Browser(use_cloud=True) for complex production pages.'
+					)
+
+				return None
+
 			try:
 				# Dispatch navigation event
 				event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=params.new_tab))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				# Health check: detect empty DOM for http/https pages and retry once.
-				# Uses _root is None (truly blank) OR empty llm_representation() (no actionable
-				# content for the LLM, e.g. SPA not yet rendered, empty body).
-				# NOTE: llm_representation() returns a non-empty placeholder when _root is None,
-				# so we must check _root is None separately — not rely on the repr string alone.
-				def _page_appears_empty(s) -> bool:
-					return s.dom_state._root is None or not s.dom_state.llm_representation().strip()
-
-				if not params.new_tab:
-					state = await browser_session.get_browser_state_summary(include_screenshot=False)
-					url_is_http = state.url.lower().startswith(('http://', 'https://'))
-					if url_is_http and _page_appears_empty(state):
-						browser_session.logger.warning(
-							f'⚠️ Empty DOM detected after navigation to {params.url}, waiting 1.5s and rechecking...'
-						)
-						await asyncio.sleep(1.5)
-						state = await browser_session.get_browser_state_summary(include_screenshot=False)
-						if state.url.lower().startswith(('http://', 'https://')) and _page_appears_empty(state):
-							# Second attempt: reload the page and wait a bit longer
-							browser_session.logger.warning(f'⚠️ Still empty after 1.5s, attempting page reload for {params.url}...')
-							reload_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=False))
-							await reload_event
-							await reload_event.event_result(raise_if_any=False, raise_if_none=False)
-							await asyncio.sleep(2.5)
-							state = await browser_session.get_browser_state_summary(include_screenshot=False)
-							if state.url.lower().startswith(('http://', 'https://')) and state.dom_state._root is None:
-								return ActionResult(
-									error=f'Page loaded but returned empty content for {params.url}. '
-									f'The page may require JavaScript that failed to render, use anti-bot measures, '
-									f'or have a connection issue (e.g. tunnel/proxy error). Try a different URL or approach.'
-								)
+				empty_page_result = await _check_for_empty_page_after_navigation()
+				if empty_page_result is not None:
+					return empty_page_result
 
 				if params.new_tab:
 					memory = f'Opened new tab with URL {params.url}'
@@ -570,6 +841,18 @@ class Tools(Generic[Context]):
 				if isinstance(e, RuntimeError) and 'CDP client not initialized' in error_msg:
 					browser_session.logger.error('❌ Browser connection failed - CDP client not properly initialized')
 					return ActionResult(error=f'Browser connection error: {error_msg}')
+				if 'Target ' in error_msg and ('not found' in error_msg or 'detached' in error_msg):
+					return ActionResult(
+						error=f'Browser target was lost while navigating to {params.url}. '
+						f'The tab may have crashed, closed, or disconnected from CDP. '
+						f'Retry the navigation in a new tab or restart/reconnect the browser session. Details: {error_msg}'
+					)
+				if 'CDP method' in error_msg and 'did not respond within' in error_msg:
+					return ActionResult(
+						error=f'Browser did not respond while navigating to {params.url}. '
+						f'The page or CDP connection may be stuck; retry, increase BROWSER_USE_CDP_TIMEOUT_S, '
+						f'or use Browser(use_cloud=True) for heavy production pages. Details: {error_msg}'
+					)
 				# Check for network-related errors
 				elif any(
 					err in error_msg
@@ -720,7 +1003,7 @@ class Tools(Generic[Context]):
 				if node is None:
 					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+					return ActionResult(error=msg)
 
 				# Get description of clicked element
 				element_desc = get_click_description(node)
@@ -766,7 +1049,14 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
-				error_msg = f'Failed to click element {params.index}: {str(e)}. Try using screenshot to verify the element location.'
+				error_text = str(e)
+				if 'Node with given id does not belong to the document' in error_text or 'No node with given id found' in error_text:
+					error_msg = (
+						f'Failed to click element {params.index} because the page changed and the element reference is stale. '
+						'Refresh browser state, find the element again, then retry.'
+					)
+				else:
+					error_msg = f'Failed to click element {params.index}: {error_text}. Try using screenshot to verify the element location.'
 				return ActionResult(error=error_msg, metadata={'include_screenshot': True})
 
 		# Store click handlers for re-registration
@@ -791,7 +1081,7 @@ class Tools(Generic[Context]):
 			if node is None:
 				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
 				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			create_task_with_error_handling(
@@ -859,7 +1149,14 @@ class Tools(Generic[Context]):
 			except Exception as e:
 				# Log the full error for debugging
 				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to type text into element {params.index}: {e}'
+				error_text = str(e)
+				if 'Node with given id does not belong to the document' in error_text or 'No node with given id found' in error_text:
+					error_msg = (
+						f'Failed to type into element {params.index} because the page changed and the element reference is stale. '
+						'Refresh browser state, find the input again, then retry.'
+					)
+				else:
+					error_msg = f'Failed to type text into element {params.index}: {e}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -1951,6 +2248,61 @@ Validated Code (after quote fixing):
 			except Exception as e:
 				return ActionResult(error=f'Failed to load account: {str(e)}')
 
+		@self.registry.action(
+			'Automatically detect and fill visible login fields with a matching stored user account. Use this first when a login page is visible and accounts are configured.',
+			param_model=AutoFillLoginAction,
+			terminates_sequence=True,
+		)
+		async def auto_fill_login(params: AutoFillLoginAction, browser_session: BrowserSession, account_service=None, page_url=None):
+			try:
+				if account_service is None:
+					return ActionResult(error='No account service configured. Pass accounts_file parameter to the Agent.')
+
+				current_url = page_url or await browser_session.get_current_page_url()
+				account = _resolve_account_for_autofill(account_service, params.label, current_url)
+				if account is None:
+					if params.label:
+						return ActionResult(error=f'No stored account matched "{params.label}".')
+					return ActionResult(error=f'No stored account matches the current page URL: {current_url}')
+
+				credentials = _build_autofill_credentials(account)
+				if not credentials:
+					return ActionResult(error=f'Account "{account.label}" has no fillable credentials.')
+
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				code = _AUTO_FILL_LOGIN_JS.replace('CREDENTIALS', json.dumps(credentials, ensure_ascii=False), 1).replace(
+					'SHOULD_SUBMIT', json.dumps(params.submit), 1
+				)
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
+					session_id=cdp_session.session_id,
+				)
+				if result.get('exceptionDetails'):
+					error_text = result['exceptionDetails'].get('text', 'Unknown JavaScript error')
+					return ActionResult(error=f'Auto-fill login failed while inspecting the page: {error_text}')
+
+				value = result.get('result', {}).get('value')
+				if not isinstance(value, dict):
+					return ActionResult(error='Auto-fill login did not return a structured result from the page.')
+
+				memory = _summarize_autofill_result(value, account.label, account.platform)
+				logger.info(f'🔐 {memory}')
+				return ActionResult(
+					extracted_content=memory,
+					long_term_memory=memory,
+					metadata={
+						'account_id': account.id,
+						'account_label': account.label,
+						'platform': account.platform,
+						'filled': value.get('filled', []),
+						'submitted': bool(value.get('submitted')),
+						'visible_fillable_fields': value.get('visible_fillable_fields'),
+						'password_fields': value.get('password_fields'),
+					},
+				)
+			except Exception as e:
+				return ActionResult(error=f'Failed to auto-fill login: {str(e)}')
+
 		# --- GitHub navigation action ---
 		@self.registry.action(
 			'Navigate within a GitHub repository. Search code, browse files, jump to functions, or view issues/PRs/commits.',
@@ -2065,12 +2417,12 @@ Validated Code (after quote fixing):
 
 			separator = '=' * 50
 			print(f'\n{separator}', flush=True)
-			print(f'⏸️  WAITING FOR USER INPUT', flush=True)
+			print('⏸️  WAITING FOR USER INPUT', flush=True)
 			print(f'{separator}', flush=True)
 			print(f'📱 {message}', flush=True)
 			print(f'⏱️  Timeout: {timeout} seconds', flush=True)
 			print(f'{separator}', flush=True)
-			print(f'👉 Please complete the action in the browser, then press ENTER to continue...', flush=True)
+			print('👉 Please complete the action in the browser, then press ENTER to continue...', flush=True)
 
 			# Wait for user to press Enter (blocking read with timeout)
 			try:
@@ -2093,7 +2445,7 @@ Validated Code (after quote fixing):
 					memory = 'No stdin available. Waiting for configured timeout then continuing.'
 					await asyncio.sleep(min(timeout, 60))
 
-			print(f'✅ Resuming agent execution...\n', flush=True)
+			print('✅ Resuming agent execution...\n', flush=True)
 			logger.info(f'⏸️→▶️ {memory}')
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
@@ -2193,10 +2545,15 @@ Validated Code (after quote fixing):
 						if file_path not in existing:
 							attachments.append(file_path)
 
+				done_evidence = await _collect_done_page_evidence(browser_session)
+				extracted_content = json.dumps(output_dict, ensure_ascii=False)
+				if done_evidence:
+					extracted_content += done_evidence
+
 				return ActionResult(
 					is_done=True,
 					success=params.success,
-					extracted_content=json.dumps(output_dict, ensure_ascii=False),
+					extracted_content=extracted_content,
 					long_term_memory=f'Task completed. Success Status: {params.success}',
 					attachments=attachments,
 				)
@@ -2207,7 +2564,7 @@ Validated Code (after quote fixing):
 				'Complete task. Only report actions you performed and data you extracted in this session.',
 				param_model=DoneAction,
 			)
-			async def done(params: DoneAction, file_system: FileSystem):
+			async def done(params: DoneAction, file_system: FileSystem, browser_session: BrowserSession):
 				user_message = params.text
 
 				len_text = len(params.text)
@@ -2237,6 +2594,9 @@ Validated Code (after quote fixing):
 								attachments.append(file_name)
 
 				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
+				done_evidence = await _collect_done_page_evidence(browser_session)
+				if done_evidence:
+					user_message += done_evidence
 
 				return ActionResult(
 					is_done=True,
@@ -2449,6 +2809,7 @@ Validated Code (after quote fixing):
 					'available_file_paths',
 					'sensitive_data',
 					'extraction_schema',
+					'account_service',
 				}
 
 				# Extract action params (params for the action itself)

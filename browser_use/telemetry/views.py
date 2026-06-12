@@ -59,36 +59,6 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 
 
 @dataclass
-class MCPClientTelemetryEvent(BaseTelemetryEvent):
-	"""Telemetry event for MCP client usage"""
-
-	server_name: str
-	command: str
-	tools_discovered: int
-	version: str
-	action: str  # 'connect', 'disconnect', 'tool_call'
-	tool_name: str | None = None
-	duration_seconds: float | None = None
-	error_message: str | None = None
-
-	name: str = 'mcp_client_event'
-
-
-@dataclass
-class MCPServerTelemetryEvent(BaseTelemetryEvent):
-	"""Telemetry event for MCP server usage"""
-
-	version: str
-	action: str  # 'start', 'stop', 'tool_call'
-	tool_name: str | None = None
-	duration_seconds: float | None = None
-	error_message: str | None = None
-	parent_process_cmdline: str | None = None
-
-	name: str = 'mcp_server_event'
-
-
-@dataclass
 class CLITelemetryEvent(BaseTelemetryEvent):
 	"""Telemetry event for CLI usage"""
 

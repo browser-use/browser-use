@@ -192,7 +192,7 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
 
 <br/>
 
-## Integrations, hosting, custom tools, MCP, and more on our [Docs ↗](https://docs.browser-use.com)
+## Integrations, hosting, custom tools, and more on our [Docs ↗](https://docs.browser-use.com)
 
 <br/>
 

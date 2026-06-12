@@ -12,6 +12,17 @@ const els = {
   autoObserve: document.getElementById("autoObserve"),
   autofillStatus: document.getElementById("autofillStatus"),
   autofill: document.getElementById("autofill"),
+  toggleAccountForm: document.getElementById("toggleAccountForm"),
+  accountForm: document.getElementById("accountForm"),
+  accountLabel: document.getElementById("accountLabel"),
+  accountUrl: document.getElementById("accountUrl"),
+  accountUsername: document.getElementById("accountUsername"),
+  accountPassword: document.getElementById("accountPassword"),
+  accountPhone: document.getElementById("accountPhone"),
+  passwordFields: document.getElementById("passwordFields"),
+  phoneFields: document.getElementById("phoneFields"),
+  accountFormStatus: document.getElementById("accountFormStatus"),
+  saveAccount: document.getElementById("saveAccount"),
   run: document.getElementById("run"),
   output: document.getElementById("output"),
   thinkingSection: document.getElementById("thinkingSection"),
@@ -147,6 +158,9 @@ function renderContext() {
   const url = currentContext.url || currentContext.browserUrl || "";
   els.pageTitle.textContent = title;
   els.pageUrl.textContent = url;
+  if (els.accountForm.hidden && /^https?:\/\//i.test(url)) {
+    els.accountUrl.value = url;
+  }
 }
 
 // --- Autofill ---
@@ -232,6 +246,72 @@ async function autofillCurrentPage() {
     },
   });
   return result;
+}
+
+function selectedLoginMethod() {
+  return document.querySelector('input[name="loginMethod"]:checked')?.value || "password";
+}
+
+function syncAccountFormMethod() {
+  const method = selectedLoginMethod();
+  els.passwordFields.hidden = method !== "password";
+  els.phoneFields.hidden = method !== "phone";
+}
+
+function toggleAccountForm() {
+  els.accountForm.hidden = !els.accountForm.hidden;
+  if (!els.accountForm.hidden) {
+    const url = currentContext?.url || currentContext?.browserUrl || "";
+    if (/^https?:\/\//i.test(url) && !els.accountUrl.value) {
+      els.accountUrl.value = url;
+    }
+    if (!els.accountLabel.value && currentContext?.title) {
+      els.accountLabel.value = currentContext.title.slice(0, 60);
+    }
+    els.accountFormStatus.textContent = "";
+    syncAccountFormMethod();
+    els.accountLabel.focus();
+  }
+}
+
+async function saveAccountProfile(event) {
+  event.preventDefault();
+  const method = selectedLoginMethod();
+  const payload = {
+    label: els.accountLabel.value.trim(),
+    url: els.accountUrl.value.trim(),
+    login_method: method,
+  };
+  if (method === "password") {
+    payload.username = els.accountUsername.value.trim();
+    payload.password = els.accountPassword.value;
+  } else {
+    payload.phone = els.accountPhone.value.trim();
+  }
+
+  els.saveAccount.disabled = true;
+  els.accountFormStatus.textContent = "Saving...";
+  try {
+    const response = await fetch(`${BRIDGE_URL}/autofill/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
+    renderAutofill(data.matches || []);
+    els.accountFormStatus.textContent = "Saved.";
+    els.accountPassword.value = "";
+    els.accountPhone.value = "";
+    setTimeout(() => {
+      els.accountForm.hidden = true;
+      els.accountFormStatus.textContent = "";
+    }, 700);
+  } catch (error) {
+    els.accountFormStatus.textContent = String(error.message || error);
+  } finally {
+    els.saveAccount.disabled = false;
+  }
 }
 
 // --- Auto Observe ---
@@ -406,6 +486,11 @@ els.refresh.addEventListener("click", async () => {
 });
 
 els.autoObserve.addEventListener("change", startAutoObserve);
+els.toggleAccountForm.addEventListener("click", toggleAccountForm);
+els.accountForm.addEventListener("submit", saveAccountProfile);
+document.querySelectorAll('input[name="loginMethod"]').forEach((input) => {
+  input.addEventListener("change", syncAccountFormMethod);
+});
 
 els.autofill.addEventListener("click", async () => {
   els.autofill.disabled = true;
@@ -439,4 +524,5 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 // --- Init ---
 checkBridge();
+syncAccountFormMethod();
 startAutoObserve();

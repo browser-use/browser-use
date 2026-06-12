@@ -100,10 +100,20 @@ class DoneAction(BaseModel):
 			'Do NOT use training knowledge to fill gaps — if information was not found on the page, say so explicitly. '
 			'Do NOT claim completion of steps from compacted_memory or prior session summaries '
 			'unless you explicitly verified them yourself. '
-			'If uncertain whether a prior step completed, say so explicitly.'
+			'If uncertain whether a prior step completed, say so explicitly. '
+			'When success=true, include the concrete verification evidence you observed, such as a URL, page text, '
+			'confirmation message, extracted table/list values, or file content. For forms, purchases, ticketing, maps, '
+			'prices, rankings, and calculations, do not mark success=true unless the final page state or extracted '
+			'content confirms the requested result.'
 		)
 	)
-	success: bool = Field(default=True, description='True if user_request completed successfully')
+	success: bool = Field(
+		default=True,
+		description=(
+			'True only if the user_request was completed and verified from evidence observed in this browser session. '
+			'Use false when blocked, unsure, missing required data, or unable to verify submission/result.'
+		),
+	)
 	files_to_display: list[str] | None = Field(default=[])
 
 
@@ -120,8 +130,19 @@ def _hide_internal_fields_from_schema(schema: dict) -> None:
 class StructuredOutputAction(BaseModel, Generic[T]):
 	model_config = ConfigDict(json_schema_extra=_hide_internal_fields_from_schema)
 
-	success: bool = Field(default=True, description='True if user_request completed successfully')
-	data: T = Field(description='The actual output data matching the requested schema')
+	success: bool = Field(
+		default=True,
+		description=(
+			'True only if the user_request was completed and verified from evidence observed in this browser session. '
+			'Use false when blocked, unsure, missing required data, or unable to verify submission/result.'
+		),
+	)
+	data: T = Field(
+		description=(
+			'The actual output data matching the requested schema. Populate it only with values observed from '
+			'browser_state, tool outputs, screenshots, or files in this session; do not infer missing fields.'
+		)
+	)
 	files_to_display: list[str] | None = Field(default=[])
 
 
@@ -193,6 +214,21 @@ class UseAccountAction(BaseModel):
 	model_config = ConfigDict(extra='ignore')
 
 	label: str = Field(description='Account label or platform name (e.g. "my github", "淘宝账号", "taobao")')
+
+
+class AutoFillLoginAction(BaseModel):
+	"""Automatically fill visible login fields with a matching stored account."""
+
+	model_config = ConfigDict(extra='ignore')
+
+	label: str | None = Field(
+		default=None,
+		description='Optional account label or platform name. If omitted, the current page URL is used to find a matching account.',
+	)
+	submit: bool = Field(
+		default=False,
+		description='Click a detected login/submit button after filling. Defaults to false so the agent can inspect the result first.',
+	)
 
 
 class GitHubNavigateAction(BaseModel):

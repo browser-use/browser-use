@@ -57,18 +57,6 @@ def test_init_list_templates():
 	assert 'advanced' in result.stdout
 
 
-def test_mcp_flag_help():
-	"""Test that the --mcp flag is documented in help."""
-	result = subprocess.run(
-		[sys.executable, '-m', 'browser_use.skill_cli.main', '--help'],
-		capture_output=True,
-		text=True,
-	)
-	assert result.returncode == 0
-	assert '--mcp' in result.stdout
-	assert 'MCP server' in result.stdout
-
-
 def test_template_flag_help():
 	"""Test that the --template flag is documented in help."""
 	result = subprocess.run(
