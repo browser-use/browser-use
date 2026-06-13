@@ -1183,7 +1183,6 @@ async function initialize(checkInitialized, magic) {{
 			timeout: Maximum time in seconds to wait for the download. Defaults to 10s
 				to avoid hanging when IPv6 connectivity to Google is blocked.
 		"""
-		import socket
 		import urllib.error
 		import urllib.request
 
@@ -1201,7 +1200,7 @@ async function initialize(checkInitialized, magic) {{
 			with urllib.request.urlopen(url, timeout=timeout) as response:
 				with open(output_path, 'wb') as f:
 					f.write(response.read())
-		except socket.timeout as e:
+		except TimeoutError as e:
 			raise TimeoutError(
 				f'Extension download timed out after {timeout}s. '
 				f'If your network blocks IPv6 to Google, set BROWSER_USE_DISABLE_EXTENSIONS=1 to skip extension loading.'
