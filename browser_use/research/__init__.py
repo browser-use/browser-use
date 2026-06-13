@@ -7,6 +7,7 @@ Three innovations extracted from Kimi / Perplexity / Grok patterns:
   StreamingReasoningTracer — Grok-style live chain-of-thought emission
 """
 
+from browser_use.research.circuit import CircuitOpenError, HostCircuitBreaker
 from browser_use.research.citation import CitationTracker
 from browser_use.research.orchestrator import ParallelResearchOrchestrator, make_llm_synthesize_fn
 from browser_use.research.streaming import StreamingReasoningTracer
@@ -20,6 +21,8 @@ from browser_use.research.views import (
 
 __all__ = [
 	'CitationTracker',
+	'CircuitOpenError',
+	'HostCircuitBreaker',
 	'ParallelResearchOrchestrator',
 	'StreamingReasoningTracer',
 	'make_llm_synthesize_fn',

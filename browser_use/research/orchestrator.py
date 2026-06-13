@@ -16,6 +16,7 @@ import time
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
+from browser_use.research.circuit import CircuitOpenError, HostCircuitBreaker
 from browser_use.research.citation import CitationTracker
 from browser_use.research.streaming import StreamingReasoningTracer
 from browser_use.research.views import CitedResult, ResearchReport, TabResult
@@ -116,22 +117,32 @@ async def _run_research_with_retry(
 	max_retries: int,
 	backoff_base: float,
 	per_tab_timeout: float | None,
+	circuit_breaker: HostCircuitBreaker | None = None,
 ) -> str:
 	"""Call research_fn with exponential backoff on transient failure.
 
 	Each attempt is wrapped in asyncio.wait_for if per_tab_timeout is set.
-	Retries on any Exception except URLNotAllowedError (which is policy, not transient).
+	Retries on any Exception except URLNotAllowedError and CircuitOpenError
+	(both are policy decisions, not transient failures).
 	"""
 	last_exc: Exception | None = None
 	for attempt in range(max_retries + 1):
 		try:
+			if circuit_breaker is not None:
+				await circuit_breaker.allow(url)
 			if per_tab_timeout is not None:
-				return await asyncio.wait_for(research_fn(query, url), timeout=per_tab_timeout)
-			return await research_fn(query, url)
-		except URLNotAllowedError:
+				result = await asyncio.wait_for(research_fn(query, url), timeout=per_tab_timeout)
+			else:
+				result = await research_fn(query, url)
+			if circuit_breaker is not None:
+				await circuit_breaker.record_success(url)
+			return result
+		except (URLNotAllowedError, CircuitOpenError):
 			raise
 		except Exception as exc:
 			last_exc = exc
+			if circuit_breaker is not None:
+				await circuit_breaker.record_failure(url)
 			if attempt < max_retries:
 				delay = backoff_base * (2**attempt)
 				logger.info('Retry %d/%d for %s after %.2fs (%s)', attempt + 1, max_retries, url, delay, exc)
@@ -153,6 +164,7 @@ async def _default_tab_task(
 	allowlist: list[str] | None = None,
 	blocklist: list[str] | None = None,
 	tracer: StreamingReasoningTracer | None = None,
+	circuit_breaker: HostCircuitBreaker | None = None,
 ) -> TabResult:
 	"""Execute one tab's research and wrap results with citation provenance."""
 	start = time.monotonic()
@@ -163,7 +175,7 @@ async def _default_tab_task(
 	try:
 		_check_url_allowed(url, allowlist, blocklist)
 		raw_text = await _run_research_with_retry(
-			research_fn, query, url, max_retries, backoff_base, per_tab_timeout
+			research_fn, query, url, max_retries, backoff_base, per_tab_timeout, circuit_breaker
 		)
 		cited = tracker.cite(content=raw_text, url=url, page_title=url)
 		duration = round(time.monotonic() - start, 3)
@@ -221,6 +233,7 @@ class ParallelResearchOrchestrator:
 		allowlist: list[str] | None = None,
 		blocklist: list[str] | None = None,
 		tracer: StreamingReasoningTracer | None = None,
+		circuit_breaker: HostCircuitBreaker | None = None,
 	) -> None:
 		assert max_concurrency >= 1, 'max_concurrency must be ≥ 1'
 		assert max_retries >= 0, 'max_retries must be ≥ 0'
@@ -239,6 +252,8 @@ class ParallelResearchOrchestrator:
 		self.blocklist = blocklist
 		# Optional tracer — receives one step per tab + a synthesis step
 		self.tracer = tracer
+		# Optional ARM (Adaptive Rate Management) — per-host failure isolation
+		self.circuit_breaker = circuit_breaker
 
 	async def run(self, research_question: str, urls: list[str]) -> ResearchReport:
 		"""Run all URLs in parallel (up to max_concurrency at a time)."""
@@ -261,6 +276,7 @@ class ParallelResearchOrchestrator:
 					allowlist=self.allowlist,
 					blocklist=self.blocklist,
 					tracer=self.tracer,
+					circuit_breaker=self.circuit_breaker,
 				)
 
 		logger.info(

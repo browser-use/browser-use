@@ -1,6 +1,6 @@
 # Browser-Use × Claude Code — Interactive Agent Blueprint
 
-> Living design document. Last updated: 2026-05-29. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS · **research module** (citation tracking · parallel tab orchestration · streaming reasoning traces · async synthesis · make_llm_synthesize_fn).
+> Living design document. Last updated: 2026-06-13. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS · **research module** (citation tracking · parallel tab orchestration · streaming reasoning traces · async synthesis · make_llm_synthesize_fn · **RRSS-ARM circuit breaker**).
 
 ---
 
@@ -335,6 +335,7 @@ browser-use --mcp    # Exposes browser tools to Claude Desktop / other MCP clien
 - [ ] Install `cloudflared` for tunnel support (`winget install cloudflare.cloudflared`)
 - [x] **LLM-powered synthesis injection** — `make_llm_synthesize_fn(llm)` factory; async `synthesize_fn` support via `_call_synthesize`; 2 new CI tests · 2026-05-29
 - [x] **FastAPI SSE demo** — `examples/research_streaming_sse.py`; `/stream` SSE + `/traces` JSON endpoints · 2026-05-29
+- [x] **RRSS-ARM HostCircuitBreaker** — per-host state machine (closed/open/half_open); 17 new CI tests; 46 total research CI tests · 2026-06-13
 
 ---
 
@@ -453,6 +454,53 @@ orch = ParallelResearchOrchestrator(
 ```
 
 8 new CI tests cover retry success/exhaust, timeout kill, allow/block lists, retry-skip-on-policy, and tracer wiring.
+
+### 11.7 RRSS-ARM Evolution — HostCircuitBreaker (2026-06-13)
+
+ARM (Adaptive Rate Management) layer that fails fast on hosts producing consecutive failures. Per-host state machine: `closed → open → half_open`. Strict per-host isolation — one flaky upstream doesn't poison healthy ones.
+
+| Component | RRSS axis | Role |
+|-----------|-----------|------|
+| `HostCircuitBreaker(failure_threshold, cooldown_seconds)` | Resistant | Tracks consecutive failures per host; opens circuit on threshold |
+| `CircuitOpenError` | Reliable | Raised in policy phase, before research_fn — no wasted compute |
+| `circuit_breaker: HostCircuitBreaker \| None` on orchestrator | Systematic | Opt-in; composes with `max_retries`, `per_tab_timeout`, allow/blocklist |
+
+```python
+from browser_use.research import (
+    HostCircuitBreaker,
+    ParallelResearchOrchestrator,
+)
+
+breaker = HostCircuitBreaker(failure_threshold=3, cooldown_seconds=30.0)
+orch = ParallelResearchOrchestrator(
+    research_fn=my_fn,
+    max_retries=2,
+    per_tab_timeout=10.0,
+    allowlist=['arxiv.org'],
+    circuit_breaker=breaker,
+)
+```
+
+**State machine semantics:**
+- `closed`: requests pass through; each failure increments `consecutive_failures`
+- `open`: requests fail fast with `CircuitOpenError`; counter reset paths blocked
+- `half_open`: one probe call allowed after `cooldown_seconds` — success closes, failure re-opens
+
+**Composition order (orchestrator pipeline):**
+1. Allowlist/blocklist check (`URLNotAllowedError` — policy, no retries, no circuit bump)
+2. Circuit breaker `allow()` (`CircuitOpenError` — policy, no retries)
+3. `per_tab_timeout`-wrapped `research_fn` call
+4. On exception: `record_failure(url)`, then retry per `max_retries` (each attempt re-checks circuit)
+5. On success: `record_success(url)` (resets counter, closes any open/half-open state)
+
+**17 new CI tests** (state machine + orchestrator integration):
+- closed/open/half-open transitions · cooldown timer · host isolation
+- orchestrator pass-through · fail-fast · mid-run circuit opening · cooldown recovery
+- interaction with retry loop · allowlist precedence
+
+**Test count update:** 29 (prior research suite) + 17 (circuit) = **46 CI tests** for the research module.
+
+**File added:** `browser_use/research/circuit.py` (138 lines)
 
 ---
 
