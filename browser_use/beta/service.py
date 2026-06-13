@@ -5320,9 +5320,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.warning(
 					'BROWSER_USE_API_KEY is not set. Set it when using ChatBrowserUse or configure a different LLM provider.'
 				)
-			self.logger.warning(
-				'Check the Rust SDK logs above for errors, or enable debug logging for more details.'
-			)
+			self.logger.warning('Check the Rust SDK logs above for errors, or enable debug logging for more details.')
 		self.last_events = events
 		self.last_child_events = child_events
 		self.last_usage_events = usage_events
