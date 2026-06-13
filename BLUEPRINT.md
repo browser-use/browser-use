@@ -1,6 +1,6 @@
 # Browser-Use × Claude Code — Interactive Agent Blueprint
 
-> Living design document. Last updated: 2026-06-13. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS · **research module** (citation tracking · parallel tab orchestration · streaming reasoning traces · async synthesis · make_llm_synthesize_fn · **RRSS-ARM circuit breaker**).
+> Living design document. Last updated: 2026-06-13. Sessions: setup · UX design · API key · job search · onboarding guide · GitHub push · Udemy curriculum → deeptechx.xyz · job search v2 (Innovation Manager profile) · EWOR form fill (partial→full) · job search v3 (Nordic/Remote EU) · WorldMonitor RSS · **research module** (citation tracking · parallel tab orchestration · streaming reasoning traces · async synthesis · make_llm_synthesize_fn · **RRSS-ARM circuit breaker**) · **EWOR submitted ✅ 2026-05-30** · resume-site deployed → vercel.
 
 ---
 
@@ -763,9 +763,9 @@ Changes to `src/App.tsx` (commit `c0d67b3`):
 
 ---
 
-### Next Actions (§10 — updated 2026-05-29)
+### Next Actions (§10 — updated 2026-05-30)
 
-- [x] EWOR form 95% complete — only missing: video URL + pitch deck upload → provide video link to complete
+- [x] **EWOR Fellowship application SUBMITTED ✅** — 2026-05-30. Confirmation: `https://www.ewor.com/thank-you`. "Application successfully submitted. We review on a rolling basis."
 - [x] Gartner Job 108490 closed → replaced by Job 110514 (Sr Director Analyst - Innovation & Emerging Tech, Remote EU) — Workday page open
 - [x] Bing Jobs alert saved (SAVED SEARCHES 1) — login with `desire.yavro@gmail.com` to activate email alerts
 - [ ] Provide EWOR 1-min pitch video URL (Loom/YouTube/LinkedIn) to unblock form submission
@@ -832,3 +832,191 @@ https://rss.nytimes.com/services/xml/rss/nyt/World.xml
 ```
 
 - [ ] Set a Bing Jobs alert for: "innovation manager deep tech space AI senior remote"
+
+---
+
+## §12. Resume Site & GitHub Portfolio (2026-05-30)
+
+### Live Resume Site
+
+**URL:** `https://resume-site-zeta-sepia.vercel.app`
+
+- Source: `C:/Users/nzengou/Documents/programming/test_programming/resume-site/`
+- Deployed via Vercel (project: `dnzengous-projects/resume-site`)
+- 3 resume tabs: **BD/Space Tech · Tech/Product · Startup/Innovation**
+- Content sourced from 3 master CVs in `C:/Users/nzengou/Documents/Perso/`:
+  - `CV_Nzengou_BD_SpaceTech_2026.pdf` (379KB)
+  - `CV_Nzengou_TechProduct_2026.pdf` (356KB)
+  - `CV_Nzengou_StartupInnovation_2026.pdf` (954KB)
+- Each tab has a per-tab PDF download button (PDFs served from same domain)
+- Dark mode + print-to-PDF per tab
+- ATS-safe layout, no tables
+
+### GitHub Portfolio Items Extracted (dnzengou)
+
+| Repo | Domain | Stack | Highlight |
+|------|--------|-------|-----------|
+| worldmonitor | AI/Geospatial | TypeScript | Real-time GDELT+AIS+ADS-B intelligence dashboard |
+| wm-agents-claude | AI Agents | TypeScript | Multi-agent Claude API pipeline |
+| cas_dashboard | CAS/Space | Python | Complex Adaptive Systems for space policy |
+| carbon-credit-backed-stablecoin | Blockchain/Climate | Solidity | Climate DeFi instrument |
+| quantum-computing-w-qiskit | Quantum | Jupyter | Quantum circuit optimisation |
+| AutoResearchClaw | Research AI | — | Autonomous idea→paper pipeline |
+| deeptechx | Startup | TypeScript | Deep-tech founder launchpad |
+| graphify | AI Tooling | — | Code→knowledge graph for RAG |
+| worldmodel-geosim | Geospatial | Python | World-model geospatial simulation |
+| Universal_Agentic_Advisory_Platform | Advisory | TypeScript | Strategic decision framework |
+| bmc | BD Tools | HTML | Interactive Business Model Canvas |
+| jobs-for-ai-agents | HR Tech | — | AI job-search Claude Code tool |
+
+### Next Actions §12
+- [x] Custom domain `cv.desiredsolutions.space` attached to Vercel (DNS record pending at Name.com)
+- [x] Site v2 with real CV content + per-tab PDF downloads ✅
+- [ ] **User action:** add CNAME at Name.com — `cv` → `cname.vercel-dns.com`
+- [ ] Enrich with LinkedIn-scraped experience bullets (manual review)
+
+---
+
+## §13. Jobs Radar — Auto-Refreshed Dashboard (2026-05-30)
+
+### Live URLs
+- **Production:** `https://jobs-radar-six.vercel.app` (public)
+- **Custom domain pending:** `https://jobs.desiredsolutions.space` (DNS at Name.com required)
+
+### Repo
+- GitHub: `https://github.com/dnzengou/jobs-radar`
+- Local: `C:/Users/nzengou/Documents/programming/test_programming/jobs-radar/`
+
+### Architecture (KafCa + RRSS + ARM)
+
+```
+jobs-radar/
+├── index.html              # Dashboard UI (vanilla JS, no framework)
+├── data/
+│   ├── profile.json        # Match scoring keywords per tier
+│   ├── seed.json           # Hand-curated high-value picks
+│   ├── jobs.json           # Output: scored + filtered jobs
+│   └── seen.json           # Dedup state (new-match detection)
+├── scripts/fetch.mjs       # Aggregator (Remotive + Himalayas APIs)
+├── .github/workflows/cron.yml  # Every 6h refresh
+├── vercel.json             # Static + cache headers
+└── package.json
+```
+
+### Data Sources (v3.1)
+| Source | Type | Volume | Notes |
+|--------|------|--------|-------|
+| **Remotive API** | JSON | ~110 jobs/run | 4 search queries: innovation, space, AI product, GeoAI |
+| **Himalayas API** | JSON | ~20 jobs/run | Innovation-focused query |
+| **Arbeitnow API** | JSON | ~80 jobs/run | EU job board, no auth |
+| **Jobicy API** | JSON | ~50 jobs/run | Remote-Europe-focused |
+| **RemoteOK API** | JSON | ~80 jobs/run | Public feed, no auth |
+| **Seed file** | Manual | 7 picks | EWOR, Gartner 110514, EIT Health, ESA, etc. — always shown |
+
+**Coverage:** 341 raw → 40 scored ≥20% (3.1× vs v1). All sources fetched in parallel via `Promise.allSettled` — one failing never blocks the others.
+
+### Score Explainability (v3.1)
+Every job card now shows 🎯 **why:** with the actual keywords that triggered the match (from `hits[]`). Removes scoring opacity — you see precisely *why* a 78% job scored 78%.
+
+### CV ↔ Jobs Bridge (v3.3)
+The 3 resume tabs and 3 profiles now wired end-to-end:
+
+- **Compare bar** per job: `BD 78 · TECH 45 · STARTUP 92` (winner highlighted)
+- **"Apply with X CV" button** deep-links to `cv.desiredsolutions.space?tab=biz|tech|startup` — the matching CV tab opens directly, ready to download
+- **`cv.desiredsolutions.space` is LIVE** ✅ (DNS resolved 2026-06-07)
+- Resume site accepts `?tab=biz|tech|startup` query param for direct tab routing
+
+### Deadline Urgency Boost (v3.3)
+Jobs closing within 30 days receive up to +10 score points, with urgency badges:
+- 🔴 **closing soon** — <7 days
+- 🟠 **2 weeks** — 7-14 days
+- 🟢 **<30d** — 14-30 days
+- ⚫ **expired** — past deadline (excluded from boosts)
+
+Original match preserved in `matchOriginal` field. RRSS: makes the system reactive to time pressure without losing audit trail.
+
+### Multi-Profile Scoring (v3.2) — matches the 3-tab resume site
+Every job scored against **3 parallel profiles** (`data/profiles.json`):
+
+| Profile | Tier-1 focus | Use case |
+|---------|--------------|----------|
+| 🛰️ **BD / Space Tech** | Space/EO/EU programmes, BD/GTM/partnerships | Active CASSINI/EUSPA/ESA roles |
+| ⚙️ **Tech / Product** | AI/ML/Agentic/GeoAI, Product/Engineering | Senior IC / lead roles |
+| 🚀 **Startup / Innovation** | Founder/EIR/Venture, Innovation Mgmt/Coaching | EWOR, Antler, EIT, accelerators |
+
+- Header has profile selector: **🎯 Best · 🛰️ BD · ⚙️ Tech · 🚀 Startup**
+- localStorage persists choice
+- "🎯 why:" pills update live based on selected profile
+- Scoring data: `scores: {bd: 78, tech: 45, startup: 92}` per job; `profile: 'startup'` field for the winning profile
+- Coverage: 40 → 65 scored jobs (multi-profile catches more nuanced matches)
+- Backward-compat: falls back to legacy `profile.json` if `profiles.json` missing
+
+### Dashboard Features (v3)
+- ★ **Saved jobs** — localStorage bookmarks, persists across visits
+- 🎯 **Application Tracker** — 3 states per job (👀 Interested · ✓ Applied · ✗ Pass), counters in view pills
+- 📍 **View pills** — All · ★ Saved · New 24h · 👀 Interested · ✓ Applied
+- 🔍 **Search + tag filters** — Remote / Sweden / Space / AI / Innovation / EO / Senior / Consulting
+- 🔗 **Delegated click handler** — separates card-open vs bookmark vs track
+- 📤 **Export** — CSV + JSON, respects current filter
+
+### News Pulse (v3)
+RSS aggregation, server-side from cron (CORS-free), 11 feeds → 40 deduped items:
+
+| Source | Category |
+|--------|----------|
+| SpaceNews · Space.com · ESA News | space |
+| TechCrunch AI · VentureBeat AI · MIT Tech Review | ai |
+| Reuters Tech | policy |
+| Sifted · Crunchbase | startup |
+| African Business · TechCabal | africa |
+
+- Tiny inline regex-based RSS+Atom parser (zero deps; KafCa)
+- Dedup by link, sort by date desc
+- Categorised pills + per-feed health (✓/✗) shown in sidebar
+- Show-more pagination
+
+### Source Health Monitor (v3)
+Each cron run records `feeds[].ok` + `feeds[].err` in `news.json`. Dashboard renders pills:
+- 🟢 ✓ {feed} — last fetch succeeded
+- 🔴 ✗ {feed} — last fetch failed (hover for HTTP error)
+
+Resilient: news fetch step uses `continue-on-error` so RSS failures never block job refresh or alerts.
+
+### Match Scoring
+4-tier weighted keyword matching against `profile.json`:
+- T1 Space/EO/GeoAI (weight 1.0)
+- T2 AI/Deep Tech/Innovation (0.9)
+- T3 Geography — Remote/EU/Nordic (0.6)
+- T4 Seniority (0.5)
+
+Word-boundary regex for acronyms (≤3 chars or `[A-Z]{2,4}`) prevents false positives like "EO" matching "video". Score 0-100; threshold 20% for non-seed jobs.
+
+### Notifications — 4 redundant channels
+All channels fire on score ≥`ALERT_FLOOR` (default 70) when ID not in `seen.json`. Each channel skips gracefully if its secret isn't set.
+
+| Channel | Setup | Env var |
+|---------|-------|---------|
+| **ntfy.sh** | Subscribe to topic on mobile or web | `NTFY_TOPIC` (default `nzengou-jobs-7xq9z2k`) |
+| **Slack** | Create incoming webhook in any workspace | `SLACK_WEBHOOK_URL` |
+| **Discord** | Create webhook in any server | `DISCORD_WEBHOOK_URL` |
+| **GitHub Issues** | Watch the `jobs-radar` repo → GitHub emails you | auto-set `GITHUB_TOKEN` in Actions |
+
+Discord uses rich embeds (color-coded by score: green ≥90, cyan ≥70, amber else). Slack uses block kit. GitHub Issues are labelled `auto-alert,jobs-radar`.
+
+### LinkedIn / Google Deep-Link Sources
+Stored in `data/linkedin-searches.json`. **12 LinkedIn live-search URLs** (Innovation/Space/EUSPA/CASSINI/GeoAI/Stockholm/Antler/etc.) rendered in dashboard sidebar with tier pills (T1/T2/T3) — clicking opens a pre-filtered LinkedIn job search. Plus 2 Google site-search shortcuts (ESA careers, Sifted funding).
+
+LinkedIn has no public API and blocks scraping. Deep links bypass that — they always reflect *current* LinkedIn results when clicked.
+
+### Pending User Actions
+- [ ] DNS at Name.com: `CNAME jobs → cname.vercel-dns.com`
+- [ ] DNS at Name.com: `CNAME cv → cname.vercel-dns.com`
+- [ ] Enable cron — run in `jobs-radar/` dir:
+  ```bash
+  gh auth refresh -s workflow
+  git add .github/workflows/cron.yml && git commit -m "feat: enable cron" && git push
+  ```
+- [ ] (Optional) Add Slack/Discord webhook secrets in repo `Settings → Secrets → Actions`
+- [ ] Subscribe to ntfy.sh topic on mobile (search "ntfy" in app store)
+- [ ] Tune `data/profile.json` keywords / `exclude` list as needed
+
