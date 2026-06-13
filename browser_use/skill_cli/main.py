@@ -880,7 +880,15 @@ Setup:
 	# Python Execution
 	# -------------------------------------------------------------------------
 
-	p = subparsers.add_parser('python', help='Execute Python code')
+	p = subparsers.add_parser(
+		'python',
+		help='Execute trusted local Python code',
+		description=(
+			'Execute trusted local Python code in the persistent CLI session. '
+			'This is not a sandbox: code can access local files, environment variables, '
+			'and the injected browser helper.'
+		),
+	)
 	p.add_argument('code', nargs='?', help='Python code to execute')
 	p.add_argument('--file', '-f', help='Execute Python file')
 	p.add_argument('--reset', action='store_true', help='Reset Python namespace')

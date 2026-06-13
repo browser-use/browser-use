@@ -190,6 +190,8 @@ browser-use --cdp-url ws://localhost:9222/devtools/browser/... state
 | `extract "query"` | Extract data with LLM (not yet implemented) |
 
 ### Python (Persistent Session)
+Runs trusted local Python in the CLI daemon process. This is not a sandbox: code can access your local files, environment variables, and the injected `browser` helper, so only run code you would trust in a normal terminal.
+
 ```bash
 browser-use python "x = 42"           # Set variable
 browser-use python "print(x)"         # Access variable (prints: 42)
