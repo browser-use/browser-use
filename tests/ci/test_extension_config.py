@@ -128,13 +128,12 @@ class TestExtensionDownloadTimeout:
 
 	def test_download_extension_raises_timeout_on_slow_response(self, monkeypatch):
 		"""_download_extension should raise TimeoutError when urlopen times out."""
-		import socket
 		from pathlib import Path
 
 		from browser_use.browser.profile import BrowserProfile
 
 		def slow_urlopen(*args, **kwargs):
-			raise socket.timeout('timed out')
+			raise TimeoutError('timed out')
 
 		monkeypatch.setattr('urllib.request.urlopen', slow_urlopen)
 
@@ -144,7 +143,6 @@ class TestExtensionDownloadTimeout:
 
 	def test_extension_download_timeout_env_var_is_respected(self, monkeypatch):
 		"""BROWSER_USE_EXTENSION_DOWNLOAD_TIMEOUT overrides the default timeout."""
-		import socket
 		from pathlib import Path
 
 		from browser_use.browser.profile import BrowserProfile
@@ -153,7 +151,7 @@ class TestExtensionDownloadTimeout:
 
 		def fake_urlopen(url, timeout: float | None = None):
 			captured_timeout.append(timeout)
-			raise socket.timeout('timed out')
+			raise TimeoutError('timed out')
 
 		monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
 		monkeypatch.setenv('BROWSER_USE_EXTENSION_DOWNLOAD_TIMEOUT', '3.5')
@@ -166,7 +164,6 @@ class TestExtensionDownloadTimeout:
 
 	def test_invalid_extension_download_timeout_env_var_uses_default(self, monkeypatch):
 		"""Invalid BROWSER_USE_EXTENSION_DOWNLOAD_TIMEOUT falls back to default."""
-		import socket
 		from pathlib import Path
 
 		from browser_use.browser.profile import BrowserProfile
@@ -175,7 +172,7 @@ class TestExtensionDownloadTimeout:
 
 		def fake_urlopen(url, timeout: float | None = None):
 			captured_timeout.append(timeout)
-			raise socket.timeout('timed out')
+			raise TimeoutError('timed out')
 
 		monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
 		monkeypatch.setenv('BROWSER_USE_EXTENSION_DOWNLOAD_TIMEOUT', 'not-a-number')
