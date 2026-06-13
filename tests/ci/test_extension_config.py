@@ -149,9 +149,9 @@ class TestExtensionDownloadTimeout:
 
 		from browser_use.browser.profile import BrowserProfile
 
-		captured_timeout: list[float] = []
+		captured_timeout: list[float | None] = []
 
-		def fake_urlopen(url, timeout=None):
+		def fake_urlopen(url, timeout: float | None = None):
 			captured_timeout.append(timeout)
 			raise socket.timeout('timed out')
 
@@ -171,9 +171,9 @@ class TestExtensionDownloadTimeout:
 
 		from browser_use.browser.profile import BrowserProfile
 
-		captured_timeout: list[float] = []
+		captured_timeout: list[float | None] = []
 
-		def fake_urlopen(url, timeout=None):
+		def fake_urlopen(url, timeout: float | None = None):
 			captured_timeout.append(timeout)
 			raise socket.timeout('timed out')
 
