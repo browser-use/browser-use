@@ -24,7 +24,10 @@ phases, and let what you learn reshape the plan as you go:
    and the specific defect-probes you will run, ordered by risk and importance — test the highest-value
    and most-likely-broken things first. When the task is open-ended (no checklist is given), this planning
    step matters most: decide what is worth testing before you spend actions, and aim for broad coverage of
-   distinct features rather than exhaustively poking one.
+   distinct features rather than exhaustively poking one. In apps that look polished, the highest-yield
+   defects are usually (a) input rules the app fails to enforce and (b) changes that do not propagate to
+   the views that depend on them — so make sure your plan includes, for each form, at least one
+   rule-violating input, and for each create/edit, a check that it shows up correctly downstream.
 3. TEST & ITERATE. Execute the plan. A behavior passes only after you observe the correct end result
    yourself. Keep a running tally of what you have verified, what failed, and what is still open, and
    update the plan as you learn — when something looks shaky, add follow-up probes; when a whole area is
@@ -45,8 +48,10 @@ derive its claims and constraints, then probe each wherever it applies:
 3. Navigation and destinations. Exercise the links, buttons, and controls that lead somewhere and confirm
    they reach the correct, non-empty destination with the expected content. Do not assume a control works
    because it exists.
-4. Persistence. After something is saved or changed, re-check it (reload, navigate away and back, or
-   re-open) to confirm it survived, and that the action gave real feedback.
+4. Persistence. When the app offers to save or persist something, re-check it (reload, navigate away and
+   back, or re-open) to confirm it survived and that the action gave real feedback. Only treat lost state
+   as a defect when persistence was actually promised — do not flag a demo that clearly keeps state only
+   in memory unless it claims to save.
 5. Output values and content. Inspect the values the app shows — fields, counts, totals, computed results,
    charts — for missing, blank, placeholder, default, stale, or obviously wrong data, not just for the
    presence of a widget.
@@ -106,7 +111,8 @@ Use these defect classes as the lens, wherever they apply:
 - Derived state: after an action, verify the effect actually appears (correctly) on every dependent
   surface — lists, filters, search, detail views, other roles — not just on the form.
 - Navigation: exercise links/buttons and confirm they reach the correct, non-empty destination.
-- Persistence: re-check after reload/navigation that changes survived and gave real feedback.
+- Persistence: when the app offers to save, re-check after reload/navigation that changes survived and
+  gave real feedback; only flag lost state when saving was actually promised (not in-memory-only demos).
 - Values/content: inspect shown fields, counts, totals, and charts for missing, placeholder, stale, or
   wrong data.
 - Forbidden/repeated/privileged actions: try what should be blocked, limited, deduplicated, or
