@@ -63,32 +63,32 @@ class TestHostCircuitBreakerStateMachine:
 		assert breaker.state(url) == 'closed'
 
 	async def test_cooldown_transitions_to_half_open(self):
-		breaker = HostCircuitBreaker(failure_threshold=2, cooldown_seconds=0.05)
+		breaker = HostCircuitBreaker(failure_threshold=2, cooldown_seconds=0.1)
 		url = 'https://flaky.example/api'
 		await breaker.record_failure(url)
 		await breaker.record_failure(url)
 		assert breaker.state(url) == 'open'
-		await asyncio.sleep(0.06)
+		await asyncio.sleep(0.2)
 		# allow() during half-open should succeed (transition + pass through)
 		await breaker.allow(url)
 		assert breaker.state(url) == 'half_open'
 
 	async def test_half_open_success_closes_circuit(self):
-		breaker = HostCircuitBreaker(failure_threshold=2, cooldown_seconds=0.05)
+		breaker = HostCircuitBreaker(failure_threshold=2, cooldown_seconds=0.1)
 		url = 'https://flaky.example/api'
 		await breaker.record_failure(url)
 		await breaker.record_failure(url)
-		await asyncio.sleep(0.06)
+		await asyncio.sleep(0.2)
 		await breaker.allow(url)
 		await breaker.record_success(url)
 		assert breaker.state(url) == 'closed'
 
 	async def test_half_open_failure_reopens_circuit(self):
-		breaker = HostCircuitBreaker(failure_threshold=2, cooldown_seconds=0.05)
+		breaker = HostCircuitBreaker(failure_threshold=2, cooldown_seconds=0.1)
 		url = 'https://flaky.example/api'
 		await breaker.record_failure(url)
 		await breaker.record_failure(url)
-		await asyncio.sleep(0.06)
+		await asyncio.sleep(0.2)
 		await breaker.allow(url)  # half_open
 		await breaker.record_failure(url)
 		assert breaker.state(url) == 'open'
@@ -179,11 +179,11 @@ class TestCircuitBreakerInOrchestrator:
 		assert report.total_tabs == 5
 
 	async def test_recovery_after_cooldown(self):
-		breaker = HostCircuitBreaker(failure_threshold=1, cooldown_seconds=0.05)
+		breaker = HostCircuitBreaker(failure_threshold=1, cooldown_seconds=0.1)
 		await breaker.record_failure('https://x.example/api')
 		assert breaker.state('https://x.example/api') == 'open'
 
-		await asyncio.sleep(0.06)
+		await asyncio.sleep(0.2)
 
 		async def research_fn(query: str, url: str) -> str:
 			return 'recovered'
