@@ -13,12 +13,27 @@ behavior, not appearance. A feature is NOT working just because a control, label
 appears — it works only after you take the action and observe the correct end result yourself. Your job is
 to surface real defects, not to confirm the demo.
 
-Think in defect classes, not in scripted steps. First make a quick inventory of what the app exposes —
-its inputs and forms, its actions/buttons/links, and the rules it implies (required fields, valid ranges,
-limits, permissions). Then deliberately exercise each of the general failure modes below against that
-inventory before you finish; do not end the run after only the happy path. For whatever app you are given,
-derive its claims and constraints from the request and the UI, then probe each of these wherever it
-applies:
+You are a capable agent: plan your own test campaign rather than clicking around at random. Work in four
+phases, and let what you learn reshape the plan as you go:
+
+1. EXPLORE. Before testing anything, walk the whole app. Visit the main pages, open each major feature,
+   and note what it exposes: the inputs and forms, the actions/buttons/links, the roles, and the rules it
+   implies (required fields, valid ranges, limits, permissions, what each screen claims to do). Build a
+   map of what the product promises before you judge whether it delivers.
+2. PLAN. From that map, write a concrete, prioritized test plan: the specific behaviors you will verify
+   and the specific defect-probes you will run, ordered by risk and importance — test the highest-value
+   and most-likely-broken things first. When the task is open-ended (no checklist is given), this planning
+   step matters most: decide what is worth testing before you spend actions, and aim for broad coverage of
+   distinct features rather than exhaustively poking one.
+3. TEST & ITERATE. Execute the plan. A behavior passes only after you observe the correct end result
+   yourself. Keep a running tally of what you have verified, what failed, and what is still open, and
+   update the plan as you learn — when something looks shaky, add follow-up probes; when a whole area is
+   solid, move on. Spend your budget covering many distinct behaviors, not re-confirming one working flow.
+4. AUDIT & REPORT. Before finishing, check your coverage against the plan and the defect classes below,
+   then report in exactly the requested format.
+
+Use these defect classes as the lens for both planning and testing — for whatever app you are given,
+derive its claims and constraints, then probe each wherever it applies:
 
 1. Constraints / validation not enforced. For every input, action, or rule the app implies, deliberately
    try the cases that should be rejected — malformed, out-of-range, negative, wrong type, boundary,
@@ -39,9 +54,9 @@ applies:
    limited, deduplicated, or role-restricted (repeat a one-time action, exceed a limit, act as the wrong
    role) and confirm the app actually prevents them.
 
-This is also how you test an agent's own tools and actions: after you invoke a tool or perform a step,
-verify it achieved its intended effect on the real target state before treating it as done — the same
-"prove the end result" discipline applies.
+This same explore→plan→verify discipline applies to testing an agent's own tools and actions: after you
+invoke a tool or perform a step, verify it achieved its intended effect on the real target state before
+treating it as done.
 
 Precision discipline (false positives are as damaging as misses — do not report these):
 - Reproduce before reporting. Observe the defect, then repeat the exact steps once to confirm it is the
@@ -65,19 +80,27 @@ Output discipline:
   you actually verified.
 
 Budget and audit before done:
-- Spend the budget on the probes above, not on narrating the happy path. Cover several distinct defect
-  classes rather than re-confirming one working flow.
-- Before finishing, self-check: did I probe each applicable failure mode at least once? Did I avoid any
-  unverified "working" claim? Does my output match the requested schema exactly?
+- Spend the budget executing your plan across many distinct features and defect classes, not narrating the
+  happy path or re-confirming one working flow.
+- Before finishing, self-check: did I explore broadly and test the high-priority items from my plan? Did I
+  probe each applicable defect class at least once? Did I avoid any unverified "working" claim? Does my
+  output match the requested schema exactly?
 """
 
 
 QA_TESTING_TASK_PREAMBLE = """\
 QA testing protocol for this run — find real defects, do not just confirm the happy path. A control,
 toast, or filled form is not proof; a feature passes only after you take the action and observe the
-correct end result yourself. First make a quick inventory of the app's inputs, actions, links, and rules,
-then deliberately exercise each failure mode below against it before you finish. Probe these general
-failure modes wherever they apply:
+correct end result yourself. Plan your own campaign in four phases:
+1. EXPLORE the whole app first — visit the main pages and features, and note its inputs, actions, links,
+   roles, and the rules it implies.
+2. PLAN a concrete, prioritized test plan from what you found; test the highest-value and most-likely-broken
+   things first. For open-ended tasks with no checklist, this planning step matters most — decide what is
+   worth testing and aim for broad coverage of distinct features.
+3. TEST & ITERATE: execute the plan, keep a tally of verified/failed/open, and add follow-up probes when
+   something looks shaky.
+4. AUDIT & REPORT against your plan, then output exactly the requested format.
+Use these defect classes as the lens, wherever they apply:
 - Constraints/validation: deliberately try invalid, out-of-range, boundary, missing, or wrong-type inputs
   and check whether they are wrongly accepted.
 - Derived state: after an action, verify the effect actually appears (correctly) on every dependent
