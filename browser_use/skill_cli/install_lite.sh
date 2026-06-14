@@ -361,7 +361,7 @@ create_wrappers() {
 			local wrapper="$wrapper_dir/$cmd"
 			cat > "$wrapper" <<- WRAPPER_EOF
 				#!/bin/sh
-				exec "$venv_bin/$cmd" "$@"
+				exec "$venv_bin/$cmd" "\$@"
 			WRAPPER_EOF
 			chmod +x "$wrapper"
 			log_success "Created wrapper: $wrapper_dir/$cmd"
