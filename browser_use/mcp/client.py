@@ -253,6 +253,11 @@ class MCPClient:
 			action_name: Name for the registered action
 			tool: MCP Tool object with schema information
 		"""
+		if action_name in registry.registry.actions:
+			raise ValueError(
+				f"Action name '{action_name}' is already registered. Use an MCP tool prefix or filter to avoid overriding existing actions."
+			)
+
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
 
