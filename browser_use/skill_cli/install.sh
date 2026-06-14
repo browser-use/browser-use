@@ -392,7 +392,7 @@ create_wrappers() {
 	local commands="browser-use bu browseruse browser browser-use-tui"
 
 	for cmd in $commands; do
-		if [ -x "$venv_bin/$cmd" ]; then
+		if [ -x "$venv_bin/$cmd" ] || ([ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]); then
 			local wrapper="$wrapper_dir/$cmd"
 			cat > "$wrapper" <<- WRAPPER_EOF
 				#!/bin/sh
@@ -440,7 +440,7 @@ configure_powershell_wrappers() {
 	# Create .cmd wrappers for each CLI command
 	local commands="browser-use bu browseruse browser browser-use-tui"
 	for cmd in $commands; do
-		if [ -x "$venv_bin/$cmd" ]; then
+		if [ -x "$venv_bin/$cmd" ] || ([ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]); then
 			local wrapper="$wrapper_dir/${cmd}.cmd"
 			{
 				echo '@echo off'
