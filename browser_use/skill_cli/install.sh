@@ -444,7 +444,7 @@ configure_powershell_wrappers() {
 			local wrapper="$wrapper_dir/${cmd}.cmd"
 			{
 				echo '@echo off'
-				echo ""$(echo "$venv_bin/$cmd" | sed 's|/|\|g')" %*"
+				echo ""$(echo "$venv_bin/$cmd" | sed 's|/\\|g')" %*"
 			} > "$wrapper"
 			chmod +x "$wrapper"
 			log_success "Created wrapper: $wrapper_dir/${cmd}.cmd"
