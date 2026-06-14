@@ -438,6 +438,7 @@ class Tools(Generic[Context]):
 			'',
 			param_model=SearchAction,
 			terminates_sequence=True,
+			risk_tags=('navigation', 'network'),
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
 			import urllib.parse
@@ -482,6 +483,7 @@ class Tools(Generic[Context]):
 			'',
 			param_model=NavigateAction,
 			terminates_sequence=True,
+			risk_tags=('navigation', 'network'),
 		)
 		async def navigate(params: NavigateAction, browser_session: BrowserSession):
 			try:
@@ -559,7 +561,9 @@ class Tools(Generic[Context]):
 					# Return error in ActionResult instead of re-raising
 					return ActionResult(error=f'Navigation failed: {str(e)}')
 
-		@self.registry.action('Go back', param_model=NoParamsAction, terminates_sequence=True)
+		@self.registry.action(
+			'Go back', param_model=NoParamsAction, terminates_sequence=True, risk_tags=('navigation', 'browser_state')
+		)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
@@ -749,6 +753,7 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			'Input text into element by index. Clears existing text by default; pass text="" to clear only, or clear=False to append.',
 			param_model=InputTextAction,
+			risk_tags=('browser_interaction', 'data_entry'),
 		)
 		async def input(
 			params: InputTextAction,
@@ -835,6 +840,8 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			'',
 			param_model=UploadFileAction,
+			risk_tags=('browser_interaction', 'file_upload', 'data_exfiltration'),
+			requires_human_review=True,
 		)
 		async def upload_file(
 			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
@@ -980,6 +987,7 @@ class Tools(Generic[Context]):
 			'Switch to another open tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use when you need to work with content in a different tab.',
 			param_model=SwitchTabAction,
 			terminates_sequence=True,
+			risk_tags=('tab_management', 'browser_state'),
 		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
@@ -1005,6 +1013,7 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
 			param_model=CloseTabAction,
+			risk_tags=('tab_management', 'browser_state'),
 		)
 		async def close(params: CloseTabAction, browser_session: BrowserSession):
 			# Simple close tab logic
@@ -1034,6 +1043,7 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Set extract_images=True for image src URLs. Use start_from_char if previous extraction was truncated to extract data further down the page. When paginating across pages, pass already_collected with item identifiers (names/URLs) from prior pages to avoid duplicates.""",
 			param_model=ExtractAction,
+			risk_tags=('data_capture',),
 		)
 		async def extract(
 			params: ExtractAction,
@@ -1274,6 +1284,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Search page text for a pattern (like grep). Zero LLM cost, instant. Returns matches with surrounding context. Use to find specific text, verify content exists, or locate data on the page. Set regex=True for regex patterns. Use css_scope to search within a specific section.""",
 			param_model=SearchPageAction,
+			risk_tags=('page_inspection',),
 		)
 		async def search_page(params: SearchPageAction, browser_session: BrowserSession):
 			js_code = _build_search_page_js(
@@ -1311,6 +1322,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Query DOM elements by CSS selector (like find). Zero LLM cost, instant. Returns matching elements with tag, text, and attributes. Use to explore page structure, count items, get links/attributes. Use attributes=["href","src"] to extract specific attributes.""",
 			param_model=FindElementsAction,
+			risk_tags=('page_inspection',),
 		)
 		async def find_elements(params: FindElementsAction, browser_session: BrowserSession):
 			js_code = _build_find_elements_js(
@@ -1346,6 +1358,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
 			param_model=ScrollAction,
+			risk_tags=('browser_interaction',),
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
 			try:
@@ -1451,6 +1464,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			'',
 			param_model=SendKeysAction,
+			risk_tags=('browser_interaction', 'keyboard_input'),
 		)
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
 			# Dispatch send keys event
@@ -1467,7 +1481,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				error_msg = f'Failed to send keys: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Scroll to text.')
+		@self.registry.action('Scroll to text.', risk_tags=('browser_interaction', 'page_inspection'))
 		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
 			# Dispatch scroll to text event
 			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
@@ -1492,6 +1506,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'Take a screenshot of the current viewport. If file_name is provided, saves to that file and returns the path. '
 			'Otherwise, screenshot is included in the next browser_state observation.',
 			param_model=ScreenshotAction,
+			risk_tags=('data_capture',),
 		)
 		async def screenshot(
 			params: ScreenshotAction,
@@ -1532,6 +1547,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'Save the current page as a PDF file. Returns the file path of the saved PDF. '
 			'Use this to capture the full page content (including content below the fold) as a printable document.',
 			param_model=SaveAsPdfAction,
+			risk_tags=('data_capture', 'file_write'),
 		)
 		async def save_as_pdf(
 			params: SaveAsPdfAction,
@@ -1621,6 +1637,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			'',
 			param_model=GetDropdownOptionsAction,
+			risk_tags=('page_inspection',),
 		)
 		async def dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
 			"""Get all options from a native dropdown or ARIA menu"""
@@ -1649,6 +1666,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			'Set the option of a <select> element.',
 			param_model=SelectDropdownOptionAction,
+			risk_tags=('browser_interaction', 'data_entry'),
 		)
 		async def select_dropdown(params: SelectDropdownOptionAction, browser_session: BrowserSession):
 			"""Select dropdown option by the text of the option you want to select"""
@@ -1698,7 +1716,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'FILENAME RULES: Use only letters, numbers, underscores, hyphens, dots, parentheses. Spaces are auto-converted to hyphens. '
 			'SUPPORTED EXTENSIONS: .txt, .md, .json, .jsonl, .csv, .html, .xml, .pdf, .docx. '
 			'CANNOT write binary/image files (.png, .jpg, .mp4, etc.) - do not attempt to save screenshots as files. '
-			'For PDF files, write content in markdown format and it will be auto-converted to PDF.'
+			'For PDF files, write content in markdown format and it will be auto-converted to PDF.',
+			risk_tags=('file_write',),
 		)
 		async def write_file(
 			file_name: str,
@@ -1725,7 +1744,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action(
-			'Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file.'
+			'Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file.',
+			risk_tags=('file_write',),
 		)
 		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
 			result = await file_system.replace_file_str(file_name, old_str, new_str)
@@ -1733,7 +1753,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action(
-			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).'
+			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).',
+			risk_tags=('file_read', 'data_capture'),
 		)
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
 			if available_file_paths and file_name in available_file_paths:
@@ -1773,6 +1794,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size.""",
 			terminates_sequence=True,
+			risk_tags=('browser_interaction', 'script_execution'),
+			requires_human_review=True,
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
@@ -2068,6 +2091,7 @@ Validated Code (after quote fixing):
 			@self.registry.action(
 				'Click element by index or coordinates. Use coordinates only if the index is not available. Either provide coordinates or index.',
 				param_model=ClickElementAction,
+				risk_tags=('browser_interaction',),
 			)
 			async def click(params: ClickElementAction, browser_session: BrowserSession):
 				# Validate that either index or coordinates are provided
@@ -2085,6 +2109,7 @@ Validated Code (after quote fixing):
 			@self.registry.action(
 				'Click element by index.',
 				param_model=ClickElementActionIndexOnly,
+				risk_tags=('browser_interaction',),
 			)
 			async def click(params: ClickElementActionIndexOnly, browser_session: BrowserSession):
 				return await self._click_by_index(params, browser_session)

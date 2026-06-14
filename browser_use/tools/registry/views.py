@@ -23,6 +23,11 @@ class RegisteredAction(BaseModel):
 	# multi_act() will abort remaining queued actions after executing a terminates_sequence action.
 	terminates_sequence: bool = False
 
+	# CI-auditable governance metadata. These tags are intentionally kept out of
+	# prompt_description(); they are for policy/checking layers, not LLM guidance.
+	risk_tags: tuple[str, ...] = ()
+	requires_human_review: bool = False
+
 	# filters: provide specific domains to determine whether the action should be available on the given URL or not
 	domains: list[str] | None = None  # e.g. ['*.google.com', 'www.bing.com', 'yahoo.*]
 
