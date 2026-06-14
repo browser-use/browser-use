@@ -935,6 +935,29 @@ Jobs closing within 30 days receive up to +10 score points, with urgency badges:
 
 Original match preserved in `matchOriginal` field. RRSS: makes the system reactive to time pressure without losing audit trail.
 
+### Daily Digest + Top Hits + Geo + Salary Normalisation (v4)
+
+**Daily Digest** (`scripts/digest.mjs` · cron `0 7 * * *`)
+- Bundles all high-match jobs into one notification per channel (vs per-job alerts)
+- Grouped by winning profile: 🛰️ BD · ⚙️ Tech · 🚀 Startup
+- 🆕 badges for jobs new since last digest (state persisted in `digest-state.json`)
+- 4 channels: ntfy.sh · Slack · Discord · GitHub Issues (label `daily-digest`)
+- Reduces noise — typically 1 alert/day vs ~4 per cron
+
+**Top Hits sidebar** — trending keywords across all matches
+- Computed in `fetch.mjs`: keyword frequency map across `hits[]` of all scored jobs
+- Top 20 tags in `jobs.json.topHits`, top 14 rendered in sidebar as clickable filter pills
+- Click a hit tag → filters job list by that keyword
+
+**Geo Distribution sidebar** — opportunity heat map
+- Regex-based country detection from `location` field (25 countries + Remote/Remote EU)
+- Top 10 rendered as horizontal bar chart (counts visible)
+
+**Salary Normalisation** — cross-source comparison
+- Parser handles `$/€/£/CHF/DKK/SEK/NOK`, K-suffix, ranges, /year/month/day periods
+- Output: `salaryEur: {min, max, cur, period: 'year'}` per job
+- Displayed as `€95K–€135K` pill in card
+
 ### Multi-Profile Scoring (v3.2) — matches the 3-tab resume site
 Every job scored against **3 parallel profiles** (`data/profiles.json`):
 
