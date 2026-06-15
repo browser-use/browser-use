@@ -2687,6 +2687,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# to match backend requirements for CREATE events to be fired when entities are created,
 			# not when they are completed
 
+			await self._finalize_video_recording_path()
+
 			# Emit UpdateAgentTaskEvent at the END of run() with final task state
 			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
 
@@ -3955,6 +3957,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
+
+	async def _finalize_video_recording_path(self) -> None:
+		"""Finalize any run-scoped recording and expose its saved path on history."""
+		if self.browser_session is None or self.browser_session.browser_profile.keep_alive:
+			return
+
+		watchdog = getattr(self.browser_session, '_recording_watchdog', None)
+		if watchdog is None or not getattr(watchdog, 'is_recording', False):
+			return
+
+		try:
+			saved = await watchdog.stop_recording()
+		except Exception as e:
+			self.logger.warning(f'Error finalizing video recording: {e}')
+			return
+
+		if saved is not None:
+			self.history.video_recording_path = str(saved)
 
 	async def close(self):
 		"""Close all resources"""
