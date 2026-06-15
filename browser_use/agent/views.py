@@ -597,6 +597,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	history: list[AgentHistory]
 	usage: UsageSummary | None = None
+	video_recording_path: str | None = Field(
+		default=None,
+		description='Path to the run-level video recording, if recording was enabled and finalized before the browser closed.',
+	)
 
 	_output_model_schema: type[AgentStructuredOutput] | None = None
 
@@ -668,9 +672,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def model_dump(self, **kwargs) -> dict[str, Any]:
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
-		return {
+		data: dict[str, Any] = {
 			'history': [h.model_dump(**kwargs) for h in self.history],
 		}
+		if self.video_recording_path:
+			data['video_recording_path'] = self.video_recording_path
+		return data
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
