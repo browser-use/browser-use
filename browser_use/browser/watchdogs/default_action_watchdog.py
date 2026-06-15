@@ -1934,18 +1934,29 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				# After first char on contenteditable: check if dropped and retype if needed
 				if i == 0 and _check_first_char and _first_char:
-					# Brief delay so React (and similar frameworks) can flush the
-					# virtual DOM after the key event.  Without this the
-					# textContent check races with the framework's async re-render
-					# and falsely reports the first char as missing, causing a
-					# duplicate first character.  See #4461.
-					await asyncio.sleep(0.1)
-					check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={'expression': 'document.activeElement.textContent'},
-						session_id=cdp_session.session_id,
-					)
-					content = check_result.get('result', {}).get('value', '')
-					if _first_char not in content:
+					# Poll for the first char to appear instead of paying a fixed delay.
+					# On the happy path (char already visible) this costs a single
+					# textContent read and no sleep. When a framework (React/Vue/Angular)
+					# re-renders asynchronously the char may not be present immediately,
+					# so poll briefly and early-exit as soon as it appears -- a slow
+					# flush on a loaded/slow browser must not be mistaken for a drop.
+					# The grace sleep is always followed by another check (never sleep
+					# then retype on stale state), so a char that flushes inside the
+					# final window is still seen. Only a char missing on the last check
+					# is treated as the leaf-start drop and retyped. See #4461.
+					_first_char_present = False
+					for _first_char_attempt in range(6):  # check at 0,100,...,500ms (5 x 100ms grace)
+						check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+							params={'expression': 'document.activeElement.textContent'},
+							session_id=cdp_session.session_id,
+						)
+						content = check_result.get('result', {}).get('value', '')
+						if _first_char in content:
+							_first_char_present = True
+							break
+						if _first_char_attempt < 5:  # wait then re-check; no sleep after the final check
+							await asyncio.sleep(0.1)
+					if not _first_char_present:
 						self.logger.debug(f'🎯 First char "{_first_char}" was dropped (leaf-start bug), retyping')
 						# Retype the first character - cursor now past leaf-start
 						modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(_first_char)
