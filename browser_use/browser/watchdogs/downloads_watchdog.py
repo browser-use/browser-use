@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -32,6 +33,75 @@ from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
 	pass
+
+
+_NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
+	'pdf',
+	'doc',
+	'docx',
+	'xls',
+	'xlsx',
+	'ppt',
+	'pptx',
+	'csv',
+	'tsv',
+	'txt',
+	'json',
+	'xml',
+	'zip',
+	'gz',
+	'tar',
+	'jpg',
+	'jpeg',
+	'png',
+	'gif',
+	'webp',
+}
+
+_GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
+
+
+def _filename_from_content_disposition(content_disposition: str) -> str | None:
+	filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
+	if filename_match:
+		return filename_match.group(1).strip('\'"')
+	return None
+
+
+def _has_file_extension(value: str | None) -> bool:
+	if not value:
+		return False
+	return Path(urlparse(value).path if '://' in value else value).suffix.lower().lstrip('.') in _NETWORK_DOWNLOAD_FILE_EXTENSIONS
+
+
+def _is_generic_text_attachment(url: str, content_type: str, suggested_filename: str | None) -> bool:
+	mime = content_type.split(';', 1)[0].strip().lower()
+	if mime not in {'text/plain', 'application/json', 'text/javascript', 'application/javascript'}:
+		return False
+	if _has_file_extension(url):
+		return False
+	if not suggested_filename:
+		return False
+	filename = Path(suggested_filename).name.lower()
+	stem = Path(filename).stem
+	ext = Path(filename).suffix.lower().lstrip('.')
+	return stem in _GENERIC_TEXT_ATTACHMENT_NAMES and ext in {'', 'txt', 'json'}
+
+
+def _should_auto_download_network_response(
+	url: str,
+	content_type: str,
+	is_pdf: bool,
+	is_download_attachment: bool,
+	suggested_filename: str | None,
+) -> bool:
+	if is_pdf:
+		return True
+	if not is_download_attachment:
+		return False
+	if _is_generic_text_attachment(url, content_type, suggested_filename):
+		return False
+	return True
 
 
 class DownloadsWatchdog(BaseWatchdog):
@@ -243,7 +313,8 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Cache info for later completion event handling (esp. remote browsers)
 			guid = event.get('guid', '')
 			url = event.get('url', '')
-			suggested_filename = event.get('suggestedFilename', 'download')
+			# Sanitize at the ingress so every downstream consumer sees a safe basename.
+			suggested_filename = self._sanitize_download_filename(event.get('suggestedFilename', 'download'))
 			try:
 				assert suggested_filename, 'CDP DownloadWillBegin missing suggestedFilename'
 				self._cdp_downloads_info[guid] = {
@@ -556,6 +627,18 @@ class DownloadsWatchdog(BaseWatchdog):
 						if not (is_pdf or is_download_attachment):
 							return
 
+						# Extract filename from Content-Disposition if available
+						suggested_filename = _filename_from_content_disposition(content_disposition)
+
+						if not _should_auto_download_network_response(
+							url=url,
+							content_type=content_type,
+							is_pdf=is_pdf,
+							is_download_attachment=is_download_attachment,
+							suggested_filename=suggested_filename,
+						):
+							return
+
 						# If already downloaded this URL and file still exists, do nothing
 						existing_path = self._session_pdf_urls.get(url)
 						if existing_path:
@@ -571,16 +654,6 @@ class DownloadsWatchdog(BaseWatchdog):
 
 						# Mark as detected to avoid duplicates
 						self._detected_downloads.add(url)
-
-						# Extract filename from Content-Disposition if available
-						suggested_filename = None
-						if 'filename=' in content_disposition:
-							# Parse filename from Content-Disposition header
-							import re
-
-							filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
-							if filename_match:
-								suggested_filename = filename_match.group(1).strip('\'"')
 
 						self.logger.info(f'[DownloadsWatchdog] 🔍 Detected downloadable content via network: {url[:80]}...')
 						self.logger.debug(
@@ -673,9 +746,8 @@ class DownloadsWatchdog(BaseWatchdog):
 			# Get or create CDP session for this target
 			temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 
-			# Determine filename
 			if suggested_filename:
-				filename = suggested_filename
+				filename = self._sanitize_download_filename(suggested_filename)
 			else:
 				# Extract from URL
 				filename = os.path.basename(url.split('?')[0])  # Remove query params
@@ -743,6 +815,9 @@ class DownloadsWatchdog(BaseWatchdog):
 
 			if download_result and download_result.get('data') and len(download_result['data']) > 0:
 				download_path = os.path.join(downloads_dir, final_filename)
+				if not self._is_path_contained(download_path, downloads_dir):
+					self.logger.error(f'[DownloadsWatchdog] Refusing to write download outside downloads_dir: {download_path}')
+					return None
 
 				# Save the file asynchronously
 				async with await anyio.open_file(download_path, 'wb') as f:
@@ -858,7 +933,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		expected_path = None
 		download_result = None
 		download_url = event.get('url', '')
-		suggested_filename = event.get('suggestedFilename', 'download')
+		suggested_filename = self._sanitize_download_filename(event.get('suggestedFilename', 'download'))
 		guid = event.get('guid', '')
 
 		try:
@@ -953,7 +1028,7 @@ class DownloadsWatchdog(BaseWatchdog):
 			current_step = 'getting_download_info'
 			# Get download info immediately
 			url = download.url
-			suggested_filename = download.suggested_filename
+			suggested_filename = self._sanitize_download_filename(download.suggested_filename)
 
 			current_step = 'determining_download_directory'
 			# Determine download directory from browser profile
@@ -965,6 +1040,9 @@ class DownloadsWatchdog(BaseWatchdog):
 
 			# Check if Playwright already auto-downloaded the file (due to CDP setup)
 			original_path = Path(downloads_dir) / suggested_filename
+			if not self._is_path_contained(original_path, downloads_dir):
+				self.logger.error(f'[DownloadsWatchdog] Refusing to handle download outside downloads_dir: {original_path}')
+				return
 			if original_path.exists() and original_path.stat().st_size > 0:
 				self.logger.debug(
 					f'[DownloadsWatchdog] File already downloaded by Playwright: {original_path} ({original_path.stat().st_size} bytes)'
@@ -1310,6 +1388,9 @@ class DownloadsWatchdog(BaseWatchdog):
 					downloads_dir = str(self.browser_session.browser_profile.downloads_path)
 					os.makedirs(downloads_dir, exist_ok=True)
 					download_path = os.path.join(downloads_dir, final_filename)
+					if not self._is_path_contained(download_path, downloads_dir):
+						self.logger.error(f'[DownloadsWatchdog] Refusing to write PDF outside downloads_dir: {download_path}')
+						return None
 
 					# Save the PDF asynchronously
 					async with await anyio.open_file(download_path, 'wb') as f:
@@ -1377,6 +1458,26 @@ class DownloadsWatchdog(BaseWatchdog):
 			new_filename = f'{base} ({counter}){ext}'
 			counter += 1
 		return new_filename
+
+	@staticmethod
+	def _sanitize_download_filename(name: str | None) -> str:
+		"""Reduce a page-controlled filename (CDP / Content-Disposition) to a safe basename."""
+		if not name:
+			return 'download'
+		name = name.replace('\x00', '')
+		# POSIX basename does not split on '\\'; normalize first.
+		name = name.replace('\\', '/')
+		name = os.path.basename(name.rsplit('/', 1)[-1])
+		if name in ('', '.', '..'):
+			return 'download'
+		return name
+
+	@staticmethod
+	def _is_path_contained(path: str | Path, directory: str | Path) -> bool:
+		"""True iff `path`'s realpath stays inside `directory`'s realpath."""
+		real_path = os.path.realpath(str(path))
+		real_dir = os.path.realpath(str(directory))
+		return real_path == real_dir or real_path.startswith(real_dir + os.sep)
 
 
 # Fix Pydantic circular dependency - this will be called from session.py after BrowserSession is defined

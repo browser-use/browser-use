@@ -401,6 +401,8 @@ class SessionManager:
 			if '-32001' not in error_str and 'Session with given id not found' not in error_str:
 				self.logger.debug(f'[SessionManager] Auto-attach failed for {target_type}: {e}')
 
+		from browser_use.browser.session import Target
+
 		async with self._lock:
 			# Track this session for the target
 			if target_id not in self._target_sessions:
@@ -409,23 +411,22 @@ class SessionManager:
 			self._target_sessions[target_id].add(session_id)
 			self._session_to_target[session_id] = target_id
 
-		# Create or update Target (source of truth for url/title)
-		if target_id not in self._targets:
-			from browser_use.browser.session import Target
-
-			target = Target(
-				target_id=target_id,
-				target_type=target_type,
-				url=target_info.get('url', 'about:blank'),
-				title=target_info.get('title', 'Unknown title'),
-			)
-			self._targets[target_id] = target
-			self.logger.debug(f'[SessionManager] Created target {target_id[:8]}... (type={target_type})')
-		else:
-			# Update existing target info
-			existing_target = self._targets[target_id]
-			existing_target.url = target_info.get('url', existing_target.url)
-			existing_target.title = target_info.get('title', existing_target.title)
+			# Create or update Target inside the same lock so that get_target() is never
+			# called in the window between _target_sessions being set and _targets being set.
+			if target_id not in self._targets:
+				target = Target(
+					target_id=target_id,
+					target_type=target_type,
+					url=target_info.get('url', 'about:blank'),
+					title=target_info.get('title', 'Unknown title'),
+				)
+				self._targets[target_id] = target
+				self.logger.debug(f'[SessionManager] Created target {target_id[:8]}... (type={target_type})')
+			else:
+				# Update existing target info
+				existing_target = self._targets[target_id]
+				existing_target.url = target_info.get('url', existing_target.url)
+				existing_target.title = target_info.get('title', existing_target.title)
 
 		# Create CDPSession (communication channel)
 		from browser_use.browser.session import CDPSession

@@ -1175,11 +1175,24 @@ class DOMTreeSerializer:
 							attributes_to_include['placeholder'] = 'mm/dd/yyyy'
 							attributes_to_include['format'] = 'mm/dd/yyyy'
 
+		# Never include values from password fields - they contain secrets that must not
+		# leak into DOM snapshots sent to the LLM, where prompt injection could exfiltrate them.
+		is_password_field = (
+			node.tag_name
+			and node.tag_name.lower() == 'input'
+			and node.attributes
+			and node.attributes.get('type', '').lower() == 'password'
+		)
+
 		# Include accessibility properties
 		if node.ax_node and node.ax_node.properties:
+			# Properties that carry field values - must be excluded for password fields
+			value_properties = {'value', 'valuetext'}
 			for prop in node.ax_node.properties:
 				try:
 					if prop.name in include_attributes and prop.value is not None:
+						if is_password_field and prop.name in value_properties:
+							continue
 						# Convert boolean to lowercase string, keep others as-is
 						if isinstance(prop.value, bool):
 							attributes_to_include[prop.name] = str(prop.value).lower()
@@ -1193,8 +1206,10 @@ class DOMTreeSerializer:
 		# Special handling for form elements - ensure current value is shown
 		# For text inputs, textareas, and selects, prioritize showing the current value from AX tree
 		if node.tag_name and node.tag_name.lower() in ['input', 'textarea', 'select']:
+			if is_password_field:
+				attributes_to_include.pop('value', None)
 			# ALWAYS check AX tree - it reflects actual typed value, DOM attribute may not update
-			if node.ax_node and node.ax_node.properties:
+			elif node.ax_node and node.ax_node.properties:
 				for prop in node.ax_node.properties:
 					# Try valuetext first (human-readable display value)
 					if prop.name == 'valuetext' and prop.value:

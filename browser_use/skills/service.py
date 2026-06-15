@@ -4,9 +4,7 @@ import logging
 import os
 from typing import Any, Literal
 
-from browser_use_sdk import AsyncBrowserUse
-from browser_use_sdk.types.execute_skill_response import ExecuteSkillResponse
-from browser_use_sdk.types.skill_list_response import SkillListResponse
+from browser_use_sdk import AsyncBrowserUse, ExecuteSkillResponse, SkillListResponse
 from cdp_use.cdp.network import Cookie
 from pydantic import BaseModel, ValidationError
 
@@ -89,7 +87,7 @@ class SkillService:
 					all_items.extend(skills_response.items)
 
 					# Check if we've found all requested skills
-					found_ids = {s.id for s in all_items if s.id in requested_ids}
+					found_ids = {str(s.id) for s in all_items if str(s.id) in requested_ids}
 					if found_ids == requested_ids:
 						break
 
@@ -114,10 +112,10 @@ class SkillService:
 				skills_to_load = all_available_skills
 			else:
 				# Load only the requested skill IDs
-				skills_to_load = [skill for skill in all_available_skills if skill.id in requested_ids]
+				skills_to_load = [skill for skill in all_available_skills if str(skill.id) in requested_ids]
 
 				# Warn about any requested skills that weren't found
-				found_ids = {skill.id for skill in skills_to_load}
+				found_ids = {str(skill.id) for skill in skills_to_load}
 				missing_ids = requested_ids - found_ids
 				if missing_ids:
 					logger.warning(f'Requested skills not found or not available: {missing_ids}')
@@ -272,7 +270,10 @@ class SkillService:
 			# Return error response
 			return ExecuteSkillResponse(
 				success=False,
+				result=None,
 				error=f'Failed to execute skill: {type(e).__name__}: {str(e)}',
+				stderr=None,
+				latencyMs=None,
 			)
 
 	async def close(self) -> None:

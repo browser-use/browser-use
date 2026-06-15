@@ -49,7 +49,7 @@ async def handle(session: SessionInfo, params: dict[str, Any]) -> Any:
 
 	# Execute code in a thread pool so browser operations can schedule back to the event loop
 	loop = asyncio.get_running_loop()
-	result = await loop.run_in_executor(None, python_session.execute, code, browser_session, loop)
+	result = await loop.run_in_executor(None, python_session.execute, code, browser_session, loop, session.actions)
 
 	if result.success:
 		# Return raw text output for clean display

@@ -13,6 +13,9 @@ on:
       - '.github/workflows/install-script.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 # Cancel in-progress runs when a new commit is pushed
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -26,16 +29,15 @@ env:
 
 jobs:
   # ===========================================================================
-  # Test install.sh with different modes on all platforms
+  # Test install.sh on all platforms
   # ===========================================================================
 
   test-install-sh-linux:
-    name: install.sh ${{ matrix.mode }} (Linux ${{ matrix.os }})
+    name: install.sh (Linux ${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-22.04]
-        mode: [--remote-only, --local-only, --full]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -45,8 +47,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run install.sh ${{ matrix.mode }}
-        run: bash browser_use/skill_cli/install.sh ${{ matrix.mode }}
+      - name: Run install.sh
+        run: bash browser_use/skill_cli/install.sh
 
       - name: Add to PATH
         run: |
@@ -58,46 +60,13 @@ jobs:
           source ~/.browser-use-env/bin/activate
           browser-use --help
 
-      - name: Verify install-config.json
-        run: |
-          cat ~/.browser-use/install-config.json
-          # Verify expected modes based on install flag
-          if [[ "${{ matrix.mode }}" == "--remote-only" ]]; then
-            grep -q '"remote"' ~/.browser-use/install-config.json
-            grep -q '"default_mode": "remote"' ~/.browser-use/install-config.json
-          elif [[ "${{ matrix.mode }}" == "--local-only" ]]; then
-            grep -q '"chromium"' ~/.browser-use/install-config.json
-            grep -q '"default_mode": "chromium"' ~/.browser-use/install-config.json
-          elif [[ "${{ matrix.mode }}" == "--full" ]]; then
-            grep -q '"chromium"' ~/.browser-use/install-config.json
-            grep -q '"remote"' ~/.browser-use/install-config.json
-          fi
-
-      - name: Verify Chromium installed (local/full only)
-        if: matrix.mode != '--remote-only'
+      - name: Verify Chromium installed
         run: |
           source ~/.browser-use-env/bin/activate
-          # Check playwright browsers are installed
-          uvx playwright install --dry-run chromium 2>&1 | grep -i "chromium" || true
           # Verify chromium binary exists in playwright cache
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
           echo "Chromium binary check completed"
-
-      - name: Verify cloudflared installed (remote/full only)
-        if: matrix.mode != '--local-only'
-        run: |
-          which cloudflared || ls ~/.local/bin/cloudflared
-          cloudflared --version
-
-      - name: Verify cloudflared NOT installed (local-only)
-        if: matrix.mode == '--local-only'
-        run: |
-          if command -v cloudflared &> /dev/null; then
-            echo "ERROR: cloudflared should not be installed in local-only mode"
-            exit 1
-          fi
-          echo "Confirmed: cloudflared not installed (expected for local-only)"
 
       - name: Run browser-use doctor
         run: |
@@ -105,18 +74,17 @@ jobs:
           browser-use doctor
 
   test-install-sh-macos:
-    name: install.sh ${{ matrix.mode }} (macOS ${{ matrix.os }})
+    name: install.sh (macOS ${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, macos-14]
-        mode: [--remote-only, --local-only, --full]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run install.sh ${{ matrix.mode }}
-        run: bash browser_use/skill_cli/install.sh ${{ matrix.mode }}
+      - name: Run install.sh
+        run: bash browser_use/skill_cli/install.sh
 
       - name: Add to PATH
         run: |
@@ -128,22 +96,7 @@ jobs:
           source ~/.browser-use-env/bin/activate
           browser-use --help
 
-      - name: Verify install-config.json
-        run: |
-          cat ~/.browser-use/install-config.json
-          if [[ "${{ matrix.mode }}" == "--remote-only" ]]; then
-            grep -q '"remote"' ~/.browser-use/install-config.json
-            grep -q '"default_mode": "remote"' ~/.browser-use/install-config.json
-          elif [[ "${{ matrix.mode }}" == "--local-only" ]]; then
-            grep -q '"chromium"' ~/.browser-use/install-config.json
-            grep -q '"default_mode": "chromium"' ~/.browser-use/install-config.json
-          elif [[ "${{ matrix.mode }}" == "--full" ]]; then
-            grep -q '"chromium"' ~/.browser-use/install-config.json
-            grep -q '"remote"' ~/.browser-use/install-config.json
-          fi
-
-      - name: Verify Chromium installed (local/full only)
-        if: matrix.mode != '--remote-only'
+      - name: Verify Chromium installed
         run: |
           source ~/.browser-use-env/bin/activate
           # Check playwright cache for chromium
@@ -151,32 +104,13 @@ jobs:
           ls ~/Library/Caches/ms-playwright/chromium-*/Chromium.app 2>/dev/null || \
           echo "Chromium binary check completed"
 
-      - name: Verify cloudflared installed (remote/full only)
-        if: matrix.mode != '--local-only'
-        run: |
-          which cloudflared || ls ~/.local/bin/cloudflared
-          cloudflared --version
-
-      - name: Verify cloudflared NOT installed (local-only)
-        if: matrix.mode == '--local-only'
-        run: |
-          if command -v cloudflared &> /dev/null; then
-            echo "ERROR: cloudflared should not be installed in local-only mode"
-            exit 1
-          fi
-          echo "Confirmed: cloudflared not installed (expected for local-only)"
-
       - name: Run browser-use doctor
         run: |
           source ~/.browser-use-env/bin/activate
           browser-use doctor
 
   test-install-sh-windows:
-    name: install.sh ${{ matrix.mode }} (Windows)
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [--remote-only, --local-only, --full]
+    name: install.sh (Windows)
     runs-on: windows-latest
     defaults:
       run:
@@ -192,8 +126,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run install.sh ${{ matrix.mode }}
-        run: bash browser_use/skill_cli/install.sh ${{ matrix.mode }}
+      - name: Run install.sh
+        run: bash browser_use/skill_cli/install.sh
 
       - name: Add to PATH
         run: |
@@ -204,18 +138,6 @@ jobs:
         run: |
           source ~/.browser-use-env/Scripts/activate
           browser-use --help
-
-      - name: Verify install-config.json
-        run: |
-          cat ~/.browser-use/install-config.json
-          if [[ "${{ matrix.mode }}" == "--remote-only" ]]; then
-            grep -q '"remote"' ~/.browser-use/install-config.json
-          elif [[ "${{ matrix.mode }}" == "--local-only" ]]; then
-            grep -q '"chromium"' ~/.browser-use/install-config.json
-          elif [[ "${{ matrix.mode }}" == "--full" ]]; then
-            grep -q '"chromium"' ~/.browser-use/install-config.json
-            grep -q '"remote"' ~/.browser-use/install-config.json
-          fi
 
       - name: Run browser-use doctor
         run: |
@@ -245,7 +167,7 @@ jobs:
           # Install from current branch
           uv pip install .
 
-      - name: Run browser-use install (installs Chromium only, not cloudflared)
+      - name: Run browser-use install (installs Chromium)
         run: |
           source .venv/bin/activate
           browser-use install
@@ -261,9 +183,6 @@ jobs:
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
           echo "Chromium check completed"
-
-      # Note: browser-use install only installs Chromium, not cloudflared
-      # Users should install cloudflared separately if needed for tunneling
 
       - name: Run browser-use doctor
         run: |
@@ -295,7 +214,6 @@ jobs:
 
       - name: Test uvx with local wheel
         run: |
-          # Install the wheel we just built
           WHEEL=$(ls dist/*.whl)
           uvx --from "$WHEEL" browser-use --help
 
@@ -309,8 +227,6 @@ jobs:
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
           echo "Chromium check completed"
-
-      # Note: browser-use install only installs Chromium, not cloudflared
 
       - name: Test uvx browser-use doctor
         run: |
@@ -344,8 +260,6 @@ jobs:
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
           ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
           echo "Chromium check completed"
-
-      # Note: browser-use install only installs Chromium, not cloudflared
 
       - name: Test uvx browser-use doctor
         run: uvx "browser-use[cli]" doctor

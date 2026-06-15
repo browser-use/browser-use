@@ -126,7 +126,7 @@ See [Supported Models](https://docs.browser-use.com/supported-models#supported-m
   load_dotenv()
 
   async def main():
-      llm = ChatGoogle(model="gemini-flash-latest")
+      llm = ChatGoogle(model="gemini-3-flash-preview")
       task = "Find the number 1 post on Show HN"
       agent = Agent(task=task, llm=llm)
       await agent.run()

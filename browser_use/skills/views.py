@@ -2,8 +2,7 @@
 
 from typing import Any
 
-from browser_use_sdk.types.parameter_schema import ParameterSchema
-from browser_use_sdk.types.skill_response import SkillResponse
+from browser_use_sdk import ParameterSchema, SkillResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -40,7 +39,7 @@ class Skill(BaseModel):
 	def from_skill_response(response: SkillResponse) -> 'Skill':
 		"""Create a Skill from SDK SkillResponse"""
 		return Skill(
-			id=response.id,
+			id=str(response.id),
 			title=response.title,
 			description=response.description,
 			parameters=response.parameters,

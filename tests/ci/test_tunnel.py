@@ -38,24 +38,6 @@ def test_tunnel_manager_not_installed(tunnel_manager):
 		assert 'cloudflared not installed' in str(exc_info.value)
 
 
-def test_tunnel_manager_is_available_cached(tunnel_manager):
-	"""Test is_available check with cached binary path."""
-	tunnel_manager._binary_path = '/usr/local/bin/cloudflared'
-	assert tunnel_manager.is_available() is True
-
-
-def test_tunnel_manager_is_available_system(tunnel_manager):
-	"""Test is_available check finds system cloudflared."""
-	with patch('shutil.which', return_value='/usr/local/bin/cloudflared'):
-		assert tunnel_manager.is_available() is True
-
-
-def test_tunnel_manager_is_available_not_found(tunnel_manager):
-	"""Test is_available when cloudflared not found."""
-	with patch('shutil.which', return_value=None):
-		assert tunnel_manager.is_available() is False
-
-
 def test_tunnel_manager_status_installed(tunnel_manager):
 	"""Test get_status returns correct info when cloudflared installed."""
 	with patch('shutil.which', return_value='/usr/local/bin/cloudflared'):

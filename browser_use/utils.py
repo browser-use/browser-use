@@ -24,11 +24,60 @@ URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a
 
 logger = logging.getLogger(__name__)
 
+
+def is_placeholder_url(url: str) -> bool:
+	"""Return True for mock placeholder hostnames like https://XXX.XX."""
+	parsed_url = urlparse(url if '://' in url else f'https://{url}')
+	hostname = (parsed_url.hostname or '').strip('.').lower()
+	if not hostname:
+		return False
+
+	labels = [label for label in hostname.split('.') if label]
+	if labels and labels[0] == 'www':
+		labels = labels[1:]
+
+	return len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels)
+
+
+def sanitize_url_candidate(url: str) -> str:
+	"""Normalize a URL candidate captured from prose before auto-navigation."""
+	candidate = url.strip()
+	# Some benchmark tasks arrive with escaped newlines in prose, e.g.
+	# "https://example.com/search.\\n2. Next step". Those are task text,
+	# not part of the URL.
+	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
+	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
+
+
 # Lazy import for error types
 # Use sentinel to avoid retrying import when package is not installed
 _IMPORT_NOT_FOUND: type = type('_ImportNotFound', (), {})
 _openai_bad_request_error: type | None = None
 _groq_bad_request_error: type | None = None
+
+
+def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, str]:
+	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings."""
+	if not sensitive_data:
+		return {}
+
+	sensitive_values: dict[str, str] = {}
+	for key_or_domain, content in sensitive_data.items():
+		if isinstance(content, dict):
+			for key, val in content.items():
+				if val:
+					sensitive_values[key] = val
+		elif content:
+			sensitive_values[key_or_domain] = content
+
+	return sensitive_values
+
+
+def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
+	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
+		value = value.replace(secret, f'<secret>{key}</secret>')
+	return value
 
 
 def _get_openai_bad_request_error() -> type | None:
@@ -77,6 +126,7 @@ class SignalHandler:
 	- Management of event loop state across signals
 	- Standardized handling of first and second Ctrl+C presses
 	- Cross-platform compatibility (with simplified behavior on Windows)
+	- Option to disable signal handling for embedding in applications that manage their own signals
 	"""
 
 	def __init__(
@@ -87,6 +137,7 @@ class SignalHandler:
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
 		interruptible_task_patterns: list[str] | None = None,
+		disabled: bool = False,
 	):
 		"""
 		Initialize the signal handler.
@@ -99,6 +150,8 @@ class SignalHandler:
 			exit_on_second_int: Whether to exit on second SIGINT (Ctrl+C)
 			interruptible_task_patterns: List of patterns to match task names that should be
 										 canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
+			disabled: If True, signal handling is disabled and register() is a no-op.
+					Useful when embedding browser-use in applications that manage their own signals.
 		"""
 		self.loop = loop or asyncio.get_event_loop()
 		self.pause_callback = pause_callback
@@ -107,6 +160,7 @@ class SignalHandler:
 		self.exit_on_second_int = exit_on_second_int
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
 		self.is_windows = platform.system() == 'Windows'
+		self.disabled = disabled
 
 		# Initialize loop state attributes
 		self._initialize_loop_state()
@@ -121,7 +175,13 @@ class SignalHandler:
 		setattr(self.loop, 'waiting_for_input', False)
 
 	def register(self) -> None:
-		"""Register signal handlers for SIGINT and SIGTERM."""
+		"""Register signal handlers for SIGINT and SIGTERM.
+
+		If disabled=True was passed to __init__, this method does nothing.
+		"""
+		if self.disabled:
+			return
+
 		try:
 			if self.is_windows:
 				# On Windows, use simple signal handling with immediate exit on Ctrl+C
@@ -146,7 +206,13 @@ class SignalHandler:
 			pass
 
 	def unregister(self) -> None:
-		"""Unregister signal handlers and restore original handlers if possible."""
+		"""Unregister signal handlers and restore original handlers if possible.
+
+		If disabled=True was passed to __init__, this method does nothing.
+		"""
+		if self.disabled:
+			return
+
 		try:
 			if self.is_windows:
 				# On Windows, just restore the original SIGINT handler
@@ -604,18 +670,49 @@ async def check_latest_browser_use_version() -> str | None:
 	"""Check the latest version of browser-use from PyPI asynchronously.
 
 	Returns:
-		The latest version string if successful, None if failed
+		The latest version string if PyPI has a newer version, None otherwise.
 	"""
 	try:
 		async with httpx.AsyncClient(timeout=3.0) as client:
 			response = await client.get('https://pypi.org/pypi/browser-use/json')
 			if response.status_code == 200:
 				data = response.json()
-				return data['info']['version']
+				latest_version = data['info']['version']
+				if _is_newer_browser_use_version(latest_version, get_browser_use_version()):
+					return latest_version
 	except Exception:
 		# Silently fail - we don't want to break agent startup due to network issues
 		pass
 	return None
+
+
+def _is_newer_browser_use_version(latest_version: str, current_version: str) -> bool:
+	"""Return True when latest_version should be considered an upgrade for current_version."""
+	try:
+		from packaging.version import Version
+
+		return Version(latest_version) > Version(current_version)
+	except Exception:
+		latest_key = _browser_use_version_key(latest_version)
+		current_key = _browser_use_version_key(current_version)
+		if latest_key is None or current_key is None:
+			return latest_version != current_version
+		return latest_key > current_key
+
+
+def _browser_use_version_key(version: str) -> tuple[tuple[int, ...], int, int, int] | None:
+	"""Small PEP 440-ish fallback for browser-use versions when packaging is unavailable."""
+	match = re.match(r'^v?(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?(?:\.post(\d+))?', version.strip().lower())
+	if not match:
+		return None
+
+	release = tuple(int(part) for part in match.group(1).split('.'))
+	phase = match.group(2)
+	phase_number = int(match.group(3) or 0)
+	post_number = int(match.group(4) or 0)
+	phase_rank = {'a': 0, 'b': 1, 'rc': 2}.get(phase, 3)
+
+	return release, phase_rank, phase_number, post_number
 
 
 @cache

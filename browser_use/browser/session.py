@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from functools import cached_property
 from pathlib import Path
@@ -19,11 +20,17 @@ from cdp_use.cdp.target.commands import CreateTargetParameters
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
+from browser_use.browser._cdp_timeout import TimeoutWrappedCDPClient
 from browser_use.browser.cloud.cloud import CloudBrowserAuthError, CloudBrowserClient, CloudBrowserError
 
 # CDP logging is now handled by setup_logging() in logging_config.py
 # It automatically sets CDP logs to the same level as browser_use logs
 from browser_use.browser.cloud.views import CloudBrowserParams, CreateBrowserRequest, ProxyCountryCode
+
+# Sentinel to distinguish "not passed" from "explicitly None" for proxy params.
+# When a user passes proxy_country_code=None, they mean "disable the proxy".
+# When they don't pass it at all, the server applies its default (US proxy).
+_UNSET: Any = object()
 from browser_use.browser.events import (
 	AgentFocusChangedEvent,
 	BrowserConnectedEvent,
@@ -233,11 +240,11 @@ class BrowserSession(BaseModel):
 		browser_profile: BrowserProfile | None = None,
 		# Cloud browser params (don't mix with local browser params)
 		cloud_profile_id: UUID | str | None = None,
-		cloud_proxy_country_code: ProxyCountryCode | None = None,
+		cloud_proxy_country_code: ProxyCountryCode | None = _UNSET,  # type: ignore[assignment]
 		cloud_timeout: int | None = None,
 		# Backward compatibility aliases for cloud params
 		profile_id: UUID | str | None = None,
-		proxy_country_code: ProxyCountryCode | None = None,
+		proxy_country_code: ProxyCountryCode | None = _UNSET,  # type: ignore[assignment]
 		timeout: int | None = None,
 		# BrowserProfile fields that can be passed directly
 		# From BrowserConnectArgs
@@ -305,6 +312,7 @@ class BrowserSession(BaseModel):
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
+		# Also filter _UNSET sentinel values (used for proxy params)
 		profile_kwargs = {
 			k: v
 			for k, v in locals().items()
@@ -321,20 +329,32 @@ class BrowserSession(BaseModel):
 				'timeout',
 			]
 			and v is not None
+			and v is not _UNSET
 		}
 
-		# Handle backward compatibility: prefer cloud_* params over old names
+		# Handle backward compatibility: prefer cloud_* params over old names.
+		# _UNSET means "not passed" while None means "explicitly disable proxy".
 		final_profile_id = cloud_profile_id if cloud_profile_id is not None else profile_id
-		final_proxy_country_code = cloud_proxy_country_code if cloud_proxy_country_code is not None else proxy_country_code
+		final_proxy_country_code = (
+			cloud_proxy_country_code
+			if cloud_proxy_country_code is not _UNSET
+			else proxy_country_code
+			if proxy_country_code is not _UNSET
+			else _UNSET
+		)
 		final_timeout = cloud_timeout if cloud_timeout is not None else timeout
 
-		# If any cloud params are provided, create cloud_browser_params
-		if final_profile_id is not None or final_proxy_country_code is not None or final_timeout is not None:
-			cloud_params = CreateBrowserRequest(
-				cloud_profile_id=final_profile_id,
-				cloud_proxy_country_code=final_proxy_country_code,
-				cloud_timeout=final_timeout,
-			)
+		# If any cloud params are provided, create cloud_browser_params.
+		# Use "is not _UNSET" for proxy so that explicit None (disable proxy) is respected.
+		if final_profile_id is not None or final_proxy_country_code is not _UNSET or final_timeout is not None:
+			cloud_kwargs: dict[str, Any] = {}
+			if final_profile_id is not None:
+				cloud_kwargs['cloud_profile_id'] = final_profile_id
+			if final_proxy_country_code is not _UNSET:
+				cloud_kwargs['cloud_proxy_country_code'] = final_proxy_country_code
+			if final_timeout is not None:
+				cloud_kwargs['cloud_timeout'] = final_timeout
+			cloud_params = CreateBrowserRequest(**cloud_kwargs)
 			profile_kwargs['cloud_browser_params'] = cloud_params
 			profile_kwargs['use_cloud'] = True
 
@@ -408,7 +428,7 @@ class BrowserSession(BaseModel):
 				'Could not detect Chrome profile directory for your platform.\n'
 				'Expected locations:\n'
 				'  macOS: ~/Library/Application Support/Google/Chrome\n'
-				'  Linux: ~/.config/google-chrome\n'
+				'  Linux: ~/.config/google-chrome or ~/.config/chromium\n'
 				'  Windows: %LocalAppData%\\Google\\Chrome\\User Data'
 			)
 
@@ -720,6 +740,10 @@ class BrowserSession(BaseModel):
 		# Create fresh event bus
 		self.event_bus = EventBus()
 
+	async def close(self) -> None:
+		"""Alias for stop()."""
+		await self.stop()
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_start_event_handler')
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
 		"""Handle browser start request.
@@ -748,9 +772,7 @@ class BrowserSession(BaseModel):
 						self.browser_profile.is_local = False
 						self.logger.info('🌤️ Successfully connected to cloud browser service')
 					except CloudBrowserAuthError:
-						raise CloudBrowserAuthError(
-							'Authentication failed for cloud browser service. Set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com/new-api-key'
-						)
+						raise
 					except CloudBrowserError as e:
 						raise CloudBrowserError(f'Failed to create cloud browser: {e}')
 				elif self.is_local:
@@ -835,6 +857,11 @@ class BrowserSession(BaseModel):
 					details={'cdp_url': self.cdp_url, 'is_local': self.is_local},
 				)
 			)
+			if self.is_local and not isinstance(e, (CloudBrowserAuthError, CloudBrowserError)):
+				self.logger.warning(
+					'Local browser failed to start. Cloud browsers require no local install and work out of the box.\n'
+					'         Try: Browser(use_cloud=True)  |  Get an API key: https://cloud.browser-use.com?utm_source=oss&utm_medium=browser_launch_failure'
+				)
 			raise
 
 	async def on_NavigateToUrlEvent(self, event: NavigateToUrlEvent) -> None:
@@ -909,6 +936,7 @@ class BrowserSession(BaseModel):
 				target_id,
 				timeout=event.timeout_ms / 1000 if event.timeout_ms is not None else None,
 				wait_until=event.wait_until,
+				nav_timeout=event.event_timeout,
 			)
 
 			# Close any extension options pages that might have opened
@@ -952,11 +980,13 @@ class BrowserSession(BaseModel):
 		target_id: str,
 		timeout: float | None = None,
 		wait_until: str = 'load',
+		nav_timeout: float | None = None,
 	) -> None:
 		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
 
 		Polls stored lifecycle events (registered once per session in SessionManager).
 		wait_until controls the minimum acceptable signal: 'commit', 'domcontentloaded', 'load', 'networkidle'.
+		nav_timeout controls the timeout for the CDP Page.navigate() call itself (defaults to 20.0s).
 		"""
 		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
 
@@ -973,7 +1003,9 @@ class BrowserSession(BaseModel):
 		nav_start_time = asyncio.get_event_loop().time()
 
 		# Wrap Page.navigate() with timeout — heavy sites can block here for 10s+
-		nav_timeout = 20.0
+		# Use nav_timeout parameter if provided, otherwise default to 20.0
+		if nav_timeout is None:
+			nav_timeout = 20.0
 		try:
 			nav_result = await asyncio.wait_for(
 				cdp_session.cdp_client.send.Page.navigate(
@@ -1184,6 +1216,14 @@ class BrowserSession(BaseModel):
 			else:
 				self.logger.debug(f'File already tracked: {event.path}')
 
+	def _cloud_session_id_from_cdp_url(self) -> str | None:
+		"""Derive cloud browser session ID from a Browser Use CDP URL."""
+		if not self.cdp_url:
+			return None
+		host = urlparse(self.cdp_url).hostname or ''
+		match = re.match(r'^([0-9a-fA-F-]{36})\.cdp\d+\.browser-use\.com$', host)
+		return match.group(1) if match else None
+
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		"""Handle browser stop request."""
 
@@ -1193,13 +1233,22 @@ class BrowserSession(BaseModel):
 				self.event_bus.dispatch(BrowserStoppedEvent(reason='Kept alive due to keep_alive=True'))
 				return
 
-			# Clean up cloud browser session if using cloud browser
-			if self.browser_profile.use_cloud:
+			# Clean up cloud browser session for both:
+			# 1) native use_cloud sessions (current_session_id set by create_browser)
+			# 2) reconnected cdp_url sessions (derive UUID from host)
+			cloud_session_id = self._cloud_browser_client.current_session_id or self._cloud_session_id_from_cdp_url()
+			if cloud_session_id:
 				try:
-					await self._cloud_browser_client.stop_browser()
-					self.logger.info('🌤️ Cloud browser session cleaned up')
+					await self._cloud_browser_client.stop_browser(cloud_session_id)
+					self.logger.info(f'🌤️ Cloud browser session cleaned up: {cloud_session_id}')
 				except Exception as e:
-					self.logger.debug(f'Failed to cleanup cloud browser session: {e}')
+					self.logger.debug(f'Failed to cleanup cloud browser session {cloud_session_id}: {e}')
+				finally:
+					# Always close the httpx client to free connection pool memory
+					try:
+						await self._cloud_browser_client.close()
+					except Exception:
+						pass
 
 			# Clear CDP session cache before stopping
 			self.logger.info(
@@ -1720,7 +1769,10 @@ class BrowserSession(BaseModel):
 			# Remote CDP URLs should still respect proxy settings.
 			is_localhost = parsed_url.hostname in ('localhost', '127.0.0.1', '::1')
 			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
-				headers = self.browser_profile.headers or {}
+				headers = dict(self.browser_profile.headers or {})
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 				version_info = await client.get(url, headers=headers)
 				self.logger.debug(f'Raw version info: {str(version_info)}')
 				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
@@ -1732,10 +1784,14 @@ class BrowserSession(BaseModel):
 
 		try:
 			# Create and store the CDP client for direct CDP communication
-			headers = getattr(self.browser_profile, 'headers', None)
-			self._cdp_client_root = CDPClient(
+			headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+			if not self.is_local:
+				from browser_use.utils import get_browser_use_version
+
+				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
+			self._cdp_client_root = TimeoutWrappedCDPClient(
 				self.cdp_url,
-				additional_headers=headers,
+				additional_headers=headers or None,
 				max_ws_frame_size=200 * 1024 * 1024,  # Use 200MB limit to handle pages with very large DOMs
 			)
 			assert self._cdp_client_root is not None
@@ -2026,10 +2082,14 @@ class BrowserSession(BaseModel):
 		self.agent_focus_target_id = None
 
 		# 3. Create new CDPClient with the same cdp_url
-		headers = getattr(self.browser_profile, 'headers', None)
-		self._cdp_client_root = CDPClient(
+		headers = dict(getattr(self.browser_profile, 'headers', None) or {})
+		if not self.is_local:
+			from browser_use.utils import get_browser_use_version
+
+			headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
+		self._cdp_client_root = TimeoutWrappedCDPClient(
 			self.cdp_url,
-			additional_headers=headers,
+			additional_headers=headers or None,
 			max_ws_frame_size=200 * 1024 * 1024,
 		)
 		await self._cdp_client_root.start()
@@ -2476,6 +2536,62 @@ class BrowserSession(BaseModel):
 			and element.attributes.get('type', '').lower() == 'file'
 		)
 
+	def find_file_input_near_element(
+		self,
+		node: 'EnhancedDOMTreeNode',
+		max_height: int = 3,
+		max_descendant_depth: int = 3,
+	) -> 'EnhancedDOMTreeNode | None':
+		"""Find the closest file input to the given element.
+
+		Walks up the DOM tree (up to max_height levels), checking the node itself,
+		its descendants (up to max_descendant_depth deep), and siblings at each level.
+
+		Args:
+			node: Starting DOM element
+			max_height: Maximum levels to walk up the parent chain
+			max_descendant_depth: Maximum depth to search descendants
+
+		Returns:
+			The nearest file input element, or None if not found
+		"""
+		from browser_use.dom.views import EnhancedDOMTreeNode
+
+		def _find_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
+			if depth < 0:
+				return None
+			if self.is_file_input(n):
+				return n
+			for child in n.children_nodes or []:
+				result = _find_in_descendants(child, depth - 1)
+				if result:
+					return result
+			return None
+
+		current: EnhancedDOMTreeNode | None = node
+		for _ in range(max_height + 1):
+			if current is None:
+				break
+			# Check the current node itself
+			if self.is_file_input(current):
+				return current
+			# Check all descendants of the current node
+			result = _find_in_descendants(current, max_descendant_depth)
+			if result:
+				return result
+			# Check all siblings and their descendants
+			if current.parent_node:
+				for sibling in current.parent_node.children_nodes or []:
+					if sibling is current:
+						continue
+					if self.is_file_input(sibling):
+						return sibling
+					result = _find_in_descendants(sibling, max_descendant_depth)
+					if result:
+						return result
+			current = current.parent_node
+		return None
+
 	async def get_selector_map(self) -> dict[int, EnhancedDOMTreeNode]:
 		"""Get the current selector map from cached state or DOM watchdog.
 
@@ -2527,45 +2643,46 @@ class BrowserSession(BaseModel):
 
 	async def remove_highlights(self) -> None:
 		"""Remove highlights from the page using CDP."""
-		if not self.browser_profile.highlight_elements:
+		if not self.browser_profile.highlight_elements and not self.browser_profile.dom_highlight_elements:
 			return
 
 		try:
-			# Get cached session
-			cdp_session = await self.get_or_create_cdp_session()
+			async with asyncio.timeout(3.0):
+				# Get cached session
+				cdp_session = await self.get_or_create_cdp_session()
 
-			# Remove highlights via JavaScript - be thorough
-			script = """
-			(function() {
-				// Remove all browser-use highlight elements
-				const highlights = document.querySelectorAll('[data-browser-use-highlight]');
-				console.log('Removing', highlights.length, 'browser-use highlight elements');
-				highlights.forEach(el => el.remove());
+				# Remove highlights via JavaScript - be thorough
+				script = """
+				(function() {
+					// Remove all browser-use highlight elements
+					const highlights = document.querySelectorAll('[data-browser-use-highlight]');
+					console.log('Removing', highlights.length, 'browser-use highlight elements');
+					highlights.forEach(el => el.remove());
 
-				// Also remove by ID in case selector missed anything
-				const highlightContainer = document.getElementById('browser-use-debug-highlights');
-				if (highlightContainer) {
-					console.log('Removing highlight container by ID');
-					highlightContainer.remove();
-				}
+					// Also remove by ID in case selector missed anything
+					const highlightContainer = document.getElementById('browser-use-debug-highlights');
+					if (highlightContainer) {
+						console.log('Removing highlight container by ID');
+						highlightContainer.remove();
+					}
 
-				// Final cleanup - remove any orphaned tooltips
-				const orphanedTooltips = document.querySelectorAll('[data-browser-use-highlight="tooltip"]');
-				orphanedTooltips.forEach(el => el.remove());
+					// Final cleanup - remove any orphaned tooltips
+					const orphanedTooltips = document.querySelectorAll('[data-browser-use-highlight="tooltip"]');
+					orphanedTooltips.forEach(el => el.remove());
 
-				return { removed: highlights.length };
-			})();
-			"""
-			result = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
-			)
+					return { removed: highlights.length };
+				})();
+				"""
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
+				)
 
-			# Log the result for debugging
-			if result and 'result' in result and 'value' in result['result']:
-				removed_count = result['result']['value'].get('removed', 0)
-				self.logger.debug(f'Successfully removed {removed_count} highlight elements')
-			else:
-				self.logger.debug('Highlight removal completed')
+				# Log the result for debugging
+				if result and 'result' in result and 'value' in result['result']:
+					removed_count = result['result']['value'].get('removed', 0)
+					self.logger.debug(f'Successfully removed {removed_count} highlight elements')
+				else:
+					self.logger.debug('Highlight removal completed')
 
 		except Exception as e:
 			self.logger.warning(f'Failed to remove highlights: {e}')
@@ -3531,7 +3648,10 @@ class BrowserSession(BaseModel):
 					continue  # Skip if no session available
 			else:
 				# Get cached session for this target (don't change focus - iterating frames)
-				cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				try:
+					cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
+				except ValueError:
+					continue  # Target may have detached between discovery and session creation
 
 			if cdp_session:
 				target_sessions[target_id] = cdp_session.session_id

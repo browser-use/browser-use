@@ -77,6 +77,11 @@ avian_kimi_k2_5: 'BaseChatModel'
 avian_glm_5: 'BaseChatModel'
 avian_minimax_m2_5: 'BaseChatModel'
 
+anthropic_claude_sonnet_4_0: 'BaseChatModel'
+anthropic_claude_fable_5: 'BaseChatModel'
+anthropic_claude_3_5_sonnet_latest: 'BaseChatModel'
+anthropic_claude_3_5_haiku_latest: 'BaseChatModel'
+
 cerebras_llama3_1_8b: 'BaseChatModel'
 cerebras_llama3_3_70b: 'BaseChatModel'
 cerebras_gpt_oss_120b: 'BaseChatModel'
@@ -196,6 +201,13 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('GOOGLE_API_KEY')
 		return ChatGoogle(model=model, api_key=api_key)
 
+	# Anthropic Models
+	elif provider == 'anthropic':
+		from browser_use.llm.anthropic.chat import ChatAnthropic
+
+		api_key = os.getenv('ANTHROPIC_API_KEY')
+		return ChatAnthropic(model=model, api_key=api_key)
+
 	# Mistral Models
 	elif provider == 'mistral':
 		api_key = os.getenv('MISTRAL_API_KEY')
@@ -230,8 +242,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['avian', 'openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
-
+		available_providers = ['avian', 'openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -320,6 +331,11 @@ __all__ += [
 	'google_gemini_2_5_pro',
 	'google_gemini_2_5_flash',
 	'google_gemini_2_5_flash_lite',
+	# Anthropic instances - created on demand
+	'anthropic_claude_sonnet_4_0',
+	'anthropic_claude_fable_5',
+	'anthropic_claude_3_5_sonnet_latest',
+	'anthropic_claude_3_5_haiku_latest',
 	# Mistral instances - created on demand
 	'mistral_large',
 	'mistral_medium',
