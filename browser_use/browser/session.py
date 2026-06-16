@@ -1768,14 +1768,34 @@ class BrowserSession(BaseModel):
 			# from routing local requests through a proxy, which causes 502 errors on Windows.
 			# Remote CDP URLs should still respect proxy settings.
 			is_localhost = parsed_url.hostname in ('localhost', '127.0.0.1', '::1')
-			async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
-				headers = dict(self.browser_profile.headers or {})
-				from browser_use.utils import get_browser_use_version
+			# Retry with backoff for httpx.ReadError: on Windows there's a race window between
+			# TCP port open (aiohttp poll succeeds in _wait_for_cdp_url) and HTTP server fully
+			# initialized (httpx GET can fail with ReadError ~30% of the time on tight timing).
+			max_http_retries = 3
+			last_http_error: Exception | None = None
+			for http_attempt in range(max_http_retries):
+				try:
+					async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=not is_localhost) as client:
+						headers = dict(self.browser_profile.headers or {})
+						from browser_use.utils import get_browser_use_version
 
-				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
-				version_info = await client.get(url, headers=headers)
-				self.logger.debug(f'Raw version info: {str(version_info)}')
-				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+						headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
+						version_info = await client.get(url, headers=headers)
+						self.logger.debug(f'Raw version info: {str(version_info)}')
+						self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+						break  # Success
+				except httpx.ReadError as e:
+					last_http_error = e
+					if http_attempt < max_http_retries - 1:
+						wait = 0.5 * (2 ** http_attempt)  # 0.5s, 1.0s, 2.0s
+						self.logger.debug(
+							f'httpx.ReadError fetching CDP WebSocket URL (attempt {http_attempt + 1}/{max_http_retries}), retrying in {wait}s: {e}'
+						)
+						await asyncio.sleep(wait)
+			if last_http_error is not None:
+				raise RuntimeError(
+					f'Failed to fetch CDP WebSocket URL from {url} after {max_http_retries} attempts: {last_http_error}'
+				) from last_http_error
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
 
