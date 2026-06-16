@@ -8,12 +8,13 @@ caching is active.
 """
 
 from types import SimpleNamespace
+from typing import Any
 
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.aws.chat_anthropic import ChatAnthropicBedrock
 
 
-def _response(input_tokens: int, output_tokens: int, cache_read: int, cache_creation: int = 0):
+def _response(input_tokens: int, output_tokens: int, cache_read: int, cache_creation: int = 0) -> Any:
 	usage = SimpleNamespace(
 		input_tokens=input_tokens,
 		output_tokens=output_tokens,
