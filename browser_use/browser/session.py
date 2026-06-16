@@ -1787,7 +1787,7 @@ class BrowserSession(BaseModel):
 				except httpx.ReadError as e:
 					last_http_error = e
 					if http_attempt < max_http_retries - 1:
-						wait = 0.5 * (2 ** http_attempt)  # 0.5s, 1.0s, 2.0s
+						wait = 0.5 * (2**http_attempt)  # 0.5s, 1.0s, 2.0s
 						self.logger.debug(
 							f'httpx.ReadError fetching CDP WebSocket URL (attempt {http_attempt + 1}/{max_http_retries}), retrying in {wait}s: {e}'
 						)
