@@ -46,6 +46,11 @@ You are additionally given a Reference Answer (ground truth). Use it as follows:
 - If the reference type is 'possible', the reference is one acceptable example; the response should be consistent with the task, the reference, and the screenshots.
 - Real-time values (review counts, prices, dates, availability) may differ slightly from the reference; that is acceptable when the response is clearly current and on-topic."""
 
+VERDICT_FIRST_GUIDANCE = """
+
+Start your reply with exactly one verdict line: SUCCESS or NOT SUCCESS.
+After that first line, briefly explain the decision."""
+
 
 def _parse_verdict(text: str) -> bool | None:
 	up = text.upper()
@@ -79,7 +84,7 @@ async def judge_success(judge: AsyncOpenAI, model: str, task_dir: Path, k: int) 
 		content.append({'type': 'image_url', 'image_url': {'url': f'data:{mime};base64,{b64}'}})
 	content.append({'type': 'text', 'text': 'Your verdict:\n'})
 
-	system = WV_SYSTEM_PROMPT + (REFERENCE_GUIDANCE if ref else '')
+	system = WV_SYSTEM_PROMPT + (REFERENCE_GUIDANCE if ref else '') + VERDICT_FIRST_GUIDANCE
 	verdict, reason, err = None, '', None
 	try:
 		resp = await judge.chat.completions.create(

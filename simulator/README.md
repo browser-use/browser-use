@@ -5,8 +5,11 @@ and GAIA-web tasks with browser-use at scale: run many tasks **in parallel** (ea
 in its own headed window) with **batched LLM inference**, **capture** full per-step
 trajectories, and **evaluate** them offline.
 
-LLM: Alibaba DashScope / Qwen via the `ChatDashScope` provider (`qwen-max` to run,
-`qwen-vl-max` as the multimodal success judge). Set `DASHSCOPE_API_KEY`.
+LLM: Alibaba DashScope / Qwen via the `ChatDashScope` provider. Default model
+`qwen3.5-omni-plus-2026-03-15` (multimodal) — used both to drive the agent with
+vision on and as the success judge. Structured output is parsed leniently
+(markdown ` ``` ` fences and single-element array wrappers are unwrapped). Set
+`DASHSCOPE_API_KEY`.
 
 ## Layout
 
@@ -22,8 +25,11 @@ simulator/
     success.py     WebVoyager multimodal judge (reference-aware) -> SUCCESS/NOT SUCCESS
     replay.py      action-replay fidelity
     common.py      shared client + task-dir discovery
-  scripts/       standalone experiments
-    analysis.py    WebArena vs WebVoyager context-length study
+  scripts/       standalone experiments / tooling
+    download_data.py     fetch the third-party datasets
+    analysis.py          WebArena vs WebVoyager context-length study
+    trajectory_stats.py  context/output token-length stats over a captured run
+    merge_runs.py        success-preferring merge of two runs (+ optional HF upload)
   __main__.py    CLI
   data/          datasets + reference answers     runs/  generated output (gitignored)
   tests/         unit tests (no network)
@@ -49,22 +55,39 @@ python -m simulator.scripts.download_data
 # run in parallel (no recording)
 python -m simulator run --task-num 9 --batch-size 3 --source both
 
-# capture full trajectories (reference answer baked into each task's meta.json)
+# capture full trajectories (resumable: re-running skips tasks already captured)
 python -m simulator capture --task-num 9 --batch-size 3 --out-dir simulator/runs/my_run
 
 # did each task COMPLETE CORRECTLY? WebVoyager judge, grounded in the reference answer
-python -m simulator eval simulator/runs/my_run                # --model qwen-vl-max --k 2
+# (resumable: reuses existing webvoyager_eval.json verdicts; judge defaults to the omni model)
+python -m simulator eval simulator/runs/my_run                # --k 2
 
 # can the recorded context reproduce each step's action offline?
-python -m simulator eval simulator/runs/my_run --mode replay  # --model qwen-max
+python -m simulator eval simulator/runs/my_run --mode replay
 
-# context-length experiment
+# token-length stats over a captured run (text only; per domain / overall / by step)
+python -m simulator.scripts.trajectory_stats context simulator/runs/my_run
+python -m simulator.scripts.trajectory_stats output  simulator/runs/my_run
+
+# success-preferring merge of another run into this one (+ optional HF upload)
+python -m simulator.scripts.merge_runs simulator/runs/my_run simulator/runs/other_run
+
+# WebArena vs WebVoyager context-length experiment
 python -m simulator.scripts.analysis structure | measure | compare
 ```
 
 The `success` judge sees the task + the agent's answer + the **reference answer**
 (ground truth) + the last `k` screenshots and returns SUCCESS / NOT SUCCESS
 (temperature 0). Both eval modes read only captured files; neither opens a browser.
+
+## Agent prompt & robustness
+
+During `run`/`capture` the agent's system prompt is extended (see `config.py`) with a
+**CAPTCHA/anti-bot nudge** (try one recovery action, else switch strategy — never stall
+or punt to the user) and a **thinking nudge** (fill the JSON `thinking` with 2–4
+deliberate sentences, then emit exactly one JSON object). Per-call LLM latency is bounded
+by `--llm-timeout` (default 150 s). The success judge is instructed to put its
+`SUCCESS`/`NOT SUCCESS` verdict on the first line for reliable parsing.
 
 ## Tests
 

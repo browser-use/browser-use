@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from browser_use import Agent, Browser, ChatDashScope
-from simulator.config import CAPTCHA_NUDGE, RUNS_DIR, RunConfig
+from simulator.config import CAPTCHA_NUDGE, LONGER_THINKING_NUDGE, RUNS_DIR, RunConfig
 from simulator.core.batching import BatchCoordinator, BatchLLMProxy
 from simulator.core.recorder import RecordingProxy, TrajectoryRecorder
 from simulator.tasks import WebVoyagerTask, load_tasks
@@ -76,6 +76,7 @@ async def execute_task(
 	browser = Browser(
 		headless=False,
 		user_data_dir=str(udir),
+		enable_default_extensions=False,
 		max_iframes=15,  # ad-heavy sites (e.g. Allrecipes) have many iframes; cap AX-tree work
 	)
 	agent = Agent(
@@ -87,8 +88,9 @@ async def execute_task(
 		llm_screenshot_size=(1280, 720),  # downscale the per-step vision image (full-HD PNGs are ~3MB each)
 		use_judge=False,
 		enable_planning=False,
+		llm_timeout=cfg.llm_timeout,
 		calculate_cost=False,
-		extend_system_message=CAPTCHA_NUDGE,
+		extend_system_message=f'{CAPTCHA_NUDGE}\n\n{LONGER_THINKING_NUDGE}',
 	)
 
 	t0 = time.time()

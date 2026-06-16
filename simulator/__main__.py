@@ -22,6 +22,7 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
 	p.add_argument('--model', default=d.model, help='DashScope model.')
 	p.add_argument('--max-steps', type=int, default=d.max_steps, help='Max agent steps per task.')
 	p.add_argument('--task-timeout', type=float, default=d.task_timeout, help='Per-task wall-clock timeout (seconds).')
+	p.add_argument('--llm-timeout', type=float, default=d.llm_timeout, help='Per-call LLM timeout (seconds).')
 	p.add_argument('--max-wait', type=float, default=d.max_wait, help='Max seconds the coordinator waits to fill a batch.')
 	p.add_argument('--shuffle', action='store_true')
 	p.add_argument('--seed', type=int, default=d.seed)
@@ -35,6 +36,7 @@ def _cfg(a: argparse.Namespace) -> RunConfig:
 		model=a.model,
 		max_steps=a.max_steps,
 		task_timeout=a.task_timeout,
+		llm_timeout=a.llm_timeout,
 		max_wait=a.max_wait,
 		shuffle=a.shuffle,
 		seed=a.seed,
