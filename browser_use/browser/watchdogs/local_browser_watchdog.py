@@ -406,14 +406,22 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	@staticmethod
 	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
-		"""Wait for the browser to start and return the CDP URL."""
+		"""Wait for the browser to start and return the CDP URL.
+
+		Uses a plain TCPConnector (no proxy) to prevent HTTP_PROXY/HTTPS_PROXY env vars
+		from routing localhost requests through a proxy, which causes 502 errors on Windows.
+		"""
 		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
+		# Use a TCPConnector without proxy support for localhost to avoid
+		# HTTP_PROXY/HTTPS_PROXY env vars (common on Windows with Clash/V2Ray)
+		# from routing 127.0.0.1 through a proxy.
+		connector = aiohttp.TCPConnector(ssl=False)
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
 			try:
-				async with aiohttp.ClientSession() as session:
+				async with aiohttp.ClientSession(connector=connector) as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
 						if resp.status == 200:
 							# Chrome is ready
