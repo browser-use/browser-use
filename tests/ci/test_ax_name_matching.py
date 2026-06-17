@@ -14,8 +14,44 @@ from unittest.mock import AsyncMock
 from browser_use.agent.service import Agent
 from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, RerunSummaryAction, StepMetadata
 from browser_use.browser.views import BrowserStateHistory
-from browser_use.dom.views import DOMInteractedElement, DOMRect, MatchLevel, NodeType
+from browser_use.dom.views import DOMInteractedElement, DOMRect, EnhancedAXNode, EnhancedDOMTreeNode, MatchLevel, NodeType
 from tests.ci.conftest import create_mock_llm
+
+
+def test_load_from_enhanced_dom_tree_preserves_empty_ax_name():
+	element = EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='BUTTON',
+		node_value='',
+		attributes={},
+		is_scrollable=None,
+		is_visible=True,
+		absolute_position=None,
+		target_id='target-1',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=None,
+		ax_node=EnhancedAXNode(
+			ax_node_id='ax-1',
+			ignored=False,
+			role='button',
+			name='',
+			description=None,
+			properties=None,
+			child_ids=None,
+		),
+		snapshot_node=None,
+	)
+
+	interacted_element = DOMInteractedElement.load_from_enhanced_dom_tree(element)
+
+	assert interacted_element.ax_name == ''
 
 
 async def test_ax_name_matching_succeeds_when_hash_fails(httpserver):
