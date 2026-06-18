@@ -59,6 +59,7 @@ Python API -> Rust core -> Browser harness -> Web task done
 ```bash
 uv add "browser-use[core]"
 # or: pip install "browser-use[core]"
+browser
 ```
 
 The `[core]` extra installs the native Browser Use runtime for your platform.
@@ -72,6 +73,14 @@ BROWSER_USE_API_KEY=your-key
 ```
 
 **3. Run your first agent:**
+
+**Browser Use Terminal:** 
+```bash
+uv add "browser-use[core]"
+browser
+```
+
+**Python Script:**
 ```python
 from browser_use.beta import Agent, BrowserProfile, ChatBrowserUse
 # from browser_use.beta import ChatOpenAI  # ChatOpenAI(model='gpt-5.5')
