@@ -49,7 +49,8 @@ class FindElementsAction(BaseModel):
 class SearchAction(BaseModel):
 	query: str
 	engine: str = Field(
-		default='duckduckgo', description='duckduckgo, google, bing (use duckduckgo by default because less captchas)'
+		default='duckduckgo',
+		description='duckduckgo, google, bing (use duckduckgo by default because less captchas), or nimble for an API-backed search that returns structured results without browser navigation',
 	)
 
 

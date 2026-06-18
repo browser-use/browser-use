@@ -68,6 +68,7 @@ core = [
 ]
 aws = ["boto3==1.42.37"]
 oci = ["oci==2.166.0"]
+nimble = ["nimble-python>=0.16.0"]
 video = ["imageio[ffmpeg]==2.37.2", "numpy==2.4.1"]
 examples = [
     "agentmail==0.0.59",
@@ -229,6 +230,7 @@ dev-dependencies = [
     "pytest==9.0.2",
     "pytest-asyncio==1.3.0",
     "pytest-httpserver==1.1.3",
+    "nimble-python>=0.16.0",
     "fastapi==0.128.0",
     "inngest==0.5.15",
     "uvicorn==0.40.0",
