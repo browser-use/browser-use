@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Browser Use Eval Target</title>
+</head>
+<body>
+    <h1>Checkout</h1>
+    <form id="checkout-form">
+        <label for="email">Email Address:</label>
+        <input type="email" id="email" name="email"><br><br>
+        
+        <label for="shipping">Shipping Method:</label>
+        <select id="shipping" name="shipping">
+            <option value="standard">Standard (5 Days)</option>
+            <option value="express">Express (2 Days)</option>
+        </select><br><br>
+        
+        <button type="button" onclick="document.getElementById('status').innerText = 'Order Submitted!'">Complete Purchase</button>
+    </form>
+    <p id="status"></p>
+</body>
+</html>
