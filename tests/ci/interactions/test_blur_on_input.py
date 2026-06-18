@@ -102,26 +102,28 @@ async def tools(browser_session):
 
 
 async def test_contenteditable_commits_value_on_blur(http_server, tools, browser_session):
-	"""Contenteditable span should commit its value after input_text because
+	"""Contenteditable span should commit its value after input because
 	element.blur() genuinely moves focus, triggering the blur listener."""
 	url = f'http://localhost:{http_server.port}/commit-on-blur'
 	await browser_session.navigate_to(url)
 
 	# Type into the contenteditable span (index 0)
-	await tools.input_text(index=0, text='hello world')
+	await tools.input(index=0, text='hello world', browser_session=browser_session)
 
 	# The #committed div should now contain the typed text because blur fired
 	page = await browser_session.get_current_page()
 	committed = await page.evaluate("document.getElementById('committed').textContent")
-	assert committed == 'hello world', f'Expected "hello world" committed after blur, got "{committed}". element.blur() may not have been called after typing.'
+	assert committed == 'hello world', (
+		f'Expected "hello world" committed after blur, got "{committed}". element.blur() may not have been called after typing.'
+	)
 
 
 async def test_input_commits_value_on_focusout(http_server, tools, browser_session):
-	"""Standard input should commit its value via focusout after input_text."""
+	"""Standard input should commit its value via focusout after input."""
 	url = f'http://localhost:{http_server.port}/commit-on-focusout'
 	await browser_session.navigate_to(url)
 
-	await tools.input_text(index=0, text='test value')
+	await tools.input(index=0, text='test value', browser_session=browser_session)
 
 	page = await browser_session.get_current_page()
 	committed = await page.evaluate("document.getElementById('committed').textContent")
