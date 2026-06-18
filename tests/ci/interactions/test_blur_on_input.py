@@ -19,6 +19,13 @@ from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
 
 
+async def _get_element_index(browser_session: BrowserSession, element_id: str) -> int:
+	await browser_session.get_browser_state_summary()
+	idx = await browser_session.get_index_by_id(element_id)
+	assert idx is not None, f'Could not find element with id={element_id!r}'
+	return idx
+
+
 @pytest.fixture(scope='session')
 def http_server():
 	server = HTTPServer()
@@ -97,8 +104,8 @@ async def browser_session():
 
 
 @pytest.fixture
-async def tools(browser_session):
-	return Tools(browser_session)
+def tools():
+	return Tools()
 
 
 async def test_contenteditable_commits_value_on_blur(http_server, tools, browser_session):
@@ -107,12 +114,12 @@ async def test_contenteditable_commits_value_on_blur(http_server, tools, browser
 	url = f'http://localhost:{http_server.port}/commit-on-blur'
 	await browser_session.navigate_to(url)
 
-	# Type into the contenteditable span (index 0)
-	await tools.input(index=0, text='hello world', browser_session=browser_session)
+	idx = await _get_element_index(browser_session, 'editor')
+	await tools.input(index=idx, text='hello world', browser_session=browser_session)
 
 	# The #committed div should now contain the typed text because blur fired
 	page = await browser_session.get_current_page()
-	committed = await page.evaluate("document.getElementById('committed').textContent")
+	committed = await page.evaluate("() => document.getElementById('committed').textContent")
 	assert committed == 'hello world', (
 		f'Expected "hello world" committed after blur, got "{committed}". element.blur() may not have been called after typing.'
 	)
@@ -123,8 +130,9 @@ async def test_input_commits_value_on_focusout(http_server, tools, browser_sessi
 	url = f'http://localhost:{http_server.port}/commit-on-focusout'
 	await browser_session.navigate_to(url)
 
-	await tools.input(index=0, text='test value', browser_session=browser_session)
+	idx = await _get_element_index(browser_session, 'field')
+	await tools.input(index=idx, text='test value', browser_session=browser_session)
 
 	page = await browser_session.get_current_page()
-	committed = await page.evaluate("document.getElementById('committed').textContent")
+	committed = await page.evaluate("() => document.getElementById('committed').textContent")
 	assert committed == 'test value', f'Expected "test value" committed via focusout, got "{committed}".'
