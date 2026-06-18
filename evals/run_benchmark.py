@@ -18,7 +18,6 @@ class EvalMetrics(BaseModel):
     steps: int
     latency_seconds: float
 
-
 async def run_checkout_eval() -> EvalMetrics:
     current_dir = Path(__file__).parent.resolve()
     file_url = f"file://{current_dir / 'dummy_checkout.html'}"
@@ -32,6 +31,13 @@ async def run_checkout_eval() -> EvalMetrics:
     )
 
     llm = ChatOpenAI(model="gpt-4o-mini")
+    
+    # --- ZERO-DAY BUG PATCH ---
+    # The browser-use main branch currently expects a 'provider' attribute 
+    # that standard LangChain models don't have. We patch it here to bypass the crash.
+    ChatOpenAI.provider = "openai"
+    # --------------------------
+
     agent = Agent(task=task, llm=llm)
 
     logger.info("Starting deterministic evaluation run on %s", file_url)
@@ -50,7 +56,6 @@ async def run_checkout_eval() -> EvalMetrics:
     
     _print_results(metrics)
     return metrics
-
 
 def _print_results(metrics: EvalMetrics) -> None:
     print("\n" + "=" * 40)
