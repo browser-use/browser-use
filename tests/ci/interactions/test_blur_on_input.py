@@ -113,10 +113,7 @@ async def test_contenteditable_commits_value_on_blur(http_server, tools, browser
 	# The #committed div should now contain the typed text because blur fired
 	page = await browser_session.get_current_page()
 	committed = await page.evaluate("document.getElementById('committed').textContent")
-	assert committed == 'hello world', (
-		f'Expected "hello world" committed after blur, got "{committed}". '
-		'element.blur() may not have been called after typing.'
-	)
+	assert committed == 'hello world', f'Expected "hello world" committed after blur, got "{committed}". element.blur() may not have been called after typing.'
 
 
 async def test_input_commits_value_on_focusout(http_server, tools, browser_session):
@@ -128,6 +125,4 @@ async def test_input_commits_value_on_focusout(http_server, tools, browser_sessi
 
 	page = await browser_session.get_current_page()
 	committed = await page.evaluate("document.getElementById('committed').textContent")
-	assert committed == 'test value', (
-		f'Expected "test value" committed via focusout, got "{committed}".'
-	)
+	assert committed == 'test value', f'Expected "test value" committed via focusout, got "{committed}".'
