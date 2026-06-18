@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -2678,6 +2679,62 @@ def test_rust_terminal_binary_prefers_packaged_binary(monkeypatch):
 	assert beta_service.find_browser_use_terminal_binary() == '/tmp/packaged-browser-use-terminal'
 
 
+def test_beta_agent_run_env_sets_packaged_agent_tools_dir(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
+
+	class LLM:
+		model = 'gpt-test'
+
+	package_dir = tmp_path / 'browser_use_core'
+	terminal = package_dir / 'bin' / 'browser-use-terminal'
+	agent_tools = package_dir / 'bin' / 'agent-tools'
+	terminal.parent.mkdir(parents=True)
+	agent_tools.mkdir(parents=True)
+	terminal.write_text('#!/bin/sh\n')
+	(agent_tools / 'rg').write_text('#!/bin/sh\n')
+
+	class PackagedCore:
+		@staticmethod
+		def agent_tools_dir():
+			return str(agent_tools)
+
+		@staticmethod
+		def binary_path(binary_name):
+			assert binary_name == 'browser-use-terminal'
+			return str(terminal)
+
+	monkeypatch.delenv('BROWSER_USE_TERMINAL_BINARY', raising=False)
+	monkeypatch.delenv('BUT_AGENT_TOOLS_DIR', raising=False)
+	monkeypatch.setenv('PATH', '/usr/bin')
+	monkeypatch.setitem(sys.modules, 'browser_use_core', PackagedCore)
+
+	agent = Agent(task='report title', llm=LLM())
+	env = agent._run_env()
+
+	assert env['BUT_AGENT_TOOLS_DIR'] == str(agent_tools)
+	assert env['PATH'].split(os.pathsep)[0] == str(agent_tools)
+
+
+def test_beta_agent_run_env_preserves_explicit_agent_tools_dir(monkeypatch, tmp_path):
+	from browser_use.beta import Agent
+
+	class LLM:
+		model = 'gpt-test'
+
+	agent_tools = tmp_path / 'agent-tools'
+	agent_tools.mkdir()
+	(agent_tools / 'rg').write_text('#!/bin/sh\n')
+
+	monkeypatch.setenv('BUT_AGENT_TOOLS_DIR', str(agent_tools))
+	monkeypatch.setenv('PATH', '/usr/bin')
+
+	agent = Agent(task='report title', llm=LLM())
+	env = agent._run_env()
+
+	assert env['BUT_AGENT_TOOLS_DIR'] == str(agent_tools)
+	assert env['PATH'].split(os.pathsep)[0] == str(agent_tools)
+
+
 def test_rust_terminal_binary_finds_default_terminal_install(monkeypatch, tmp_path):
 	import browser_use.beta.service as beta_service
 
@@ -3403,6 +3460,8 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 		'OPENROUTER_API_KEY',
 		'OPENROUTER_BASE_URL',
 		'DEEPSEEK_API_KEY',
+		'LLM_BROWSER_BROWSER_USE_API_KEY',
+		'LLM_BROWSER_BROWSER_USE_BASE_URL',
 	):
 		monkeypatch.delenv(key, raising=False)
 	monkeypatch.setenv('LLM_BROWSER_OPENAI_API_KEY', 'ambient-openai-key')
@@ -3428,6 +3487,10 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 		task='DeepSeek credentials.',
 		llm=LLM('deepseek', 'deepseek-chat', api_key='llm-deepseek-key', base_url='https://ignored.example'),
 	)
+	browser_use_agent = Agent(
+		task='Browser Use credentials.',
+		llm=LLM('browser-use', 'bu-2-0', api_key='llm-browser-use-key', base_url='https://llm.example/v1'),
+	)
 	ambient_env = Agent(
 		task='Ambient credentials.',
 		llm=LLM('anthropic', 'claude-test'),
@@ -3435,6 +3498,7 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	anthropic_env = anthropic_agent._run_env()
 	openrouter_env = openrouter_agent._run_env()
 	deepseek_env = deepseek_agent._run_env()
+	browser_use_env = browser_use_agent._run_env()
 
 	assert openai_env['LLM_BROWSER_OPENAI_API_KEY'] == 'llm-openai-key'
 	assert openai_env['LLM_BROWSER_OPENAI_BASE_URL'] == 'https://openai.example/v1'
@@ -3444,6 +3508,8 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	assert openrouter_env['OPENROUTER_BASE_URL'] == 'https://openrouter.example/api/v1'
 	assert deepseek_env['DEEPSEEK_API_KEY'] == 'llm-deepseek-key'
 	assert 'LLM_BROWSER_OPENAI_COMPAT_BASE_URL' not in deepseek_env
+	assert browser_use_env['LLM_BROWSER_BROWSER_USE_API_KEY'] == 'llm-browser-use-key'
+	assert browser_use_env['LLM_BROWSER_BROWSER_USE_BASE_URL'] == 'https://llm.example'
 	assert ambient_env['LLM_BROWSER_ANTHROPIC_API_KEY'] == 'ambient-anthropic-key'
 
 	assert openai_agent._sdk_run_params(max_steps=3, task=openai_agent.task)['llm'] | {'timeout': None} == {
@@ -3464,6 +3530,11 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	assert deepseek_agent._sdk_run_params(max_steps=3, task=deepseek_agent.task)['llm'] | {'timeout': None} == {
 		'provider': 'deepseek',
 		'model': 'deepseek-chat',
+		'timeout': None,
+	}
+	assert browser_use_agent._sdk_run_params(max_steps=3, task=browser_use_agent.task)['llm'] | {'timeout': None} == {
+		'provider': 'browser-use',
+		'model': 'bu-2-0',
 		'timeout': None,
 	}
 
