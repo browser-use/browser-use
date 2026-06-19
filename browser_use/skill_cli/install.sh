@@ -392,15 +392,21 @@ create_wrappers() {
 	local commands="browser-use bu browseruse browser browser-use-tui"
 
 	for cmd in $commands; do
-		if [ -x "$venv_bin/$cmd" ] || ([ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]); then
-			local wrapper="$wrapper_dir/$cmd"
-			cat > "$wrapper" <<- WRAPPER_EOF
-				#!/bin/sh
-				exec "$venv_bin/$cmd" "\$@"
-			WRAPPER_EOF
-			chmod +x "$wrapper"
-			log_success "Created wrapper: $wrapper_dir/$cmd"
+		local use_exe=""
+		if [ -x "$venv_bin/$cmd" ]; then
+			:  # exist without .exe suffix
+		elif [ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]; then
+			use_exe=".exe"
+		else
+			continue
 		fi
+		local wrapper="$wrapper_dir/$cmd"
+		cat > "$wrapper" <<- WRAPPER_EOF
+			#!/bin/sh
+			exec "$venv_bin/$cmd$use_exe" "\$@"
+		WRAPPER_EOF
+		chmod +x "$wrapper"
+		log_success "Created wrapper: $wrapper_dir/$cmd"
 	done
 }
 
@@ -440,15 +446,21 @@ configure_powershell_wrappers() {
 	# Create .cmd wrappers for each CLI command
 	local commands="browser-use bu browseruse browser browser-use-tui"
 	for cmd in $commands; do
-		if [ -x "$venv_bin/$cmd" ] || ([ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]); then
-			local wrapper="$wrapper_dir/${cmd}.cmd"
-			{
-				echo '@echo off'
-				echo ""$(echo "$venv_bin/$cmd" | sed 's|/\\|g')" %*"
-			} > "$wrapper"
-			chmod +x "$wrapper"
-			log_success "Created wrapper: $wrapper_dir/${cmd}.cmd"
+		local use_exe=""
+		if [ -x "$venv_bin/$cmd" ]; then
+			:  # exist without .exe suffix
+		elif [ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]; then
+			use_exe=".exe"
+		else
+			continue
 		fi
+		local wrapper="$wrapper_dir/${cmd}.cmd"
+		{
+			echo '@echo off'
+			echo ""$(echo "$venv_bin/$cmd$use_exe" | sed 's|/\\|g')" %*"
+		} > "$wrapper"
+		chmod +x "$wrapper"
+		log_success "Created wrapper: $wrapper_dir/${cmd}.cmd"
 	done
 
 	# Ensure wrapper dir is in user PATH via registry
@@ -456,7 +468,8 @@ configure_powershell_wrappers() {
 	local current_path=$(powershell.exe -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" 2>/dev/null | tr -d '
 ')
 
-	if echo "$current_path" | grep -q "\.local\bin"; then
+	# Use grep -F (fixed-string) so that \b is treated literally, not as a regex word boundary
+	if echo "$current_path" | grep -qF "\.local\\bin"; then
 		log_info "Wrapper directory already in PATH"
 		return 0
 	fi

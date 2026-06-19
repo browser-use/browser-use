@@ -41,6 +41,10 @@ class ChatOllama(BaseChatModel):
 	client_params: dict[str, Any] | None = None
 	ollama_options: Mapping[str, Any] | Options | None = None
 
+	# Top-level Ollama API parameters (forwarded as separate args to client.chat())
+	format: str | dict[str, Any] | None = None
+	stream: bool = False
+
 	# Static
 	@property
 	def provider(self) -> str:
@@ -72,8 +76,9 @@ class ChatOllama(BaseChatModel):
 		arguments to ``client.chat()``, not as part of the ``options`` dict.
 		When users pass them inside ``ollama_options`` they are silently
 		ignored (or worse, cause unexpected behaviour with some Ollama
-		versions).  We strip them here and log a warning so users know to
-		pass them correctly.
+		versions).  We strip them here — users who want these params should
+		set them as direct attributes on ``ChatOllama`` instead (which now
+		has ``format`` and ``stream`` fields that are forwarded correctly).
 
 		Returns:
 			A cleaned dict with only valid model options.
@@ -85,7 +90,8 @@ class ChatOllama(BaseChatModel):
 			if key in cleaned:
 				logger.warning(
 					'ollama_options contains "%s", which is a top-level Ollama API parameter '
-					'and is ignored inside options. Pass it directly to ChatOllama instead.',
+					'and is ignored inside options. Set ChatOllama.%s instead.',
+					key,
 					key,
 				)
 				del cleaned[key]
@@ -104,6 +110,12 @@ class ChatOllama(BaseChatModel):
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		ollama_messages = OllamaMessageSerializer.serialize_messages(messages)
 		options = self._clean_options()
+		# Forward top-level API params (format and stream) to client.chat()
+		chat_kwargs: dict[str, Any] = {}
+		if self.format is not None:
+			chat_kwargs['format'] = self.format
+		if self.stream:
+			chat_kwargs['stream'] = True
 
 		try:
 			if output_format is None:
@@ -111,16 +123,20 @@ class ChatOllama(BaseChatModel):
 					model=self.model,
 					messages=ollama_messages,
 					options=options,
+					**chat_kwargs,
 				)
 
 				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
 			else:
 				schema = output_format.model_json_schema()
+				# When output_format is provided, format is set to the schema
+				# but allow explicit ChatOllama.format to override
+				actual_format = chat_kwargs.get('format', schema)
 
 				response = await self.get_client().chat(
 					model=self.model,
 					messages=ollama_messages,
-					format=schema,
+					format=actual_format,
 					options=options,
 				)
 

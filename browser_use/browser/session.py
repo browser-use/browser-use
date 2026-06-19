@@ -1792,6 +1792,7 @@ class BrowserSession(BaseModel):
 						version_info = await client.get(url, headers=headers)
 						self.logger.debug(f'Raw version info: {str(version_info)}')
 						self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
+						last_http_error = None  # Reset on success
 						break  # Success
 				except httpx.ReadError as e:
 					last_http_error = e
@@ -2027,7 +2028,10 @@ class BrowserSession(BaseModel):
 				self.logger.error(f'❌ Failed to auto-recover from page crash: {type(e).__name__}: {e}')
 				return False
 
-		return True
+		# No meaningful recovery possible (about:blank or unknown URL)
+		# Return False so callers know no reload was performed
+		self.logger.debug(f'⚠️ Page crash recovery skipped - previous URL was {old_url}')
+		return False
 
 	# endregion - ========== Page Crash Detection and Recovery ==========
 
