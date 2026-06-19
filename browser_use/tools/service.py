@@ -94,8 +94,8 @@ async def _search_nimble(query: str, *, max_results: int = 10) -> ActionResult:
 		return ActionResult(error='NIMBLE_API_KEY environment variable not set')
 
 	try:
-		client = AsyncNimble(default_headers={'X-Client-Source': 'browser-use'})
-		response = await client.search(query=query, max_results=max_results, output_format='markdown')
+		async with AsyncNimble(default_headers={'X-Client-Source': 'browser-use'}) as client:
+			response = await client.search(query=query, max_results=max_results, output_format='markdown')
 	except Exception as e:
 		logger.error(f'Failed to search Nimble: {e}')
 		return ActionResult(error=f'Failed to search Nimble for "{query}": {e}')
