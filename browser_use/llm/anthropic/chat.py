@@ -1,7 +1,9 @@
+import html
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypeVar, overload
+from typing import Any, TypeVar, get_args, overload
 
 import httpx
 from anthropic import (
@@ -27,6 +29,16 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+_MINIMAX_DELIMITER = ']<]minimax[>['
+_INVOKE_RE = re.compile(
+	r'<invoke\s+name=(?:"(?P<dq>[^"]+)"|\'(?P<sq>[^\']+)\'|(?P<bare>[^\s>]+))\s*>(?P<body>.*?)</invoke>',
+	re.DOTALL | re.IGNORECASE,
+)
+_PARAM_RE = re.compile(
+	r'<(?:parameter|arg)\s+name=(?:"(?P<dq>[^"]+)"|\'(?P<sq>[^\']+)\'|(?P<bare>[^\s>]+))\s*>(?P<value>.*?)</(?:parameter|arg)>',
+	re.DOTALL | re.IGNORECASE,
+)
 
 
 @dataclass
@@ -279,6 +291,181 @@ class ChatAnthropic(BaseChatModel):
 
 		return list(dict.fromkeys(candidate for candidate in candidates if candidate))
 
+	def _json_values_from_text(self, text: str) -> list[Any]:
+		values: list[Any] = []
+		for candidate in self._json_candidates_from_text(text):
+			try:
+				values.append(json.loads(candidate))
+			except json.JSONDecodeError:
+				continue
+		return values
+
+	def _coerce_tool_input(self, tool_input: Any) -> Any:
+		if isinstance(tool_input, str):
+			return json.loads(tool_input)
+
+		if not isinstance(tool_input, dict):
+			return tool_input
+
+		coerced = dict(tool_input)
+		for key, value in coerced.items():
+			if isinstance(value, str) and value.startswith(('[', '{')):
+				try:
+					coerced[key] = json.loads(value)
+				except json.JSONDecodeError:
+					cleaned = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+					try:
+						coerced[key] = json.loads(cleaned)
+					except json.JSONDecodeError:
+						pass
+
+		return coerced
+
+	def _action_fields_for_output_format(self, output_format: type[T]) -> list[str]:
+		action_field = output_format.model_fields.get('action')
+		if action_field is None:
+			return []
+
+		action_args = get_args(action_field.annotation)
+		if not action_args:
+			return []
+
+		action_type = action_args[0]
+		action_model_fields = getattr(action_type, 'model_fields', {})
+		root_field = action_model_fields.get('root')
+		if root_field is not None:
+			action_types = get_args(root_field.annotation)
+		else:
+			action_types = (action_type,)
+
+		action_fields: list[str] = []
+		for action_model in action_types:
+			for field_name in getattr(action_model, 'model_fields', {}):
+				if field_name != 'root':
+					action_fields.append(field_name)
+
+		return list(dict.fromkeys(action_fields))
+
+	def _completion_from_flat_action_input(self, data: dict[str, Any], output_format: type[T]) -> T | None:
+		action_names = self._action_fields_for_output_format(output_format)
+		if not action_names:
+			return None
+
+		model_field_names = set(output_format.model_fields)
+		state = {key: value for key, value in data.items() if key in model_field_names and key != 'action'}
+		extra = {key: value for key, value in data.items() if key not in model_field_names}
+
+		if 'action' in data and data['action'] not in ([{}], []):
+			return None
+
+		for action_name in action_names:
+			if action_name in data:
+				try:
+					return output_format.model_validate({**state, 'action': [{action_name: data[action_name]}]})
+				except Exception:
+					pass
+
+		if not extra:
+			return None
+
+		for action_name in action_names:
+			try:
+				return output_format.model_validate({**state, 'action': [{action_name: extra}]})
+			except Exception:
+				continue
+
+		return None
+
+	def _parse_minimax_value(self, value: str) -> Any:
+		value = html.unescape(value.strip())
+		for parsed in self._json_values_from_text(value):
+			return parsed
+		return value
+
+	def _minimax_params_from_body(self, body: str) -> dict[str, Any]:
+		params: dict[str, Any] = {}
+		for match in _PARAM_RE.finditer(body):
+			name = match.group('dq') or match.group('sq') or match.group('bare')
+			params[name] = self._parse_minimax_value(match.group('value'))
+
+		if params:
+			return params
+
+		for parsed in self._json_values_from_text(body):
+			if isinstance(parsed, dict):
+				return parsed
+
+		return params
+
+	def _minimax_state_fields_from_text(self, text: str, output_format: type[T]) -> dict[str, Any]:
+		state: dict[str, Any] = {}
+		for field_name in ('thinking', 'evaluation_previous_goal', 'memory', 'next_goal', 'current_plan_item', 'plan_update'):
+			if field_name not in output_format.model_fields:
+				continue
+			match = re.search(rf'<{field_name}>\s*(.*?)\s*</{field_name}>', text, re.DOTALL | re.IGNORECASE)
+			if match:
+				state[field_name] = self._parse_minimax_value(match.group(1))
+		return state
+
+	def _completion_from_named_action(self, action_name: str, action_input: Any, output_format: type[T], text: str) -> T | None:
+		state = self._minimax_state_fields_from_text(text, output_format)
+		try:
+			return output_format.model_validate({**state, 'action': [{action_name: action_input}]})
+		except Exception:
+			return None
+
+	def _completion_from_minimax_text_response(
+		self, response: Any, output_format: type[T], usage: ChatInvokeUsage | None
+	) -> ChatInvokeCompletion[T] | None:
+		response_text, thinking, redacted_thinking = self._extract_content_blocks(response)
+		cleaned_text = response_text.replace(_MINIMAX_DELIMITER, '')
+
+		for parsed in self._json_values_from_text(cleaned_text):
+			if isinstance(parsed, dict):
+				tool_name = parsed.get('name') or parsed.get('tool_name')
+				tool_input = parsed.get('arguments') or parsed.get('input')
+				if tool_name and isinstance(tool_input, dict):
+					completion = self._completion_from_named_action(str(tool_name), tool_input, output_format, cleaned_text)
+					if completion is not None:
+						return ChatInvokeCompletion(
+							completion=completion,
+							thinking=thinking,
+							redacted_thinking=redacted_thinking,
+							usage=usage,
+							stop_reason=response.stop_reason,
+							stop_details=self._get_stop_details(response),
+						)
+
+		for match in _INVOKE_RE.finditer(cleaned_text):
+			name = match.group('dq') or match.group('sq') or match.group('bare')
+			params = self._minimax_params_from_body(match.group('body'))
+
+			if name != output_format.__name__:
+				completion = self._completion_from_named_action(name, params, output_format, cleaned_text)
+				if completion is not None:
+					return ChatInvokeCompletion(
+						completion=completion,
+						thinking=thinking,
+						redacted_thinking=redacted_thinking,
+						usage=usage,
+						stop_reason=response.stop_reason,
+						stop_details=self._get_stop_details(response),
+					)
+
+			try:
+				return ChatInvokeCompletion(
+					completion=output_format.model_validate(params),
+					thinking=thinking,
+					redacted_thinking=redacted_thinking,
+					usage=usage,
+					stop_reason=response.stop_reason,
+					stop_details=self._get_stop_details(response),
+				)
+			except Exception:
+				continue
+
+		return None
+
 	def _completion_from_text_response(
 		self, response: Any, output_format: type[T], usage: ChatInvokeUsage | None
 	) -> ChatInvokeCompletion[T] | None:
@@ -400,34 +587,30 @@ class ChatAnthropic(BaseChatModel):
 							)
 						except Exception as e:
 							# If validation fails, try to fix common model output issues
-							_input = content_block.input
-							if isinstance(_input, str):
-								_input = json.loads(_input)
-							elif isinstance(_input, dict):
-								# Model sometimes double-serializes fields
-								for key, value in _input.items():
-									if isinstance(value, str) and value.startswith(('[', '{')):
-										try:
-											_input[key] = json.loads(value)
-										except json.JSONDecodeError:
-											cleaned = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-											try:
-												_input[key] = json.loads(cleaned)
-											except json.JSONDecodeError:
-												pass
-							else:
-								raise
+							_input = self._coerce_tool_input(content_block.input)
+							try:
+								completion = output_format.model_validate(_input)
+							except Exception:
+								if not isinstance(_input, dict):
+									raise e
+								completion = self._completion_from_flat_action_input(_input, output_format)
+								if completion is None:
+									raise e
+
 							return ChatInvokeCompletion(
-								completion=output_format.model_validate(_input),
+								completion=completion,
 								usage=usage,
 								stop_reason=response.stop_reason,
 								stop_details=self._get_stop_details(response),
 							)
 
-				if self._requires_auto_tool_choice():
-					text_completion = self._completion_from_text_response(response, output_format, usage)
-					if text_completion is not None:
-						return text_completion
+				text_completion = self._completion_from_text_response(response, output_format, usage)
+				if text_completion is not None:
+					return text_completion
+
+				minimax_text_completion = self._completion_from_minimax_text_response(response, output_format, usage)
+				if minimax_text_completion is not None:
+					return minimax_text_completion
 
 				# If no tool use block found, raise an error
 				raise ValueError('Expected tool use in response but none found')
