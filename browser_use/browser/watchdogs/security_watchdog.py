@@ -202,6 +202,13 @@ class SecurityWatchdog(BaseWatchdog):
 
 		# Get the actual host (domain)
 		host = parsed.hostname
+		# Strip the trailing DNS-root dot: "evil.com." is the same origin as
+		# "evil.com" in every browser, but urlparse keeps the dot. Without this
+		# a one-character suffix bypasses prohibited_domains (and false-negatives
+		# allowed_domains). Done before the IP and domain checks so both the set
+		# fast-path and the glob slow-path are covered.
+		if host:
+			host = host.rstrip('.')
 		if not host:
 			return False
 
