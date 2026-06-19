@@ -105,6 +105,25 @@ class ChatOllama(BaseChatModel):
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], **kwargs: Any) -> ChatInvokeCompletion[T]: ...
 
+	async def _extract_stream_content(self, response: Any) -> str:
+		"""Extract full content from a streaming Ollama response (async generator)."""
+		content_parts: list[str] = []
+		async for chunk in response:
+			if hasattr(chunk, 'message') and chunk.message and chunk.message.content:
+				content_parts.append(chunk.message.content)
+		return ''.join(content_parts)
+
+	async def _extract_content(self, response: Any) -> str:
+		"""Extract content from either a streaming (async generator) or non-streaming response.
+
+		Ollama's AsyncClient.chat() returns:
+		- A single ChatResponse when stream=False (default)
+		- An async generator yielding ChatResponse chunks when stream=True
+		"""
+		if self.stream:
+			return await self._extract_stream_content(response)
+		return response.message.content or ''
+
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
@@ -126,21 +145,25 @@ class ChatOllama(BaseChatModel):
 					**chat_kwargs,
 				)
 
-				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
+				completion = await self._extract_content(response)
+				return ChatInvokeCompletion(completion=completion, usage=None)
 			else:
 				schema = output_format.model_json_schema()
 				# When output_format is provided, format is set to the schema
 				# but allow explicit ChatOllama.format to override
 				actual_format = chat_kwargs.get('format', schema)
 
+				# Only forward stream kwarg to avoid passing format twice
+				stream_kwargs = {k: v for k, v in chat_kwargs.items() if k == 'stream'}
 				response = await self.get_client().chat(
 					model=self.model,
 					messages=ollama_messages,
 					format=actual_format,
 					options=options,
+					**stream_kwargs,
 				)
 
-				completion = response.message.content or ''
+				completion = await self._extract_content(response)
 				completion = output_format.model_validate_json(completion)
 
 				return ChatInvokeCompletion(completion=completion, usage=None)
