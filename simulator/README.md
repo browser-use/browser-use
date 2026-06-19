@@ -90,11 +90,23 @@ Each step the simulator sends an OpenAI `response_format` JSON schema; the serve
 under aggressive sparsity. (Top-k 32 *without* grammar degenerates into malformed JSON
 — grammar is what keeps the sparse run functional.)
 
-## Datasets (both included)
+## Datasets — fetch first
 
-- `data/webvoyager_data.jsonl` — 643 tasks, 15 live sites. Reference answers in
+The raw WebVoyager + GAIA-web datasets are **third-party and gitignored** (not committed
+to this repo). Fetch them once into `data/` before running:
+
+```bash
+python -m simulator.scripts.download_data          # skip files already present
+python -m simulator.scripts.download_data --force  # re-download everything
+```
+
+This pulls from the upstream [WebVoyager](https://github.com/MinorJerry/WebVoyager) /
+[WebArena](https://github.com/web-arena-x/webarena) repos:
+
+- `data/webvoyager_data.jsonl` — 643 tasks, 15 live sites; reference answers in
   `data/reference_answer.json` (per-site, types `golden`/`possible`).
 - `data/gaia_web.jsonl` — 90 GAIA web tasks, each with an inline ground-truth answer.
+- `data/webarena_test.raw.json` — WebArena tasks (used by the context-length study).
 
 `--source {both,webvoyager,gaia}` selects which to draw from (default `both`).
 
