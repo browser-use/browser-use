@@ -115,8 +115,9 @@ This pulls from the upstream [WebVoyager](https://github.com/MinorJerry/WebVoyag
 ```bash
 # full WebVoyager + GAIA capture (sparse run), headed + vision on, resumable:
 python -m simulator capture --task-num 999 --source both \
-    --batch-size 3 --max-steps 12 --task-timeout 1800 \
+    --batch-size 3 --max-steps 30 --task-timeout 1800 --llm-timeout 240 \
     --out-dir simulator/runs/WebVoyager-GAIA-sparse-topk32
+# generous budgets for a thorough run: up to 30 steps and 30 min (1800s) per task
 
 # success eval — judge is the served Qwen3-VL in FULL attention,
 # so restart the server at --top-k 100000 first, then:
