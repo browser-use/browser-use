@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
@@ -55,6 +56,57 @@ class ChatDashScope(ChatOpenAI):
 		if self.seed is not None:
 			params['seed'] = self.seed
 		return params
+
+	@staticmethod
+	def _extract_json_payload(content: str) -> str:
+		"""Return the first JSON object/array from a structured DashScope response."""
+		text = content.strip()
+		if text.startswith('```'):
+			lines = text.splitlines()
+			if lines and lines[0].lstrip().startswith('```'):
+				lines = lines[1:]
+			if lines and lines[-1].strip().startswith('```'):
+				lines = lines[:-1]
+			text = '\n'.join(lines).strip()
+
+		starts = [(i, ch) for i, ch in ((text.find('{'), '{'), (text.find('['), '[')) if i != -1]
+		if not starts:
+			return text
+		start, opener = min(starts, key=lambda item: item[0])
+		closer = '}' if opener == '{' else ']'
+		depth = 0
+		in_string = False
+		escape = False
+		for idx in range(start, len(text)):
+			ch = text[idx]
+			if in_string:
+				if escape:
+					escape = False
+				elif ch == '\\':
+					escape = True
+				elif ch == '"':
+					in_string = False
+				continue
+			if ch == '"':
+				in_string = True
+			elif ch == opener:
+				depth += 1
+			elif ch == closer:
+				depth -= 1
+				if depth == 0:
+					return text[start : idx + 1]
+		return text
+
+	@classmethod
+	def _parse_structured_content(cls, output_format: type[T], content: str) -> T:
+		payload = cls._extract_json_payload(content)
+		try:
+			return output_format.model_validate_json(payload)
+		except Exception:
+			data = json.loads(payload)
+			if isinstance(data, list) and len(data) == 1:
+				data = data[0]
+			return output_format.model_validate(data)
 
 	@overload
 	async def ainvoke(
@@ -113,7 +165,7 @@ class ChatDashScope(ChatOpenAI):
 					model=self.name,
 				)
 
-			parsed = output_format.model_validate_json(content)
+			parsed = self._parse_structured_content(output_format, content)
 			return ChatInvokeCompletion(
 				completion=parsed,
 				usage=self._get_usage(response),

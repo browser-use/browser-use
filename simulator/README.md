@@ -10,8 +10,8 @@ trajectories, and **evaluate** them offline.
 - **TreeSparseAttention server** (default, `USE_TSA=1`) — a local OpenAI-compatible
   server (`TreeSparseAttention/serve.py`) serving **Qwen3-VL-30B-A3B-Instruct** with
   either **tree-sparse** (`--top-k 32`) or **full/dense** (`--top-k 100000`) attention.
-  Attention is the *only* variable between the sparse and dense runs — this is what the
-  sparse-vs-dense accuracy comparison rests on. See **Server setup** below.
+  Attention is the *only* variable between the sparse and dense runs — the basis of the
+  sparse-vs-dense accuracy comparison. See **Server setup** below.
 - **DashScope / Qwen** (`USE_TSA=0`) — the `ChatDashScope` provider (`qwen3.5-omni`,
   `qwen-vl-max` as the multimodal judge). Set `DASHSCOPE_API_KEY`.
 
@@ -29,6 +29,11 @@ simulator/
     success.py     WebVoyager multimodal judge (reference-aware) -> SUCCESS/NOT SUCCESS
     replay.py      action-replay fidelity
     common.py      shared client + task-dir discovery
+  scripts/       standalone experiments / tooling
+    download_data.py     fetch the third-party datasets
+    analysis.py          WebArena vs WebVoyager context-length study
+    trajectory_stats.py  context/output token-length stats over a captured run
+    merge_runs.py        success-preferring merge of two runs (+ optional HF upload)
   __main__.py    CLI
   data/          datasets + reference answers     runs/  generated output (gitignored)
   tests/         unit tests (no network)
@@ -107,6 +112,15 @@ USE_TSA=1 python -m simulator eval simulator/runs/WebVoyager-GAIA-sparse-topk32 
 
 # action-replay fidelity (can the recorded context reproduce each step offline?):
 python -m simulator eval simulator/runs/<run> --mode replay
+
+# token-length stats over a captured run (text only; per domain / overall / by step)
+python -m simulator.scripts.trajectory_stats context simulator/runs/<run>
+
+# success-preferring merge of another run into this one (+ optional HF upload)
+python -m simulator.scripts.merge_runs simulator/runs/<run> simulator/runs/<other_run>
+
+# WebArena vs WebVoyager context-length experiment
+python -m simulator.scripts.analysis structure | measure | compare
 ```
 
 The `success` judge sees the task + the agent's answer + the **reference answer**
@@ -119,6 +133,15 @@ Notes:
   only sparsifies *decode* attention, so the end-to-end speedup lives in decode and grows
   with batch size and context length.
 - `simulator/runs/` is gitignored — generated trajectories / results are not source.
+
+## Agent prompt & robustness
+
+During `run`/`capture` the agent's system prompt is extended (see `config.py`) with a
+**CAPTCHA/anti-bot nudge** (try one recovery action, else switch strategy — never stall
+or punt to the user) and a **thinking nudge** (fill the JSON `thinking` with 2–4
+deliberate sentences, then emit exactly one JSON object). Per-call LLM latency is bounded
+by `--llm-timeout` (default 150 s). The success judge is instructed to put its
+`SUCCESS`/`NOT SUCCESS` verdict on the first line for reliable parsing.
 
 ## Tests
 

@@ -35,9 +35,21 @@ TSA_API_KEY = os.environ.get('TSA_API_KEY', 'EMPTY')  # TSA ignores auth
 # instead of stalling (we intentionally do not pause-and-wait in the simulator).
 CAPTCHA_NUDGE = (
 	'If you encounter a CAPTCHA, reCAPTCHA, bot-detection, or a "verify you are human" wall, '
-	'do NOT stop and do NOT repeatedly wait for it to clear. Immediately try an alternative '
-	"approach to accomplish the task: a different navigation path, the site's own search, a "
-	'different section of the site, or an alternative reputable source. Keep making progress.'
+	'do NOT stop and do NOT repeatedly wait for it to clear. You may try one direct recovery '
+	'action (for example clicking the visible verification control or refreshing the page), but '
+	'if it is still blocked, immediately switch strategy: use a different navigation path, edit '
+	'the URL, use the site search, open another section of the same site, or use an alternative '
+	'reputable source to answer the user. Do not end with "cannot bypass" or ask the user what to '
+	'do next while useful fallback paths remain. Keep making progress and only report the obstacle '
+	'after you have tried a concrete fallback and provided the best available answer.'
+)
+
+LONGER_THINKING_NUDGE = (
+	'For each step, fill the existing JSON "thinking" string before choosing actions. Make that '
+	'thinking a little more deliberate than usual, but keep it to 2-4 concise sentences: inspect '
+	'the visible page state, compare it with the task goal, call out any uncertainty or recovery '
+	'path, then choose the next concrete action. Return exactly one valid JSON object matching '
+	'the schema, with no Markdown fences and no top-level array.'
 )
 
 
@@ -51,6 +63,7 @@ class RunConfig:
 	model: str = DEFAULT_MODEL
 	max_steps: int = 20
 	task_timeout: float = 300.0  # heavy sites under several headed browsers run ~30-50s/step
+	llm_timeout: float = 150.0
 	max_wait: float = 1.5  # how long to wait to fill a batch before dispatching a partial one (see note below)
 	use_vision: bool = True  # send the screenshot to the model each step (multimodal)
 	shuffle: bool = False

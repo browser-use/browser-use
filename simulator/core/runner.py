@@ -22,7 +22,7 @@ from typing import Any, TypeVar
 
 from browser_use import Agent, Browser, ChatDashScope
 from browser_use.llm.openai.chat import ChatOpenAI
-from simulator.config import CAPTCHA_NUDGE, RUNS_DIR, TSA_API_KEY, TSA_BASE_URL, TSA_MODEL, USE_TSA, RunConfig
+from simulator.config import CAPTCHA_NUDGE, LONGER_THINKING_NUDGE, RUNS_DIR, TSA_API_KEY, TSA_BASE_URL, TSA_MODEL, USE_TSA, RunConfig
 from simulator.core.batching import BatchCoordinator, BatchLLMProxy
 from simulator.core.recorder import RecordingProxy, TrajectoryRecorder
 from simulator.tasks import WebVoyagerTask, load_tasks
@@ -78,6 +78,7 @@ async def execute_task(
 	browser = Browser(
 		headless=os.environ.get('SIM_HEADLESS', '0').lower() not in ('0', 'false', 'no', ''),  # SIM_HEADLESS=1 for big headless batch runs
 		user_data_dir=str(udir),
+		enable_default_extensions=False,
 		max_iframes=15,  # ad-heavy sites (e.g. Allrecipes) have many iframes; cap AX-tree work
 	)
 	agent = Agent(
@@ -89,11 +90,10 @@ async def execute_task(
 		llm_screenshot_size=(1280, 720),  # downscale the per-step vision image (full-HD PNGs are ~3MB each)
 		use_judge=False,
 		enable_planning=False,
+		llm_timeout=cfg.llm_timeout,
 		calculate_cost=False,
-		extend_system_message=CAPTCHA_NUDGE,
-		# Dense 30B on the GB10 re-prefills the full prompt each step; batched calls are slow,
-		# so give the LLM/step generous timeouts (override via env) to avoid premature failures.
-		llm_timeout=int(os.environ.get('SIM_LLM_TIMEOUT', '240')),
+		extend_system_message=f'{CAPTCHA_NUDGE}\n\n{LONGER_THINKING_NUDGE}',
+		# generous per-step timeout for slow batched calls on the GB10 (override via SIM_STEP_TIMEOUT)
 		step_timeout=int(os.environ.get('SIM_STEP_TIMEOUT', '360')),
 	)
 
