@@ -11,6 +11,12 @@ from simulator.config import DASHSCOPE_BASE_URL
 
 
 def client() -> AsyncOpenAI:
+	# Prefer the local TreeSparseAttention server (same deployed model) when USE_TSA,
+	# so eval works without a DashScope key and is consistent with the reference self-judge.
+	from simulator.config import TSA_API_KEY, TSA_BASE_URL, USE_TSA
+
+	if USE_TSA:
+		return AsyncOpenAI(api_key=TSA_API_KEY, base_url=TSA_BASE_URL)
 	if 'DASHSCOPE_API_KEY' not in os.environ:
 		raise SystemExit('Set DASHSCOPE_API_KEY')
 	return AsyncOpenAI(api_key=os.environ['DASHSCOPE_API_KEY'], base_url=DASHSCOPE_BASE_URL)

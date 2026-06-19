@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -20,7 +21,8 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from browser_use import Agent, Browser, ChatDashScope
-from simulator.config import CAPTCHA_NUDGE, RUNS_DIR, RunConfig
+from browser_use.llm.openai.chat import ChatOpenAI
+from simulator.config import CAPTCHA_NUDGE, RUNS_DIR, TSA_API_KEY, TSA_BASE_URL, TSA_MODEL, USE_TSA, RunConfig
 from simulator.core.batching import BatchCoordinator, BatchLLMProxy
 from simulator.core.recorder import RecordingProxy, TrajectoryRecorder
 from simulator.tasks import WebVoyagerTask, load_tasks
@@ -74,7 +76,7 @@ async def execute_task(
 	"""Run one task in its own headed window with a wall-clock timeout, then clean up."""
 	udir = profile_root / f'slot{slot}_{uuid.uuid4().hex[:8]}'
 	browser = Browser(
-		headless=False,
+		headless=os.environ.get('SIM_HEADLESS', '0').lower() not in ('0', 'false', 'no', ''),  # SIM_HEADLESS=1 for big headless batch runs
 		user_data_dir=str(udir),
 		max_iframes=15,  # ad-heavy sites (e.g. Allrecipes) have many iframes; cap AX-tree work
 	)
@@ -83,12 +85,16 @@ async def execute_task(
 		llm=llm,
 		browser=browser,
 		initial_actions=[{'navigate': {'url': task.start_url, 'new_tab': False}}],
-		use_vision=cfg.use_vision,
+		use_vision=cfg.use_vision,  # serve.py feeds image_url->pixel_values to Qwen3-VL at prefill (vision verified)
 		llm_screenshot_size=(1280, 720),  # downscale the per-step vision image (full-HD PNGs are ~3MB each)
 		use_judge=False,
 		enable_planning=False,
 		calculate_cost=False,
 		extend_system_message=CAPTCHA_NUDGE,
+		# Dense 30B on the GB10 re-prefills the full prompt each step; batched calls are slow,
+		# so give the LLM/step generous timeouts (override via env) to avoid premature failures.
+		llm_timeout=int(os.environ.get('SIM_LLM_TIMEOUT', '240')),
+		step_timeout=int(os.environ.get('SIM_STEP_TIMEOUT', '360')),
 	)
 
 	t0 = time.time()
@@ -126,16 +132,35 @@ def _profile_root() -> Path:
 	return Path(tempfile.mkdtemp(prefix='sim_profiles_'))
 
 
-def _coordinator(cfg: RunConfig) -> BatchCoordinator:
+def _build_llm(cfg: RunConfig):
+	"""The agent LLM. Defaults to the spark01 TreeSparseAttention server; set
+	USE_TSA=0 to fall back to DashScope/Qwen."""
+	if USE_TSA:
+		# TSA is OpenAI-compatible but has no server-side json_schema enforcement
+		# (xgrammar absent), so request structured output via the system prompt and
+		# parse JSON from the text instead of relying on response_format.
+		return ChatOpenAI(
+			model=TSA_MODEL,
+			base_url=TSA_BASE_URL,
+			api_key=TSA_API_KEY,
+			temperature=0.2,
+			max_completion_tokens=1536,  # bound decode: agent output is ~300-600 tok; caps runaway generations that blow the batched-call timeout
+			add_schema_to_system_prompt=True,
+			dont_force_structured_output=False,  # send response_format=json_schema -> server xgrammar grammar-constrained decoding (valid JSON even under aggressive sparsity)
+		)
 	# temperature/max_completion_tokens match the reference request format
-	llm = ChatDashScope(model=cfg.model, temperature=0.2, max_completion_tokens=4096)
+	return ChatDashScope(model=cfg.model, temperature=0.2, max_completion_tokens=4096)
+
+
+def _coordinator(cfg: RunConfig) -> BatchCoordinator:
+	llm = _build_llm(cfg)
 	return BatchCoordinator(llm, max_batch=cfg.batch_size, max_wait_s=cfg.max_wait)
 
 
 async def run_batch(cfg: RunConfig) -> list[TaskOutcome]:
 	"""Run tasks in parallel with no recording."""
 	tasks = load_tasks(cfg.task_num, cfg.shuffle, cfg.seed, cfg.source)
-	print(f'Running {len(tasks)} tasks | batch_size={cfg.batch_size} | source={cfg.source} | model={cfg.model}')
+	print(f'Running {len(tasks)} tasks | batch_size={cfg.batch_size} | source={cfg.source} | model={TSA_MODEL if USE_TSA else cfg.model}')
 	coord = _coordinator(cfg)
 	profile_root = _profile_root()
 
@@ -163,7 +188,7 @@ async def run_capture(cfg: RunConfig, out_dir: Path | None = None) -> Path:
 		if not mp.exists():
 			return False
 		try:
-			return 'status' in json.loads(mp.read_text())
+			return json.loads(mp.read_text()).get('status') in ('completed', 'timeout')  # resume re-runs 'error'/missing
 		except Exception:  # noqa: BLE001
 			return False
 

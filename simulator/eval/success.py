@@ -87,9 +87,28 @@ async def judge_success(judge: AsyncOpenAI, model: str, task_dir: Path, k: int) 
 			messages=[{'role': 'system', 'content': system}, {'role': 'user', 'content': content}],
 			temperature=0.0,
 			max_completion_tokens=1024,
+			# Force a structured verdict (server xgrammar) — the 30B judge otherwise degenerates
+			# to fragments on some prompts. verdict first so it is never truncated before parsing.
+			response_format={
+				'type': 'json_schema',
+				'json_schema': {
+					'name': 'verdict',
+					'schema': {
+						'type': 'object',
+						'properties': {
+							'verdict': {'type': 'string', 'enum': ['SUCCESS', 'NOT SUCCESS']},
+							'reasoning': {'type': 'string'},
+						},
+						'required': ['verdict', 'reasoning'],
+					},
+				},
+			},
 		)
 		reason = resp.choices[0].message.content or ''
-		verdict = _parse_verdict(reason)
+		try:
+			verdict = {'SUCCESS': True, 'NOT SUCCESS': False}.get(json.loads(reason).get('verdict'))
+		except Exception:  # noqa: BLE001
+			verdict = _parse_verdict(reason)
 	except Exception as e:  # noqa: BLE001
 		err = str(e)[:200]
 

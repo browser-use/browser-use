@@ -11,9 +11,9 @@ __all__ = ['evaluate_success', 'evaluate_replay', 'evaluate_path']
 def evaluate_path(path: Path, mode: str = 'success', model: str | None = None, k: int = 2):
 	"""Dispatch to the success judge (default) or the action-replay eval."""
 	if mode == 'success':
-		from simulator.config import DEFAULT_JUDGE_MODEL
+		from simulator.config import DEFAULT_JUDGE_MODEL, TSA_MODEL, USE_TSA
 
-		return evaluate_success(path, model or DEFAULT_JUDGE_MODEL, k)
+		return evaluate_success(path, model or (TSA_MODEL if USE_TSA else DEFAULT_JUDGE_MODEL), k)
 	if mode == 'replay':
 		from simulator.config import DEFAULT_MODEL
 
