@@ -16,6 +16,7 @@ from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.network import Cookie
 from cdp_use.cdp.target import SessionID, TargetID
+from cdp_use.cdp.target.events import TargetCrashedEvent
 from cdp_use.cdp.target.commands import CreateTargetParameters
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
@@ -1960,7 +1961,7 @@ class BrowserSession(BaseModel):
 
 	# region - ========== Page Crash Detection and Recovery ==========
 
-	def _on_target_crashed_cdp(self, event: dict, session_id: Any = None) -> None:
+	def _on_target_crashed_cdp(self, event: TargetCrashedEvent, session_id: SessionID | None = None) -> None:
 		"""Handle Target.targetCrashed CDP event.
 
 		Stores the crashed target info so check_and_recover_from_crash() can
