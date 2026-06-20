@@ -13,9 +13,10 @@ _construct_enhanced_node.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 from browser_use.dom.service import DomService
-from browser_use.dom.views import DOMRect, NodeType
+from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, NodeType
 
 
 def _snap(*, bounds=None, scroll_rects=None, client_rects=None, computed_styles=None):
@@ -41,7 +42,11 @@ def test_visibility_check_does_not_mutate_bounds_on_scrolled_page():
 		),
 	)
 
-	visible = DomService.is_element_visible_according_to_all_parents(node, [html_frame])
+	# node/html_frame are SimpleNamespace duck-typed stand-ins for EnhancedDOMTreeNode
+	# (the predicate only reads .snapshot_node / .node_type / .node_name).
+	visible = DomService.is_element_visible_according_to_all_parents(
+		cast(EnhancedDOMTreeNode, node), cast(list[EnhancedDOMTreeNode], [html_frame])
+	)
 
 	assert visible is True
 	# Before the fix the scroll offset was applied in place, leaving y at 150.
@@ -59,7 +64,9 @@ def test_visibility_check_does_not_mutate_bounds_inside_iframe():
 		snapshot_node=_snap(bounds=DOMRect(300.0, 400.0, 200.0, 200.0)),
 	)
 
-	DomService.is_element_visible_according_to_all_parents(node, [iframe])
+	DomService.is_element_visible_according_to_all_parents(
+		cast(EnhancedDOMTreeNode, node), cast(list[EnhancedDOMTreeNode], [iframe])
+	)
 
 	# Before the fix the iframe offset was added in place, leaving (310, 420).
 	assert (node_bounds.x, node_bounds.y) == (10.0, 20.0)
