@@ -275,6 +275,16 @@ class DomService:
 		if not current_bounds:
 			return False  # If there are no bounds, the element is not visible
 
+		# Work on a copy of the rect. The += / -= below shift bounds into each parent
+		# frame's coordinate space for the viewport intersection check, but
+		# node.snapshot_node.bounds is the node's shared, absolute-page-coordinate rect
+		# (set during construction at ~service.py:788). DOMRect is a mutable dataclass,
+		# so mutating this reference in place permanently corrupts the geometry that
+		# downstream consumers (paint-order occlusion, bbox containment) read on any
+		# scrolled or iframe page. Mirror the deliberate DOMRect copy in
+		# _construct_enhanced_node (~service.py:734, 'to get rid of the pointer references').
+		current_bounds = DOMRect(current_bounds.x, current_bounds.y, current_bounds.width, current_bounds.height)
+
 		# If threshold is None, skip all viewport-based filtering (only check CSS visibility)
 		if viewport_threshold is None:
 			return True
