@@ -593,9 +593,7 @@ class TestTrailingDotHostNormalization:
 
 		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 
-		browser_profile = BrowserProfile(
-			prohibited_domains={'evil.com', 'other.com'}, headless=True, user_data_dir=None
-		)
+		browser_profile = BrowserProfile(prohibited_domains={'evil.com', 'other.com'}, headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
 
