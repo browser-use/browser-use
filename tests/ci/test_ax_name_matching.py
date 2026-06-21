@@ -556,3 +556,143 @@ def test_is_menu_item_element_returns_false_for_regular_element():
 	)
 
 	assert agent._is_menu_item_element(regular_element) is False
+
+
+# ─── Tests for empty ax_node.name preservation ────────────────────────────────
+
+
+def test_empty_ax_name_preserved_in_load_from_enhanced_dom_tree():
+	"""When ax_node.name is '' (empty string), load_from_enhanced_dom_tree
+	should preserve it as ax_name='' instead of dropping it to None.
+
+	Before the fix, `if .ax_node.name:` evaluated '' as falsy and dropped it.
+	"""
+	from browser_use.dom.views import EnhancedAXNode, EnhancedDOMTreeNode
+
+	# Build a minimal node with empty ax_node.name
+	ax_node = EnhancedAXNode(
+		ax_node_id='ax-1',
+		ignored=False,
+		role='button',
+		name='',  # empty string — the key test case
+		description=None,
+		properties=None,
+		child_ids=None,
+	)
+	node = EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='BUTTON',
+		node_value='',
+		attributes={'type': 'submit'},
+		is_scrollable=None,
+		is_visible=True,
+		absolute_position=None,
+		target_id='target-1',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=None,
+		ax_node=ax_node,
+		snapshot_node=None,
+	)
+
+	result = DOMInteractedElement.load_from_enhanced_dom_tree(node)
+	assert result.ax_name == '', f'Expected empty string, got {result.ax_name!r}'
+
+
+def test_none_ax_name_preserved_in_load_from_enhanced_dom_tree():
+	"""When ax_node.name is None, load_from_enhanced_dom_tree should keep ax_name=None."""
+	from browser_use.dom.views import EnhancedAXNode, EnhancedDOMTreeNode
+
+	ax_node = EnhancedAXNode(
+		ax_node_id='ax-1',
+		ignored=False,
+		role='button',
+		name=None,  # explicitly absent
+		description=None,
+		properties=None,
+		child_ids=None,
+	)
+	node = EnhancedDOMTreeNode(
+		node_id=2,
+		backend_node_id=2,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='BUTTON',
+		node_value='',
+		attributes={'type': 'submit'},
+		is_scrollable=None,
+		is_visible=True,
+		absolute_position=None,
+		target_id='target-1',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=None,
+		ax_node=ax_node,
+		snapshot_node=None,
+	)
+
+	result = DOMInteractedElement.load_from_enhanced_dom_tree(node)
+	assert result.ax_name is None, f'Expected None, got {result.ax_name!r}'
+
+
+def test_empty_vs_none_ax_name_produce_different_hashes():
+	"""Elements with empty ax_node.name vs no ax_node should hash differently.
+
+	An empty accessible name (explicitly set to '') is semantically different
+	from no accessible name at all (None), so they must not hash the same.
+	"""
+	from browser_use.dom.views import EnhancedAXNode, EnhancedDOMTreeNode
+
+	def _make_node(node_id: int, name: str | None) -> EnhancedDOMTreeNode:
+		return EnhancedDOMTreeNode(
+			node_id=node_id,
+			backend_node_id=node_id,
+			node_type=NodeType.ELEMENT_NODE,
+			node_name='INPUT',
+			node_value='',
+			attributes={'type': 'text'},
+			is_scrollable=None,
+			is_visible=True,
+			absolute_position=None,
+			target_id='target-1',
+			frame_id=None,
+			session_id=None,
+			content_document=None,
+			shadow_root_type=None,
+			shadow_roots=None,
+			parent_node=None,
+			children_nodes=None,
+			ax_node=EnhancedAXNode(
+				ax_node_id=f'ax-{node_id}',
+				ignored=False,
+				role='textbox',
+				name=name,
+				description=None,
+				properties=None,
+				child_ids=None,
+			),
+			snapshot_node=None,
+		)
+
+	node_empty = _make_node(1, '')  # explicitly empty
+	node_none = _make_node(2, None)  # no ax_node at all can't use this builder but we can set ax_node=None
+	node_none.ax_node = None
+
+	empty_hash = hash(node_empty)
+	none_hash = hash(node_none)
+
+	# Hashes must differ
+	assert empty_hash != none_hash, f'Empty name hash ({empty_hash}) should differ from None hash ({none_hash})'
+
+	# Both should produce deterministic hashes (not crash)
+	assert isinstance(empty_hash, int)
+	assert isinstance(none_hash, int)
