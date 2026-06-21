@@ -102,7 +102,7 @@ class DomService:
 				if is_interactive and is_hidden_by_threshold(subtree_root):
 					# Get element text/name
 					text = ''
-					if subtree_root.ax_node and subtree_root.ax_node.name:
+					if subtree_root.ax_node and subtree_root.ax_node.name is not None:
 						text = subtree_root.ax_node.name[:40]
 					elif subtree_root.attributes:
 						text = (
