@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rrss-arm"
+version = "0.1.0"
+description = "ARM (Adaptive Rate Management) — per-host async circuit breaker + KafCa decorators. Extracted from browser-use."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Désiré Nzengou", email = "desire.yavro@gmail.com" }]
+keywords = ["circuit-breaker", "async", "rate-limiting", "resilience", "kafca", "rrss"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Framework :: AsyncIO",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-asyncio>=0.21"]
+
+[project.urls]
+Homepage = "https://github.com/dnzengou/browser-use"
+Repository = "https://github.com/dnzengou/browser-use"
+Issues = "https://github.com/dnzengou/browser-use/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rrss_arm"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/rrss_arm", "README.md", "LICENSE"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"

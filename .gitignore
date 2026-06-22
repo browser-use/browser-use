@@ -53,6 +53,7 @@ credentials.json
 token.json
 
 !docs/docs.json
+!rrss-toolkit/skills/manifest.json
 
 
 temp-profile-*

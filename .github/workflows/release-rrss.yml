@@ -1,0 +1,146 @@
+name: Release RRSS Toolkit
+
+on:
+  push:
+    tags:
+      - 'rrss-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. rrss-v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build SDK + checksums
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: meta
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            tag="${{ inputs.version }}"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${tag#rrss-v}" >> $GITHUB_OUTPUT
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch hatchling build
+
+      - name: Build wheel + sdist
+        working-directory: rrss-toolkit/sdk/python
+        run: |
+          python -m build
+
+      - name: Generate checksums for skills + dist
+        working-directory: rrss-toolkit
+        run: |
+          (
+            cd skills && find . -name 'SKILL.md' -print0 | xargs -0 sha256sum
+            cd .. && find sdk/python/dist -type f -print0 | xargs -0 sha256sum
+          ) > checksums.txt
+          cat checksums.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrss-toolkit-${{ steps.meta.outputs.version }}
+          path: |
+            rrss-toolkit/sdk/python/dist/*
+            rrss-toolkit/checksums.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  test:
+    name: Test SDK
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install SDK + test deps
+        working-directory: rrss-toolkit/sdk/python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+      - name: Run tests
+        working-directory: rrss-toolkit/sdk/python
+        run: |
+          pytest -vxs tests/ --asyncio-mode=auto
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    environment: pypi
+    if: startsWith(github.ref, 'refs/tags/rrss-v') || inputs.version != ''
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rrss-toolkit-${{ needs.build.outputs.version }}
+          path: artifacts
+      - name: Move wheels to dist
+        run: |
+          mkdir -p dist
+          find artifacts -name '*.whl' -o -name '*.tar.gz' | xargs -I {} cp {} dist/
+          ls -la dist
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true
+
+  release:
+    name: GitHub Release
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/rrss-v') || inputs.version != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rrss-toolkit-${{ needs.build.outputs.version }}
+          path: artifacts
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rrss-v${{ needs.build.outputs.version }}
+          name: RRSS Toolkit v${{ needs.build.outputs.version }}
+          body: |
+            ## RRSS Toolkit v${{ needs.build.outputs.version }}
+
+            **Channels shipped:**
+            - PyPI: `pip install rrss-arm==${{ needs.build.outputs.version }}`
+            - Skills bundle: `curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/rrss-toolkit/install.sh | bash`
+            - PowerShell: `iwr https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/rrss-toolkit/install.ps1 -UseBasicParsing | iex`
+
+            All artifacts have sha256 checksums in `checksums.txt`.
+
+            See `rrss-toolkit/BLUEPRINT.md` for full changelog.
+          files: |
+            artifacts/**/*.whl
+            artifacts/**/*.tar.gz
+            artifacts/checksums.txt
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}

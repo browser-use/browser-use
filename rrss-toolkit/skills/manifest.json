@@ -1,0 +1,35 @@
+{
+	"bundle": "rrss-toolkit-skills",
+	"version": "0.1.0",
+	"description": "Bundled Claude Code skills: kafca, kafcade, evo-metaclaw, rrss. Installs to ~/.claude/skills/<name>/SKILL.md.",
+	"skills": [
+		{
+			"name": "kafca",
+			"version": "1.0",
+			"source": "skills/kafca/SKILL.md",
+			"dest": "~/.claude/skills/kafca/SKILL.md",
+			"description": "Token-efficiency discipline (Karpathy + fixClaude + Caveman)."
+		},
+		{
+			"name": "kafcade",
+			"version": "2.4",
+			"source": "skills/kafcade/SKILL.md",
+			"dest": "~/.claude/skills/kafcade/SKILL.md",
+			"description": "Cascaded DevFlow agents — multi-project, auto-detected, KafCa-on."
+		},
+		{
+			"name": "evo-metaclaw",
+			"version": "2.0",
+			"source": "skills/evo-metaclaw/SKILL.md",
+			"dest": "~/.claude/skills/evo-metaclaw/SKILL.md",
+			"description": "Evolutionary MetaClaw skill orchestrator with circuit breaker + memory."
+		},
+		{
+			"name": "rrss",
+			"version": "1.0",
+			"source": "skills/rrss/SKILL.md",
+			"dest": "~/.claude/skills/rrss/SKILL.md",
+			"description": "Robust / Reliable / Solid / Systematic — resilience design discipline."
+		}
+	]
+}
