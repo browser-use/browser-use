@@ -76,6 +76,8 @@ eval = [
     "anyio==4.12.1",
     "psutil==7.2.2",
     "datamodel-code-generator==0.53.0",
+    "pandas==2.2.3",
+    "matplotlib==3.10.0",
 ]
 cli-oci = ["browser-use[cli,oci]"]
 all = ["browser-use[cli,examples,aws,oci]"]

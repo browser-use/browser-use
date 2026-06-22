@@ -73,3 +73,114 @@
 ```text
 | 2026-05-xx | shopping_cart_review | D | （现象） | （原因） | （task_cards / prompts / CLI 改动） |
 ```
+
+---
+
+## 五、[2026-05] 关于 Agent 原生交互步数少于人类的现象分析与 LCS 指标修正
+
+### 现象（Observation）
+
+在 **简单只读检索类任务**（典型：`nearby_hospital_phone_lookup` / 百度地图查附近医院电话）上，对比 **人类专家 baseline**（`human_runs.json` 的 `steps`）与 **自主 Agent**（`history.json` → `action_names`）时，出现一项 **反直觉** 结果：
+
+| 维度 | 人类（示例） | Agent（exp-C，20260523T071122Z） |
+|------|-------------|----------------------------------|
+| 微观 tool 步数 | 10（含 3×`extract`） | 5（`navigate`→`input`→`click`×2→`done`） |
+| 任务结果 | 成功列出 3 家机构 | 成功列出 3 家机构（Judge PASS） |
+| 全序列 LCS | — | ≈ **0.50**（5/10） |
+
+**步数显著更少，但任务同样成功**——若仅用「步数越少越好」或单一 LCS 解读，容易误判 Agent「路径不像人 = 能力差」；实际需区分 **感官适应开销** 与 **核心导航决策**。
+
+### 根因（Root cause）
+
+1. **人类：视口约束（Viewport-bound interaction）**  
+   物理浏览器中信息受 **可视区域** 限制；专家 baseline 中常显式记录 `scroll`、`wait`，以及将「停下来抄录字段」记为 **`extract`**（一次独立的采集 episode），以把屏幕外/列表中的条目 **拉入可处理范围**。
+
+2. **Agent：DOM 全局可见性（DOM-global grounding）**  
+   Browser-Use 每步向执行 LLM 注入 **`<browser_state>`**（可交互元素 + 可见文本摘要）。在地图列表页等场景，**电话、地址已在 DOM 中可见**时，Agent 可直接 **Direct Grounding**（读 DOM → 写入 `done.text`），**无需**调用 `extract` tool（后者会另启 `page_extraction_llm` 做 markdown 抽取）。
+
+3. **策略叠加**  
+   TaskCard 中的 **Early-finish** 规则与 system prompt「信息已在 `browser_state` 则勿 `extract`」一致，进一步 **压缩** 轨迹，使 **`micro_action_count` ≪ 人类 `steps`** 成为 **模态代差（modality gap）** 下的常态，而非单纯「Agent 更懒/更聪明」。
+
+4. **指标含义**  
+   未修正的 **Unfiltered LCS** 会把人类多出的 `extract` / `scroll` / `wait` 计为 **路径差异**，惩罚「DOM 原生捷径」，混淆 **环境适应** 与 **决策对齐**。
+
+### 对策：双 LCS 指标 + 语义动作过滤器（Mitigation）
+
+**原则**：不操纵 Agent 原生行为（不强制每步 `extract`、不人为膨胀步数），而在 **评估层** 对称清洗人类与 Agent 轨迹，分别汇报：
+
+| 指标 | CSV 字段 | 含义 |
+|------|----------|------|
+| **Unfiltered LCS** | `trajectory_lcs_similarity` | 全 tool 序列对齐；**保留** scroll / extract / wait 等环境适应开销，反映「含感官策略」的整体相似度。 |
+| **Filtered LCS（Navigation LCS）** | `trajectory_lcs_navigation` | 经 **语义动作过滤器** 清洗后再算 LCS；隔离 **核心语义/导航决策**，降低视口–DOM 模态差带来的评估偏差。 |
+
+**实现**：`browser_use/experiments/daily_task_eval/run_csv.py` — `FILTERED_OUT_TOOLS`、`get_filtered_trajectory()`、`trajectory_lcs_navigation()`；人类 `steps` 与 Agent `action_names` **同一规则、先 `normalize_action_token` 再过滤**。
+
+#### 过滤分桶（Filter buckets）
+
+**被过滤（被动 / 非导航 / 不改变页面交互状态）** — 自轨迹中剔除后再算 Filtered LCS：
+
+`scroll`, `find_text`, `dropdown_options`, `extract`（含 `extract_structured_data` 等前缀归一）, `search_page`, `find_elements`, `screenshot`, `evaluate`, `write_file`, `read_file`, `replace_file`, `wait`, `save_as_pdf`
+
+**被保留（状态改变 / 导航–交互骨架）** — 参与 Filtered LCS：
+
+`navigate`, `search`, `go_back`, `click`, `input`, `upload_file`, `select_dropdown`, `send_keys`, `switch`, `close`, `save_as_pdf`, `done`
+
+> 注：早期讨论稿曾写作「Maps」，规范 token 为 **`navigate`**。`search`（跳转搜索引擎）保留；`search_page`（页内 grep）过滤。  
+> **实现说明**：当前 `run_csv.py` 的 `FILTERED_OUT_TOOLS` 将 `save_as_pdf` 与 `write_file` 同类暂归入**过滤桶**（被动文件导出、不改变网页 DOM 交互态）；若实验叙事将其视为任务交付动作，可在后续版本移入保留桶并与 CSV 重算对齐。
+
+#### 同一 hospital 样例（Filter 后）
+
+- 人类：`navigate → input → click → click → click → click → done`（7 步；去掉 3×`extract`）
+- Agent：`navigate → input → click → click → done`（5 步）
+- Navigation LCS ≈ **5/7 ≈ 0.71**（高于 Unfiltered ≈ 0.50），更反映 **点击链/导航骨架** 对齐而非 extract 策略差。
+
+### 写作与报表（Follow-up）
+
+- 论文叙事占位：**`PAPER_FRAMEWORK.md` §6.1**（*Structural DOM Capabilities vs. Visual Viewport Constraints*）。
+- 对比跑批：旧 CSV 行无 `trajectory_lcs_navigation` 列；新 `run-agent` 自动写入，旧表 append 时 **表头自动迁移**（见 `run_csv._migrate_csv_to_headers`）。
+- 勿将「C 步数少于人」单独作为效率优势结论，须 **并列报告** Unfiltered / Filtered LCS 及 `micro_action_count` vs `human_micro_action_count`。
+
+---
+
+## 六、[2026-05] 跨站点 Fallback：Recovery rule 「unreachable」语义歧义
+
+### 现象（Observation）
+
+`complex_travel_package_booking` × **exp-D**（Doubao 执行 + DeepSeek 领航）在 **Booking.com** 上反复跑次出现 **同一种行为分叉**：
+
+| Run 时间戳 (UTC) | Step | Final | cost | success | cup | LCS / LCS_nav | 关键事件 |
+|------------------|------|-------|------|---------|-----|----------------|----------|
+| `20260524T074847Z` | 52 | FAIL | $0.87 | false | 0 | 0.288 / 0.469 | 留在 Booking 国际版 package flow；点 Update Search 后 **站点返回 "We're unable to complete your search"**；Agent 二次重试同错 → `done(success=False)` |
+| `20260524T084259Z` | 40 | PASS | $0.69 | **true** | 0 | 0.375 / 0.536 | Booking 中文版找不到「机+酒」入口；scroll 3 页 + `search_page("机+酒")` 0 命中后，**自主 `navigate https://www.trip.com`**，在 Trip.com 完成 package flow |
+| `20260524T095254Z` | 50 | PASS | $0.92 | true | 0 | 0.306 / 0.484 | 同上跨站模式（3 次 `navigate`，跨多个域名） |
+
+### 根因（Root cause）
+
+task card `complex_travel_package_booking.starting_conditions` 明文写：
+
+> **"If Booking.com is unreachable, use one comparable mainstream travel site and state which site you used."**
+
+`navigator_plan` recovery plan 也呼应：「If Booking.com is unreachable: Use Expedia or Kayak.」
+
+Agent **把「unreachable」从网络层语义（DNS 失败 / `net::ERR_*` / 长 timeout）扩展解释为功能层语义**（「该站点本地化版本不提供所需 sub-flow」）。在 CN 网络 + 中文 Booking 上，**「机+酒」package 入口** 确实在中文版被裁掉，所以 Agent 触发 fallback，迁去 **Trip.com**，在新站点上从零开始 package flow 并走到 guest info 页，Judge 判 success=true。
+
+人类 baseline 在同一 task 上的等价行为 **不同**：人类没有跨站，而是 **在 Booking 内部降级**——找不到出发地输入框，于是放弃 package、改走纯酒店 flow，最终停在「奥兰治村旅舍三人间」的入住信息页（`human_runs.json` 第 102 条 `notes` 明文记录）。即：
+
+| 主体 | 降级方向 | 终点站点 | 终点 flow |
+|------|----------|----------|------------|
+| 人类 | **垂直**（package → hotel-only） | Booking.com | 酒店 guest info |
+| Agent (D) | **水平**（Booking → Trip.com） | Trip.com | package guest info |
+
+两个 fallback 都不违反 task card，但 **落点完全不同**，导致 `trajectory_lcs_*` 在 site / flow 两个维度都对不齐，单纯比 LCS 数值会失真。
+
+### 对策与写作约束（Mitigation）
+
+1. **保留 task card 现状**（不收紧 「unreachable」语义）：跨站 fallback 反映 Agent 真实策略空间，是有论文价值的负面/中性证据；强行禁止 = 强制 Agent 失败，掩盖现象。
+2. **CSV 行解读须分桶**：在论文表里把 `complex_travel_package_booking` 的 D 行 **分两子组**：
+   - `flow=package_cross_site`（Trip.com）
+   - `flow=site_blocked_no_fallback`（Booking 卡 site-side error）
+   并在脚注注明「人类对照走的是 `flow=hotel_only_in_site`」。
+3. **不要直接拿 D 的 trajectory_lcs_* 和人类对比作为「相似度」结论**——至少加一条 caveat：两者在不同站点 / 不同子 flow。
+4. （可选）后续若做严格对照，增加 **`scenario_id: "booking_only_strict"`**：在 task card 复制一份并写明「`Site lock-in: do not navigate to any non-booking.com domain even when feature is missing`」，与现有宽松版并列做消融。
+5. 论文位置：**`PAPER_FRAMEWORK.md` §7 Discussion** 新增 bullet `Recovery rule semantic gap: 'unreachable' as network failure vs. capability gap`；§8 Limitations 提示 LCS 对比需同 site / 同 flow 才有效。
+6. 成本提示：单次 D 跨站完成约 **40–50 步、$0.7–$0.9、~1M tokens**；批量重跑前要权衡。

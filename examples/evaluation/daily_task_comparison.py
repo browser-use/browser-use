@@ -18,11 +18,13 @@ from typing import Literal
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from browser_use.experiments.daily_task_eval.experiment_presets import build_configs_from_args, describe_experiments_text
-from browser_use.experiments.daily_task_eval.models import AgentRunSummary, TaskCard, load_json_model_list, write_json
+from browser_use.experiments.daily_task_eval.models import AgentRunSummary, HumanRunRecord, TaskCard, load_json_model_list, write_json
+from browser_use.experiments.daily_task_eval.run_csv import aggregate_method_metrics, plot_method_comparison
 from browser_use.experiments.daily_task_eval.runner import (
 	compare_all,
 	export_agent_runs_to_csv,
 	export_experiment_resource_report_to_csv,
+	index_by_task_and_scenario,
 	init_experiment,
 	run_agent_task,
 )
@@ -71,6 +73,10 @@ async def run_agent_command(args: argparse.Namespace) -> None:
 	if not selected_tasks:
 		raise ValueError(f'No task card matched task id: {args.task_id}')
 
+	csv_dir = Path(args.output_dir) / 'csv_out'
+	csv_dir.mkdir(parents=True, exist_ok=True)
+	human_runs = index_by_task_and_scenario(load_json_model_list(Path(args.human_runs), HumanRunRecord))
+
 	agent_runs_path = Path(args.output_dir) / 'agent_runs.json'
 	existing_runs = []
 	if agent_runs_path.exists():
@@ -80,6 +86,7 @@ async def run_agent_command(args: argparse.Namespace) -> None:
 	results_this_batch: list[AgentRunSummary] = []
 
 	for task in selected_tasks:
+		human = human_runs.get((task.id, args.scenario_id))
 		summary = await run_agent_task(
 			task=task,
 			output_dir=Path(args.output_dir),
@@ -95,11 +102,16 @@ async def run_agent_command(args: argparse.Namespace) -> None:
 			heartbeat_seconds=args.heartbeat_seconds,
 			max_failures=args.max_failures,
 			continuous_navigation=getattr(args, 'continuous_navigation', False),
+			human=human,
+			csv_dir=csv_dir,
 		)
 		results_this_batch.append(summary)
 		existing_runs.append(summary.model_dump(mode='json'))
 		write_json(agent_runs_path, existing_runs)
 		exp_note = f' [{experiment_id}]' if experiment_id else ''
+		method_csv = csv_dir / f'exp-{experiment_id}_runs.csv' if experiment_id else None
+		if method_csv is not None:
+			print(f'已为 {task.id}/{args.scenario_id}{exp_note} 追加 CSV → {method_csv}')
 		print(f'已为 {task.id}/{args.scenario_id}{exp_note} 追加摘要 → {agent_runs_path}')
 
 	has_success = any(r.success is True for r in results_this_batch)
@@ -129,6 +141,12 @@ def build_parser() -> argparse.ArgumentParser:
 	)
 	run_parser.add_argument('--task-cards', type=Path, default=Path('./tmp/daily_task_eval/task_cards.json'))
 	run_parser.add_argument('--output-dir', type=Path, default=Path('./tmp/daily_task_eval'))
+	run_parser.add_argument(
+		'--human-runs',
+		type=Path,
+		default=Path('./tmp/daily_task_eval/human_runs.json'),
+		help='Human baseline for trajectory LCS and compare (default: output-dir/human_runs.json).',
+	)
 	run_parser.add_argument('--task-id', default=None)
 	run_parser.add_argument('--scenario-id', default='normal')
 	run_parser.add_argument('--max-steps', type=int, default=30)
@@ -264,10 +282,24 @@ def build_parser() -> argparse.ArgumentParser:
 		help='DeepSeek OpenAI-compatible base URL for navigator.',
 	)
 
-	compare_parser = subparsers.add_parser('compare', help='Compare human baselines with Agent run summaries.')
+	compare_parser = subparsers.add_parser(
+		'compare',
+		help='Compare human baselines with Agent runs (loads csv_out/exp-*_runs.csv).',
+	)
 	compare_parser.add_argument('--task-cards', type=Path, default=Path('./tmp/daily_task_eval/task_cards.json'))
 	compare_parser.add_argument('--human-runs', type=Path, default=Path('./tmp/daily_task_eval/human_runs.json'))
-	compare_parser.add_argument('--agent-runs', type=Path, default=Path('./tmp/daily_task_eval/agent_runs.json'))
+	compare_parser.add_argument(
+		'--csv-dir',
+		type=Path,
+		default=Path('./tmp/daily_task_eval/csv_out'),
+		help='Directory of exp-{method}_runs.csv files (glob + pandas concat).',
+	)
+	compare_parser.add_argument(
+		'--agent-runs',
+		type=Path,
+		default=None,
+		help='Deprecated fallback: load agent_runs.json instead of --csv-dir when set.',
+	)
 	compare_parser.add_argument('--output-path', type=Path, default=Path('./tmp/daily_task_eval/comparison_report.json'))
 	compare_parser.add_argument(
 		'--resource-report',
@@ -345,22 +377,37 @@ def main() -> None:
 	elif args.command == 'run-agent':
 		asyncio.run(run_agent_command(args))
 	elif args.command == 'compare':
-		comparisons = compare_all(
-			args.task_cards,
-			args.human_runs,
-			args.agent_runs,
-			args.output_path,
-			resource_report_path=args.resource_report,
-			skip_resource_report=args.no_resource_report,
-		)
+		csv_dir = args.csv_dir
+		if args.agent_runs is not None:
+			comparisons = compare_all(
+				args.task_cards,
+				args.human_runs,
+				args.output_path,
+				agent_runs_path=args.agent_runs,
+				resource_report_path=args.resource_report,
+				skip_resource_report=args.no_resource_report,
+			)
+		else:
+			comparisons = compare_all(
+				args.task_cards,
+				args.human_runs,
+				args.output_path,
+				csv_dir=csv_dir,
+				resource_report_path=args.resource_report,
+				skip_resource_report=args.no_resource_report,
+			)
 		print(f'Wrote {len(comparisons)} comparison record(s) to {args.output_path}')
 		if not args.no_resource_report:
 			res_path = args.resource_report or args.output_path.with_name('experiment_resource_report.json')
 			print(f'Wrote cross-experiment resource report to {res_path}')
-			print(
-				'(Includes per-run academic metrics in snapshots and statistics_by_experiment / '
-				'pooled_statistics: navigator_overhead_ratio, execution_velocity, token_efficiency_score.)'
-			)
+		if args.agent_runs is None and csv_dir.exists():
+			_, agg_path = aggregate_method_metrics(csv_dir, csv_dir)
+			print(f'Wrote method aggregate stats to {agg_path.resolve()}')
+			plot_path = plot_method_comparison(csv_dir, csv_dir)
+			if plot_path is not None:
+				print(f'Wrote method comparison plot to {plot_path.resolve()}')
+			else:
+				print('Skipped plot (install pandas + matplotlib in eval extras for charts).')
 	elif args.command == 'export-csv':
 		out_dir = args.output_dir or args.input.parent
 		out_dir.mkdir(parents=True, exist_ok=True)

@@ -85,6 +85,7 @@ class AgentRunSummary(BaseModel):
 	navigator_enabled: bool = False
 	navigator_model: str | None = None
 	navigator_plan_path: str | None = None
+	continuous_navigation: bool = False  # whether --continuous-navigation periodic re-plan was on
 	started_at: str
 	finished_at: str
 	success: bool | None

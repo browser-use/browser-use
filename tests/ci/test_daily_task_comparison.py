@@ -105,6 +105,7 @@ def test_init_experiment_writes_task_and_human_baseline_templates(tmp_path):
 	assert len(task_cards) == 3
 	assert [run.task_id for run in human_runs] == [card.id for card in task_cards]
 	assert paths['agent_runs'].read_text(encoding='utf-8').strip() == '[]'
+	assert paths['csv_out'].is_dir()
 
 
 def test_init_loads_existing_task_cards_when_present_without_overwrite(tmp_path):
@@ -584,7 +585,12 @@ def test_compare_all_writes_report_for_multiple_agent_variants(tmp_path):
 	for path, payload in payloads.items():
 		daily_task_models.write_json(path, payload)
 
-	comparisons = compare_all(task_cards_path, human_runs_path, agent_runs_path, report_path)
+	comparisons = compare_all(
+		task_cards_path,
+		human_runs_path,
+		report_path,
+		agent_runs_path=agent_runs_path,
+	)
 
 	assert len(comparisons) == 2
 	assert {comparison.navigator_enabled for comparison in comparisons} == {False, True}
@@ -626,7 +632,13 @@ def test_compare_all_skip_resource_report(tmp_path):
 			).model_dump(mode='json')
 		],
 	)
-	compare_all(task_cards_path, human_runs_path, agent_runs_path, report_path, skip_resource_report=True)
+	compare_all(
+		task_cards_path,
+		human_runs_path,
+		report_path,
+		agent_runs_path=agent_runs_path,
+		skip_resource_report=True,
+	)
 	assert not (report_path.with_name('experiment_resource_report.json')).exists()
 
 
@@ -941,3 +953,191 @@ async def test_continuous_navigation_requires_navigator(tmp_path):
 			navigator_config=NavigatorConfig(enabled=False),
 			continuous_navigation=True,
 		)
+
+
+def test_trajectory_lcs_similarity():
+	from browser_use.experiments.daily_task_eval.run_csv import trajectory_lcs_similarity
+
+	assert trajectory_lcs_similarity(['navigate', 'click', 'done'], ['navigate', 'click', 'done']) == 1.0
+	assert trajectory_lcs_similarity(['navigate', 'click'], ['navigate', 'wait', 'click']) == pytest.approx(2 / 3)
+	assert trajectory_lcs_similarity([], ['navigate']) == 0.0
+	# Hospital-style run: agent skips extract; LCS still uses raw action sequences.
+	agent = ['navigate', 'input', 'click', 'click', 'done']
+	human = [
+		'navigate',
+		'input',
+		'click',
+		'wait',
+		'click',
+		'extract',
+		'scroll',
+		'click',
+		'extract',
+		'scroll',
+		'extract',
+		'done',
+	]
+	assert trajectory_lcs_similarity(agent, human) == pytest.approx(5 / 12)
+
+
+def test_get_filtered_trajectory_and_navigation_lcs():
+	from browser_use.experiments.daily_task_eval.run_csv import (
+		FILTERED_OUT_TOOLS,
+		get_filtered_trajectory,
+		trajectory_lcs_navigation,
+		trajectory_lcs_similarity,
+	)
+
+	assert 'extract' in FILTERED_OUT_TOOLS
+	assert 'click' not in FILTERED_OUT_TOOLS
+
+	human = [
+		'navigate',
+		'input',
+		'click',
+		'click',
+		'extract',
+		'click',
+		'extract',
+		'click',
+		'extract',
+		'done',
+	]
+	agent = ['navigate', 'input', 'click', 'click', 'done']
+	assert get_filtered_trajectory(human) == [
+		'navigate',
+		'input',
+		'click',
+		'click',
+		'click',
+		'click',
+		'done',
+	]
+	assert get_filtered_trajectory(agent) == agent
+	assert trajectory_lcs_similarity(agent, human) == pytest.approx(5 / 10)
+	assert trajectory_lcs_navigation(agent, human) == pytest.approx(5 / 7)
+	assert trajectory_lcs_navigation(['navigate', 'wait', 'click'], ['navigate', 'click']) == 1.0
+	assert trajectory_lcs_navigation(['extract'], ['extract']) is None
+	assert trajectory_lcs_navigation(['extract'], ['navigate']) == 0.0
+
+
+def test_count_action_names_and_human_baseline():
+	from browser_use.experiments.daily_task_eval.run_csv import (
+		build_agent_run_csv_row,
+		count_action_names,
+		count_human_steps,
+	)
+
+	agent = ['navigate', 'input', 'click', 'click', 'done']
+	counts = count_action_names(agent)
+	assert counts['micro_action_count'] == 5
+	assert counts['click_count'] == 2
+	assert counts['extract_count'] == 0
+	assert counts['done_count'] == 1
+
+	human_steps = ['navigate', 'input', 'click', 'wait', 'click', 'extract', 'extract', 'extract', 'done']
+	human_counts = count_human_steps(human_steps)
+	assert human_counts['micro_action_count'] == 9
+	assert human_counts['extract_count'] == 3
+
+	task = default_task_cards()[0]
+	summary = daily_task_models.AgentRunSummary(
+		task_id=task.id,
+		started_at='2026-01-01T00:00:00+00:00',
+		finished_at='2026-01-01T00:00:10+00:00',
+		success=True,
+		is_done=True,
+		duration_seconds=10,
+		number_of_steps=5,
+		action_names=agent,
+		history_path='h.json',
+		conversation_path='c.json',
+	)
+	human = daily_task_models.HumanRunRecord(
+		task_id=task.id,
+		scenario_id='normal',
+		steps=human_steps,
+	)
+	row = build_agent_run_csv_row(method='C', task=task, summary=summary, human=human)
+	assert row['number_of_steps'] == 5
+	assert row['micro_action_count'] == 5
+	assert row['extract_count'] == 0
+	assert row['human_micro_action_count'] == 9
+	assert row['human_extract_count'] == 3
+	assert row['trajectory_lcs_similarity'] == pytest.approx(5 / 9)
+	assert row['trajectory_lcs_navigation'] == 1.0
+
+
+def test_evaluate_cup_success_requires_success_and_policy_fields():
+	from browser_use.experiments.daily_task_eval.run_csv import evaluate_cup_success
+
+	task = default_task_cards()[0]
+	ok = daily_task_models.AgentRunSummary(
+		task_id=task.id,
+		started_at='2026-01-01T00:00:00+00:00',
+		finished_at='2026-01-01T00:00:10+00:00',
+		success=True,
+		is_done=True,
+		duration_seconds=10,
+		number_of_steps=3,
+		history_path='h.json',
+		conversation_path='c.json',
+	)
+	assert evaluate_cup_success(task, ok) == 1
+	bad = ok.model_copy(update={'success': False})
+	assert evaluate_cup_success(task, bad) == 0
+
+
+def test_append_agent_run_csv_and_compare_from_csv_dir(tmp_path):
+	from browser_use.experiments.daily_task_eval.run_csv import append_agent_run_csv_row, load_agent_summaries_from_csv_dir
+
+	task = default_task_cards()[0]
+	csv_dir = tmp_path / 'csv_out'
+	summary = daily_task_models.AgentRunSummary(
+		task_id=task.id,
+		scenario_id='normal',
+		task_category=task.category,
+		experiment_id='C',
+		executor_model='doubao-seed-2-0-pro-260215',
+		started_at='2026-01-01T00:00:00+00:00',
+		finished_at='2026-01-01T00:00:10+00:00',
+		success=True,
+		is_done=True,
+		duration_seconds=10,
+		number_of_steps=3,
+		action_names=['navigate', 'click', 'done'],
+		history_path='h.json',
+		conversation_path='c.json',
+		usage_executor_llm={'total_tokens': 1000, 'prompt_tokens': 800, 'completion_tokens': 200},
+	)
+	human = daily_task_models.HumanRunRecord(
+		task_id=task.id,
+		scenario_id='normal',
+		steps=['navigate', 'extract', 'done'],
+	)
+	path = append_agent_run_csv_row(csv_dir, method='C', task=task, summary=summary, human=human)
+	assert path.name == 'exp-C_runs.csv'
+	lines = path.read_text(encoding='utf-8').strip().splitlines()
+	assert len(lines) == 2
+	header = lines[0].split(',')
+	assert 'micro_action_count' in header
+	assert 'human_extract_count' in header
+	assert 'trajectory_lcs_navigation' in header
+	row_cells = lines[1].split(',')
+	assert row_cells[header.index('micro_action_count')] == '3'
+	assert row_cells[header.index('click_count')] == '1'
+	assert row_cells[header.index('human_micro_action_count')] == '3'
+	assert row_cells[header.index('human_extract_count')] == '1'
+	assert 'method' in lines[0] and ',C,' in lines[1] or lines[1].startswith('C,')
+	loaded = load_agent_summaries_from_csv_dir(csv_dir)
+	assert len(loaded) == 1
+	assert loaded[0].task_id == task.id
+
+	task_cards_path = tmp_path / 'task_cards.json'
+	human_runs_path = tmp_path / 'human_runs.json'
+	report_path = tmp_path / 'report.json'
+	daily_task_models.write_json(task_cards_path, [task.model_dump(mode='json')])
+	daily_task_models.write_json(human_runs_path, [human.model_dump(mode='json')])
+	comparisons = compare_all(task_cards_path, human_runs_path, report_path, csv_dir=csv_dir)
+	assert len(comparisons) == 1
+	assert report_path.exists()

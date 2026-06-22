@@ -297,11 +297,12 @@
     "id": "complex_travel_package_booking",
     "name": "Complex travel package search (Mind2Web-style)",
     "category": "multi_step_transaction_query",
-    "task_prompt": "Go to Booking.com (or another well-known single-page travel site you can reach from this network). Search for a 5-day package for next month from New York to San Francisco for two adults and one child aged 6 (flight + hotel bundle or equivalent package flow). Apply filters so the hotel includes free breakfast and free cancellation. Among results that satisfy all constraints, identify the cheapest total price, open that offer, and stop on the final booking / guest-information page (traveler details form) without submitting payment.",
+    "task_prompt": "Go to https://www.booking.com/index.en-gb.html?selected_currency=USD (Booking.com English locale, USD currency). If the site still redirects to a Chinese locale (URL becomes booking.com/index.zh-cn.html), you MUST switch the language to English (UK or US) before doing any search — the Chinese locale removes the flight+hotel package (机+酒) entry and will block the task. Only if Booking.com is truly network-unreachable (DNS / ERR_TIMED_OUT / no DOM after 15s), fall back to one comparable mainstream travel site (e.g. Trip.com, Expedia, Kayak) and state which site you used. Search for a 5-day package for next month from New York to San Francisco for two adults and one child aged 6 (flight + hotel bundle or equivalent package flow). Apply filters so the hotel includes free breakfast and free cancellation. Among results that satisfy all constraints, identify the cheapest total price, open that offer, and stop on the final booking / guest-information page (traveler details form) without submitting payment.",
     "starting_conditions": [
       "Use only the current browser tab; do not open unrelated sites.",
       "The browser may start logged out; do not create accounts or enter real personal data.",
-      "If Booking.com is unreachable, use one comparable mainstream travel site and state which site you used.",
+      "Land on the English Booking.com locale (https://www.booking.com/index.en-gb.html or .en-us.html). 'Unreachable' here means NETWORK-LEVEL failure (DNS failure, ERR_TIMED_OUT, ERR_CONNECTION_RESET, or no DOM rendered within 15s). A locale redirect to Chinese is NOT 'unreachable' — it must be fixed by switching language, not by leaving Booking.com.",
+      "Only when Booking.com is truly network-unreachable after one retry, fall back to one comparable mainstream travel site (Trip.com / Expedia / Kayak) and state which site you used.",
       "Travel dates are next calendar month; origin New York, destination San Francisco; 5 nights; 2 adults + 1 child (age 6)."
     ],
     "success_criteria": [
@@ -342,7 +343,7 @@
       "Work in one tab; re-check filters after every major navigation.",
       "Prefer package or flight+hotel flows that expose a single total price.",
       "If prices change on the detail page, use the detail-page total for the cheapest comparison.",
-      "Booking.com locale: if the UI is Chinese (e.g. 机+酒, 筛选, 含早餐), do not rely on English-only search_page for filters. Use visible filter controls and Chinese equivalents: free cancellation → 免费取消, 可免费取消, 全额退款, 灵活取消, 可退款; free breakfast → 含早餐, 免费早餐. Also try English labels if the control is bilingual.",
+      "Locale lock: if the current URL contains 'zh-cn' or the page header shows Chinese (语言：简体中文), the FIRST action must be to click the language switcher (top-right button labelled '语言' or 'Language') and choose 'English (UK)' or 'English (US)'. Do NOT proceed with search on the Chinese locale, and do NOT navigate away to a different domain. Chinese Booking.com lacks the flight+hotel package (机+酒) entry, so the task is unrecoverable on that locale.",
       "Apply both hotel filters on the package results page first, then sort by lowest total price and open the cheapest listing that still shows both constraints.",
       "Booking.com package checkout is multi-step: (1) filtered results → (2) hotel/room choice → (3) flight selection (/m/fly/search or similar) → (4) guest/traveler information form. After choosing a room, continue through flight selection until the guest/traveler details form is visible; only then call done. Do not call done on flight search, room picker, or a loading spinner.",
       "Stop on the guest/booking form; never submit payment."

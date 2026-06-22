@@ -26,7 +26,7 @@
 本工作基于 **browser-use** 扩展一套可复现的 **日常任务（Daily Task）评估协议**：结构化 **TaskCard**（成功标准、禁止操作、失败模式）、四种 **实验配方 A/B/C/D**（执行器：ChatBrowserUse vs Qwen 兼容接口；领航员：无 vs DeepSeek 开场规划），以及可选的 **持续领航**（`--continuous-navigation`）与 **短子目标**注入（`<current_step_focus>` / `<navigator_current_step>`，见实现与 `docs/issue-notes/navigator-current-step-executor-subgoal.md`）。
 
 **测量（1–2 句）**  
-每次运行产出 **`agent_runs.json`** 中的结构化摘要，并对 LLM 用量做 **按角色拆分**（如 `usage_executor_llm`、`usage_navigator_cycle_llm`、`navigator_initial_plan_usage` 等，见 `models.AgentRunSummary` 与指南 §1.1）。
+每次运行产出 **`agent_runs.json`** 中的结构化摘要，并对 LLM 用量做 **按角色拆分**（如 `usage_executor_llm`、`usage_navigator_cycle_llm`、`navigator_initial_plan_usage` 等，见 `models.AgentRunSummary` 与指南 §1.1）。人–Agent 轨迹对比采用 **双 LCS**：全序列 `trajectory_lcs_similarity` 与导航过滤后 `trajectory_lcs_navigation`（`run_csv.py`；叙事见 §6.1）。
 
 **结果（跑完后填）**  
 [待填：主要指标一句话 + 最亮对比一句；避免与「路径/站点不同」混淆，见 `DAILY_TASK_EXPERIMENT_LOG.md` 中 C vs D 的说明。]
@@ -140,7 +140,7 @@
 | **RQ2** | [待填：持续领航 + 子目标是否降低某类失败？] | errors、action_names、urls、必要时人工判畸形 URL |
 | **RQ3** | [待填：用量拆分下 executor vs navigator 的成本占比？] | usage_* 字段、总 tokens、`navigator_overhead_ratio`（见 GUIDE §1.3） |
 | **RQ3b** | [待填：C vs D 领航是否提升千 Token 成功率？] | `token_efficiency_score`、`execution_velocity`；`compare` 终端 **学术效率前沿分析** |
-| **RQ4** | [待填：人与 Agent 差异？] | human_runs vs `ComparisonRecord` |
+| **RQ4** | [待填：人与 Agent 差异？] | human_runs vs `ComparisonRecord`；**`trajectory_lcs_similarity` + `trajectory_lcs_navigation`**（见 §6.1、LOG §五） |
 
 ### 5.2 实验设置
 
@@ -181,6 +181,33 @@
 - [待填：统计检验若样本小，写清采用非参数或仅描述性统计，并讨论功效。]
 - [待填：与 LOG 中已知现象互证——例如京东登录墙、地图 SPA。]
 
+### 6.1 Structural DOM Capabilities vs. Visual Viewport Constraints
+
+*（Human–agent trajectory comparison · dual LCS metrics · see `DAILY_TASK_EXPERIMENT_LOG.md` §五、`run_csv.py`）*
+
+- **Nominal step discrepancy as a systematic artifact, not necessarily incompetence.**  
+  On simple read-only tasks (e.g., nearby hospital phone lookup), DOM-grounded agents often complete successfully with far fewer logged tools than human experts. Unfiltered longest common subsequence (LCS) therefore **understates** decision-level alignment when humans and agents operate under different sensory regimes.
+
+- **Humans are viewport-bound; agents receive global DOM structure each step.**  
+  Expert baselines encode **scroll**, **wait**, and discrete **extract** episodes because physical interaction must bring off-screen content into the visual field before recording fields. Browser-use agents ingest **`<browser_state>`** every LLM turn and may **directly ground** list-visible phone numbers and addresses without invoking the `extract` tool (a separate `page_extraction_llm` pass over page markdown).
+
+- **Early-finish and prompt policy amplify the gap.**  
+  Task cards and the default system prompt encourage finishing once success criteria are met from visible DOM text, rather than mimicking human “stop-and-copy” micro-steps. This is **rational for the agent** but inflates human–agent step-count and unfiltered LCS divergence.
+
+- **Dual metrics to separate sensory adaptation from semantic navigation.**  
+  Report both:  
+  - **`trajectory_lcs_similarity` (Unfiltered LCS)** — full tool sequences; retains exploration and read-only overhead (scroll, extract, wait, …).  
+  - **`trajectory_lcs_navigation` (Filtered LCS)** — LCS after a **symmetric semantic action filter** applied to human `steps` and agent `action_names` (implementation: `FILTERED_OUT_TOOLS` in `run_csv.py`).  
+  Filter **out** passive / non-navigation tools: `scroll`, `find_text`, `dropdown_options`, `extract`, `search_page`, `find_elements`, `screenshot`, `evaluate`, `write_file`, `read_file`, `replace_file`, `wait`.  
+  **Keep** state-changing interaction skeleton: `navigate`, `search`, `go_back`, `click`, `input`, `upload_file`, `select_dropdown`, `send_keys`, `switch`, `close`, `save_as_pdf`, `done`.  
+  *(Implementation note: `run_csv.py` currently also filters `save_as_pdf`; reconcile if treating PDF export as task delivery.)*
+
+- **Interpretation guidance for RQ4 (human vs agent).**  
+  [待填：Table — per task, report unfiltered vs filtered LCS, `micro_action_count`, `human_micro_action_count`, success; discuss when filtered LCS rises while unfiltered stays low (modality gap) vs when both stay low (genuine strategy mismatch).]
+
+- **Limitation.**  
+  Filtered LCS compares **tool-type sequences**, not DOM element identity or click targets; identical token chains can still reflect different UI paths. It should complement, not replace, outcome-based success and qualitative `history` review.
+
 ---
 
 ## 7. 讨论（Discussion）
@@ -188,6 +215,9 @@
 - [待填：机制何时有效 / 何时无效。]
 - [待填：与纯「更大模型」或「更长 context」的边界。]
 - [待填：伦理——仅只读任务、无真实支付；遵守站点 ToS 的声明。]
+- **DOM-global vs viewport-bound evaluation（摘要指向 §6.1）**：低步数成功 Agent 未必「更高效」；可能是 **结构可见性** 免去了人类 baseline 中的 scroll/extract 适应动作。正文讨论须区分 **任务完成质量**、**Unfiltered LCS**（含适应开销）与 **Filtered LCS**（导航骨架）。
+- **Recovery-rule semantic gap: "unreachable" as network failure vs. capability gap.**  
+  Task cards often say "If site X is unreachable, use a comparable mainstream alternative". In `complex_travel_package_booking` × exp-D, the Agent **extends "unreachable" from network-level (DNS/timeout) to capability-level** (locale-specific feature missing), e.g. CN Booking.com lacks the 机+酒 package entry → Agent autonomously navigates to **Trip.com** and finishes the package flow there (see **LOG §六**). Human baseline on the same task degrades **vertically within Booking** (package → hotel-only) and stops at a hotel guest-info page. Both moves are legal under the card, but produce **horizontal (cross-site) vs. vertical (in-site flow drop) fallback** — `trajectory_lcs_*` becomes a misleading similarity score when site **and** sub-flow both differ. Report **site/flow stratification** and a `cross_site_fallback` flag alongside LCS; do not present raw LCS as evidence of strategy alignment without controlling for site/flow.
 
 ---
 
@@ -198,6 +228,7 @@
 - 依赖特定商业 API / 地域 [待填]  
 - 人基线人数与一致性 [待填]  
 - **执行器结构化输出稳定性**：OpenAI 兼容（如 Qwen）与 **ChatBrowserUse** 在 **`AgentOutput` JSON 校验通过率** 上可能系统差异；**C vs D** 除模型外还混有 **领航全文进入 `user_request` 的 prompt 负载**，写「专用模型更优」类结论前须控制或披露（见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**）。
+- **Site/flow mismatch in human–agent LCS comparisons**：在 `complex_travel_package_booking` 等多步交易任务上，人类与 Agent 触发了 **方向不同的 fallback**（人类降级到 in-site hotel-only flow；Agent 跨站到 Trip.com 完成 package flow，见 LOG §六）。`trajectory_lcs_similarity` 与 `trajectory_lcs_navigation` 在 **site 或 flow 不一致** 时不构成可比相似度——必须配 **`cross_site_fallback` / `flow_id` 分层** 才能解读。
 
 ---
 
@@ -235,6 +266,8 @@
 - [ ] 是否明确 **B 默认仅开场领航**，与 **B + continuous-navigation** 不是同一实验。  
 - [ ] `usage_*` 是否配套 **一张定义表 + 至少一张结果图**。  
 - [ ] 人基线与 Agent 是否 **同一 task 文案版本**。  
+- [ ] 人–Agent 对比是否 **并列报告 Unfiltered / Filtered LCS**，并解释视口–DOM 模态差（见 **LOG §五、§6.1**）。  
+- [ ] 多步交易任务的人–Agent 对比是否 **同 site 同 flow**；若 Agent 触发 **跨站 fallback**（如 Booking → Trip.com），是否在表中标注 `cross_site_fallback=true` 并避免直接比 LCS（见 **LOG §六、§7**）。  
 - [ ] 凡写 **「ChatBrowserUse / BU 模型优于 Qwen」**，是否避免过强「微调/训练」断言，并披露 **prompt 长度（C vs D）、`max_actions_per_step`、`max_failures`、vision** 等混淆项（见 **`docs/issue-notes/openai-compatible-executor-json-output-and-c-vs-d-prompt-load.md`**）。
 
 ---

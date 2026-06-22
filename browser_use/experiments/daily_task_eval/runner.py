@@ -99,6 +99,7 @@ from .models import (
 	utc_now,
 	write_json,
 )
+from .run_csv import append_agent_run_csv_row, load_agent_summaries_from_csv_dir
 from .navigator import (
 	LLMNavigator,
 	NavigatorConfig,
@@ -240,11 +241,14 @@ def default_task_cards() -> list[TaskCard]:
 
 def init_experiment(output_dir: Path, overwrite: bool = False) -> dict[str, Path]:
 	output_dir.mkdir(parents=True, exist_ok=True)
+	csv_out = output_dir / 'csv_out'
+	csv_out.mkdir(parents=True, exist_ok=True)
 	paths = {
 		'task_cards': output_dir / 'task_cards.json',
 		'human_runs': output_dir / 'human_runs.json',
 		'agent_runs': output_dir / 'agent_runs.json',
 		'comparisons': output_dir / 'comparison_report.json',
+		'csv_out': csv_out,
 	}
 	tc_path = paths['task_cards']
 
@@ -499,6 +503,7 @@ def summarize_history(
 		navigator_enabled=navigator_enabled,
 		navigator_model=navigator_model,
 		navigator_plan_path=str(navigator_plan_path) if navigator_plan_path else None,
+		continuous_navigation=continuous_navigation,
 		started_at=started_at,
 		finished_at=finished_at,
 		success=history.is_successful(),
@@ -541,6 +546,8 @@ async def run_agent_task(
 	heartbeat_seconds: int = 30,
 	max_failures: int = 3,
 	continuous_navigation: bool = False,
+	human: HumanRunRecord | None = None,
+	csv_dir: Path | None = None,
 ) -> AgentRunSummary:
 	"""Run the Browser Use Agent for one task.
 
@@ -655,7 +662,7 @@ async def run_agent_task(
 		finished_at = utc_now()
 		history.save_to_file(history_path)
 		nav_backend = nav_cfg.backend if nav_cfg.enabled else None
-		return summarize_history(
+		summary = summarize_history(
 			history=history,
 			task_id=task.id,
 			scenario_id=scenario_id,
@@ -675,6 +682,16 @@ async def run_agent_task(
 			navigator=navigator,
 			continuous_navigation=continuous_navigation,
 		)
+		if csv_dir is not None and experiment_id:
+			csv_path = append_agent_run_csv_row(
+				csv_dir,
+				method=experiment_id,
+				task=task,
+				summary=summary,
+				human=human,
+			)
+			logger.info('Appended run metrics to %s', csv_path)
+		return summary
 	finally:
 		await browser.kill()
 
@@ -1023,15 +1040,21 @@ def build_experiment_resource_report(
 def compare_all(
 	task_cards_path: Path,
 	human_runs_path: Path,
-	agent_runs_path: Path,
 	output_path: Path,
 	*,
+	csv_dir: Path | None = None,
+	agent_runs_path: Path | None = None,
 	resource_report_path: Path | None = None,
 	skip_resource_report: bool = False,
 ) -> list[ComparisonRecord]:
 	tasks = load_json_model_list(task_cards_path, TaskCard)
 	human_runs = index_by_task_and_scenario(load_json_model_list(human_runs_path, HumanRunRecord))
-	agent_runs = load_json_model_list(agent_runs_path, AgentRunSummary)
+	if csv_dir is not None:
+		agent_runs = load_agent_summaries_from_csv_dir(csv_dir)
+	elif agent_runs_path is not None:
+		agent_runs = load_json_model_list(agent_runs_path, AgentRunSummary)
+	else:
+		raise ValueError('compare_all requires csv_dir or agent_runs_path')
 	comparisons: list[ComparisonRecord] = []
 
 	for task in tasks:
