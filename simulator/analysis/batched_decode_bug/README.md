@@ -62,8 +62,31 @@ attention degenerates and the model loses coherence. The fix lives in the combin
   capability must be measured at **batch 1** (or with a fixed batched path).
 - Latency benchmarks at batch > 1 still measured *latency* correctly — they never checked output validity.
 
+## Contents (standalone)
+```
+README.md                     this writeup
+run_experiment.sh             exact commands used
+replay_compare.py             batch-1 (sequential) replay; args: LABEL [TEMP] [NSAMP]
+batched_test.py               batched (concurrent) replay; arg: [TEMP]
+trajectories/                 the 4 captured contexts the scripts use (bundled, so no
+  webvoyager__Allrecipes--0/    dependency on the gitignored simulator/runs/) — each has
+  webvoyager__Allrecipes--1/    meta.json + tool_schema.json + step_*/messages.json
+  webvoyager__Allrecipes--2/
+results/
+  batch1_temp0.json           batch 1 @ temp 0    -> 4/4 correct
+  batch1_temp0.2.json         batch 1 @ temp 0.2  -> 12/12 correct
+  batch4_temp0.2.log          batch 4 @ temp 0.2  -> degraded
+  captured_batch3_garbage.txt the live batch-3 capture's hallucinated outputs (evidence)
+```
+The bundled `trajectories/` contain the model's input (including the base64 screenshot) for those
+4 steps, so the scripts run from a fresh checkout. A nested `.gitignore` re-includes these data
+files (the repo root ignores `*.json` / `*.log` / `*.txt`).
+
 ## Reproduce
-1. Serve Qwen3-VL-32B (or 30B-A3B) at top-k 32; open the tunnel (see `run_experiment.sh` step 0).
-2. `python replay_compare.py topk32 0.2 3` → correct.
-3. `python batched_test.py 0.2` → degraded.
-   Same contexts, only batch size differs.
+1. Env: `source /opt/anaconda3/etc/profile.d/conda.sh && conda activate browse-use && source .venv/bin/activate`
+   (the scripts need `browser_use` for message serialization).
+2. Serve Qwen3-VL-32B (or 30B-A3B) at top-k 32 and open the tunnel so `http://localhost:10000/v1` is
+   reachable (see `run_experiment.sh` step 0).
+3. From this folder: `python replay_compare.py topk32 0.2 3`  → correct (12/12).
+4. `python batched_test.py 0.2`  → degraded.
+   Same bundled contexts, only the batch size differs.

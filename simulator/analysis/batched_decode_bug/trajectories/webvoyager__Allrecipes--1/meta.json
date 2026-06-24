@@ -1,0 +1,14 @@
+{
+  "id": "Allrecipes--1",
+  "site": "Allrecipes",
+  "source": "webvoyager",
+  "question": "Find a recipe for a vegetarian lasagna that has at least a four-star rating and uses zucchini.",
+  "start_url": "https://www.allrecipes.com/",
+  "reference_answer": "\"Debbie's Vegetable Lasagna\", 4.7-star, include zucchini",
+  "reference_type": "possible",
+  "reference_notice": " note that review information is real-time",
+  "status": "timeout",
+  "agent_self_reported_success": null,
+  "num_steps": 7,
+  "answer": "Clicked button aria-label=Close this dialog wi"
+}

@@ -1,0 +1,6 @@
+# This folder is a committed analysis artifact (scripts + bundled trajectories +
+# results). Re-include the data/result files the repo-root .gitignore drops
+# (*.json, *.log, *.txt) so the experiment runs standalone from a fresh checkout.
+!*.json
+!*.log
+!*.txt

@@ -1,0 +1,868 @@
+{
+  "name": "AgentOutput",
+  "schema": {
+    "properties": {
+      "thinking": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "evaluation_previous_goal": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "memory": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "next_goal": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "current_plan_item": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "plan_update": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "action": {
+        "description": "List of actions to execute",
+        "items": {
+          "anyOf": [
+            {
+              "properties": {
+                "done": {
+                  "properties": {
+                    "text": {
+                      "description": "Final user message in the format the user requested",
+                      "type": "string"
+                    },
+                    "success": {
+                      "default": true,
+                      "description": "True if user_request completed successfully",
+                      "type": "boolean"
+                    },
+                    "files_to_display": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": []
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "success",
+                    "files_to_display"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Complete task."
+                }
+              },
+              "required": [
+                "done"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "search": {
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "engine": {
+                      "default": "duckduckgo",
+                      "description": "duckduckgo, google, bing (use duckduckgo by default because less captchas)",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "query",
+                    "engine"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "search"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "navigate": {
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "new_tab": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "new_tab"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "navigate"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "go_back": {
+                  "properties": {
+                    "description": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Optional description for the action",
+                      "title": "Description"
+                    }
+                  },
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Go back",
+                  "required": [
+                    "description"
+                  ]
+                }
+              },
+              "required": [
+                "go_back"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "wait": {
+                  "properties": {
+                    "seconds": {
+                      "default": 3,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Wait for x seconds.",
+                  "required": [
+                    "seconds"
+                  ]
+                }
+              },
+              "required": [
+                "wait"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "click": {
+                  "properties": {
+                    "index": {
+                      "description": "Element index from browser_state",
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "index"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Click element by index."
+                }
+              },
+              "required": [
+                "click"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "input": {
+                  "properties": {
+                    "index": {
+                      "description": "from browser_state",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "clear": {
+                      "default": true,
+                      "description": "1=clear, 0=append",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "text",
+                    "clear"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Input text into element by index."
+                }
+              },
+              "required": [
+                "input"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "upload_file": {
+                  "properties": {
+                    "index": {
+                      "type": "integer"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "path"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "upload_file"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "switch": {
+                  "properties": {
+                    "tab_id": {
+                      "description": "4-char id",
+                      "maxLength": 4,
+                      "minLength": 4,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "tab_id"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Switch to another open tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use when you need to work with content in a different tab."
+                }
+              },
+              "required": [
+                "switch"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "close": {
+                  "properties": {
+                    "tab_id": {
+                      "description": "4-char id",
+                      "maxLength": 4,
+                      "minLength": 4,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "tab_id"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need."
+                }
+              },
+              "required": [
+                "close"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "extract": {
+                  "properties": {
+                    "query": {
+                      "type": "string"
+                    },
+                    "extract_links": {
+                      "default": false,
+                      "description": "Set True to true if the query requires links, else false to safe tokens",
+                      "type": "boolean"
+                    },
+                    "start_from_char": {
+                      "default": 0,
+                      "description": "Use this for long markdowns to start from a specific character (not index in browser_state)",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "query",
+                    "extract_links",
+                    "start_from_char"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page."
+                }
+              },
+              "required": [
+                "extract"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "search_page": {
+                  "properties": {
+                    "pattern": {
+                      "description": "Text or regex pattern to search for in page content",
+                      "type": "string"
+                    },
+                    "regex": {
+                      "default": false,
+                      "description": "Treat pattern as regex (default: literal text match)",
+                      "type": "boolean"
+                    },
+                    "case_sensitive": {
+                      "default": false,
+                      "description": "Case-sensitive search (default: case-insensitive)",
+                      "type": "boolean"
+                    },
+                    "context_chars": {
+                      "default": 150,
+                      "description": "Characters of surrounding context per match",
+                      "type": "integer"
+                    },
+                    "css_scope": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "CSS selector to limit search scope (e.g. \"div#main\")"
+                    },
+                    "max_results": {
+                      "default": 25,
+                      "description": "Maximum matches to return",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "pattern",
+                    "regex",
+                    "case_sensitive",
+                    "context_chars",
+                    "css_scope",
+                    "max_results"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Search page text for a pattern (like grep). Zero LLM cost, instant. Returns matches with surrounding context. Use to find specific text, verify content exists, or locate data on the page. Set regex=True for regex patterns. Use css_scope to search within a specific section."
+                }
+              },
+              "required": [
+                "search_page"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "find_elements": {
+                  "properties": {
+                    "selector": {
+                      "description": "CSS selector to query elements (e.g. \"table tr\", \"a.link\", \"div.product\")",
+                      "type": "string"
+                    },
+                    "attributes": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Specific attributes to extract (e.g. [\"href\", \"src\", \"class\"]). If not set, returns tag and text only."
+                    },
+                    "max_results": {
+                      "default": 50,
+                      "description": "Maximum elements to return",
+                      "type": "integer"
+                    },
+                    "include_text": {
+                      "default": true,
+                      "description": "Include text content of each element",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "selector",
+                    "attributes",
+                    "max_results",
+                    "include_text"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Query DOM elements by CSS selector (like find). Zero LLM cost, instant. Returns matching elements with tag, text, and attributes. Use to explore page structure, count items, get links/attributes. Use attributes=[\"href\",\"src\"] to extract specific attributes."
+                }
+              },
+              "required": [
+                "find_elements"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "scroll": {
+                  "properties": {
+                    "down": {
+                      "default": true,
+                      "description": "down=True=scroll down, down=False scroll up",
+                      "type": "boolean"
+                    },
+                    "pages": {
+                      "default": 1.0,
+                      "description": "0.5=half page, 1=full page, 10=to bottom/top",
+                      "type": "number"
+                    },
+                    "index": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Optional element index to scroll within specific element"
+                    }
+                  },
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.",
+                  "required": [
+                    "down",
+                    "pages",
+                    "index"
+                  ]
+                }
+              },
+              "required": [
+                "scroll"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "send_keys": {
+                  "properties": {
+                    "keys": {
+                      "description": "keys (Escape, Enter, PageDown) or shortcuts (Control+o)",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "keys"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "send_keys"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "find_text": {
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Scroll to text."
+                }
+              },
+              "required": [
+                "find_text"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "save_as_pdf": {
+                  "properties": {
+                    "file_name": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Output PDF filename (without path). Defaults to page title. Extension .pdf is added automatically if missing."
+                    },
+                    "print_background": {
+                      "default": true,
+                      "description": "Include background graphics and colors",
+                      "type": "boolean"
+                    },
+                    "landscape": {
+                      "default": false,
+                      "description": "Use landscape orientation",
+                      "type": "boolean"
+                    },
+                    "scale": {
+                      "default": 1.0,
+                      "description": "Scale of the webpage rendering (0.1 to 2.0)",
+                      "maximum": 2.0,
+                      "minimum": 0.1,
+                      "type": "number"
+                    },
+                    "paper_format": {
+                      "default": "Letter",
+                      "description": "Paper size: Letter, Legal, A4, A3, or Tabloid",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Save the current page as a PDF file. Returns the file path of the saved PDF. Use this to capture the full page content (including content below the fold) as a printable document.",
+                  "required": [
+                    "file_name",
+                    "print_background",
+                    "landscape",
+                    "scale",
+                    "paper_format"
+                  ]
+                }
+              },
+              "required": [
+                "save_as_pdf"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "dropdown_options": {
+                  "properties": {
+                    "index": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "index"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "dropdown_options"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "select_dropdown": {
+                  "properties": {
+                    "index": {
+                      "type": "integer"
+                    },
+                    "text": {
+                      "description": "exact text/value",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "text"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Set the option of a <select> element."
+                }
+              },
+              "required": [
+                "select_dropdown"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "write_file": {
+                  "properties": {
+                    "file_name": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "append": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "trailing_newline": {
+                      "default": true,
+                      "type": "boolean"
+                    },
+                    "leading_newline": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "file_name",
+                    "content",
+                    "append",
+                    "trailing_newline",
+                    "leading_newline"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Write content to a file. By default this OVERWRITES the entire file - use append=true to add to an existing file, or use replace_file for targeted edits within a file. FILENAME RULES: Use only letters, numbers, underscores, hyphens, dots, parentheses. Spaces are auto-converted to hyphens. SUPPORTED EXTENSIONS: .txt, .md, .json, .jsonl, .csv, .html, .xml, .pdf, .docx. CANNOT write binary/image files (.png, .jpg, .mp4, etc.) - do not attempt to save screenshots as files. For PDF files, write content in markdown format and it will be auto-converted to PDF."
+                }
+              },
+              "required": [
+                "write_file"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "replace_file": {
+                  "properties": {
+                    "file_name": {
+                      "type": "string"
+                    },
+                    "old_str": {
+                      "type": "string"
+                    },
+                    "new_str": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "file_name",
+                    "old_str",
+                    "new_str"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file."
+                }
+              },
+              "required": [
+                "replace_file"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "read_file": {
+                  "properties": {
+                    "file_name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "file_name"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png)."
+                }
+              },
+              "required": [
+                "read_file"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "read_long_content": {
+                  "description": "Action for intelligent reading of long content.",
+                  "properties": {
+                    "goal": {
+                      "description": "What to look for or extract from the content",
+                      "type": "string"
+                    },
+                    "source": {
+                      "default": "page",
+                      "description": "What to read: \"page\" for current webpage, or a file path",
+                      "type": "string"
+                    },
+                    "context": {
+                      "default": "",
+                      "description": "Additional context about the task",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "goal",
+                    "source",
+                    "context"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "read_long_content"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "evaluate": {
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, or analysing page structure. IMPORTANT: Shadow DOM elements with [index] markers can be clicked directly with click(index) — do NOT use evaluate() to click them. Only use evaluate for shadow DOM elements that are NOT indexed. Limit output size."
+                }
+              },
+              "required": [
+                "evaluate"
+              ],
+              "type": "object",
+              "additionalProperties": false
+            }
+          ]
+        },
+        "min_items": 1,
+        "type": "array"
+      }
+    },
+    "required": [
+      "thinking",
+      "evaluation_previous_goal",
+      "memory",
+      "next_goal",
+      "current_plan_item",
+      "plan_update",
+      "action"
+    ],
+    "type": "object",
+    "additionalProperties": false
+  }
+}

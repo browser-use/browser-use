@@ -1,0 +1,14 @@
+{
+  "id": "Allrecipes--0",
+  "site": "Allrecipes",
+  "source": "webvoyager",
+  "question": "Provide a recipe for vegetarian lasagna with more than 100 reviews and a rating of at least 4.5 stars suitable for 6 people.",
+  "start_url": "https://www.allrecipes.com/",
+  "reference_answer": "'Vegetarian Four Cheese Lasagna', 4.6-star, 181 reviews, Servings 8",
+  "reference_type": "possible",
+  "reference_notice": " note that review information is real-time",
+  "status": "timeout",
+  "agent_self_reported_success": null,
+  "num_steps": 8,
+  "answer": "Element index 1 not available - page may have changed. Try refreshing browser state."
+}

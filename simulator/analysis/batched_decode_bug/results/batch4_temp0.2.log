@@ -1,0 +1,14 @@
+=== BATCHED (4 concurrent) @ temp 0.2 ===
+  OK  webvoyager__Allrecipes--0/step_001
+      next_goal: Enter 'vegetarian recipes' into the search bar and submit the search.
+      action:    [{"click": {"index": 1000000000}}]
+  OK  webvoyager__Allrecipes--0/step_003
+      next_goal: Search for a vegetarian recipe that serves 4 people and takes 30 minutes or less to prepare.
+      action:    [{"click": {"index": 1}}]
+  OK  webvoyager__Allrecipes--1/step_002
+      next_goal: Click on the search bar to begin entering the search query 'vegetarian lasagna'.
+      action:    [{"click": {"index": 1}}]
+  OFF webvoyager__Allrecipes--2/step_001
+      next_goal: Click on the search bar to begin typing the search query.
+      action:    [{"click": {"index": 1}}, {"input": {"index": 1, "text": "chocolate cake", "clea
+on-task: 3/4

@@ -1,0 +1,55 @@
+LIVE CAPTURE (batch_size=3, temp 0.2) — model output per step.
+The input task is vegetarian-lasagna for all three; note the hallucinated, drifting next_goals.
+
+### webvoyager__Allrecipes--0: Provide a recipe for vegetarian lasagna with more than 100 reviews and a rating of at least 4.5 stars suitable for 6 people.
+  step_001: next_goal=Extract the list of top 10 most expensive cities for rent from the article.
+      action=[{"click": {"index": 2}}]
+  step_002: next_goal=Navigate to https://www.allrecipes.com and search for 'chocolate chip cookies'.
+      action=[{"click": {"index": 1}}]
+  step_003: next_goal=Search for '12-inch cast iron skillet' using the search bar.
+      action=[{"click": {"index": 1}}]
+  step_004: next_goal=Navigate to https://www.ford.com and search for '2023 Ford F-150 Raptor R'.
+      action=[{"click": {"index": 1}}]
+  step_005: next_goal=Search for 'vegetarian recipes' using the search bar.
+      action=[{"click": {"index": 1}}]
+  step_006: next_goal=Click on the search bar to prepare for entering the search term 'Coca-Cola'.
+      action=[{"click": {"index": 1}}]
+  step_007: next_goal=Navigate to Allrecipes.com
+      action=[{"click": {"index": 1}}]
+
+### webvoyager__Allrecipes--1: Find a recipe for a vegetarian lasagna that has at least a four-star rating and uses zucchini.
+  step_001: next_goal=Navigate to Newegg.com and search for 'Dell XPS 13'.
+      action=[{"click": {"index": 1}}]
+  step_002: next_goal=Search for 'vegetarian lasagna' using the search bar.
+      action=[{"click": {"index": 153}}, {"input": {"index": 153, "text": "vegetarian lasagna
+  step_003: next_goal=Close the newsletter sign-up modal by clicking the 'X' button.
+      action=[{"click": {"index": 7946}}]
+  step_004: next_goal=Close the newsletter sign-up modal by clicking the 'X' button in the top-right corner of the mo
+      action=[{"click": {"index": 600}}]
+  step_005: next_goal=Close the newsletter sign-up modal by clicking the 'X' button in its top-right corner.
+      action=[{"click": {"index": 600}}]
+  step_006: next_goal=Close the newsletter sign-up modal by clicking the 'X' button in its top-right corner.
+      action=[{"click": {"index": 5931}}]
+
+### webvoyager__Allrecipes--2: Find a recipe for a vegetarian lasagna under 600 calories per serving that has a prep time of less than 1 hour.
+  step_001: next_goal=Click on the 'About Us' link in the navigation menu to access the 'About Us' page.
+      action=[{"click": {"index": 10}}]
+  step_002: next_goal=Click on the 'About Us' link to navigate to the About Us page.
+      action=[{"click": {"index": 1}}]
+  step_003: next_goal=Enter 'vegetarian meal for 4 people under 30 minutes' into the search bar and submit the search
+      action=[{"click": {"index": 1}}]
+  step_004: next_goal=Enter 'vegetarian lasagna' in the search bar and submit the search.
+      action=[{"click": {"index": 10}}]
+  step_005: next_goal=Navigate to the Allrecipes website and search for vegetarian recipes.
+      action=[{"click": {"index": 1}}]
+  step_006: next_goal=Click on the 'About Us' link in the navigation menu to navigate to the About Us page.
+      action=[{"click": {"index": 2262}}]
+  step_007: next_goal=Search for 'vegetarian recipes' using the search bar.
+      action=[{"click": {"index": 1}}]
+
+### webvoyager__Allrecipes--3: Locate a recipe for vegan chocolate chip cookies with over 60 reviews and a rating of at least 4.5 stars on Allrecipes.
+
+### webvoyager__Allrecipes--4: Find a recipe for Baked Salmon that takes less than 30 minutes to prepare and has at least a 4 star rating based on user reviews.
+
+### webvoyager__Allrecipes--5: Search for a popular Pasta Sauce with more than 1000 reviews and a rating above 4 stars. Create a shopping list of ingredients for this recipe.
+

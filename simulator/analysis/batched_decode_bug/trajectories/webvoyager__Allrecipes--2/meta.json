@@ -1,0 +1,14 @@
+{
+  "id": "Allrecipes--2",
+  "site": "Allrecipes",
+  "source": "webvoyager",
+  "question": "Find a recipe for a vegetarian lasagna under 600 calories per serving that has a prep time of less than 1 hour.",
+  "start_url": "https://www.allrecipes.com/",
+  "reference_answer": "'Easy Vegetarian Red Beans Lasagna', 496 Calories, prep time 20 mins",
+  "reference_type": "possible",
+  "reference_notice": " note that review information is real-time",
+  "status": "timeout",
+  "agent_self_reported_success": null,
+  "num_steps": 8,
+  "answer": "Element index 1 not available - page may have changed. Try refreshing browser state."
+}

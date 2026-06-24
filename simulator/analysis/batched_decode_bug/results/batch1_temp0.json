@@ -1,0 +1,70 @@
+[
+  {
+    "task": "webvoyager__Allrecipes--0",
+    "step": "step_001",
+    "question": "Provide a recipe for vegetarian lasagna with more than 100 reviews and a rating of at least 4.5 stars suitable for 6 people.",
+    "next_goal": "Enter 'vegetarian lasagna' into the search bar and initiate the search to find relevant recipes.",
+    "action": [
+      {
+        "click": {
+          "index": 100
+        }
+      },
+      {
+        "input": {
+          "index": 100,
+          "text": "vegetarian lasagna",
+          "clear": true
+        }
+      },
+      {
+        "click": {
+          "index": 101
+        }
+      }
+    ],
+    "thinking": "The user wants a vegetarian lasagna recipe with specific criteria: at least 100 calories p"
+  },
+  {
+    "task": "webvoyager__Allrecipes--0",
+    "step": "step_003",
+    "question": "Provide a recipe for vegetarian lasagna with more than 100 reviews and a rating of at least 4.5 stars suitable for 6 people.",
+    "next_goal": "Use the search bar to search for 'vegetarian lasagna'.",
+    "action": [
+      {
+        "click": {
+          "index": 108
+        }
+      }
+    ],
+    "thinking": "I need to find a vegetarian lasagna recipe with at least 100 reviews and a rating of 4 sta"
+  },
+  {
+    "task": "webvoyager__Allrecipes--1",
+    "step": "step_002",
+    "question": "Find a recipe for a vegetarian lasagna that has at least a four-star rating and uses zucchini.",
+    "next_goal": "Enter 'vegetarian lasagna with zucchini' into the search bar and initiate the search.",
+    "action": [
+      {
+        "click": {
+          "index": 48
+        }
+      }
+    ],
+    "thinking": "I need to find a vegetarian lasagna recipe that includes zucchini. The search bar is visib"
+  },
+  {
+    "task": "webvoyager__Allrecipes--2",
+    "step": "step_001",
+    "question": "Find a recipe for a vegetarian lasagna under 600 calories per serving that has a prep time of less than 1 hour.",
+    "next_goal": "Click on the search bar and enter the search query for a vegetarian lasagna recipe under 600 calories with a prep time under 30 minutes.",
+    "action": [
+      {
+        "click": {
+          "index": 100
+        }
+      }
+    ],
+    "thinking": "To find a vegetarian lasagna recipe under 600 calories with a prep time under 30 minutes, "
+  }
+]
