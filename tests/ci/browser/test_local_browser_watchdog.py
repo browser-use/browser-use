@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import aiohttp
 import asyncio
+
+import aiohttp
 
 from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 
