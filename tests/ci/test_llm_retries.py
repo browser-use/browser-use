@@ -17,15 +17,6 @@ class TestChatBrowserUseRetries:
 		"""Set up environment for ChatBrowserUse."""
 		monkeypatch.setenv('BROWSER_USE_API_KEY', 'test-api-key')
 
-	@pytest.mark.parametrize('model', ['bu-3', 'bu-3-max'])
-	def test_accepts_bu3_models(self, mock_env, model):
-		"""Test that BU3 model names are accepted."""
-		from browser_use.llm.browser_use.chat import ChatBrowserUse
-
-		client = ChatBrowserUse(model=model)
-
-		assert client.model == model
-
 	@pytest.mark.asyncio
 	async def test_retries_on_503_with_exponential_backoff(self, mock_env):
 		"""Test that 503 errors trigger retries with exponential backoff."""

@@ -38,7 +38,7 @@ class ChatBrowserUse(BaseChatModel):
 	Usage:
 		agent = Agent(
 			task="Find the number of stars of the browser-use repo",
-			llm=ChatBrowserUse(model='bu-3-max'),
+			llm=ChatBrowserUse(model='openai/gpt-5.5'),
 		)
 	"""
 
@@ -59,10 +59,10 @@ class ChatBrowserUse(BaseChatModel):
 		Args:
 			model: Model name to use. Options:
 				- 'bu-2-0' or 'bu-latest': Default model (latest premium)
-				- 'bu-3': Fast premium model
-				- 'bu-3-max': Most capable model
 				- 'bu-1-0': Previous generation model
 				- 'browser-use/bu-30b-a3b-preview': Browser Use Open Source Model
+				- Provider-prefixed ids resolved by the gateway, e.g. 'anthropic/claude-sonnet-4-6',
+				  'openai/gpt-5.5', 'google/gemini-3-pro'.
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
 			timeout: Request timeout in seconds.
@@ -70,11 +70,16 @@ class ChatBrowserUse(BaseChatModel):
 			retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0).
 			retry_max_delay: Maximum delay in seconds between retries (default: 60.0).
 		"""
-		# Validate model name - allow bu-* and browser-use/* patterns
-		valid_models = ['bu-latest', 'bu-1-0', 'bu-2-0', 'bu-3', 'bu-3-max']
-		is_valid = model in valid_models or model.startswith('browser-use/')
+		# Accept 'bu-*' aliases and any provider-prefixed id; the gateway resolves the
+		# latter (anthropic/*, openai/*, google/*, browser-use/*), so we don't enumerate them.
+		bu_aliases = ['bu-latest', 'bu-1-0', 'bu-2-0']
+		is_valid = model in bu_aliases or '/' in model
 		if not is_valid:
-			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models} or start with 'browser-use/'")
+			raise ValueError(
+				f"Invalid model: '{model}'. Use a 'bu-*' alias ({', '.join(bu_aliases)}) "
+				"or a provider-prefixed id like 'anthropic/claude-sonnet-4-6', "
+				"'openai/gpt-5.5', or 'google/gemini-3-pro'."
+			)
 
 		# Normalize bu-latest to the current latest model
 		if model == 'bu-latest':

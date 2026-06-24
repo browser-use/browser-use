@@ -4310,7 +4310,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			enable_planning = False
 		if llm_screenshot_size is None:
 			model_name = getattr(llm, 'model', '')
-			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
+			# rsplit drops the provider prefix so gateway ids like 'anthropic/claude-sonnet-4-6'
+			# get the same screenshot auto-config as direct Claude Sonnet models.
+			if isinstance(model_name, str) and model_name.rsplit('/', 1)[-1].startswith('claude-sonnet'):
 				llm_screenshot_size = (1400, 850)
 		if page_extraction_llm is None:
 			page_extraction_llm = llm

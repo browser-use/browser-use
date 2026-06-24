@@ -59,6 +59,7 @@ Python API -> Rust core -> Browser harness -> Web task done
 ```bash
 uv add "browser-use[core]"
 # or: pip install "browser-use[core]"
+browser
 ```
 
 The `[core]` extra installs the native Browser Use runtime for your platform.
@@ -72,6 +73,14 @@ BROWSER_USE_API_KEY=your-key
 ```
 
 **3. Run your first agent:**
+
+**Browser Use Terminal:** 
+```bash
+uv add "browser-use[core]"
+browser
+```
+
+**Python Script:**
 ```python
 from browser_use.beta import Agent, BrowserProfile, ChatBrowserUse
 # from browser_use.beta import ChatOpenAI  # ChatOpenAI(model='gpt-5.5')
@@ -81,7 +90,8 @@ import asyncio
 async def main():
     agent = Agent(
         task="Find the number of stars of the browser-use repo",
-        llm=ChatBrowserUse(model='bu-3-max'),
+        llm=ChatBrowserUse(model='openai/gpt-5.5'),
+        # llm=ChatBrowserUse(model='bu-2-0'),  # Browser Use's own optimized model
         # llm=ChatOpenAI(model='gpt-5.5'),
         # llm=ChatAnthropic(model='claude-opus-4-8'),  # Sonnet also works well.
         browser_profile=BrowserProfile(
@@ -213,17 +223,22 @@ curl -o ~/.claude/skills/browser-use/SKILL.md \
 
 We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
 
-**bu-3 pricing (per 1M tokens):**
-- Input tokens: $2.00
-- Cached input tokens: $0.20
-- Output tokens: $11.00
+For pricing and other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
+</details>
 
-**bu-3-max pricing (per 1M tokens):**
-- Input tokens: $2.50
-- Cached input tokens: $0.25
-- Output tokens: $50.00
+<details>
+<summary><b>Can I use Claude / GPT / Gemini through ChatBrowserUse?</b></summary>
 
-For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
+Yes. `ChatBrowserUse` accepts provider-prefixed model ids, so a single `BROWSER_USE_API_KEY` reaches all of them — no separate OpenAI/Anthropic/Google keys required:
+
+```python
+from browser_use import Agent, ChatBrowserUse
+
+llm = ChatBrowserUse(model='anthropic/claude-sonnet-4-6')  # or 'openai/gpt-5.5', 'google/gemini-3-pro'
+agent = Agent(task='...', llm=llm)
+```
+
+For the best speed and cost we still recommend the default `bu-*` models.
 </details>
 
 <details>
