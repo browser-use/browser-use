@@ -126,6 +126,11 @@ USE_TSA=1 python -m simulator eval simulator/runs/WebVoyager-GAIA-sparse-topk32 
 # action-replay fidelity (can the recorded context reproduce each step offline?):
 python -m simulator eval simulator/runs/<run> --mode replay
 
+# replay-mode LATENCY benchmark — batched replay of recorded contexts vs the server (no browser):
+python -m simulator latency simulator/runs/<run> --task-num 16 --batch-size 4 \
+    --start random --max-tokens 1024 --top-k-label 32
+# sweep top-k by restarting the server at --top-k 32 / 64 / 100000 and re-running with the matching --top-k-label
+
 # token-length stats over a captured run (text only; per domain / overall / by step)
 python -m simulator.scripts.trajectory_stats context simulator/runs/<run>
 
@@ -140,6 +145,23 @@ The `success` judge sees the task + the agent's answer + the **reference answer*
 (ground truth) + the last `k` screenshots and returns SUCCESS / NOT SUCCESS
 (temperature 0, grammar-constrained verdict). Both eval modes read only captured files;
 neither opens a browser.
+
+The **`latency`** subcommand measures serving latency by replaying recorded contexts (no
+browser, no web). It samples `--task-num` tasks from a captured run, holds `--batch-size`
+of them active (**continuous refill**: when a task's trajectory ends, its end-to-end latency
+is recorded and the next task is pulled in), and each iteration sends every active task's
+*current-step* recorded context to the server **concurrently in lockstep** — the server's
+scheduler batches them into **one batched prefill+decode** (verify via its `Collected batch of N`
+log) — then waits for all and records that batch step's latency. `--start {zero,random}` begins
+each task at step 0 or a uniformly random step (then replays to its end); decode is
+xgrammar-constrained with each step's recorded JSON schema, exactly like the live run. Results
+(per-batch-step latency, per-task end-to-end latency, decode tokens, context-size proxy) are
+written to `latency_*.json` under the run folder. To compare sparsity, restart the server at
+`--top-k 32 / 64 / 100000` and re-run with the matching `--top-k-label`. Set the server's
+`--max-batch-size ≥ batch_size` so the whole batch lands in one forward. Note: the server's
+`usage.prompt_tokens` is 0, so exact (multimodal) prefill token counts aren't returned over the
+API — the harness records a text-char + image-count proxy, and the exact prefill lengths are in
+the server log (`Prefilling request …: N tokens`).
 
 Notes:
 - Each step re-prefills the full prompt and **prefill is dense for both arms** — tree-sparse

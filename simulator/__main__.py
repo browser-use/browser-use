@@ -68,6 +68,22 @@ def main() -> None:
 	)
 	pe.add_argument('--k', type=int, default=2, help='Number of final screenshots given to the success judge.')
 
+	pl = sub.add_parser('latency', help='Replay-mode latency benchmark: batched replay of recorded contexts, no browser.')
+	pl.add_argument('path', help='A run folder of captured task trajectories (with <task>/step_*).')
+	pl.add_argument('--task-num', type=int, default=8, help='Total tasks to replay to completion.')
+	pl.add_argument('--batch-size', type=int, default=4, help='Tasks replayed together per batched server step.')
+	pl.add_argument(
+		'--start',
+		choices=['zero', 'random'],
+		default='zero',
+		help="Start each task at step 0 ('zero') or a random step ('random'), then replay to its end.",
+	)
+	pl.add_argument('--seed', type=int, default=0, help='Sampling / random-start seed.')
+	pl.add_argument('--max-tokens', type=int, default=1024, help='Max decode tokens per step.')
+	pl.add_argument('--temperature', type=float, default=0.0)
+	pl.add_argument('--top-k-label', default=None, help='Free-text label for the server top-k setting (recorded in output).')
+	pl.add_argument('--out', default=None, help='Output JSON path (default: under the run folder).')
+
 	a = ap.parse_args()
 	if a.cmd == 'run':
 		from simulator.core import run_batch
@@ -81,6 +97,22 @@ def main() -> None:
 		from simulator.eval import evaluate_path
 
 		asyncio.run(evaluate_path(Path(a.path), mode=a.mode, model=a.model, k=a.k))
+	elif a.cmd == 'latency':
+		from simulator.eval.latency import measure_latency
+
+		asyncio.run(
+			measure_latency(
+				Path(a.path),
+				task_num=a.task_num,
+				batch_size=a.batch_size,
+				start_mode=a.start,
+				seed=a.seed,
+				max_tokens=a.max_tokens,
+				temperature=a.temperature,
+				top_k_label=a.top_k_label,
+				out=Path(a.out) if a.out else None,
+			)
+		)
 
 
 if __name__ == '__main__':
