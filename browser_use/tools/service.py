@@ -75,6 +75,49 @@ Context = TypeVar('Context')
 T = TypeVar('T', bound=BaseModel)
 
 
+async def _search_nimble(query: str, *, max_results: int = 10) -> ActionResult:
+	"""Search the web via Nimble's API-backed search.
+
+	Unlike the browser-navigation engines (google/bing/duckduckgo), this returns
+	structured results directly in a single API call, with no page navigation —
+	a reliability upgrade over scraping a rendered results page. Requires the
+	optional ``nimble`` extra and a ``NIMBLE_API_KEY`` environment variable.
+	"""
+	try:
+		from nimble_python import AsyncNimble
+	except ImportError:
+		return ActionResult(
+			error="The 'nimble' search engine requires the nimble-python package. Install it with: pip install 'browser-use[nimble]'"
+		)
+
+	if not os.environ.get('NIMBLE_API_KEY'):
+		return ActionResult(error='NIMBLE_API_KEY environment variable not set')
+
+	try:
+		async with AsyncNimble(default_headers={'X-Client-Source': 'browser-use'}) as client:
+			response = await client.search(query=query, max_results=max_results, output_format='markdown')
+	except Exception as e:
+		logger.error(f'Failed to search Nimble: {e}')
+		return ActionResult(error=f'Failed to search Nimble for "{query}": {e}')
+
+	results = response.results or []
+	memory = f"Searched Nimble for '{query}' ({len(results)} results)"
+	if not results:
+		return ActionResult(extracted_content=memory, long_term_memory=memory)
+
+	lines = []
+	for result in results:
+		snippet = result.content or result.description or ''
+		lines.append(f'- {result.title}\n  {result.url}\n  {snippet}'.rstrip())
+	extracted = f"Search results for '{query}':\n" + '\n'.join(lines)
+	logger.info(f'🔍  {memory}')
+	return ActionResult(
+		extracted_content=extracted,
+		long_term_memory=memory,
+		include_extracted_content_only_once=True,
+	)
+
+
 # Global per-action timeout: last-resort guard against hung event handlers.
 # Individual CDP calls (Page.navigate etc.) have their own shorter timeouts,
 # but event-bus `await event` and `event_result()` calls have none — if a
@@ -440,6 +483,14 @@ class Tools(Generic[Context]):
 			terminates_sequence=True,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
+			# Nimble is an API-backed search engine: instead of navigating the
+			# browser to a search-results page and scraping it, it returns
+			# structured results in a single API call. Handle it before the
+			# browser-navigation engines below; google/bing/duckduckgo behavior
+			# is unchanged.
+			if params.engine.lower() == 'nimble':
+				return await _search_nimble(params.query)
+
 			import urllib.parse
 
 			# Encode query for URL safety
@@ -453,7 +504,9 @@ class Tools(Generic[Context]):
 			}
 
 			if params.engine.lower() not in search_engines:
-				return ActionResult(error=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing')
+				return ActionResult(
+					error=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing, nimble'
+				)
 
 			search_url = search_engines[params.engine.lower()]
 
