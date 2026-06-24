@@ -22,7 +22,7 @@ from typing import Any, TypeVar
 
 from browser_use import Agent, Browser, ChatDashScope
 from browser_use.llm.openai.chat import ChatOpenAI
-from simulator.config import CAPTCHA_NUDGE, LONGER_THINKING_NUDGE, RUNS_DIR, TSA_API_KEY, TSA_BASE_URL, TSA_MODEL, USE_TSA, RunConfig
+from simulator.config import CAPTCHA_NUDGE, RUNS_DIR, TSA_API_KEY, TSA_BASE_URL, TSA_MODEL, USE_TSA, RunConfig
 from simulator.core.batching import BatchCoordinator, BatchLLMProxy
 from simulator.core.recorder import RecordingProxy, TrajectoryRecorder
 from simulator.tasks import WebVoyagerTask, load_tasks
@@ -92,7 +92,7 @@ async def execute_task(
 		enable_planning=False,
 		llm_timeout=cfg.llm_timeout,
 		calculate_cost=False,
-		extend_system_message=f'{CAPTCHA_NUDGE}\n\n{LONGER_THINKING_NUDGE}',
+		extend_system_message=CAPTCHA_NUDGE,  # thinking left at browser-use default (longer-thinking nudge reverted per request)
 		# generous per-step timeout for slow batched calls on the GB10 (override via SIM_STEP_TIMEOUT)
 		step_timeout=int(os.environ.get('SIM_STEP_TIMEOUT', '360')),
 	)
@@ -144,7 +144,7 @@ def _build_llm(cfg: RunConfig):
 			base_url=TSA_BASE_URL,
 			api_key=TSA_API_KEY,
 			temperature=0.2,
-			max_completion_tokens=1536,  # bound decode: agent output is ~300-600 tok; caps runaway generations that blow the batched-call timeout
+			max_completion_tokens=1024,  # bound decode: agent output is ~300-600 tok; 1024 keeps decode ~150s (<240s llm-timeout) on the GB10 even with default thinking
 			add_schema_to_system_prompt=True,
 			dont_force_structured_output=False,  # send response_format=json_schema -> server xgrammar grammar-constrained decoding (valid JSON even under aggressive sparsity)
 		)
