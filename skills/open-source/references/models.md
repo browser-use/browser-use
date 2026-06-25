@@ -280,7 +280,7 @@ import os
 
 llm = ChatOpenAI(
     model="qwen3-max",
-    api_key=os.getenv("EMPIRIOLABS_API_KEY"),
+    api_key=os.environ["EMPIRIOLABS_API_KEY"],
     base_url="https://api.empiriolabs.ai/v1",
 )
 ```
