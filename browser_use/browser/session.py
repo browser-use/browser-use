@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from collections import deque
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
@@ -101,6 +102,65 @@ class CDPSession(BaseModel):
 	# Lifecycle monitoring (populated by SessionManager)
 	_lifecycle_events: Any = PrivateAttr(default=None)
 	_lifecycle_lock: Any = PrivateAttr(default=None)
+
+
+class ReconnectFlapDetector:
+	"""Sliding-window detector for CDP reconnect flapping.
+
+	The per-cycle attempt cap inside BrowserSession._auto_reconnect only fires if
+	every attempt within one cycle fails. When each reconnect *succeeds* at the
+	WS layer but the new socket dies immediately, cycles keep restarting and the
+	loop never terminates. This detector tracks reconnect successes in a sliding
+	time window and reports a one-way give-up signal once the count crosses a
+	configured threshold.
+
+	Uses time.monotonic() because the policy is about elapsed intervals, which
+	must be immune to wall-clock corrections (NTP, manual clock change). Eviction
+	is lazy: stale entries are pruned on read, keeping writes O(1) amortised.
+	Not thread-safe — call from a single event loop.
+	"""
+
+	__slots__ = ('window_seconds', 'max_events', '_timestamps', '_given_up')
+
+	def __init__(self, window_seconds: float, max_events: int) -> None:
+		assert window_seconds > 0, 'window_seconds must be > 0'
+		assert max_events >= 1, 'max_events must be >= 1'
+		self.window_seconds = window_seconds
+		self.max_events = max_events
+		self._timestamps: deque[float] = deque()
+		self._given_up = False
+
+	def record_success(self) -> None:
+		"""Record a successful reconnect at the current monotonic time."""
+		self._timestamps.append(time.monotonic())
+		self._evict()
+
+	def should_give_up(self) -> bool:
+		"""Whether the recent reconnect rate exceeds the threshold (latching)."""
+		if self._given_up:
+			return True
+		self._evict()
+		if len(self._timestamps) >= self.max_events:
+			self._given_up = True
+			return True
+		return False
+
+	def reset(self) -> None:
+		"""Clear history and the give-up latch (e.g. on manual session reset)."""
+		self._timestamps.clear()
+		self._given_up = False
+
+	@property
+	def recent_count(self) -> int:
+		"""Number of successes currently inside the sliding window."""
+		self._evict()
+		return len(self._timestamps)
+
+	def _evict(self) -> None:
+		cutoff = time.monotonic() - self.window_seconds
+		ts = self._timestamps
+		while ts and ts[0] < cutoff:
+			ts.popleft()
 
 
 class BrowserSession(BaseModel):
@@ -557,10 +617,20 @@ class BrowserSession(BaseModel):
 	# Max wait = attempts * timeout_per_attempt + sum(delays) + small buffer
 	# Default: 3 * 15s + (1+2+4)s + 2s = 54s
 	RECONNECT_WAIT_TIMEOUT: float = 54.0
+	# Cross-cycle flap detection. The per-cycle max_attempts cap inside
+	# _auto_reconnect only fires if every attempt within one cycle fails. If each
+	# reconnect succeeds at the WS layer but the new socket dies immediately
+	# (e.g. Chrome rejecting the post-connect setup), cycles keep restarting and
+	# the loop never terminates. Track successful reconnects in a sliding window
+	# and give up if we cross the threshold.
+	RECONNECT_FLAP_WINDOW_SECONDS: float = 60.0
+	RECONNECT_FLAP_MAX_SUCCESSES: int = 5
 	_reconnecting: bool = PrivateAttr(default=False)
 	_reconnect_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
 	_reconnect_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_reconnect_task: asyncio.Task | None = PrivateAttr(default=None)
+	_reconnect_flap_detector: 'ReconnectFlapDetector | None' = PrivateAttr(default=None)
+	_reconnect_flap_dispatched: bool = PrivateAttr(default=False)
 	_intentional_stop: bool = PrivateAttr(default=False)
 
 	_logger: Any = PrivateAttr(default=None)
@@ -607,6 +677,10 @@ class BrowserSession(BaseModel):
 			self._reconnect_task = None
 		self._reconnecting = False
 		self._reconnect_event.set()  # unblock any waiters
+		# Clear flap state so post-reset reconnects start with a fresh budget
+		if self._reconnect_flap_detector is not None:
+			self._reconnect_flap_detector.reset()
+		self._reconnect_flap_dispatched = False
 
 		cdp_status = 'connected' if self._cdp_client_root else 'not connected'
 		session_mgr_status = 'exists' if self.session_manager else 'None'
@@ -2166,6 +2240,7 @@ class BrowserSession(BaseModel):
 					await asyncio.wait_for(self.reconnect(), timeout=15.0)
 					# Success
 					downtime = time.time() - start_time
+					self._reconnect_flap().record_success()
 					self.event_bus.dispatch(
 						BrowserReconnectedEvent(
 							cdp_url=self.cdp_url or '',
@@ -2194,6 +2269,15 @@ class BrowserSession(BaseModel):
 			self._reconnecting = False
 			self._reconnect_event.set()  # wake up all waiters regardless of outcome
 
+	def _reconnect_flap(self) -> ReconnectFlapDetector:
+		"""Lazy-init the flap detector so test-time config overrides take effect."""
+		if self._reconnect_flap_detector is None:
+			self._reconnect_flap_detector = ReconnectFlapDetector(
+				window_seconds=self.RECONNECT_FLAP_WINDOW_SECONDS,
+				max_events=self.RECONNECT_FLAP_MAX_SUCCESSES,
+			)
+		return self._reconnect_flap_detector
+
 	def _attach_ws_drop_callback(self) -> None:
 		"""Attach a done callback to the CDPClient's message handler task to detect WS drops."""
 		if not self._cdp_client_root or not hasattr(self._cdp_client_root, '_message_handler_task'):
@@ -2204,26 +2288,64 @@ class BrowserSession(BaseModel):
 			return
 
 		def _on_message_handler_done(fut: asyncio.Future) -> None:
-			# Guard: skip if intentionally stopped, already reconnecting, or no cdp_url
-			if self._intentional_stop or self._reconnecting or not self.cdp_url:
-				return
-
-			# The message handler task exiting means the WS connection dropped
 			exc = fut.exception() if not fut.cancelled() else None
-			self.logger.warning(
-				f'🔌 CDP WebSocket message handler exited unexpectedly'
-				f'{f": {type(exc).__name__}: {exc}" if exc else " (connection closed)"}'
-			)
-
-			# Fire auto-reconnect as an asyncio task
-			try:
-				loop = asyncio.get_running_loop()
-				self._reconnect_task = loop.create_task(self._auto_reconnect())
-			except RuntimeError:
-				# No running event loop — can't reconnect
-				self.logger.error('🔌 No event loop available for auto-reconnect')
+			self._handle_ws_drop(exc)
 
 		task.add_done_callback(_on_message_handler_done)
+
+	def _handle_ws_drop(self, exc: BaseException | None) -> None:
+		"""Decide what to do when the CDP WebSocket message handler exits.
+
+		Called from the message-handler done-callback (and from tests directly).
+		Either spawns an _auto_reconnect task, or — if the cross-cycle flap
+		threshold has been crossed — dispatches a terminal BrowserErrorEvent and
+		stays silent.
+		"""
+		# Guard: skip if intentionally stopped, already reconnecting, or no cdp_url
+		if self._intentional_stop or self._reconnecting or not self.cdp_url:
+			return
+
+		self.logger.warning(
+			f'🔌 CDP WebSocket message handler exited unexpectedly'
+			f'{f": {type(exc).__name__}: {exc}" if exc else " (connection closed)"}'
+		)
+
+		# Flap guard: if reconnects are succeeding but the new socket dies
+		# immediately, restarting the cycle just loops. Surface a terminal
+		# error so callers (Agent, MCP server) can react instead of hanging.
+		flap = self._reconnect_flap()
+		if flap.should_give_up():
+			if not self._reconnect_flap_dispatched:
+				self._reconnect_flap_dispatched = True
+				self._dispatch_flap_giveup(flap)
+			return
+
+		try:
+			loop = asyncio.get_running_loop()
+			self._reconnect_task = loop.create_task(self._auto_reconnect())
+		except RuntimeError:
+			# No running event loop — can't reconnect
+			self.logger.error('🔌 No event loop available for auto-reconnect')
+
+	def _dispatch_flap_giveup(self, flap: ReconnectFlapDetector) -> None:
+		"""Log + dispatch the terminal flap-giveup event exactly once per latch."""
+		count = flap.recent_count
+		self.logger.error(
+			f'🔌 CDP reconnect flapping — {count} reconnects within {flap.window_seconds:.0f}s. '
+			f'Giving up to avoid an infinite loop.'
+		)
+		self.event_bus.dispatch(
+			BrowserErrorEvent(
+				error_type='ReconnectionFlapping',
+				message=(f'CDP WebSocket reconnect flapping: {count} reconnects in {flap.window_seconds:.0f}s'),
+				details={
+					'cdp_url': self.cdp_url or '',
+					'window_seconds': flap.window_seconds,
+					'max_events': flap.max_events,
+					'recent_count': count,
+				},
+			)
+		)
 
 	async def get_tabs(self) -> list[TabInfo]:
 		"""Get information about all open tabs using cached target data."""
