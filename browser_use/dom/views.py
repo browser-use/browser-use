@@ -606,8 +606,9 @@ class EnhancedDOMTreeNode:
 		"""
 		meaningful_text = ''
 		if hasattr(self, 'attributes') and self.attributes:
-			# Priority order: value, aria-label, title, placeholder, alt, text content
-			for attr in ['value', 'aria-label', 'title', 'placeholder', 'alt']:
+			# Priority order: value, aria-label, placeholder, alt, text content
+			# Title is handled separately in the icon-only button/link fallback below
+			for attr in ['value', 'aria-label', 'placeholder', 'alt']:
 				if attr in self.attributes and self.attributes[attr]:
 					meaningful_text = self.attributes[attr]
 					break
