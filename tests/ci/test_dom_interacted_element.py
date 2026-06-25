@@ -47,3 +47,11 @@ def test_load_from_enhanced_dom_tree_keeps_missing_ax_name_none():
 	element = DOMInteractedElement.load_from_enhanced_dom_tree(_make_enhanced_dom_node(ax_name=None))
 
 	assert element.ax_name is None
+
+
+def test_empty_ax_name_changes_element_hashes():
+	node_with_empty_name = _make_enhanced_dom_node(ax_name='')
+	node_without_name = _make_enhanced_dom_node(ax_name=None)
+
+	assert hash(node_with_empty_name) != hash(node_without_name)
+	assert node_with_empty_name.compute_stable_hash() != node_without_name.compute_stable_hash()
