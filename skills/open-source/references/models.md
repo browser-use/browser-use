@@ -274,5 +274,17 @@ llm = ChatOpenAI(model="deepseek/deepseek-r1", base_url="https://api.novita.ai/v
 ```
 **Env:** `NOVITA_API_KEY`
 
+### EmpirioLabs AI
+```python
+import os
+
+llm = ChatOpenAI(
+    model="qwen3-max",
+    api_key=os.getenv("EMPIRIOLABS_API_KEY"),
+    base_url="https://api.empiriolabs.ai/v1",
+)
+```
+**Env:** `EMPIRIOLABS_API_KEY` | [Available models](https://empiriolabs.ai/models)
+
 ### LangChain
 See example at [examples/models/langchain](https://github.com/browser-use/browser-use/tree/main/examples/models/langchain).
