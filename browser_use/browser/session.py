@@ -2024,8 +2024,9 @@ class BrowserSession(BaseModel):
 		crashed_target_id = self._crashed_focus_target_id
 		if not crashed_url:
 			return None
-		self._crashed_focus_url = None  # consume immediately so we only recover once
-		self._crashed_focus_target_id = None
+		# Note: the crash markers are intentionally NOT cleared up front. They are
+		# cleared only once recovery actually succeeds (or focus is confirmed switched
+		# to a live tab), so a single failed reload doesn't permanently disable retries.
 
 		# A crashed renderer keeps its CDP session, but if the target was fully
 		# destroyed (rarer) SessionManager is mid-recovery — wait for it to settle.
@@ -2042,24 +2043,29 @@ class BrowserSession(BaseModel):
 		# If SessionManager already switched focus to a different, live tab, leave it
 		# alone — don't navigate the agent away from a real page it can use.
 		if focus_id is not None and focus_id != crashed_target_id and not is_new_tab_page(current_url):
+			self._clear_crash_markers()
 			self.logger.info(f'🔄 Crashed tab gone; focus switched to existing tab: {current_url}')
 			return PageCrashRecovery(crashed_url=crashed_url, action='switched_tab', current_url=current_url)
 
-		# Otherwise reload the crashed URL — this respawns the renderer when focus is
-		# still the dead tab, or fills a blank recovery tab with the previous page.
-		reload_url = crashed_url if not is_new_tab_page(crashed_url) else current_url
-		if is_new_tab_page(reload_url):
-			# Nothing meaningful to restore (crashed on a blank page).
-			self.logger.debug('🔄 Page crash recovery skipped — crashed page had no restorable URL')
-			return PageCrashRecovery(crashed_url=crashed_url, action='reloaded', current_url=current_url)
+		# Otherwise the focused tab is still the dead renderer. A navigation is required
+		# to respawn it — reload the crashed URL if it was a real page, else load a fresh
+		# about:blank (the blank tab's renderer is just as dead and must be respawned too).
+		reload_url = crashed_url if not is_new_tab_page(crashed_url) else 'about:blank'
 		try:
 			self.logger.info(f'🔄 Reloading crashed page: {reload_url}')
 			await self.navigate_to(reload_url)
+			self._clear_crash_markers()  # only clear once recovery actually succeeded
 			self.logger.info('✅ Page crash recovery complete')
 			return PageCrashRecovery(crashed_url=crashed_url, action='reloaded', current_url=reload_url)
 		except Exception as e:
+			# Keep the crash markers set so the next step retries recovery.
 			self.logger.error(f'❌ Failed to reload crashed page {reload_url}: {type(e).__name__}: {e}')
 			return PageCrashRecovery(crashed_url=crashed_url, action='failed', current_url=current_url)
+
+	def _clear_crash_markers(self) -> None:
+		"""Clear the pending page-crash markers once recovery has succeeded."""
+		self._crashed_focus_url = None
+		self._crashed_focus_target_id = None
 
 	# endregion - ========== Page Crash Detection and Recovery ==========
 

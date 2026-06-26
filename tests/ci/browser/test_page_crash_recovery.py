@@ -145,9 +145,28 @@ class TestPageCrashRecovery:
 		# Recovery navigated to the crashed URL and the page is loaded + responsive.
 		assert await _eval(browser_session, 'document.title') == 'Crash Test'
 
+	async def test_recover_blank_tab_crash_respawns(self, browser_session):
+		"""A crash on a blank tab still navigates (respawns) rather than faking success."""
+		# The initial focused tab is about:blank.
+		assert browser_session._crashed_focus_url is None
+		_simulate_focus_crash(browser_session)
+
+		recovery = await asyncio.wait_for(browser_session.recover_from_page_crash(), timeout=20)
+
+		assert isinstance(recovery, PageCrashRecovery)
+		assert recovery.action == 'reloaded'  # a navigation to about:blank was issued
+		# Renderer is responsive after recovery.
+		assert await _eval(browser_session, '1 + 1') == 2
+
 	async def test_recover_noop_without_crash(self, browser_session, base_url):
-		"""recover_from_page_crash() returns None when nothing crashed."""
+		"""recover_from_page_crash() returns None when nothing crashed, and a
+		successful recovery is not repeated on the next call (markers cleared)."""
 		await browser_session.navigate_to(f'{base_url}/page')
+		assert await browser_session.recover_from_page_crash() is None
+
+		_simulate_focus_crash(browser_session)
+		assert (await browser_session.recover_from_page_crash()).action == 'reloaded'
+		# Markers were cleared on success, so a second call is a no-op.
 		assert await browser_session.recover_from_page_crash() is None
 
 	async def test_agent_step_informs_llm_after_crash(self, browser_session, base_url):
