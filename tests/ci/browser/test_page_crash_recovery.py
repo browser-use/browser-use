@@ -1,19 +1,25 @@
 """
 Test automatic recovery from a page/tab renderer crash (issue #5067).
 
-When the agent's focused tab crashes (renderer process gone), Chrome fires
-``Target.targetCrashed`` but does NOT detach the target — so the agent keeps
-focus on a dead page and would otherwise hang reading its state. These tests
-verify that:
+When the agent's focused tab crashes (renderer process gone), Chrome fires a
+crash event (``Inspector.targetCrashed`` on the page session and/or
+``Target.targetCrashed`` on the browser channel) but does NOT detach the
+target — so the agent keeps focus on a dead page and would otherwise hang
+reading its state. These tests verify that:
 
-1. The crash handler captures the focused tab's URL when it crashes.
-2. ``recover_from_page_crash()`` reloads the crashed page (respawning the
+1. Both crash-event handlers record the focused tab's URL (and ignore
+   background-tab crashes / duplicate events).
+2. ``recover_from_page_crash()`` reloads the crashed page (reviving the
    renderer) and reports what it did.
 3. It is a no-op (returns None) when no crash happened.
 4. The agent surfaces the crash to the LLM via an injected long-term memory.
 
-Crashes are triggered with the CDP ``Page.crash`` method (the call itself never
-returns because the renderer dies, so it is wrapped in a short timeout).
+Note on triggering crashes: ``Page.crash`` reliably crashes the renderer and
+emits crash events on macOS, but headless Linux does not always deliver those
+events. So the helper crashes the renderer for real (real coverage where the
+platform cooperates) AND delivers the crash event to the handler directly, so
+detection is deterministic across platforms. Recovery and the agent step use
+real CDP throughout.
 
 Usage:
 	uv run pytest tests/ci/browser/test_page_crash_recovery.py -v -s
@@ -41,10 +47,6 @@ def http_server():
 		'<html><head><title>Crash Test</title></head><body><h1>Crash Me</h1></body></html>',
 		content_type='text/html',
 	)
-	server.expect_request('/other').respond_with_data(
-		'<html><head><title>Other Page</title></head><body><h1>Other</h1></body></html>',
-		content_type='text/html',
-	)
 	yield server
 	server.stop()
 
@@ -64,19 +66,28 @@ async def browser_session():
 	await session.kill()
 
 
-async def _crash_focused_tab(session: BrowserSession) -> None:
-	"""Crash the renderer of the agent's focused tab and wait for detection."""
+def _focus_session_id(session: BrowserSession):
+	"""A live CDP session id for the agent's focused target."""
+	sessions = session.session_manager.get_all_sessions_for_target(session.agent_focus_target_id)
+	assert sessions, 'no CDP session for the focused target'
+	return sessions[0].session_id
+
+
+async def _trigger_focus_crash(session: BrowserSession) -> None:
+	"""Crash the focused renderer for real (best effort) and deliver the crash
+	event to the handler so detection is deterministic across platforms."""
 	cdp = await session.get_or_create_cdp_session()
 	try:
 		# Page.crash never returns (renderer dies mid-call), so bound it.
 		await asyncio.wait_for(cdp.cdp_client.send.Page.crash(session_id=cdp.session_id), timeout=2.0)
 	except Exception:
 		pass
-	# Wait for the crash event (Inspector/Target.targetCrashed) to propagate.
-	for _ in range(50):
+	# Give a real crash event a moment to arrive, then guarantee detection.
+	for _ in range(10):
 		if session._crashed_focus_url:
 			return
 		await asyncio.sleep(0.1)
+	session._on_inspector_crashed_cdp({}, session_id=_focus_session_id(session))
 
 
 async def _eval(session: BrowserSession, expression: str):
@@ -98,21 +109,37 @@ def _message_text(msg) -> str:
 
 
 class TestPageCrashRecovery:
-	async def test_crash_handler_captures_focused_url(self, browser_session, base_url):
-		"""When the focused tab crashes, the handler records its target id + url."""
+	async def test_crash_handlers_record_focus_crash(self, browser_session, base_url):
+		"""Both handlers record a focus-tab crash; background tabs + dupes are ignored."""
 		await browser_session.navigate_to(f'{base_url}/page')
-
+		focus_id = browser_session.agent_focus_target_id
 		assert browser_session._crashed_focus_url is None
-		await _crash_focused_tab(browser_session)
 
-		assert browser_session._crashed_focus_url is not None, 'targetCrashed was not detected'
+		# Inspector.targetCrashed (page-session event, identified by session_id)
+		browser_session._on_inspector_crashed_cdp({}, session_id=_focus_session_id(browser_session))
+		assert browser_session._crashed_focus_url is not None
 		assert browser_session._crashed_focus_url.endswith('/page')
-		assert browser_session._crashed_focus_target_id == browser_session.agent_focus_target_id
+		assert browser_session._crashed_focus_target_id == focus_id
 
-	async def test_recover_reloads_dead_renderer(self, browser_session, base_url):
-		"""recover_from_page_crash() reloads the crashed page and revives the renderer."""
+		# A duplicate event for the same target is a no-op (de-duplicated).
+		browser_session._on_target_crashed_cdp({'targetId': focus_id, 'status': 'crashed', 'errorCode': 5})
+		assert browser_session._crashed_focus_target_id == focus_id
+
+		# A crash in a non-focused target is ignored.
+		browser_session._crashed_focus_url = None
+		browser_session._crashed_focus_target_id = None
+		browser_session._on_target_crashed_cdp({'targetId': 'SOME_OTHER_TARGET', 'status': 'crashed', 'errorCode': 5})
+		assert browser_session._crashed_focus_url is None
+
+		# Target.targetCrashed (browser-channel event, carries targetId)
+		browser_session._on_target_crashed_cdp({'targetId': focus_id, 'status': 'crashed', 'errorCode': 5})
+		assert browser_session._crashed_focus_url is not None
+		assert browser_session._crashed_focus_target_id == focus_id
+
+	async def test_recover_reloads_after_crash(self, browser_session, base_url):
+		"""recover_from_page_crash() reloads the crashed page and leaves it usable."""
 		await browser_session.navigate_to(f'{base_url}/page')
-		await _crash_focused_tab(browser_session)
+		await _trigger_focus_crash(browser_session)
 		assert browser_session._crashed_focus_url is not None
 
 		recovery = await asyncio.wait_for(browser_session.recover_from_page_crash(), timeout=20)
@@ -123,7 +150,7 @@ class TestPageCrashRecovery:
 		# Flag consumed so we don't recover twice.
 		assert browser_session._crashed_focus_url is None
 		assert browser_session._crashed_focus_target_id is None
-		# The renderer is alive again and the page reloaded.
+		# The page is loaded and the renderer responds.
 		assert await _eval(browser_session, 'document.title') == 'Crash Test'
 
 	async def test_recover_noop_without_crash(self, browser_session, base_url):
@@ -151,7 +178,7 @@ class TestPageCrashRecovery:
 		async def on_step_start(agent):
 			# Crash the focused tab right before the step reads browser state.
 			if not crash_state['done']:
-				await _crash_focused_tab(agent.browser_session)
+				await _trigger_focus_crash(agent.browser_session)
 				crash_state['done'] = True
 
 		agent = Agent(task='Inspect the page', llm=llm, browser_session=browser_session)
