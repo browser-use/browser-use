@@ -864,6 +864,14 @@ class SessionManager:
 			# Enable network monitoring for networkIdle detection
 			await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
 
+			# Enable Inspector so the session emits Inspector.targetCrashed on renderer
+			# crash — the reliable crash signal on headless Linux (see BrowserSession
+			# crash recovery). Best-effort: don't fail monitoring if it's unsupported.
+			try:
+				await cdp_session.cdp_client.send.Inspector.enable(session_id=cdp_session.session_id)
+			except Exception as e:
+				self.logger.debug(f'[SessionManager] Inspector.enable failed for {cdp_session.target_id[:8]}...: {e}')
+
 			# Initialize lifecycle event storage for this session (thread-safe)
 			from collections import deque
 

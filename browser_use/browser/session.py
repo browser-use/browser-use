@@ -15,6 +15,7 @@ import httpx
 from bubus import EventBus
 from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
+from cdp_use.cdp.inspector.events import TargetCrashedEvent as InspectorTargetCrashedEvent
 from cdp_use.cdp.network import Cookie
 from cdp_use.cdp.target import SessionID, TargetID
 from cdp_use.cdp.target.commands import CreateTargetParameters
@@ -1948,31 +1949,58 @@ class BrowserSession(BaseModel):
 	# region - ========== Page Crash Detection and Recovery ==========
 
 	def _register_target_crashed_handler(self) -> None:
-		"""Register a single ``Target.targetCrashed`` handler on the root CDP client.
+		"""Register renderer-crash handlers on the root CDP client.
 
-		The root client has ``Target.setDiscoverTargets`` enabled (by SessionManager),
-		so it receives crash events for every page target. cdp-use keeps one handler
-		per event method, so registering once here is enough, and it is safe to re-run
-		on reconnect (the new root client gets its own registration).
+		Two CDP events report a renderer crash and which one is delivered varies by
+		platform/headless mode:
+		- ``Inspector.targetCrashed`` is emitted on the crashed page's own session
+		  (no targetId in the payload, but the session_id identifies it). This is the
+		  reliable signal on headless Linux.
+		- ``Target.targetCrashed`` is emitted on the browser-level discovery channel
+		  (carries targetId). Reliable on macOS, not always delivered on Linux.
+
+		We listen to both and de-duplicate via the crashed target id. cdp-use keeps one
+		handler per event method, so registering once is enough and safe to re-run on
+		reconnect. ``Inspector.enable`` is turned on per page session by SessionManager.
 		"""
 		if not self._cdp_client_root:
 			return
 		try:
+			self._cdp_client_root.register.Inspector.targetCrashed(self._on_inspector_crashed_cdp)
+		except Exception as e:
+			self.logger.debug(f'Failed to register Inspector.targetCrashed handler: {e}')
+		try:
 			self._cdp_client_root.register.Target.targetCrashed(self._on_target_crashed_cdp)
 		except Exception as e:
-			self.logger.debug(f'Failed to register targetCrashed handler: {e}')
+			self.logger.debug(f'Failed to register Target.targetCrashed handler: {e}')
+
+	def _on_inspector_crashed_cdp(self, event: InspectorTargetCrashedEvent, session_id: SessionID | None = None) -> None:
+		"""Handle ``Inspector.targetCrashed`` — map the session to its target and record.
+
+		The payload is empty; the crashed page is identified by ``session_id``.
+		"""
+		if not session_id or not self.session_manager:
+			return
+		target_id = self.session_manager.get_target_id_from_session_id(session_id)
+		if target_id:
+			self._record_focus_crash(target_id)
 
 	def _on_target_crashed_cdp(self, event: TargetCrashedEvent, session_id: SessionID | None = None) -> None:
-		"""Handle ``Target.targetCrashed`` (renderer process crash).
+		"""Handle ``Target.targetCrashed`` — payload carries the crashed target id."""
+		target_id = event.get('targetId')
+		if target_id:
+			self._record_focus_crash(target_id)
+
+	def _record_focus_crash(self, target_id: TargetID) -> None:
+		"""Record a renderer crash if it hit the agent's focused tab.
 
 		A renderer crash does NOT detach the target — the tab stays focused but is
-		dead, so SessionManager never triggers focus recovery. We capture the target
-		and URL here (while the target still exists) so ``recover_from_page_crash()``
-		can reload it on the next agent step. Only the agent's focused tab is tracked;
-		crashes in background tabs are ignored.
+		dead, so SessionManager never triggers focus recovery. We capture the URL
+		here (while the target still exists) so ``recover_from_page_crash()`` can
+		reload it on the next agent step. Crashes in background tabs are ignored, and
+		repeat events for the same crash are de-duplicated.
 		"""
-		target_id = event.get('targetId')
-		if not target_id or target_id != self.agent_focus_target_id:
+		if target_id != self.agent_focus_target_id or self._crashed_focus_target_id == target_id:
 			return
 
 		target = self.session_manager.get_target(target_id) if self.session_manager else None

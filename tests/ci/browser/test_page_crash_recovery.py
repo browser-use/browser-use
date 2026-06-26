@@ -72,8 +72,8 @@ async def _crash_focused_tab(session: BrowserSession) -> None:
 		await asyncio.wait_for(cdp.cdp_client.send.Page.crash(session_id=cdp.session_id), timeout=2.0)
 	except Exception:
 		pass
-	# Wait for Target.targetCrashed to propagate and the handler to record it.
-	for _ in range(30):
+	# Wait for the crash event (Inspector/Target.targetCrashed) to propagate.
+	for _ in range(50):
 		if session._crashed_focus_url:
 			return
 		await asyncio.sleep(0.1)
