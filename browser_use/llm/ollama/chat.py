@@ -11,7 +11,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.ollama.serializer import OllamaMessageSerializer
-from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -57,6 +57,28 @@ class ChatOllama(BaseChatModel):
 	def name(self) -> str:
 		return self.model
 
+	def _get_usage(self, response: Any) -> ChatInvokeUsage | None:
+		prompt_tokens = None
+		completion_tokens = None
+
+		if isinstance(response, Mapping):
+			prompt_tokens = response.get('prompt_eval_count')
+			completion_tokens = response.get('eval_count')
+		else:
+			prompt_tokens = getattr(response, 'prompt_eval_count', None)
+			completion_tokens = getattr(response, 'eval_count', None)
+
+		if prompt_tokens is not None and completion_tokens is not None:
+			return ChatInvokeUsage(
+				prompt_tokens=prompt_tokens,
+				prompt_cached_tokens=None,
+				prompt_cache_creation_tokens=None,
+				prompt_image_tokens=None,
+				completion_tokens=completion_tokens,
+				total_tokens=prompt_tokens + completion_tokens,
+			)
+		return None
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -78,7 +100,7 @@ class ChatOllama(BaseChatModel):
 					options=self.ollama_options,
 				)
 
-				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
+				return ChatInvokeCompletion(completion=response.message.content or '', usage=self._get_usage(response))
 			else:
 				schema = output_format.model_json_schema()
 
@@ -93,7 +115,7 @@ class ChatOllama(BaseChatModel):
 				if output_format is not None:
 					completion = output_format.model_validate_json(completion)
 
-				return ChatInvokeCompletion(completion=completion, usage=None)
+				return ChatInvokeCompletion(completion=completion, usage=self._get_usage(response))
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
