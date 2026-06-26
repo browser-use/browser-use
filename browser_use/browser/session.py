@@ -2058,9 +2058,24 @@ class BrowserSession(BaseModel):
 			self.logger.info('✅ Page crash recovery complete')
 			return PageCrashRecovery(crashed_url=crashed_url, action='reloaded', current_url=reload_url)
 		except Exception as e:
-			# Keep the crash markers set so the next step retries recovery.
 			self.logger.error(f'❌ Failed to reload crashed page {reload_url}: {type(e).__name__}: {e}')
-			return PageCrashRecovery(crashed_url=crashed_url, action='failed', current_url=current_url)
+			# Don't leave the agent focused on the dead renderer — the next browser-state
+			# read would hang on it. Move to a fresh live tab so the agent can continue.
+			if self.agent_focus_target_id == crashed_target_id:
+				try:
+					await self.navigate_to('about:blank', new_tab=True)
+				except Exception as e2:
+					self.logger.error(f'❌ Could not open a fresh tab after failed crash reload: {type(e2).__name__}: {e2}')
+			# Clear markers only if focus is now off the dead tab (recovery is "done" —
+			# the LLM can re-navigate). If we're still stuck on it, keep them to retry.
+			if self.agent_focus_target_id != crashed_target_id:
+				self._clear_crash_markers()
+			live = (
+				self.session_manager.get_target(self.agent_focus_target_id)
+				if (self.session_manager and self.agent_focus_target_id)
+				else None
+			)
+			return PageCrashRecovery(crashed_url=crashed_url, action='failed', current_url=live.url if live else 'about:blank')
 
 	def _clear_crash_markers(self) -> None:
 		"""Clear the pending page-crash markers once recovery has succeeded."""
