@@ -194,8 +194,7 @@ def _confirm_real_browser_access(action: str, data_scope: str) -> bool:
 
 	if not sys.stdin.isatty():
 		print(
-			f'Error: refusing to {action} non-interactively without --yes. '
-			f'This would expose {data_scope}.',
+			f'Error: refusing to {action} non-interactively without --yes. This would expose {data_scope}.',
 			file=sys.stderr,
 		)
 		return False
