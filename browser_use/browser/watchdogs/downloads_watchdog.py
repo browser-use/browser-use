@@ -60,6 +60,14 @@ _NETWORK_DOWNLOAD_FILE_EXTENSIONS = {
 
 _GENERIC_TEXT_ATTACHMENT_NAMES = {'f', 'download', 'response', 'data', 'callback'}
 
+# Windows reserved device names (case-insensitive, with or without an extension): saving a file
+# named CON / NUL / COM1 / ... on Windows targets the device rather than a file, causing silent
+# data loss or an OSError. Matched against the stem (the text before the first dot).
+_WINDOWS_RESERVED_NAMES = frozenset({'CON', 'PRN', 'AUX', 'NUL'} | {f'COM{i}' for i in range(1, 10)} | {f'LPT{i}' for i in range(1, 10)})
+# Windows also treats the Latin-1 superscript digits in COM¹/COM²/COM³ and LPT¹/LPT²/LPT³ as the
+# COM1-3 / LPT1-3 devices, so fold ¹²³ -> 123 before the reserved-name check.
+_WINDOWS_SUPERSCRIPT_DIGITS = str.maketrans('¹²³', '123')
+
 
 def _filename_from_content_disposition(content_disposition: str) -> str | None:
 	filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
@@ -1470,6 +1478,12 @@ class DownloadsWatchdog(BaseWatchdog):
 		name = os.path.basename(name.rsplit('/', 1)[-1])
 		if name in ('', '.', '..'):
 			return 'download'
+		# On Windows a reserved device name aliases hardware even with an extension (CON.pdf opens
+		# the console), so writing a page-supplied download under such a name silently loses data
+		# or raises OSError. Prefix '_' to keep a valid, non-device filename.
+		stem = name.split('.', 1)[0].rstrip(' ').upper().translate(_WINDOWS_SUPERSCRIPT_DIGITS)
+		if stem in _WINDOWS_RESERVED_NAMES:
+			name = '_' + name
 		return name
 
 	@staticmethod
