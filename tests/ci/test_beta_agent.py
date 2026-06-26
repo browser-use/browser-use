@@ -3489,7 +3489,7 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	)
 	browser_use_agent = Agent(
 		task='Browser Use credentials.',
-		llm=LLM('browser-use', 'bu-2-0', api_key='llm-browser-use-key', base_url='https://llm.example/v1'),
+		llm=LLM('browser-use', 'openai/gpt-5.5', api_key='llm-browser-use-key', base_url='https://llm.example/v1'),
 	)
 	ambient_env = Agent(
 		task='Ambient credentials.',
@@ -3534,7 +3534,7 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	}
 	assert browser_use_agent._sdk_run_params(max_steps=3, task=browser_use_agent.task)['llm'] | {'timeout': None} == {
 		'provider': 'browser-use',
-		'model': 'bu-2-0',
+		'model': 'openai/gpt-5.5',
 		'timeout': None,
 	}
 
