@@ -2496,6 +2496,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Execute the task with maximum number of steps"""
+		# Reset fallback LLM state if switched in a previous run
+		if self._using_fallback_llm:
+			self.llm = self._original_llm
+			self._using_fallback_llm = False
+			self.logger.info(f'🔄 Reset LLM back to primary model: {self.current_llm_model}')
 
 		loop = asyncio.get_event_loop()
 		agent_run_error: str | None = None  # Initialize error tracking variable
