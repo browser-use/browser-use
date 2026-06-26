@@ -506,17 +506,20 @@ def is_unsafe_pattern(pattern: str) -> bool:
 	return '*' in bare_domain
 
 
+_NEW_TAB_URLS: frozenset[str] = frozenset(
+	{
+		'about:blank',
+		'chrome://new-tab-page/',
+		'chrome://new-tab-page',
+		'chrome://newtab/',
+		'chrome://newtab',
+	}
+)
+
+
 def is_new_tab_page(url: str) -> bool:
-	"""
-	Check if a URL is a new tab page (about:blank, chrome://new-tab-page, or chrome://newtab).
-
-	Args:
-		url: The URL to check
-
-	Returns:
-		bool: True if the URL is a new tab page, False otherwise
-	"""
-	return url in ('about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/', 'chrome://newtab')
+	"""Check if a URL is a new tab page (about:blank, chrome://new-tab-page, or chrome://newtab)."""
+	return url in _NEW_TAB_URLS
 
 
 def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: bool = False) -> bool:

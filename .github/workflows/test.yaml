@@ -30,6 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.4.26"
 
       - name: Get week number for cache key
         id: week
@@ -116,6 +118,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
+          version: "0.4.26"
           enable-cache: true
           activate-environment: true
 
@@ -200,6 +203,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
+          version: "0.4.26"
           enable-cache: true
           activate-environment: true
 
