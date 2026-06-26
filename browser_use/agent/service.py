@@ -1052,6 +1052,37 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				except Exception as e:
 					self.logger.warning(f'Phase 0 captcha wait failed (non-fatal): {e}')
 
+				# Phase 0.5: Recover if the focused tab crashed since the last step.
+				# Done before reading browser state, which would otherwise hang on a
+				# dead renderer. Inject the outcome so the LLM knows the page was
+				# reloaded (and its prior page state lost).
+				try:
+					crash = await self.browser_session.recover_from_page_crash()
+					if crash:
+						if crash.action == 'reloaded':
+							msg = (
+								f'The previous page ({crash.crashed_url}) crashed and was automatically reloaded. '
+								'Any unsaved page state (form inputs, scroll position) was lost — re-check the page before continuing.'
+							)
+						elif crash.action == 'switched_tab':
+							msg = (
+								f'The previous page ({crash.crashed_url}) crashed and is gone. '
+								f'The browser is now focused on another tab: {crash.current_url}.'
+							)
+						else:
+							msg = (
+								f'The previous page ({crash.crashed_url}) crashed and could not be reloaded. '
+								f'The browser is now on {crash.current_url}.'
+							)
+						self.logger.warning(f'💥 {msg}')
+						crash_result = ActionResult(long_term_memory=msg)
+						if self.state.last_result:
+							self.state.last_result.append(crash_result)
+						else:
+							self.state.last_result = [crash_result]
+				except Exception as e:
+					self.logger.warning(f'Phase 0 crash recovery check failed (non-fatal): {e}')
+
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
 

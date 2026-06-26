@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
@@ -17,6 +18,7 @@ from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.network import Cookie
 from cdp_use.cdp.target import SessionID, TargetID
 from cdp_use.cdp.target.commands import CreateTargetParameters
+from cdp_use.cdp.target.events import TargetCrashedEvent
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
@@ -101,6 +103,23 @@ class CDPSession(BaseModel):
 	# Lifecycle monitoring (populated by SessionManager)
 	_lifecycle_events: Any = PrivateAttr(default=None)
 	_lifecycle_lock: Any = PrivateAttr(default=None)
+
+
+@dataclass
+class PageCrashRecovery:
+	"""Result returned by ``BrowserSession.recover_from_page_crash()`` when the
+	agent's focused tab had crashed and was recovered before the next step.
+
+	``action`` describes what recovery did so the agent can phrase the right
+	message for the LLM:
+	- ``'reloaded'``: the crashed page was reloaded (renderer respawned at ``current_url``)
+	- ``'switched_tab'``: focus moved to a different live tab (``current_url``)
+	- ``'failed'``: the page could not be restored (``current_url`` may be blank)
+	"""
+
+	crashed_url: str
+	action: Literal['reloaded', 'switched_tab', 'failed']
+	current_url: str
 
 
 class BrowserSession(BaseModel):
@@ -533,6 +552,10 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
+	# The agent's focused tab at the moment its renderer crashed (Target.targetCrashed).
+	# Set by the crash handler, consumed + cleared by recover_from_page_crash() on the next step.
+	_crashed_focus_url: str | None = PrivateAttr(default=None)
+	_crashed_focus_target_id: TargetID | None = PrivateAttr(default=None)
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
 
 	# Watchdogs
@@ -632,6 +655,8 @@ class BrowserSession(BaseModel):
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._downloaded_files.clear()
+		self._crashed_focus_url = None
+		self._crashed_focus_target_id = None
 
 		self.agent_focus_target_id = None
 		if self.is_local:
@@ -1870,6 +1895,9 @@ class BrowserSession(BaseModel):
 			self._intentional_stop = False
 			self._attach_ws_drop_callback()
 
+			# Detect renderer crashes on the agent's focused tab so we can auto-recover
+			self._register_target_crashed_handler()
+
 			# Verify the target is working
 			if self.agent_focus_target_id:
 				target = self.session_manager.get_target(self.agent_focus_target_id)
@@ -1916,6 +1944,96 @@ class BrowserSession(BaseModel):
 			raise RuntimeError(f'Failed to establish CDP connection to browser: {e}') from e
 
 		return self
+
+	# region - ========== Page Crash Detection and Recovery ==========
+
+	def _register_target_crashed_handler(self) -> None:
+		"""Register a single ``Target.targetCrashed`` handler on the root CDP client.
+
+		The root client has ``Target.setDiscoverTargets`` enabled (by SessionManager),
+		so it receives crash events for every page target. cdp-use keeps one handler
+		per event method, so registering once here is enough, and it is safe to re-run
+		on reconnect (the new root client gets its own registration).
+		"""
+		if not self._cdp_client_root:
+			return
+		try:
+			self._cdp_client_root.register.Target.targetCrashed(self._on_target_crashed_cdp)
+		except Exception as e:
+			self.logger.debug(f'Failed to register targetCrashed handler: {e}')
+
+	def _on_target_crashed_cdp(self, event: TargetCrashedEvent, session_id: SessionID | None = None) -> None:
+		"""Handle ``Target.targetCrashed`` (renderer process crash).
+
+		A renderer crash does NOT detach the target — the tab stays focused but is
+		dead, so SessionManager never triggers focus recovery. We capture the target
+		and URL here (while the target still exists) so ``recover_from_page_crash()``
+		can reload it on the next agent step. Only the agent's focused tab is tracked;
+		crashes in background tabs are ignored.
+		"""
+		target_id = event.get('targetId')
+		if not target_id or target_id != self.agent_focus_target_id:
+			return
+
+		target = self.session_manager.get_target(target_id) if self.session_manager else None
+		self._crashed_focus_target_id = target_id
+		self._crashed_focus_url = (target.url if target else None) or 'about:blank'
+		self.logger.error(
+			f'💥 Agent focus tab crashed (renderer process gone): {self._crashed_focus_url}. Will auto-recover on next step.'
+		)
+
+	async def recover_from_page_crash(self) -> 'PageCrashRecovery | None':
+		"""Recover the agent's focus if its tab crashed since the last step.
+
+		Called at the start of each agent step, before browser state is read (which
+		would otherwise hang on a dead renderer). Reloads the crashed page so the
+		renderer respawns, or reports that focus moved to another live tab.
+
+		Returns:
+			A PageCrashRecovery describing what happened, or None if no crash occurred.
+		"""
+		crashed_url = self._crashed_focus_url
+		crashed_target_id = self._crashed_focus_target_id
+		if not crashed_url:
+			return None
+		self._crashed_focus_url = None  # consume immediately so we only recover once
+		self._crashed_focus_target_id = None
+
+		# A crashed renderer keeps its CDP session, but if the target was fully
+		# destroyed (rarer) SessionManager is mid-recovery — wait for it to settle.
+		if self.session_manager:
+			try:
+				await self.session_manager.ensure_valid_focus(timeout=5.0)
+			except Exception as e:
+				self.logger.debug(f'ensure_valid_focus during crash recovery failed (non-fatal): {e}')
+
+		focus_id = self.agent_focus_target_id
+		current_target = self.session_manager.get_target(focus_id) if (self.session_manager and focus_id) else None
+		current_url = current_target.url if current_target else 'about:blank'
+
+		# If SessionManager already switched focus to a different, live tab, leave it
+		# alone — don't navigate the agent away from a real page it can use.
+		if focus_id is not None and focus_id != crashed_target_id and not is_new_tab_page(current_url):
+			self.logger.info(f'🔄 Crashed tab gone; focus switched to existing tab: {current_url}')
+			return PageCrashRecovery(crashed_url=crashed_url, action='switched_tab', current_url=current_url)
+
+		# Otherwise reload the crashed URL — this respawns the renderer when focus is
+		# still the dead tab, or fills a blank recovery tab with the previous page.
+		reload_url = crashed_url if not is_new_tab_page(crashed_url) else current_url
+		if is_new_tab_page(reload_url):
+			# Nothing meaningful to restore (crashed on a blank page).
+			self.logger.debug('🔄 Page crash recovery skipped — crashed page had no restorable URL')
+			return PageCrashRecovery(crashed_url=crashed_url, action='reloaded', current_url=current_url)
+		try:
+			self.logger.info(f'🔄 Reloading crashed page: {reload_url}')
+			await self.navigate_to(reload_url)
+			self.logger.info('✅ Page crash recovery complete')
+			return PageCrashRecovery(crashed_url=crashed_url, action='reloaded', current_url=reload_url)
+		except Exception as e:
+			self.logger.error(f'❌ Failed to reload crashed page {reload_url}: {type(e).__name__}: {e}')
+			return PageCrashRecovery(crashed_url=crashed_url, action='failed', current_url=current_url)
+
+	# endregion - ========== Page Crash Detection and Recovery ==========
 
 	async def _setup_proxy_auth(self) -> None:
 		"""Enable CDP Fetch auth handling for authenticated proxy, if credentials provided.
@@ -2135,6 +2253,9 @@ class BrowserSession(BaseModel):
 
 		# 8. Attach the WS drop detection callback to the new client
 		self._attach_ws_drop_callback()
+
+		# 9. Re-register the renderer crash handler on the new root client
+		self._register_target_crashed_handler()
 
 	async def _auto_reconnect(self, max_attempts: int = 3) -> None:
 		"""Attempt to reconnect with exponential backoff.
