@@ -2060,7 +2060,7 @@ def run_main_interface(ctx: click.Context, debug: bool = False, **kwargs):
 		# Run as MCP server
 		from browser_use.mcp.server import main as mcp_main
 
-		asyncio.run(mcp_main())
+		asyncio.run(mcp_main(cdp_url=kwargs.get('cdp_url')))
 		return
 
 	# Check if prompt mode is activated

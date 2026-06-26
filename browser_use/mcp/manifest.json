@@ -129,8 +129,8 @@
     "user_data_dir": {
       "type": "directory",
       "title": "User Data Directory",
-      "description": "Chrome profile directory for persistent sessions (cookies, localStorage, etc)",
-      "default": "${HOME}/.config/browseruse/profiles/default",
+      "description": "Chrome profile directory for persistent sessions (cookies, localStorage, etc). Leave empty for a temporary profile per session (recommended - avoids profile conflicts with residual Chrome processes). Set a path to enable persistent sessions",
+      "default": "",
       "required": false
     },
     "openai_api_key": {

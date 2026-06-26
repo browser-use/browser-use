@@ -8,6 +8,7 @@ This server provides tools for:
 
 Usage:
     uvx browser-use --mcp
+    uvx browser-use --cdp-url http://127.0.0.1:9222 --mcp
 
 Or as an MCP server in Claude Desktop or other MCP clients:
     {
@@ -184,15 +185,39 @@ def get_parent_process_cmdline() -> str | None:
 		return None
 
 
+def parse_mcp_server_args(argv: list[str] | None = None) -> dict[str, Any]:
+	"""Parse the small set of CLI flags supported by MCP server mode.
+
+	The fast CLI intercepts ``--mcp`` before the full argparse parser runs, so
+	flags that affect the MCP browser session need to be handled here.
+	"""
+	args = list(sys.argv[1:] if argv is None else argv)
+	parsed: dict[str, Any] = {}
+
+	i = 0
+	while i < len(args):
+		arg = args[i]
+		if arg == '--cdp-url' and i + 1 < len(args):
+			parsed['cdp_url'] = args[i + 1]
+			i += 2
+			continue
+		if arg.startswith('--cdp-url='):
+			parsed['cdp_url'] = arg.split('=', 1)[1]
+		i += 1
+
+	return parsed
+
+
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
-	def __init__(self, session_timeout_minutes: int = 10):
+	def __init__(self, session_timeout_minutes: int = 10, cdp_url: str | None = None):
 		# Ensure all logging goes to stderr (in case new loggers were created)
 		_ensure_all_loggers_use_stderr()
 
 		self.server = Server('browser-use')
 		self.config = load_browser_use_config()
+		self.cdp_url = cdp_url
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
 		self.tools: Tools | None = None
@@ -586,7 +611,12 @@ class BrowserUseServer:
 			'downloads_path': str(Path.home() / 'Downloads' / 'browser-use-mcp'),
 			'wait_between_actions': 0.5,
 			'keep_alive': True,
-			'user_data_dir': '~/.config/browseruse/profiles/default',
+			# user_data_dir intentionally NOT set here -- when None,
+			# BrowserProfile.validate_user_data_dir creates a unique temp
+			# directory (mkdtemp).  Each MCP session gets a fully isolated
+			# profile, preventing conflicts with residual Chrome processes
+			# from previous sessions.  Users who need persistent browser
+			# state should connect via --cdp-url.
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
@@ -602,11 +632,45 @@ class BrowserUseServer:
 			profile_data[key] = value
 
 		# Create browser profile
+		if self.cdp_url:
+			profile_data['cdp_url'] = self.cdp_url
+			# When connecting to a remote CDP endpoint we never launch a
+			# local browser, so user_data_dir is irrelevant.  If the user
+			# hasn't explicitly configured a non-empty user_data_dir, set a
+			# fixed value to prevent BrowserProfile's validator from
+			# creating a temp directory (mkdtemp) that would never be used
+			# and never be cleaned up by the local-browser watchdog.
+			_user_data_dir = profile_data.get('user_data_dir')
+			if not _user_data_dir or (isinstance(_user_data_dir, str) and not _user_data_dir.strip()):
+				profile_data['user_data_dir'] = '~/.config/browseruse/profiles/default'
+
+		# Normalize user_data_dir: treat empty / whitespace-only values as
+		# "not set" so that BrowserProfile creates a temp directory instead
+		# of resolving the empty string to the current working directory.
+		# This guards against MCP config UIs or manifest installers that
+		# write user_data_dir="" as the default.
+		# NOTE: when cdp_url is set the block above has already replaced a
+		# missing / empty user_data_dir with a fixed path, so this
+		# normalize only affects the local-browser (non-cdp_url) path.
+		user_data_dir = profile_data.get('user_data_dir')
+		if isinstance(user_data_dir, str) and not user_data_dir.strip():
+			profile_data.pop('user_data_dir')
 		profile = BrowserProfile(**profile_data)
 
-		# Create browser session
-		self.browser_session = BrowserSession(browser_profile=profile)
-		await self.browser_session.start()
+		# Create browser session. Only publish it on the server after start()
+		# succeeds; otherwise later tools would operate on a half-initialized
+		# session and produce misleading CDP/state errors.
+		browser_session = BrowserSession(browser_profile=profile)
+		try:
+			await browser_session.start()
+		except Exception:
+			try:
+				await browser_session.kill()
+			except Exception:
+				pass
+			raise
+
+		self.browser_session = browser_session
 
 		# Track the session for management
 		self._track_session(self.browser_session)
@@ -1254,12 +1318,12 @@ class BrowserUseServer:
 				logger.warning('MCP client disconnected while writing to stdio; shutting down server cleanly.')
 
 
-async def main(session_timeout_minutes: int = 10):
+async def main(session_timeout_minutes: int = 10, cdp_url: str | None = None):
 	if not MCP_AVAILABLE:
 		print('MCP SDK is required. Install with: pip install mcp', file=sys.stderr)
 		sys.exit(1)
 
-	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes)
+	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes, cdp_url=cdp_url)
 	server._telemetry.capture(
 		MCPServerTelemetryEvent(
 			version=get_browser_use_version(),
@@ -1284,4 +1348,4 @@ async def main(session_timeout_minutes: int = 10):
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+	asyncio.run(main(**parse_mcp_server_args()))

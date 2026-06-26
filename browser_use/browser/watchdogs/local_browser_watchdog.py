@@ -41,7 +41,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	# Private state for subprocess management
 	_subprocess: psutil.Process | None = PrivateAttr(default=None)
-	_owns_browser_resources: bool = PrivateAttr(default=True)
 	_temp_dirs_to_cleanup: list[Path] = PrivateAttr(default_factory=list)
 	_original_user_data_dir: str | None = PrivateAttr(default=None)
 
@@ -102,6 +101,15 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		profile = self.browser_session.browser_profile
 		self._original_user_data_dir = str(profile.user_data_dir) if profile.user_data_dir else None
 		self._temp_dirs_to_cleanup = []
+
+		# If BrowserProfile's validator auto-created a temp directory
+		# (browser-use-user-data-dir-*), register it for cleanup now,
+		# before any launch attempt.  This ensures the directory is
+		# cleaned even when create_subprocess_exec or _wait_for_cdp_url
+		# fails, not only on the success path.
+		_current_dir = str(profile.user_data_dir) if profile.user_data_dir else ''
+		if 'browser-use-user-data-dir-' in _current_dir:
+			self._temp_dirs_to_cleanup.append(Path(_current_dir))
 
 		for attempt in range(max_retries):
 			try:
@@ -170,7 +178,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 						pass
 
 				# Keep only the in-use directory for cleanup during browser kill
-				if currently_used_dir and 'browseruse-tmp-' in currently_used_dir:
+				if currently_used_dir and (
+					'browseruse-tmp-' in currently_used_dir or 'browser-use-user-data-dir-' in currently_used_dir
+				):
 					self._temp_dirs_to_cleanup = [Path(currently_used_dir)]
 				else:
 					self._temp_dirs_to_cleanup = []
@@ -472,7 +482,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		try:
 			temp_path = Path(temp_dir)
 			# Only remove if it's actually a temp directory we created
-			if 'browseruse-tmp-' in str(temp_path):
+			if 'browseruse-tmp-' in str(temp_path) or 'browser-use-user-data-dir-' in str(temp_path):
 				shutil.rmtree(temp_path, ignore_errors=True)
 		except Exception as e:
 			self.logger.debug(f'Failed to cleanup temp dir {temp_dir}: {e}')
