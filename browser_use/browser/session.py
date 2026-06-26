@@ -2060,10 +2060,15 @@ class BrowserSession(BaseModel):
 		except Exception as e:
 			self.logger.error(f'❌ Failed to reload crashed page {reload_url}: {type(e).__name__}: {e}')
 			# Don't leave the agent focused on the dead renderer — the next browser-state
-			# read would hang on it. Move to a fresh live tab so the agent can continue.
+			# read would hang on it. Create a genuinely fresh tab and switch to it. We
+			# can't use navigate_to(new_tab=True): on_NavigateToUrlEvent rewrites it to
+			# new_tab=False when the current tab is already a blank page (i.e. the dead
+			# tab), which would reuse the crashed target instead of switching away.
 			if self.agent_focus_target_id == crashed_target_id:
 				try:
-					await self.navigate_to('about:blank', new_tab=True)
+					new_target_id = await self._cdp_create_new_page('about:blank')
+					self.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=new_target_id))
+					await self.event_bus.dispatch(SwitchTabEvent(target_id=new_target_id))
 				except Exception as e2:
 					self.logger.error(f'❌ Could not open a fresh tab after failed crash reload: {type(e2).__name__}: {e2}')
 			# Clear markers only if focus is now off the dead tab (recovery is "done" —

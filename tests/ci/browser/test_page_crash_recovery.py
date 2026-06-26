@@ -158,6 +158,38 @@ class TestPageCrashRecovery:
 		# Renderer is responsive after recovery.
 		assert await _eval(browser_session, '1 + 1') == 2
 
+	async def test_recover_failed_reload_switches_off_dead_tab(self):
+		"""If reload fails, focus must move to a fresh live tab (not the dead one),
+		even when the crashed tab is blank (navigate_to(new_tab=True) would reuse it)."""
+		# allowed_domains makes a reload of the crashed URL raise (blocked before any
+		# network fetch), exercising the failure fallback deterministically.
+		session = BrowserSession(
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+				allowed_domains=['example-allowed.test'],
+			)
+		)
+		await session.start()
+		try:
+			dead_id = session.agent_focus_target_id  # initial about:blank tab
+			# Pretend this tab crashed while showing a URL navigation will now reject.
+			session._crashed_focus_target_id = dead_id
+			session._crashed_focus_url = 'http://disallowed.invalid/page'
+
+			recovery = await asyncio.wait_for(session.recover_from_page_crash(), timeout=20)
+
+			assert isinstance(recovery, PageCrashRecovery)
+			assert recovery.action == 'failed'
+			# Focus moved to a genuinely different, live tab — not the dead one.
+			assert session.agent_focus_target_id is not None
+			assert session.agent_focus_target_id != dead_id
+			assert session._crashed_focus_url is None  # cleared once focus left the dead tab
+			assert await _eval(session, '1 + 1') == 2
+		finally:
+			await session.kill()
+
 	async def test_recover_noop_without_crash(self, browser_session, base_url):
 		"""recover_from_page_crash() returns None when nothing crashed, and a
 		successful recovery is not repeated on the next call (markers cleared)."""
