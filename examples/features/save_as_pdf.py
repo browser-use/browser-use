@@ -5,6 +5,11 @@ The agent can save the current page as a PDF at any point during a task.
 Supports custom filenames, paper sizes (Letter, A4, Legal, A3, Tabloid),
 landscape orientation, and background printing.
 
+By default the PDF includes page metadata in the margins (just like Chrome's
+Print dialog): the date in the header and the page URL plus page numbers in the
+footer. Pass display_header_footer=False for a clean PDF, or supply custom
+header_template / footer_template HTML to control exactly what's printed.
+
 Setup:
 1. Get your API key from https://cloud.browser-use.com/new-api-key
 2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
