@@ -75,6 +75,27 @@ Context = TypeVar('Context')
 T = TypeVar('T', bound=BaseModel)
 
 
+# Default header/footer templates for save_as_pdf, mirroring the metadata that
+# Chrome's own Print dialog renders by default: the date in the header and the
+# page URL + page numbers in the footer. Chrome injects values into elements
+# bearing the magic classes `date`, `title`, `url`, `pageNumber` and `totalPages`.
+# A font-size MUST be set explicitly — Chrome defaults header/footer text to 0px,
+# so omitting it renders an invisible (blank) header/footer.
+_DEFAULT_PDF_HEADER_TEMPLATE = (
+	'<div style="font-size:9px; color:#666; width:100%; padding:0 0.4in; '
+	'box-sizing:border-box; text-align:right;"><span class="date"></span></div>'
+)
+_DEFAULT_PDF_FOOTER_TEMPLATE = (
+	'<div style="font-size:9px; color:#666; width:100%; padding:0 0.4in; '
+	'box-sizing:border-box; display:flex; justify-content:space-between;">'
+	# A flex item defaults to min-width:auto and won't shrink below its content,
+	# so a long/unbroken URL would overflow and push the page count off-page.
+	# min-width:0 + ellipsis lets the URL truncate while page numbers stay put.
+	'<span class="url" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>'
+	'<span style="flex-shrink:0; padding-left:8px;"><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>'
+)
+
+
 # Global per-action timeout: last-resort guard against hung event handlers.
 # Individual CDP calls (Page.navigate etc.) have their own shorter timeouts,
 # but event-bus `await event` and `event_result()` calls have none — if a
@@ -1558,16 +1579,41 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			cdp_session = await browser_session.get_or_create_cdp_session(focus=True)
 
+			from cdp_use.cdp.page import PrintToPDFParameters
+
+			pdf_params: PrintToPDFParameters = {
+				'printBackground': params.print_background,
+				'landscape': params.landscape,
+				'scale': params.scale,
+				'paperWidth': paper_width,
+				'paperHeight': paper_height,
+				'preferCSSPageSize': True,
+			}
+
+			if params.display_header_footer:
+				# Chrome clips the header/footer unless the page leaves vertical room for
+				# them, so set explicit margins. preferCSSPageSize only governs page size,
+				# not margins, so these still apply. The horizontal margins keep the body
+				# aligned with the header/footer content (which is padded to match).
+				pdf_params.update(
+					{
+						'displayHeaderFooter': True,
+						'headerTemplate': params.header_template
+						if params.header_template is not None
+						else _DEFAULT_PDF_HEADER_TEMPLATE,
+						'footerTemplate': params.footer_template
+						if params.footer_template is not None
+						else _DEFAULT_PDF_FOOTER_TEMPLATE,
+						'marginTop': 0.5,
+						'marginBottom': 0.5,
+						'marginLeft': 0.4,
+						'marginRight': 0.4,
+					}
+				)
+
 			result = await asyncio.wait_for(
 				cdp_session.cdp_client.send.Page.printToPDF(
-					params={
-						'printBackground': params.print_background,
-						'landscape': params.landscape,
-						'scale': params.scale,
-						'paperWidth': paper_width,
-						'paperHeight': paper_height,
-						'preferCSSPageSize': True,
-					},
+					params=pdf_params,
 					session_id=cdp_session.session_id,
 				),
 				timeout=30.0,

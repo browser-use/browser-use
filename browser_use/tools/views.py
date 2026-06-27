@@ -170,6 +170,30 @@ class SaveAsPdfAction(BaseModel):
 		default='Letter',
 		description='Paper size: Letter, Legal, A4, A3, or Tabloid',
 	)
+	display_header_footer: bool = Field(
+		default=True,
+		description=(
+			'Print page metadata into the margins, matching the browser Print dialog default: '
+			'the date in the header and the page URL plus page numbers in the footer. '
+			'Set to False for a clean PDF with no header/footer.'
+		),
+	)
+	header_template: str | None = Field(
+		default=None,
+		description=(
+			'Custom HTML for the page header. Inject values with spans using the classes '
+			'date, title, url, pageNumber, totalPages (e.g. \'<span class="title"></span>\'). '
+			'Set an explicit font-size or the text renders invisibly. Only used when '
+			'display_header_footer is True; defaults to showing the date.'
+		),
+	)
+	footer_template: str | None = Field(
+		default=None,
+		description=(
+			'Custom HTML for the page footer, same format as header_template. Only used when '
+			'display_header_footer is True; defaults to showing the page URL and page numbers.'
+		),
+	)
 
 
 class GetDropdownOptionsAction(BaseModel):
