@@ -256,6 +256,109 @@ class TestSaveAsPdf:
 			stat = await anyio.Path(pdf_path).stat()
 			assert stat.st_size > 1000, f'PDF seems too small ({stat.st_size} bytes), may be empty'
 
+	async def test_save_as_pdf_header_footer_renders_url(self, tools, browser_session, http_server, base_url):
+		"""display_header_footer=True (the default) prints the page URL into the footer."""
+		import pypdf
+
+		page_url = f'{base_url}/pdf-test'
+		await tools.navigate(url=page_url, new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			result = await tools.save_as_pdf(
+				file_name='with-metadata',
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			pdf_path = _get_attachments(result)[0]
+			assert await anyio.Path(pdf_path).exists()
+
+			reader = pypdf.PdfReader(pdf_path)
+			text_no_ws = ''.join(reader.pages[0].extract_text().split())
+
+			# The footer metadata (page URL) should be embedded in the rendered PDF.
+			expected = f'{http_server.host}:{http_server.port}/pdf-test'
+			assert expected in text_no_ws, f'URL footer metadata not found in PDF text: {text_no_ws!r}'
+
+	async def test_save_as_pdf_without_header_footer(self, tools, browser_session, http_server, base_url):
+		"""display_header_footer=False omits the URL/date metadata from the PDF."""
+		import pypdf
+
+		page_url = f'{base_url}/pdf-test'
+		await tools.navigate(url=page_url, new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			result = await tools.save_as_pdf(
+				file_name='no-metadata',
+				display_header_footer=False,
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			pdf_path = _get_attachments(result)[0]
+			assert await anyio.Path(pdf_path).exists()
+
+			reader = pypdf.PdfReader(pdf_path)
+			text_no_ws = ''.join(reader.pages[0].extract_text().split())
+
+			# Page body never contains the URL, so it must not appear without the footer.
+			netloc = f'{http_server.host}:{http_server.port}'
+			assert netloc not in text_no_ws, f'URL leaked into PDF without header/footer: {text_no_ws!r}'
+
+	async def test_save_as_pdf_custom_templates(self, tools, browser_session, base_url):
+		"""Custom header/footer templates are honored over the defaults."""
+		import pypdf
+
+		await tools.navigate(url=f'{base_url}/pdf-test', new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			result = await tools.save_as_pdf(
+				file_name='custom-templates',
+				header_template='<div style="font-size:12px;">CONFIDENTIAL DRAFT</div>',
+				footer_template='<div style="font-size:12px;"><span class="title"></span></div>',
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			pdf_path = _get_attachments(result)[0]
+			reader = pypdf.PdfReader(pdf_path)
+			text_no_ws = ''.join(reader.pages[0].extract_text().split())
+
+			assert 'CONFIDENTIALDRAFT' in text_no_ws, f'Custom header not found in PDF text: {text_no_ws!r}'
+
+	async def test_save_as_pdf_long_url_keeps_page_number(self, tools, browser_session, base_url):
+		"""A long footer URL truncates instead of pushing the page number off the printable area."""
+		import pypdf
+
+		# Long, unbroken URL — without min-width:0 + ellipsis on the url span this
+		# overflows the footer and pushes the page count past the page edge.
+		long_url = f'{base_url}/pdf-test?q={"x" * 400}'
+		await tools.navigate(url=long_url, new_tab=False, browser_session=browser_session)
+		await asyncio.sleep(0.5)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			result = await tools.save_as_pdf(
+				file_name='long-url',
+				# Suppress the header date so the page-number check below is unambiguous.
+				header_template='<span></span>',
+				browser_session=browser_session,
+				file_system=file_system,
+			)
+
+			pdf_path = _get_attachments(result)[0]
+			reader = pypdf.PdfReader(pdf_path)
+			text_no_ws = ''.join(reader.pages[0].extract_text().split())
+
+			# The footer page count must still render despite the very long URL.
+			assert '1/1' in text_no_ws, f'page number pushed off-page by long URL: {text_no_ws!r}'
+
 	async def test_save_as_pdf_param_model_schema(self):
 		"""SaveAsPdfAction schema exposes the right fields with defaults."""
 		from browser_use.tools.views import SaveAsPdfAction
@@ -268,9 +371,14 @@ class TestSaveAsPdf:
 		assert 'landscape' in props
 		assert 'scale' in props
 		assert 'paper_format' in props
+		assert 'display_header_footer' in props
+		assert 'header_template' in props
+		assert 'footer_template' in props
 
 		# Check defaults
 		assert props['print_background']['default'] is True
 		assert props['landscape']['default'] is False
 		assert props['scale']['default'] == 1.0
 		assert props['paper_format']['default'] == 'Letter'
+		# Header/footer metadata is on by default, matching the browser Print dialog
+		assert props['display_header_footer']['default'] is True
