@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -200,17 +201,47 @@ class StorageStateWatchdog(BaseWatchdog):
 					except Exception as e:
 						self.logger.error(f'[StorageStateWatchdog] Failed to merge with existing state: {e}')
 
-				# Write atomically
-				temp_path = json_path.with_suffix('.json.tmp')
-				temp_path.write_text(json.dumps(merged_state, indent=4, ensure_ascii=False), encoding='utf-8')
+				# Write atomically to a fresh owner-only temp file. mkstemp creates it
+				# with O_EXCL + 0o600, so the persisted session cookies / localStorage are
+				# never world-readable under the default umask — not even during the write
+				# or if the process crashes before the rename. Mirrors the project's own
+				# credential-file posture (skill_cli/config.py write_config, sync/auth.py,
+				# the daemon Unix socket all use 0o600).
+				fd, tmp_str = tempfile.mkstemp(dir=json_path.parent, prefix='.storage_state_', suffix='.json.tmp')
+				temp_path = Path(tmp_str)
+				try:
+					with os.fdopen(fd, 'w', encoding='utf-8') as f:
+						f.write(json.dumps(merged_state, indent=4, ensure_ascii=False))
+						f.flush()
+						os.fsync(f.fileno())
+					try:
+						temp_path.chmod(0o600)
+					except OSError:
+						pass
 
-				# Backup existing file
-				if json_path.exists():
+					# Lock down any cookie-bearing .json.bak left by a pre-fix version,
+					# regardless of whether the current file still exists.
 					backup_path = json_path.with_suffix('.json.bak')
-					json_path.replace(backup_path)
+					if backup_path.exists():
+						try:
+							backup_path.chmod(0o600)
+						except OSError:
+							pass
 
-				# Move temp to final
-				temp_path.replace(json_path)
+					# Rotate the current file to backup, restricting it first so the backup
+					# is never world-readable even if a later error aborts before the rename.
+					if json_path.exists():
+						try:
+							json_path.chmod(0o600)
+						except OSError:
+							pass
+						json_path.replace(backup_path)
+
+					# Move temp to final
+					temp_path.replace(json_path)
+				except BaseException:
+					temp_path.unlink(missing_ok=True)
+					raise
 
 				# Emit success event
 				self.event_bus.dispatch(
