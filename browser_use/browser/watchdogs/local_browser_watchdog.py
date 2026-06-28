@@ -413,7 +413,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
 			try:
-				async with aiohttp.ClientSession() as session:
+				async with aiohttp.ClientSession(trust_env=False) as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
 						if resp.status == 200:
 							# Chrome is ready
