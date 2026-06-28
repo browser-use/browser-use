@@ -854,7 +854,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'Upload a file from the local filesystem (or Agent FileSystem / available_file_paths) to a file input element (<input type="file">) on the page. Provide the 0-based index of the target element (or a nearby clickable element) and the exact file path. This is the required action for all file uploads - never use click, navigate, or other actions on file inputs. The path must be pre-approved in available_file_paths or managed by the FileSystem.',
 			param_model=UploadFileAction,
 		)
 		async def upload_file(
