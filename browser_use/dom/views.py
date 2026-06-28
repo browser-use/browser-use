@@ -848,7 +848,7 @@ class EnhancedDOMTreeNode:
 		attributes_string = ''.join(f'{k}={v}' for k, v in sorted(filtered_attrs.items()))
 
 		ax_name = ''
-		if self.ax_node and self.ax_node.name:
+		if self.ax_node and self.ax_node.name is not None:
 			ax_name = f'|ax_name={self.ax_node.name}'
 
 		combined_string = f'{parent_branch_path_string}|{attributes_string}{ax_name}'
@@ -876,7 +876,7 @@ class EnhancedDOMTreeNode:
 		# Include accessibility name (ax_name) if available - this helps distinguish
 		# elements that have identical structure and attributes but different visible text
 		ax_name = ''
-		if self.ax_node and self.ax_node.name:
+		if self.ax_node and self.ax_node.name is not None:
 			ax_name = f'|ax_name={self.ax_node.name}'
 
 		# Combine all for final hash
@@ -1022,7 +1022,7 @@ class DOMInteractedElement:
 	def load_from_enhanced_dom_tree(cls, enhanced_dom_tree: EnhancedDOMTreeNode) -> 'DOMInteractedElement':
 		# Extract accessibility name if available
 		ax_name = None
-		if enhanced_dom_tree.ax_node and enhanced_dom_tree.ax_node.name:
+		if enhanced_dom_tree.ax_node and enhanced_dom_tree.ax_node.name is not None:
 			ax_name = enhanced_dom_tree.ax_node.name
 
 		return cls(
