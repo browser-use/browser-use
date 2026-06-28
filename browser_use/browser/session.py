@@ -12,7 +12,7 @@ from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 import httpx
-from bubus import EventBus
+from bubus import BaseEvent, EventBus
 from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.inspector.events import TargetCrashedEvent as InspectorTargetCrashedEvent
@@ -121,6 +121,34 @@ class PageCrashRecovery:
 	crashed_url: str
 	action: Literal['reloaded', 'switched_tab', 'failed']
 	current_url: str
+
+
+class ResilientEventBus(EventBus):
+	"""EventBus whose step()/wait_until_idle() no-op on a torn-down bus instead of asserting.
+
+	Agent.close() stops a keep_alive session's bus and nulls its async primitives to release
+	the event loop. On warm-Lambda resume the worker can step() it before a dispatch() restarts
+	it; stock bubus then asserts "_start() must be called before step()" (ENG-5280).
+	"""
+
+	def __init__(self, name: str | None = None, **kwargs: Any) -> None:
+		# Keep the EventBus_ name prefix (bubus would otherwise derive it from the class name).
+		super().__init__(name=name or f'EventBus_{uuid7str()[-8:]}', **kwargs)
+
+	async def step(
+		self,
+		event: 'BaseEvent[Any] | None' = None,
+		timeout: float | None = None,
+		wait_for_timeout: float = 0.1,
+	) -> 'BaseEvent[Any] | None':
+		if self._on_idle is None or self.event_queue is None:
+			return None
+		return await super().step(event, timeout, wait_for_timeout)
+
+	async def wait_until_idle(self, timeout: float | None = None) -> None:
+		if self._on_idle is None or self.event_queue is None:
+			return None
+		return await super().wait_until_idle(timeout)
 
 
 class BrowserSession(BaseModel):
@@ -538,7 +566,7 @@ class BrowserSession(BaseModel):
 		return self._demo_mode
 
 	# Main shared event bus for all browser session + all watchdogs
-	event_bus: EventBus = Field(default_factory=EventBus)
+	event_bus: EventBus = Field(default_factory=ResilientEventBus)
 
 	# Mutable public state - which target has agent focus
 	agent_focus_target_id: TargetID | None = None
@@ -739,7 +767,7 @@ class BrowserSession(BaseModel):
 		# Reset all state
 		await self.reset()
 		# Create fresh event bus
-		self.event_bus = EventBus()
+		self.event_bus = ResilientEventBus()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -764,7 +792,7 @@ class BrowserSession(BaseModel):
 		# Reset all state
 		await self.reset()
 		# Create fresh event bus
-		self.event_bus = EventBus()
+		self.event_bus = ResilientEventBus()
 
 	async def close(self) -> None:
 		"""Alias for stop()."""
