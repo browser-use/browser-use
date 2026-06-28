@@ -21,6 +21,8 @@ from browser_use.browser.events import (
 	CloseTabEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
+	HoverCoordinateEvent,
+	HoverElementEvent,
 	NavigateToUrlEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -45,6 +47,8 @@ from browser_use.tools.views import (
 	ExtractAction,
 	FindElementsAction,
 	GetDropdownOptionsAction,
+	HoverElementAction,
+	HoverElementActionIndexOnly,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
@@ -449,6 +453,7 @@ class Tools(Generic[Context]):
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
+		self._coordinate_hovering_enabled: bool = False
 
 		"""Register all default browser actions"""
 
@@ -766,6 +771,90 @@ class Tools(Generic[Context]):
 
 		# Register click action (index-only by default)
 		self._register_click_action()
+
+		async def _hover_by_index(
+			params: HoverElementAction | HoverElementActionIndexOnly, browser_session: BrowserSession
+		) -> ActionResult:
+			assert params.index is not None
+			try:
+				assert params.index != 0, (
+					'Cannot hover on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
+				)
+
+				node = await browser_session.get_element_by_index(params.index)
+				if node is None:
+					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+					logger.warning(f'⚠️ {msg}')
+					return ActionResult(extracted_content=msg)
+
+				create_task_with_error_handling(
+					browser_session.highlight_interaction_element(node),
+					name='highlight_hover_element',
+					suppress_exceptions=True,
+				)
+
+				event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
+				await event
+				hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+
+				if isinstance(hover_metadata, dict) and 'validation_error' in hover_metadata:
+					return ActionResult(error=hover_metadata['validation_error'])
+
+				element_desc = get_click_description(node)
+				memory = f'Hovered over {element_desc}'
+				logger.info(f'👆 {memory}')
+				return ActionResult(
+					extracted_content=memory,
+					metadata={
+						'hover_index': params.index,
+						'hover_x': hover_metadata.get('hover_x') if isinstance(hover_metadata, dict) else None,
+						'hover_y': hover_metadata.get('hover_y') if isinstance(hover_metadata, dict) else None,
+						'element_bbox': hover_metadata.get('element_bbox') if isinstance(hover_metadata, dict) else None,
+					},
+				)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover element {params.index}: {str(e)}'
+				return ActionResult(error=error_msg)
+
+		async def _hover_by_coordinate(params: HoverElementAction, browser_session: BrowserSession) -> ActionResult:
+			if params.coordinate_x is None or params.coordinate_y is None:
+				return ActionResult(error='Both coordinate_x and coordinate_y must be provided')
+
+			try:
+				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
+					params.coordinate_x, params.coordinate_y, browser_session
+				)
+
+				# Highlight the coordinate being hovered (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
+
+				event = browser_session.event_bus.dispatch(HoverCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y))
+				await event
+				hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+
+				if isinstance(hover_metadata, dict) and 'validation_error' in hover_metadata:
+					return ActionResult(error=hover_metadata['validation_error'])
+
+				memory = f'Hovered at coordinate {params.coordinate_x}, {params.coordinate_y}'
+				logger.info(f'👆 {memory}')
+				return ActionResult(
+					extracted_content=memory,
+					metadata={'hover_x': actual_x, 'hover_y': actual_y},
+				)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
+				return ActionResult(error=error_msg)
+
+		# Store hover handlers for re-registration
+		self._hover_by_index = _hover_by_index
+		self._hover_by_coordinate = _hover_by_coordinate
+
+		# Register hover action (index-only by default)
+		self._register_hover_action()
 
 		@self.registry.action(
 			'Input text into element by index. Clears existing text by default; pass text="" to clear only, or clear=False to append.',
@@ -2157,6 +2246,54 @@ Validated Code (after quote fixing):
 		self._coordinate_clicking_enabled = enabled
 		self._register_click_action()
 		logger.debug(f'Coordinate clicking {"enabled" if enabled else "disabled"}')
+
+	def _register_hover_action(self) -> None:
+		"""Register the hover action with or without coordinate support based on current setting."""
+		# Remove existing hover action if present
+		if 'hover' in self.registry.registry.actions:
+			del self.registry.registry.actions['hover']
+
+		if self._coordinate_hovering_enabled:
+			# Register hover action WITH coordinate support
+			@self.registry.action(
+				'Hover over element by index or coordinates. Use to trigger dropdown menus, tooltips, or CSS hover effects.',
+				param_model=HoverElementAction,
+			)
+			async def hover(params: HoverElementAction, browser_session: BrowserSession):
+				# Validate that either index or coordinates are provided
+				if params.index is None and (params.coordinate_x is None or params.coordinate_y is None):
+					return ActionResult(error='Must provide either index or both coordinate_x and coordinate_y')
+
+				# Try index-based hovering first if index is provided
+				if params.index is not None:
+					return await self._hover_by_index(params, browser_session)
+				# Coordinate-based hovering when index is not provided
+				else:
+					return await self._hover_by_coordinate(params, browser_session)
+		else:
+			# Register hover action WITHOUT coordinate support (index only)
+			@self.registry.action(
+				'Hover over element by index. Use to trigger dropdown menus, tooltips, or CSS hover effects.',
+				param_model=HoverElementActionIndexOnly,
+			)
+			async def hover(params: HoverElementActionIndexOnly, browser_session: BrowserSession):
+				return await self._hover_by_index(params, browser_session)
+
+	def set_coordinate_hovering(self, enabled: bool) -> None:
+		"""Enable or disable coordinate-based hovering.
+
+		When enabled, the hover action accepts both index and coordinate parameters.
+		When disabled (default), only index-based hovering is available.
+
+		Args:
+			enabled: True to enable coordinate hovering, False to disable
+		"""
+		if enabled == self._coordinate_hovering_enabled:
+			return  # No change needed
+
+		self._coordinate_hovering_enabled = enabled
+		self._register_hover_action()
+		logger.debug(f'Coordinate hovering {"enabled" if enabled else "disabled"}')
 
 	# Act --------------------------------------------------------------------
 	@observe_debug(ignore_input=True, ignore_output=True, name='act')

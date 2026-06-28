@@ -330,6 +330,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		if supports_coordinate_clicking:
 			self.tools.set_coordinate_clicking(True)
+			self.tools.set_coordinate_hovering(True)
 
 		# Handle skills vs skill_ids parameter (skills takes precedence)
 		if skills and skill_ids:
