@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
 
+from browser_use.browser.events import TabCreatedEvent
 from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
@@ -403,6 +404,7 @@ class SessionManager:
 
 		from browser_use.browser.session import Target
 
+		target_url = target_info.get('url') or 'about:blank'
 		async with self._lock:
 			# Track this session for the target
 			if target_id not in self._target_sessions:
@@ -417,7 +419,7 @@ class SessionManager:
 				target = Target(
 					target_id=target_id,
 					target_type=target_type,
-					url=target_info.get('url', 'about:blank'),
+					url=target_url,
 					title=target_info.get('title', 'Unknown title'),
 				)
 				self._targets[target_id] = target
@@ -425,8 +427,9 @@ class SessionManager:
 			else:
 				# Update existing target info
 				existing_target = self._targets[target_id]
-				existing_target.url = target_info.get('url', existing_target.url)
+				existing_target.url = target_info.get('url') or existing_target.url or 'about:blank'
 				existing_target.title = target_info.get('title', existing_target.title)
+				target_url = existing_target.url
 
 		# Create CDPSession (communication channel)
 		from browser_use.browser.session import CDPSession
@@ -465,6 +468,8 @@ class SessionManager:
 		# Enable lifecycle events and network monitoring for page targets
 		if target_type in ('page', 'tab'):
 			await self._enable_page_monitoring(cdp_session)
+
+			self.browser_session.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url=target_url))
 
 		# Resume execution if waiting for debugger
 		if waiting_for_debugger:
