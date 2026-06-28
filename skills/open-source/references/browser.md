@@ -128,8 +128,11 @@ profiles = Browser.list_chrome_profiles()
 ### Storage State Persistence
 
 ```python
-# Export cookies/localStorage
+# Export cookies only
 await browser.export_storage_state('auth.json')
+
+# Export cookies plus localStorage/sessionStorage
+await browser.export_storage_state('auth.json', include_storage=True)
 
 # Load on next run
 browser = Browser(storage_state='auth.json')
