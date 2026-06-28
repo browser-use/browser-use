@@ -1,6 +1,7 @@
 """Configuration system for browser-use with automatic migration support."""
 
 import json
+import locale
 import logging
 import os
 from datetime import datetime
@@ -311,19 +312,33 @@ def create_default_config() -> DBStyleConfigJSON:
 	return new_config
 
 
+def _load_config_json(config_path: Path) -> dict[str, Any]:
+	try:
+		with open(config_path, encoding='utf-8') as f:
+			return json.load(f)
+	except UnicodeDecodeError:
+		legacy_encoding = locale.getpreferredencoding(False)
+		logger.warning(
+			'Failed to decode %s as UTF-8, retrying with preferred locale encoding %s',
+			config_path,
+			legacy_encoding,
+		)
+		with open(config_path, encoding=legacy_encoding) as f:
+			return json.load(f)
+
+
 def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 	"""Load config.json or create fresh one if old format detected."""
 	if not config_path.exists():
 		# Create fresh config with defaults
 		config_path.parent.mkdir(parents=True, exist_ok=True)
 		new_config = create_default_config()
-		with open(config_path, 'w') as f:
+		with open(config_path, 'w', encoding='utf-8') as f:
 			json.dump(new_config.model_dump(), f, indent=2)
 		return new_config
 
 	try:
-		with open(config_path) as f:
-			data = json.load(f)
+		data = _load_config_json(config_path)
 
 		# Check if it's already in DB-style format
 		if all(key in data for key in ['browser_profile', 'llm', 'agent']) and all(
@@ -339,7 +354,7 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		new_config = create_default_config()
 
 		# Overwrite with new config
-		with open(config_path, 'w') as f:
+		with open(config_path, 'w', encoding='utf-8') as f:
 			json.dump(new_config.model_dump(), f, indent=2)
 
 		logger.debug(f'Created fresh config.json at {config_path}')
@@ -350,7 +365,7 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		# On any error, create fresh config
 		new_config = create_default_config()
 		try:
-			with open(config_path, 'w') as f:
+			with open(config_path, 'w', encoding='utf-8') as f:
 				json.dump(new_config.model_dump(), f, indent=2)
 		except Exception as write_error:
 			logger.error(f'Failed to write fresh config: {write_error}')

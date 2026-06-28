@@ -100,12 +100,12 @@ class ProductTelemetry:
 		try:
 			if not os.path.exists(self.USER_ID_PATH):
 				os.makedirs(os.path.dirname(self.USER_ID_PATH), exist_ok=True)
-				with open(self.USER_ID_PATH, 'w') as f:
+				with open(self.USER_ID_PATH, 'w', encoding='utf-8') as f:
 					new_user_id = uuid7str()
 					f.write(new_user_id)
 				self._curr_user_id = new_user_id
 			else:
-				with open(self.USER_ID_PATH) as f:
+				with open(self.USER_ID_PATH, encoding='utf-8') as f:
 					self._curr_user_id = f.read()
 		except Exception:
 			self._curr_user_id = 'UNKNOWN_USER_ID'

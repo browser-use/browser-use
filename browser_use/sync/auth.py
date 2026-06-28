@@ -59,7 +59,7 @@ class CloudAuthConfig(BaseModel):
 		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
 		if config_path.exists():
 			try:
-				with open(config_path) as f:
+				with open(config_path, encoding='utf-8') as f:
 					data = json.load(f)
 				return cls.model_validate(data)
 			except Exception:
@@ -73,7 +73,7 @@ class CloudAuthConfig(BaseModel):
 		CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
-		with open(config_path, 'w') as f:
+		with open(config_path, 'w', encoding='utf-8') as f:
 			json.dump(self.model_dump(mode='json'), f, indent=2, default=str)
 
 		# Set restrictive permissions (owner read/write only) for security
