@@ -365,8 +365,12 @@ def _parse_atomic_blocks(content: str) -> list[_AtomicBlock]:
 		)
 		offset = para_end
 
-	# Fix last block char_end: content may not end with \n
-	if blocks and content and not content.endswith('\n'):
+	# Fix last block char_end. Adding +1 per split line for the newline overshoots
+	# the true length by one in two cases: content has no trailing newline (the
+	# final line's +1 has no newline to account for), or content ends with a
+	# newline (str.split('\n') yields a spurious empty final element). Either way
+	# the last block must end exactly at len(content).
+	if blocks and content and blocks[-1].char_end != len(content):
 		blocks[-1] = _AtomicBlock(
 			block_type=blocks[-1].block_type,
 			lines=blocks[-1].lines,
