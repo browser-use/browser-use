@@ -86,7 +86,7 @@ class Daemon:
 		state_path = get_home_dir() / f'{self.session}.state.json'
 		tmp_path = state_path.with_suffix('.state.json.tmp')
 		try:
-			with open(tmp_path, 'w') as f:
+			with open(tmp_path, 'w', encoding='utf-8') as f:
 				json.dump(state, f)
 				f.flush()
 				os.fsync(f.fileno())
