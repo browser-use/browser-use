@@ -375,62 +375,114 @@ install_profile_use() {
 # PATH configuration
 # =============================================================================
 
-configure_path() {
-	local shell_rc=""
-	local bin_path=$(get_venv_bin_dir)
-	local local_bin="$HOME/.local/bin"
+# =============================================================================
+# PATH configuration
+# =============================================================================
 
-	# Detect user's login shell (not the running shell, since this script
-	# is typically executed via "curl ... | bash" which always sets BASH_VERSION)
+# Create wrapper scripts in ~/.local/bin for CLI commands instead of
+# adding the entire virtualenv bin directory to PATH. This prevents the
+# venv's Python and other executables from shadowing the user's system Python.
+
+create_wrappers() {
+	local venv_bin=$(get_venv_bin_dir)
+	local wrapper_dir="$HOME/.local/bin"
+	mkdir -p "$wrapper_dir"
+
+	# CLI entry points from pyproject.toml
+	local commands="browser-use bu browseruse browser browser-use-tui"
+
+	for cmd in $commands; do
+		local use_exe=""
+		if [ -x "$venv_bin/$cmd" ]; then
+			:  # exist without .exe suffix
+		elif [ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]; then
+			use_exe=".exe"
+		else
+			continue
+		fi
+		local wrapper="$wrapper_dir/$cmd"
+		cat > "$wrapper" <<- WRAPPER_EOF
+			#!/bin/sh
+			exec "$venv_bin/$cmd$use_exe" "\$@"
+		WRAPPER_EOF
+		chmod +x "$wrapper"
+		log_success "Created wrapper: $wrapper_dir/$cmd"
+	done
+}
+
+configure_path() {
+	local wrapper_dir="$HOME/.local/bin"
+	local shell_rc=""
+
+	# Detect user's login shell
 	case "$(basename "$SHELL")" in
 		zsh)  shell_rc="$HOME/.zshrc" ;;
 		bash) shell_rc="$HOME/.bashrc" ;;
 		*)    shell_rc="$HOME/.profile" ;;
 	esac
 
-	# Check if already in PATH (browser-use-env matches both /bin and /Scripts)
-	if grep -q "browser-use-env" "$shell_rc" 2>/dev/null; then
-		log_info "PATH already configured in $shell_rc"
-	else
-		# Add to shell config (includes ~/.local/bin for tools)
+	# Create wrapper scripts for each CLI command
+	create_wrappers
+
+	# Ensure ~/.local/bin is on PATH (standard location for user CLI tools)
+	if ! grep -q "\.local/bin" "$shell_rc" 2>/dev/null; then
 		echo "" >> "$shell_rc"
-		echo "# Browser-Use" >> "$shell_rc"
-		echo "export PATH=\"$bin_path:$local_bin:\$PATH\"" >> "$shell_rc"
-		log_success "Added to PATH in $shell_rc"
+		echo "# Browser-Use CLI wrappers" >> "$shell_rc"
+		echo "export PATH="$wrapper_dir:\$PATH"" >> "$shell_rc"
+		log_success "Added ~/.local/bin to PATH in $shell_rc"
 	fi
 
-	# On Windows, also configure PowerShell profile
+	# On Windows, also configure via registry
 	if [ "$PLATFORM" = "windows" ]; then
-		configure_powershell_path
+		configure_powershell_wrappers
 	fi
 }
 
-configure_powershell_path() {
-	# Use PowerShell to modify user PATH in registry (no execution policy needed)
-	# This persists across sessions without requiring profile script execution
+configure_powershell_wrappers() {
+	local venv_bin=$(get_venv_bin_dir)
+	local wrapper_dir="$HOME/.local/bin"
+	mkdir -p "$wrapper_dir"
 
-	local scripts_path='\\.browser-use-env\\Scripts'
-	local local_bin='\\.local\\bin'
+	# Create .cmd wrappers for each CLI command
+	local commands="browser-use bu browseruse browser browser-use-tui"
+	for cmd in $commands; do
+		local use_exe=""
+		if [ -x "$venv_bin/$cmd" ]; then
+			:  # exist without .exe suffix
+		elif [ "$PLATFORM" = "windows" ] && [ -x "$venv_bin/$cmd.exe" ]; then
+			use_exe=".exe"
+		else
+			continue
+		fi
+		local wrapper="$wrapper_dir/${cmd}.cmd"
+		{
+			echo '@echo off'
+			echo ""$(echo "$venv_bin/$cmd$use_exe" | sed 's|/\\|g')" %*"
+		} > "$wrapper"
+		chmod +x "$wrapper"
+		log_success "Created wrapper: $wrapper_dir/${cmd}.cmd"
+	done
 
-	# Check if already in user PATH
-	local current_path=$(powershell.exe -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" 2>/dev/null | tr -d '\r')
+	# Ensure wrapper dir is in user PATH via registry
+	local wrapper_win='\.localin'
+	local current_path=$(powershell.exe -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" 2>/dev/null | tr -d '
+')
 
-	if echo "$current_path" | grep -q "browser-use-env"; then
-		log_info "PATH already configured"
+	# Use grep -F (fixed-string) so that \b is treated literally, not as a regex word boundary
+	if echo "$current_path" | grep -qF "\.local\\bin"; then
+		log_info "Wrapper directory already in PATH"
 		return 0
 	fi
 
-	# Append to user PATH via registry (safe, no truncation, no execution policy needed)
-	powershell.exe -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + \$env:USERPROFILE + '$scripts_path;' + \$env:USERPROFILE + '$local_bin', 'User')" 2>/dev/null
+	powershell.exe -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + \$env:USERPROFILE + '$wrapper_win', 'User')" 2>/dev/null
 
 	if [ $? -eq 0 ]; then
-		log_success "Added to Windows PATH: %USERPROFILE%\\.browser-use-env\\Scripts"
+		log_success "Added to Windows PATH: %USERPROFILE%\.localin"
 	else
 		log_warn "Could not update PATH automatically. Add manually:"
-		log_warn "  \$env:PATH += \";\$env:USERPROFILE\\.browser-use-env\\Scripts\""
+		log_warn "  \$env:PATH += ";\$env:USERPROFILE\.localin""
 	fi
 }
-
 # =============================================================================
 # Validation
 # =============================================================================
