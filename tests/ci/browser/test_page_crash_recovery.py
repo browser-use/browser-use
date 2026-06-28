@@ -186,6 +186,13 @@ class TestPageCrashRecovery:
 			assert session.agent_focus_target_id is not None
 			assert session.agent_focus_target_id != dead_id
 			assert session._crashed_focus_url is None  # cleared once focus left the dead tab
+			# The dead tab is closed so the model can't switch back to it and hang.
+			# Removal from the pool is via the async detach event, so poll briefly.
+			for _ in range(30):
+				if dead_id not in [t.target_id for t in session.session_manager.get_all_page_targets()]:
+					break
+				await asyncio.sleep(0.1)
+			assert dead_id not in [t.target_id for t in session.session_manager.get_all_page_targets()]
 			assert await _eval(session, '1 + 1') == 2
 		finally:
 			await session.kill()

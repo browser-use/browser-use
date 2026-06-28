@@ -2102,6 +2102,14 @@ class BrowserSession(BaseModel):
 			# Clear markers only if focus is now off the dead tab (recovery is "done" —
 			# the LLM can re-navigate). If we're still stuck on it, keep them to retry.
 			if self.agent_focus_target_id != crashed_target_id:
+				# Close the dead tab so it can't be re-selected: a crashed renderer does NOT
+				# detach, so the target lingers in get_tabs() and the model could switch back
+				# to it and hang on the dead renderer (recovery wouldn't re-trigger).
+				if crashed_target_id:
+					try:
+						await self.event_bus.dispatch(CloseTabEvent(target_id=crashed_target_id))
+					except Exception as e3:
+						self.logger.debug(f'Could not close crashed tab {crashed_target_id}: {type(e3).__name__}: {e3}')
 				self._clear_crash_markers()
 			live = (
 				self.session_manager.get_target(self.agent_focus_target_id)
