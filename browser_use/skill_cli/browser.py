@@ -122,15 +122,21 @@ class CLIBrowserSession(BrowserSession):
 		if cloud_base:
 			self._cloud_browser_client.api_base_url = cloud_base.rstrip('/')
 
-		# Ensure CLI has an API key from config.json before proceeding.
-		from browser_use.skill_cli.config import get_config_value
+		# Ensure CLI has an API key before proceeding. The cloud client reads
+		# BROWSER_USE_API_KEY directly, so keep the daemon env in sync with the
+		# CLI's config/env lookup order.
+		from browser_use.skill_cli.commands.cloud import _get_api_key_or_none
 
-		if not get_config_value('api_key'):
+		api_key = _get_api_key_or_none()
+
+		if not api_key:
 			from browser_use.browser.cloud.views import CloudBrowserAuthError
 
 			raise CloudBrowserAuthError(
-				'No API key configured. Run `browser-use cloud login <key>` or `browser-use cloud signup`.'
+				'No API key configured. Run `browser-use cloud login <key>`, '
+				'`browser-use cloud signup`, or set BROWSER_USE_API_KEY.'
 			)
+		os.environ['BROWSER_USE_API_KEY'] = api_key
 
 		cloud_params = self.browser_profile.cloud_browser_params or CreateBrowserRequest()
 		# Set recording from CLI config (defaults to True)
@@ -146,7 +152,7 @@ class CLIBrowserSession(BrowserSession):
 				logger.info('Cloud profile invalid, creating new one and retrying')
 				from browser_use.skill_cli.commands.cloud import _create_cloud_profile_inner
 
-				api_key = get_config_value('api_key')
+				api_key = _get_api_key_or_none()
 				if not api_key:
 					raise
 				new_profile_id = _create_cloud_profile_inner(str(api_key))
