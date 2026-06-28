@@ -1,6 +1,6 @@
 from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.browser.types import ViewportSize
+from browser_use.browser.profile import ViewportSize
 from browser_use.llm import ChatAzureOpenAI
 
 # Initialize the Azure OpenAI client

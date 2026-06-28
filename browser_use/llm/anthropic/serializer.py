@@ -45,8 +45,8 @@ class AnthropicMessageSerializer:
 		# Ensure it's a supported media type
 		supported_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 		if media_type not in supported_types:
-			# Default to png if not recognized
-			media_type = 'image/png'
+			# Default to jpeg if not recognized
+			media_type = 'image/jpeg'
 
 		return media_type, data  # type: ignore
 
@@ -98,9 +98,12 @@ class AnthropicMessageSerializer:
 				return content
 
 		serialized_blocks: list[TextBlockParam] = []
-		for part in content:
+		for i, part in enumerate(content):
+			is_last = i == len(content) - 1
 			if part.type == 'text':
-				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part, use_cache))
+				serialized_blocks.append(
+					AnthropicMessageSerializer._serialize_content_part_text(part, use_cache=use_cache and is_last)
+				)
 
 		return serialized_blocks
 
@@ -117,9 +120,12 @@ class AnthropicMessageSerializer:
 				return content
 
 		serialized_blocks: list[TextBlockParam | ImageBlockParam] = []
-		for part in content:
+		for i, part in enumerate(content):
+			is_last = i == len(content) - 1
 			if part.type == 'text':
-				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part, use_cache))
+				serialized_blocks.append(
+					AnthropicMessageSerializer._serialize_content_part_text(part, use_cache=use_cache and is_last)
+				)
 			elif part.type == 'image_url':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_image(part))
 
@@ -129,7 +135,7 @@ class AnthropicMessageSerializer:
 	def _serialize_tool_calls_to_content(tool_calls, use_cache: bool = False) -> list[ToolUseBlockParam]:
 		"""Convert tool calls to Anthropic's ToolUseBlockParam format."""
 		blocks: list[ToolUseBlockParam] = []
-		for tool_call in tool_calls:
+		for i, tool_call in enumerate(tool_calls):
 			# Parse the arguments JSON string to object
 
 			try:
@@ -138,13 +144,14 @@ class AnthropicMessageSerializer:
 				# If arguments aren't valid JSON, use as string
 				input_obj = {'arguments': tool_call.function.arguments}
 
+			is_last = i == len(tool_calls) - 1
 			blocks.append(
 				ToolUseBlockParam(
 					id=tool_call.id,
 					input=input_obj,
 					name=tool_call.function.name,
 					type='tool_use',
-					cache_control=AnthropicMessageSerializer._serialize_cache_control(use_cache),
+					cache_control=AnthropicMessageSerializer._serialize_cache_control(use_cache and is_last),
 				)
 			)
 		return blocks
@@ -186,22 +193,31 @@ class AnthropicMessageSerializer:
 			# Add content blocks if present
 			if message.content is not None:
 				if isinstance(message.content, str):
+					# String content: only cache if it's the only/last block (no tool calls)
 					blocks.append(
 						TextBlockParam(
 							text=message.content,
 							type='text',
-							cache_control=AnthropicMessageSerializer._serialize_cache_control(message.cache),
+							cache_control=AnthropicMessageSerializer._serialize_cache_control(
+								message.cache and not message.tool_calls
+							),
 						)
 					)
 				else:
 					# Process content parts (text and refusal)
-					for part in message.content:
+					for i, part in enumerate(message.content):
+						# Only last content block gets cache if there are no tool calls
+						is_last_content = (i == len(message.content) - 1) and not message.tool_calls
 						if part.type == 'text':
-							blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part, use_cache=message.cache))
-						# # Note: Anthropic doesn't have a specific refusal block type,
-						# # so we convert refusals to text blocks
-						# elif part.type == 'refusal':
-						# 	blocks.append(TextBlockParam(text=f'[Refusal] {part.refusal}', type='text'))
+							blocks.append(
+								AnthropicMessageSerializer._serialize_content_part_text(
+									part, use_cache=message.cache and is_last_content
+								)
+							)
+							# # Note: Anthropic doesn't have a specific refusal block type,
+							# # so we convert refusals to text blocks
+							# elif part.type == 'refusal':
+							# 	blocks.append(TextBlockParam(text=f'[Refusal] {part.refusal}', type='text'))
 
 			# Add tool use blocks if present
 			if message.tool_calls:

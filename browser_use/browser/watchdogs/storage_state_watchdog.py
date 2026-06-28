@@ -12,12 +12,14 @@ from pydantic import Field, PrivateAttr
 
 from browser_use.browser.events import (
 	BrowserConnectedEvent,
+	BrowserStopEvent,
 	LoadStorageStateEvent,
 	SaveStorageStateEvent,
 	StorageStateLoadedEvent,
 	StorageStateSavedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
 
 
 class StorageStateWatchdog(BaseWatchdog):
@@ -26,6 +28,7 @@ class StorageStateWatchdog(BaseWatchdog):
 	# Event contracts
 	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [
 		BrowserConnectedEvent,
+		BrowserStopEvent,
 		SaveStorageStateEvent,
 		LoadStorageStateEvent,
 	]
@@ -51,7 +54,12 @@ class StorageStateWatchdog(BaseWatchdog):
 		await self._start_monitoring()
 
 		# Automatically load storage state after browser start
-		self.event_bus.dispatch(LoadStorageStateEvent())
+		await self.event_bus.dispatch(LoadStorageStateEvent())
+
+	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
+		"""Stop monitoring when browser stops."""
+		self.logger.debug('[StorageStateWatchdog] Stopping storage_state monitoring')
+		await self._stop_monitoring()
 
 	async def on_SaveStorageStateEvent(self, event: SaveStorageStateEvent) -> None:
 		"""Handle storage state save request."""
@@ -84,7 +92,9 @@ class StorageStateWatchdog(BaseWatchdog):
 
 		assert self.browser_session.cdp_client is not None
 
-		self._monitoring_task = asyncio.create_task(self._monitor_storage_changes())
+		self._monitoring_task = create_task_with_error_handling(
+			self._monitor_storage_changes(), name='monitor_storage_changes', logger_instance=self.logger, suppress_exceptions=True
+		)
 		# self.logger'[StorageStateWatchdog] Started storage monitoring task')
 
 	async def _stop_monitoring(self) -> None:
@@ -158,7 +168,7 @@ class StorageStateWatchdog(BaseWatchdog):
 		"""Save browser storage state to file."""
 		async with self._save_lock:
 			# Check if CDP client is available
-			assert await self.browser_session.get_or_create_cdp_session(target_id=None, new_socket=False)
+			assert await self.browser_session.get_or_create_cdp_session(target_id=None)
 
 			save_path = path or self.browser_session.browser_profile.storage_state
 			if not save_path:
@@ -192,7 +202,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 				# Write atomically
 				temp_path = json_path.with_suffix('.json.tmp')
-				temp_path.write_text(json.dumps(merged_state, indent=4))
+				temp_path.write_text(json.dumps(merged_state, indent=4, ensure_ascii=False), encoding='utf-8')
 
 				# Backup existing file
 				if json_path.exists():
@@ -239,25 +249,60 @@ class StorageStateWatchdog(BaseWatchdog):
 
 			# Apply cookies if present
 			if 'cookies' in storage and storage['cookies']:
-				await self.browser_session._cdp_set_cookies(storage['cookies'])
+				# Playwright exports session cookies with expires=0/-1. CDP treats expires=0 as expired.
+				# Normalize session cookies by omitting expires
+				normalized_cookies: list[Cookie] = []
+				for cookie in storage['cookies']:
+					if not isinstance(cookie, dict):
+						normalized_cookies.append(cookie)  # type: ignore[arg-type]
+						continue
+					c = dict(cookie)
+					expires = c.get('expires')
+					if expires in (0, 0.0, -1, -1.0):
+						c.pop('expires', None)
+					normalized_cookies.append(Cookie(**c))
+
+				await self.browser_session._cdp_set_cookies(normalized_cookies)
 				self._last_cookie_state = storage['cookies'].copy()
 				self.logger.debug(f'[StorageStateWatchdog] Added {len(storage["cookies"])} cookies from storage state')
 
 			# Apply origins (localStorage/sessionStorage) if present
 			if 'origins' in storage and storage['origins']:
 				for origin in storage['origins']:
-					if 'localStorage' in origin:
+					origin_value = origin.get('origin')
+					if not origin_value:
+						continue
+
+					# Scope storage restoration to its origin to avoid cross-site pollution.
+					if origin.get('localStorage'):
+						lines = []
 						for item in origin['localStorage']:
-							script = f"""
-								window.localStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
-							"""
-							await self.browser_session._cdp_add_init_script(script)
-					if 'sessionStorage' in origin:
+							lines.append(f'window.localStorage.setItem({json.dumps(item["name"])}, {json.dumps(item["value"])});')
+						script = (
+							'(function(){\n'
+							f'  if (window.location && window.location.origin !== {json.dumps(origin_value)}) return;\n'
+							'  try {\n'
+							f'    {" ".join(lines)}\n'
+							'  } catch (e) {}\n'
+							'})();'
+						)
+						await self.browser_session._cdp_add_init_script(script)
+
+					if origin.get('sessionStorage'):
+						lines = []
 						for item in origin['sessionStorage']:
-							script = f"""
-								window.sessionStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
-							"""
-							await self.browser_session._cdp_add_init_script(script)
+							lines.append(
+								f'window.sessionStorage.setItem({json.dumps(item["name"])}, {json.dumps(item["value"])});'
+							)
+						script = (
+							'(function(){\n'
+							f'  if (window.location && window.location.origin !== {json.dumps(origin_value)}) return;\n'
+							'  try {\n'
+							f'    {" ".join(lines)}\n'
+							'  } catch (e) {}\n'
+							'})();'
+						)
+						await self.browser_session._cdp_add_init_script(script)
 				self.logger.debug(
 					f'[StorageStateWatchdog] Applied localStorage/sessionStorage from {len(storage["origins"])} origins'
 				)

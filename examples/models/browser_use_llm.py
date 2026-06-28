@@ -1,0 +1,36 @@
+"""
+Example of the fastest + smartest LLM for browser automation.
+
+Setup:
+1. Get your API key from https://cloud.browser-use.com/new-api-key
+2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
+"""
+
+import asyncio
+import os
+
+from dotenv import load_dotenv
+
+from browser_use import Agent, ChatBrowserUse
+
+load_dotenv()
+
+if not os.getenv('BROWSER_USE_API_KEY'):
+	raise ValueError('BROWSER_USE_API_KEY is not set')
+
+
+async def main():
+	# `bu-2-0` is the optimized default. ChatBrowserUse can also route to
+	# provider-prefixed models (e.g. 'anthropic/claude-sonnet-4-6', 'openai/gpt-5.5',
+	# 'google/gemini-3-pro') through the same gateway - see browser_use_provider_models.py.
+	agent = Agent(
+		task='Find the number of stars of the browser-use repo',
+		llm=ChatBrowserUse(model='bu-2-0'),
+	)
+
+	# Run the agent
+	await agent.run()
+
+
+if __name__ == '__main__':
+	asyncio.run(main())

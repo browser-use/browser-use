@@ -47,7 +47,7 @@ class OllamaMessageSerializer:
 				url = part.image_url.url
 				if url.startswith('data:'):
 					# Handle base64 encoded images
-					# Format: data:image/png;base64,<data>
+					# Format: data:image/jpeg;base64,<data>
 					_, data = url.split(',', 1)
 					# Decode base64 to bytes
 					image_bytes = base64.b64decode(data)

@@ -1,7 +1,7 @@
 """Entry point for running MCP server as a module.
 
 Usage:
-    python -m browser_use.mcp.server
+    python -m browser_use.mcp
 """
 
 import asyncio

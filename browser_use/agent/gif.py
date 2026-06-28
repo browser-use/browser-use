@@ -87,6 +87,8 @@ def create_history_gif(
 		# Try different font options in order of preference
 		# ArialUni is a font that comes with Office and can render most non-alphabet characters
 		font_options = [
+			'PingFang',
+			'STHeiti Medium',
 			'Microsoft YaHei',  # 微软雅黑
 			'SimHei',  # 黑体
 			'SimSun',  # 宋体
@@ -106,7 +108,6 @@ def create_history_gif(
 					font_name = os.path.join(CONFIG.WIN_FONT_DIR, font_name + '.ttf')
 				regular_font = ImageFont.truetype(font_name, font_size)
 				title_font = ImageFont.truetype(font_name, title_font_size)
-				goal_font = ImageFont.truetype(font_name, goal_font_size)
 				font_loaded = True
 				break
 			except OSError:
@@ -118,8 +119,6 @@ def create_history_gif(
 	except OSError:
 		regular_font = ImageFont.load_default()
 		title_font = ImageFont.load_default()
-
-		goal_font = regular_font
 
 	# Load logo if requested
 	logo = None
@@ -234,8 +233,6 @@ def _create_task_frame(
 	# Start with base font size (regular + 16)
 	base_font_size = regular_font.size + 16
 	min_font_size = max(regular_font.size - 10, 16)  # Don't go below 16pt
-	max_font_size = base_font_size  # Cap at the base font size
-
 	# Calculate dynamic font size based on text length and complexity
 	# Longer texts get progressively smaller fonts
 	text_length = len(task)
@@ -245,7 +242,12 @@ def _create_task_frame(
 	else:
 		font_size = base_font_size
 
-	larger_font = ImageFont.truetype(regular_font.path, font_size)  # type: ignore
+	# Try to create a larger font, but fall back to regular font if it fails
+	try:
+		larger_font = ImageFont.truetype(regular_font.path, font_size)  # type: ignore
+	except (OSError, AttributeError):
+		# Fall back to regular font if .path is not available or font loading fails
+		larger_font = regular_font
 
 	# Generate wrapped text with the calculated font size
 	wrapped_text = _wrap_text(task, larger_font, max_width)

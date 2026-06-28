@@ -31,7 +31,7 @@ class Profiles(BaseModel):
 	profiles: list[Profile]
 
 
-tools = Tools(exclude_actions=['search_google'], output_model=Profiles)
+tools = Tools(exclude_actions=['search'], output_model=Profiles)
 BEARER_TOKEN = os.getenv('BEARER_TOKEN')
 
 if not BEARER_TOKEN:
