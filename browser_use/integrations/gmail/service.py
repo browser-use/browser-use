@@ -124,6 +124,7 @@ class GmailService:
 
 				# Save tokens for next time
 				await anyio.Path(self.token_file).write_text(self.creds.to_json())
+				os.chmod(self.token_file, 0o600)
 				logger.info(f'💾 Tokens saved to {self.token_file}')
 
 			# Build Gmail service
