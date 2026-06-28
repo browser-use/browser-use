@@ -621,6 +621,7 @@ def build_parser() -> argparse.ArgumentParser:
 	epilog_parts.append("""
 Setup:
   browser-use open https://example.com          # Navigate to URL
+  browser-use tab list                          # List open tabs
   browser-use install                           # Install Chromium browser
   browser-use init                              # Generate template file""")
 
