@@ -1,6 +1,7 @@
 """Configuration system for browser-use with automatic migration support."""
 
 import json
+import locale
 import logging
 import os
 from datetime import datetime
@@ -311,6 +312,21 @@ def create_default_config() -> DBStyleConfigJSON:
 	return new_config
 
 
+def _load_config_json(config_path: Path) -> dict[str, Any]:
+	try:
+		with open(config_path, encoding='utf-8') as f:
+			return json.load(f)
+	except UnicodeDecodeError:
+		legacy_encoding = locale.getpreferredencoding(False)
+		logger.warning(
+			'Failed to decode %s as UTF-8, retrying with preferred locale encoding %s',
+			config_path,
+			legacy_encoding,
+		)
+		with open(config_path, encoding=legacy_encoding) as f:
+			return json.load(f)
+
+
 def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 	"""Load config.json or create fresh one if old format detected."""
 	if not config_path.exists():
@@ -322,8 +338,7 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 		return new_config
 
 	try:
-		with open(config_path, encoding='utf-8') as f:
-			data = json.load(f)
+		data = _load_config_json(config_path)
 
 		# Check if it's already in DB-style format
 		if all(key in data for key in ['browser_profile', 'llm', 'agent']) and all(
