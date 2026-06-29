@@ -97,6 +97,10 @@ class MCPToolWrapper:
 		"""
 		if tool_name in self._registered_actions:
 			return  # Already registered
+		if tool_name in self.registry.registry.actions:
+			raise ValueError(
+				f"Action name '{tool_name}' is already registered. Use an MCP tool prefix or filter to avoid overriding existing actions."
+			)
 
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
