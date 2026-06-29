@@ -99,6 +99,63 @@ class TestUploadCommandHandler:
 		finally:
 			Path(empty_path).unlink(missing_ok=True)
 
+	async def test_upload_uses_single_file_input_fallback_without_browser(self):
+		"""A single page-level file input is used when near-element lookup fails."""
+		from browser_use.skill_cli.commands.browser import handle
+		from browser_use.skill_cli.sessions import SessionInfo
+
+		class FakeElement:
+			def __init__(self, node_name: str) -> None:
+				self.node_name = node_name
+
+		class FakeBrowserSession:
+			def __init__(self) -> None:
+				self.button = FakeElement('BUTTON')
+				self.file_input = FakeElement('INPUT')
+
+			async def get_element_by_index(self, index):
+				if index == 1:
+					return self.button
+				return None
+
+			def find_file_input_near_element(self, node):
+				return None
+
+			async def get_selector_map(self):
+				return {1: self.button, 2: self.file_input}
+
+			def is_file_input(self, element):
+				return element is self.file_input
+
+		class FakeActions:
+			def __init__(self) -> None:
+				self.uploaded = None
+
+			async def upload_file(self, node, file_path):
+				self.uploaded = (node, file_path)
+
+		browser_session = FakeBrowserSession()
+		actions = FakeActions()
+		session_info = SessionInfo(
+			name='test',
+			headed=False,
+			profile=None,
+			cdp_url=None,
+			browser_session=browser_session,
+			actions=actions,
+		)
+
+		with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
+			f.write(b'test content')
+			test_file = f.name
+
+		try:
+			result = await handle('upload', session_info, {'index': 1, 'path': test_file})
+			assert result == {'uploaded': test_file, 'element': 1}
+			assert actions.uploaded == (browser_session.file_input, test_file)
+		finally:
+			Path(test_file).unlink(missing_ok=True)
+
 	async def test_upload_element_not_found(self, httpserver):
 		"""Invalid element index returns error."""
 		from browser_use.browser.events import NavigateToUrlEvent
@@ -204,6 +261,7 @@ class TestUploadCommandHandler:
 			"""<html><body>
 				<div><div><div><div><div><button id="btn">Click me</button></div></div></div></div></div>
 				<div><div><div><div><div><input type="file" id="upload" /></div></div></div></div></div>
+				<div><div><div><div><div><input type="file" id="backup-upload" /></div></div></div></div></div>
 			</body></html>""",
 			content_type='text/html',
 		)
