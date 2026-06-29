@@ -117,6 +117,14 @@ CHROME_HEADLESS_ARGS = [
 	'--headless=new',
 ]
 
+# Chrome flags specific to Windows headless mode to prevent GPU compositor crashes.
+# On Windows headless, Chromium uses SwiftShader (software GPU) which requires
+# DirectX runtime components. If these are missing (common on Server/core Windows),
+# the GPU process can crash the renderer. Disabling GPU avoids this entirely.
+CHROME_WINDOWS_HEADLESS_ARGS = [
+	'--disable-gpu',
+]
+
 CHROME_DOCKER_ARGS = [
 	# '--disable-gpu',    # GPU is actually supported in headless docker mode now, but sometimes useful to test without it
 	'--no-sandbox',
@@ -912,6 +920,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			f'--profile-directory={self.profile_directory}',
 			*(CHROME_DOCKER_ARGS if (CONFIG.IN_DOCKER or not self.chromium_sandbox) else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
+			# On Windows headless, disable GPU to prevent SwiftShader compositor crashes
+			# when DirectX components are missing (common on Server/core Windows).
+			*(CHROME_WINDOWS_HEADLESS_ARGS if (self.headless and sys.platform == 'win32') else []),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
 			*(

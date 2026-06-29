@@ -406,14 +406,22 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	@staticmethod
 	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
-		"""Wait for the browser to start and return the CDP URL."""
+		"""Wait for the browser to start and return the CDP URL.
+
+		Creates a fresh aiohttp ClientSession per iteration (each with its own
+		TCPConnector) to prevent HTTP_PROXY/HTTPS_PROXY env vars from routing
+		localhost requests through a proxy, which causes 502 errors on Windows.
+		"""
 		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
 			try:
-				async with aiohttp.ClientSession() as session:
+				# Create a fresh connector per iteration — the ClientSession's async with
+				# block closes the connector on exit, so a shared connector would be
+				# unusable on subsequent polls.
+				async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
 					async with session.get(f'http://127.0.0.1:{port}/json/version') as resp:
 						if resp.status == 200:
 							# Chrome is ready
