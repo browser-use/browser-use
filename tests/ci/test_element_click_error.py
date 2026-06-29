@@ -6,9 +6,9 @@ This test demonstrates the bug at browser_use/actor/element.py line 347:
 - Should be: `raise Exception(f'Failed to click element: {js_e}')`
 """
 
-import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 class TestElementClickErrorMessage:
@@ -38,16 +38,12 @@ class TestElementClickErrorMessage:
 		)
 
 		# First CDP call (scroll into view) fails with outer error
-		outer_error_msg = "OUTER_SCROLL_ERROR"
-		mock_client.send.DOM.scrollIntoViewIfNeeded = AsyncMock(
-			side_effect=Exception(outer_error_msg)
-		)
+		outer_error_msg = 'OUTER_SCROLL_ERROR'
+		mock_client.send.DOM.scrollIntoViewIfNeeded = AsyncMock(side_effect=Exception(outer_error_msg))
 
 		# Second CDP call (resolve node for JS fallback) fails with different error
-		js_error_msg = "INNER_JS_RESOLVE_ERROR"
-		mock_client.send.DOM.resolveNode = AsyncMock(
-			side_effect=Exception(js_error_msg)
-		)
+		js_error_msg = 'INNER_JS_RESOLVE_ERROR'
+		mock_client.send.DOM.resolveNode = AsyncMock(side_effect=Exception(js_error_msg))
 
 		# Try to click - should fail
 		with pytest.raises(Exception) as exc_info:
@@ -57,14 +53,14 @@ class TestElementClickErrorMessage:
 
 		# THE BUG: Currently line 347 raises with {e} (outer exception)
 		# After fix: should raise with {js_e} (actual JS click failure)
-		print(f"Error message: {error_message}")
-		print(f"Contains outer error '{outer_error_msg}': {outer_error_msg in error_message}")
-		print(f"Contains inner error '{js_error_msg}': {js_error_msg in error_message}")
+		print(f'Error message: {error_message}')
+		print(f'Contains outer error \'{outer_error_msg}\': {outer_error_msg in error_message}')
+		print(f'Contains inner error \'{js_error_msg}\': {js_error_msg in error_message}')
 
 		# This assertion FAILS with the bug, PASSES after fix
 		assert js_error_msg in error_message, (
-			f"BUG DETECTED: Error message shows wrong exception!\n"
-			f"Expected to see JS error: '{js_error_msg}'\n"
-			f"But got: {error_message}\n"
-			f"This confirms line 347 bug: uses {{e}} instead of {{js_e}}"
+			f'BUG DETECTED: Error message shows wrong exception!\n'
+			f'Expected to see JS error: \'{js_error_msg}\'\n'
+			f'But got: {error_message}\n'
+			f'This confirms line 347 bug: uses {{e}} instead of {{js_e}}'
 		)
