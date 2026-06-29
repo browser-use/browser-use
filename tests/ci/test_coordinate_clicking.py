@@ -1,6 +1,6 @@
 """Tests for coordinate clicking feature.
 
-This feature allows certain models (Claude Sonnet 4, Claude Opus 4, Gemini 3 Pro, browser-use/* models)
+This feature allows certain models (Claude Sonnet 4, Claude Opus 4, Claude Fable 5, Gemini 3 Pro, browser-use/* models)
 to use coordinate-based clicking, while other models only get index-based clicking.
 """
 
@@ -122,6 +122,8 @@ class TestCoordinateClickingModelDetection:
 			('claude-opus-4-5-latest', True),
 			('claude-opus-4-0', True),
 			('claude-opus-4', True),
+			('claude-fable-5', True),
+			('claude-fable-5-preview', True),
 			('gemini-3-pro-preview', True),
 			('gemini-3-pro', True),
 			('browser-use/fast', True),
@@ -144,7 +146,7 @@ class TestCoordinateClickingModelDetection:
 		"""Test that the model detection patterns correctly identify coordinate-capable models."""
 		model_lower = model_name.lower()
 		supports_coords = any(
-			pattern in model_lower for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/']
+			pattern in model_lower for pattern in ['claude-sonnet-4', 'claude-opus-4', 'claude-fable-5', 'gemini-3-pro', 'browser-use/']
 		)
 		assert supports_coords == expected_coords, f'Model {model_name}: expected {expected_coords}, got {supports_coords}'
 
@@ -181,3 +183,37 @@ class TestCoordinateClickingWithPassedTools:
 		click_action = tools.registry.registry.actions.get('click')
 		assert click_action is not None
 		assert click_action.param_model == ClickElementAction
+
+
+class TestBetaAgentCoordinateClicking:
+	"""Test that the beta Agent's model detection enables coordinate clicking at parity with the stable Agent."""
+
+	@pytest.mark.parametrize(
+		'model_name,expected_coords',
+		[
+			# Coordinate-capable models (parity with stable Agent's enablement list)
+			('claude-sonnet-4-6', True),
+			('claude-sonnet-4', True),
+			('claude-opus-4-5', True),
+			('claude-opus-4', True),
+			('claude-fable-5', True),
+			('gemini-3-pro-preview', True),
+			('gemini-3-pro', True),
+			('browser-use/fast', True),
+			('anthropic/claude-sonnet-4-6', True),  # gateway-prefixed id
+			('CLAUDE-FABLE-5', True),  # case insensitive
+			# Models that should only get index-based clicking
+			('gpt-4o', False),
+			('claude-3-5-sonnet', False),
+			('gemini-1.5-pro', False),
+			(None, False),  # missing model id must not enable
+		],
+	)
+	def test_beta_supports_coordinate_clicking(self, model_name: str | None, expected_coords: bool):
+		from browser_use.beta.service import _supports_coordinate_clicking
+
+		class _StubLLM:
+			model = model_name
+
+		llm = None if model_name is None else _StubLLM()
+		assert _supports_coordinate_clicking(llm) is expected_coords
