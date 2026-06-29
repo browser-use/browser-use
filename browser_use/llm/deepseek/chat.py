@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
 import httpx
+from json_repair import repair_json
 from openai import (
 	APIConnectionError,
 	APIError,
@@ -23,6 +24,21 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def _parse_tool_call_arguments(raw_args: str) -> Any:
+	try:
+		return json.loads(raw_args)
+	except json.JSONDecodeError:
+		repaired = repair_json(raw_args, return_objects=True)
+		if isinstance(repaired, dict):
+			return repaired
+		if isinstance(repaired, str):
+			try:
+				return json.loads(repaired)
+			except json.JSONDecodeError:
+				return {}
+		return {}
 
 
 @dataclass
@@ -166,7 +182,7 @@ class ChatDeepSeek(BaseChatModel):
 					raise ValueError('Expected tool_calls in response but got none')
 				raw_args = msg.tool_calls[0].function.arguments
 				if isinstance(raw_args, str):
-					parsed = json.loads(raw_args)
+					parsed = _parse_tool_call_arguments(raw_args)
 				else:
 					parsed = raw_args
 				# --------- Fix: only use model_validate when output_format is not None ----------
