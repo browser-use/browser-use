@@ -375,9 +375,71 @@ install_profile_use() {
 # PATH configuration
 # =============================================================================
 
+# CLI entry points exposed to the user. Mirrors [project.scripts] in
+# pyproject.toml. Keep in sync when adding new entry points.
+BROWSER_USE_CLI_NAMES=(
+	"browser-use"
+	"browseruse"
+	"bu"
+	"browser"
+	"browser-use-tui"
+)
+
+# Sentinel file that marks the install as having configured PATH. Checked
+# by both the Unix shell-rc and Windows PowerShell code paths so the
+# idempotency decision is independent of whether the wrappers exist.
+BROWSER_USE_PATH_MARKER="$HOME/.browser-use/.path-configured"
+
+# Create thin wrapper scripts in $HOME/.local/bin that exec the venv
+# binaries. This exposes only the browser-use entry points without putting
+# the entire venv bin/ on the user's PATH, which would otherwise shadow
+# the system python, pip, and other dependency-provided executables.
+#
+# Each wrapper is only written when $HOME/.local/bin/<name> does not
+# already exist. Generic names like `bu` and `browser` are likely to
+# collide with unrelated user commands, so we never overwrite an
+# existing file there. Pre-existing files (which might be from an older
+# browser-use install, pipx, or an unrelated user command) are kept as-is
+# and a warning is logged so the user knows their old binary is still active.
+create_venv_wrappers() {
+	local local_bin="$HOME/.local/bin"
+	local venv_bin
+	venv_bin=$(get_venv_bin_dir)
+
+	mkdir -p "$local_bin"
+
+	local name
+	for name in "${BROWSER_USE_CLI_NAMES[@]}"; do
+		local target="$venv_bin/$name"
+		[ -x "$target" ] || continue
+
+		# Shell wrapper for Unix and Git Bash on Windows.
+		if [ ! -e "$local_bin/$name" ]; then
+			cat > "$local_bin/$name" <<-EOF
+				#!/bin/sh
+				exec "$venv_bin/$name" "\$@"
+			EOF
+			chmod +x "$local_bin/$name"
+		else
+			log_warn "$local_bin/$name already exists; not overwriting. If this is a leftover from a previous browser-use install, remove it manually to pick up the new venv."
+		fi
+
+		# .bat wrapper for native Windows shells (cmd, PowerShell).
+		if [ "$PLATFORM" = "windows" ]; then
+			if [ ! -e "$local_bin/$name.bat" ]; then
+				cat > "$local_bin/$name.bat" <<-EOF
+					@echo off
+					"%USERPROFILE%\\.browser-use-env\\Scripts\\${name}.exe" %*
+				EOF
+			else
+				log_warn "$local_bin/$name.bat already exists; not overwriting."
+			fi
+		fi
+	done
+}
+
 configure_path() {
 	local shell_rc=""
-	local bin_path=$(get_venv_bin_dir)
 	local local_bin="$HOME/.local/bin"
 
 	# Detect user's login shell (not the running shell, since this script
@@ -388,46 +450,80 @@ configure_path() {
 		*)    shell_rc="$HOME/.profile" ;;
 	esac
 
-	# Check if already in PATH (browser-use-env matches both /bin and /Scripts)
-	if grep -q "browser-use-env" "$shell_rc" 2>/dev/null; then
-		log_info "PATH already configured in $shell_rc"
-	else
-		# Add to shell config (includes ~/.local/bin for tools)
+	# Always (re)create wrappers for entry points that don't already exist
+	# in $local_bin. The wrappers are cheap and idempotent under [ -e ].
+	create_venv_wrappers
+
+	# Configure Unix shell PATH only on first install (idempotent via marker).
+	# The marker is set at the end of this function, after BOTH the Unix
+	# shell-rc and Windows PowerShell code paths have run, so neither
+	# code path can see the marker before it has done its work.
+	if [ ! -f "$BROWSER_USE_PATH_MARKER" ]; then
+		# Migration: strip any legacy `browser-use-env/bin` PATH entry from
+		# a previous install. The old installer added a line that put the
+		# entire venv bin on PATH, which shadowed the system python/pip.
+		if [ -f "$shell_rc" ] && grep -q "browser-use-env" "$shell_rc" 2>/dev/null; then
+			local tmp_rc
+			tmp_rc=$(mktemp)
+			grep -v "browser-use-env" "$shell_rc" > "$tmp_rc" || true
+			mv "$tmp_rc" "$shell_rc"
+			log_info "Removed legacy browser-use-env PATH entry from $shell_rc"
+		fi
+
+		# Only add ~/.local/bin to PATH. The browser-use entry points are
+		# reached via wrappers there; the venv bin/ stays out of PATH so
+		# the user's default python/pip/other tools are not shadowed.
 		echo "" >> "$shell_rc"
 		echo "# Browser-Use" >> "$shell_rc"
-		echo "export PATH=\"$bin_path:$local_bin:\$PATH\"" >> "$shell_rc"
+		echo "export PATH=\"$local_bin:\$PATH\"" >> "$shell_rc"
 		log_success "Added to PATH in $shell_rc"
+	else
+		log_info "PATH already configured in $shell_rc"
 	fi
 
-	# On Windows, also configure PowerShell profile
+	# On Windows, also configure PowerShell PATH. This is a separate
+	# idempotency check (registry inspection) because the marker would
+	# otherwise be created in the Unix branch above and cause the Windows
+	# code path to skip its work on first install.
 	if [ "$PLATFORM" = "windows" ]; then
 		configure_powershell_path
 	fi
+
+	# Mark install complete AFTER all platform-specific PATH setup has
+	# been attempted, so a Windows re-run does not re-apply the registry
+	# update, and a Unix re-run does not re-append the shell-rc line.
+	mkdir -p "$(dirname "$BROWSER_USE_PATH_MARKER")"
+	touch "$BROWSER_USE_PATH_MARKER"
 }
 
 configure_powershell_path() {
 	# Use PowerShell to modify user PATH in registry (no execution policy needed)
-	# This persists across sessions without requiring profile script execution
+	# This persists across sessions without requiring profile script execution.
+	# Only the wrapper directory is added; the venv Scripts/ is kept out
+	# of PATH so it does not shadow the user's default Python.
+	#
+	# Idempotency is checked against the registry itself (not the marker
+	# file), so this function can run on first install even when the marker
+	# has not yet been created by configure_path.
 
-	local scripts_path='\\.browser-use-env\\Scripts'
 	local local_bin='\\.local\\bin'
 
-	# Check if already in user PATH
-	local current_path=$(powershell.exe -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" 2>/dev/null | tr -d '\r')
-
-	if echo "$current_path" | grep -q "browser-use-env"; then
+	# Skip if .local/bin is already in the user PATH
+	local current_path
+	current_path=$(powershell.exe -Command "[Environment]::GetEnvironmentVariable('Path', 'User')" 2>/dev/null | tr -d '\r')
+	if printf '%s\n' "$current_path" | grep -q '\.local\\bin'; then
 		log_info "PATH already configured"
 		return 0
 	fi
 
 	# Append to user PATH via registry (safe, no truncation, no execution policy needed)
-	powershell.exe -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + \$env:USERPROFILE + '$scripts_path;' + \$env:USERPROFILE + '$local_bin', 'User')" 2>/dev/null
+	powershell.exe -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + \$env:USERPROFILE + '$local_bin', 'User')" 2>/dev/null
 
 	if [ $? -eq 0 ]; then
-		log_success "Added to Windows PATH: %USERPROFILE%\\.browser-use-env\\Scripts"
+		log_success "Added to Windows PATH: %USERPROFILE%\\.local\\bin"
 	else
 		log_warn "Could not update PATH automatically. Add manually:"
-		log_warn "  \$env:PATH += \";\$env:USERPROFILE\\.browser-use-env\\Scripts\""
+		log_warn "  \$env:PATH += \";\$env:USERPROFILE\\.local\\bin\""
 	fi
 }
 
