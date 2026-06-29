@@ -59,7 +59,6 @@ Python API -> Rust core -> Browser harness -> Web task done
 ```bash
 uv add "browser-use[core]"
 # or: pip install "browser-use[core]"
-browser
 ```
 
 The `[core]` extra installs the native Browser Use runtime for your platform.
