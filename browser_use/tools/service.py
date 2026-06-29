@@ -319,6 +319,103 @@ try {
 """
 
 
+# Hardening for the model-controlled search_page regex (ReDoS guard).
+# The pattern below is compiled and executed by the browser's V8 RegExp engine,
+# which is backtracking-based and can exhibit catastrophic (exponential) runtime
+# for "nested quantifier" patterns such as (a+)+$ against long near-miss text.
+# We cap the pattern length and reject the nested-quantifier shapes before the
+# pattern ever reaches `new RegExp(...)`. These limits are intentionally generous
+# so legitimate searches keep working; they only block pathological inputs.
+_MAX_SEARCH_PATTERN_LENGTH = 1000
+
+
+def _has_unbounded_quantifier_after(pattern: str, i: int) -> bool:
+	"""True if position `i` is immediately followed by an unbounded quantifier (+, *, or {n,})."""
+	n = len(pattern)
+	if i >= n:
+		return False
+	if pattern[i] in '+*':
+		return True
+	if pattern[i] == '{':
+		close = pattern.find('}', i)
+		if close != -1:
+			inner = pattern[i + 1 : close]
+			# {n,} (no upper bound) is unbounded; {n}, {n,m} are bounded.
+			if ',' in inner and inner.split(',', 1)[1].strip() == '':
+				return True
+	return False
+
+
+def _has_nested_quantifier(pattern: str) -> bool:
+	"""Detect catastrophic-backtracking "evil regex" shapes in a regex pattern string.
+
+	Returns True when a group that itself contains an unbounded quantifier (or a nested
+	quantified group) is immediately followed by another unbounded quantifier — e.g.
+	(a+)+, (a*)*, (a+)*, (?:ab+)+, ((a)+)+, (([a-z]+)*)+. Handles arbitrary group nesting,
+	escaped metacharacters, and character classes so the check can't be trivially evaded.
+	This is a conservative linear scan, not a full regex parser; it is only used to reject
+	model-supplied patterns, so over-rejection of a pathological shape is acceptable.
+	"""
+	n = len(pattern)
+	stack: list[bool] = []  # per-open-group: does the group body contain unbounded repetition?
+	i = 0
+	in_class = False  # inside a [...] character class
+	while i < n:
+		c = pattern[i]
+		# Skip escaped characters (a backslash that is not itself escaped).
+		if c == '\\':
+			i += 2
+			continue
+		if in_class:
+			if c == ']':
+				in_class = False
+			i += 1
+			continue
+		if c == '[':
+			in_class = True
+			i += 1
+			continue
+		if c == '(':
+			stack.append(False)
+			i += 1
+			continue
+		if c == ')':
+			body_unbounded = stack.pop() if stack else False
+			group_quantified = _has_unbounded_quantifier_after(pattern, i + 1)
+			if body_unbounded and group_quantified:
+				return True
+			# A quantified group counts as unbounded repetition within its parent group.
+			if group_quantified and stack:
+				stack[-1] = True
+			i += 1
+			continue
+		if c in '+*' or (c == '{' and _has_unbounded_quantifier_after(pattern, i)):
+			if stack:
+				stack[-1] = True
+		i += 1
+	return False
+
+
+def _validate_search_pattern(pattern: str, regex: bool) -> None:
+	"""Reject model-supplied search patterns that could cause catastrophic regex backtracking.
+
+	Raises ValueError with a user-facing message when the pattern is unsafe. Literal
+	(non-regex) searches are only length-capped because they are escaped before being
+	compiled, so they cannot backtrack pathologically.
+	"""
+	if len(pattern) > _MAX_SEARCH_PATTERN_LENGTH:
+		raise ValueError(
+			f'search pattern too long ({len(pattern)} chars, max {_MAX_SEARCH_PATTERN_LENGTH}). '
+			'Use a shorter, more specific pattern.'
+		)
+	if regex and _has_nested_quantifier(pattern):
+		raise ValueError(
+			'search pattern rejected: nested quantifiers like (a+)+ or (a*)* can cause '
+			'catastrophic backtracking (ReDoS). Rewrite the pattern without a repeated group '
+			'inside another repetition, or set regex=false for a literal search.'
+		)
+
+
 def _build_search_page_js(
 	pattern: str,
 	regex: bool,
@@ -328,6 +425,7 @@ def _build_search_page_js(
 	max_results: int,
 ) -> str:
 	"""Build JS IIFE for search_page with safe parameter injection."""
+	_validate_search_pattern(pattern, regex)
 	params_js = (
 		f'var PATTERN = {json.dumps(pattern)};\n'
 		f'var IS_REGEX = {json.dumps(regex)};\n'
@@ -1297,14 +1395,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			param_model=SearchPageAction,
 		)
 		async def search_page(params: SearchPageAction, browser_session: BrowserSession):
-			js_code = _build_search_page_js(
-				pattern=params.pattern,
-				regex=params.regex,
-				case_sensitive=params.case_sensitive,
-				context_chars=params.context_chars,
-				css_scope=params.css_scope,
-				max_results=params.max_results,
-			)
+			try:
+				js_code = _build_search_page_js(
+					pattern=params.pattern,
+					regex=params.regex,
+					case_sensitive=params.case_sensitive,
+					context_chars=params.context_chars,
+					css_scope=params.css_scope,
+					max_results=params.max_results,
+				)
+			except ValueError as e:
+				return ActionResult(error=f'search_page: {e}')
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			result = await cdp_session.cdp_client.send.Runtime.evaluate(
