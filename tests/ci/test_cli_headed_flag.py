@@ -65,3 +65,12 @@ def test_no_profile_defaults_to_none():
 
 	args = parser.parse_args(['open', 'http://example.com'])
 	assert args.profile is None
+
+
+def test_yes_flag_parses_globally():
+	"""Test --yes can be used before subcommands that access real browser state."""
+	parser = build_parser()
+
+	args = parser.parse_args(['--yes', '--profile', 'Default', 'open', 'http://example.com'])
+	assert args.yes is True
+	assert args.profile == 'Default'
