@@ -129,6 +129,22 @@ class ResilientEventBus(EventBus):
 		if self._on_idle is None or self.event_queue is None:
 			return None
 		return await super().wait_until_idle(timeout)
+	async def stop(self, clear: bool = True, timeout: float | None = None) -> None:
+		"""Stop the event bus with a timeout to prevent indefinite hangs.
+		
+		In serverless environments (Lambda, Cloud Run), a non-responsive shutdown blocks
+		the process from terminating gracefully, leading to cold-start timeouts.
+		"""
+		try:
+			# Use a default timeout of 30 seconds if not specified
+			shutdown_timeout = timeout if timeout is not None else 30.0
+			await asyncio.wait_for(super().stop(clear=clear, timeout=timeout), timeout=shutdown_timeout)
+		except asyncio.TimeoutError:
+			# Log warning but don't block process termination
+			logger.warning(
+				f'Event bus {self.name!r} stop() timed out after {shutdown_timeout}s, '
+				'proceeding with graceful degradation. The event loop may be in a bad state.'
+			)
 
 
 class BrowserSession(BaseModel):
