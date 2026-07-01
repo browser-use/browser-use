@@ -854,7 +854,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'Upload a local file from available_file_paths to a file input element. Use for user-provided files, including .html files; do not navigate to the file path.',
 			param_model=UploadFileAction,
 		)
 		async def upload_file(

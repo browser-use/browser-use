@@ -138,8 +138,10 @@ class SendKeysAction(BaseModel):
 
 
 class UploadFileAction(BaseModel):
-	index: int
-	path: str
+	index: int = Field(description='Element index of the file input or nearby upload control from browser_state')
+	path: str = Field(
+		description='Absolute local file path from available_file_paths. Pass the path exactly, including .html files; do not navigate to this path.'
+	)
 
 
 class NoParamsAction(BaseModel):
