@@ -1099,6 +1099,15 @@ class DOMTreeSerializer:
 				}
 			)
 
+		# Include accessibility tree name/description. These often contain the
+		# practical label for icon-only controls, including labels derived from
+		# title/aria-labelledby/aria-describedby tooltips.
+		if node.ax_node:
+			if 'ax_name' in include_attributes and node.ax_node.name:
+				attributes_to_include['ax_name'] = node.ax_node.name.strip()
+			if 'ax_description' in include_attributes and node.ax_node.description:
+				attributes_to_include['ax_description'] = node.ax_node.description.strip()
+
 		# Add format hints for date/time inputs to help LLMs use the correct format
 		# NOTE: These formats are standardized by HTML5 specification (ISO 8601), NOT locale-dependent
 		# The browser may DISPLAY dates in locale format (MM/DD/YYYY in US, DD/MM/YYYY in EU),

@@ -77,8 +77,9 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'level',
 	'busy',
 	'live',
-	# Accessibility name (contains text content for StaticText elements)
+	# Accessibility name/description (contains labels from the accessibility tree)
 	'ax_name',
+	'ax_description',
 ]
 
 STATIC_ATTRIBUTES = {
@@ -612,7 +613,13 @@ class EnhancedDOMTreeNode:
 					meaningful_text = self.attributes[attr]
 					break
 
-		# Fallback to text content if no meaningful attributes
+		# Fallback to accessibility tree name/description if no meaningful attributes
+		if not meaningful_text and self.ax_node and self.ax_node.name:
+			meaningful_text = self.ax_node.name
+		if not meaningful_text and self.ax_node and self.ax_node.description:
+			meaningful_text = self.ax_node.description
+
+		# Fallback to text content if no meaningful attributes or accessibility text
 		if not meaningful_text:
 			meaningful_text = self.get_all_children_text()
 

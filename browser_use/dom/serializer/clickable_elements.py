@@ -235,9 +235,11 @@ class ClickableElementDetector:
 			# Check if this small element has interactive properties
 			if node.attributes:
 				# Small elements with these attributes are likely interactive icons
-				icon_attributes = {'class', 'role', 'onclick', 'data-action', 'aria-label'}
+				icon_attributes = {'class', 'role', 'onclick', 'data-action', 'aria-label', 'title', 'aria-describedby'}
 				if any(attr in node.attributes for attr in icon_attributes):
 					return True
+			if node.ax_node and (node.ax_node.name or node.ax_node.description):
+				return True
 
 		# Final fallback: cursor style indicates interactivity (for cases Chrome missed)
 		if node.snapshot_node and node.snapshot_node.cursor_style and node.snapshot_node.cursor_style == 'pointer':
