@@ -196,7 +196,16 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
-		# Allow data: and blob: URLs (they don't have hostnames)
+		# When domain restrictions are active, only allow http/https schemes
+		# (internal browser targets like about:blank are already handled above)
+		if (
+			self.browser_session.browser_profile.allowed_domains
+			or self.browser_session.browser_profile.prohibited_domains
+		):
+			if parsed.scheme not in ('http', 'https'):
+				return False
+
+		# Allow data: and blob: URLs when no domain restrictions are active
 		if parsed.scheme in ['data', 'blob']:
 			return True
 
