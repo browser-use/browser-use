@@ -58,9 +58,16 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 
 		# Get emoji and token info
 		emoji = _log_get_message_emoji(message)
-		# token_str = str(message.metadata.tokens).rjust(4)
-		# TODO: fix the token count
-		token_str = '??? (TODO)'
+		# Safely get the token count from message metadata (if available)
+		token_str = '   ?'
+		try:
+			metadata = getattr(message, 'metadata', None)
+			if metadata is not None:
+				tokens = getattr(metadata, 'tokens', None)
+				if tokens is not None:
+					token_str = str(tokens).rjust(4)
+		except Exception:
+			pass
 		prefix = f'{emoji}[{token_str}]: '
 
 		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)
