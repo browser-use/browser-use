@@ -1119,9 +1119,7 @@ class BrowserSession(BaseModel):
 				event.target_id = page_targets[-1].target_id
 			else:
 				# No pages open at all, create a new one (handles switching to it automatically)
-				assert self._cdp_client_root is not None, 'CDP client root not initialized - browser may not be connected yet'
-				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
-				target_id = new_target['targetId']
+				target_id = await self._cdp_create_new_page('about:blank', new_window=True)
 				# Don't await, these may circularly trigger SwitchTabEvent and could deadlock, dispatch to enqueue and return
 				self.event_bus.dispatch(TabCreatedEvent(url='about:blank', target_id=target_id))
 				self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url='about:blank'))
@@ -1872,8 +1870,7 @@ class BrowserSession(BaseModel):
 
 			# Ensure we have at least one page
 			if not page_targets_from_manager:
-				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
-				target_id = new_target['targetId']
+				target_id = await self._cdp_create_new_page('about:blank', new_window=True)
 				self.logger.debug(f'📄 Created new blank page: {target_id}')
 			else:
 				target_id = page_targets_from_manager[0].target_id
@@ -2153,8 +2150,7 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'🔄 Agent focus set to fallback target {fallback_id[:8]}...')
 			else:
 				# No pages exist — create one
-				new_target = await self._cdp_client_root.send.Target.createTarget(params={'url': 'about:blank'})
-				target_id = new_target['targetId']
+				target_id = await self._cdp_create_new_page('about:blank', new_window=True)
 				await self.get_or_create_cdp_session(target_id, focus=True)
 				self.logger.debug(f'🔄 Created new blank page during reconnect: {target_id[:8]}...')
 
