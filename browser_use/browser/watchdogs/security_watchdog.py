@@ -315,10 +315,27 @@ class SecurityWatchdog(BaseWatchdog):
 					# Pattern has no explicit port but URL does — reject.
 					return False
 				# If the pattern specifies a path prefix, enforce it.
+				# Use boundary-aware comparison: the URL path must either
+				# equal the pattern path exactly, or start with it followed
+				# by '/' or '?' to prevent sibling-path overmatch
+				# (e.g., pattern '/api' must not match '/apiary').
+				# Also preserve query/fragment constraints from the pattern.
 				if pat_path:
-					url_path = _urlparse(url).path.rstrip('/')
-					if not url_path.startswith(pat_path):
+					url_parsed = _urlparse(url)
+					url_path = url_parsed.path.rstrip('/')
+					if url_path == pat_path:
+						pass  # exact path match
+					elif url_path.startswith(pat_path + '/'):
+						pass  # sub-path match
+					else:
 						return False
+					# If the pattern includes query params, enforce them.
+					if pat_parsed.query:
+						if url_parsed.query != pat_parsed.query:
+							return False
+					if pat_parsed.fragment:
+						if url_parsed.fragment != pat_parsed.fragment:
+							return False
 				return True
 			else:
 				# Domain-only pattern (case-insensitive comparison)
