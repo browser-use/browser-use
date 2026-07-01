@@ -191,25 +191,26 @@ def create_history_gif(
 
 		images.append(image)
 
-	if images:
-		# Save the GIF
-		images[0].save(
-			output_path,
-			save_all=True,
-			append_images=images[1:],
-			duration=duration,
-			loop=0,
-			optimize=False,
-		)
-		logger.info(f'Created GIF at {output_path}')
-	else:
-		logger.warning('No images found in history to create GIF')
-
-	# Close all PIL images to release file descriptors
-	for img in images:
-		img.close()
-	if logo:
-		logo.close()
+	try:
+		if images:
+			# Save the GIF
+			images[0].save(
+				output_path,
+				save_all=True,
+				append_images=images[1:],
+				duration=duration,
+				loop=0,
+				optimize=False,
+			)
+			logger.info(f'Created GIF at {output_path}')
+		else:
+			logger.warning('No images found in history to create GIF')
+	finally:
+		# Close all PIL images to release file descriptors
+		for img in images:
+			img.close()
+		if logo:
+			logo.close()
 
 
 def _create_task_frame(
