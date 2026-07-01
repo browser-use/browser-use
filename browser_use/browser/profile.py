@@ -674,6 +674,14 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=5,
 		description='Maximum depth for cross-origin iframe recursion (default: 5 levels deep).',
 	)
+	dom_build_timeout: float = Field(
+		default=10.0,
+		description='Seconds to wait for the parallel CDP calls that build the DOM tree (snapshot, DOM, accessibility, viewport) before retrying the ones that did not finish. Increase for slow remote/proxied browsers where a full getFullAXTree can exceed 10s, otherwise the build falls back to a minimal DOM state.',
+	)
+	dom_build_retry_timeout: float = Field(
+		default=2.0,
+		description='Seconds to wait on the retry pass for the DOM tree-build CDP calls that did not finish within dom_build_timeout.',
+	)
 
 	# --- Page load/wait timings ---
 
