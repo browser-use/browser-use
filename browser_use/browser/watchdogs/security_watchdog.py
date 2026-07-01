@@ -282,9 +282,44 @@ class SecurityWatchdog(BaseWatchdog):
 		else:
 			# Exact match
 			if '://' in pattern:
-				# Full URL pattern
-				if url.startswith(pattern):
-					return True
+				# Full URL pattern — parse both to avoid subdomain/port/userinfo bypass.
+				# url.startswith("https://example.com") would match
+				# "https://example.com.attacker.com" (subdomain bypass),
+				# "https://example.com:8080" (port bypass), and
+				# "https://example.com@attacker.com" (userinfo bypass).
+				from urllib.parse import urlparse as _urlparse
+
+				try:
+					pat_parsed = _urlparse(pattern)
+				except Exception:
+					return False
+				pat_host = (pat_parsed.hostname or '').lower()
+				pat_path = pat_parsed.path.rstrip('/')
+				pat_scheme = (pat_parsed.scheme or '').lower()
+
+				if scheme != pat_scheme or host.lower() != pat_host:
+					return False
+				# Port must also match — an explicit port in the URL that
+				# differs from the pattern's (implicit or explicit) port
+				# means the request targets a different service.
+				pat_port = pat_parsed.port  # None when not explicitly specified
+				url_parsed = _urlparse(url)
+				url_port = url_parsed.port
+				# If the pattern omits the port, the URL must also use the
+				# default port (i.e. have no explicit port).  If the pattern
+				# specifies a port, the URL must match exactly.
+				if pat_port is not None:
+					if url_port != pat_port:
+						return False
+				elif url_port is not None:
+					# Pattern has no explicit port but URL does — reject.
+					return False
+				# If the pattern specifies a path prefix, enforce it.
+				if pat_path:
+					url_path = _urlparse(url).path.rstrip('/')
+					if not url_path.startswith(pat_path):
+						return False
+				return True
 			else:
 				# Domain-only pattern (case-insensitive comparison)
 				if host.lower() == pattern.lower():
