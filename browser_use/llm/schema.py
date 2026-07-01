@@ -14,6 +14,7 @@ class SchemaOptimizer:
 		*,
 		remove_min_items: bool = False,
 		remove_defaults: bool = False,
+		remove_string_length_constraints: bool = False,
 	) -> dict[str, Any]:
 		"""
 		Create the most optimized schema by flattening all $ref/$defs while preserving
@@ -23,6 +24,7 @@ class SchemaOptimizer:
 			model: The Pydantic model to optimize
 			remove_min_items: If True, remove minItems from the schema
 			remove_defaults: If True, remove default values from the schema
+			remove_string_length_constraints: If True, remove minLength/maxLength from the schema
 
 		Returns:
 			Optimized schema with all $refs resolved and strict mode compatibility
@@ -74,6 +76,8 @@ class SchemaOptimizer:
 						continue  # Skip minItems/min_items
 					elif key == 'default' and remove_defaults:
 						continue  # Skip default values
+					elif key in ('minLength', 'maxLength') and remove_string_length_constraints:
+						continue  # Skip minLength/maxLength
 
 					# Keep all anyOf structures (action unions) and resolve any $refs within
 					elif key == 'anyOf' and isinstance(value, list):
@@ -87,7 +91,7 @@ class SchemaOptimizer:
 							in_properties=(key == 'properties'),
 						)
 
-					# Keep essential validation fields
+					# Keep essential validation fields (exclude minLength/maxLength if remove_string_length_constraints)
 					elif key in [
 						'required',
 						'minimum',
@@ -97,7 +101,7 @@ class SchemaOptimizer:
 						'maxItems',
 						'pattern',
 						'default',
-					]:
+					] and not (key in ('minLength', 'maxLength') and remove_string_length_constraints):
 						optimized[key] = value if not isinstance(value, (dict, list)) else optimize_schema(value, defs_lookup)
 
 					# Recursively process all other fields
@@ -158,11 +162,11 @@ class SchemaOptimizer:
 		ensure_additional_properties_false(optimized_schema)
 		SchemaOptimizer._make_strict_compatible(optimized_schema)
 
-		# Final pass to remove minItems/min_items and default values if requested
-		if remove_min_items or remove_defaults:
+		# Final pass to remove minItems/min_items, default values, and string length constraints if requested
+		if remove_min_items or remove_defaults or remove_string_length_constraints:
 
 			def remove_forbidden_fields(obj: Any) -> None:
-				"""Recursively remove minItems/min_items and default values"""
+				"""Recursively remove forbidden fields from the schema"""
 				if isinstance(obj, dict):
 					# Remove forbidden keys
 					if remove_min_items:
@@ -170,6 +174,9 @@ class SchemaOptimizer:
 						obj.pop('min_items', None)
 					if remove_defaults:
 						obj.pop('default', None)
+					if remove_string_length_constraints:
+						obj.pop('minLength', None)
+						obj.pop('maxLength', None)
 					# Recursively process all values
 					for value in obj.values():
 						if isinstance(value, (dict, list)):
