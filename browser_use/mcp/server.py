@@ -187,12 +187,14 @@ def get_parent_process_cmdline() -> str | None:
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
-	def __init__(self, session_timeout_minutes: int = 10):
+	def __init__(self, session_timeout_minutes: int = 10, browser_profile_overrides: dict[str, Any] | None = None):
 		# Ensure all logging goes to stderr (in case new loggers were created)
 		_ensure_all_loggers_use_stderr()
 
 		self.server = Server('browser-use')
 		self.config = load_browser_use_config()
+		if browser_profile_overrides:
+			self.config.setdefault('browser_profile', {}).update(browser_profile_overrides)
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
 		self.tools: Tools | None = None
@@ -601,11 +603,13 @@ class BrowserUseServer:
 		for key, value in kwargs.items():
 			profile_data[key] = value
 
-		# Create browser profile
+		# cdp_url must be passed as a top-level BrowserSession kwarg so CDP
+		# sessions follow the same path as the fast CLI daemon.
+		cdp_url = profile_data.pop('cdp_url', None)
 		profile = BrowserProfile(**profile_data)
 
 		# Create browser session
-		self.browser_session = BrowserSession(browser_profile=profile)
+		self.browser_session = BrowserSession(cdp_url=cdp_url, browser_profile=profile)
 		await self.browser_session.start()
 
 		# Track the session for management
@@ -1254,12 +1258,15 @@ class BrowserUseServer:
 				logger.warning('MCP client disconnected while writing to stdio; shutting down server cleanly.')
 
 
-async def main(session_timeout_minutes: int = 10):
+async def main(session_timeout_minutes: int = 10, browser_profile_overrides: dict[str, Any] | None = None):
 	if not MCP_AVAILABLE:
 		print('MCP SDK is required. Install with: pip install mcp', file=sys.stderr)
 		sys.exit(1)
 
-	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes)
+	server = BrowserUseServer(
+		session_timeout_minutes=session_timeout_minutes,
+		browser_profile_overrides=browser_profile_overrides,
+	)
 	server._telemetry.capture(
 		MCPServerTelemetryEvent(
 			version=get_browser_use_version(),
