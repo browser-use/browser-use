@@ -271,6 +271,28 @@ class TokenCost:
 
 		self.usage_history.append(entry)
 
+		# Structured JSON log for external systems (e.g. Token Efficiency)
+		structured_log = {
+			'event': 'llm_usage',
+			'model': model,
+			'prompt_tokens': usage.prompt_tokens,
+			'completion_tokens': usage.completion_tokens,
+			'total_tokens': usage.total_tokens,
+			'prompt_cached_tokens': usage.prompt_cached_tokens,
+			'prompt_cache_creation_tokens': usage.prompt_cache_creation_tokens,
+			'timestamp': entry.timestamp.isoformat(),
+		}
+		logger.info(f'LLM_USAGE_JSON {__import__("json").dumps(structured_log)}')
+
+		# Record into Prometheus metrics (no-op if prometheus_client not installed)
+		from browser_use.metrics import record_llm_call
+
+		record_llm_call(
+			model=model,
+			prompt_tokens=usage.prompt_tokens,
+			completion_tokens=usage.completion_tokens,
+		)
+
 		return entry
 
 	# async def _log_non_usage_llm(self, llm: BaseChatModel) -> None:

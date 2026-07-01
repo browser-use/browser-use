@@ -51,6 +51,13 @@ def _log_get_message_emoji(message: BaseMessage) -> str:
 	return emoji_map.get(message.__class__.__name__, '🎮')
 
 
+def _log_estimate_tokens(text: str) -> int:
+	"""Estimate token count from text length (~4 chars per token)."""
+	if not text:
+		return 0
+	return max(1, len(text) // 4)
+
+
 def _log_format_message_line(message: BaseMessage, content: str, is_last_message: bool, terminal_width: int) -> list[str]:
 	"""Format a single message for logging display"""
 	try:
@@ -58,9 +65,8 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 
 		# Get emoji and token info
 		emoji = _log_get_message_emoji(message)
-		# token_str = str(message.metadata.tokens).rjust(4)
-		# TODO: fix the token count
-		token_str = '??? (TODO)'
+		estimated_tokens = _log_estimate_tokens(content)
+		token_str = str(estimated_tokens).rjust(4)
 		prefix = f'{emoji}[{token_str}]: '
 
 		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)
@@ -506,40 +512,49 @@ class MessageManager:
 
 	def _log_history_lines(self) -> str:
 		"""Generate a formatted log string of message history for debugging / printing to terminal"""
-		# TODO: fix logging
+		import shutil
 
-		# try:
-		# 	total_input_tokens = 0
-		# 	message_lines = []
-		# 	terminal_width = shutil.get_terminal_size((80, 20)).columns
+		try:
+			total_input_tokens = 0
+			message_lines = []
+			terminal_width = shutil.get_terminal_size((80, 20)).columns
+			messages = self.state.history.get_messages()
 
-		# 	for i, m in enumerate(self.state.history.messages):
-		# 		try:
-		# 			total_input_tokens += m.metadata.tokens
-		# 			is_last_message = i == len(self.state.history.messages) - 1
+			for i, m in enumerate(messages):
+				try:
+					is_last_message = i == len(messages) - 1
 
-		# 			# Extract content for logging
-		# 			content = _log_extract_message_content(m.message, is_last_message, m.metadata)
+					# Extract content for logging
+					if isinstance(m.content, str):
+						content = m.content
+					elif isinstance(m.content, list):
+						content = ' '.join(
+							part.text for part in m.content if hasattr(part, 'text')
+						)
+					else:
+						content = ''
 
-		# 			# Format the message line(s)
-		# 			lines = _log_format_message_line(m, content, is_last_message, terminal_width)
-		# 			message_lines.extend(lines)
-		# 		except Exception as e:
-		# 			logger.warning(f'Failed to format message {i} for logging: {e}')
-		# 			# Add a fallback line for this message
-		# 			message_lines.append('❓[   ?]: [Error formatting this message]')
+					# Truncate for display
+					if len(content) > 200:
+						content = content[:200] + '...'
 
-		# 	# Build final log message
-		# 	return (
-		# 		f'📜 LLM Message history ({len(self.state.history.messages)} messages, {total_input_tokens} tokens):\n'
-		# 		+ '\n'.join(message_lines)
-		# 	)
-		# except Exception as e:
-		# 	logger.warning(f'Failed to generate history log: {e}')
-		# 	# Return a minimal fallback message
-		# 	return f'📜 LLM Message history (error generating log: {e})'
+					total_input_tokens += _log_estimate_tokens(content)
 
-		return ''
+					# Format the message line(s)
+					lines = _log_format_message_line(m, content, is_last_message, terminal_width)
+					message_lines.extend(lines)
+				except Exception as e:
+					logger.warning(f'Failed to format message {i} for logging: {e}')
+					message_lines.append('❓[   ?]: [Error formatting this message]')
+
+			# Build final log message
+			return (
+				f'📜 LLM Message history ({len(messages)} messages, ~{total_input_tokens} tokens):\n'
+				+ '\n'.join(message_lines)
+			)
+		except Exception as e:
+			logger.warning(f'Failed to generate history log: {e}')
+			return f'📜 LLM Message history (error generating log: {e})'
 
 	@time_execution_sync('--get_messages')
 	def get_messages(self) -> list[BaseMessage]:
