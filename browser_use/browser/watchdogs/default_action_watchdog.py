@@ -1934,12 +1934,60 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				# After first char on contenteditable: check if dropped and retype if needed
 				if i == 0 and _check_first_char and _first_char:
-					check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={'expression': 'document.activeElement.textContent'},
-						session_id=cdp_session.session_id,
+					# Poll for the first char to appear instead of paying a fixed delay.
+					# On the happy path (char already visible) this costs a single
+					# textContent read and no sleep. When a framework (React/Vue/Angular)
+					# re-renders asynchronously the char may not be present immediately,
+					# so poll briefly and early-exit as soon as it appears -- a slow
+					# flush on a loaded/slow browser must not be mistaken for a drop.
+					# The grace sleep is always followed by another check (never sleep
+					# then retype on stale state), so a char that flushes inside the
+					# final window is still seen. Only a char missing on the last check
+					# is treated as the leaf-start drop and retyped. See #4461.
+					# Detect the first char from the INSERTION-ADJACENT code point only, not
+					# activeElement.textContent over the whole focused host. textContent on a
+					# nested custom control can (a) never surface a visible, in-DOM typed char
+					# (false drop -> unwanted retype -> duplication, the bug a maintainer hit) or
+					# (b) include unrelated placeholder/label/chrome text -- or the same char
+					# elsewhere in the subtree -- that matches even when it truly dropped (false
+					# present -> the leaf-start drop #4461 reappears). So look only at the single
+					# code point immediately before the caret, via the form-field value or the
+					# caret's own text node; Array.from(...).pop() keeps astral chars (emoji)
+					# intact rather than splitting a surrogate pair. Ambiguous cases fall through
+					# to a (harmless) retype. The whole probe is wrapped so a throwing custom
+					# getter degrades to '' not a CDP error.
+					_first_char_probe_js = (
+						'(() => {'
+						' try {'
+						' let s = "";'
+						' const el = document.activeElement;'
+						' if (el && typeof el.value === "string" && typeof el.selectionEnd === "number" && el.selectionEnd > 0) {'
+						' s += Array.from(el.value.slice(0, el.selectionEnd)).pop() || "";'
+						' }'
+						' const sel = document.getSelection && document.getSelection();'
+						' if (sel && sel.anchorNode && sel.anchorNode.nodeType === 3 && sel.anchorOffset > 0) {'
+						' const t = sel.anchorNode.textContent || "";'
+						' s += Array.from(t.slice(0, sel.anchorOffset)).pop() || "";'
+						' }'
+						' return s;'
+						' } catch (e) { return ""; }'
+						'})()'
 					)
-					content = check_result.get('result', {}).get('value', '')
-					if _first_char not in content:
+					_first_char_present = False
+					for _first_char_attempt in range(6):  # check at 0,100,...,500ms (5 x 100ms grace)
+						check_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+							params={'expression': _first_char_probe_js},
+							session_id=cdp_session.session_id,
+						)
+						content = check_result.get('result', {}).get('value', '')
+						if not isinstance(content, str):
+							content = ''
+						if _first_char in content:
+							_first_char_present = True
+							break
+						if _first_char_attempt < 5:  # wait then re-check; no sleep after the final check
+							await asyncio.sleep(0.1)
+					if not _first_char_present:
 						self.logger.debug(f'🎯 First char "{_first_char}" was dropped (leaf-start bug), retyping')
 						# Retype the first character - cursor now past leaf-start
 						modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(_first_char)
