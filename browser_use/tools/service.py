@@ -794,7 +794,9 @@ class Tools(Generic[Context]):
 
 			try:
 				# Convert coordinates from LLM size to original viewport size if resizing was used
-				actual_x, actual_y = _convert_llm_coordinates_to_viewport(params.coordinate_x, params.coordinate_y, browser_session)
+				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
+					params.coordinate_x, params.coordinate_y, browser_session
+				)
 
 				# Highlight the coordinate being hovered (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
