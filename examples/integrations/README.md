@@ -23,6 +23,8 @@ This directory is for examples that show Browser Use working with external produ
 
 External projects listed here are maintained outside this repository. A listing is a pointer for users, not a support guarantee from Browser Use maintainers.
 
+- [Bilig WorkPaper](https://github.com/proompteng/bilig) - Formula workbook readback for browser agents that need deterministic spreadsheet-style calculations. Maintained by @gregkonush.
+
 Add entries in this format:
 
 ```markdown
