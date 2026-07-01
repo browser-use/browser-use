@@ -550,7 +550,7 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	def validate_user_data_dir(cls, v: str | Path | None) -> str | Path:
 		"""Validate user data dir is set to a non-default path."""
 		if v is None:
-			return tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+			return Path(tempfile.mkdtemp(prefix='browser-use-user-data-dir-'))
 		return Path(v).expanduser().resolve()
 
 
