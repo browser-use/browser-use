@@ -221,6 +221,7 @@ def _detect_from_value_pattern(value: str) -> tuple[str, str | None] | None:
 	- Name: Capitalized word(s), 2-30 chars, letters only
 	- Number: Pure digits, 1-9 chars
 	"""
+	value = value.strip()
 
 	# Email detection - most specific first
 	if '@' in value and '.' in value:
