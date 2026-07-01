@@ -34,7 +34,7 @@ browser-use setup    # Run setup wizard (optional)
 ```bash
 browser-use init                          # Interactive template selection
 browser-use init --list                   # List available templates
-browser-use init --template basic         # Generate specific template
+browser-use init --template default        # Generate specific template
 browser-use init --output my_script.py    # Specify output file
 browser-use init --force                  # Overwrite existing files
 ```
