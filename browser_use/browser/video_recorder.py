@@ -4,8 +4,10 @@ import base64
 import io
 import logging
 import math
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from browser_use.browser.profile import ViewportSize
 
@@ -20,6 +22,8 @@ except ImportError:
 	IMAGEIO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+TimestampSource = Literal['cdp', 'local']
 
 
 def _get_padded_size(size: ViewportSize, macro_block_size: int = 16) -> ViewportSize:
@@ -38,7 +42,14 @@ class VideoRecorderService:
 	It automatically resizes frames to match the target video dimensions.
 	"""
 
-	def __init__(self, output_path: Path, size: ViewportSize, framerate: int):
+	def __init__(
+		self,
+		output_path: Path,
+		size: ViewportSize,
+		framerate: int,
+		time_func: Callable[[], float] | None = None,
+		max_frame_fill_seconds: float = 10.0,
+	):
 		"""
 		Initializes the video recorder.
 
@@ -50,9 +61,16 @@ class VideoRecorderService:
 		self.output_path = output_path
 		self.size = size
 		self.framerate = framerate
+		self.max_frame_fill_seconds = max_frame_fill_seconds
+		self._time_func = time_func or time.monotonic
 		self._writer: Optional['Format.Writer'] = None
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
+		self._last_frame_timestamp: float | None = None
+		self._last_frame_timestamp_source: TimestampSource | None = None
+		self._last_frame_local_timestamp: float | None = None
+		self._frame_time_accumulator = 0.0
+		self._last_frame_array: Any | None = None
 
 	def start(self) -> None:
 		"""
@@ -84,13 +102,14 @@ class VideoRecorderService:
 			logger.error(f'Failed to initialize video writer: {e}')
 			self._is_active = False
 
-	def add_frame(self, frame_data_b64: str) -> None:
+	def add_frame(self, frame_data_b64: str, timestamp: float | None = None) -> None:
 		"""
 		Decodes a base64-encoded PNG frame, resizes it, pads it to be codec-compatible,
 		and appends it to the video.
 
 		Args:
 		    frame_data_b64: A base64-encoded string of the PNG frame data.
+		    timestamp: Optional CDP screencast frame timestamp in seconds.
 		"""
 		if not self._is_active or not self._writer:
 			return
@@ -118,9 +137,84 @@ class VideoRecorderService:
 				# 3. Convert to numpy array for imageio
 				img_array = np.array(img)
 
-			self._writer.append_data(img_array)
+			self._append_timed_frame(img_array, timestamp=timestamp)
 		except Exception as e:
 			logger.warning(f'Could not process and add video frame: {e}')
+
+	def reset_timing(self) -> None:
+		"""Reset frame timing state when the screencast source changes."""
+		self._last_frame_timestamp = None
+		self._last_frame_timestamp_source = None
+		self._last_frame_local_timestamp = None
+		self._frame_time_accumulator = 0.0
+		self._last_frame_array = None
+
+	def _get_frame_write_plan(self, now: float, timestamp_source: TimestampSource = 'cdp') -> tuple[int, int]:
+		"""Return (previous frame repeats, current frame repeats) for fixed-FPS output."""
+		if self.framerate <= 0:
+			self._last_frame_timestamp = now
+			self._last_frame_timestamp_source = timestamp_source
+			self._frame_time_accumulator = 0.0
+			return (0, 1)
+
+		if self._last_frame_timestamp is None or self._last_frame_timestamp_source != timestamp_source:
+			self._last_frame_timestamp = now
+			self._last_frame_timestamp_source = timestamp_source
+			self._frame_time_accumulator = 0.0
+			return (0, 1)
+
+		elapsed = min(max(0.0, now - self._last_frame_timestamp), self.max_frame_fill_seconds)
+		self._last_frame_timestamp = now
+		self._frame_time_accumulator += elapsed
+
+		frame_interval = 1.0 / self.framerate
+		intervals_elapsed = int(self._frame_time_accumulator / frame_interval)
+		if intervals_elapsed <= 0:
+			return (0, 0)
+
+		self._frame_time_accumulator -= intervals_elapsed * frame_interval
+		return (max(0, intervals_elapsed - 1), 1)
+
+	def _append_timed_frame(self, frame_array: Any, timestamp: float | None = None) -> None:
+		"""Append frames according to elapsed wall-clock time between screencast frames."""
+		if not self._writer:
+			return
+
+		if timestamp is None:
+			frame_timestamp = self._time_func()
+			timestamp_source: TimestampSource = 'local'
+		else:
+			frame_timestamp = timestamp
+			timestamp_source = 'cdp'
+		local_timestamp = frame_timestamp if timestamp is None else self._time_func()
+
+		previous_repeats, current_repeats = self._get_frame_write_plan(frame_timestamp, timestamp_source)
+		if previous_repeats and self._last_frame_array is not None:
+			for _ in range(previous_repeats):
+				self._writer.append_data(self._last_frame_array)
+
+		for _ in range(current_repeats):
+			self._writer.append_data(frame_array)
+
+		self._last_frame_array = frame_array
+		self._last_frame_local_timestamp = local_timestamp
+
+	def _flush_final_frame(self) -> None:
+		"""Extend the last frame to cover idle time before recording stops."""
+		if not self._writer or self.framerate <= 0 or self._last_frame_array is None or self._last_frame_local_timestamp is None:
+			return
+
+		elapsed = min(max(0.0, self._time_func() - self._last_frame_local_timestamp), self.max_frame_fill_seconds)
+		self._frame_time_accumulator += elapsed
+
+		frame_interval = 1.0 / self.framerate
+		intervals_elapsed = int(self._frame_time_accumulator / frame_interval)
+		if intervals_elapsed <= 0:
+			return
+
+		self._frame_time_accumulator -= intervals_elapsed * frame_interval
+		for _ in range(max(0, intervals_elapsed - 1)):
+			self._writer.append_data(self._last_frame_array)
 
 	def stop_and_save(self) -> None:
 		"""
@@ -132,6 +226,7 @@ class VideoRecorderService:
 			return
 
 		try:
+			self._flush_final_frame()
 			self._writer.close()
 			logger.info(f'📹 Video recording saved successfully to: {self.output_path}')
 		except Exception as e:
