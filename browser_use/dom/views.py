@@ -16,6 +16,11 @@ from browser_use.observability import observe_debug
 
 # Serializer types
 DEFAULT_INCLUDE_ATTRIBUTES = [
+	'data-tooltip',
+	'data-original-title',
+	'data-bs-title',
+	'data-title',
+	'data-tip',
 	'title',
 	'type',
 	'checked',
@@ -89,6 +94,10 @@ STATIC_ATTRIBUTES = {
 	'placeholder',
 	'aria-label',
 	'title',
+	'data-tooltip',
+	'data-original-title',
+	'data-bs-title',
+	'data-title',
 	# 'aria-expanded',
 	'role',
 	'data-testid',
@@ -607,7 +616,17 @@ class EnhancedDOMTreeNode:
 		meaningful_text = ''
 		if hasattr(self, 'attributes') and self.attributes:
 			# Priority order: value, aria-label, title, placeholder, alt, text content
-			for attr in ['value', 'aria-label', 'title', 'placeholder', 'alt']:
+			for attr in [
+				'value',
+				'aria-label',
+				'title',
+				'data-tooltip',
+				'data-original-title',
+				'data-bs-title',
+				'data-title',
+				'placeholder',
+				'alt',
+			]:
 				if attr in self.attributes and self.attributes[attr]:
 					meaningful_text = self.attributes[attr]
 					break

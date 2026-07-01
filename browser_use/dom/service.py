@@ -107,6 +107,10 @@ class DomService:
 					elif subtree_root.attributes:
 						text = (
 							subtree_root.attributes.get('placeholder', '')
+							or subtree_root.attributes.get('data-tooltip', '')
+							or subtree_root.attributes.get('data-original-title', '')
+							or subtree_root.attributes.get('data-bs-title', '')
+							or subtree_root.attributes.get('data-title', '')
 							or subtree_root.attributes.get('title', '')
 							or subtree_root.attributes.get('aria-label', '')
 						)[:40]
@@ -1129,11 +1133,15 @@ class DomService:
 			text = node.get_all_children_text().lower().strip()
 			aria_label = node.attributes.get('aria-label', '').lower()
 			title = node.attributes.get('title', '').lower()
+			data_tooltip = node.attributes.get('data-tooltip', '').lower()
+			data_original_title = node.attributes.get('data-original-title', '').lower()
+			data_bs_title = node.attributes.get('data-bs-title', '').lower()
+			data_title = node.attributes.get('data-title', '').lower()
 			class_name = node.attributes.get('class', '').lower()
 			role = node.attributes.get('role', '').lower()
 
 			# Combine all text sources for pattern matching
-			all_text = f'{text} {aria_label} {title} {class_name}'.strip()
+			all_text = f'{text} {aria_label} {title} {data_tooltip} {data_original_title} {data_bs_title} {data_title} {class_name}'.strip()
 
 			# Check if it's disabled
 			is_disabled = (
@@ -1165,7 +1173,13 @@ class DomService:
 					{
 						'button_type': button_type,
 						'backend_node_id': index,
-						'text': node.get_all_children_text().strip() or aria_label or title,
+						'text': node.get_all_children_text().strip()
+						or aria_label
+						or title
+						or data_tooltip
+						or data_original_title
+						or data_bs_title
+						or data_title,
 						'selector': node.xpath,
 						'is_disabled': is_disabled,
 					}
