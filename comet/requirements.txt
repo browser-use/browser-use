@@ -1,0 +1,27 @@
+# browser-use (core engine)
+browser-use>=0.1.40
+
+# LLM
+google-generativeai>=0.7.2
+langchain-google-genai>=1.0.6
+
+# Data & Files
+pandas>=2.2.2
+openpyxl>=3.1.4
+python-docx>=1.1.2
+pdfplumber>=0.11.0
+
+# Memory (optional - comment out if not needed)
+chromadb>=0.5.3
+sentence-transformers>=3.0.1
+
+# HTTP
+httpx[http2]>=0.27.0
+
+# UI & Logging
+rich>=13.7.1
+python-dotenv>=1.0.1
+
+# OS control
+pyperclip>=1.8.2
+Pillow>=10.3.0
