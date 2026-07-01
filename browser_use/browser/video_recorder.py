@@ -36,7 +36,14 @@ class VideoRecorderService:
 	This service captures individual frames from the CDP screencast, decodes them,
 	and appends them to a video file using a pip-installable ffmpeg backend.
 	It automatically resizes frames to match the target video dimensions.
+
+	Timestamps from CDP screencast metadata are used to insert duplicate frames during
+	pauses, preserving real-time playback speed. Without this, videos play back much
+	faster than real time because CDP only delivers frames on visual change.
 	"""
+
+	# Max seconds of silence to fill with duplicate frames. Caps file size during long idle periods.
+	MAX_FILL_SECONDS = 10.0
 
 	def __init__(self, output_path: Path, size: ViewportSize, framerate: int):
 		"""
@@ -53,6 +60,8 @@ class VideoRecorderService:
 		self._writer: Optional['Format.Writer'] = None
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
+		self._last_timestamp: float | None = None
+		self._last_frame: 'np.ndarray | None' = None
 
 	def start(self) -> None:
 		"""
@@ -84,13 +93,19 @@ class VideoRecorderService:
 			logger.error(f'Failed to initialize video writer: {e}')
 			self._is_active = False
 
-	def add_frame(self, frame_data_b64: str) -> None:
+	def add_frame(self, frame_data_b64: str, timestamp: float | None = None) -> None:
 		"""
 		Decodes a base64-encoded PNG frame, resizes it, pads it to be codec-compatible,
 		and appends it to the video.
 
+		When a CDP timestamp is provided, duplicate frames are inserted to fill time gaps
+		so the video plays back at real-time speed. Without this, automated sessions appear
+		sped up because CDP only delivers frames on visual change.
+
 		Args:
 		    frame_data_b64: A base64-encoded string of the PNG frame data.
+		    timestamp: CDP screencast frame timestamp in seconds since epoch. When provided,
+		               filler frames are inserted to maintain real-time playback speed.
 		"""
 		if not self._is_active or not self._writer:
 			return
@@ -118,7 +133,22 @@ class VideoRecorderService:
 				# 3. Convert to numpy array for imageio
 				img_array = np.array(img)
 
+			# Insert filler frames to preserve real-time playback speed.
+			# CDP screencast fires on visual change only, so long pauses produce no frames.
+			# Duplicating the previous frame for the elapsed wall-clock time keeps the video
+			# in sync with actual session duration.
+			if timestamp is not None and self._last_timestamp is not None and self._last_frame is not None:
+				gap_seconds = min(timestamp - self._last_timestamp, self.MAX_FILL_SECONDS)
+				if gap_seconds > 0:
+					# -1 because we're about to append the current frame as well
+					filler_count = max(0, int(gap_seconds * self.framerate) - 1)
+					for _ in range(filler_count):
+						self._writer.append_data(self._last_frame)
+
 			self._writer.append_data(img_array)
+			self._last_frame = img_array
+			if timestamp is not None:
+				self._last_timestamp = timestamp
 		except Exception as e:
 			logger.warning(f'Could not process and add video frame: {e}')
 

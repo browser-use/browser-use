@@ -281,7 +281,10 @@ async def handle(action: str, session: SessionInfo, params: dict[str, Any]) -> A
 				hint = ' No file input found on the page.'
 			return {'error': f'Element {index} is not a file input.{hint}'}
 
-		await actions.upload_file(file_input_node, file_path)
+		try:
+			await actions.upload_file(file_input_node, file_path)
+		except Exception as e:
+			return {'error': str(e)}
 		return {'uploaded': file_path, 'element': index}
 
 	elif action == 'eval':
