@@ -1022,7 +1022,7 @@ class BrowserSession(BaseModel):
 			target = self.session_manager.get_target(target_id)
 			current_url = target.url
 			same_domain = (
-				url.split('/')[2] == current_url.split('/')[2]
+				urlparse(url).hostname == urlparse(current_url).hostname
 				if url.startswith('http') and current_url.startswith('http')
 				else False
 			)
