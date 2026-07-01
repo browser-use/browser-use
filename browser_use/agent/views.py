@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import html
 import json
 import logging
+import mimetypes
 import re
 import traceback
+from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generic, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
@@ -589,6 +595,546 @@ class AgentHistory(BaseModel):
 		}
 
 
+class AgentRunTraceStep(BaseModel):
+	"""A compact, shareable trace row for one agent action or step."""
+
+	step_index: int
+	action_index: int | None = None
+	timestamp: str | None = None
+	url: str | None = None
+	title: str | None = None
+	action_type: str | None = None
+	action_payload: dict[str, Any] | None = None
+	llm_thought: dict[str, Any] | None = None
+	screenshot_ref: str | None = None
+	step_outcome: Literal['success', 'error', 'done', 'unknown'] = 'unknown'
+	error: str | None = None
+	result: str | None = None
+	duration_seconds: float | None = None
+
+
+class AgentRunTraceSummary(BaseModel):
+	"""Audit summary for quickly triaging a shared agent trace."""
+
+	step_count: int
+	action_count: int
+	error_count: int
+	done_count: int
+	outcome_counts: dict[str, int]
+	action_counts: dict[str, int]
+	unique_domains: list[str]
+	final_status: Literal['success', 'failed', 'incomplete', 'unknown']
+	failure_category: Literal['action_error', 'agent_stopped', 'task_failed', 'max_steps_or_incomplete', 'unknown'] | None = None
+	failure_stage: str | None = None
+	fingerprint: str
+	replay_key: str
+	risk_flags: list[str] = Field(default_factory=list)
+	recommendations: list[str] = Field(default_factory=list)
+
+
+class AgentRunTrace(BaseModel):
+	"""Structured replay data for debugging and sharing browser-use agent runs."""
+
+	steps: list[AgentRunTraceStep]
+	final_result: str | None = None
+	is_done: bool = False
+	success: bool | None = None
+	total_duration_seconds: float | None = None
+	summary: AgentRunTraceSummary | None = None
+
+	def to_html(self, *, embed_screenshots: bool = False) -> str:
+		"""Render a shareable HTML viewer for this run trace."""
+
+		status = 'done' if self.is_done else 'in progress'
+		if self.success is True:
+			status = 'success'
+		elif self.success is False:
+			status = 'failed'
+
+		cards = '\n'.join(_render_trace_step_html(step, embed_screenshots=embed_screenshots) for step in self.steps)
+		if not cards:
+			cards = '<p class="empty">No trace steps recorded.</p>'
+		summary = _render_trace_summary_html(self.summary)
+
+		return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>browser-use agent trace</title>
+<style>
+:root {{
+	color-scheme: light dark;
+	--bg: #0f1117;
+	--panel: #171a23;
+	--panel-soft: #202432;
+	--text: #f4f6fb;
+	--muted: #aab1c5;
+	--line: #31384c;
+	--ok: #51d88a;
+	--bad: #ff6b7a;
+}}
+body {{
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}}
+main {{
+	max-width: 1180px;
+	margin: 0 auto;
+	padding: 28px;
+}}
+header {{
+	display: flex;
+	justify-content: space-between;
+	gap: 20px;
+	align-items: flex-start;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--line);
+}}
+h1 {{
+	margin: 0 0 8px;
+	font-size: 28px;
+	font-weight: 700;
+}}
+.summary {{
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+}}
+.audit-grid {{
+	margin-top: 18px;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 12px;
+}}
+.audit-card {{
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 12px;
+}}
+.pill {{
+	background: var(--panel-soft);
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	padding: 5px 10px;
+	color: var(--muted);
+}}
+.pill.success {{ color: var(--ok); }}
+.pill.failed {{ color: var(--bad); }}
+.timeline {{
+	margin-top: 24px;
+	display: grid;
+	gap: 14px;
+}}
+.step {{
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+	gap: 18px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 16px;
+}}
+.step-main {{ min-width: 0; }}
+.step-head {{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 10px;
+}}
+.step-title {{
+	font-weight: 650;
+	font-size: 16px;
+}}
+.outcome {{
+	border-radius: 999px;
+	padding: 3px 9px;
+	background: var(--panel-soft);
+	color: var(--muted);
+	font-size: 12px;
+	text-transform: uppercase;
+}}
+.outcome.success, .outcome.done {{ color: var(--ok); }}
+.outcome.error {{ color: var(--bad); }}
+.meta, .url {{
+	color: var(--muted);
+	overflow-wrap: anywhere;
+}}
+.block {{ margin-top: 12px; }}
+.label {{
+	color: var(--muted);
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	margin-bottom: 5px;
+}}
+pre {{
+	margin: 0;
+	padding: 10px;
+	background: #0a0c12;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}}
+.screenshot {{
+	align-self: start;
+	background: #0a0c12;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	overflow: hidden;
+	min-height: 120px;
+	display: grid;
+	place-items: center;
+	color: var(--muted);
+}}
+.screenshot img {{
+	width: 100%;
+	display: block;
+}}
+.empty {{ color: var(--muted); }}
+@media (max-width: 780px) {{
+	main {{ padding: 18px; }}
+	header, .step {{ display: block; }}
+	.screenshot {{ margin-top: 14px; }}
+}}
+</style>
+</head>
+<body>
+<main>
+	<header>
+		<div>
+			<h1>Agent run trace</h1>
+			<div class="summary">
+				<span class="pill {html.escape(status)}">{html.escape(status)}</span>
+				<span class="pill">{len(self.steps)} steps</span>
+				<span class="pill">{_format_duration(self.total_duration_seconds)}</span>
+			</div>
+		</div>
+	</header>
+	{_render_final_result(self.final_result)}
+	{summary}
+	<section class="timeline">
+		{cards}
+	</section>
+</main>
+</body>
+</html>
+"""
+
+
+def build_run_trace_summary(
+	steps: list[AgentRunTraceStep],
+	*,
+	final_result: str | None,
+	is_done: bool,
+	success: bool | None,
+) -> AgentRunTraceSummary:
+	"""Build a deterministic audit summary for trace comparison and failure triage."""
+
+	outcome_counts = Counter(step.step_outcome for step in steps)
+	action_counts = Counter(step.action_type or 'step' for step in steps)
+	domain_counts = Counter(domain for step in steps if (domain := _trace_domain(step.url)))
+	error_step = next((step for step in steps if step.step_outcome == 'error'), None)
+	final_status = _trace_final_status(is_done=is_done, success=success)
+	failure_category = _trace_failure_category(error_step=error_step, is_done=is_done, success=success, final_result=final_result)
+	failure_stage = _trace_failure_stage(error_step=error_step, steps=steps, final_status=final_status)
+	risk_flags = _trace_risk_flags(
+		steps=steps,
+		outcome_counts=outcome_counts,
+		action_counts=action_counts,
+		domain_counts=domain_counts,
+		is_done=is_done,
+		success=success,
+	)
+	return AgentRunTraceSummary(
+		step_count=len({step.step_index for step in steps}),
+		action_count=sum(1 for step in steps if step.action_type),
+		error_count=outcome_counts.get('error', 0),
+		done_count=outcome_counts.get('done', 0),
+		outcome_counts=dict(sorted(outcome_counts.items())),
+		action_counts=dict(sorted(action_counts.items())),
+		unique_domains=sorted(domain_counts),
+		final_status=final_status,
+		failure_category=failure_category,
+		failure_stage=failure_stage,
+		fingerprint=_trace_fingerprint(steps, final_status=final_status, final_result=final_result),
+		replay_key=_trace_replay_key(steps),
+		risk_flags=risk_flags,
+		recommendations=_trace_recommendations(risk_flags=risk_flags, failure_category=failure_category),
+	)
+
+
+def _trace_final_status(*, is_done: bool, success: bool | None) -> Literal['success', 'failed', 'incomplete', 'unknown']:
+	if success is True:
+		return 'success'
+	if success is False:
+		return 'failed'
+	if not is_done:
+		return 'incomplete'
+	return 'unknown'
+
+
+def _trace_failure_category(
+	*,
+	error_step: AgentRunTraceStep | None,
+	is_done: bool,
+	success: bool | None,
+	final_result: str | None,
+) -> Literal['action_error', 'agent_stopped', 'task_failed', 'max_steps_or_incomplete', 'unknown'] | None:
+	if error_step:
+		return 'action_error'
+	if success is False:
+		return 'task_failed'
+	if not is_done:
+		return 'max_steps_or_incomplete'
+	if final_result is None:
+		return 'agent_stopped'
+	return None
+
+
+def _trace_failure_stage(
+	*,
+	error_step: AgentRunTraceStep | None,
+	steps: list[AgentRunTraceStep],
+	final_status: str,
+) -> str | None:
+	if error_step:
+		return _trace_step_label(error_step)
+	if final_status == 'incomplete' and steps:
+		return f'last recorded {_trace_step_label(steps[-1])}'
+	return None
+
+
+def _trace_step_label(step: AgentRunTraceStep) -> str:
+	action = step.action_type or 'step'
+	if step.action_index is None:
+		return f'step {step.step_index}: {action}'
+	return f'step {step.step_index} action {step.action_index}: {action}'
+
+
+def _trace_risk_flags(
+	*,
+	steps: list[AgentRunTraceStep],
+	outcome_counts: Counter[str],
+	action_counts: Counter[str],
+	domain_counts: Counter[str],
+	is_done: bool,
+	success: bool | None,
+) -> list[str]:
+	flags: list[str] = []
+	if not steps:
+		flags.append('no_trace_steps')
+	if outcome_counts.get('error', 0):
+		flags.append('has_action_errors')
+	if not is_done:
+		flags.append('incomplete_without_done')
+	if success is False:
+		flags.append('agent_reported_failure')
+	repeated_actions = [action for action, count in action_counts.items() if action != 'step' and count >= 3]
+	for action in sorted(repeated_actions):
+		flags.append(f'repeated_action:{action}')
+	for domain, count in sorted(domain_counts.items()):
+		if count >= 5:
+			flags.append(f'long_domain_run:{domain}')
+	return flags
+
+
+def _trace_recommendations(
+	*,
+	risk_flags: list[str],
+	failure_category: Literal['action_error', 'agent_stopped', 'task_failed', 'max_steps_or_incomplete', 'unknown'] | None,
+) -> list[str]:
+	recommendations: list[str] = []
+	if failure_category == 'action_error':
+		recommendations.append('Open the first failed step and compare the action payload with the page screenshot.')
+	if any(flag.startswith('repeated_action:') for flag in risk_flags):
+		recommendations.append('Check for a loop or stale target around the repeated action type.')
+	if 'incomplete_without_done' in risk_flags:
+		recommendations.append('Review the last recorded step before increasing max_steps.')
+	if 'agent_reported_failure' in risk_flags:
+		recommendations.append(
+			'Compare final result with the preceding action sequence to see where the task became unrecoverable.'
+		)
+	if not recommendations:
+		recommendations.append('Use fingerprint and replay key to compare this run against future regressions.')
+	return recommendations
+
+
+def _trace_fingerprint(steps: list[AgentRunTraceStep], *, final_status: str, final_result: str | None) -> str:
+	payload = {
+		'final_result': final_result,
+		'final_status': final_status,
+		'steps': [_normalized_trace_step(step, include_result=True) for step in steps],
+	}
+	return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode('utf-8')).hexdigest()[:16]
+
+
+def _trace_replay_key(steps: list[AgentRunTraceStep]) -> str:
+	payload = [
+		{
+			'action_type': step.action_type,
+			'action_payload': step.action_payload,
+			'domain': _trace_domain(step.url),
+			'outcome': step.step_outcome,
+		}
+		for step in steps
+	]
+	return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode('utf-8')).hexdigest()[:16]
+
+
+def _normalized_trace_step(step: AgentRunTraceStep, *, include_result: bool) -> dict[str, Any]:
+	payload: dict[str, Any] = {
+		'action_index': step.action_index,
+		'action_payload': step.action_payload,
+		'action_type': step.action_type,
+		'domain': _trace_domain(step.url),
+		'error': step.error,
+		'outcome': step.step_outcome,
+		'step_index': step.step_index,
+		'title': step.title,
+	}
+	if include_result:
+		payload['result'] = step.result
+	return payload
+
+
+def _trace_domain(url: str | None) -> str | None:
+	if not url:
+		return None
+	netloc = urlparse(url).netloc
+	return netloc.lower() or None
+
+
+def _render_trace_summary_html(summary: AgentRunTraceSummary | None) -> str:
+	if summary is None:
+		return ''
+	cards = [
+		('Fingerprint', summary.fingerprint),
+		('Replay key', summary.replay_key),
+		('Final status', summary.final_status),
+		('Failure category', summary.failure_category or 'none'),
+		('Failure stage', summary.failure_stage or 'none'),
+		('Risk flags', ', '.join(summary.risk_flags) or 'none'),
+		('Recommendations', '\n'.join(summary.recommendations)),
+	]
+	rendered = '\n'.join(
+		f"""
+		<div class="audit-card">
+			<div class="label">{html.escape(label)}</div>
+			<pre>{html.escape(value)}</pre>
+		</div>
+		"""
+		for label, value in cards
+	)
+	return f"""
+	<section class="audit-grid">
+		{rendered}
+	</section>
+"""
+
+
+def _render_final_result(final_result: str | None) -> str:
+	if not final_result:
+		return ''
+	return f"""
+	<section class="block">
+		<div class="label">Final result</div>
+		<pre>{html.escape(final_result)}</pre>
+	</section>
+"""
+
+
+def _render_trace_step_html(step: AgentRunTraceStep, *, embed_screenshots: bool) -> str:
+	action_label = step.action_type or 'step'
+	action_suffix = f' action {step.action_index}' if step.action_index is not None else ''
+	meta_parts = [
+		part
+		for part in (
+			step.timestamp,
+			_format_duration(step.duration_seconds),
+			step.title,
+		)
+		if part
+	]
+	blocks = [
+		_render_pre_block('Action payload', step.action_payload),
+		_render_pre_block('LLM state', step.llm_thought),
+		_render_pre_block('Result', step.result),
+		_render_pre_block('Error', step.error),
+	]
+	return f"""
+	<article class="step">
+		<div class="step-main">
+			<div class="step-head">
+				<div>
+					<div class="step-title">Step {step.step_index}{html.escape(action_suffix)}: {html.escape(action_label)}</div>
+					<div class="meta">{html.escape(' · '.join(meta_parts))}</div>
+				</div>
+				<span class="outcome {html.escape(step.step_outcome)}">{html.escape(step.step_outcome)}</span>
+			</div>
+			{_render_url(step.url)}
+			{''.join(blocks)}
+		</div>
+		{_render_screenshot(step.screenshot_ref, embed_screenshots=embed_screenshots)}
+	</article>
+"""
+
+
+def _render_pre_block(label: str, value: Any) -> str:
+	if value is None or value == {}:
+		return ''
+	if isinstance(value, str):
+		rendered = value
+	else:
+		rendered = json.dumps(value, indent=2, ensure_ascii=False, default=str)
+	return f"""
+			<div class="block">
+				<div class="label">{html.escape(label)}</div>
+				<pre>{html.escape(rendered)}</pre>
+			</div>
+"""
+
+
+def _render_url(url: str | None) -> str:
+	if not url:
+		return ''
+	return f'<div class="url">{html.escape(url)}</div>'
+
+
+def _render_screenshot(screenshot_ref: str | None, *, embed_screenshots: bool) -> str:
+	if not screenshot_ref:
+		return '<aside class="screenshot">No screenshot</aside>'
+	src = _screenshot_src(screenshot_ref, embed_screenshots=embed_screenshots)
+	if src:
+		return f'<aside class="screenshot"><img src="{html.escape(src, quote=True)}" alt="Screenshot for this step"></aside>'
+	return f'<aside class="screenshot">{html.escape(screenshot_ref)}</aside>'
+
+
+def _screenshot_src(screenshot_ref: str, *, embed_screenshots: bool) -> str | None:
+	if not embed_screenshots:
+		return screenshot_ref
+	path = Path(screenshot_ref)
+	if not path.exists() or not path.is_file():
+		return screenshot_ref
+	mime_type = mimetypes.guess_type(path.name)[0] or 'image/png'
+	encoded = base64.b64encode(path.read_bytes()).decode('ascii')
+	return f'data:{mime_type};base64,{encoded}'
+
+
+def _format_duration(duration_seconds: float | None) -> str:
+	if duration_seconds is None:
+		return ''
+	if duration_seconds < 1:
+		return f'{duration_seconds * 1000:.0f}ms'
+	return f'{duration_seconds:.2f}s'
+
+
 AgentStructuredOutput = TypeVar('AgentStructuredOutput', bound=BaseModel)
 
 
@@ -631,6 +1177,123 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 			data = self.model_dump(sensitive_data=sensitive_data)
 			with open(filepath, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2, ensure_ascii=False)
+		except Exception as e:
+			raise e
+
+	def to_run_trace(self, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> AgentRunTrace:
+		"""Convert history into a compact action-by-action trace for replay and debugging."""
+
+		steps: list[AgentRunTraceStep] = []
+
+		for history_index, history_item in enumerate(self.history):
+			step_number = history_item.metadata.step_number if history_item.metadata else history_index
+			timestamp = None
+			duration_seconds = None
+			if history_item.metadata:
+				timestamp = datetime.fromtimestamp(history_item.metadata.step_end_time, tz=timezone.utc).isoformat()
+				duration_seconds = history_item.metadata.duration_seconds
+
+			llm_thought = None
+			actions: list[dict[str, Any]] = []
+			if history_item.model_output:
+				brain = history_item.model_output.current_state
+				llm_thought = brain.model_dump(exclude_none=True)
+				actions = [action.model_dump(exclude_none=True, mode='json') for action in history_item.model_output.action]
+				if sensitive_data:
+					llm_thought = history_item._filter_sensitive_data_from_dict(llm_thought, sensitive_data)
+					actions = [history_item._filter_sensitive_data_from_dict(action, sensitive_data) for action in actions]
+
+			results = history_item.result or []
+			row_count = max(len(actions), len(results), 1)
+
+			for action_index in range(row_count):
+				action = actions[action_index] if action_index < len(actions) else None
+				action_type = next(iter(action.keys()), None) if action else None
+				action_payload = action.get(action_type) if action and action_type else None
+				result = results[action_index] if action_index < len(results) else None
+
+				step_outcome: Literal['success', 'error', 'done', 'unknown'] = 'unknown'
+				error = None
+				result_text = None
+				if result:
+					error = result.error
+					result_text = result.long_term_memory or result.extracted_content
+					if sensitive_data:
+						if error:
+							error = history_item._filter_sensitive_data_from_string(error, sensitive_data)
+						if result_text:
+							result_text = history_item._filter_sensitive_data_from_string(result_text, sensitive_data)
+					if result.error:
+						step_outcome = 'error'
+					elif result.is_done:
+						step_outcome = 'done'
+					else:
+						step_outcome = 'success'
+
+				steps.append(
+					AgentRunTraceStep(
+						step_index=step_number,
+						action_index=action_index if action else None,
+						timestamp=timestamp,
+						url=history_item._filter_sensitive_data_from_string(history_item.state.url, sensitive_data)
+						if history_item.state.url
+						else history_item.state.url,
+						title=history_item._filter_sensitive_data_from_string(history_item.state.title, sensitive_data)
+						if history_item.state.title
+						else history_item.state.title,
+						action_type=action_type,
+						action_payload=action_payload,
+						llm_thought=llm_thought,
+						screenshot_ref=history_item.state.screenshot_path,
+						step_outcome=step_outcome,
+						error=error,
+						result=result_text,
+						duration_seconds=duration_seconds,
+					)
+				)
+
+		final_result = self.final_result()
+		if final_result and sensitive_data and self.history:
+			final_result = self.history[-1]._filter_sensitive_data_from_string(final_result, sensitive_data)
+
+		return AgentRunTrace(
+			steps=steps,
+			final_result=final_result,
+			is_done=self.is_done(),
+			success=self.is_successful(),
+			total_duration_seconds=self.total_duration_seconds() if self.history else None,
+			summary=build_run_trace_summary(
+				steps,
+				final_result=final_result,
+				is_done=self.is_done(),
+				success=self.is_successful(),
+			),
+		)
+
+	def save_trace_to_file(self, filepath: str | Path, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> None:
+		"""Save a compact run trace JSON file for replay and debugging."""
+		try:
+			path = Path(filepath)
+			path.parent.mkdir(parents=True, exist_ok=True)
+			data = self.to_run_trace(sensitive_data=sensitive_data).model_dump(exclude_none=True, mode='json')
+			with open(path, 'w', encoding='utf-8') as f:
+				json.dump(data, f, indent=2, ensure_ascii=False)
+		except Exception as e:
+			raise e
+
+	def save_trace_viewer(
+		self,
+		filepath: str | Path,
+		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		*,
+		embed_screenshots: bool = False,
+	) -> None:
+		"""Save a browser-openable HTML trace viewer for replaying agent runs."""
+		try:
+			path = Path(filepath)
+			path.parent.mkdir(parents=True, exist_ok=True)
+			html_content = self.to_run_trace(sensitive_data=sensitive_data).to_html(embed_screenshots=embed_screenshots)
+			path.write_text(html_content, encoding='utf-8')
 		except Exception as e:
 			raise e
 
