@@ -2058,9 +2058,10 @@ def run_main_interface(ctx: click.Context, debug: bool = False, **kwargs):
 			# Ignore telemetry errors in MCP mode to prevent any stdout contamination
 			pass
 		# Run as MCP server
+		from browser_use.mcp.config import build_mcp_config_overrides
 		from browser_use.mcp.server import main as mcp_main
 
-		asyncio.run(mcp_main())
+		asyncio.run(mcp_main(config_overrides=build_mcp_config_overrides(kwargs)))
 		return
 
 	# Check if prompt mode is activated
