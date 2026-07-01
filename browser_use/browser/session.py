@@ -138,7 +138,7 @@ class ResilientEventBus(EventBus):
 		try:
 			# Use a default timeout of 30 seconds if not specified
 			shutdown_timeout = timeout if timeout is not None else 30.0
-			await asyncio.wait_for(super().stop(clear=clear, timeout=timeout), timeout=shutdown_timeout)
+			await asyncio.wait_for(super().stop(clear=clear), timeout=shutdown_timeout)
 		except asyncio.TimeoutError:
 			# Log warning but don't block process termination
 			logger.warning(
