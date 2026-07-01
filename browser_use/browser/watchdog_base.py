@@ -95,7 +95,7 @@ class BaseWatchdog(BaseModel):
 				# Circuit breaker: skip handler if CDP WebSocket is dead
 				# (prevents handlers from hanging on broken connections until timeout)
 				# Lifecycle events are exempt — they manage browser start/stop
-				if event.event_type not in LIFECYCLE_EVENT_NAMES and not browser_session.is_cdp_connected:
+				if event.event_type not in LIFECYCLE_EVENT_NAMES:
 					# If reconnection is in progress, wait for it instead of silently skipping
 					if browser_session.is_reconnecting:
 						wait_timeout = browser_session.RECONNECT_WAIT_TIMEOUT
@@ -115,12 +115,32 @@ class BaseWatchdog(BaseModel):
 								f'[{watchdog_class_name}.{actual_handler.__name__}] Reconnection failed — CDP still not connected'
 							)
 						# Reconnection succeeded — fall through to execute handler normally
-					else:
-						# Not reconnecting — intentional stop, backward compat silent skip
+					elif not browser_session.is_cdp_connected and getattr(browser_session, '_intentional_stop', False):
+						# Intentional stop — backward compat silent skip
+						browser_session.logger.debug(
+							f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⚡ Skipped — CDP not connected (intentionally stopped)'
+						)
+						return None
+					elif not browser_session.is_cdp_connected:
+						# CDP down but not reconnecting and not intentional — skip
 						browser_session.logger.debug(
 							f'🚌 [{watchdog_class_name}.{actual_handler.__name__}] ⚡ Skipped — CDP not connected'
 						)
 						return None
+					else:
+						# CDP appears connected — verify health before execution
+						is_healthy = await browser_session.verify_connection_health()
+						if not is_healthy:
+							browser_session.logger.warning(
+								f'🔌 [{watchdog_class_name}.{actual_handler.__name__}] CDP health check failed — triggering reconnect'
+							)
+							browser_session._is_healthy = False
+							try:
+								await browser_session._auto_reconnect()
+							except Exception as re_err:
+								raise ConnectionError(f'CDP health check failed and reconnect failed: {re_err}') from re_err
+							if not browser_session.is_cdp_connected:
+								raise ConnectionError('CDP health check failed and reconnect did not restore connection')
 
 				# just for debug logging, not used for anything else
 				parent_event = event_bus.event_history.get(event.event_parent_id) if event.event_parent_id else None

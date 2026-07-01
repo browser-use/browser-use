@@ -101,7 +101,10 @@ class DOMWatchdog(BaseWatchdog):
 
 		try:
 			# get_or_create_cdp_session() now handles focus validation automatically
-			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+			cdp_session = await asyncio.wait_for(
+				self.browser_session.get_or_create_cdp_session(focus=True),
+				timeout=5.0,
+			)
 
 			# Use performance API to get pending requests
 			js_code = """
@@ -233,6 +236,10 @@ class DOMWatchdog(BaseWatchdog):
 
 				return network_requests
 
+		except TimeoutError as e:
+			self.logger.warning('⚠️ Timeout getting pending network requests — marking session unhealthy')
+			self.browser_session._is_healthy = False
+			raise ConnectionError('CDP timed out during pending network requests retrieval') from e
 		except Exception as e:
 			self.logger.debug(f'Failed to get pending network requests: {e}')
 
@@ -666,6 +673,10 @@ class DOMWatchdog(BaseWatchdog):
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: ✅ COMPLETED DOM tree build (no JS highlights)')
 			return self.current_dom_state
 
+		except TimeoutError as e:
+			self.logger.warning('⚠️ Timeout building DOM tree — marking session unhealthy')
+			self.browser_session._is_healthy = False
+			raise ConnectionError('CDP timed out during DOM tree building') from e
 		except Exception as e:
 			self.logger.error(f'Failed to build DOM tree without highlights: {e}')
 			self.event_bus.dispatch(
@@ -703,9 +714,10 @@ class DOMWatchdog(BaseWatchdog):
 			self.logger.debug('🔍 DOMWatchdog._capture_clean_screenshot: ✅ Clean screenshot captured successfully')
 			return str(screenshot_b64)
 
-		except TimeoutError:
-			self.logger.warning('📸 Clean screenshot timed out after 6 seconds - no handler registered or slow page?')
-			raise
+		except TimeoutError as e:
+			self.logger.warning('📸 Screenshot timed out — marking session unhealthy')
+			self.browser_session._is_healthy = False
+			raise ConnectionError('CDP timed out during screenshot capture') from e
 		except Exception as e:
 			self.logger.warning(f'📸 Clean screenshot failed: {type(e).__name__}: {e}')
 			raise
