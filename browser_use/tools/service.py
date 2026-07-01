@@ -744,90 +744,88 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to click element {params.index}: {str(e)}'
 				return ActionResult(error=error_msg)
 
-			async def _hover_by_index(params: HoverElementAction, browser_session: BrowserSession) -> ActionResult:
-				"""Hover over an element by index to trigger CSS :hover effects (dropdowns, tooltips, hover-reveal patterns)."""
-				assert params.index is not None
-				try:
-					assert params.index != 0, (
-						'Cannot hover on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
-					)
+		async def _hover_by_index(params: HoverElementAction, browser_session: BrowserSession) -> ActionResult:
+			"""Hover over an element by index to trigger CSS :hover effects (dropdowns, tooltips, hover-reveal patterns)."""
+			assert params.index is not None
+			try:
+				assert params.index != 0, (
+					'Cannot hover on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
+				)
 
-					# Look up the node from the selector map
-					node = await browser_session.get_element_by_index(params.index)
-					if node is None:
-						msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-						logger.warning(f'⚠️ {msg}')
-						return ActionResult(extracted_content=msg)
+				# Look up the node from the selector map
+				node = await browser_session.get_element_by_index(params.index)
+				if node is None:
+					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+					logger.warning(f'⚠️ {msg}')
+					return ActionResult(extracted_content=msg)
 
-					# Get description of hovered element
-					element_desc = get_click_description(node)
+				# Get description of hovered element
+				element_desc = get_click_description(node)
 
-					# Highlight the element being hovered (truly non-blocking)
-					create_task_with_error_handling(
-						browser_session.highlight_interaction_element(node),
-						name='highlight_hover_element',
-						suppress_exceptions=True,
-					)
+				# Highlight the element being hovered (truly non-blocking)
+				create_task_with_error_handling(
+					browser_session.highlight_interaction_element(node),
+					name='highlight_hover_element',
+					suppress_exceptions=True,
+				)
 
-					event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
-					await event
-					# Wait for handler to complete and get any exception or metadata
-					hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+				event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
+				await event
+				# Wait for handler to complete and get any exception or metadata
+				hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
-					memory = f'Hovered {element_desc}'
-					logger.info(f'🖱️ {memory}')
+				memory = f'Hovered {element_desc}'
+				logger.info(f'🖱️ {memory}')
 
-					return ActionResult(
-						extracted_content=memory,
-						metadata=hover_metadata if isinstance(hover_metadata, dict) else None,
-					)
-				except BrowserError as e:
-					return handle_browser_error(e)
-				except Exception as e:
-					error_msg = f'Failed to hover element {params.index}: {str(e)}'
-					return ActionResult(error=error_msg)
+				return ActionResult(
+					extracted_content=memory,
+					metadata=hover_metadata if isinstance(hover_metadata, dict) else None,
+				)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover element {params.index}: {str(e)}'
+				return ActionResult(error=error_msg)
 
-			async def _hover_by_coordinate(params: HoverElementAction, browser_session: BrowserSession) -> ActionResult:
-				"""Hover at specific coordinates to trigger CSS :hover effects."""
-				if params.coordinate_x is None or params.coordinate_y is None:
-					return ActionResult(error='Both coordinate_x and coordinate_y must be provided')
+		async def _hover_by_coordinate(params: HoverElementAction, browser_session: BrowserSession) -> ActionResult:
+			"""Hover at specific coordinates to trigger CSS :hover effects."""
+			if params.coordinate_x is None or params.coordinate_y is None:
+				return ActionResult(error='Both coordinate_x and coordinate_y must be provided')
 
-				try:
-					# Convert coordinates from LLM size to original viewport size if resizing was used
-					actual_x, actual_y = _convert_llm_coordinates_to_viewport(
-						params.coordinate_x, params.coordinate_y, browser_session
-					)
+			try:
+				# Convert coordinates from LLM size to original viewport size if resizing was used
+				actual_x, actual_y = _convert_llm_coordinates_to_viewport(params.coordinate_x, params.coordinate_y, browser_session)
 
-					# Highlight the coordinate being hovered (truly non-blocking)
-					asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
+				# Highlight the coordinate being hovered (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
-					# Dispatch HoverCoordinateEvent
-					event = browser_session.event_bus.dispatch(HoverCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y))
-					await event
-					hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+				# Dispatch HoverCoordinateEvent
+				event = browser_session.event_bus.dispatch(HoverCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y))
+				await event
+				hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
-					memory = f'Hovered at coordinate {params.coordinate_x}, {params.coordinate_y}'
-					logger.info(f'🖱️ {memory}')
+				memory = f'Hovered at coordinate {params.coordinate_x}, {params.coordinate_y}'
+				logger.info(f'🖱️ {memory}')
 
-					return ActionResult(
-						extracted_content=memory,
-						metadata={'hover_x': actual_x, 'hover_y': actual_y},
-					)
-				except BrowserError as e:
-					return handle_browser_error(e)
-				except Exception as e:
-					error_msg = f'Failed to hover at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
-					return ActionResult(error=error_msg)
+				return ActionResult(
+					extracted_content=memory,
+					metadata={'hover_x': actual_x, 'hover_y': actual_y},
+				)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
+				return ActionResult(error=error_msg)
 
-			# Store click handlers for re-registration
-			self._click_by_index = _click_by_index
-			self._click_by_coordinate = _click_by_coordinate
-			self._hover_by_index = _hover_by_index
-			self._hover_by_coordinate = _hover_by_coordinate
+		# Store click handlers for re-registration
+		self._click_by_index = _click_by_index
+		self._click_by_coordinate = _click_by_coordinate
+		self._hover_by_index = _hover_by_index
+		self._hover_by_coordinate = _hover_by_coordinate
 
-			# Register click action (index-only by default)
-			self._register_click_action()
-			self._register_hover_action()
+		# Register click action (index-only by default)
+		self._register_click_action()
+		self._register_hover_action()
 
 		@self.registry.action(
 			'Input text into element by index. Clears existing text by default; pass text="" to clear only, or clear=False to append.',
