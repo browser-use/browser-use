@@ -162,7 +162,7 @@ def build_snapshot_lookup(
 
 					# Extract stacking contexts if available
 					if layout_idx < len(layout.get('stackingContexts', [])):
-						stacking_contexts = layout.get('stackingContexts', {}).get('index', [])[layout_idx]
+						stacking_contexts = layout.get('stackingContexts', [])[layout_idx]
 
 			snapshot_lookup[backend_node_id] = EnhancedSnapshotNode(
 				is_clickable=is_clickable,
