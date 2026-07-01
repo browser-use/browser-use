@@ -205,6 +205,12 @@ def create_history_gif(
 	else:
 		logger.warning('No images found in history to create GIF')
 
+	# Close all PIL images to release file descriptors
+	for img in images:
+		img.close()
+	if logo:
+		logo.close()
+
 
 def _create_task_frame(
 	task: str,
@@ -220,6 +226,7 @@ def _create_task_frame(
 	img_data = base64.b64decode(first_screenshot)
 	template = Image.open(io.BytesIO(img_data))
 	image = Image.new('RGB', template.size, (0, 0, 0))
+	template.close()
 	draw = ImageDraw.Draw(image)
 
 	# Calculate vertical center of image
