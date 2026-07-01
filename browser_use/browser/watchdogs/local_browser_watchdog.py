@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -143,18 +144,10 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				self.logger.debug(
 					f'[LocalBrowserWatchdog] 📂 user_data_dir={profile.user_data_dir}, profile_directory={profile.profile_directory}'
 				)
-				subprocess = await asyncio.create_subprocess_exec(
-					browser_path,
-					*launch_args,
-					stdout=asyncio.subprocess.PIPE,
-					stderr=asyncio.subprocess.PIPE,
-				)
+				browser_process = await self._start_browser_process(browser_path, launch_args)
 				self.logger.debug(
-					f'[LocalBrowserWatchdog] 🎭 Browser running with browser_pid= {subprocess.pid} 🔗 listening on CDP port :{debug_port}'
+					f'[LocalBrowserWatchdog] 🎭 Browser running with browser_pid= {browser_process.pid} 🔗 listening on CDP port :{debug_port}'
 				)
-
-				# Convert to psutil.Process
-				process = psutil.Process(subprocess.pid)
 
 				# Wait for CDP to be ready and get the URL
 				cdp_url = await self._wait_for_cdp_url(debug_port)
@@ -175,7 +168,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				else:
 					self._temp_dirs_to_cleanup = []
 
-				return process, cdp_url
+				return browser_process, cdp_url
 
 			except Exception as e:
 				error_str = str(e).lower()
@@ -357,6 +350,66 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 		return None
 
+	@staticmethod
+	async def _start_browser_process(browser_path: str | Path, launch_args: list[str]) -> psutil.Process:
+		"""Start a browser process even when the active asyncio loop has no subprocess support."""
+		command = [str(browser_path), *launch_args]
+		try:
+			process = await asyncio.create_subprocess_exec(
+				*command,
+				stdout=asyncio.subprocess.DEVNULL,
+				stderr=asyncio.subprocess.DEVNULL,
+			)
+			return psutil.Process(process.pid)
+		except NotImplementedError:
+			# Some Windows event loops, notably selector loops used by embedding
+			# frameworks, cannot create asyncio subprocess transports.
+			process = await asyncio.to_thread(
+				subprocess.Popen,
+				command,
+				stdout=subprocess.DEVNULL,
+				stderr=subprocess.DEVNULL,
+			)
+			return psutil.Process(process.pid)
+
+	@staticmethod
+	async def _run_subprocess(cmd: list[str], timeout: float) -> tuple[bytes, bytes]:
+		"""Run a short-lived command with output capture across asyncio loop implementations."""
+		try:
+			process = await asyncio.create_subprocess_exec(
+				*cmd,
+				stdout=asyncio.subprocess.PIPE,
+				stderr=asyncio.subprocess.PIPE,
+			)
+		except NotImplementedError:
+			return await asyncio.to_thread(LocalBrowserWatchdog._run_subprocess_blocking, cmd, timeout)
+
+		try:
+			return await asyncio.wait_for(process.communicate(), timeout=timeout)
+		except TimeoutError:
+			process.kill()
+			await process.wait()
+			raise
+		except Exception:
+			if process.returncode is None:
+				process.kill()
+				await process.wait()
+			raise
+
+	@staticmethod
+	def _run_subprocess_blocking(cmd: list[str], timeout: float) -> tuple[bytes, bytes]:
+		try:
+			result = subprocess.run(
+				cmd,
+				capture_output=True,
+				timeout=timeout,
+				check=False,
+			)
+		except subprocess.TimeoutExpired as exc:
+			raise TimeoutError(f'Subprocess timed out after {timeout}s: {cmd}') from exc
+
+		return result.stdout, result.stderr
+
 	async def _install_browser_with_playwright(self) -> str:
 		"""Get browser executable path from playwright in a subprocess to avoid thread issues."""
 		import platform
@@ -366,15 +419,8 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		if platform.system() == 'Linux':
 			cmd.append('--with-deps')
 
-		# Run in subprocess with timeout
-		process = await asyncio.create_subprocess_exec(
-			*cmd,
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE,
-		)
-
 		try:
-			stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
+			stdout, stderr = await self._run_subprocess(cmd, timeout=60.0)
 			self.logger.debug(f'[LocalBrowserWatchdog] 📦 Playwright install output: {stdout}')
 			browser_path = self._find_installed_browser_path()
 			if browser_path:
@@ -382,15 +428,8 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			self.logger.error(f'[LocalBrowserWatchdog] ❌ Playwright local browser installation error: \n{stdout}\n{stderr}')
 			raise RuntimeError('No local browser path found after: uvx playwright install chromium')
 		except TimeoutError:
-			# Kill the subprocess if it times out
-			process.kill()
-			await process.wait()
 			raise RuntimeError('Timeout getting browser path from playwright')
 		except Exception as e:
-			# Make sure subprocess is terminated
-			if process.returncode is None:
-				process.kill()
-				await process.wait()
 			raise RuntimeError(f'Error getting browser path: {e}')
 
 	@staticmethod
