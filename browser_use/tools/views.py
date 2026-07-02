@@ -1,7 +1,10 @@
+import logging
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
+
+logger = logging.getLogger(__name__)
 
 
 # Action Input Models
@@ -84,6 +87,17 @@ class InputTextAction(BaseModel):
 	index: int = Field(ge=0, description='from browser_state')
 	text: str = Field(description='Text to enter. With clear=True, text="" clears the field without typing.')
 	clear: bool = Field(default=True, description='Clear existing text before typing. Set to False to append instead.')
+
+	@field_validator('index', mode='before')
+	@classmethod
+	def warn_bool_index(cls, value):
+		if isinstance(value, bool):
+			logger.warning(
+				'Coercing boolean input_text index %s to %d; model output should use an integer element index.',
+				value,
+				int(value),
+			)
+		return value
 
 
 class DoneAction(BaseModel):
