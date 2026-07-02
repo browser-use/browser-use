@@ -1185,6 +1185,16 @@ class DOMTreeSerializer:
 		)
 
 		# Include accessibility properties
+		if node.ax_node:
+			if 'ax_name' in include_attributes and node.ax_node.name:
+				ax_name = str(node.ax_node.name).strip()
+				if ax_name:
+					attributes_to_include['ax_name'] = ax_name
+			if 'ax_description' in include_attributes and node.ax_node.description:
+				ax_description = str(node.ax_node.description).strip()
+				if ax_description:
+					attributes_to_include['ax_description'] = ax_description
+
 		if node.ax_node and node.ax_node.properties:
 			# Properties that carry field values - must be excluded for password fields
 			value_properties = {'value', 'valuetext'}
@@ -1235,7 +1245,7 @@ class DOMTreeSerializer:
 			seen_values = {}
 
 			# Attributes that should never be removed as duplicates (they serve distinct purposes)
-			protected_attrs = {'format', 'expected_format', 'placeholder', 'value', 'aria-label', 'title'}
+			protected_attrs = {'format', 'expected_format', 'placeholder', 'value', 'aria-label', 'title', 'ax_name'}
 
 			for key in ordered_keys:
 				value = attributes_to_include[key]
@@ -1270,7 +1280,7 @@ class DOMTreeSerializer:
 		if 'expanded' in attributes_to_include and 'aria-expanded' in attributes_to_include:
 			del attributes_to_include['aria-expanded']
 
-		attrs_to_remove_if_text_matches = ['aria-label', 'placeholder', 'title']
+		attrs_to_remove_if_text_matches = ['aria-label', 'placeholder', 'title', 'ax_name', 'ax_description']
 		for attr in attrs_to_remove_if_text_matches:
 			if attributes_to_include.get(attr) and attributes_to_include.get(attr, '').strip().lower() == text.strip().lower():
 				del attributes_to_include[attr]
