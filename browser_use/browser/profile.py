@@ -1087,6 +1087,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
 
+			except TimeoutError as e:
+				logger.warning(f'⏱️ {e}')
+				logger.warning(
+					'⏱️ Skipping remaining default extensions. '
+					'Set BROWSER_USE_DISABLE_EXTENSIONS=1 to avoid extension downloads entirely.'
+				)
+				break
 			except Exception as e:
 				logger.warning(f'⚠️ Failed to setup {ext["name"]} extension: {e}')
 				continue
@@ -1167,16 +1174,42 @@ async function initialize(checkInitialized, magic) {{
 		except Exception as e:
 			logger.debug(f'[BrowserProfile] Could not patch extension storage: {e}')
 
-	def _download_extension(self, url: str, output_path: Path) -> None:
-		"""Download extension .crx file."""
+	def _download_extension(self, url: str, output_path: Path, timeout: float = 10.0) -> None:
+		"""Download extension .crx file with a bounded timeout.
+
+		Args:
+			url: Chrome Web Store update URL for the extension.
+			output_path: Path to write the downloaded .crx file.
+			timeout: Maximum time in seconds to wait for the download. Defaults to 10s
+				to avoid hanging when IPv6 connectivity to Google is blocked.
+		"""
+		import urllib.error
 		import urllib.request
 
+		# Allow users to override the download timeout via environment variable.
+		env_timeout = os.getenv('BROWSER_USE_EXTENSION_DOWNLOAD_TIMEOUT')
+		if env_timeout:
+			try:
+				timeout = float(env_timeout)
+			except ValueError:
+				logger.warning(
+					f'⚠️ Ignoring invalid BROWSER_USE_EXTENSION_DOWNLOAD_TIMEOUT={env_timeout}, using default {timeout}s'
+				)
+
 		try:
-			with urllib.request.urlopen(url) as response:
+			with urllib.request.urlopen(url, timeout=timeout) as response:
 				with open(output_path, 'wb') as f:
 					f.write(response.read())
+		except TimeoutError as e:
+			raise TimeoutError(
+				f'Extension download timed out after {timeout}s. '
+				f'If your network blocks IPv6 to Google, set BROWSER_USE_DISABLE_EXTENSIONS=1 to skip extension loading.'
+			) from e
+		except urllib.error.URLError as e:
+			# Re-raise with a clearer message for connection-level failures.
+			raise ConnectionError(f'Failed to connect to extension download URL: {e}') from e
 		except Exception as e:
-			raise Exception(f'Failed to download extension: {e}')
+			raise Exception(f'Failed to download extension: {e}') from e
 
 	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
 		"""Extract .crx file to directory."""
