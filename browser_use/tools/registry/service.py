@@ -16,6 +16,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.observability import observe_debug
 from browser_use.telemetry.service import ProductTelemetry
+from browser_use.tools.policy import ActionPolicy, ActionPolicyViolation
 from browser_use.tools.registry.views import (
 	ActionModel,
 	ActionRegistry,
@@ -32,11 +33,12 @@ logger = logging.getLogger(__name__)
 class Registry(Generic[Context]):
 	"""Service for registering and managing actions"""
 
-	def __init__(self, exclude_actions: list[str] | None = None):
+	def __init__(self, exclude_actions: list[str] | None = None, action_policy: ActionPolicy | None = None):
 		self.registry = ActionRegistry()
 		self.telemetry = ProductTelemetry()
 		# Create a new list to avoid mutable default argument issues
 		self.exclude_actions = list(exclude_actions) if exclude_actions is not None else []
+		self.action_policy = action_policy
 
 	def exclude_action(self, action_name: str) -> None:
 		"""Exclude an action from the registry after initialization.
@@ -350,18 +352,22 @@ class Registry(Generic[Context]):
 			except Exception as e:
 				raise ValueError(f'Invalid parameters {params} for action {action_name}: {type(e)}: {e}') from e
 
+			current_url = None
+			if browser_session and browser_session.agent_focus_target_id:
+				try:
+					target = browser_session.session_manager.get_target(browser_session.agent_focus_target_id)
+					if target:
+						current_url = target.url
+				except Exception:
+					pass
+
 			if sensitive_data:
-				# Get current URL if browser_session is provided
-				current_url = None
-				if browser_session and browser_session.agent_focus_target_id:
-					try:
-						# Get current page info from session_manager
-						target = browser_session.session_manager.get_target(browser_session.agent_focus_target_id)
-						if target:
-							current_url = target.url
-					except Exception:
-						pass
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
+
+			if self.action_policy is not None:
+				if current_url is None:
+					self.action_policy.assert_current_url_available(action_name, validated_params)
+				self.action_policy.assert_allowed(action_name, validated_params, current_url=current_url)
 
 			# Build special context dict
 			special_context = {
@@ -405,6 +411,8 @@ class Registry(Generic[Context]):
 				raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 		except TimeoutError as e:
 			raise RuntimeError(f'Error executing action {action_name} due to timeout.') from e
+		except ActionPolicyViolation as e:
+			raise RuntimeError(f'Action policy blocked {action_name}: {e.decision.reason}') from e
 		except Exception as e:
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 
