@@ -64,6 +64,23 @@ def test_browser_use_skill_documents_python_execution_boundary():
 	assert 'not a sandbox' in skill
 
 
+def test_browser_use_skill_rewriter_injects_python_execution_boundary():
+	from browser_use.skills.browser_use import as_browser_use_skill
+
+	skill = as_browser_use_skill(
+		'---\n'
+		'name: browser-harness\n'
+		'---\n\n'
+		'# Browser Harness\n\n'
+		'## Usage\n\n'
+		'- Invoke as `browser-harness`. Use heredocs for multi-line commands.\n'
+		'- Helpers are pre-imported.\n'
+	)
+
+	assert 'trusted local Python' in skill
+	assert 'not a sandbox' in skill
+
+
 def test_browser_use_cli_installs_browser_harness_package_skill(tmp_path):
 	bin_dir = _fake_browser_harness_tools(tmp_path, '---\nname: browser-harness\n---\n\n# Browser Harness\n')
 

@@ -5,6 +5,12 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 
+PYTHON_EXECUTION_BOUNDARY_NOTE = (
+	'- Heredoc commands run trusted local Python in the Browser Use harness process. '
+	'This is not a sandbox: code can access your local files, environment variables, '
+	'and pre-imported browser helpers, so only run code you would trust in a normal terminal.'
+)
+
 
 def as_browser_use_skill(text: str) -> str:
 	"""Expose the Browser Harness skill under the Browser Use skill identity."""
@@ -46,6 +52,9 @@ def as_browser_use_skill(text: str) -> str:
 	body = body.replace('browser-harness auth', 'browser-use auth')
 	body = body.replace('browser-harness doctor', 'browser-use doctor')
 	body = body.replace('Browser Harness', 'Browser Use')
+	usage_line = '- Invoke as `browser-use`. Use heredocs for multi-line commands.'
+	if usage_line in body and PYTHON_EXECUTION_BOUNDARY_NOTE not in body:
+		body = body.replace(usage_line, f'{usage_line}\n{PYTHON_EXECUTION_BOUNDARY_NOTE}', 1)
 	frontmatter_text = '\n'.join(lines)
 	return f'---\n{frontmatter_text}\n---\n{body}'
 
