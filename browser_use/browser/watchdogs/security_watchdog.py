@@ -200,6 +200,13 @@ class SecurityWatchdog(BaseWatchdog):
 		if parsed.scheme in ['data', 'blob']:
 			return True
 
+		# Block non-HTTP schemes that could bypass domain restrictions
+		# javascript: URIs execute in page context without navigation
+		# file: and chrome: URIs access local resources
+		if parsed.scheme in ['javascript', 'file', 'chrome', 'about']:
+			if url not in ['about:blank']:
+				return False
+
 		# Get the actual host (domain)
 		host = parsed.hostname
 		if not host:
