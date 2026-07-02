@@ -20,16 +20,17 @@ logger = logging.getLogger(__name__)
 def is_running_in_docker() -> bool:
 	"""Detect if we are running in a docker container, for the purpose of optimizing chrome launch flags (dev shm usage, gpu settings, etc.)"""
 	try:
-		if Path('/.dockerenv').exists() or 'docker' in Path('/proc/1/cgroup').read_text().lower():
+		if Path('/.dockerenv').exists():
+			return True
+
+		cgroup = Path('/proc/1/cgroup').read_text().lower()
+		if any(marker in cgroup for marker in ('docker', 'containerd', 'kubepods')):
 			return True
 	except Exception:
 		pass
 
 	try:
-		# if init proc (PID 1) looks like uvicorn/python/uv/etc. then we're in Docker
-		# if init proc (PID 1) looks like bash/systemd/init/etc. then we're probably NOT in Docker
-		init_cmd = ' '.join(psutil.Process(1).cmdline())
-		if ('py' in init_cmd) or ('uv' in init_cmd) or ('app' in init_cmd):
+		if os.environ.get('container') or os.environ.get('DOCKER_CONTAINER'):
 			return True
 	except Exception:
 		pass
