@@ -3611,7 +3611,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				same_type_ax_names = [
 					(idx, elem.ax_node.name if elem.ax_node else None)
 					for idx, elem in selector_map.items()
-					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
+					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name is not None
 				]
 				self.logger.debug(
 					f'AX_NAME match failed for <{hist_name.upper()}> ax_name="{hist_ax_name}". '
