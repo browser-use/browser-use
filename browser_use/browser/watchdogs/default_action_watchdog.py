@@ -13,6 +13,8 @@ from browser_use.browser.events import (
 	GetDropdownOptionsEvent,
 	GoBackEvent,
 	GoForwardEvent,
+	HoverCoordinateEvent,
+	HoverElementEvent,
 	RefreshEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -32,6 +34,8 @@ from browser_use.observability import observe_debug
 ClickCoordinateEvent.model_rebuild()
 ClickElementEvent.model_rebuild()
 GetDropdownOptionsEvent.model_rebuild()
+HoverElementEvent.model_rebuild()
+HoverCoordinateEvent.model_rebuild()
 SelectDropdownOptionEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
@@ -447,6 +451,254 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 		except Exception:
 			raise
+
+	@observe_debug(ignore_input=True, ignore_output=True, name='hover_element_event')
+	async def on_HoverElementEvent(self, event: HoverElementEvent) -> dict | None:
+		"""Handle hover request on an element using CDP Input.dispatchMouseEvent with mouseMoved.
+
+		This triggers genuine CSS :hover state transitions and the full DOM event cascade
+		(mouseenter, mouseover, mousemove), unlike synthetic dispatchEvent calls.
+		"""
+		try:
+			# Check if session is alive before attempting any operations
+			if not self.browser_session.agent_focus_target_id:
+				error_msg = 'Cannot execute hover: browser session is corrupted (target_id=None). Session may have crashed.'
+				self.logger.error(f'{error_msg}')
+				raise BrowserError(error_msg)
+
+			element_node = event.node
+			index_for_logging = element_node.backend_node_id or 'unknown'
+
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+			session_id = cdp_session.session_id
+			backend_node_id = element_node.backend_node_id
+
+			# Scroll element into view first
+			try:
+				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+					params={'backendNodeId': backend_node_id}, session_id=session_id
+				)
+				await asyncio.sleep(0.05)  # Wait for scroll to complete
+			except Exception as e:
+				self.logger.debug(f'Failed to scroll element into view before hover: {e}')
+
+			# Get viewport dimensions for clamping
+			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
+			viewport_width = layout_metrics['layoutViewport']['clientWidth']
+			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+
+			# Get element coordinates
+			element_rect = await self.browser_session.get_element_coordinates(backend_node_id, cdp_session)
+
+			if element_rect is not None:
+				# Calculate center point of the element
+				center_x = element_rect.x + element_rect.width / 2
+				center_y = element_rect.y + element_rect.height / 2
+
+				# Clamp to viewport bounds
+				center_x = max(0, min(viewport_width - 1, center_x))
+				center_y = max(0, min(viewport_height - 1, center_y))
+
+				# Dispatch mouseMoved event via CDP - this triggers genuine CSS :hover
+				try:
+					await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mouseMoved',
+							'x': center_x,
+							'y': center_y,
+						},
+						session_id=session_id,
+					)
+					await asyncio.sleep(0.1)  # Wait for :hover CSS effects to apply
+
+					self.logger.debug(f'🖱️ Hovered element {index_for_logging} at ({center_x:.0f}, {center_y:.0f})')
+					return {'hover_x': center_x, 'hover_y': center_y}
+				except Exception as cdp_e:
+					self.logger.warning(f'CDP mouseMoved failed: {type(cdp_e).__name__}: {cdp_e}, trying JS fallback')
+					# Fallback: dispatch mouseover/mouseenter/mousemove via JS
+					return await self._hover_element_js_fallback(element_node, cdp_session, session_id)
+			else:
+				# No bounding box, fall back to JS
+				self.logger.warning('Could not get element coordinates, falling back to JavaScript hover')
+				return await self._hover_element_js_fallback(element_node, cdp_session, session_id)
+
+		except BrowserError:
+			raise
+		except Exception as e:
+			raise BrowserError(
+				message=f'Failed to hover over element: {str(e)}',
+				long_term_memory='Failed to hover over element. The element may have changed or the page may have been updated.',
+			)
+
+	@observe_debug(ignore_input=True, ignore_output=True, name='hover_coordinate_event')
+	async def on_HoverCoordinateEvent(self, event: HoverCoordinateEvent) -> dict | None:
+		"""Handle hover at specific viewport coordinates using CDP Input.dispatchMouseEvent with mouseMoved.
+
+		This triggers genuine CSS :hover state transitions at the given viewport position.
+		"""
+		try:
+			# Check if session is alive
+			if not self.browser_session.agent_focus_target_id:
+				error_msg = 'Cannot execute hover: browser session is corrupted (target_id=None). Session may have crashed.'
+				self.logger.error(f'{error_msg}')
+				raise BrowserError(error_msg)
+
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			session_id = cdp_session.session_id
+
+			# Get viewport dimensions for clamping
+			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
+			viewport_width = layout_metrics['layoutViewport']['clientWidth']
+			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+
+			# Clamp coordinates to viewport bounds
+			clamped_x = max(0, min(viewport_width - 1, event.coordinate_x))
+			clamped_y = max(0, min(viewport_height - 1, event.coordinate_y))
+
+			if clamped_x != event.coordinate_x or clamped_y != event.coordinate_y:
+				self.logger.debug(
+					f'Clamped hover coordinates from ({event.coordinate_x}, {event.coordinate_y}) '
+					f'to ({clamped_x}, {clamped_y}) within viewport'
+				)
+
+			try:
+				# Dispatch mouseMoved event via CDP
+				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseMoved',
+						'x': clamped_x,
+						'y': clamped_y,
+					},
+					session_id=session_id,
+				)
+				await asyncio.sleep(0.1)  # Wait for :hover CSS effects to apply
+
+				self.logger.debug(f'🖱️ Hovered at coordinates ({clamped_x}, {clamped_y})')
+				return {'hover_x': clamped_x, 'hover_y': clamped_y}
+			except Exception as cdp_e:
+				self.logger.warning(f'CDP mouseMoved at coordinates failed: {type(cdp_e).__name__}: {cdp_e}, trying JS fallback')
+				# Fallback: dispatch events via JS at the target coordinates
+				return await self._hover_coordinate_js_fallback(clamped_x, clamped_y, cdp_session, session_id)
+
+		except BrowserError:
+			raise
+		except Exception as e:
+			raise BrowserError(
+				message=f'Failed to hover at coordinates: {str(e)}',
+				long_term_memory=f'Failed to hover at coordinates ({event.coordinate_x}, {event.coordinate_y}). The coordinates may be outside viewport.',
+			)
+
+	async def _hover_element_js_fallback(self, element_node: EnhancedDOMTreeNode, cdp_session, session_id: str) -> dict | None:
+		"""Fallback: dispatch mouseover + mouseenter + mousemove via JavaScript on the element."""
+		try:
+			backend_node_id = element_node.backend_node_id
+
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id},
+				session_id=session_id,
+			)
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve DOM element for JS hover fallback')
+
+			object_id = result['object']['objectId']
+
+			# Dispatch mouseover + mouseenter + mousemove in correct cascade order
+			js_code = """
+			function() {
+				const rect = this.getBoundingClientRect();
+				const x = rect.left + rect.width / 2;
+				const y = rect.top + rect.height / 2;
+
+				const events = [
+					new MouseEvent('mouseover', {
+						bubbles: true, cancelable: true, view: window,
+						clientX: x, clientY: y, screenX: x, screenY: y
+					}),
+					new MouseEvent('mouseenter', {
+						bubbles: false, cancelable: true, view: window,
+						clientX: x, clientY: y, screenX: x, screenY: y
+					}),
+					new MouseEvent('mousemove', {
+						bubbles: true, cancelable: true, view: window,
+						clientX: x, clientY: y, screenX: x, screenY: y
+					})
+				];
+
+				for (const event of events) {
+					this.dispatchEvent(event);
+				}
+
+				return {hover_x: x, hover_y: y};
+			}
+			"""
+
+			js_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'objectId': object_id,
+					'functionDeclaration': js_code,
+					'returnByValue': True,
+				},
+				session_id=session_id,
+			)
+			await asyncio.sleep(0.1)
+
+			hover_result = js_result.get('result', {}).get('value', {})
+			self.logger.debug(
+				f'🖱️ JS hover fallback succeeded for element at ({hover_result.get("hover_x", 0):.0f}, {hover_result.get("hover_y", 0):.0f})'
+			)
+			return hover_result if isinstance(hover_result, dict) else {}
+
+		except Exception as e:
+			self.logger.error(f'JS hover fallback failed: {type(e).__name__}: {e}')
+			raise BrowserError(f'Failed to hover over element via JS fallback: {e}')
+
+	async def _hover_coordinate_js_fallback(self, x: float, y: float, cdp_session, session_id: str) -> dict | None:
+		"""Fallback: dispatch hover events via JavaScript at specific coordinates."""
+		try:
+			js_code = f"""
+			(function() {{
+				const el = document.elementFromPoint({x}, {y});
+				if (!el) return {{hover_x: {x}, hover_y: {y}, target: null}};
+
+				const events = [
+					new MouseEvent('mouseover', {{
+						bubbles: true, cancelable: true, view: window,
+						clientX: {x}, clientY: {y}, screenX: {x}, screenY: {y}
+					}}),
+					new MouseEvent('mouseenter', {{
+						bubbles: false, cancelable: true, view: window,
+						clientX: {x}, clientY: {y}, screenX: {x}, screenY: {y}
+					}}),
+					new MouseEvent('mousemove', {{
+						bubbles: true, cancelable: true, view: window,
+						clientX: {x}, clientY: {y}, screenX: {x}, screenY: {y}
+					}})
+				];
+
+				for (const event of events) {{
+					el.dispatchEvent(event);
+				}}
+
+				return {{hover_x: {x}, hover_y: {y}, target: el.tagName}};
+			}})()
+			"""
+
+			js_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': js_code,
+					'returnByValue': True,
+				},
+				session_id=session_id,
+			)
+			await asyncio.sleep(0.1)
+
+			hover_result = js_result.get('result', {}).get('value', {})
+			self.logger.debug(f'🖱️ JS coordinate hover fallback succeeded at ({x}, {y})')
+			return hover_result if isinstance(hover_result, dict) else {'hover_x': x, 'hover_y': y}
+
+		except Exception as e:
+			self.logger.error(f'JS coordinate hover fallback failed: {type(e).__name__}: {e}')
+			raise BrowserError(f'Failed to hover at coordinates via JS fallback: {e}')
 
 	async def on_TypeTextEvent(self, event: TypeTextEvent) -> dict | None:
 		"""Handle text input request with CDP."""
