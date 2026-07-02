@@ -69,6 +69,28 @@ async def test_torn_down_bus_still_restarts_on_dispatch():
 	await bus.stop(timeout=0.5)
 
 
+async def test_stop_forces_shutdown_when_idle_wait_hangs(monkeypatch):
+	"""Stopping the resilient bus must not hang if the idle wait never returns."""
+	bus = ResilientEventBus(name='ResilientWarmResumeStop')
+	bus.dispatch(ResiliencePingEvent())
+	await asyncio.sleep(0.1)
+
+	async def never_idle(timeout: float | None = None) -> None:
+		await asyncio.Event().wait()
+
+	monkeypatch.setattr(bus, 'wait_until_idle', never_idle)
+
+	started_at = asyncio.get_running_loop().time()
+	await bus.stop(clear=True, timeout=0.05)
+	elapsed = asyncio.get_running_loop().time() - started_at
+
+	assert elapsed < 0.5
+	assert bus._is_running is False
+	assert bus._runloop_task is None
+	assert bus.event_history == {}
+	assert bus.handlers == {}
+
+
 async def test_stock_event_bus_reproduces_the_crash():
 	"""Document the upstream bug the subclass guards against (stock bus still asserts)."""
 	bus = EventBus(name='StockWarmResume')
