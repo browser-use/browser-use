@@ -738,9 +738,19 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	@field_validator('allowed_domains', 'prohibited_domains', mode='after')
 	@classmethod
 	def optimize_large_domain_lists(cls, v: list[str] | set[str] | None) -> list[str] | set[str] | None:
-		"""Convert large domain lists (>=100 items) to sets for O(1) lookup performance."""
-		if v is None or isinstance(v, set):
+		"""Convert large domain lists (>=100 items) to sets for O(1) lookup performance.
+
+		Set entries are lowercased because the set fast path in ``SecurityWatchdog`` compares
+		against ``urlparse(...).hostname``, which is always lowercase. Without this
+		normalization a set entry like ``Facebook.com`` would never match host ``facebook.com``,
+		silently breaking an allowlist or -- more dangerously -- letting a prohibited-domain
+		rule be bypassed. (List entries already match case-insensitively in the slow path.)
+		"""
+		if v is None:
 			return v
+
+		if isinstance(v, set):
+			return {d.lower() if isinstance(d, str) else d for d in v}
 
 		if len(v) >= DOMAIN_OPTIMIZATION_THRESHOLD:
 			logger.warning(
@@ -748,7 +758,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				f'Note: Pattern matching (*.domain.com, etc.) is not supported for lists >= {DOMAIN_OPTIMIZATION_THRESHOLD} items. '
 				f'Use exact domains only or keep list size < {DOMAIN_OPTIMIZATION_THRESHOLD} for pattern support.'
 			)
-			return set(v)
+			return {d.lower() if isinstance(d, str) else d for d in v}
 
 		return v
 
