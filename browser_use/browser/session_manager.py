@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
 
-from browser_use.utils import create_task_with_error_handling
+from browser_use.utils import create_task_with_error_handling, is_new_tab_page
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession, CDPSession, Target
@@ -156,6 +156,9 @@ class SessionManager:
 		page_targets = []
 		for target in self._targets.values():
 			if target.target_type in ('page', 'tab'):
+				target_url = target.url or ''
+				if target_url.startswith('chrome://') and not is_new_tab_page(target_url):
+					continue
 				page_targets.append(target)
 		return page_targets
 
@@ -665,7 +668,7 @@ class SessionManager:
 			else:
 				# No pages exist - create a new one
 				self.logger.warning('[SessionManager] No tabs remain! Creating new tab for agent...')
-				new_target_id = await self.browser_session._cdp_create_new_page('about:blank')
+				new_target_id = await self.browser_session._cdp_create_new_page('about:blank', new_window=True)
 				self.logger.info(f'[SessionManager] Created new tab {new_target_id[:8]}... for agent')
 
 				# Dispatch TabCreatedEvent so watchdogs can initialize
@@ -711,7 +714,7 @@ class SessionManager:
 				f'[SessionManager] ❌ Failed to get session for {new_target_id[:8]}... after 2s, creating emergency fallback tab'
 			)
 
-			fallback_target_id = await self.browser_session._cdp_create_new_page('about:blank')
+			fallback_target_id = await self.browser_session._cdp_create_new_page('about:blank', new_window=True)
 			self.logger.warning(f'[SessionManager] Created emergency fallback tab {fallback_target_id[:8]}...')
 
 			# Try one more time with fallback
