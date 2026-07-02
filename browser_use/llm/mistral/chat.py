@@ -100,9 +100,14 @@ class ChatMistral(BaseChatModel):
 		if not usage:
 			return None
 
+		# Mistral's chat-completions response follows the OpenAI convention for
+		# prefix-cache reporting: `usage.prompt_tokens_details.cached_tokens` when present.
+		prompt_details = usage.get('prompt_tokens_details') or {}
+		cached_tokens = prompt_details.get('cached_tokens') if isinstance(prompt_details, dict) else None
+
 		return ChatInvokeUsage(
 			prompt_tokens=usage.get('prompt_tokens', 0),
-			prompt_cached_tokens=None,
+			prompt_cached_tokens=cached_tokens,
 			prompt_cache_creation_tokens=None,
 			prompt_image_tokens=None,
 			completion_tokens=usage.get('completion_tokens', 0),

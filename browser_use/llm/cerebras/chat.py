@@ -59,18 +59,25 @@ class ChatCerebras(BaseChatModel):
 		return self.model
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
-		if response.usage is not None:
-			usage = ChatInvokeUsage(
-				prompt_tokens=response.usage.prompt_tokens,
-				prompt_cached_tokens=None,
-				prompt_cache_creation_tokens=None,
-				prompt_image_tokens=None,
-				completion_tokens=response.usage.completion_tokens,
-				total_tokens=response.usage.total_tokens,
-			)
+		if response.usage is None:
+			return None
+		# Cerebras uses the OpenAI-compatible SDK shape and surfaces
+		# `usage.prompt_tokens_details.cached_tokens` when its prefix cache hits. The nested
+		# payload may arrive as a typed object or as a plain dict depending on SDK version /
+		# proxy — handle both shapes.
+		prompt_details = getattr(response.usage, 'prompt_tokens_details', None)
+		if isinstance(prompt_details, dict):
+			cached_tokens = prompt_details.get('cached_tokens')
 		else:
-			usage = None
-		return usage
+			cached_tokens = getattr(prompt_details, 'cached_tokens', None) if prompt_details else None
+		return ChatInvokeUsage(
+			prompt_tokens=response.usage.prompt_tokens,
+			prompt_cached_tokens=cached_tokens,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+			completion_tokens=response.usage.completion_tokens,
+			total_tokens=response.usage.total_tokens,
+		)
 
 	@overload
 	async def ainvoke(
