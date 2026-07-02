@@ -37,9 +37,7 @@ def _collect_hidden_text_before(elem: FakeElement) -> str:
 		text = elem.ax_node.name[:40]
 	elif elem.attributes:
 		text = (
-			elem.attributes.get('placeholder', '')
-			or elem.attributes.get('title', '')
-			or elem.attributes.get('aria-label', '')
+			elem.attributes.get('placeholder', '') or elem.attributes.get('title', '') or elem.attributes.get('aria-label', '')
 		)[:40]
 	return text
 
@@ -51,9 +49,7 @@ def _collect_hidden_text_after(elem: FakeElement) -> str:
 		text = elem.ax_node.name[:40]
 	elif elem.attributes:
 		text = (
-			elem.attributes.get('placeholder', '')
-			or elem.attributes.get('title', '')
-			or elem.attributes.get('aria-label', '')
+			elem.attributes.get('placeholder', '') or elem.attributes.get('title', '') or elem.attributes.get('aria-label', '')
 		)[:40]
 	return text
 
@@ -120,9 +116,7 @@ class TestElementHashAxNameComponent:
 		collide in the identity hash used for cross-snapshot matching."""
 		explicit_empty = _hash_component_before(FakeAxNode(name=''))
 		missing_entirely = _hash_component_before(None)
-		assert explicit_empty == missing_entirely == '', (
-			'sanity check: confirms the collision exists in the unfixed logic'
-		)
+		assert explicit_empty == missing_entirely == '', 'sanity check: confirms the collision exists in the unfixed logic'
 
 		explicit_empty_fixed = _hash_component_after(FakeAxNode(name=''))
 		missing_entirely_fixed = _hash_component_after(None)
