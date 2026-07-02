@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import re
@@ -357,6 +358,489 @@ class RerunSummaryAction(BaseModel):
 	completion_status: Literal['complete', 'partial', 'failed'] = Field(
 		description='Status of rerun completion: complete (all steps succeeded), partial (some steps succeeded), failed (task did not complete)'
 	)
+
+
+class RerunTraceAttempt(BaseModel):
+	"""Single replay attempt for a rerun step."""
+
+	attempt_number: int = Field(description='1-based replay attempt number for this step')
+	status: Literal['started', 'succeeded', 'failed', 'retried'] = Field(
+		description='Outcome of this attempt or transition into a retry'
+	)
+	error: str | None = Field(default=None, description='Error text captured for a failed attempt')
+	matched_element: dict[str, Any] | None = Field(
+		default=None, description='Matched rerun element metadata when available'
+	)
+	match_level: str | None = Field(
+		default=None, description='Element match strategy used for the primary matched element'
+	)
+	action_match_details: list[dict[str, Any]] = Field(
+		default_factory=list,
+		description='Per-action match metadata captured during this attempt',
+	)
+	replay_url: str | None = Field(default=None, description='URL observed during this attempt')
+	replay_title: str | None = Field(default=None, description='Page title observed during this attempt')
+	replay_screenshot_path: str | None = Field(
+		default=None, description='Replay screenshot path captured for this attempt, when available'
+	)
+	retry_delay_seconds: float | None = Field(
+		default=None, description='Delay scheduled before the next retry, when applicable'
+	)
+	note: str | None = Field(default=None, description='Optional human-readable note about the attempt')
+
+
+class RerunTraceStep(BaseModel):
+	"""Normalized debug record for a single replayed history step."""
+
+	replay_step_index: int = Field(description='0-based index of the history item inside the rerun session')
+	original_step_number: int = Field(description='Original step number from the saved agent history')
+	status: Literal['pending', 'running', 'success', 'skipped', 'failed'] = Field(
+		default='pending',
+		description='Current or final status of this replayed step',
+	)
+	goal: str | None = Field(default=None, description='Original next_goal text for the step, if present')
+	original_actions: list[dict[str, Any]] = Field(
+		default_factory=list,
+		description='Serialized original actions for this step',
+	)
+	original_interacted_elements: list[dict[str, Any] | None] = Field(
+		default_factory=list,
+		description='Serialized original interacted elements aligned with original_actions',
+	)
+	original_url: str | None = Field(default=None, description='Original URL captured in history')
+	original_title: str | None = Field(default=None, description='Original page title captured in history')
+	original_screenshot_path: str | None = Field(
+		default=None, description='Original screenshot path captured in the saved history'
+	)
+	replay_url: str | None = Field(default=None, description='Latest URL observed during replay of this step')
+	replay_title: str | None = Field(default=None, description='Latest page title observed during replay of this step')
+	replay_screenshot_path: str | None = Field(
+		default=None, description='Replay screenshot path captured for this step, when available'
+	)
+	screenshot_comparison_status: str | None = Field(
+		default=None,
+		description='Visual comparison label between original and replay screenshots',
+	)
+	screenshot_comparison_note: str | None = Field(
+		default=None,
+		description='Human-readable explanation of the screenshot comparison result',
+	)
+	divergence_category: str | None = Field(
+		default=None,
+		description='High-level diagnosis for why this replay step diverged or required fallback behavior',
+	)
+	divergence_note: str | None = Field(
+		default=None,
+		description='Human-readable explanation of the divergence category',
+	)
+	retry_count: int = Field(default=0, description='How many retry attempts were needed for this step')
+	skip_reason: str | None = Field(default=None, description='Structured explanation when the step is skipped')
+	failure_reason: str | None = Field(default=None, description='Structured explanation when the step fails')
+	attempts: list[RerunTraceAttempt] = Field(
+		default_factory=list,
+		description='Attempt-by-attempt replay details for this step',
+	)
+
+
+class RerunTrace(BaseModel):
+	"""Top-level debug artifact for a rerun session."""
+
+	version: Literal['1'] = Field(default='1', description='Schema version for rerun trace artifacts')
+	task: str | None = Field(default=None, description='Task text associated with the rerun session')
+	history_file_path: str | None = Field(
+		default=None, description='Optional source history file path used to start the rerun'
+	)
+	started_at: float | None = Field(default=None, description='Unix timestamp when rerun tracing began')
+	completed_at: float | None = Field(default=None, description='Unix timestamp when rerun tracing completed')
+	final_status: Literal['running', 'success', 'partial', 'failed'] = Field(
+		default='running',
+		description='Overall rerun outcome across all replayed steps',
+	)
+	summary: str | None = Field(
+		default=None,
+		description='Optional high-level explanation or post-run summary for the rerun session',
+	)
+	steps: list[RerunTraceStep] = Field(
+		default_factory=list,
+		description='Replay step records in execution order',
+	)
+
+	def save_to_file(self, filepath: str | Path) -> None:
+		"""Persist a rerun trace artifact to disk as JSON."""
+		path = Path(filepath)
+		path.parent.mkdir(parents=True, exist_ok=True)
+		with open(path, 'w', encoding='utf-8') as f:
+			json.dump(self.model_dump(mode='json'), f, indent=2, ensure_ascii=False)
+
+	def to_html_report(self) -> str:
+		"""Render a static HTML debug report for this rerun trace."""
+
+		def _esc(value: Any) -> str:
+			if value is None:
+				return ''
+			if isinstance(value, (dict, list)):
+				value = json.dumps(value, indent=2, ensure_ascii=False)
+			return html.escape(str(value))
+
+		def _status_class(status: str | None) -> str:
+			if status in ('success', 'succeeded'):
+				return 'success'
+			if status in ('failed',):
+				return 'failed'
+			if status in ('skipped', 'retried', 'partial'):
+				return 'warning'
+			return 'neutral'
+
+		def _image_html(path: str | None, alt: str) -> str:
+			if not path:
+				return '<code>-</code>'
+			return (
+				f'<div class="image-block">'
+				f'<code>{_esc(path)}</code>'
+				f'<img src="{_esc(path)}" alt="{_esc(alt)}" loading="lazy">'
+				f'</div>'
+			)
+
+		divergence_counts: dict[str, int] = {}
+		for step in self.steps:
+			key = step.divergence_category or 'uncategorized'
+			divergence_counts[key] = divergence_counts.get(key, 0) + 1
+
+		divergence_summary_html = ''.join(
+			f'<li class="summary-list-item"><code>{_esc(category)}</code><strong>{count}</strong></li>'
+			for category, count in sorted(divergence_counts.items(), key=lambda item: (-item[1], item[0]))
+		)
+
+		important_steps = [
+			step
+			for step in self.steps
+			if step.status in {'failed', 'skipped'} or (step.divergence_category not in {None, 'none'})
+		]
+		important_steps_html = ''.join(
+			f"""
+			<li class="summary-list-item">
+				<div>
+					<strong>Step {step.original_step_number}</strong>
+					<p>{_esc(step.divergence_category or step.status)}</p>
+				</div>
+				<code>{_esc(step.divergence_note or step.failure_reason or step.skip_reason or step.goal or '-')}</code>
+			</li>
+			"""
+			for step in important_steps[:6]
+		)
+
+		step_cards: list[str] = []
+		for step in self.steps:
+			attempts_html = ''.join(
+				f"""
+				<li class="attempt-card {_status_class(attempt.status)}">
+					<div class="attempt-header">
+						<strong>Attempt {attempt.attempt_number}</strong>
+						<span class="status-pill {_status_class(attempt.status)}">{_esc(attempt.status)}</span>
+					</div>
+					<div class="kv"><span>Match Level</span><code>{_esc(attempt.match_level or '-')}</code></div>
+					<div class="kv"><span>Matched Element</span><pre>{_esc(attempt.matched_element or '-')}</pre></div>
+					<div class="kv"><span>Replay URL</span><code>{_esc(attempt.replay_url or step.replay_url or '-')}</code></div>
+					<div class="kv"><span>Replay Title</span><code>{_esc(attempt.replay_title or step.replay_title or '-')}</code></div>
+					<div class="kv"><span>Replay Screenshot</span>{_image_html(attempt.replay_screenshot_path, f'Attempt {attempt.attempt_number} screenshot')}</div>
+					<div class="kv"><span>Error</span><code>{_esc(attempt.error or '-')}</code></div>
+					<div class="kv"><span>Retry Delay</span><code>{_esc(attempt.retry_delay_seconds if attempt.retry_delay_seconds is not None else '-')}</code></div>
+					<div class="kv"><span>Note</span><code>{_esc(attempt.note or '-')}</code></div>
+					<div class="panel">
+						<h4>Action Match Details</h4>
+						<pre>{_esc(attempt.action_match_details or '-')}</pre>
+					</div>
+				</li>
+				"""
+				for attempt in step.attempts
+			)
+
+			actions_block = _esc(step.original_actions)
+			elements_block = _esc(step.original_interacted_elements)
+
+			step_cards.append(
+				f"""
+				<section class="step-card {_status_class(step.status)}">
+					<div class="step-header">
+						<div>
+							<h2>Step {step.original_step_number}</h2>
+							<p>Replay Index: {step.replay_step_index}</p>
+						</div>
+						<span class="status-pill {_status_class(step.status)}">{_esc(step.status)}</span>
+					</div>
+					<div class="grid">
+						<div class="panel">
+							<h3>Original</h3>
+							<div class="kv"><span>Goal</span><code>{_esc(step.goal or '-')}</code></div>
+							<div class="kv"><span>URL</span><code>{_esc(step.original_url or '-')}</code></div>
+							<div class="kv"><span>Title</span><code>{_esc(step.original_title or '-')}</code></div>
+							<div class="kv"><span>Screenshot</span>{_image_html(step.original_screenshot_path, f'Original step {step.original_step_number} screenshot')}</div>
+						</div>
+						<div class="panel">
+							<h3>Replay</h3>
+							<div class="kv"><span>URL</span><code>{_esc(step.replay_url or '-')}</code></div>
+							<div class="kv"><span>Title</span><code>{_esc(step.replay_title or '-')}</code></div>
+							<div class="kv"><span>Screenshot</span>{_image_html(step.replay_screenshot_path, f'Replay step {step.original_step_number} screenshot')}</div>
+							<div class="kv"><span>Visual Change</span><code>{_esc(step.screenshot_comparison_status or '-')}</code></div>
+							<div class="kv"><span>Comparison Note</span><code>{_esc(step.screenshot_comparison_note or '-')}</code></div>
+							<div class="kv"><span>Divergence</span><code>{_esc(step.divergence_category or '-')}</code></div>
+							<div class="kv"><span>Divergence Note</span><code>{_esc(step.divergence_note or '-')}</code></div>
+							<div class="kv"><span>Retries</span><code>{step.retry_count}</code></div>
+						</div>
+					</div>
+					<div class="grid">
+						<div class="panel">
+							<h3>Original Actions</h3>
+							<pre>{actions_block}</pre>
+						</div>
+						<div class="panel">
+							<h3>Original Interacted Elements</h3>
+							<pre>{elements_block}</pre>
+						</div>
+					</div>
+					<div class="grid">
+						<div class="panel">
+							<h3>Outcome</h3>
+							<div class="kv"><span>Skip Reason</span><code>{_esc(step.skip_reason or '-')}</code></div>
+							<div class="kv"><span>Failure Reason</span><code>{_esc(step.failure_reason or '-')}</code></div>
+						</div>
+						<div class="panel">
+							<h3>Attempts</h3>
+							<ul class="attempt-list">
+								{attempts_html or '<li class="attempt-card neutral"><code>No attempts recorded</code></li>'}
+							</ul>
+						</div>
+					</div>
+				</section>
+				"""
+			)
+
+		return f"""<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Browser Use Rerun Trace Report</title>
+	<style>
+		:root {{
+			--bg: #f6f7f9;
+			--panel: #ffffff;
+			--panel-2: #fafbfc;
+			--text: #1f2328;
+			--muted: #57606a;
+			--border: #d0d7de;
+			--success: #1a7f37;
+			--warning: #9a6700;
+			--failed: #cf222e;
+			--neutral: #57606a;
+			--accent: #0969da;
+		}}
+		* {{ box-sizing: border-box; }}
+		body {{
+			margin: 0;
+			font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			background: var(--bg);
+			color: var(--text);
+			padding: 24px;
+			line-height: 1.45;
+		}}
+		main {{ max-width: 1360px; margin: 0 auto; }}
+		h1, h2, h3, p {{ margin-top: 0; }}
+		.hero, .step-card, .panel {{
+			background: var(--panel);
+			border: 1px solid var(--border);
+			border-radius: 6px;
+			box-shadow: none;
+		}}
+		.hero {{ padding: 20px; margin-bottom: 16px; }}
+		.hero-grid, .grid {{
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+			gap: 12px;
+		}}
+		.step-card {{ padding: 16px; margin-bottom: 16px; }}
+		.panel {{ padding: 14px; background: var(--panel-2); }}
+		.step-header, .attempt-header {{
+			display: flex;
+			align-items: start;
+			justify-content: space-between;
+			gap: 12px;
+		}}
+		.status-pill {{
+			display: inline-flex;
+			align-items: center;
+			border-radius: 999px;
+			padding: 3px 8px;
+			font-size: 12px;
+			font-weight: 600;
+			border: 1px solid currentColor;
+			background: var(--panel);
+		}}
+		.status-pill.success {{ color: var(--success); }}
+		.status-pill.warning {{ color: var(--warning); }}
+		.status-pill.failed {{ color: var(--failed); }}
+		.status-pill.neutral {{ color: var(--neutral); }}
+		.kv {{
+			display: grid;
+			grid-template-columns: 120px 1fr;
+			gap: 10px;
+			padding: 6px 0;
+			border-bottom: 1px solid var(--border);
+		}}
+		.kv span {{ color: var(--muted); font-size: 13px; font-weight: 500; }}
+		.summary-list {{
+			list-style: none;
+			padding: 0;
+			margin: 0;
+			display: grid;
+			gap: 8px;
+		}}
+		.summary-list-item {{
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 12px;
+			align-items: start;
+			padding: 10px 12px;
+			border-radius: 4px;
+			background: var(--panel);
+			border: 1px solid var(--border);
+		}}
+		.summary-list-item p {{
+			margin: 4px 0 0;
+			color: var(--muted);
+			font-size: 13px;
+		}}
+		code, pre {{
+			font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+			font-size: 12px;
+			white-space: pre-wrap;
+			word-break: break-word;
+		}}
+		code {{
+			background: #f3f4f6;
+			padding: 1px 4px;
+			border-radius: 4px;
+		}}
+		pre {{
+			margin: 0;
+			padding: 10px 12px;
+			border-radius: 4px;
+			background: #f6f8fa;
+			border: 1px solid var(--border);
+			max-height: 340px;
+			overflow: auto;
+		}}
+		h1 {{ font-size: 28px; margin-bottom: 6px; }}
+		h2 {{ font-size: 20px; margin-bottom: 6px; }}
+		h3 {{ font-size: 15px; margin-bottom: 10px; }}
+		h4 {{ font-size: 13px; margin: 0 0 8px; color: var(--muted); }}
+		.attempt-list {{
+			list-style: none;
+			padding: 0;
+			margin: 0;
+			display: grid;
+			gap: 10px;
+		}}
+		.attempt-card {{
+			padding: 12px;
+			border-radius: 4px;
+			border: 1px solid var(--border);
+			background: var(--panel);
+		}}
+		.attempt-card.success,
+		.step-card.success {{
+			border-left: 4px solid var(--success);
+		}}
+		.attempt-card.warning,
+		.step-card.warning {{
+			border-left: 4px solid var(--warning);
+		}}
+		.attempt-card.failed,
+		.step-card.failed {{
+			border-left: 4px solid var(--failed);
+		}}
+		.image-block {{
+			display: grid;
+			gap: 8px;
+		}}
+		.image-block img {{
+			width: 100%;
+			max-height: 260px;
+			object-fit: contain;
+			border-radius: 4px;
+			border: 1px solid var(--border);
+			background: #ffffff;
+		}}
+		a {{ color: var(--accent); }}
+		@media (max-width: 720px) {{
+			body {{ padding: 12px; }}
+			.kv {{ grid-template-columns: 1fr; }}
+			.step-header, .attempt-header {{
+				flex-direction: column;
+				align-items: flex-start;
+			}}
+		}}
+	</style>
+</head>
+<body>
+	<main>
+		<section class="hero">
+			<div class="step-header">
+				<div>
+					<h1>Browser Use Rerun Trace Report</h1>
+					<p>Static diagnostic report generated from a saved rerun trace artifact.</p>
+				</div>
+				<span class="status-pill {_status_class(self.final_status)}">{_esc(self.final_status)}</span>
+			</div>
+			<div class="hero-grid">
+				<div class="panel">
+					<h3>Session</h3>
+					<div class="kv"><span>Task</span><code>{_esc(self.task or '-')}</code></div>
+					<div class="kv"><span>Trace Version</span><code>{_esc(self.version)}</code></div>
+					<div class="kv"><span>History File</span><code>{_esc(self.history_file_path or '-')}</code></div>
+				</div>
+				<div class="panel">
+					<h3>Timing</h3>
+					<div class="kv"><span>Started</span><code>{_esc(self.started_at or '-')}</code></div>
+					<div class="kv"><span>Completed</span><code>{_esc(self.completed_at or '-')}</code></div>
+					<div class="kv"><span>Steps</span><code>{len(self.steps)}</code></div>
+				</div>
+				<div class="panel">
+					<h3>Summary</h3>
+					<pre>{_esc(self.summary or 'No summary recorded')}</pre>
+				</div>
+				<div class="panel">
+					<h3>Divergence Categories</h3>
+					<ul class="summary-list">
+						{divergence_summary_html or '<li class="summary-list-item"><code>No divergence data</code><strong>0</strong></li>'}
+					</ul>
+				</div>
+				<div class="panel">
+					<h3>Priority Steps</h3>
+					<ul class="summary-list">
+						{important_steps_html or '<li class="summary-list-item"><code>No priority steps</code><strong>OK</strong></li>'}
+					</ul>
+				</div>
+			</div>
+		</section>
+		{''.join(step_cards) if step_cards else '<section class="step-card neutral"><p>No step data recorded.</p></section>'}
+	</main>
+</body>
+</html>
+"""
+
+	def save_html_report(self, filepath: str | Path) -> None:
+		"""Persist a rendered HTML rerun trace report to disk."""
+		path = Path(filepath)
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_text(self.to_html_report(), encoding='utf-8')
+
+	@classmethod
+	def load_from_file(cls, filepath: str | Path) -> 'RerunTrace':
+		"""Load a rerun trace artifact from disk."""
+		with open(filepath, encoding='utf-8') as f:
+			data = json.load(f)
+		return cls.model_validate(data)
 
 
 class StepMetadata(BaseModel):
