@@ -179,7 +179,7 @@ def create_history_gif(
 		image = Image.open(io.BytesIO(img_data))
 
 		if show_goals and item.model_output:
-			image = _add_overlay_to_image(
+			overlay = _add_overlay_to_image(
 				image=image,
 				step_number=i,
 				goal_text=item.model_output.current_state.next_goal,
@@ -188,6 +188,8 @@ def create_history_gif(
 				margin=margin,
 				logo=logo,
 			)
+			image.close()
+			image = overlay
 
 		images.append(image)
 
