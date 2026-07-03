@@ -5,8 +5,9 @@ DOMInteractedElement.load_from_enhanced_dom_tree should preserve the empty strin
 instead of collapsing it to None.
 """
 
+from typing import cast
 
-from browser_use.dom.views import DOMInteractedElement, DOMRect, NodeType
+from browser_use.dom.views import DOMInteractedElement, DOMRect, EnhancedDOMTreeNode, NodeType
 
 
 class FakeAXNode:
@@ -50,7 +51,7 @@ def test_ax_name_empty_string_preserved():
 	fake_ax_node = FakeAXNode(name='')
 	fake_tree = FakeEnhancedDOMTreeNode(ax_node=fake_ax_node)
 
-	element = DOMInteractedElement.load_from_enhanced_dom_tree(fake_tree)
+	element = DOMInteractedElement.load_from_enhanced_dom_tree(cast(EnhancedDOMTreeNode, fake_tree))
 
 	assert element.ax_name == '', f'Empty ax_name should be preserved as "", not {element.ax_name!r}'
 
@@ -60,7 +61,7 @@ def test_ax_name_non_empty_string_preserved():
 	fake_ax_node = FakeAXNode(name='New Contact')
 	fake_tree = FakeEnhancedDOMTreeNode(ax_node=fake_ax_node)
 
-	element = DOMInteractedElement.load_from_enhanced_dom_tree(fake_tree)
+	element = DOMInteractedElement.load_from_enhanced_dom_tree(cast(EnhancedDOMTreeNode, fake_tree))
 
 	assert element.ax_name == 'New Contact'
 
@@ -69,7 +70,7 @@ def test_ax_name_none_when_no_ax_node():
 	"""ax_name should be None when ax_node is absent."""
 	fake_tree = FakeEnhancedDOMTreeNode(ax_node=None)
 
-	element = DOMInteractedElement.load_from_enhanced_dom_tree(fake_tree)
+	element = DOMInteractedElement.load_from_enhanced_dom_tree(cast(EnhancedDOMTreeNode, fake_tree))
 
 	assert element.ax_name is None
 
@@ -79,7 +80,7 @@ def test_ax_name_none_when_ax_node_name_is_none():
 	fake_ax_node = FakeAXNode(name=None)
 	fake_tree = FakeEnhancedDOMTreeNode(ax_node=fake_ax_node)
 
-	element = DOMInteractedElement.load_from_enhanced_dom_tree(fake_tree)
+	element = DOMInteractedElement.load_from_enhanced_dom_tree(cast(EnhancedDOMTreeNode, fake_tree))
 
 	assert element.ax_name is None
 
@@ -89,6 +90,6 @@ def test_ax_name_whitespace_string_preserved():
 	fake_ax_node = FakeAXNode(name=' ')
 	fake_tree = FakeEnhancedDOMTreeNode(ax_node=fake_ax_node)
 
-	element = DOMInteractedElement.load_from_enhanced_dom_tree(fake_tree)
+	element = DOMInteractedElement.load_from_enhanced_dom_tree(cast(EnhancedDOMTreeNode, fake_tree))
 
 	assert element.ax_name == ' '
