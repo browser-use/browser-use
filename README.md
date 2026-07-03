@@ -38,6 +38,14 @@
 
 </br>
 
+**Browser Use CLI 3.0 is here.** Give your coding agent a browser it can use reliably.
+
+Paste this into Claude Code, Codex, etc:
+
+```text
+Install or upgrade browser-use to the latest stable version with uv using Python 3.12, register the skill from `browser-use skill`, and connect it to my browser. Follow https://github.com/browser-use/browser-use if setup or connection fails.
+```
+
 🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-skip-setup)</b> for faster, scalable, stealth-enabled browser automation!
 
 # 🤖 LLM Quickstart
@@ -49,20 +57,11 @@
 
 # 👋 Human Quickstart
 
-Browser Use 0.13 introduces a new beta agent powered by a Rust core and a browser harness built for current frontier models. It gives the model a real browser/computer action space, persistent tools, and recovery loops inspired by coding agents.
-
-```text
-Python API -> Rust core -> Browser harness -> Web task done
-```
-
-**1. Install Browser Use with the native core runtime (Python>=3.11):**
+**1. Install Browser Use (Python>=3.11):**
 ```bash
-uv add "browser-use[core]"
-# or: pip install "browser-use[core]"
-browser
+uv add browser-use
+# or: pip install browser-use
 ```
-
-The `[core]` extra installs the native Browser Use runtime for your platform.
 
 **2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
 ```
@@ -74,19 +73,11 @@ BROWSER_USE_API_KEY=your-key
 
 **3. Run your first agent:**
 
-**Browser Use Terminal:** 
-```bash
-uv add "browser-use[core]"
-browser
-```
-
 **Python Script:**
 ```python
-from browser_use.beta import Agent, BrowserProfile, ChatBrowserUse
-# from browser_use.beta import ChatOpenAI  # ChatOpenAI(model='gpt-5.5')
-# from browser_use.beta import ChatAnthropic  # ChatAnthropic(model='claude-opus-4-8')
-# from browser_use.beta import ChatAvian  # ChatAvian(model='deepseek/deepseek-v3.2')
 import asyncio
+
+from browser_use import Agent, BrowserProfile, ChatBrowserUse
 
 async def main():
     agent = Agent(
@@ -107,8 +98,6 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-
-Existing Python agent users can keep using `from browser_use import Agent`. The new Rust-powered beta agent is `from browser_use.beta import Agent`.
 
 Check out the [library docs](https://docs.browser-use.com/open-source/introduction) and the [cloud docs](https://docs.cloud.browser-use.com?utm_source=github&utm_medium=readme-cloud-docs) for more!
 
@@ -189,27 +178,23 @@ uvx browser-use init --template default --output my_agent.py
 
 # 💻 CLI
 
-Fast, persistent browser automation from the command line:
+**Browser Use CLI 3.0** lets your agents do work for you online with our highest accuracy yet. It is powered by [Browser Harness](https://github.com/browser-use/browser-harness), and it applies what we learned about [agent harnesses](https://browser-use.com/posts/bitter-lesson-agent-harnesses) and [agent frameworks](https://browser-use.com/posts/bitter-lesson-agent-frameworks): the latest models do best when you give them freedom, rather than abstracting away complexity. We provide your agents with a direct, dependable surface for acting in the browser.
 
 ```bash
-browser-use open https://example.com    # Navigate to URL
-browser-use state                       # See clickable elements
-browser-use click 5                     # Click element by index
-browser-use type "Hello"                # Type text
-browser-use screenshot page.png         # Take screenshot
-browser-use close                       # Close browser
+browser-use <<'PY'
+new_tab("https://example.com")
+print(page_info())
+PY
 ```
 
-The CLI keeps the browser running between commands for fast iteration. See [CLI docs](browser_use/skill_cli/README.md) for all commands.
+The CLI allows your agent to control the browser via Python, and it manages the browser in the background.
 
-### Claude Code Skill
+### Agent Skill
 
-For [Claude Code](https://claude.ai/code), install the skill to enable AI-assisted browser automation:
+For Claude Code, Codex, and other agents, paste this prompt into your agent:
 
-```bash
-mkdir -p ~/.claude/skills/browser-use
-curl -o ~/.claude/skills/browser-use/SKILL.md \
-  https://raw.githubusercontent.com/browser-use/browser-use/main/skills/browser-use/SKILL.md
+```text
+Install or upgrade browser-use to the latest stable version with uv using Python 3.12, register the skill from `browser-use skill`, and connect it to my browser. Follow https://github.com/browser-use/browser-use if setup or connection fails.
 ```
 
 <br/>

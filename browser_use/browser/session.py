@@ -11,7 +11,7 @@ from urllib.parse import urlparse, urlunparse
 from uuid import UUID
 
 import httpx
-from bubus import EventBus
+from bubus import BaseEvent, EventBus
 from cdp_use import CDPClient
 from cdp_use.cdp.fetch import AuthRequiredEvent, RequestPausedEvent
 from cdp_use.cdp.network import Cookie
@@ -101,6 +101,34 @@ class CDPSession(BaseModel):
 	# Lifecycle monitoring (populated by SessionManager)
 	_lifecycle_events: Any = PrivateAttr(default=None)
 	_lifecycle_lock: Any = PrivateAttr(default=None)
+
+
+class ResilientEventBus(EventBus):
+	"""EventBus whose step()/wait_until_idle() no-op on a torn-down bus instead of asserting.
+
+	Agent.close() stops a keep_alive session's bus and nulls its async primitives to release
+	the event loop. On warm-Lambda resume the worker can step() it before a dispatch() restarts
+	it; stock bubus then asserts "_start() must be called before step()" (ENG-5280).
+	"""
+
+	def __init__(self, name: str | None = None, **kwargs: Any) -> None:
+		# Keep the EventBus_ name prefix (bubus would otherwise derive it from the class name).
+		super().__init__(name=name or f'EventBus_{uuid7str()[-8:]}', **kwargs)
+
+	async def step(
+		self,
+		event: 'BaseEvent[Any] | None' = None,
+		timeout: float | None = None,
+		wait_for_timeout: float = 0.1,
+	) -> 'BaseEvent[Any] | None':
+		if self._on_idle is None or self.event_queue is None:
+			return None
+		return await super().step(event, timeout, wait_for_timeout)
+
+	async def wait_until_idle(self, timeout: float | None = None) -> None:
+		if self._on_idle is None or self.event_queue is None:
+			return None
+		return await super().wait_until_idle(timeout)
 
 
 class BrowserSession(BaseModel):
@@ -410,7 +438,7 @@ class BrowserSession(BaseModel):
 	@classmethod
 	def from_system_chrome(cls, profile_directory: str | None = None, **kwargs: Any) -> Self:
 		"""Create a BrowserSession using system's Chrome installation and profile"""
-		from browser_use.skill_cli.utils import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
+		from browser_use.browser.chrome import find_chrome_executable, get_chrome_profile_path, list_chrome_profiles
 
 		executable_path = find_chrome_executable()
 		if executable_path is None:
@@ -422,7 +450,7 @@ class BrowserSession(BaseModel):
 				'  Windows: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 			)
 
-		user_data_dir = get_chrome_profile_path(None)
+		user_data_dir = get_chrome_profile_path(None, executable_path=executable_path)
 		if user_data_dir is None:
 			raise RuntimeError(
 				'Could not detect Chrome profile directory for your platform.\n'
@@ -454,7 +482,7 @@ class BrowserSession(BaseModel):
 	@classmethod
 	def list_chrome_profiles(cls) -> list[dict[str, str]]:
 		"""List available Chrome profiles on the system"""
-		from browser_use.skill_cli.utils import list_chrome_profiles
+		from browser_use.browser.chrome import list_chrome_profiles
 
 		return list_chrome_profiles()
 
@@ -518,7 +546,7 @@ class BrowserSession(BaseModel):
 		return self._demo_mode
 
 	# Main shared event bus for all browser session + all watchdogs
-	event_bus: EventBus = Field(default_factory=EventBus)
+	event_bus: EventBus = Field(default_factory=ResilientEventBus)
 
 	# Mutable public state - which target has agent focus
 	agent_focus_target_id: TargetID | None = None
@@ -713,7 +741,7 @@ class BrowserSession(BaseModel):
 		# Reset all state
 		await self.reset()
 		# Create fresh event bus
-		self.event_bus = EventBus()
+		self.event_bus = ResilientEventBus()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -738,7 +766,7 @@ class BrowserSession(BaseModel):
 		# Reset all state
 		await self.reset()
 		# Create fresh event bus
-		self.event_bus = EventBus()
+		self.event_bus = ResilientEventBus()
 
 	async def close(self) -> None:
 		"""Alias for stop()."""

@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.13.2"
+version = "0.13.3"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -46,6 +46,7 @@ dependencies = [
     "markdownify==1.2.2",
     "python-docx==1.2.0",
     "browser-use-sdk==3.4.2",
+    "browser-harness==0.1.4",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -55,10 +56,9 @@ dependencies = [
 # openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
 # rich: used for terminal formatting and styling in CLI
 # click: used for command-line argument parsing
-# textual: used for terminal UI
 
 [project.optional-dependencies]
-cli = ["textual==7.4.0"]
+cli = []
 core = [
     "browser-use-core==0.13.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "browser-use-core==0.13.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
@@ -101,11 +101,11 @@ Telemetry = "https://docs.browser-use.com/development/monitoring/telemetry"
 "Privacy Policy" = "https://browser-use.com/privacy/"
 
 [project.scripts]
-browser-use = "browser_use.skill_cli.main:main"  # Fast CLI for browser automation
-browseruse = "browser_use.skill_cli.main:main"  # Alias for browser-use
-bu = "browser_use.skill_cli.main:main"  # Alias for browser-use
-browser = "browser_use.skill_cli.main:main"  # Alias for browser-use
-browser-use-tui = "browser_use.cli:main"  # Legacy TUI interface
+browser-use = "browser_use.cli:main"  # Browser Use CLI for agents
+browseruse = "browser_use.cli:main"  # Alias for browser-use
+bu = "browser_use.cli:main"  # Alias for browser-use
+browser = "browser_use.cli:main"  # Alias for browser-use
+browser-use-tui = "browser_use.cli:browser_use_tui_main"  # Deprecated alias for browser-use
 
 [build-system]
 requires = ["hatchling"]
@@ -180,6 +180,7 @@ include = [
     "!browser_use/**/tests.py",
 	"browser_use/agent/system_prompts/*.md",
     "browser_use/cli_templates/*.py",
+    "browser_use/skills/**/*.md",
     "browser_use/py.typed",
     "browser_use/dom/**/*.js",
     "!tests/**/*.py",
