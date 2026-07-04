@@ -77,6 +77,8 @@ from browser_use.utils import (
 	_log_pretty_path,
 	check_latest_browser_use_version,
 	get_browser_use_version,
+	is_placeholder_url,
+	sanitize_url_candidate,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -239,10 +241,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if flash_mode:
 			enable_planning = False
 
-		# Auto-configure llm_screenshot_size for Claude Sonnet models
+		# Auto-configure llm_screenshot_size for Claude Sonnet, including gateway ids like
+		# 'anthropic/claude-sonnet-4-6' (rsplit drops the provider prefix before matching).
 		if llm_screenshot_size is None:
 			model_name = getattr(llm, 'model', '')
-			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
+			if isinstance(model_name, str) and model_name.rsplit('/', 1)[-1].startswith('claude-sonnet'):
 				llm_screenshot_size = (1400, 850)
 				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
 
@@ -322,7 +325,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Enable coordinate clicking for models that support it
 		model_name = getattr(llm, 'model', '').lower()
 		supports_coordinate_clicking = any(
-			pattern in model_name for pattern in ['claude-sonnet-4', 'claude-opus-4', 'gemini-3-pro', 'browser-use/']
+			pattern in model_name
+			for pattern in ['claude-sonnet-4', 'claude-opus-4', 'claude-fable-5', 'gemini-3-pro', 'browser-use/']
 		)
 		if supports_coordinate_clicking:
 			self.tools.set_coordinate_clicking(True)
@@ -2375,7 +2379,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				original_position = match.start()  # Store original position before URL modification
 
 				# Remove trailing punctuation that's not part of URLs
-				url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
+				url = sanitize_url_candidate(url)
+
+				if is_placeholder_url(url):
+					self.logger.debug(f'Excluding placeholder URL from auto-navigation: {url}')
+					continue
 
 				# Check if URL ends with a file extension that should be excluded
 				url_lower = url.lower()
@@ -4130,3 +4138,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					elif isinstance(item, dict):
 						count += self._substitute_in_dict(item, replacements)
 		return count
+
+
+_PythonAgent = Agent

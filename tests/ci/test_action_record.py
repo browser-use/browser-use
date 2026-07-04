@@ -150,35 +150,3 @@ async def test_profile_record_video_dir_still_works(page_url: str, tmp_path: Pat
 	videos = list(tmp_path.glob('*.mp4'))
 	assert videos, f'expected at least one recorded mp4 in {tmp_path}'
 	assert videos[0].stat().st_size > 0
-
-
-# ---------------------------------------------------------------------------
-# CLI plumbing (argparse + command routing)
-# ---------------------------------------------------------------------------
-
-
-def test_cli_argparse_record_start_stop():
-	"""`browser-use record start <path>` and `record stop` parse correctly."""
-	from browser_use.skill_cli.main import build_parser
-
-	parser = build_parser()
-
-	args = parser.parse_args(['record', 'start', '/tmp/x.mp4'])
-	assert args.command == 'record'
-	assert args.record_command == 'start'
-	assert args.path == '/tmp/x.mp4'
-
-	args = parser.parse_args(['record', 'stop'])
-	assert args.command == 'record'
-	assert args.record_command == 'stop'
-
-	args = parser.parse_args(['record', 'status'])
-	assert args.command == 'record'
-	assert args.record_command == 'status'
-
-
-def test_cli_record_is_routed_to_browser_handler():
-	"""Daemon dispatch should route 'record' to browser.handle()."""
-	from browser_use.skill_cli.commands import browser as browser_cmd
-
-	assert 'record' in browser_cmd.COMMANDS

@@ -1,156 +1,55 @@
-name: Test Install Script
+name: Test Browser Use CLI Install
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'browser_use/skill_cli/install.sh'
+      - 'browser_use/cli.py'
+      - 'browser_use/skills/**'
+      - 'skills/browser-use/SKILL.md'
+      - 'browser_use/skills/browser-use/SKILL.md'
+      - 'scripts/sync_browser_harness_skill.py'
+      - 'pyproject.toml'
       - '.github/workflows/install-script.yml'
   pull_request:
     paths:
-      - 'browser_use/skill_cli/install.sh'
+      - 'browser_use/cli.py'
+      - 'browser_use/skills/**'
+      - 'skills/browser-use/SKILL.md'
+      - 'browser_use/skills/browser-use/SKILL.md'
+      - 'scripts/sync_browser_harness_skill.py'
+      - 'pyproject.toml'
       - '.github/workflows/install-script.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Cancel in-progress runs when a new commit is pushed
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  # Use current branch for testing install.sh
-  # For PRs, use the fork's repo (head.repo), otherwise use the base repo
-  BROWSER_USE_BRANCH: ${{ github.head_ref || github.ref_name }}
-  BROWSER_USE_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-
 jobs:
-  # ===========================================================================
-  # Test install.sh on all platforms
-  # ===========================================================================
-
-  test-install-sh-linux:
-    name: install.sh (Linux ${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, ubuntu-22.04]
-    runs-on: ${{ matrix.os }}
+  check-browser-use-skill:
+    name: browser-use skill sync
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Check generated Browser Use skill
+        run: python3 scripts/sync_browser_harness_skill.py --check
 
-      - name: Run install.sh
-        run: bash browser_use/skill_cli/install.sh
-
-      - name: Add to PATH
-        run: |
-          echo "$HOME/.browser-use-env/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Verify browser-use CLI
-        run: |
-          source ~/.browser-use-env/bin/activate
-          browser-use --help
-
-      - name: Verify Chromium installed
-        run: |
-          source ~/.browser-use-env/bin/activate
-          # Verify chromium binary exists in playwright cache
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
-          echo "Chromium binary check completed"
-
-      - name: Run browser-use doctor
-        run: |
-          source ~/.browser-use-env/bin/activate
-          browser-use doctor
-
-  test-install-sh-macos:
-    name: install.sh (macOS ${{ matrix.os }})
+  test-pip-install:
+    name: uv pip install (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, macos-14]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run install.sh
-        run: bash browser_use/skill_cli/install.sh
-
-      - name: Add to PATH
-        run: |
-          echo "$HOME/.browser-use-env/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Verify browser-use CLI
-        run: |
-          source ~/.browser-use-env/bin/activate
-          browser-use --help
-
-      - name: Verify Chromium installed
-        run: |
-          source ~/.browser-use-env/bin/activate
-          # Check playwright cache for chromium
-          ls ~/Library/Caches/ms-playwright/chromium-*/chrome-mac/ 2>/dev/null || \
-          ls ~/Library/Caches/ms-playwright/chromium-*/Chromium.app 2>/dev/null || \
-          echo "Chromium binary check completed"
-
-      - name: Run browser-use doctor
-        run: |
-          source ~/.browser-use-env/bin/activate
-          browser-use doctor
-
-  test-install-sh-windows:
-    name: install.sh (Windows)
-    runs-on: windows-latest
     defaults:
       run:
         shell: bash
-    env:
-      # Fix Unicode output on Windows (checkmarks, etc.)
-      PYTHONIOENCODING: utf-8
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python (Windows requires manual setup)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Run install.sh
-        run: bash browser_use/skill_cli/install.sh
-
-      - name: Add to PATH
-        run: |
-          echo "$HOME/.browser-use-env/Scripts" >> $GITHUB_PATH
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Verify browser-use CLI
-        run: |
-          source ~/.browser-use-env/Scripts/activate
-          browser-use --help
-
-      - name: Run browser-use doctor
-        run: |
-          source ~/.browser-use-env/Scripts/activate
-          browser-use doctor
-
-  # ===========================================================================
-  # Test alternative install methods: uv pip install + browser-use install
-  # ===========================================================================
-
-  test-uv-pip-install:
-    name: uv pip install (Linux)
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -163,38 +62,27 @@ jobs:
       - name: Create venv and install browser-use
         run: |
           uv venv .venv --python 3.11
-          source .venv/bin/activate
-          # Install from current branch
-          uv pip install .
+          uv pip install --python .venv .
 
-      - name: Run browser-use install (installs Chromium)
+      - name: Add venv to PATH
         run: |
-          source .venv/bin/activate
-          browser-use install
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
+          echo "$PWD/.venv/Scripts" >> $GITHUB_PATH
 
-      - name: Verify browser-use CLI
+      - name: Verify Browser Use CLI
         run: |
-          source .venv/bin/activate
           browser-use --help
+          browser-use auth --help
+          browser-use skill show
 
-      - name: Verify Chromium installed
+      - name: Verify aliases
         run: |
-          source .venv/bin/activate
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
-          echo "Chromium check completed"
+          browseruse --help
+          bu --help
+          browser --help
 
-      - name: Run browser-use doctor
-        run: |
-          source .venv/bin/activate
-          browser-use doctor
-
-  # ===========================================================================
-  # Test uvx "browser-use[cli]" - ephemeral install
-  # ===========================================================================
-
-  test-uvx-run:
-    name: uvx browser-use[cli] (Linux)
+  test-uvx-local-wheel:
+    name: uvx browser-use from local wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -212,35 +100,16 @@ jobs:
           uv pip install build
           python -m build --wheel
 
-      - name: Test uvx with local wheel
+      - name: Verify uvx Browser Use CLI
         run: |
           WHEEL=$(ls dist/*.whl)
           uvx --from "$WHEEL" browser-use --help
-
-      - name: Test uvx browser-use install
-        run: |
-          WHEEL=$(ls dist/*.whl)
-          uvx --from "$WHEEL" browser-use install
-
-      - name: Verify Chromium installed after uvx install
-        run: |
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
-          echo "Chromium check completed"
-
-      - name: Test uvx browser-use doctor
-        run: |
-          WHEEL=$(ls dist/*.whl)
-          uvx --from "$WHEEL" browser-use doctor
-
-  # ===========================================================================
-  # Test uvx from PyPI (only on main branch after release)
-  # ===========================================================================
+          uvx --from "$WHEEL" browser-use auth --help
+          uvx --from "$WHEEL" browser-use skill show
 
   test-uvx-pypi:
     name: uvx browser-use[cli] from PyPI
     runs-on: ubuntu-latest
-    # Only run on main branch or manual trigger
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Install uv
@@ -249,17 +118,8 @@ jobs:
       - name: Add uv to PATH
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Test uvx browser-use --help
-        run: uvx "browser-use[cli]" --help
-
-      - name: Test uvx browser-use install
-        run: uvx "browser-use[cli]" install
-
-      - name: Verify Chromium installed
+      - name: Verify uvx Browser Use CLI
         run: |
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null || \
-          ls ~/.cache/ms-playwright/chromium-*/chrome-linux/chromium 2>/dev/null || \
-          echo "Chromium check completed"
-
-      - name: Test uvx browser-use doctor
-        run: uvx "browser-use[cli]" doctor
+          uvx "browser-use[cli]" --help
+          uvx "browser-use[cli]" auth --help
+          uvx "browser-use[cli]" skill show
