@@ -74,23 +74,24 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
 	if not sensitive_values:
 		return value
 
-	# Create a lookup of secret -> key, keeping the first (longest) key for each secret
-	# Sorting by value length ensures that in the regex, the longest match is tried first
+	# Sort by length descending to ensure longer matches take priority
 	sorted_items = sorted(sensitive_values.items(), key=lambda x: len(x[1]), reverse=True)
+
 	lookup = {}
 	for k, v in sorted_items:
 		if v and v not in lookup:
-			lookup[v] = k
+			lookup[v] = f'<secret>{k}</secret>'
 
 	if not lookup:
 		return value
 
-	# Single-pass replacement using regex prevents cascading redaction
-	pattern = '|'.join(re.escape(s) for s in lookup)
-	return re.sub(pattern, lambda m: f'<secret>{lookup[m.group(0)]}</secret>', value)
+	# Single-pass regex prevents cascading redaction of placeholder tags
+	pattern = re.compile('|'.join(re.escape(s) for s in lookup))
+	return pattern.sub(lambda m: lookup[m.group(0)], value)
 
 
 def _get_openai_bad_request_error() -> type | None:
