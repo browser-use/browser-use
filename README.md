@@ -63,6 +63,8 @@ uv add browser-use
 # or: pip install browser-use
 ```
 
+> Cloned this repository instead of starting a new project? Run `uv sync --all-extras --dev` from the repo root; `uv add browser-use` is for projects that depend on the published package.
+
 **2. [Optional] Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key?utm_source=github&utm_medium=readme-quickstart-api-key):**
 ```
 # .env
