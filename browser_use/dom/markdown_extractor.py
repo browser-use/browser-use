@@ -5,6 +5,7 @@ This module provides a unified interface for extracting clean markdown from brow
 used by both the tools service and page actor.
 """
 
+import json
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -67,33 +68,7 @@ async def extract_clean_markdown(
 
 	original_html_length = len(page_html)
 
-	# Use markdownify for clean markdown conversion
-	from markdownify import markdownify as md
-
-	# 'td', 'th', and headings are the only elements where markdownify sets the _inline context,
-	# which causes img elements to be stripped to just alt text when keep_inline_images_in=[]
-	_keep_inline_images_in = ['td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] if extract_images else []
-	content = md(
-		page_html,
-		heading_style='ATX',  # Use # style headings
-		strip=['script', 'style'],  # Remove these tags
-		bullets='-',  # Use - for unordered lists
-		code_language='',  # Don't add language to code blocks
-		escape_asterisks=False,  # Don't escape asterisks (cleaner output)
-		escape_underscores=False,  # Don't escape underscores (cleaner output)
-		escape_misc=False,  # Don't escape other characters (cleaner output)
-		autolinks=False,  # Don't convert URLs to <> format
-		default_title=False,  # Don't add default title attributes
-		keep_inline_images_in=_keep_inline_images_in,  # Include image src URLs when extract_images=True
-	)
-
-	initial_markdown_length = len(content)
-
-	# Minimal cleanup - markdownify already does most of the work
-	content = re.sub(r'%[0-9A-Fa-f]{2}', '', content)  # Remove any remaining URL encoding
-
-	# Apply light preprocessing to clean up excessive whitespace
-	content, chars_filtered = _preprocess_markdown_content(content)
+	content, initial_markdown_length, chars_filtered = convert_html_to_markdown(page_html, extract_images=extract_images)
 
 	final_filtered_length = len(content)
 
@@ -135,6 +110,39 @@ async def _get_enhanced_dom_tree_from_browser_session(browser_session: 'BrowserS
 # Legacy aliases removed - all code now uses the unified extract_clean_markdown function
 
 
+def convert_html_to_markdown(page_html: str, extract_images: bool = False) -> tuple[str, int, int]:
+	"""Convert serialized page HTML to filtered markdown.
+
+	Returns:
+	    tuple: (filtered_markdown, initial_markdown_chars, chars_filtered)
+	"""
+	from markdownify import markdownify as md
+
+	# 'td', 'th', and headings are the only elements where markdownify sets the _inline context,
+	# which causes img elements to be stripped to just alt text when keep_inline_images_in=[]
+	_keep_inline_images_in = ['td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] if extract_images else []
+	content = md(
+		page_html,
+		heading_style='ATX',  # Use # style headings
+		strip=['script', 'style'],  # Remove these tags
+		bullets='-',  # Use - for unordered lists
+		code_language='',  # Don't add language to code blocks
+		escape_asterisks=False,  # Don't escape asterisks (cleaner output)
+		escape_underscores=False,  # Don't escape underscores (cleaner output)
+		escape_misc=False,  # Don't escape other characters (cleaner output)
+		autolinks=False,  # Don't convert URLs to <> format
+		default_title=False,  # Don't add default title attributes
+		keep_inline_images_in=_keep_inline_images_in,  # Include image src URLs when extract_images=True
+	)
+
+	initial_markdown_length = len(content)
+
+	# Apply light preprocessing to clean up excessive whitespace
+	content, chars_filtered = _preprocess_markdown_content(content)
+
+	return content, initial_markdown_length, chars_filtered
+
+
 def _preprocess_markdown_content(content: str, max_newlines: int = 3) -> tuple[str, int]:
 	"""
 	Light preprocessing of markdown output - minimal cleanup with JSON blob removal.
@@ -166,9 +174,14 @@ def _preprocess_markdown_content(content: str, max_newlines: int = 3) -> tuple[s
 		stripped = line.strip()
 		# Keep all non-empty lines
 		if stripped:
-			# Skip lines that look like JSON (start with { or [ and are very long)
-			if (stripped.startswith('{') or stripped.startswith('[')) and len(stripped) > 100:
-				continue
+			# Skip long lines that actually parse as JSON (SPA state blobs). A prefix
+			# check alone is not enough: markdown links/images also start with '['.
+			if len(stripped) > 100 and stripped[0] in '{[':
+				try:
+					json.loads(stripped)
+					continue
+				except ValueError:
+					pass
 			filtered_lines.append(line)
 
 	content = '\n'.join(filtered_lines)

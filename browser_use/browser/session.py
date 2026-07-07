@@ -98,9 +98,9 @@ class CDPSession(BaseModel):
 	target_id: TargetID
 	session_id: SessionID
 
-	# Lifecycle monitoring (populated by SessionManager)
+	# Lifecycle monitoring: reference to SessionManager's per-target event buffer
+	# (assigned in _enable_page_monitoring; used by readiness checks)
 	_lifecycle_events: Any = PrivateAttr(default=None)
-	_lifecycle_lock: Any = PrivateAttr(default=None)
 
 
 class ResilientEventBus(EventBus):
@@ -959,7 +959,7 @@ class BrowserSession(BaseModel):
 			await self.event_bus.dispatch(NavigationStartedEvent(target_id=target_id, url=event.url))
 
 			# Navigate to URL with proper lifecycle waiting
-			await self._navigate_and_wait(
+			loading_status = await self._navigate_and_wait(
 				event.url,
 				target_id,
 				timeout=event.timeout_ms / 1000 if event.timeout_ms is not None else None,
@@ -977,6 +977,7 @@ class BrowserSession(BaseModel):
 					target_id=target_id,
 					url=event.url,
 					status=None,  # CDP doesn't provide status directly
+					loading_status=loading_status,  # non-None when readiness timed out
 				)
 			)
 			await self.event_bus.dispatch(AgentFocusChangedEvent(target_id=target_id, url=event.url))
@@ -1009,12 +1010,18 @@ class BrowserSession(BaseModel):
 		timeout: float | None = None,
 		wait_until: str = 'load',
 		nav_timeout: float | None = None,
-	) -> None:
+	) -> str | None:
 		"""Navigate to URL and wait for page readiness using CDP lifecycle events.
 
-		Polls stored lifecycle events (registered once per session in SessionManager).
+		Polls the per-target lifecycle event buffer (fed by SessionManager's single
+		global Page.lifecycleEvent handler).
 		wait_until controls the minimum acceptable signal: 'commit', 'domcontentloaded', 'load', 'networkidle'.
 		nav_timeout controls the timeout for the CDP Page.navigate() call itself (defaults to 20.0s).
+
+		Returns None when the requested readiness signal was observed, or a
+		'timeout...' status string when the wait timed out — callers surface it via
+		NavigationCompleteEvent.loading_status so downstream consumers know the page
+		may not be fully loaded.
 		"""
 		cdp_session = await self.get_or_create_cdp_session(target_id, focus=False)
 
@@ -1052,18 +1059,24 @@ class BrowserSession(BaseModel):
 		if wait_until == 'commit':
 			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
 			self.logger.debug(f'✅ Page ready for {url} (commit, {duration_ms:.0f}ms)')
-			return
+			return None
 
 		navigation_id = nav_result.get('loaderId')
+
+		# Page.navigate omits loaderId for same-document navigations (#fragment,
+		# History API): the navigation is already committed and Chrome emits no new
+		# load/DOMContentLoaded lifecycle events for it — waiting would only burn
+		# the timeout against stale events from the previous document load.
+		if not navigation_id:
+			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			self.logger.debug(f'✅ Page ready for {url} (same-document navigation, {duration_ms:.0f}ms)')
+			return None
 		start_time = asyncio.get_event_loop().time()
 		seen_events = []
 
-		if not hasattr(cdp_session, '_lifecycle_events'):
-			raise RuntimeError(
-				f'❌ Lifecycle monitoring not enabled for {cdp_session.target_id[:8]}! '
-				f'This is a bug - SessionManager should have initialized it. '
-				f'Session: {cdp_session}'
-			)
+		# Per-target buffer owned by SessionManager — NOT a per-session attribute, whose
+		# feeding handler used to get replaced whenever another target attached.
+		lifecycle_events = self.session_manager.get_lifecycle_events(target_id)
 
 		# Acceptable events by readiness level (higher is always acceptable)
 		acceptable_events: set[str] = {'networkIdle'}
@@ -1075,7 +1088,7 @@ class BrowserSession(BaseModel):
 		poll_interval = 0.05
 		while (asyncio.get_event_loop().time() - start_time) < timeout:
 			try:
-				for event_data in list(cdp_session._lifecycle_events):
+				for event_data in list(lifecycle_events):
 					event_name = event_data.get('name')
 					event_loader_id = event_data.get('loaderId')
 
@@ -1083,13 +1096,20 @@ class BrowserSession(BaseModel):
 					if event_str not in seen_events:
 						seen_events.append(event_str)
 
+					# Skip events from a previous document in this frame (stale entries
+					# carry the old loaderId; the buffer may hold pre-navigation events).
 					if event_loader_id and navigation_id and event_loader_id != navigation_id:
+						continue
+
+					# Defense for events without a usable loaderId: only trust them if
+					# they arrived after this navigation started.
+					if not event_loader_id and event_data.get('timestamp', 0) < nav_start_time:
 						continue
 
 					if event_name in acceptable_events:
 						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
 						self.logger.debug(f'✅ Page ready for {url} ({event_name}, {duration_ms:.0f}ms)')
-						return
+						return None
 
 			except Exception as e:
 				self.logger.debug(f'Error polling lifecycle events: {e}')
@@ -1102,8 +1122,9 @@ class BrowserSession(BaseModel):
 				f'❌ No lifecycle events received for {url} after {duration_ms:.0f}ms! '
 				f'Monitoring may have failed. Target: {cdp_session.target_id[:8]}'
 			)
-		else:
-			self.logger.warning(f'⚠️ Page readiness timeout ({timeout}s, {duration_ms:.0f}ms) for {url}')
+			return f'timeout after {timeout}s: no lifecycle events received (monitoring may have failed)'
+		self.logger.warning(f'⚠️ Page readiness timeout ({timeout}s, {duration_ms:.0f}ms) for {url}')
+		return f'timeout after {timeout}s waiting for {wait_until!r} (saw: {", ".join(seen_events[-5:])})'
 
 	async def on_SwitchTabEvent(self, event: SwitchTabEvent) -> TargetID:
 		"""Handle tab switching - core browser functionality."""
