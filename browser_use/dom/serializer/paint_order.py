@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass
 
 from browser_use.dom.views import SimplifiedNode
@@ -52,93 +51,81 @@ class RectUnionPure:
 	_MAX_RECTS = 5000
 
 	def __init__(self):
-		self._rects: list[Rect] = []
+		self._rects: list[tuple[float, float, float, float]] = []
 
-	# -----------------------------------------------------------------
-	def _split_diff(self, a: Rect, b: Rect) -> list[Rect]:
-		r"""
-		Return list of up to 4 rectangles = a \ b.
-		Assumes a intersects b.
-		"""
+	def _split_diff(
+		self,
+		ax1: float,
+		ay1: float,
+		ax2: float,
+		ay2: float,
+		bx1: float,
+		by1: float,
+		bx2: float,
+		by2: float,
+	) -> list[tuple[float, float, float, float]]:
 		parts = []
 
-		# Bottom slice
-		if a.y1 < b.y1:
-			parts.append(Rect(a.x1, a.y1, a.x2, b.y1))
-		# Top slice
-		if b.y2 < a.y2:
-			parts.append(Rect(a.x1, b.y2, a.x2, a.y2))
+		if ay1 < by1:
+			parts.append((ax1, ay1, ax2, by1))
+		if by2 < ay2:
+			parts.append((ax1, by2, ax2, ay2))
 
-		# Middle (vertical) strip: y overlap is [max(a.y1,b.y1), min(a.y2,b.y2)]
-		y_lo = max(a.y1, b.y1)
-		y_hi = min(a.y2, b.y2)
+		y_lo = max(ay1, by1)
+		y_hi = min(ay2, by2)
 
-		# Left slice
-		if a.x1 < b.x1:
-			parts.append(Rect(a.x1, y_lo, b.x1, y_hi))
-		# Right slice
-		if b.x2 < a.x2:
-			parts.append(Rect(b.x2, y_lo, a.x2, y_hi))
+		if ax1 < bx1:
+			parts.append((ax1, y_lo, bx1, y_hi))
+		if bx2 < ax2:
+			parts.append((bx2, y_lo, ax2, y_hi))
 
 		return parts
 
-	# -----------------------------------------------------------------
 	def contains(self, r: Rect) -> bool:
-		"""
-		True iff r is fully covered by the current union.
-		"""
+		return self.contains_quad(r.x1, r.y1, r.x2, r.y2)
+
+	def contains_quad(self, rx1: float, ry1: float, rx2: float, ry2: float) -> bool:
 		if not self._rects:
 			return False
 
-		stack = [r]
-		for s in self._rects:
+		stack = [(rx1, ry1, rx2, ry2)]
+		for sx1, sy1, sx2, sy2 in self._rects:
 			new_stack = []
-			for piece in stack:
-				if s.contains(piece):
-					# piece completely gone
+			for px1, py1, px2, py2 in stack:
+				if sx1 <= px1 and sy1 <= py1 and sx2 >= px2 and sy2 >= py2:
 					continue
-				if piece.intersects(s):
-					new_stack.extend(self._split_diff(piece, s))
+				if not (px2 <= sx1 or sx2 <= px1 or py2 <= sy1 or sy2 <= py1):
+					new_stack.extend(self._split_diff(px1, py1, px2, py2, sx1, sy1, sx2, sy2))
 				else:
-					new_stack.append(piece)
-			if not new_stack:  # everything eaten – covered
+					new_stack.append((px1, py1, px2, py2))
+			if not new_stack:
 				return True
 			stack = new_stack
-		return False  # something survived
+		return False
 
-	# -----------------------------------------------------------------
 	def add(self, r: Rect) -> bool:
-		"""
-		Insert r unless it is already covered.
-		Returns True if the union grew.
-		"""
-		# Safety cap: stop accepting new rects to prevent exponential explosion
+		return self.add_quad(r.x1, r.y1, r.x2, r.y2)
+
+	def add_quad(self, rx1: float, ry1: float, rx2: float, ry2: float) -> bool:
 		if len(self._rects) >= self._MAX_RECTS:
 			return False
 
-		if self.contains(r):
+		if self.contains_quad(rx1, ry1, rx2, ry2):
 			return False
 
-		pending = [r]
-		i = 0
-		while i < len(self._rects):
-			s = self._rects[i]
+		pending = [(rx1, ry1, rx2, ry2)]
+		for sx1, sy1, sx2, sy2 in self._rects:
 			new_pending = []
-			changed = False
-			for piece in pending:
-				if piece.intersects(s):
-					new_pending.extend(self._split_diff(piece, s))
-					changed = True
+			for px1, py1, px2, py2 in pending:
+				if not (px2 <= sx1 or sx2 <= px1 or py2 <= sy1 or sy2 <= py1):
+					new_pending.extend(self._split_diff(px1, py1, px2, py2, sx1, sy1, sx2, sy2))
 				else:
-					new_pending.append(piece)
+					new_pending.append((px1, py1, px2, py2))
 			pending = new_pending
-			if changed:
-				# s unchanged; proceed with next existing rectangle
-				i += 1
-			else:
-				i += 1
 
-		# Any left‑over pieces are new, non‑overlapping areas
+		if len(self._rects) + len(pending) > self._MAX_RECTS:
+			return False
+
 		self._rects.extend(pending)
 		return True
 
@@ -152,61 +139,65 @@ class PaintOrderRemover:
 		self.root = root
 
 	def calculate_paint_order(self) -> None:
-		all_simplified_nodes_with_paint_order: list[SimplifiedNode] = []
+		nodes_info = []
+		stack = [self.root]
 
-		def collect_paint_order(node: SimplifiedNode) -> None:
-			if (
-				node.original_node.snapshot_node
-				and node.original_node.snapshot_node.paint_order is not None
-				and node.original_node.snapshot_node.bounds is not None
-			):
-				all_simplified_nodes_with_paint_order.append(node)
+		# Single-pass traversal to collect relevant nodes
+		while stack:
+			node = stack.pop()
+			if node.children:
+				for k in range(len(node.children) - 1, -1, -1):
+					stack.append(node.children[k])
 
-			for child in node.children:
-				collect_paint_order(child)
+			snap = node.original_node.snapshot_node
+			if snap and snap.paint_order is not None and snap.bounds:
+				# Match baseline blocker detection
+				is_blocker = True
+				styles = snap.computed_styles
+				if styles:
+					bg = styles.get('background-color', 'rgba(0, 0, 0, 0)')
+					if bg == 'rgba(0, 0, 0, 0)':
+						is_blocker = False
+					elif float(styles.get('opacity', '1')) < 0.8:
+						is_blocker = False
 
-		collect_paint_order(self.root)
-
-		grouped_by_paint_order: defaultdict[int, list[SimplifiedNode]] = defaultdict(list)
-
-		for node in all_simplified_nodes_with_paint_order:
-			if node.original_node.snapshot_node and node.original_node.snapshot_node.paint_order is not None:
-				grouped_by_paint_order[node.original_node.snapshot_node.paint_order].append(node)
-
-		rect_union = RectUnionPure()
-
-		for paint_order, nodes in sorted(grouped_by_paint_order.items(), key=lambda x: -x[0]):
-			rects_to_add = []
-
-			for node in nodes:
-				if not node.original_node.snapshot_node or not node.original_node.snapshot_node.bounds:
-					continue  # shouldn't happen by how we filter them out in the first place
-
-				rect = Rect(
-					x1=node.original_node.snapshot_node.bounds.x,
-					y1=node.original_node.snapshot_node.bounds.y,
-					x2=node.original_node.snapshot_node.bounds.x + node.original_node.snapshot_node.bounds.width,
-					y2=node.original_node.snapshot_node.bounds.y + node.original_node.snapshot_node.bounds.height,
+				nodes_info.append(
+					{
+						'node': node,
+						'po': snap.paint_order,
+						'q': (
+							snap.bounds.x,
+							snap.bounds.y,
+							snap.bounds.x + snap.bounds.width,
+							snap.bounds.y + snap.bounds.height,
+						),
+						'is_blocker': is_blocker,
+					}
 				)
 
-				if rect_union.contains(rect):
-					node.ignored_by_paint_order = True
+		# Sort by paint order descending (highest paint order on top)
+		nodes_info.sort(key=lambda x: x['po'], reverse=True)
 
-				# don't add to the nodes if opacity is less then 0.95 or background-color is transparent
-				if (
-					node.original_node.snapshot_node.computed_styles
-					and node.original_node.snapshot_node.computed_styles.get('background-color', 'rgba(0, 0, 0, 0)')
-					== 'rgba(0, 0, 0, 0)'
-				) or (
-					node.original_node.snapshot_node.computed_styles
-					and float(node.original_node.snapshot_node.computed_styles.get('opacity', '1'))
-					< 0.8  # this is highly vibes based number
-				):
-					continue
+		rect_union = RectUnionPure()
+		i, n = 0, len(nodes_info)
 
-				rects_to_add.append(rect)
+		while i < n:
+			j = i
+			current_po = nodes_info[i]['po']
 
-			for rect in rects_to_add:
-				rect_union.add(rect)
+			# 1. Check coverage for all nodes in the same paint_order group
+			while j < n and nodes_info[j]['po'] == current_po:
+				item = nodes_info[j]
+				if rect_union.contains_quad(*item['q']):
+					item['node'].ignored_by_paint_order = True
+				j += 1
+
+			# 2. Add blockers from this group to the union for subsequent groups
+			for k in range(i, j):
+				item = nodes_info[k]
+				if item['is_blocker']:
+					rect_union.add_quad(*item['q'])
+
+			i = j
 
 		return None
