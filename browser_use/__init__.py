@@ -47,7 +47,7 @@ base_subprocess.BaseSubprocessTransport.__del__ = _patched_del
 if TYPE_CHECKING:
 	from browser_use.agent.prompts import SystemPrompt
 	from browser_use.agent.service import Agent
-	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
+	from browser_use.agent.views import ActionModel, ActionOutcome, ActionResult, AgentHistoryList
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
 	from browser_use.dom.service import DomService
@@ -75,6 +75,7 @@ _LAZY_IMPORTS = {
 	# Agent views (very heavy - over 1 second!)
 	'ActionModel': ('browser_use.agent.views', 'ActionModel'),
 	'ActionResult': ('browser_use.agent.views', 'ActionResult'),
+	'ActionOutcome': ('browser_use.agent.views', 'ActionOutcome'),
 	'AgentHistoryList': ('browser_use.agent.views', 'AgentHistoryList'),
 	'BrowserSession': ('browser_use.browser', 'BrowserSession'),
 	'Browser': ('browser_use.browser', 'BrowserSession'),  # Alias for BrowserSession
@@ -134,6 +135,7 @@ __all__ = [
 	'DomService',
 	'SystemPrompt',
 	'ActionResult',
+	'ActionOutcome',
 	'ActionModel',
 	'AgentHistoryList',
 	# Chat models

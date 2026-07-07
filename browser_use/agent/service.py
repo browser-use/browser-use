@@ -45,6 +45,7 @@ from browser_use.agent.message_manager.service import (
 )
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
+	ActionOutcome,
 	ActionResult,
 	AgentError,
 	AgentHistory,
@@ -859,7 +860,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					elif isinstance(params, dict):
 						skill_params = params
 					else:
-						return ActionResult(extracted_content=None, error=f'Invalid parameters type: {type(params)}')
+						return ActionResult(
+							outcome=ActionOutcome.INVALID_STATE,
+							extracted_content=None,
+							error=f'Invalid parameters type: {type(params)}',
+						)
 
 					# Get cookies from browser
 					_cookies = await self.browser_session.cookies()
@@ -875,7 +880,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 								error=None,
 							)
 						else:
-							return ActionResult(extracted_content=None, error=result.error or 'Skill execution failed')
+							return ActionResult(
+								outcome=ActionOutcome.SYSTEM_ERROR,
+								extracted_content=None,
+								error=result.error or 'Skill execution failed',
+							)
 					except Exception as e:
 						# Check if it's a MissingCookieException
 						if type(e).__name__ == 'MissingCookieException':
@@ -883,8 +892,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 							cookie_name = getattr(e, 'cookie_name', 'unknown')
 							cookie_description = getattr(e, 'cookie_description', str(e))
 							error_msg = f'Missing cookies ({cookie_name}): {cookie_description}'
-							return ActionResult(extracted_content=None, error=error_msg)
-						return ActionResult(extracted_content=None, error=f'Skill execution error: {type(e).__name__}: {e}')
+							return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, extracted_content=None, error=error_msg)
+						return ActionResult(
+							outcome=ActionOutcome.SYSTEM_ERROR,
+							extracted_content=None,
+							error=f'Skill execution error: {type(e).__name__}: {e}',
+						)
 
 				return skill_handler
 
@@ -1222,12 +1235,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Record executed actions for loop detection
 		self._update_loop_detector_actions()
 
-		# check for action errors - only count single-action steps toward consecutive failures;
+		# check for action errors - only SYSTEM_ERROR counts toward consecutive failures;
+		# NOT_FOUND and INVALID_STATE are informative feedback, not failures.
 		# multi-action steps with errors are handled by loop detection and replan nudges instead
-		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
-			self.state.consecutive_failures += 1
-			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
-			return
+		if self.state.last_result and len(self.state.last_result) == 1:
+			last = self.state.last_result[-1]
+			if last.is_system_error:
+				self.state.consecutive_failures += 1
+				self.logger.debug(
+					f'🔄 Step {self.state.n_steps}: Consecutive failures (system_error): {self.state.consecutive_failures}'
+				)
+				return
+			elif last.is_not_found:
+				self.logger.debug(f'🔄 Step {self.state.n_steps}: Action returned not_found - informative')
+				return
+			elif last.is_invalid_state:
+				self.logger.debug(f'🔄 Step {self.state.n_steps}: Action returned invalid_state - informative')
+				return
 
 		if self.state.consecutive_failures > 0:
 			self.state.consecutive_failures = 0
@@ -1273,7 +1297,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Check if reconnection succeeded
 				if self.browser_session.is_cdp_connected:
 					self.logger.info('🔄 Reconnection succeeded, retrying step...')
-					self.state.last_result = [ActionResult(error=f'Connection lost and recovered: {error}')]
+					self.state.last_result = [
+						ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'Connection lost and recovered: {error}')
+					]
 					return
 
 			# Not reconnecting or reconnection failed — check if truly terminal
@@ -1302,7 +1328,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.log(log_level, f'{prefix}{error_msg}')
 
 		await self._demo_mode_log(f'Step error: {error_msg}', 'error', {'step': self.state.n_steps})
-		self.state.last_result = [ActionResult(error=error_msg)]
+		self.state.last_result = [ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)]
 		return None
 
 	def _is_connection_like_error(self, error: Exception) -> bool:
@@ -2461,7 +2487,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.error(f'⏰ {error_msg}')
 			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1
-			self.state.last_result = [ActionResult(error=error_msg)]
+			self.state.last_result = [ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=error_msg)]
 			# Ensure step counter advances on timeout — _finalize() may have
 			# been skipped or returned early due to the cancellation.
 			if self.state.n_steps == step + 1:
@@ -2578,7 +2604,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					f'(browser may be unresponsive). Proceeding to main execution loop.'
 				)
 				self.logger.error(f'⏰ {initial_timeout_msg}')
-				self.state.last_result = [ActionResult(error=initial_timeout_msg)]
+				self.state.last_result = [ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=initial_timeout_msg)]
 				self.state.consecutive_failures += 1
 			except Exception as e:
 				raise e
@@ -2626,7 +2652,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.history.add_item(
 					AgentHistory(
 						model_output=None,
-						result=[ActionResult(error=agent_run_error, include_in_memory=True)],
+						result=[ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=agent_run_error, include_in_memory=True)],
 						state=BrowserStateHistory(
 							url='',
 							title='',
@@ -2795,7 +2821,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				results.append(result)
 
-				if results[-1].is_done or results[-1].error or i == total_actions - 1:
+				if (
+					results[-1].is_done
+					or results[-1].error
+					or results[-1].is_not_found
+					or results[-1].is_invalid_state
+					or i == total_actions - 1
+				):
 					break
 
 				# --- Page-change guards (only when more actions remain) ---
@@ -3020,7 +3052,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				browser_session=self.browser_session, extract_links=extract_links
 			)
 		except Exception as e:
-			return ActionResult(error=f'Could not extract clean markdown: {type(e).__name__}: {e}')
+			return ActionResult(
+				outcome=ActionOutcome.SYSTEM_ERROR, error=f'Could not extract clean markdown: {type(e).__name__}: {e}'
+			)
 
 		# Get screenshot if requested
 		screenshot_b64 = None
@@ -3087,7 +3121,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except Exception as e:
 			self.logger.warning(f'Failed to execute AI step: {e.__class__.__name__}: {e}')
 			self.logger.debug('Full error traceback:', exc_info=True)
-			return ActionResult(error=f'AI step failed: {e}')
+			return ActionResult(outcome=ActionOutcome.SYSTEM_ERROR, error=f'AI step failed: {e}')
 
 	async def rerun_history(
 		self,
@@ -3179,7 +3213,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					)
 					results.append(
 						ActionResult(
-							error=f'Skipped - original step had error: {error_msgs[0][:100] if error_msgs else "unknown"}'
+							outcome=ActionOutcome.SYSTEM_ERROR,
+							error=f'Skipped - original step had error: {error_msgs[0][:100] if error_msgs else "unknown"}',
 						)
 					)
 					continue
