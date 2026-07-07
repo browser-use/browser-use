@@ -31,3 +31,20 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## Local Skills
+
+Use `LocalSkillService` to load local `SKILL.md` files without a Browser Use API key.
+It scans a directory for `*/SKILL.md` files with YAML frontmatter containing
+`name` and `description`, then exposes each file as a no-argument skill action.
+
+```python
+from browser_use import Agent, ChatBrowserUse
+from browser_use.skills import LocalSkillService
+
+agent = Agent(
+    task='Use my local workflow',
+    llm=ChatBrowserUse(),
+    skill_service=LocalSkillService('./skills'),
+)
+```
