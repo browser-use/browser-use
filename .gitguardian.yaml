@@ -1,0 +1,8 @@
+version: 2
+# This file configures GitGuardian (ggshield) to ignore intentional secrets.
+# The PostHog Project API Key is public by design for telemetry ingestion.
+
+secret:
+  ignored_matches:
+    - name: "PostHog Public Telemetry Key"
+      match: "phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh"

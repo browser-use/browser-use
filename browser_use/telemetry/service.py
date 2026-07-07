@@ -139,3 +139,6 @@ class ProductTelemetry:
 
 		self._curr_user_id = get_or_create_device_id()
 		return self._curr_user_id
+
+
+# Test Comment, Will be removed next commit
