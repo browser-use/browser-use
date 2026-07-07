@@ -82,6 +82,7 @@ class RectUnionPure:
 		return parts
 
 	def contains(self, r: Rect) -> bool:
+		# Keep the Rect-based API for compatibility with direct helper callers.
 		return self.contains_quad(r.x1, r.y1, r.x2, r.y2)
 
 	def contains_quad(self, rx1: float, ry1: float, rx2: float, ry2: float) -> bool:
@@ -104,6 +105,7 @@ class RectUnionPure:
 		return False
 
 	def add(self, r: Rect) -> bool:
+		# Keep the Rect-based API for compatibility with direct helper callers.
 		return self.add_quad(r.x1, r.y1, r.x2, r.y2)
 
 	def add_quad(self, rx1: float, ry1: float, rx2: float, ry2: float) -> bool:
@@ -122,9 +124,6 @@ class RectUnionPure:
 				else:
 					new_pending.append((px1, py1, px2, py2))
 			pending = new_pending
-
-		if len(self._rects) + len(pending) > self._MAX_RECTS:
-			return False
 
 		self._rects.extend(pending)
 		return True
