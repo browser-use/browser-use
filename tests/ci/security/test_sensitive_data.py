@@ -9,7 +9,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm import SystemMessage, UserMessage
 from browser_use.llm.messages import ContentPartTextParam
 from browser_use.tools.registry.service import Registry
-from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern
+from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, redact_sensitive_string
 
 
 class SensitiveParams(BaseModel):
@@ -588,3 +588,11 @@ def test_password_field_without_type_attribute():
 	attrs_str = DOMTreeSerializer._build_attributes_string(node, list(DEFAULT_INCLUDE_ATTRIBUTES), '')
 
 	assert value in attrs_str, 'Input without type attribute should preserve its value'
+
+
+def test_redact_sensitive_string_does_not_cascade_into_placeholders():
+	result = redact_sensitive_string(
+		'leaked supersecret token',
+		{'password': 'supersecret', 'type': 'secret'},
+	)
+	assert result == 'leaked <secret>password</secret> token'

@@ -75,8 +75,15 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
+	placeholders: dict[str, str] = {}
 	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
+		if not secret:
+			continue
+		token = f'__REDACTED_{key}__'
+		placeholders[token] = f'<secret>{key}</secret>'
+		value = value.replace(secret, token)
+	for token, tag in placeholders.items():
+		value = value.replace(token, tag)
 	return value
 
 
