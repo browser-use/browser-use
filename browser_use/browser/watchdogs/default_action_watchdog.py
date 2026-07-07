@@ -570,14 +570,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	# ========== Implementation Methods ==========
 
-	async def _check_element_occlusion(self, backend_node_id: int, x: float, y: float, cdp_session) -> bool:
-		"""Check if an element is occluded by other elements at the given coordinates.
+	async def _check_element_occlusion(self, backend_node_id: int, cdp_session) -> bool:
+		"""Check if an element is occluded at its center point.
 
-		Args:
-			backend_node_id: The backend node ID of the target element
-			x: X coordinate to check
-			y: Y coordinate to check
-			cdp_session: CDP session to use
+		Runs in the element's own JS realm: elementFromPoint expects frame-local
+		coordinates, so the probe point is computed in-realm via getBoundingClientRect.
 
 		Returns:
 			True if element is occluded, False if clickable
@@ -612,7 +609,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 						};
 
 
-						const elementAtPoint = document.elementFromPoint(arguments[0], arguments[1]);
+						// probe the center in frame-local coordinates (what elementFromPoint expects)
+						const rect = this.getBoundingClientRect();
+						const vw = window.innerWidth || document.documentElement.clientWidth;
+						const vh = window.innerHeight || document.documentElement.clientHeight;
+						const px = Math.max(0, Math.min(vw - 1, rect.x + rect.width / 2));
+						const py = Math.max(0, Math.min(vh - 1, rect.y + rect.height / 2));
+						const elementAtPoint = document.elementFromPoint(px, py);
 						if (!elementAtPoint) {
 							return { targetInfo: getElementInfo(this), isClickable: false };
 						}
@@ -668,7 +671,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 						};
 					}
 					""",
-					'arguments': [{'value': x}, {'value': y}],
 					'returnByValue': True,
 				},
 				session_id=session_id,
@@ -872,7 +874,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			center_y = max(0, min(viewport_height - 1, center_y))
 
 			# Check for occlusion before attempting CDP click
-			is_occluded = await self._check_element_occlusion(backend_node_id, center_x, center_y, cdp_session)
+			is_occluded = await self._check_element_occlusion(backend_node_id, cdp_session)
 
 			if is_occluded:
 				self.logger.debug('🚫 Element is occluded, falling back to JavaScript click')
@@ -1791,7 +1793,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				center_y = coords.y + coords.height / 2
 
 				# Check for occlusion before using coordinates for focus
-				is_occluded = await self._check_element_occlusion(backend_node_id, center_x, center_y, cdp_session)
+				is_occluded = await self._check_element_occlusion(backend_node_id, cdp_session)
 
 				if is_occluded:
 					self.logger.debug('🚫 Input element is occluded, skipping coordinate-based focus')
