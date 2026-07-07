@@ -2,7 +2,6 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from posthog import Posthog
 from uuid_extensions import uuid7str
 
 from browser_use.telemetry.views import BaseTelemetryEvent
@@ -19,6 +18,49 @@ POSTHOG_EVENT_SETTINGS = {
 	'process_person_profile': True,
 }
 
+POSTHOG_PROJECT_API_KEY = 'phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh'
+POSTHOG_HOST = 'https://eu.i.posthog.com'
+DEVICE_ID_PATH = str(CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id')
+
+_device_id: str | None = None
+
+
+def get_or_create_device_id() -> str:
+	"""Return the anonymous device id shared by telemetry"""
+	global _device_id
+	if _device_id:
+		return _device_id
+	_device_id = os.environ.get('BROWSER_USE_DEVICE_ID') or _persisted_device_id() or _machine_fingerprint() or uuid7str()
+	return _device_id
+
+
+def _persisted_device_id() -> str | None:
+	try:
+		if os.path.exists(DEVICE_ID_PATH):
+			with open(DEVICE_ID_PATH) as f:
+				return f.read().strip() or None
+		os.makedirs(os.path.dirname(DEVICE_ID_PATH), exist_ok=True)
+		new_device_id = uuid7str()
+		tmp_path = f'{DEVICE_ID_PATH}.{os.getpid()}.tmp'
+		with open(tmp_path, 'w') as f:
+			f.write(new_device_id)
+		os.replace(tmp_path, DEVICE_ID_PATH)
+		return new_device_id
+	except Exception:
+		return None
+
+
+def _machine_fingerprint() -> str | None:
+	"""Hashed hardware-derived id"""
+	import hashlib
+	import socket
+	import uuid
+
+	node = uuid.getnode()
+	if (node >> 40) & 0x01:  # multicast bit set: getnode() failed and returned a random id
+		return None
+	return 'bu_' + hashlib.sha256(f'browser-use:{node}:{socket.gethostname()}'.encode()).hexdigest()[:32]
+
 
 @singleton
 class ProductTelemetry:
@@ -28,10 +70,8 @@ class ProductTelemetry:
 	If the environment variable `ANONYMIZED_TELEMETRY=False`, anonymized telemetry will be disabled.
 	"""
 
-	USER_ID_PATH = str(CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id')
-	PROJECT_API_KEY = 'phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh'
-	HOST = 'https://eu.i.posthog.com'
-	UNKNOWN_USER_ID = 'UNKNOWN'
+	PROJECT_API_KEY = POSTHOG_PROJECT_API_KEY
+	HOST = POSTHOG_HOST
 
 	_curr_user_id = None
 
@@ -42,6 +82,8 @@ class ProductTelemetry:
 		if telemetry_disabled:
 			self._posthog_client = None
 		else:
+			from posthog import Posthog
+
 			logger.info('Using anonymized telemetry, see https://docs.browser-use.com/development/monitoring/telemetry.')
 			self._posthog_client = Posthog(
 				project_api_key=self.PROJECT_API_KEY,
@@ -95,18 +137,5 @@ class ProductTelemetry:
 		if self._curr_user_id:
 			return self._curr_user_id
 
-		# File access may fail due to permissions or other reasons. We don't want to
-		# crash so we catch all exceptions.
-		try:
-			if not os.path.exists(self.USER_ID_PATH):
-				os.makedirs(os.path.dirname(self.USER_ID_PATH), exist_ok=True)
-				with open(self.USER_ID_PATH, 'w') as f:
-					new_user_id = uuid7str()
-					f.write(new_user_id)
-				self._curr_user_id = new_user_id
-			else:
-				with open(self.USER_ID_PATH) as f:
-					self._curr_user_id = f.read()
-		except Exception:
-			self._curr_user_id = 'UNKNOWN_USER_ID'
+		self._curr_user_id = get_or_create_device_id()
 		return self._curr_user_id
