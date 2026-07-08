@@ -34,17 +34,18 @@ asyncio.run(main())
 
 ## Local Skills
 
-Use `LocalSkillService` to load local `SKILL.md` files without a Browser Use API key.
+Use `LocalSkillService` to load local `SKILL.md` files without a Browser Use API key for the skill service.
 It scans a directory for `*/SKILL.md` files with YAML frontmatter containing
 `name` and `description`, then exposes each file as a no-argument skill action.
+The agent still needs whichever credentials are required by the LLM you choose.
 
 ```python
-from browser_use import Agent, ChatBrowserUse
+from browser_use import Agent, ChatOpenAI
 from browser_use.skills import LocalSkillService
 
 agent = Agent(
     task='Use my local workflow',
-    llm=ChatBrowserUse(),
+    llm=ChatOpenAI(model='gpt-4.1-mini'),
     skill_service=LocalSkillService('./skills'),
 )
 ```

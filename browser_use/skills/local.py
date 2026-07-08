@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import ast
+import json
 import logging
 from pathlib import Path
 from typing import Any, Literal
@@ -33,6 +33,7 @@ class _LocalSkillRecord(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	skill: Skill
+	name: str
 	body: str
 	path: Path
 
@@ -54,7 +55,7 @@ class LocalSkillService:
 			skill_ids: Optional list of local skill IDs/names to load, or ['*'] for all.
 		"""
 		self.skills_path = Path(skills_path).expanduser()
-		self.skill_ids = skill_ids or ['*']
+		self.skill_ids = skill_ids if skill_ids is not None else ['*']
 		self._skills: dict[str, _LocalSkillRecord] = {}
 		self._initialized = False
 
@@ -74,13 +75,15 @@ class LocalSkillService:
 			try:
 				record = self._load_skill_file(skill_file)
 			except ValueError as e:
+				if self.skills_path.is_file():
+					raise ValueError(f'Invalid local skill {skill_file}: {e}') from e
 				logger.warning(f'Skipping invalid local skill {skill_file}: {e}')
 				continue
 
-			skill = record.skill
-			if not use_wildcard and skill.id not in requested_ids and skill.title not in requested_ids:
+			if not use_wildcard and requested_ids.isdisjoint(self._skill_aliases(record)):
 				continue
 
+			skill = record.skill
 			if skill.id in records:
 				existing_path = records[skill.id].path
 				raise ValueError(f'Duplicate local skill id "{skill.id}" in {existing_path} and {skill_file}')
@@ -88,8 +91,10 @@ class LocalSkillService:
 			records[skill.id] = record
 
 		if not use_wildcard:
-			found = set(records)
-			missing = requested_ids - found - {record.skill.title for record in records.values()}
+			found_aliases: set[str] = set()
+			for record in records.values():
+				found_aliases.update(self._skill_aliases(record))
+			missing = requested_ids - found_aliases
 			if missing:
 				logger.warning(f'Requested local skills not found: {missing}')
 
@@ -100,7 +105,7 @@ class LocalSkillService:
 	def _skill_files(self) -> list[Path]:
 		if self.skills_path.is_file():
 			return [self.skills_path]
-		return sorted(self.skills_path.rglob('SKILL.md'))
+		return sorted(self.skills_path.glob('*/SKILL.md'))
 
 	def _load_skill_file(self, skill_file: Path) -> _LocalSkillRecord:
 		metadata, body = self._parse_skill_file(skill_file)
@@ -114,9 +119,14 @@ class LocalSkillService:
 				parameters=[],
 				output_schema={},
 			),
+			name=metadata.name,
 			body=body,
 			path=skill_file,
 		)
+
+	@staticmethod
+	def _skill_aliases(record: _LocalSkillRecord) -> set[str]:
+		return {record.skill.id, record.skill.title, record.name}
 
 	@classmethod
 	def _parse_skill_file(cls, skill_file: Path) -> tuple[LocalSkillMetadata, str]:
@@ -147,13 +157,25 @@ class LocalSkillService:
 	@staticmethod
 	def _parse_frontmatter_scalar(value: str) -> str:
 		value = value.strip()
-		if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+		if value in {'|', '>'} or value.startswith('|') or value.startswith('>'):
+			raise ValueError('YAML block scalars are not supported in local skill frontmatter')
+		if not value:
+			return value
+
+		quote = value[0]
+		if quote in {'"', "'"}:
+			if len(value) < 2 or value[-1] != quote:
+				raise ValueError('unterminated quoted scalar')
+			if quote == "'":
+				return value[1:-1].replace("''", "'")
+
 			try:
-				parsed = ast.literal_eval(value)
-			except (SyntaxError, ValueError):
-				return value[1:-1]
+				parsed = json.loads(value)
+			except json.JSONDecodeError as e:
+				raise ValueError('invalid double-quoted scalar') from e
 			if isinstance(parsed, str):
 				return parsed
+			raise ValueError('quoted scalar must parse to a string')
 		return value
 
 	async def get_skill(self, skill_id: str) -> Skill | None:
