@@ -8,8 +8,8 @@ import argparse
 import asyncio
 import hashlib
 import json
-import logging
 import locale
+import logging
 import os
 import time
 from datetime import datetime, timezone
