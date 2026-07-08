@@ -176,7 +176,7 @@ async def extract_latest_article(site_url: str, debug: bool = False) -> dict:
 
 def _load_articles(file_path: str) -> list | None:
 	"""Load saved articles, including files written with the system locale."""
-	encodings = ['utf-8', 'utf-8-sig', locale.getencoding(), 'cp1252']
+	encodings = ['utf-8-sig', 'utf-8', locale.getencoding(), 'cp1252']
 	for encoding in dict.fromkeys(encodings):
 		try:
 			with open(file_path, encoding=encoding) as f:
