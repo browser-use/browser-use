@@ -3965,8 +3965,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# Kill the browser session - this dispatches BrowserStopEvent,
 					# stops the EventBus with clear=True, and recreates a fresh EventBus
 					await self.browser_session.kill()
-				else:
-					# keep_alive=True sessions shouldn't keep the event loop alive after agent.run()
+				elif self.browser_session.is_local:
+					# Local keep_alive=True sessions shouldn't keep the event loop alive after agent.run().
+					# Remote keep-alive sessions keep their event bus running for reuse.
 					await self.browser_session.event_bus.stop(
 						clear=False,
 						timeout=_get_timeout('TIMEOUT_BrowserSessionEventBusStopOnAgentClose', 1.0),
