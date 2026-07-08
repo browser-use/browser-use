@@ -172,7 +172,7 @@ class LocalSkillService:
 			try:
 				parsed = json.loads(value)
 			except json.JSONDecodeError as e:
-				raise ValueError('invalid double-quoted scalar') from e
+				raise ValueError('invalid double-quoted scalar; use JSON-compatible escapes') from e
 			if isinstance(parsed, str):
 				return parsed
 			raise ValueError('quoted scalar must parse to a string')

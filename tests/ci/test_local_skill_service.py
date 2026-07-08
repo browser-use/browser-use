@@ -110,6 +110,16 @@ async def test_local_skill_service_rejects_block_scalar_frontmatter_in_direct_fi
 		await service.get_all_skills()
 
 
+async def test_local_skill_service_rejects_yaml_specific_double_quoted_escapes(tmp_path):
+	skill_path = tmp_path / 'SKILL.md'
+	skill_path.write_text('---\nname: local\ndescription: "Bad \\x41 escape"\n---\nBody', encoding='utf-8')
+
+	service = LocalSkillService(skill_path)
+
+	with pytest.raises(ValueError, match='JSON-compatible escapes'):
+		await service.get_all_skills()
+
+
 async def test_agent_registers_local_skills_as_actions(tmp_path):
 	_write_skill(
 		tmp_path,

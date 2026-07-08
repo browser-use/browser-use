@@ -38,6 +38,9 @@ Use `LocalSkillService` to load local `SKILL.md` files without a Browser Use API
 It scans a directory for `*/SKILL.md` files with YAML frontmatter containing
 `name` and `description`, then exposes each file as a no-argument skill action.
 The agent still needs whichever credentials are required by the LLM you choose.
+Frontmatter supports plain scalars, YAML single-quoted scalars, and JSON-compatible
+double-quoted scalars. Full YAML block scalars and YAML-specific double-quoted
+escape sequences are rejected instead of being guessed.
 
 ```python
 from browser_use import Agent, ChatOpenAI
