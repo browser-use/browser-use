@@ -38,11 +38,32 @@
 
 </br>
 
-**[Browser Use CLI 3.0 is here.](#-cli)** Give your coding agent a browser it can use reliably.
+# 🤖 LLM Quickstart
 
-🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com?utm_source=github&utm_medium=readme-skip-setup)</b> for faster, scalable, stealth-enabled browser automation!
+Use Browser Use from a coding agent:
 
-🤖 Give our docs to your coding agent: [llms-full.txt](https://docs.browser-use.com/llms-full.txt)
+1. Give the agent the Browser Use docs: [llms-full.txt](https://docs.browser-use.com/llms-full.txt)
+2. Ask it to install Browser Use and complete a task you want automated
+
+Example prompt:
+
+```text
+Use Browser Use to find the top Hacker News story. Follow https://docs.browser-use.com/llms-full.txt, use ChatBrowserUse(), and show me the final result.
+```
+
+<br/>
+
+# 💻 CLI 3.0
+
+**Browser Use CLI 3.0 is here.** Give your coding agent a browser it can use reliably.
+
+For Claude Code, Codex, Cursor, and other coding agents, paste this prompt:
+
+```text
+Install or upgrade browser-use to the latest stable version with uv using Python 3.12, register the skill from `browser-use skill`, and connect it to my browser. Follow https://github.com/browser-use/browser-use if setup or connection fails.
+```
+
+<br/>
 
 # 👋 Human Quickstart
 
@@ -134,29 +155,6 @@ https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
 
 [Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/pcpartpicker.py)
 
-
-<br/>
-
-# 💻 CLI
-
-**Browser Use CLI 3.0** lets your agents do work for you online with our highest accuracy yet. It is powered by [Browser Harness](https://github.com/browser-use/browser-harness), and it applies what we learned about [agent harnesses](https://browser-use.com/posts/bitter-lesson-agent-harnesses) and [agent frameworks](https://browser-use.com/posts/bitter-lesson-agent-frameworks): the latest models do best when you give them freedom, rather than abstracting away complexity. We provide your agents with a direct, dependable surface for acting in the browser.
-
-```bash
-browser-use <<'PY'
-new_tab("https://example.com")
-print(page_info())
-PY
-```
-
-The CLI allows your agent to control the browser via Python, and it manages the browser in the background.
-
-### Agent Skill
-
-For Claude Code, Codex, and other agents, paste this prompt into your agent:
-
-```text
-Install or upgrade browser-use to the latest stable version with uv using Python 3.12, register the skill from `browser-use skill`, and connect it to my browser. Follow https://github.com/browser-use/browser-use if setup or connection fails.
-```
 
 <br/>
 
@@ -264,6 +262,22 @@ For production use cases, use our [Browser Use Cloud API](https://cloud.browser-
 - Stealth browser fingerprinting
 - High-performance parallel execution
 </details>
+
+<br/>
+
+## Citation
+
+If you use Browser Use in your research or project, please cite:
+
+```bibtex
+@software{browser_use2024,
+  author = {Müller, Magnus and Žunič, Gregor},
+  title = {Browser Use: Enable AI to control your browser},
+  year = {2024},
+  publisher = {GitHub},
+  url = {https://github.com/browser-use/browser-use}
+}
+```
 
 <br/>
 
