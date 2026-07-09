@@ -18,6 +18,7 @@ from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.minimax.chat import ChatMiniMax
 from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
 
@@ -222,8 +223,14 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('BROWSER_USE_API_KEY')
 		return ChatBrowserUse(model=model, api_key=api_key)
 
+	# MiniMax Models
+	elif provider == 'minimax':
+		api_key = os.getenv('MINIMAX_API_KEY')
+		base_url = os.getenv('MINIMAX_BASE_URL', 'https://api.minimax.io/v1')
+		return ChatMiniMax(model=model, api_key=api_key, base_url=base_url)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
+		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu', 'minimax']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -247,6 +254,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatOCIRaw  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatMiniMax':
+		return ChatMiniMax  # type: ignore
 	elif name == 'ChatBrowserUse':
 		return ChatBrowserUse  # type: ignore
 
