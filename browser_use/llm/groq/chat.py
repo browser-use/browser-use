@@ -178,6 +178,12 @@ class ChatGroq(BaseChatModel):
 					model=self.name,
 				)
 			raw_args = message.tool_calls[0].function.arguments
+			if raw_args is None:
+				raise ModelProviderError(
+					message='No tool call arguments in response',
+					status_code=500,
+					model=self.name,
+				)
 			if isinstance(raw_args, str):
 				parsed_response = output_format.model_validate_json(raw_args)
 			else:
