@@ -54,8 +54,7 @@ class TestChunkMarkdownBasic:
 		for content in ['# Header\n\nParagraph one.\n\n# Header 2\n\nParagraph two.\n', 'Hello\n', 'Hello\n\nWorld\n']:
 			chunks = chunk_markdown_by_structure(content, max_chunk_chars=20)
 			assert chunks[-1].char_offset_end == len(content), (
-				f'Expected last chunk to end at {len(content)}, got {chunks[-1].char_offset_end} '
-				f'for content {content!r}'
+				f'Expected last chunk to end at {len(content)}, got {chunks[-1].char_offset_end} for content {content!r}'
 			)
 
 
