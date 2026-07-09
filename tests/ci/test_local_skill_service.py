@@ -110,6 +110,19 @@ async def test_local_skill_service_rejects_block_scalar_frontmatter_in_direct_fi
 		await service.get_all_skills()
 
 
+async def test_local_skill_service_accepts_frontmatter_closing_delimiter_at_eof(tmp_path):
+	skill_path = tmp_path / 'SKILL.md'
+	skill_path.write_text('---\nname: local\ndescription: Ends at frontmatter delimiter.\n---', encoding='utf-8')
+
+	service = LocalSkillService(skill_path)
+	skills = await service.get_all_skills()
+
+	assert [skill.id for skill in skills] == ['local']
+	result = await service.execute_skill('local', parameters={}, cookies=[])
+	assert result.success is True
+	assert result.result == ''
+
+
 async def test_local_skill_service_rejects_yaml_specific_double_quoted_escapes(tmp_path):
 	skill_path = tmp_path / 'SKILL.md'
 	skill_path.write_text('---\nname: local\ndescription: "Bad \\x41 escape"\n---\nBody', encoding='utf-8')

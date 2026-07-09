@@ -134,10 +134,17 @@ class LocalSkillService:
 		if not text.startswith('---\n'):
 			raise ValueError('missing YAML frontmatter')
 
-		try:
-			frontmatter, body = text.removeprefix('---\n').split('\n---\n', 1)
-		except ValueError as e:
-			raise ValueError('unterminated YAML frontmatter') from e
+		content = text.removeprefix('---\n')
+		delimiter_index = content.find('\n---')
+		if delimiter_index == -1:
+			raise ValueError('unterminated YAML frontmatter')
+
+		frontmatter = content[:delimiter_index]
+		body = content[delimiter_index + len('\n---') :]
+		if body.startswith('\n'):
+			body = body.removeprefix('\n')
+		elif body:
+			raise ValueError('unterminated YAML frontmatter')
 
 		data: dict[str, str] = {}
 		for raw_line in frontmatter.splitlines():
