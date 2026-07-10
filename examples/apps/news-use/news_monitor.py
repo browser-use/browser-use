@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import locale
 import logging
 import os
 import time
@@ -173,13 +174,22 @@ async def extract_latest_article(site_url: str, debug: bool = False) -> dict:
 # ---------------------------------------------------------
 
 
+def _load_json_file(file_path: str):
+	"""Load JSON, tolerating files written with the platform's legacy encoding."""
+	try:
+		with open(file_path, encoding='utf-8') as f:
+			return json.load(f)
+	except UnicodeDecodeError:
+		with open(file_path, encoding=locale.getpreferredencoding(False)) as f:
+			return json.load(f)
+
+
 def load_seen_hashes(file_path: str = 'news_data.json') -> set:
 	"""Load already-saved article URL hashes from disk for dedup across restarts."""
 	if not os.path.exists(file_path):
 		return set()
 	try:
-		with open(file_path, encoding='utf-8') as f:
-			items = json.load(f)
+		items = _load_json_file(file_path)
 		return {entry['hash'] for entry in items if 'hash' in entry}
 	except Exception:
 		return set()
@@ -196,8 +206,7 @@ def save_article(article: dict, file_path: str = 'news_data.json'):
 	existing = []
 	if os.path.exists(file_path):
 		try:
-			with open(file_path, encoding='utf-8') as f:
-				existing = json.load(f)
+			existing = _load_json_file(file_path)
 		except Exception:
 			existing = []
 
