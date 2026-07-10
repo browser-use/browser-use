@@ -4242,7 +4242,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser: BrowserSession | None = None,
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,
-		context: Context | None = None,
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,
 		skill_service: Any | None = None,
@@ -4298,6 +4297,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		context: Context | None = None,
 		**kwargs,
 	):
 		if llm_screenshot_size is not None:

@@ -142,7 +142,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser: Browser | None = None,  # Alias for browser_session
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,  # Alias for tools
-		context: Context | None = None,
 		# Skills integration
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
@@ -210,6 +209,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		context: Context | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size

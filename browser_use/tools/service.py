@@ -2281,6 +2281,7 @@ Validated Code (after quote fixing):
 					'available_file_paths',
 					'sensitive_data',
 					'extraction_schema',
+					'context',
 				}
 
 				# Extract action params (params for the action itself)

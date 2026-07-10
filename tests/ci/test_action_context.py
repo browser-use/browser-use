@@ -50,6 +50,22 @@ async def test_tools_act_threads_context_to_registered_actions():
 	assert result.extracted_content == 'act-context'
 
 
+async def test_tools_direct_action_helper_threads_context():
+	tools = Tools[RuntimeContext](context=RuntimeContext('tools-context'))
+
+	@tools.registry.action('Read runtime context through direct helper')
+	async def read_context(context: RuntimeContext):
+		return ActionResult(extracted_content=context.value)
+
+	result = await tools.read_context()
+
+	assert result.extracted_content == 'tools-context'
+
+	result = await tools.read_context(context=RuntimeContext('helper-context'))
+
+	assert result.extracted_content == 'helper-context'
+
+
 def test_agent_threads_context_to_default_tools():
 	context = RuntimeContext('agent-context')
 
