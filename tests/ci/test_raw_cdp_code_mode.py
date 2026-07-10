@@ -432,7 +432,7 @@ def test_agent_code_mode_does_not_mutate_shared_tools(mock_llm):
 	assert 'run_python' not in shared_tools.registry.registry.actions
 	assert 'evaluate' in shared_tools.registry.registry.actions
 
-	code_agent = Agent(task='test', llm=mock_llm, tools=shared_tools, code=True)
+	code_agent = Agent(task='test', llm=mock_llm, tools=shared_tools)
 
 	assert code_agent.tools is not shared_tools
 	assert 'run_python' in code_agent.tools.registry.registry.actions
@@ -444,7 +444,7 @@ def test_agent_code_mode_does_not_mutate_shared_tools(mock_llm):
 	assert code_agent.settings.code_timeout == 300
 	assert code_agent.settings.step_timeout >= code_agent.settings.code_timeout + code_agent.settings.llm_timeout
 
-	plain_agent = Agent(task='test', llm=mock_llm, tools=shared_tools)
+	plain_agent = Agent(task='test', llm=mock_llm, tools=shared_tools, code=False)
 	assert plain_agent.tools is shared_tools
 	assert 'run_python' not in plain_agent.tools.registry.registry.actions
 	assert 'evaluate' in plain_agent.tools.registry.registry.actions

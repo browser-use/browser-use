@@ -87,7 +87,7 @@ class AgentSettings(BaseModel):
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
 	# Raw CDP code mode
-	code: bool = False
+	code: bool = True
 	code_timeout: float = 300.0
 	code_max_output_chars: int = 12000
 

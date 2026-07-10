@@ -1,8 +1,8 @@
 """
 Use raw CDP from a Python cell during an agent run.
 
-This example enables `Agent(code=True)`, which gives the model access to a
-`run_python` action. The Python cell can call helpers such as:
+Code mode is enabled by default and gives the model access to a `run_python`
+action. The Python cell can call helpers such as:
 
 - `await cdp("Domain.method", params)` for raw Chrome DevTools Protocol calls
 - `await js("...")` for page JavaScript via Runtime.evaluate
@@ -194,7 +194,6 @@ async def main():
 		# llm=ChatOpenAI(model='gpt-5.5'),
 		llm=ChatGoogle(model='gemini-3.5-flash'),
 		browser=Browser(use_cloud=True),
-		code=True,
 		code_timeout=300,
 		calculate_cost=True,
 	)

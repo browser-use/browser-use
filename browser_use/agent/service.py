@@ -201,7 +201,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		calculate_cost: bool = False,
 		pricing_url: str | None = None,
 		display_files_in_done_text: bool | None = None,
-		code: bool = False,
+		code: bool = True,
 		code_timeout: float = 300.0,
 		code_max_output_chars: int = 12000,
 		include_tool_call_examples: bool = False,

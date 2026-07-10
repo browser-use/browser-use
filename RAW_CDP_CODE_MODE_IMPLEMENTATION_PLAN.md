@@ -4,7 +4,7 @@ Status: implemented and validated on `codex/raw-cdp-code-mode`.
 
 ## Product Goal
 
-Keep Browser Use's compact indexed-action loop as the cheap default, while adding one escalation action with the capabilities that matter most from Browser Harness:
+Keep Browser Use's compact indexed actions as the preferred path while enabling one escalation action by default with the capabilities that matter most from Browser Harness:
 
 - provider-native transport for quote-heavy Python and JavaScript;
 - trusted Python inside the disposable agent worker;
@@ -42,7 +42,7 @@ The provider never serializes Python inside assistant text or markdown JSON. The
 - `ToolChoice` describes `auto`, `required`, `none`, or a named tool.
 - `ToolCall` is normalized to call ID, function name, and JSON argument string.
 - `ChatInvokeCompletion` carries normalized native calls and the provider response ID.
-- `ModelCapabilities.native_tool_calling` gates `Agent(code=True)` before browser work begins.
+- `ModelCapabilities.native_tool_calling` gates the default code-enabled Agent before browser work begins. Callers can opt out with `Agent(code=False)`.
 
 Code mode exposes exactly one provider tool: `browser_use_step`. It has one required top-level `step` parameter containing the existing dynamic `AgentOutput` schema. The single wrapper avoids provider-specific failures on tools with several top-level parameters while retaining Pydantic validation. Browser actions do not become separate provider tools.
 
@@ -56,7 +56,7 @@ Code mode exposes exactly one provider tool: `browser_use_step`. It has one requ
 - Azure Responses and Chat Completions paths both normalize function calls.
 - Adapters without an implemented native tool path fail early for code mode. There is no textual fallback.
 
-Normal `code=False` agents retain their existing structured-output behavior.
+Explicit `code=False` agents retain their existing structured-output behavior.
 
 ## 2. In-Process Python Runtime
 
