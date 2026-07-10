@@ -137,6 +137,20 @@ class SendKeysAction(BaseModel):
 	keys: str = Field(description='keys (Escape, Enter, PageDown) or shortcuts (Control+o)')
 
 
+class RunPythonAction(BaseModel):
+	code: str = Field(
+		description=(
+			'Python code to execute with direct CDP browser control. Use await cdp("Domain.method", params, request_timeout=30) '
+			'for raw Chrome DevTools Protocol calls and await wait_for_event("Domain.event") for events; '
+			'use await js("...", timeout=15), await tabs(), or await targets() for common inspection. '
+			'Top-level await is supported; never call asyncio.run() or run_until_complete(). '
+			'Relative open() paths use the persistent workspace; with pathlib, use WORKSPACE_DIR / "file". '
+			'Code runs inside the agent worker process, so do not stop the event loop or mutate process globals. '
+			'Keep printed output compact; write large results to files and print only paths, counts, sizes, and validation summaries.'
+		)
+	)
+
+
 class UploadFileAction(BaseModel):
 	index: int
 	path: str

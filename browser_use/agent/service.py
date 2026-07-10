@@ -1,8 +1,10 @@
 import asyncio
+import copy
 import gc
 import inspect
 import json
 import logging
+import math
 import re
 import tempfile
 import time
@@ -25,8 +27,15 @@ from browser_use.agent.cloud_events import (
 )
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
+from browser_use.llm.exceptions import (
+	ModelOutputTruncatedError,
+	ModelProviderError,
+	ModelRateLimitError,
+	UnsupportedModelFeatureError,
+)
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
+from browser_use.llm.schema import SchemaOptimizer
+from browser_use.llm.views import ModelCapabilities
 from browser_use.tokens.service import TokenCost
 
 load_dotenv()
@@ -70,6 +79,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
+from browser_use.tools.code_executor import InProcessPythonExecutor
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import (
@@ -190,11 +200,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		task_id: str | None = None,
 		calculate_cost: bool = False,
 		pricing_url: str | None = None,
-		display_files_in_done_text: bool = True,
+		display_files_in_done_text: bool | None = None,
+		code: bool = False,
+		code_timeout: float = 300.0,
+		code_max_output_chars: int = 12000,
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int | None = None,
-		step_timeout: int = 180,
+		step_timeout: int | None = None,
 		directly_open_url: bool = True,
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
@@ -255,6 +268,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			judge_llm = llm
 		if available_file_paths is None:
 			available_file_paths = []
+		if display_files_in_done_text is None:
+			# Code-mode artifacts are commonly large machine-readable files. Attach them without
+			# duplicating a preview into the final answer unless the caller explicitly opts in.
+			display_files_in_done_text = not code
 
 		# Set timeout based on model name if not explicitly provided
 		if llm_timeout is None:
@@ -274,6 +291,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					return 75  # Default timeout
 
 			llm_timeout = _get_model_timeout(llm)
+		if step_timeout is None:
+			step_timeout = 180
+			if code:
+				# A code-mode step includes browser state, one LLM call, and the complete Python cell.
+				# Keep the outer watchdog above the inner cell timeout instead of silently preempting it.
+				step_timeout = max(step_timeout, math.ceil(code_timeout) + llm_timeout + 30)
 
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
@@ -309,6 +332,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.available_file_paths = available_file_paths
 
 		# Set up tools first (needed to detect output_model_schema)
+		using_user_tools = tools is not None or controller is not None
 		if tools is not None:
 			self.tools = tools
 		elif controller is not None:
@@ -317,6 +341,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Exclude screenshot tool when use_vision is not auto
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+
+		if code and using_user_tools:
+			self.tools = self._copy_tools_for_agent(self.tools)
+		if code:
+			self.tools.display_files_in_done_text = display_files_in_done_text
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
@@ -330,6 +359,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 		if supports_coordinate_clicking:
 			self.tools.set_coordinate_clicking(True)
+
+		if code:
+			self.tools.register_code_action()
 
 		# Handle skills vs skill_ids parameter (skills takes precedence)
 		if skills and skill_ids:
@@ -407,6 +439,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
+			code=code,
+			code_timeout=code_timeout,
+			code_max_output_chars=code_max_output_chars,
 			use_judge=use_judge,
 			ground_truth=ground_truth,
 			enable_planning=enable_planning,
@@ -417,6 +452,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
 		)
+		if code:
+			self._validate_code_mode_llm(self.llm, 'llm')
+			if self._fallback_llm is not None:
+				self._validate_code_mode_llm(self._fallback_llm, 'fallback_llm')
+			if self.settings.use_judge:
+				self._validate_code_mode_llm(self.judge_llm, 'judge_llm')
+		self._code_executor: InProcessPythonExecutor | None = None
 
 		# Token cost service
 		self.token_cost_service = TokenCost(include_cost=calculate_cost, pricing_url=pricing_url)
@@ -447,6 +489,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize file system and screenshot service
 		self._set_file_system(file_system_path)
+		self._reset_code_executor()
 		self._set_screenshot_service()
 
 		# Action setup
@@ -511,6 +554,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				is_anthropic=is_anthropic,
 				is_browser_use_model=is_browser_use_model,
 				model_name=self.llm.model,
+				code_mode=self.settings.code,
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
@@ -789,6 +833,44 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
+
+	@staticmethod
+	def _copy_tools_for_agent(tools: Tools[Context]) -> Tools[Context]:
+		"""Copy a Tools registry before adding agent-owned actions."""
+		tools_copy = object.__new__(type(tools))
+		tools_copy.__dict__.update(tools.__dict__)
+		registry_copy = copy.copy(tools.registry)
+		registry_copy.registry = tools.registry.registry.model_copy(deep=True)
+		registry_copy.exclude_actions = list(tools.registry.exclude_actions)
+		tools_copy.registry = registry_copy
+		return tools_copy
+
+	@staticmethod
+	def _validate_code_mode_llm(llm: BaseChatModel, parameter_name: str) -> None:
+		"""Reject adapters that cannot guarantee one native structured tool call."""
+		capabilities = getattr(llm, 'model_capabilities', ModelCapabilities())
+		if not isinstance(capabilities, ModelCapabilities):
+			capabilities = ModelCapabilities.model_validate(capabilities)
+		if not capabilities.native_tool_calling:
+			raise UnsupportedModelFeatureError(
+				message=(
+					f'Agent(code=True) requires {parameter_name} to support native tool calling. '
+					f'{getattr(llm, "provider", "unknown")}/{getattr(llm, "model", "unknown")} does not advertise it.'
+				),
+				model=str(getattr(llm, 'model', 'unknown')),
+			)
+
+	def _reset_code_executor(self) -> None:
+		"""Create a fresh code executor for the current agent run."""
+		if not self.settings.code:
+			self._code_executor = None
+			return
+		self._code_executor = InProcessPythonExecutor(
+			browser_session=self.browser_session,
+			timeout=self.settings.code_timeout,
+			max_output_chars=self.settings.code_max_output_chars,
+			file_system=self.file_system,
+		)
 
 	def _get_skill_slug(self, skill: 'Skill', all_skills: list['Skill']) -> str:
 		"""Generate a clean slug from skill title for action names
@@ -1600,8 +1682,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_vision=self.settings.use_vision,
 		)
 
-		# Call LLM with JudgementResult as output format
-		kwargs: dict = {'output_format': JudgementResult}
+		# Code mode keeps every structured model response on the native tool channel,
+		# including the post-run judge. This avoids text-JSON failures on thinking models.
+		if self.settings.code:
+			judge_tool = SchemaOptimizer.create_wrapped_tool_definition(
+				JudgementResult,
+				field_name='judgement',
+				name='browser_use_judgement',
+				description='Call exactly once with the complete final Browser Use task judgement.',
+			)
+			kwargs: dict = {'tools': [judge_tool], 'tool_choice': 'required'}
+		else:
+			kwargs = {'output_format': JudgementResult}
 
 		# Only pass request_type for ChatBrowserUse (other providers don't support it)
 		if self.judge_llm.provider == 'browser-use':
@@ -1610,8 +1702,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		try:
 			response = await self.judge_llm.ainvoke(input_messages, **kwargs)
-			judgement: JudgementResult = response.completion  # type: ignore[assignment]
-			return judgement
+			if self.settings.code:
+				if len(response.tool_calls) != 1 or response.tool_calls[0].function.name != 'browser_use_judgement':
+					raise ModelProviderError(
+						message='Expected exactly one native browser_use_judgement call.',
+						status_code=500,
+						model=self.judge_llm.name,
+					)
+				arguments = json.loads(response.tool_calls[0].function.arguments)
+				return JudgementResult.model_validate(arguments.get('judgement'))
+			return JudgementResult.model_validate(response.completion)
 		except Exception as e:
 			self.logger.error(f'Judge trace failed: {e}')
 			# Return a default judgement on failure
@@ -1939,13 +2039,52 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
-		# Build kwargs for ainvoke
-		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
-		kwargs: dict = {'output_format': self.AgentOutput, 'session_id': self.session_id}
+		# Build kwargs for ainvoke. Code mode uses the provider's native function-call channel;
+		# normal agents retain the existing Pydantic structured-output path.
+		if self.settings.code:
+			output_tool = SchemaOptimizer.create_wrapped_tool_definition(
+				self.AgentOutput,
+				field_name='step',
+				name='browser_use_step',
+				description='Call exactly once with the complete Browser Use reasoning state and ordered actions.',
+			)
+			kwargs: dict = {
+				'tools': [output_tool],
+				'tool_choice': 'required',
+				'session_id': self.session_id,
+			}
+		else:
+			# Note: ChatBrowserUse generates action descriptions from output_format schema.
+			kwargs = {'output_format': self.AgentOutput, 'session_id': self.session_id}
 
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)
-			parsed: AgentOutput = response.completion  # type: ignore[assignment]
+			parsed: AgentOutput
+			if self.settings.code:
+				if len(response.tool_calls) != 1:
+					raise ModelProviderError(
+						message=f'Expected exactly one native browser_use_step call, received {len(response.tool_calls)}.',
+						status_code=500,
+						model=self.llm.name,
+					)
+				tool_call = response.tool_calls[0]
+				if tool_call.function.name != 'browser_use_step':
+					raise ModelProviderError(
+						message=f'Expected browser_use_step, received {tool_call.function.name!r}.',
+						status_code=500,
+						model=self.llm.name,
+					)
+				try:
+					arguments = json.loads(tool_call.function.arguments)
+					parsed = self.AgentOutput.model_validate(arguments.get('step'))
+				except ValidationError as exc:
+					raise ModelProviderError(
+						message=f'Invalid browser_use_step arguments: {exc}',
+						status_code=500,
+						model=self.llm.name,
+					) from exc
+			else:
+				parsed = self.AgentOutput.model_validate(response.completion)
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
@@ -2371,6 +2510,46 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'not',
 			"don't",
 		}
+		cdp_domains = {
+			'Accessibility',
+			'Animation',
+			'Audits',
+			'Autofill',
+			'BackgroundService',
+			'Browser',
+			'CSS',
+			'CacheStorage',
+			'DOM',
+			'DOMDebugger',
+			'DOMSnapshot',
+			'DOMStorage',
+			'DeviceAccess',
+			'Emulation',
+			'Fetch',
+			'IO',
+			'IndexedDB',
+			'Input',
+			'Inspector',
+			'Log',
+			'Memory',
+			'Network',
+			'Overlay',
+			'Page',
+			'Performance',
+			'Preload',
+			'Profiler',
+			'Runtime',
+			'Schema',
+			'Security',
+			'ServiceWorker',
+			'Storage',
+			'SystemInfo',
+			'Target',
+			'Tethering',
+			'Tracing',
+			'WebAudio',
+			'WebAuthn',
+		}
 
 		found_urls = []
 		for pattern in patterns:
@@ -2378,6 +2557,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			for match in matches:
 				url = match.group(0)
 				original_position = match.start()  # Store original position before URL modification
+				if self.settings.code and '/' not in url and url.split('.', 1)[0] in cdp_domains:
+					self.logger.debug(f'Excluding CDP method/event from auto-navigation: {url}')
+					continue
 
 				# Remove trailing punctuation that's not part of URLs
 				url = sanitize_url_candidate(url)
@@ -2551,6 +2733,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._log_first_step_startup()
 			# Start browser session and attach watchdogs
 			await self.browser_session.start()
+			self._reset_code_executor()
 			if self._demo_mode_enabled:
 				await self._demo_mode_log(f'Started task: {self.task}', 'info', {'tag': 'task'})
 				await self._demo_mode_log(
@@ -2777,6 +2960,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
+					code_executor=self._code_executor,
+					action_timeout=self.settings.code_timeout + 5 if action_name == 'run_python' else None,
 				)
 
 				if result.error:

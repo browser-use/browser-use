@@ -344,12 +344,20 @@ class MessageManager:
 				action_results += f'{error_text}\n'
 				logger.debug(f'Added error to action_results: {error_text}')
 
-		# Simple 60k character limit for read_state_description
-		MAX_CONTENT_SIZE = 60000
+		# Last-resort context boundary. Individual tools should return smaller,
+		# structured views, but no tool may inject an unbounded artifact.
+		MAX_CONTENT_SIZE = 16000
+
+		def bound_context(text: str) -> str:
+			if len(text) <= MAX_CONTENT_SIZE:
+				return text
+			head_size = MAX_CONTENT_SIZE * 3 // 4
+			tail_size = MAX_CONTENT_SIZE - head_size
+			omitted = len(text) - MAX_CONTENT_SIZE
+			return f'{text[:head_size]}\n... [{omitted} characters omitted] ...\n{text[-tail_size:]}'
+
 		if len(self.state.read_state_description) > MAX_CONTENT_SIZE:
-			self.state.read_state_description = (
-				self.state.read_state_description[:MAX_CONTENT_SIZE] + '\n... [Content truncated at 60k characters]'
-			)
+			self.state.read_state_description = bound_context(self.state.read_state_description)
 			logger.debug(f'Truncated read_state_description to {MAX_CONTENT_SIZE} characters')
 
 		self.state.read_state_description = self.state.read_state_description.strip('\n')
@@ -358,9 +366,8 @@ class MessageManager:
 			action_results = f'Result\n{action_results}'
 		action_results = action_results.strip('\n') if action_results else None
 
-		# Simple 60k character limit for action_results
 		if action_results and len(action_results) > MAX_CONTENT_SIZE:
-			action_results = action_results[:MAX_CONTENT_SIZE] + '\n... [Content truncated at 60k characters]'
+			action_results = bound_context(action_results)
 			logger.debug(f'Truncated action_results to {MAX_CONTENT_SIZE} characters')
 
 		# Build the history item

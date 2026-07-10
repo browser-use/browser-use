@@ -6,17 +6,19 @@ import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 from openai.types.chat import ChatCompletionContentPartTextParam
 from openai.types.chat.chat_completion import ChatCompletion
+from openai.types.responses import Response
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel
+from browser_use.llm.base import BaseChatModel, ToolChoice, ToolDefinition
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
+from browser_use.llm.openai.responses_serializer import ResponsesAPIMessageSerializer
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
-from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage, ModelCapabilities
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -48,6 +50,7 @@ class ChatOpenAI(BaseChatModel):
 	remove_defaults_from_schema: bool = (
 		False  # If True, remove default values from JSON schema (for compatibility with some providers)
 	)
+	use_responses_api_for_tools: bool | Literal['auto'] = 'auto'
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -80,6 +83,15 @@ class ChatOpenAI(BaseChatModel):
 	@property
 	def provider(self) -> str:
 		return 'openai'
+
+	@property
+	def model_capabilities(self) -> ModelCapabilities:
+		return ModelCapabilities(
+			native_tool_calling=True,
+			forced_tool_calling=not self.dont_force_structured_output,
+			strict_tool_arguments=True,
+			parallel_tool_call_control=True,
+		)
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
@@ -141,6 +153,99 @@ class ChatOpenAI(BaseChatModel):
 
 		return usage
 
+	def _get_responses_usage(self, response: Response) -> ChatInvokeUsage | None:
+		if response.usage is None:
+			return None
+		cached_tokens = (
+			response.usage.input_tokens_details.cached_tokens if response.usage.input_tokens_details is not None else None
+		)
+		return ChatInvokeUsage(
+			prompt_tokens=response.usage.input_tokens,
+			prompt_cached_tokens=cached_tokens,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+			completion_tokens=response.usage.output_tokens,
+			total_tokens=response.usage.total_tokens,
+		)
+
+	def _uses_reasoning_controls(self) -> bool:
+		if self.reasoning_models is None:
+			return False
+		model_name = str(self.model).lower()
+		return any(model_name.startswith(str(candidate).lower()) for candidate in self.reasoning_models)
+
+	def _should_use_responses_for_tools(self) -> bool:
+		if isinstance(self.use_responses_api_for_tools, bool):
+			return self.use_responses_api_for_tools
+		# OpenAI-compatible providers frequently expose only Chat Completions.
+		return type(self) is ChatOpenAI and self._uses_reasoning_controls()
+
+	async def _invoke_tools_with_responses(
+		self,
+		messages: list[BaseMessage],
+		tools: list[ToolDefinition],
+		tool_choice: ToolChoice | None,
+	) -> ChatInvokeCompletion[str]:
+		input_messages = ResponsesAPIMessageSerializer.serialize_messages(messages)
+		model_params: dict[str, Any] = {
+			'model': self.model,
+			'input': input_messages,
+			'tools': [
+				{
+					'type': 'function',
+					'name': tool.name,
+					'description': tool.description,
+					'parameters': tool.parameters,
+					'strict': tool.strict,
+				}
+				for tool in tools
+			],
+			'parallel_tool_calls': False,
+			'store': False,
+		}
+		if self.max_completion_tokens is not None:
+			model_params['max_output_tokens'] = self.max_completion_tokens
+		if self.service_tier is not None:
+			model_params['service_tier'] = self.service_tier
+		if self._uses_reasoning_controls():
+			model_params['reasoning'] = {'effort': self.reasoning_effort}
+		else:
+			if self.temperature is not None:
+				model_params['temperature'] = self.temperature
+			if self.top_p is not None:
+				model_params['top_p'] = self.top_p
+
+		if tool_choice in {None, 'auto', 'required', 'none'}:
+			openai_tool_choice: Any = tool_choice
+		else:
+			openai_tool_choice = {'type': 'function', 'name': tool_choice}
+		if openai_tool_choice is not None:
+			model_params['tool_choice'] = openai_tool_choice
+
+		response = await self.get_client().responses.create(**model_params)
+		if response.error is not None:
+			raise ModelProviderError(message=response.error.message, model=self.name)
+		if response.incomplete_details is not None and response.incomplete_details.reason == 'max_output_tokens':
+			raise ModelOutputTruncatedError(
+				message=f'Model output was truncated at max_output_tokens={self.max_completion_tokens}.',
+				model=self.name,
+			)
+		tool_calls = [
+			ToolCall(
+				id=item.call_id,
+				function=Function(name=item.name, arguments=item.arguments),
+			)
+			for item in response.output
+			if getattr(item, 'type', None) == 'function_call'
+		]
+		return ChatInvokeCompletion(
+			completion=response.output_text or '',
+			tool_calls=tool_calls,
+			response_id=response.id,
+			usage=self._get_responses_usage(response),
+			stop_reason='tool_calls' if tool_calls else response.status,
+		)
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -164,8 +269,15 @@ class ChatOpenAI(BaseChatModel):
 		"""
 
 		openai_messages = OpenAIMessageSerializer.serialize_messages(messages)
+		tools: list[ToolDefinition] | None = kwargs.pop('tools', None)
+		tool_choice: ToolChoice | None = kwargs.pop('tool_choice', None)
+		if tools and output_format is not None:
+			raise ValueError('Use either output_format or tools, not both.')
 
 		try:
+			if tools and self._should_use_responses_for_tools():
+				return await self._invoke_tools_with_responses(messages, tools, tool_choice)
+
 			model_params: dict[str, Any] = {}
 
 			if self.temperature is not None:
@@ -190,6 +302,59 @@ class ChatOpenAI(BaseChatModel):
 				model_params['reasoning_effort'] = self.reasoning_effort
 				model_params.pop('temperature', None)
 				model_params.pop('frequency_penalty', None)
+
+			if tools:
+				serialized_tools = [
+					{
+						'type': 'function',
+						'function': {
+							'name': tool.name,
+							'description': tool.description,
+							'parameters': tool.parameters,
+							'strict': tool.strict,
+						},
+					}
+					for tool in tools
+				]
+				if tool_choice in {None, 'auto', 'required', 'none'}:
+					openai_tool_choice: Any = tool_choice
+				else:
+					openai_tool_choice = {'type': 'function', 'function': {'name': tool_choice}}
+
+				response = await self.get_client().chat.completions.create(
+					model=self.model,
+					messages=openai_messages,
+					tools=serialized_tools,  # type: ignore[arg-type]
+					tool_choice=openai_tool_choice,
+					parallel_tool_calls=False,
+					**model_params,
+				)
+				choice = response.choices[0] if response.choices else None
+				if choice is None:
+					raise ModelProviderError(
+						message='Invalid OpenAI tool response: missing choices.',
+						status_code=502,
+						model=self.name,
+					)
+				if choice.finish_reason == 'length':
+					raise ModelOutputTruncatedError(
+						message='Model output was truncated before tool arguments completed.',
+						model=self.name,
+					)
+				tool_calls = [
+					ToolCall(
+						id=item.id,
+						function=Function(name=item.function.name, arguments=item.function.arguments),
+					)
+					for item in (choice.message.tool_calls or [])
+				]
+				return ChatInvokeCompletion(
+					completion=choice.message.content or '',
+					tool_calls=tool_calls,
+					response_id=response.id,
+					usage=self._get_usage(response),
+					stop_reason='tool_calls' if tool_calls else choice.finish_reason,
+				)
 
 			if output_format is None:
 				# Return string response

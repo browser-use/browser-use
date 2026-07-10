@@ -175,6 +175,7 @@ class TestSearchPage:
 		assert isinstance(result, ActionResult)
 		assert result.error is None
 		assert result.extracted_content is not None
+		assert result.include_extracted_content_only_once is True
 		assert 'Widget A' in result.extracted_content
 		assert '1 match' in result.extracted_content
 
@@ -302,6 +303,7 @@ class TestFindElements:
 		assert isinstance(result, ActionResult)
 		assert result.error is None
 		assert result.extracted_content is not None
+		assert result.include_extracted_content_only_once is True
 		assert '4 elements' in result.extracted_content
 		assert 'Widget A' in result.extracted_content
 		assert 'Gadget D' in result.extracted_content

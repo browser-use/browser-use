@@ -13,12 +13,12 @@ from google.genai import types
 from google.genai.types import MediaModality
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel
+from browser_use.llm.base import BaseChatModel, ToolChoice, ToolDefinition
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
 from browser_use.llm.schema import SchemaOptimizer
-from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage, ModelCapabilities
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -36,6 +36,7 @@ VerifiedGeminiModels = Literal[
 	'gemini-3-pro-preview',
 	'gemini-3.1-pro-preview',
 	'gemini-3-flash-preview',
+	'gemini-3.5-flash',
 	'gemini-3.1-flash-lite',
 	'gemma-3-27b-it',
 	'gemma-3-4b',
@@ -88,6 +89,16 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
+
+	@property
+	def model_capabilities(self) -> ModelCapabilities:
+		return ModelCapabilities(
+			native_tool_calling=True,
+			forced_tool_calling=True,
+			strict_tool_arguments=False,
+			parallel_tool_call_control=False,
+		)
+
 	temperature: float | None = None
 	top_p: float | None = None
 	seed: int | None = None
@@ -257,6 +268,11 @@ class ChatGoogle(BaseChatModel):
 			Either a string response or an instance of output_format
 		"""
 
+		tools: list[ToolDefinition] | None = kwargs.pop('tools', None)
+		tool_choice: ToolChoice | None = kwargs.pop('tool_choice', None)
+		if tools and output_format is not None:
+			raise ValueError('Use either output_format or tools, not both.')
+
 		# Serialize messages to Google format with the include_system_in_user flag
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
@@ -288,9 +304,17 @@ class ChatGoogle(BaseChatModel):
 		# Gemini 3 Flash: supports both, defaults to thinking_budget=-1
 		# Gemini 2.5: uses thinking_budget only
 		is_gemini_3_pro = 'gemini-3-pro' in self.model or 'gemini-3.1-pro' in self.model
+		is_gemini_3_5_flash = 'gemini-3.5-flash' in self.model
 		is_gemini_3_flash = 'gemini-3-flash' in self.model or 'gemini-3.1-flash' in self.model
 
-		if is_gemini_3_pro:
+		if is_gemini_3_5_flash:
+			if self.thinking_budget is not None:
+				self.logger.warning(
+					f'thinking_budget={self.thinking_budget} is not supported for Gemini 3.5 Flash. Use thinking_level instead.'
+				)
+			level = types.ThinkingLevel((self.thinking_level or 'medium').upper())
+			config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+		elif is_gemini_3_pro:
 			# Validate: thinking_budget should not be set for Gemini 3 Pro
 			if self.thinking_budget is not None:
 				self.logger.warning(
@@ -339,6 +363,35 @@ class ChatGoogle(BaseChatModel):
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
 
+		if tools:
+			function_declarations: list[types.FunctionDeclarationDict] = [
+				types.FunctionDeclarationDict(
+					name=tool.name,
+					description=tool.description,
+					parameters_json_schema=self._fix_gemini_schema(tool.parameters.copy()),
+				)
+				for tool in tools
+			]
+			config['tools'] = [types.ToolDict(function_declarations=function_declarations)]
+			if tool_choice in {None, 'auto'}:
+				mode = types.FunctionCallingConfigMode.AUTO
+				allowed_function_names = None
+			elif tool_choice == 'required':
+				mode = types.FunctionCallingConfigMode.ANY
+				allowed_function_names = None
+			elif tool_choice == 'none':
+				mode = types.FunctionCallingConfigMode.NONE
+				allowed_function_names = None
+			else:
+				mode = types.FunctionCallingConfigMode.ANY
+				allowed_function_names = [str(tool_choice)]
+			config['tool_config'] = types.ToolConfigDict(
+				function_calling_config=types.FunctionCallingConfigDict(
+					mode=mode,
+					allowed_function_names=allowed_function_names,
+				)
+			)
+
 		async def _make_api_call():
 			start_time = time.time()
 			self.logger.debug(f'🚀 Starting API call to {self.model}')
@@ -357,17 +410,49 @@ class ChatGoogle(BaseChatModel):
 					elapsed = time.time() - start_time
 					self.logger.debug(f'✅ Got text response in {elapsed:.2f}s')
 
-					# Handle case where response.text might be None
-					text = response.text or ''
+					if response.candidates:
+						finish_reason = str(getattr(response.candidates[0], 'finish_reason', ''))
+						if 'MALFORMED_FUNCTION_CALL' in finish_reason:
+							raise ModelProviderError(
+								message='Gemini returned MALFORMED_FUNCTION_CALL; retrying the native tool request.',
+								status_code=500,
+								model=self.model,
+							)
+
+					tool_calls: list[ToolCall] = []
+					if tools:
+						text_parts: list[str] = []
+						for candidate in response.candidates or []:
+							if candidate.content is None:
+								continue
+							for part in candidate.content.parts or []:
+								if part.function_call is not None:
+									function_call = part.function_call
+									tool_calls.append(
+										ToolCall(
+											id=function_call.id or f'call_{len(tool_calls) + 1}',
+											function=Function(
+												name=function_call.name or '',
+												arguments=json.dumps(function_call.args or {}, ensure_ascii=False),
+											),
+											thought_signature=getattr(part, 'thought_signature', None),
+										)
+									)
+								elif part.text and not getattr(part, 'thought', False):
+									text_parts.append(part.text)
+						text = '\n'.join(text_parts)
+					else:
+						text = response.text or ''
 					if not text:
-						self.logger.warning('⚠️ Empty text response received')
+						self.logger.debug('Gemini response contained no user-facing text.')
 
 					usage = self._get_usage(response)
 
 					return ChatInvokeCompletion(
 						completion=text,
+						tool_calls=tool_calls,
 						usage=usage,
-						stop_reason=self._get_stop_reason(response),
+						stop_reason='tool_calls' if tool_calls else self._get_stop_reason(response),
 					)
 
 				else:

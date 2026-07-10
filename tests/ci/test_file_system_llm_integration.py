@@ -96,6 +96,22 @@ class TestImageInLLMMessages:
 		assert mm.state.read_state_images[0]['name'] == 'img1.png'
 		assert mm.state.read_state_images[1]['name'] == 'img2.jpg'
 
+	def test_large_action_output_is_bounded_before_model_context(self, tmp_path: Path):
+		fs = FileSystem(tmp_path)
+		mm = MessageManager(task='test', system_message=SystemMessage(content='test'), file_system=fs)
+		payload = 'HEAD' + ('x' * 30_000) + 'TAIL'
+
+		mm._update_agent_history_description(
+			model_output=None,
+			result=[ActionResult(extracted_content=payload, include_extracted_content_only_once=True)],
+			step_info=AgentStepInfo(step_number=1, max_steps=10),
+		)
+
+		assert len(mm.state.read_state_description) < 16_100
+		assert 'HEAD' in mm.state.read_state_description
+		assert 'TAIL' in mm.state.read_state_description
+		assert 'characters omitted' in mm.state.read_state_description
+
 	def test_agent_message_prompt_includes_images(self, tmp_path: Path):
 		"""Test that AgentMessagePrompt includes images in message content."""
 		fs = FileSystem(tmp_path)

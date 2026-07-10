@@ -884,8 +884,8 @@ class TestFileSystemEdgeCases:
 			assert fs.base_dir == path_obj
 			fs.nuke()
 
-	def test_filesystem_recreates_data_dir(self):
-		"""Test that FileSystem recreates data directory if it exists."""
+	def test_filesystem_preserves_existing_data_dir(self):
+		"""Constructing a workspace must not destroy files from an existing run."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			# Create filesystem
 			fs1 = FileSystem(base_dir=tmp_dir, create_default_files=True)
@@ -896,11 +896,12 @@ class TestFileSystemEdgeCases:
 			custom_file.write_text('custom content')
 			assert custom_file.exists()
 
-			# Create another filesystem with same base_dir (should clean data_dir)
+			# Create another filesystem with the same base_dir.
 			fs2 = FileSystem(base_dir=tmp_dir, create_default_files=True)
 
-			# Custom file should be gone, default files should exist
-			assert not custom_file.exists()
+			# Existing files and default files both remain available.
+			assert custom_file.read_text() == 'custom content'
+			assert 'custom.txt' in fs2.list_files()
 			assert (fs2.data_dir / 'todo.md').exists()
 
 			fs2.nuke()

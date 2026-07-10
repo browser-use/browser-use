@@ -2,9 +2,12 @@
 Utilities for creating optimized Pydantic schemas for LLM usage.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+	from browser_use.llm.base import ToolDefinition
 
 
 class SchemaOptimizer:
@@ -215,3 +218,50 @@ class SchemaOptimizer:
 			Optimized schema suitable for Gemini structured output
 		"""
 		return SchemaOptimizer.create_optimized_json_schema(model)
+
+	@staticmethod
+	def create_tool_definition(
+		model: type[BaseModel],
+		name: str | None = None,
+		description: str | None = None,
+		strict: bool = True,
+	) -> 'ToolDefinition':
+		"""Create a provider-neutral function tool from a Pydantic model."""
+		from browser_use.llm.base import ToolDefinition
+
+		tool_name = name or model.__name__
+		tool_description = description or model.__doc__ or f'Use the {tool_name} tool.'
+		return ToolDefinition(
+			name=tool_name,
+			description=' '.join(tool_description.split()),
+			parameters=SchemaOptimizer.create_optimized_json_schema(model),
+			strict=strict,
+		)
+
+	@staticmethod
+	def create_wrapped_tool_definition(
+		model: type[BaseModel],
+		field_name: str,
+		name: str,
+		description: str,
+		strict: bool = True,
+	) -> 'ToolDefinition':
+		"""Expose a structured model through one top-level native tool argument."""
+		from browser_use.llm.base import ToolDefinition
+
+		inner_schema = SchemaOptimizer.create_optimized_json_schema(model)
+		definitions = inner_schema.pop('$defs', None)
+		parameters: dict[str, Any] = {
+			'type': 'object',
+			'properties': {field_name: inner_schema},
+			'required': [field_name],
+			'additionalProperties': False,
+		}
+		if definitions:
+			parameters['$defs'] = definitions
+		return ToolDefinition(
+			name=name,
+			description=' '.join(description.split()),
+			parameters=parameters,
+			strict=strict,
+		)

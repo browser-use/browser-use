@@ -351,7 +351,14 @@ class FileSystemState(BaseModel):
 
 
 class FileSystem:
-	"""Enhanced file system with in-memory storage and multiple file type support"""
+	"""Agent workspace with compatibility helpers for legacy typed files.
+
+	Disk is authoritative. The in-memory file objects remain only for APIs that
+	need legacy PDF, DOCX, and CSV behavior.
+	"""
+
+	DEFAULT_READ_CHARS = 8_000
+	MAX_READ_CHARS = 32_000
 
 	def __init__(self, base_dir: str | Path, create_default_files: bool = True):
 		# Handle the Path conversion before calling super().__init__
@@ -360,9 +367,6 @@ class FileSystem:
 
 		# Create and use a dedicated subfolder for all operations
 		self.data_dir = self.base_dir / DEFAULT_FILE_SYSTEM_PATH
-		if self.data_dir.exists():
-			# clean the data directory
-			shutil.rmtree(self.data_dir)
 		self.data_dir.mkdir(exist_ok=True)
 
 		self._file_types: dict[str, type[BaseFile]] = {
@@ -400,9 +404,12 @@ class FileSystem:
 			if not file_class:
 				raise ValueError(f"Error: Invalid file extension '{extension}' for file '{full_filename}'.")
 
-			file_obj = file_class(name=name_without_ext)
+			existing_path = self.data_dir / full_filename
+			content = existing_path.read_text(encoding='utf-8') if existing_path.exists() else ''
+			file_obj = file_class(name=name_without_ext, content=content)
 			self.files[full_filename] = file_obj  # Use full filename as key
-			file_obj.sync_to_disk_sync(self.data_dir)
+			if not existing_path.exists():
+				file_obj.sync_to_disk_sync(self.data_dir)
 
 	def _is_valid_filename(self, file_name: str) -> bool:
 		"""Check if filename matches the required pattern: name.extension
@@ -478,18 +485,121 @@ class FileSystem:
 		"""Get the file system directory"""
 		return self.data_dir
 
+	def resolve_path(self, relative_path: str | Path) -> Path:
+		"""Resolve a tool-supplied path inside the workspace without symlink escapes."""
+		path = Path(relative_path)
+		if path.is_absolute():
+			raise FileSystemError('Error: Workspace paths must be relative.')
+		root = self.data_dir.resolve()
+		resolved = (root / path).resolve(strict=False)
+		try:
+			resolved.relative_to(root)
+		except ValueError as exc:
+			raise FileSystemError(f"Error: Path '{relative_path}' escapes the workspace.") from exc
+		return resolved
+
 	def get_file(self, full_filename: str) -> BaseFile | None:
 		"""Get a file object by full filename, trying sanitization if the name is invalid."""
 		resolved, _ = self._resolve_filename(full_filename)
 		if not self._is_valid_filename(resolved):
 			return None
 
-		# Use resolved filename as key
-		return self.files.get(resolved)
+		file_obj = self.files.get(resolved)
+		path = self.data_dir / resolved
+		if file_obj is not None:
+			return file_obj
+
+		if not path.is_file():
+			return None
+		try:
+			name, extension = self._parse_filename(resolved)
+			file_class = self._get_file_type_class(extension)
+			if file_class is None or extension in {'pdf', 'docx'}:
+				return None
+			file_obj = file_class(name=name, content=path.read_text(encoding='utf-8'))
+			self.files[resolved] = file_obj
+			return file_obj
+		except (OSError, UnicodeDecodeError, ValueError):
+			return None
 
 	def list_files(self) -> list[str]:
-		"""List all files in the system"""
-		return [file_obj.full_name for file_obj in self.files.values()]
+		"""List real workspace files recursively."""
+		files: list[str] = []
+		for path in self.data_dir.rglob('*'):
+			try:
+				if path.is_file() and '.browser-use-runs' not in path.parts:
+					files.append(path.relative_to(self.data_dir).as_posix())
+			except OSError:
+				continue
+		return sorted(files)
+
+	def list_files_bounded(self, path: str = '.', glob: str = '**/*', max_entries: int = 200) -> str:
+		"""Return a compact recursive directory listing for the model."""
+		max_entries = max(1, min(max_entries, 1_000))
+		root = self.resolve_path(path)
+		if not root.exists():
+			return f"Error: Path '{path}' not found."
+		if not root.is_dir():
+			return f"Error: Path '{path}' is not a directory."
+		workspace_root = self.data_dir.resolve()
+		entries: list[str] = []
+		matched = 0
+		for candidate in sorted(root.glob(glob)):
+			try:
+				resolved = candidate.resolve(strict=False)
+				resolved.relative_to(workspace_root)
+				if not candidate.is_file() or '.browser-use-runs' in candidate.parts:
+					continue
+				matched += 1
+				if len(entries) < max_entries:
+					stat = candidate.stat()
+					relative = resolved.relative_to(workspace_root).as_posix()
+					entries.append(f'{relative}\t{stat.st_size} bytes')
+			except (OSError, ValueError):
+				continue
+		if not entries:
+			return f'No files matched {glob!r} under {path!r}.'
+		suffix = f'\n... {matched - len(entries)} more file(s) omitted' if matched > len(entries) else ''
+		return f'{len(entries)} file(s):\n' + '\n'.join(entries) + suffix
+
+	def search_files(
+		self,
+		query: str,
+		path: str = '.',
+		glob: str = '**/*',
+		regex: bool = False,
+		max_matches: int = 50,
+	) -> str:
+		"""Search text files without returning their complete contents."""
+		root = self.resolve_path(path)
+		if not root.is_dir():
+			return f"Error: Directory '{path}' not found."
+		workspace_root = self.data_dir.resolve()
+		max_matches = max(1, min(max_matches, 500))
+		try:
+			pattern = re.compile(query if regex else re.escape(query), re.IGNORECASE)
+		except re.error as exc:
+			return f'Error: Invalid regular expression: {exc}'
+		matches: list[str] = []
+		for candidate in sorted(root.glob(glob)):
+			if len(matches) >= max_matches:
+				break
+			try:
+				resolved = candidate.resolve(strict=False)
+				resolved.relative_to(workspace_root)
+				if not candidate.is_file() or candidate.stat().st_size > 64 * 1024 * 1024:
+					continue
+				with candidate.open('r', encoding='utf-8', errors='replace') as file:
+					for line_number, line in enumerate(file, 1):
+						if pattern.search(line):
+							relative = resolved.relative_to(workspace_root).as_posix()
+							preview = line.strip().replace('\x00', '')[:500]
+							matches.append(f'{relative}:{line_number}: {preview}')
+							if len(matches) >= max_matches:
+								break
+			except (OSError, UnicodeError, ValueError):
+				continue
+		return '\n'.join(matches) if matches else f'No matches for {query!r}.'
 
 	def display_file(self, full_filename: str) -> str | None:
 		"""Display file content using file-specific display method"""
@@ -503,7 +613,7 @@ class FileSystem:
 
 		return file_obj.read()
 
-	async def read_file_structured(self, full_filename: str, external_file: bool = False) -> dict[str, Any]:
+	async def _read_file_structured_legacy(self, full_filename: str, external_file: bool = False) -> dict[str, Any]:
 		"""Read file and return structured data including images if applicable.
 
 		Returns:
@@ -712,12 +822,73 @@ class FileSystem:
 			result['message'] = f"Error: Could not read file '{full_filename}'. {str(e)}"
 			return result
 
-	async def read_file(self, full_filename: str, external_file: bool = False) -> str:
+	async def read_file_structured(
+		self,
+		full_filename: str,
+		external_file: bool = False,
+		offset: int = 0,
+		max_chars: int = DEFAULT_READ_CHARS,
+	) -> dict[str, Any]:
+		"""Read a bounded file view, with a byte offset for continuation."""
+		offset = max(0, offset)
+		max_chars = max(1, min(max_chars, self.MAX_READ_CHARS))
+
+		if not external_file:
+			try:
+				path = self.resolve_path(full_filename)
+			except FileSystemError as exc:
+				return {'message': str(exc), 'images': None}
+			if path.is_file():
+				extension = path.suffix.lower().lstrip('.')
+				if extension in {'pdf', 'docx', 'jpg', 'jpeg', 'png'}:
+					result = await self._read_file_structured_legacy(str(path), external_file=True)
+					return self._truncate_structured_result(result, offset, max_chars)
+				try:
+					size = path.stat().st_size
+					with path.open('rb') as file:
+						file.seek(min(offset, size))
+						chunk = file.read(max_chars)
+					next_offset = min(offset, size) + len(chunk)
+					content = chunk.decode('utf-8', errors='replace')
+					header = f'Read from file {full_filename}.'
+					if size > len(chunk) or offset:
+						header = f'Read bytes {min(offset, size)}-{next_offset} of {size} from file {full_filename}.'
+					suffix = f'\n[Content truncated. Continue with offset={next_offset}.]' if next_offset < size else ''
+					return {'message': f'{header}\n<content>\n{content}\n</content>{suffix}', 'images': None}
+				except OSError as exc:
+					return {'message': f"Error: Could not read file '{full_filename}'. {exc}", 'images': None}
+
+		# Refresh legacy objects from disk before using format-specific readers.
+		if not external_file:
+			self.get_file(full_filename)
+		result = await self._read_file_structured_legacy(full_filename, external_file=external_file)
+		return self._truncate_structured_result(result, offset, max_chars)
+
+	@staticmethod
+	def _truncate_structured_result(result: dict[str, Any], offset: int, max_chars: int) -> dict[str, Any]:
+		message = str(result.get('message') or '')
+		if len(message) <= max_chars and offset == 0:
+			return result
+		start = min(offset, len(message))
+		end = min(len(message), start + max_chars)
+		result = dict(result)
+		result['message'] = message[start:end]
+		if end < len(message):
+			result['message'] += f'\n[Content truncated. Continue with offset={end}.]'
+		return result
+
+	async def read_file(
+		self,
+		full_filename: str,
+		external_file: bool = False,
+		offset: int = 0,
+		max_chars: int = DEFAULT_READ_CHARS,
+	) -> str:
 		"""Read file content using file-specific read method and return appropriate message to LLM.
 
 		Note: For image files, use read_file_structured() to get image data.
 		"""
-		result = await self.read_file_structured(full_filename, external_file)
+		result = await self.read_file_structured(full_filename, external_file, offset=offset, max_chars=max_chars)
 		return result['message']
 
 	async def write_file(self, full_filename: str, content: str) -> str:

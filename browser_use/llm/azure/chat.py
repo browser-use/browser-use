@@ -9,8 +9,9 @@ from openai.types.responses import Response
 from openai.types.shared import ChatModel
 from pydantic import BaseModel
 
+from browser_use.llm.base import ToolChoice, ToolDefinition
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
 from browser_use.llm.openai.like import ChatOpenAILike
 from browser_use.llm.openai.responses_serializer import ResponsesAPIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
@@ -157,6 +158,11 @@ class ChatAzureOpenAI(ChatOpenAILike):
 		This is used for models that require the Responses API (e.g., gpt-5.1-codex-mini)
 		or when use_responses_api is explicitly set to True.
 		"""
+		tools: list[ToolDefinition] | None = kwargs.pop('tools', None)
+		tool_choice: ToolChoice | None = kwargs.pop('tool_choice', None)
+		if tools and output_format is not None:
+			raise ValueError('Use either output_format or tools, not both.')
+
 		# Serialize messages to Responses API input format
 		input_messages = ResponsesAPIMessageSerializer.serialize_messages(messages)
 
@@ -183,6 +189,41 @@ class ChatAzureOpenAI(ChatOpenAILike):
 				# For reasoning models, use reasoning parameter instead of reasoning_effort
 				model_params['reasoning'] = {'effort': self.reasoning_effort}
 				model_params.pop('temperature', None)
+
+			if tools:
+				model_params['tools'] = [
+					{
+						'type': 'function',
+						'name': tool.name,
+						'description': tool.description,
+						'parameters': tool.parameters,
+						'strict': tool.strict,
+					}
+					for tool in tools
+				]
+				if tool_choice in {None, 'auto', 'required', 'none'}:
+					openai_tool_choice: Any = tool_choice
+				else:
+					openai_tool_choice = {'type': 'function', 'name': tool_choice}
+				if openai_tool_choice is not None:
+					model_params['tool_choice'] = openai_tool_choice
+				model_params['parallel_tool_calls'] = False
+				response = await self.get_client().responses.create(**model_params)
+				tool_calls = [
+					ToolCall(
+						id=item.call_id,
+						function=Function(name=item.name, arguments=item.arguments),
+					)
+					for item in response.output
+					if getattr(item, 'type', None) == 'function_call'
+				]
+				return ChatInvokeCompletion(
+					completion=response.output_text or '',
+					tool_calls=tool_calls,
+					response_id=response.id,
+					usage=self._get_usage_from_responses(response),
+					stop_reason='tool_calls' if tool_calls else (response.status if response.status else None),
+				)
 
 			if output_format is None:
 				# Return string response
@@ -280,7 +321,8 @@ class ChatAzureOpenAI(ChatOpenAILike):
 		Returns:
 			Either a string response or an instance of output_format
 		"""
-		if self._should_use_responses_api():
+		use_responses_for_tools = bool(kwargs.get('tools')) and self._uses_reasoning_controls()
+		if self._should_use_responses_api() or use_responses_for_tools:
 			return await self._ainvoke_responses_api(messages, output_format, **kwargs)
 		else:
 			# Use the parent class implementation (Chat Completions API)

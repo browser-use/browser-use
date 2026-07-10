@@ -70,6 +70,7 @@ class Registry(Generic[Context]):
 			'has_sensitive_data': bool,
 			'file_system': FileSystem,
 			'extraction_schema': None,  # dict | None, skip type validation
+			'code_executor': None,  # Agent-owned raw CDP Python executor
 		}
 
 	def _normalize_action_function_signature(
@@ -338,6 +339,7 @@ class Registry(Generic[Context]):
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
+		code_executor: Any | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -372,6 +374,7 @@ class Registry(Generic[Context]):
 				'has_sensitive_data': action_name == 'input' and bool(sensitive_data),
 				'file_system': file_system,
 				'extraction_schema': extraction_schema,
+				'code_executor': code_executor,
 			}
 
 			# Only pass sensitive_data to actions that explicitly need it (input)

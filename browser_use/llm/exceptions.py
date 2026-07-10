@@ -41,3 +41,10 @@ class ModelOutputTruncatedError(ModelProviderError):
 		model: str | None = None,
 	):
 		super().__init__(message, status_code=400, model=model)
+
+
+class UnsupportedModelFeatureError(ModelProviderError):
+	"""The selected model or adapter cannot provide a required feature."""
+
+	def __init__(self, message: str, model: str | None = None):
+		super().__init__(message=message, status_code=400, model=model)

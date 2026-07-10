@@ -110,6 +110,8 @@ class ToolCall(BaseModel):
 	"""The function that the model called."""
 	type: Literal['function'] = 'function'
 	"""The type of the tool. Currently, only `function` is supported."""
+	thought_signature: bytes | None = None
+	"""Gemini thought signature associated with this function call, when present."""
 
 	def __str__(self) -> str:
 		return f'ToolCall[{self.id}]: {self.function}'

@@ -86,6 +86,11 @@ class AgentSettings(BaseModel):
 	step_timeout: int = 180  # Timeout in seconds for each step
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
+	# Raw CDP code mode
+	code: bool = False
+	code_timeout: float = 300.0
+	code_max_output_chars: int = 12000
+
 	# Loop detection settings
 	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges

@@ -20,11 +20,15 @@ from httpx import Timeout
 from pydantic import BaseModel
 
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
-from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import BaseMessage
+from browser_use.llm.base import BaseChatModel, ToolChoice, ToolDefinition
+from browser_use.llm.exceptions import (
+	ModelOutputTruncatedError,
+	ModelProviderError,
+	ModelRateLimitError,
+)
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
 from browser_use.llm.schema import SchemaOptimizer
-from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage, ModelCapabilities
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -61,6 +65,15 @@ class ChatAnthropic(BaseChatModel):
 	@property
 	def provider(self) -> str:
 		return 'anthropic'
+
+	@property
+	def model_capabilities(self) -> ModelCapabilities:
+		return ModelCapabilities(
+			native_tool_calling=True,
+			forced_tool_calling=not self._requires_auto_tool_choice(),
+			strict_tool_arguments=False,
+			parallel_tool_call_control=False,
+		)
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
@@ -313,8 +326,81 @@ class ChatAnthropic(BaseChatModel):
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
+		tools: list[ToolDefinition] | None = kwargs.pop('tools', None)
+		tool_choice: ToolChoice | None = kwargs.pop('tool_choice', None)
+		if tools and output_format is not None:
+			raise ValueError('Use either output_format or tools, not both.')
 
 		try:
+			if tools:
+				anthropic_tools: list[ToolParam] = []
+				for index, tool_definition in enumerate(tools):
+					schema = tool_definition.parameters.copy()
+					schema.pop('title', None)
+					anthropic_tools.append(
+						ToolParam(
+							name=tool_definition.name,
+							description=tool_definition.description,
+							input_schema=schema,
+							cache_control=(CacheControlEphemeralParam(type='ephemeral') if index == len(tools) - 1 else None),
+						)
+					)
+
+				if self._requires_auto_tool_choice() and tool_choice not in {None, 'none'}:
+					anthropic_tool_choice: Any = {'type': 'auto'}
+				elif tool_choice in {None, 'auto'}:
+					anthropic_tool_choice = {'type': 'auto'}
+				elif tool_choice == 'required':
+					anthropic_tool_choice = {'type': 'any'}
+				elif tool_choice == 'none':
+					anthropic_tool_choice = {'type': 'none'}
+				else:
+					anthropic_tool_choice = {'type': 'tool', 'name': tool_choice}
+
+				response = await self._create_message(
+					model=self.model,
+					messages=anthropic_messages,
+					tools=anthropic_tools,
+					system=system_prompt or omit,
+					tool_choice=anthropic_tool_choice,
+					**self._get_client_params_for_invoke(),
+				)
+				if not isinstance(response, Message) and not self._is_message_like_response(response):
+					raise ModelProviderError(
+						message=f'Unexpected response type from Anthropic API: {type(response).__name__}.',
+						status_code=502,
+						model=self.name,
+					)
+				if response.stop_reason == 'max_tokens':
+					raise ModelOutputTruncatedError(
+						message='Anthropic output was truncated before tool arguments completed.',
+						model=self.name,
+					)
+
+				response_text, thinking, redacted_thinking = self._extract_content_blocks(response)
+				tool_calls: list[ToolCall] = []
+				for content_block in response.content:
+					if getattr(content_block, 'type', None) != 'tool_use':
+						continue
+					block_input = getattr(content_block, 'input', None)
+					arguments = json.dumps(block_input, ensure_ascii=False) if isinstance(block_input, dict) else str(block_input)
+					tool_calls.append(
+						ToolCall(
+							id=str(getattr(content_block, 'id')),
+							function=Function(name=str(getattr(content_block, 'name')), arguments=arguments),
+						)
+					)
+
+				return ChatInvokeCompletion(
+					completion=response_text,
+					tool_calls=tool_calls,
+					thinking=thinking,
+					redacted_thinking=redacted_thinking,
+					usage=self._get_usage(response),
+					stop_reason='tool_use' if tool_calls else response.stop_reason,
+					stop_details=self._get_stop_details(response),
+				)
+
 			if output_format is None:
 				# Normal completion without structured output
 				response = await self._create_message(
@@ -363,17 +449,17 @@ class ChatAnthropic(BaseChatModel):
 				)
 
 				if self._requires_auto_tool_choice():
-					tool_choice = {'type': 'auto'}
+					structured_tool_choice: Any = {'type': 'auto'}
 				else:
 					# Force the model to use this tool
-					tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
+					structured_tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
 				response = await self._create_message(
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
 					system=system_prompt or omit,
-					tool_choice=tool_choice,
+					tool_choice=structured_tool_choice,
 					**self._get_client_params_for_invoke(),
 				)
 
@@ -407,7 +493,7 @@ class ChatAnthropic(BaseChatModel):
 								stop_reason=response.stop_reason,
 								stop_details=self._get_stop_details(response),
 							)
-						except Exception as e:
+						except Exception:
 							# If validation fails, try to fix common model output issues
 							_input = content_block.input
 							if isinstance(_input, str):

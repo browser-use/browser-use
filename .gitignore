@@ -37,6 +37,10 @@ browser_cookies.json
 cookies.json
 gcp-login.json
 saved_trajectories/
+examples/browser/raw_cdp_code_mode_runs/
+.browser-use-runs/
+.browser_use-runs/
+.browser-use/
 old_tests/
 AgentHistory.json
 AgentHistoryList.json

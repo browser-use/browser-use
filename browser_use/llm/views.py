@@ -1,8 +1,19 @@
 from typing import Any, Generic, TypeVar, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from browser_use.llm.messages import ToolCall
 
 T = TypeVar('T', bound=Union[BaseModel, str])
+
+
+class ModelCapabilities(BaseModel):
+	"""Model and adapter features that affect structured agent output."""
+
+	native_tool_calling: bool = False
+	forced_tool_calling: bool = False
+	strict_tool_arguments: bool = False
+	parallel_tool_call_control: bool = False
 
 
 class ChatInvokeUsage(BaseModel):
@@ -46,6 +57,12 @@ class ChatInvokeCompletion(BaseModel, Generic[T]):
 	completion: T
 	"""The completion of the response."""
 
+	tool_calls: list[ToolCall] = Field(default_factory=list)
+	"""Provider-native function calls returned by the model."""
+
+	response_id: str | None = None
+	"""Provider response identifier when available."""
+
 	# Thinking stuff
 	thinking: str | None = None
 	redacted_thinking: str | None = None
@@ -58,3 +75,7 @@ class ChatInvokeCompletion(BaseModel, Generic[T]):
 
 	stop_details: dict[str, Any] | None = None
 	"""Provider-specific stop details, for example Anthropic refusal category information."""
+
+	@property
+	def has_tool_calls(self) -> bool:
+		return bool(self.tool_calls)

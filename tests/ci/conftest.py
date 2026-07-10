@@ -4,6 +4,7 @@ Pytest configuration for browser-use CI tests.
 Sets up environment variables to ensure tests never connect to production services.
 """
 
+import json
 import os
 import socketserver
 import tempfile
@@ -21,7 +22,8 @@ socketserver.ThreadingMixIn.daemon_threads = True
 
 from browser_use.agent.views import AgentOutput
 from browser_use.llm import BaseChatModel
-from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.llm.messages import Function, ToolCall
+from browser_use.llm.views import ChatInvokeCompletion, ModelCapabilities
 from browser_use.tools.service import Tools
 
 # Load environment variables before any imports
@@ -96,6 +98,12 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 	llm.provider = 'mock'
 	llm.name = 'mock-llm'
 	llm.model_name = 'mock-llm'  # Ensure this returns a string, not a mock
+	llm.model_capabilities = ModelCapabilities(
+		native_tool_calling=True,
+		forced_tool_calling=True,
+		strict_tool_arguments=True,
+		parallel_tool_call_control=True,
+	)
 
 	# Default done action
 	default_done_action = """
@@ -128,6 +136,7 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 			return default_done_action
 
 	async def mock_ainvoke(*args, **kwargs):
+		llm.last_invoke_kwargs = kwargs
 		# Check if output_format is provided (2nd argument or in kwargs)
 		output_format = None
 		if len(args) >= 2:
@@ -136,6 +145,20 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 			output_format = kwargs['output_format']
 
 		action_json = get_next_action()
+		if kwargs.get('tools'):
+			arguments = action_json
+			if kwargs['tools'][0].name == 'browser_use_step':
+				arguments = json.dumps({'step': json.loads(action_json)})
+			return ChatInvokeCompletion(
+				completion='',
+				tool_calls=[
+					ToolCall(
+						id='mock-tool-call',
+						function=Function(name=kwargs['tools'][0].name, arguments=arguments),
+					)
+				],
+				usage=None,
+			)
 
 		if output_format is None:
 			# Return string completion

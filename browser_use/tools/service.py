@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import logging
 import math
@@ -31,10 +32,11 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
-from browser_use.filesystem.file_system import FileSystem
+from browser_use.filesystem.file_system import FileSystem, FileSystemError
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
+from browser_use.tools.code_executor import CodeExecutionResult, InProcessPythonExecutor
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
@@ -48,6 +50,7 @@ from browser_use.tools.views import (
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	RunPythonAction,
 	SaveAsPdfAction,
 	ScreenshotAction,
 	ScrollAction,
@@ -1327,7 +1330,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			total = data.get('total', 0)
 			memory = f'Searched page for "{params.pattern}": {total} match{"es" if total != 1 else ""} found.'
 			logger.info(f'🔎 {memory}')
-			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+			return ActionResult(
+				extracted_content=formatted,
+				long_term_memory=memory,
+				include_extracted_content_only_once=True,
+			)
 
 		@self.registry.action(
 			"""Query DOM elements by CSS selector (like find). Zero LLM cost, instant. Returns matching elements with tag, text, and attributes. Use to explore page structure, count items, get links/attributes. Use attributes=["href","src"] to extract specific attributes.""",
@@ -1362,7 +1369,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			total = data.get('total', 0)
 			memory = f'Found {total} element{"s" if total != 1 else ""} matching "{params.selector}".'
 			logger.info(f'🔍 {memory}')
-			return ActionResult(extracted_content=formatted, long_term_memory=memory)
+			return ActionResult(
+				extracted_content=formatted,
+				long_term_memory=memory,
+				include_extracted_content_only_once=True,
+			)
 
 		@self.registry.action(
 			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll elements (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
@@ -1779,13 +1790,48 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action(
-			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).'
+			'List files in the agent workspace with byte sizes. Results are bounded; use path or glob to narrow large directories.'
 		)
-		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
+		async def list_files(file_system: FileSystem, path: str = '.', glob: str = '**/*', max_entries: int = 200):
+			result = file_system.list_files_bounded(path=path, glob=glob, max_entries=max_entries)
+			return ActionResult(extracted_content=result, long_term_memory=result[:1000])
+
+		@self.registry.action(
+			'Search workspace text files and return bounded path:line snippets. Use this instead of reading large files.'
+		)
+		async def search_files(
+			query: str,
+			file_system: FileSystem,
+			path: str = '.',
+			glob: str = '**/*',
+			regex: bool = False,
+			max_matches: int = 50,
+		):
+			result = file_system.search_files(
+				query=query,
+				path=path,
+				glob=glob,
+				regex=regex,
+				max_matches=max_matches,
+			)
+			return ActionResult(extracted_content=result, long_term_memory=result[:1000])
+
+		@self.registry.action(
+			'Read at most max_chars from a file. Large files return a continuation offset; use offset on the next call. Prefer search_files or run_python for large JSON, HTML, CSV, and logs.'
+		)
+		async def read_file(
+			file_name: str,
+			available_file_paths: list[str],
+			file_system: FileSystem,
+			offset: int = 0,
+			max_chars: int = 8000,
+		):
 			if available_file_paths and file_name in available_file_paths:
-				structured_result = await file_system.read_file_structured(file_name, external_file=True)
+				structured_result = await file_system.read_file_structured(
+					file_name, external_file=True, offset=offset, max_chars=max_chars
+				)
 			else:
-				structured_result = await file_system.read_file_structured(file_name)
+				structured_result = await file_system.read_file_structured(file_name, offset=offset, max_chars=max_chars)
 
 			result = structured_result['message']
 			images = structured_result.get('images')
@@ -2009,9 +2055,12 @@ Validated Code (after quote fixing):
 				# 1. Resolve any explicitly requested files via files_to_display
 				if params.files_to_display:
 					for file_name in params.files_to_display:
-						file_content = file_system.display_file(file_name)
-						if file_content:
-							attachments.append(str(file_system.get_dir() / file_name))
+						try:
+							file_path = file_system.resolve_path(file_name)
+						except FileSystemError:
+							continue
+						if file_path.is_file():
+							attachments.append(os.path.abspath(file_system.get_dir() / file_name))
 
 				# 2. Auto-attach actual session downloads (CDP-tracked browser downloads)
 				#    but NOT user-supplied whitelist paths from available_file_paths
@@ -2050,10 +2099,14 @@ Validated Code (after quote fixing):
 					if self.display_files_in_done_text:
 						file_msg = ''
 						for file_name in params.files_to_display:
-							file_content = file_system.display_file(file_name)
-							if file_content:
-								file_msg += f'\n\n{file_name}:\n{file_content}'
-								attachments.append(file_name)
+							try:
+								file_path = file_system.resolve_path(file_name)
+							except FileSystemError:
+								continue
+							if file_path.is_file():
+								file_preview = await file_system.read_file(file_name, max_chars=2000)
+								file_msg += f'\n\n{file_name}:\n{file_preview}'
+								attachments.append(os.path.abspath(file_system.get_dir() / file_name))
 						if file_msg:
 							user_message += '\n\nAttachments:'
 							user_message += file_msg
@@ -2061,11 +2114,12 @@ Validated Code (after quote fixing):
 							logger.warning('Agent wanted to display files but none were found')
 					else:
 						for file_name in params.files_to_display:
-							file_content = file_system.display_file(file_name)
-							if file_content:
-								attachments.append(file_name)
-
-				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
+							try:
+								file_path = file_system.resolve_path(file_name)
+							except FileSystemError:
+								continue
+							if file_path.is_file():
+								attachments.append(os.path.abspath(file_system.get_dir() / file_name))
 
 				return ActionResult(
 					is_done=True,
@@ -2082,6 +2136,60 @@ Validated Code (after quote fixing):
 	def get_output_model(self) -> type[BaseModel] | None:
 		"""Get the output model if structured output is configured."""
 		return self._output_model
+
+	def register_code_action(self) -> None:
+		"""Register the agent-owned raw CDP Python action."""
+		self.exclude_action('evaluate')
+
+		if 'run_python' in self.registry.registry.actions:
+			return
+
+		@self.registry.action(
+			'Execute a Python cell with direct raw CDP browser control. The main primitive is await cdp("Domain.method", params).',
+			param_model=RunPythonAction,
+			terminates_sequence=True,
+		)
+		async def run_python(params: RunPythonAction, code_executor: InProcessPythonExecutor):
+			execution = await code_executor.run(params.code)
+			extracted_content = self._format_code_execution_result(execution)
+
+			if execution.error:
+				error_summary = execution.error.strip().splitlines()[-1] if execution.error.strip() else 'Python code failed.'
+				return ActionResult(
+					error=error_summary,
+					extracted_content=extracted_content,
+					include_extracted_content_only_once=True,
+					long_term_memory='Python code failed. See read_state for the full traceback.',
+					images=execution.images or None,
+				)
+
+			return ActionResult(
+				extracted_content=extracted_content,
+				include_extracted_content_only_once=True,
+				long_term_memory='Ran Python code with raw CDP access.',
+				images=execution.images or None,
+			)
+
+	@staticmethod
+	def _format_code_execution_result(execution: CodeExecutionResult) -> str:
+		parts = ['<python_result>']
+		has_visible_result = bool(execution.output or execution.error or execution.images)
+		if execution.output:
+			output = html.escape(execution.output.rstrip(), quote=False)
+			parts.append(f'<output>\n{output}\n</output>')
+		if execution.error:
+			error = html.escape(execution.error.rstrip(), quote=False)
+			parts.append(f'<traceback>\n{error}\n</traceback>')
+		if execution.images:
+			parts.append(f'<images>{len(execution.images)} image(s) returned with this result.</images>')
+		if not has_visible_result:
+			parts.append('<output>Python code executed successfully with no output.</output>')
+		parts.append(
+			f'<execution mode="in_process" timed_out="{str(execution.timed_out).lower()}" '
+			f'duration_seconds="{execution.duration_seconds:.3f}" />'
+		)
+		parts.append('</python_result>')
+		return '\n'.join(parts)
 
 	# Register ---------------------------------------------------------------
 
@@ -2170,6 +2278,7 @@ Validated Code (after quote fixing):
 		available_file_paths: list[str] | None = None,
 		file_system: FileSystem | None = None,
 		extraction_schema: dict | None = None,
+		code_executor: InProcessPythonExecutor | None = None,
 		action_timeout: float | None = None,
 	) -> ActionResult:
 		"""Execute an action.
@@ -2185,13 +2294,18 @@ Validated Code (after quote fixing):
 
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
+				span_params = (
+					{'code': f'<redacted {len(str(params.get("code", "")))} chars>'}
+					if action_name == 'run_python' and isinstance(params, dict)
+					else params
+				)
 				# Use Laminar span if available, otherwise use no-op context manager
 				if Laminar is not None:
 					span_context = Laminar.start_as_current_span(
 						name=action_name,
 						input={
 							'action': action_name,
-							'params': params,
+							'params': span_params,
 						},
 						span_type='TOOL',
 					)
@@ -2213,6 +2327,7 @@ Validated Code (after quote fixing):
 								sensitive_data=sensitive_data,
 								available_file_paths=available_file_paths,
 								extraction_schema=extraction_schema,
+								code_executor=code_executor,
 							),
 							timeout=timeout_s,
 						)
@@ -2277,6 +2392,7 @@ Validated Code (after quote fixing):
 					'available_file_paths',
 					'sensitive_data',
 					'extraction_schema',
+					'code_executor',
 				}
 
 				# Extract action params (params for the action itself)

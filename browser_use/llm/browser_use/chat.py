@@ -9,15 +9,15 @@ import asyncio
 import logging
 import os
 import random
-from typing import Any, TypeVar, overload
+from typing import Any, TypeVar, cast, overload
 
 import httpx
 from pydantic import BaseModel
 
-from browser_use.llm.base import BaseChatModel
+from browser_use.llm.base import BaseChatModel, ToolChoice, ToolDefinition
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
-from browser_use.llm.messages import BaseMessage
-from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.llm.messages import BaseMessage, Function, ToolCall
+from browser_use.llm.views import ChatInvokeCompletion, ModelCapabilities
 from browser_use.observability import observe
 
 T = TypeVar('T', bound=BaseModel)
@@ -109,6 +109,15 @@ class ChatBrowserUse(BaseChatModel):
 	def name(self) -> str:
 		return self.model
 
+	@property
+	def model_capabilities(self) -> ModelCapabilities:
+		return ModelCapabilities(
+			native_tool_calling=True,
+			forced_tool_calling=True,
+			strict_tool_arguments=False,
+			parallel_tool_call_control=True,
+		)
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, request_type: str = 'browser_agent', **kwargs: Any
@@ -147,6 +156,8 @@ class ChatBrowserUse(BaseChatModel):
 
 		# Extract session_id from kwargs for sticky routing
 		session_id = kwargs.get('session_id')
+		tools: list[ToolDefinition] | None = kwargs.get('tools')
+		tool_choice: ToolChoice | None = kwargs.get('tool_choice')
 
 		# Prepare request payload
 		payload: dict[str, Any] = {
@@ -160,6 +171,21 @@ class ChatBrowserUse(BaseChatModel):
 		# Add session_id for sticky routing if provided
 		if session_id:
 			payload['session_id'] = session_id
+		if tools:
+			payload['tools'] = [
+				{
+					'type': 'function',
+					'function': {
+						'name': tool.name,
+						'description': tool.description,
+						'parameters': tool.parameters,
+						'strict': tool.strict,
+					},
+				}
+				for tool in tools
+			]
+			payload['tool_choice'] = tool_choice or 'auto'
+			payload['parallel_tool_calls'] = False
 
 		# Add output format schema if provided
 		if output_format is not None:
@@ -170,7 +196,10 @@ class ChatBrowserUse(BaseChatModel):
 		# Retry loop with exponential backoff
 		for attempt in range(self.max_retries):
 			try:
-				result = await self._make_request(payload)
+				if tools:
+					result = await self._make_request(payload, openai_compatible=True)
+				else:
+					result = await self._make_request(payload)
 				break
 			except httpx.HTTPStatusError as e:
 				last_error = e
@@ -219,6 +248,47 @@ class ChatBrowserUse(BaseChatModel):
 				raise ValueError(f'Request failed after {self.max_retries} attempts: {last_error}')
 			raise RuntimeError('Retry loop completed without return or exception')
 
+		if tools:
+			choices = result.get('choices') or []
+			if not choices:
+				raise ModelProviderError(
+					message='Browser Use gateway returned no choices for native tool request.',
+					status_code=502,
+					model=self.name,
+				)
+			message = choices[0].get('message') or {}
+			tool_calls = [
+				ToolCall(
+					id=tool_call['id'],
+					function=Function(
+						name=tool_call['function']['name'],
+						arguments=tool_call['function']['arguments'],
+					),
+				)
+				for tool_call in message.get('tool_calls') or []
+			]
+			usage = None
+			if result.get('usage') is not None:
+				from browser_use.llm.views import ChatInvokeUsage
+
+				raw_usage = result['usage']
+				prompt_details = raw_usage.get('prompt_tokens_details') or {}
+				usage = ChatInvokeUsage(
+					prompt_tokens=raw_usage.get('prompt_tokens', 0),
+					prompt_cached_tokens=prompt_details.get('cached_tokens'),
+					prompt_cache_creation_tokens=None,
+					prompt_image_tokens=None,
+					completion_tokens=raw_usage.get('completion_tokens', 0),
+					total_tokens=raw_usage.get('total_tokens', 0),
+				)
+			return ChatInvokeCompletion(
+				completion=message.get('content') or '',
+				tool_calls=tool_calls,
+				response_id=result.get('id'),
+				usage=usage,
+				stop_reason='tool_calls' if tool_calls else choices[0].get('finish_reason'),
+			)
+
 		# Parse response - server returns structured data as dict
 		if output_format is not None:
 			# Server returns structured data as a dict, validate it
@@ -242,7 +312,19 @@ class ChatBrowserUse(BaseChatModel):
 
 			completion = output_format.model_validate(completion_data)
 		else:
-			completion = result['completion']
+			completion = result.get('completion') or result.get('content') or ''
+
+		tool_calls = [
+			ToolCall(
+				id=tool_call['id'],
+				function=Function(
+					name=tool_call['function']['name'],
+					arguments=tool_call['function']['arguments'],
+				),
+				thought_signature=tool_call.get('thought_signature'),
+			)
+			for tool_call in result.get('tool_calls', [])
+		]
 
 		# Parse usage info
 		usage = None
@@ -251,21 +333,23 @@ class ChatBrowserUse(BaseChatModel):
 
 			usage = ChatInvokeUsage(**result['usage'])
 
-		return ChatInvokeCompletion(
-			completion=completion,
-			usage=usage,
-		)
+		if output_format is not None:
+			return ChatInvokeCompletion[T](completion=cast(T, completion), tool_calls=tool_calls, usage=usage)
+		return ChatInvokeCompletion[str](completion=cast(str, completion), tool_calls=tool_calls, usage=usage)
 
-	async def _make_request(self, payload: dict) -> dict:
+	async def _make_request(self, payload: dict, openai_compatible: bool = False) -> dict:
 		"""Make a single API request."""
 		async with httpx.AsyncClient(timeout=self.timeout) as client:
+			headers = {
+				'Authorization': f'Bearer {self.api_key}',
+				'Content-Type': 'application/json',
+			}
+			if openai_compatible:
+				headers['x-browser-use-request-type'] = 'rust_agent'
 			response = await client.post(
 				f'{self.base_url}/v1/chat/completions',
 				json=payload,
-				headers={
-					'Authorization': f'Bearer {self.api_key}',
-					'Content-Type': 'application/json',
-				},
+				headers=headers,
 			)
 			response.raise_for_status()
 			return response.json()

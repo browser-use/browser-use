@@ -555,6 +555,26 @@ class TestStructuredOutputDoneWithFiles:
 			assert len(result.attachments) == 1
 			assert result.attachments[0].endswith('report.txt')
 
+	async def test_done_attaches_nested_disk_file_with_bounded_preview(self):
+		tools = Tools()
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
+			nested = file_system.get_dir() / 'nested' / 'large.json'
+			nested.parent.mkdir()
+			nested.write_text('x' * 20_000)
+
+			result = await tools.done(
+				text='completed',
+				success=True,
+				files_to_display=['nested/large.json'],
+				file_system=file_system,
+			)
+
+			assert result.attachments == [str(nested)]
+			assert result.extracted_content is not None
+			assert len(result.extracted_content) < 2_500
+			assert 'Content truncated' in result.extracted_content
+
 	async def test_structured_output_done_auto_attaches_downloads(self, browser_session, base_url):
 		"""Session downloads are auto-attached even without files_to_display."""
 
