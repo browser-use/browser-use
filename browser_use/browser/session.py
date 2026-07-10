@@ -561,6 +561,7 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
+	_recorded_video_paths: list[str] = PrivateAttr(default_factory=list)  # Track videos recorded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
 
 	# Watchdogs
@@ -1264,6 +1265,15 @@ class BrowserSession(BaseModel):
 				self.logger.warning(f'FileDownloadedEvent has no path: {event}')
 			else:
 				self.logger.debug(f'File already tracked: {event.path}')
+
+	def _track_recorded_video(self, path: str | Path) -> None:
+		"""Track a finalized video recording path for this session."""
+		path_str = str(path)
+		if path_str not in self._recorded_video_paths:
+			self._recorded_video_paths.append(path_str)
+			self.logger.info(
+				f'📹 Tracked video recording: {path_str} ({len(self._recorded_video_paths)} total recordings in session)'
+			)
 
 	def _cloud_session_id_from_cdp_url(self) -> str | None:
 		"""Derive cloud browser session ID from a Browser Use CDP URL."""
@@ -3325,6 +3335,11 @@ class BrowserSession(BaseModel):
 			list[str]: List of absolute file paths to downloaded files in this session
 		"""
 		return self._downloaded_files.copy()
+
+	@property
+	def recorded_video_paths(self) -> list[str]:
+		"""Get list of video recordings finalized during this browser session."""
+		return self._recorded_video_paths.copy()
 
 	# endregion - ========== Helper Methods ==========
 

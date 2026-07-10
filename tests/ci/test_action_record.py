@@ -20,6 +20,7 @@ try:
 except ImportError:
 	IMAGEIO_AVAILABLE = False
 
+from browser_use import Agent, AgentHistoryList
 from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
@@ -79,6 +80,7 @@ async def test_start_stop_recording_produces_video(browser_session: BrowserSessi
 	final = await watchdog.stop_recording()
 	assert final == out_path
 	assert not watchdog.is_recording
+	assert browser_session.recorded_video_paths == [str(out_path)]
 	assert out_path.exists(), 'recording stop should leave a file on disk'
 	assert out_path.stat().st_size > 0, 'recorded video must be non-empty'
 
@@ -107,6 +109,28 @@ async def test_stop_without_start_returns_none(browser_session: BrowserSession):
 	watchdog = browser_session._recording_watchdog
 	assert watchdog is not None
 	assert await watchdog.stop_recording() is None
+
+
+async def test_failed_recording_finalize_does_not_track_path(
+	browser_session: BrowserSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+	watchdog = browser_session._recording_watchdog
+	assert watchdog is not None
+
+	out_path = tmp_path / 'missing.mp4'
+	await watchdog.start_recording(out_path)
+	assert watchdog._recorder is not None
+
+	def fake_stop_and_save() -> None:
+		if out_path.exists():
+			out_path.unlink()
+
+	monkeypatch.setattr(watchdog._recorder, 'stop_and_save', fake_stop_and_save)
+
+	final = await watchdog.stop_recording()
+
+	assert final == out_path
+	assert browser_session.recorded_video_paths == []
 
 
 async def test_on_browser_connected_degrades_gracefully_when_recording_fails(
@@ -150,3 +174,45 @@ async def test_profile_record_video_dir_still_works(page_url: str, tmp_path: Pat
 	videos = list(tmp_path.glob('*.mp4'))
 	assert videos, f'expected at least one recorded mp4 in {tmp_path}'
 	assert videos[0].stat().st_size > 0
+	assert session.recorded_video_paths == [str(videos[0])]
+
+
+async def test_agent_history_exposes_recorded_video_paths(mock_llm, tmp_path: Path):
+	session = BrowserSession(
+		browser_profile=BrowserProfile(headless=True, record_video_dir=tmp_path),
+	)
+	agent = Agent(
+		task='Finish immediately.',
+		llm=mock_llm,
+		browser_session=session,
+		use_judge=False,
+	)
+
+	history: AgentHistoryList = await agent.run(max_steps=1)
+
+	video_paths = history.recorded_video_paths()
+	assert video_paths == history.video_paths()
+	assert len(video_paths) == 1
+	assert video_paths[0].endswith('.mp4')
+	assert Path(video_paths[0]).exists()
+	assert Path(video_paths[0]).stat().st_size > 0
+
+
+def test_agent_history_recording_sync_appends_new_paths(mock_llm):
+	session = BrowserSession(
+		browser_profile=BrowserProfile(headless=True),
+	)
+	agent = Agent(
+		task='Finish immediately.',
+		llm=mock_llm,
+		browser_session=session,
+		use_judge=False,
+	)
+	session._track_recorded_video('/tmp/first.mp4')
+	agent.history.recordings = ['/tmp/first.mp4']
+	start_index = len(session.recorded_video_paths)
+
+	session._track_recorded_video('/tmp/second.mp4')
+	agent._sync_recorded_video_paths(start_index)
+
+	assert agent.history.recorded_video_paths() == ['/tmp/first.mp4', '/tmp/second.mp4']

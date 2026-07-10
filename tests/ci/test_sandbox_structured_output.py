@@ -27,6 +27,14 @@ class NestedModel(BaseModel):
 	total_count: int
 
 
+def test_agent_history_list_exposes_recorded_video_paths():
+	history = AgentHistoryList(history=[], recordings=['recordings/session.mp4'])
+
+	assert history.recorded_video_paths() == ['recordings/session.mp4']
+	assert history.video_paths() == ['recordings/session.mp4']
+	assert history.model_dump()['recordings'] == ['recordings/session.mp4']
+
+
 class TestGetStructuredOutput:
 	"""Tests for AgentHistoryList.get_structured_output method"""
 
