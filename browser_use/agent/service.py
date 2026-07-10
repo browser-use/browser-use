@@ -208,11 +208,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
 		continuous_navigation: bool = False,
+		replan_policy: Literal['scheduled', 'event_triggered'] = 'scheduled',
 		navigator_replan_interval: int = 5,
 		navigator_replan_on_stall: bool = True,
 		navigator_context_max_chars: int = 6000,
 		navigator_llm: BaseChatModel | None = None,
 		navigator_executor_subgoal: str | None = None,
+		adaptive_replan_controller: Any | None = None,
+		initial_navigator_plan: str | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -424,10 +427,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
 			continuous_navigation=continuous_navigation,
+			replan_policy=replan_policy,
 			navigator_replan_interval=navigator_replan_interval,
 			navigator_replan_on_stall=navigator_replan_on_stall,
 			navigator_context_max_chars=navigator_context_max_chars,
 		)
+
+		self.adaptive_replan_controller = adaptive_replan_controller
+		self.initial_navigator_plan = initial_navigator_plan
+		self._pending_adaptive_trigger: tuple[Any, str] | None = None
 
 		# Navigator LLM (optional second head): only wired when continuous_navigation is enabled
 		if self.settings.continuous_navigation:
@@ -1437,6 +1445,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Save file system state after step completion
 		self.save_file_system_state()
 
+		if self.adaptive_replan_controller is not None and browser_state_summary:
+			dom_snippet = ''
+			if browser_state_summary.dom_state:
+				try:
+					dom_snippet = browser_state_summary.dom_state.llm_representation()[:4000]
+				except Exception:
+					dom_snippet = ''
+			self.adaptive_replan_controller.observe_completed_step(
+				step=self.state.n_steps,
+				model_output=self.state.last_model_output,
+				results=self.state.last_result,
+				url=browser_state_summary.url,
+				page_title=browser_state_summary.title,
+				dom_snippet=dom_snippet,
+				state_message=self._message_manager.last_state_message_text,
+				pending_network_count=len(browser_state_summary.pending_network_requests or []),
+				browser_errors=list(browser_state_summary.browser_errors or []),
+			)
+
 		# Emit both step created and executed events
 		if browser_state_summary and self.state.last_model_output:
 			# Extract key step data for the event
@@ -1589,6 +1616,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not self.settings.continuous_navigation or self.navigator_llm is None:
 			return False, 'disabled'
 
+		ctrl = self.adaptive_replan_controller
+		if ctrl is not None and self.settings.replan_policy == 'event_triggered':
+			agent_done = self.history.is_done()
+			should, trigger_type, reason = ctrl.evaluate_before_step(current_step=self.state.n_steps, agent_done=agent_done)
+			if should and trigger_type is not None:
+				self._pending_adaptive_trigger = (trigger_type, reason)
+				return True, f'{trigger_type.value}:{reason}'
+			self._pending_adaptive_trigger = None
+			return False, 'no_trigger'
+
 		last = self.state.last_navigator_replan_at_step
 		n = self.state.n_steps
 		interval = self.settings.navigator_replan_interval
@@ -1681,18 +1718,46 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.navigator_llm is not None
 
 		budget = max(1500, self.settings.navigator_context_max_chars)
-		observation = self._build_navigator_observation_text(browser_state_summary, budget)
+		ctrl = self.adaptive_replan_controller
+		is_adaptive = ctrl is not None and self.settings.replan_policy == 'event_triggered'
 
-		system_text = (
-			'You are a navigator for a browser automation agent (not the executor).\n'
-			'You never claim you clicked or typed; you only suggest strategy.\n'
-			'Begin your reply with this exact XML wrapper (1–3 short lines inside, plain text only):\n'
-			'<current_step_focus>\n'
-			'... lines here: the single next sub-goal for the executor ...\n'
-			'</current_step_focus>\n'
-			'After that block, add concise tactical notes (bullets ok, max ~120 words total including the focus).\n'
-			'Base your answer only on the task and the observation text provided.'
-		)
+		if is_adaptive:
+			assert self._pending_adaptive_trigger is not None
+			trigger_type, trigger_reason = self._pending_adaptive_trigger
+			dom_snippet = ''
+			if browser_state_summary.dom_state:
+				try:
+					raw = browser_state_summary.dom_state.llm_representation()
+					dom_snippet = raw[: min(budget // 3, 3000)]
+				except Exception:
+					dom_snippet = ''
+			observation = ctrl.build_trigger_observation(
+				original_task=self.task,
+				current_url=browser_state_summary.url or '',
+				page_heading=browser_state_summary.title or '',
+				dom_snippet=dom_snippet,
+				recent_actions_block=self._build_navigator_recent_history_text(min(budget // 3, 2000)),
+				trigger_type=trigger_type,
+				trigger_reason=trigger_reason,
+			)
+			system_text = (
+				'You are a navigator for a browser automation agent (not the executor).\n'
+				'You never claim you clicked or typed; you only suggest strategy.\n'
+				'Begin your reply with <current_step_focus>...</current_step_focus> then recovery notes.\n'
+				'Do not emit browser-use action JSON.'
+			)
+		else:
+			observation = self._build_navigator_observation_text(browser_state_summary, budget)
+			system_text = (
+				'You are a navigator for a browser automation agent (not the executor).\n'
+				'You never claim you clicked or typed; you only suggest strategy.\n'
+				'Begin your reply with this exact XML wrapper (1–3 short lines inside, plain text only):\n'
+				'<current_step_focus>\n'
+				'... lines here: the single next sub-goal for the executor ...\n'
+				'</current_step_focus>\n'
+				'After that block, add concise tactical notes (bullets ok, max ~120 words total including the focus).\n'
+				'Base your answer only on the task and the observation text provided.'
+			)
 		messages: list[BaseMessage] = [
 			SystemMessage(content=system_text),
 			UserMessage(content=observation),
@@ -1724,6 +1789,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.info(f'🧭 Navigator update injected ({reason}, model={self.navigator_llm.model})')
 		self._message_manager._add_context_message(UserMessage(content=msg))
 		self.state.last_navigator_replan_at_step = self.state.n_steps
+		if is_adaptive and ctrl is not None and self._pending_adaptive_trigger is not None:
+			trigger_type, trigger_reason = self._pending_adaptive_trigger
+			ctrl.record_replan(step=self.state.n_steps, trigger_type=trigger_type, trigger_reason=trigger_reason)
+			self._pending_adaptive_trigger = None
 
 	async def _inject_budget_warning(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Inject a prominent budget warning when the agent has used >= 75% of its step budget.

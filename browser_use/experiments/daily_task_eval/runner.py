@@ -3,18 +3,256 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import csv
+import hashlib
 import json
 import logging
+import re
 import statistics
+import subprocess
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
 	from browser_use import Agent
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_FROZEN_VIEWPORT: dict[str, int] = {'width': 1280, 'height': 720}
+
+_ENV_BLOCKED_KEYWORDS: tuple[str, ...] = (
+	'captcha',
+	'登录',
+	'login required',
+	'access denied',
+	'network',
+	'timeout',
+	'blocked',
+	'库存不足',
+	'out of stock',
+)
+
+
+def _contains_any(text: str, tokens: tuple[str, ...] | list[str]) -> bool:
+	low = text.lower()
+	return any(token.lower() in low for token in tokens)
+
+
+def _extract_domain(url: str) -> str | None:
+	try:
+		host = (urlparse(url).hostname or '').strip().lower()
+	except Exception:
+		return None
+	return host or None
+
+
+def _final_domain_from_urls(urls: list[str]) -> str | None:
+	for raw in reversed(urls):
+		host = _extract_domain(raw)
+		if host:
+			return host
+	return None
+
+
+def _domain_matches(host: str | None, expected: str | None) -> bool:
+	if not host or not expected:
+		return False
+	e = expected.lower().lstrip('*.')
+	return host == e or host.endswith(f'.{e}')
+
+
+_HOSPITAL_NAME_RE = re.compile(
+	r'(?:\*\*)?(?:Facility\s+)?Name(?:\*\*)?\s*[:：]\s*([^\n]+)'
+	r'|(?:\*\*)?名称(?:\*\*)?\s*[:：]\s*([^\n]+)'
+	r'|^\s*\d+\.\s*\*\*([^*\n]+)\*\*\s*$',  # bold-only name line (e.g. "1. **深圳坂田医院**")
+	re.IGNORECASE | re.MULTILINE,
+)
+_HOSPITAL_BOLD_NAME_FALLBACK_RE = re.compile(
+	r'\*\*([^*\n]{2,})\*\*',  # any bold text ≥2 chars — used when primary name pattern fails
+	re.IGNORECASE,
+)
+_HOSPITAL_PHONE_RE = re.compile(
+	r'(?:\*\*)?(?:Phone(?:\s*(?:Number|号码))?|联系电话)(?:\*\*)?\s*[:：]\s*([0-9][0-9\-\+\s/／]{5,})',
+	re.IGNORECASE,
+)
+_HOSPITAL_ADDRESS_RE = re.compile(
+	r'(?:\*\*)?(?:Address|地址)(?:\*\*)?\s*[:：]\s*([^\n]+)',
+	re.IGNORECASE,
+)
+_HOSPITAL_NOT_VISIBLE_RE = re.compile(r'not\s+visible|不可见|未显示|暂无', re.IGNORECASE)
+
+
+def _hospital_field_match(pattern: re.Pattern[str], block: str) -> str:
+	match = pattern.search(block)
+	if not match:
+		return ''
+	value = next((g.strip() for g in match.groups() if g), '')
+	value = re.sub(r'\*+', '', value).strip()
+	if _HOSPITAL_NOT_VISIBLE_RE.search(value):
+		return ''
+	return value
+
+
+def _split_hospital_blocks(text: str) -> list[str]:
+	numbered = [
+		part.strip()
+		for part in re.split(r'(?=^\s*\d+\.\s)', text, flags=re.MULTILINE)
+		if part.strip() and re.match(r'^\s*\d+\.', part)
+	]
+	if len(numbered) >= 2:
+		return numbered
+	return [b.strip() for b in re.split(r'\n\s*\n', text) if b.strip()]
+
+
+def _collect_hospital_entries(text: str) -> list[dict[str, str]]:
+	out: list[dict[str, str]] = []
+	for block in _split_hospital_blocks(text):
+		name = _hospital_field_match(_HOSPITAL_NAME_RE, block)
+		# Fallback: if label-based patterns didn't match, try bold text in the first line
+		if not name:
+			m = _HOSPITAL_BOLD_NAME_FALLBACK_RE.search(block)
+			if m:
+				raw = m.group(1).strip()
+				# Avoid capturing non-name bold fragments (e.g. "Phone number", "Address")
+				if raw and not _HOSPITAL_NOT_VISIBLE_RE.search(raw):
+					if not re.search(r'(?:Phone|电话|Address|地址|URL|来源|Opening|营业|Distance|距离)', raw, re.IGNORECASE):
+						name = raw
+		phone = _hospital_field_match(_HOSPITAL_PHONE_RE, block)
+		address = _hospital_field_match(_HOSPITAL_ADDRESS_RE, block)
+		url_m = re.search(r'https?://[^\s\)]+', block, re.IGNORECASE)
+		if name or phone or address:
+			out.append(
+				{
+					'name': name,
+					'phone': phone.split('/')[0].strip() if phone else '',
+					'address': address,
+					'url': (url_m.group(0).strip() if url_m else ''),
+				}
+			)
+	return out
+
+
+def _github_first_comment_evidence_captured(text: str) -> bool:
+	"""Detect first-comment evidence beyond brittle exact keyword matches."""
+
+	low = text.lower()
+	if _contains_any(low, ('first comment', '评论', 'snippet')):
+		return True
+	if re.search(r'first\s+comment[/\s-]*(?:activity\s+)?thread', low):
+		return True
+	if re.search(r'#\d+', text) and re.search(r'(?:comment|activity)\s*thread', low):
+		return True
+	if re.search(r'#\d+', text) and re.search(r'comments?[/\s-]*activity\s+section', low):
+		if re.search(r'label\s+addition|commits?\s+referenc|related\s+commits?', low):
+			return True
+	if re.search(r'#\d+', text) and re.search(
+		r'(?:added|commented|wrote|said|posted|referenc).{0,120}'
+		r'(?:label|commit|issue|comment|thread|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',
+		low,
+	):
+		return True
+	return False
+
+
+def _canonical_facility_name(name: str) -> str:
+	out = name.strip().lower()
+	for token in ('门诊部', '院区', '医院-', '医院（', '医院(', ')', '（', '）'):
+		out = out.replace(token, '')
+	return re.sub(r'\s+', '', out)
+
+
+_HF_CHINESE_LANGUAGE_URL_RE = re.compile(r'[?&]language=(?:zho|zh)(?:[,;&]|$)|[?&]language=(?:zho|zh),(?:zho|zh)')
+
+
+def _hf_chinese_language_active_in_urls(urls: list[str]) -> bool:
+	blob = ' '.join(urls).lower()
+	return bool(_HF_CHINESE_LANGUAGE_URL_RE.search(blob))
+
+
+def _hf_filter_state_from_evidence(urls: list[str], text: str) -> dict[str, bool]:
+	url_blob = ' '.join(urls).lower()
+	text_low = text.lower()
+	return {
+		'text_generation': 'pipeline_tag=text-generation' in url_blob
+		or _contains_any(text_low, ('text generation', 'text-generation', 'pipeline_tag=text-generation')),
+		'pytorch': 'library=pytorch' in url_blob or _contains_any(text_low, ('pytorch', 'library=pytorch')),
+		'chinese': _hf_chinese_language_active_in_urls(urls)
+		or _contains_any(text_low, ('chinese', 'language=zh', 'language=zho', 'language: chinese', '中文')),
+		'sort_downloads': 'sort=downloads' in url_blob
+		or _contains_any(text_low, ('most downloads', 'sort=downloads', 'downloads (highest')),
+	}
+
+
+def build_huggingface_executor_subgoal_from_url(url: str) -> str | None:
+	"""Inject a short per-step sub-goal when HF SPA filter state is visible in the URL.
+
+	The executor LLM often mis-reads the Languages panel DOM even when ``language=zh`` is
+	already present; URL params are authoritative for filter activation in this task.
+	"""
+
+	low = url.lower()
+	if 'huggingface.co/' in low and 'huggingface.co/models' not in low:
+		return (
+			'You are already on a Hugging Face model detail page. Do NOT navigate back to '
+			'huggingface.co/models and do NOT re-apply filters. The filtered top result has '
+			'already been opened. Stay on this model page and locate the Base model field on '
+			'the Model Card. Search/scroll the current page for "Base model"; if it remains '
+			'absent after checking visible metadata and README/Model Card sections, report '
+			'exactly "verified not visible".'
+		)
+	if 'huggingface.co/models' not in low:
+		return None
+
+	filters = _hf_filter_state_from_evidence([url], '')
+	lines: list[str] = []
+	if filters['chinese']:
+		lines.append(
+			'Chinese filter is ACTIVE (current URL contains language=zh or language=zho). '
+			'Do NOT click Chinese again — re-clicking toggles the filter OFF. '
+			'English/multilingual cards in the list are expected and do NOT mean Chinese failed.'
+		)
+	if filters['text_generation'] and filters['pytorch'] and filters['chinese']:
+		lines.append('Text Generation + PyTorch + Chinese are all confirmed via URL query parameters.')
+		if filters['sort_downloads']:
+			lines.append(
+				'Filters and Most Downloads sort are confirmed. Open the first model in the list, '
+				'then locate Base model on the Model Card (or report verified not visible).'
+			)
+		else:
+			lines.append(
+				'Next sub-goal ONLY: set sort to Most Downloads (URL should show sort=downloads). '
+				'Do not re-click Text Generation, PyTorch, or Chinese.'
+			)
+	elif filters['text_generation'] or filters['pytorch']:
+		missing: list[str] = []
+		if not filters['text_generation']:
+			missing.append('Text Generation (pipeline_tag=text-generation)')
+		if not filters['pytorch']:
+			missing.append('PyTorch (library=pytorch)')
+		if not filters['chinese']:
+			missing.append('Chinese (language=zh or language=zho)')
+		lines.append(f'Filters still missing in URL: {", ".join(missing)}.')
+	return '\n'.join(lines) if lines else None
+
+
+async def _inject_huggingface_filter_subgoal(agent: 'Agent') -> None:
+	try:
+		url = await agent.browser_session.get_current_page_url()
+	except Exception:
+		return
+	subgoal = build_huggingface_executor_subgoal_from_url(url)
+	if subgoal:
+		agent.state.navigator_executor_subgoal = subgoal[:2000]
+		low = url.lower()
+		if 'huggingface.co/' in low and 'huggingface.co/models' not in low:
+			# Once the filtered top result is open, periodic navigator replans can become stale
+			# and drag the executor back to the list page. Keep the detail-page subgoal stable.
+			agent.settings.continuous_navigation = False
+			agent.navigator_llm = None
+	else:
+		agent.state.navigator_executor_subgoal = None
 
 
 async def _emit_heartbeat(
@@ -83,7 +321,6 @@ from .executor import (
 	default_use_vision_for_executor,
 )
 from .models import (
-	academic_efficiency_from_agent_run,
 	AgentRunResourceSnapshot,
 	AgentRunSummary,
 	ComparisonRecord,
@@ -95,11 +332,11 @@ from .models import (
 	TaskCard,
 	TaskCategory,
 	TaskScenarioResourceGroup,
+	academic_efficiency_from_agent_run,
 	load_json_model_list,
 	utc_now,
 	write_json,
 )
-from .run_csv import append_agent_run_csv_row, load_agent_summaries_from_csv_dir
 from .navigator import (
 	LLMNavigator,
 	NavigatorConfig,
@@ -108,6 +345,9 @@ from .navigator import (
 	build_navigator_chat_model,
 )
 from .prompts import build_agent_task_prompt
+from .run_csv import append_agent_run_csv_row, load_agent_summaries_from_csv_dir
+from .reference_comparison import compare_agent_to_human_references
+from .task_registry import get_archived_tasks, get_main_tasks, get_stress_tasks
 
 
 def default_task_cards() -> list[TaskCard]:
@@ -239,7 +479,22 @@ def default_task_cards() -> list[TaskCard]:
 	]
 
 
-def init_experiment(output_dir: Path, overwrite: bool = False) -> dict[str, Path]:
+def _default_benchmark_task_cards() -> list[TaskCard]:
+	"""Primary benchmark task cards loaded from fixture when available."""
+
+	fixture_path = Path(__file__).resolve().parents[3] / 'examples' / 'evaluation' / 'fixtures' / 'task_cards.json'
+	if fixture_path.exists():
+		return load_json_model_list(fixture_path, TaskCard)
+	return default_task_cards()
+
+
+def init_experiment(
+	output_dir: Path,
+	overwrite: bool = False,
+	*,
+	include_stress: bool = False,
+	include_archived: bool = False,
+) -> dict[str, Path]:
 	output_dir.mkdir(parents=True, exist_ok=True)
 	csv_out = output_dir / 'csv_out'
 	csv_out.mkdir(parents=True, exist_ok=True)
@@ -252,13 +507,20 @@ def init_experiment(output_dir: Path, overwrite: bool = False) -> dict[str, Path
 	}
 	tc_path = paths['task_cards']
 
+	def _select_default_init_tasks(all_cards: list[TaskCard]) -> list[TaskCard]:
+		main_ids = set(get_main_tasks())
+		stress_ids = set(get_stress_tasks()) if include_stress else set()
+		archived_ids = set(get_archived_tasks()) if include_archived else set()
+		allowed = main_ids | stress_ids | archived_ids
+		return [task for task in all_cards if task.id in allowed]
+
 	if overwrite:
-		task_cards = default_task_cards()
+		task_cards = _select_default_init_tasks(_default_benchmark_task_cards())
 		write_json(tc_path, [task.model_dump(mode='json') for task in task_cards], overwrite=True)
 	elif tc_path.exists():
 		task_cards = load_json_model_list(tc_path, TaskCard)
 	else:
-		task_cards = default_task_cards()
+		task_cards = _select_default_init_tasks(_default_benchmark_task_cards())
 		write_json(tc_path, [task.model_dump(mode='json') for task in task_cards], overwrite=True)
 
 	human_path = paths['human_runs']
@@ -266,8 +528,13 @@ def init_experiment(output_dir: Path, overwrite: bool = False) -> dict[str, Path
 		human_runs = [
 			HumanRunRecord(
 				task_id=task.id,
+				task_card_hash=_stable_sha256(task.model_dump(mode='json')),
 				scenario_id='normal',
-				steps=['Replace this with the exact manual steps you took.'],
+				success_status='blocked',
+				run_status='not_started',
+				outcome_label=None,
+				reference_eligible=False,
+				steps=[],
 				notes='Fill this after the human baseline run.',
 			).model_dump(mode='json')
 			for task in task_cards
@@ -276,6 +543,11 @@ def init_experiment(output_dir: Path, overwrite: bool = False) -> dict[str, Path
 
 	write_json(paths['agent_runs'], [], overwrite=overwrite)
 	write_json(paths['comparisons'], [], overwrite=overwrite)
+	print(
+		'[daily-task-eval] initialized default task tiers: '
+		f'main={len(get_main_tasks())}, stress={len(get_stress_tasks())}, archived={len(get_archived_tasks())}; '
+		f'created {len(task_cards)} task cards (main by default; add --include-stress/--include-archived to opt in).'
+	)
 	return paths
 
 
@@ -466,6 +738,201 @@ def _llm_usage_for_agent_run_summary(
 	return out
 
 
+def _stable_sha256(payload: dict[str, Any] | list[Any] | str) -> str:
+	if isinstance(payload, str):
+		raw = payload
+	else:
+		raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+	return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def _resolve_git_commit_hash() -> str | None:
+	try:
+		proc = subprocess.run(
+			['git', 'rev-parse', 'HEAD'],
+			check=True,
+			capture_output=True,
+			text=True,
+			timeout=5,
+		)
+	except Exception:
+		return None
+	commit = proc.stdout.strip()
+	return commit or None
+
+
+def _adjudicate_agent_summary(task: TaskCard, summary: AgentRunSummary) -> AgentRunSummary:
+	text = (summary.final_result or '').strip()
+	criteria_checks: list[dict[str, Any]] = []
+	final_evidence: list[str] = [text] if text else []
+	final_domain = _final_domain_from_urls(summary.urls)
+	primary_site_flow = task.primary_site_flow
+	expected_domain = task.expected_primary_domain
+	cross_site_fallback = bool(expected_domain and final_domain and not _domain_matches(final_domain, expected_domain))
+	trajectory_comparable: str | None = 'high'
+	adjudicated = 'failure'
+	reason = 'strict criteria not met'
+
+	if task.id == 'shopping_price_compare':
+		frozen_query = str(task.frozen_task_parameters.get('product_query', '')).strip()
+		has_three_items = len(re.findall(r'^\s*\d+\.', text, re.MULTILINE)) >= 3 or text.count('####') >= 3
+		has_price = _contains_any(text, ('$', '￥', 'JPY', 'USD', '价格', 'price'))
+		has_url = 'http://' in text.lower() or 'https://' in text.lower() or 'amazon.' in text.lower()
+		query_met = True if not frozen_query else (frozen_query in text)
+		criteria_checks.extend(
+			[
+				{'criterion': 'at least 3 comparable options', 'met': has_three_items, 'evidence': 'counted product rows'},
+				{'criterion': 'price + source URL present', 'met': has_price and has_url, 'evidence': 'parsed final result text'},
+				{
+					'criterion': f"query must match frozen target '{frozen_query}'",
+					'met': query_met,
+					'evidence': f'query_match={query_met}',
+				},
+			]
+		)
+		if not query_met:
+			trajectory_comparable = 'low'
+			adjudicated = 'failure'
+			reason = 'off-task product query; non-comparable to frozen human target'
+		elif all(check['met'] for check in criteria_checks):
+			adjudicated = 'success'
+			reason = 'all shopping hard criteria satisfied'
+		elif has_three_items:
+			adjudicated = 'partial_success'
+			reason = 'major workflow completed but at least one hard criterion failed'
+	elif task.id == 'nearby_hospital_phone_lookup':
+		entries = _collect_hospital_entries(text)
+		distinct_names = {_canonical_facility_name(e.get('name', '')) for e in entries if e.get('name')}
+		all_have_required = all(e.get('name') and e.get('phone') and e.get('address') for e in entries) and bool(entries)
+		per_entry_urls = [e.get('url', '') for e in entries if e.get('url')]
+		source_granularity = 'search_result_only' if len(set(per_entry_urls)) <= 1 else 'detail_pages'
+		criteria_checks.extend(
+			[
+				{
+					'criterion': 'must return 3 distinct facilities',
+					'met': len(distinct_names) >= 3,
+					'evidence': f'distinct_facilities={len(distinct_names)}',
+				},
+				{
+					'criterion': 'each facility has name/phone/address',
+					'met': all_have_required and len(entries) >= 3,
+					'evidence': f'entries={len(entries)}',
+				},
+				{
+					'criterion': 'source granularity recorded',
+					'met': True,
+					'evidence': source_granularity,
+				},
+			]
+		)
+		final_evidence.append(f'source_granularity={source_granularity}')
+		if all(check['met'] for check in criteria_checks):
+			adjudicated = 'success'
+			reason = 'three distinct facilities with complete fields'
+		elif entries:
+			adjudicated = 'partial_success'
+			reason = 'hospital workflow completed but strict distinct-facility criteria failed'
+		else:
+			adjudicated = 'failure'
+			reason = 'no usable facility records extracted'
+	elif task.id == 'huggingface_model_constrained_selection':
+		hf_filters = _hf_filter_state_from_evidence(summary.urls, text)
+		chinese_url_active = _hf_chinese_language_active_in_urls(summary.urls)
+		not_visible = _contains_any(text, ('not visible', '不可见', '未找到'))
+		verified_scope = _contains_any(text, ('model card', 'readme', 'metadata', '元数据'))
+		visible_value = bool(re.search(r'base model\s*[:：]\s*([^\n]+)', text, re.IGNORECASE))
+		field_visibility = 'visible' if visible_value else 'verified_not_visible' if not_visible else None
+		filters_met = hf_filters['text_generation'] and hf_filters['pytorch'] and hf_filters['chinese']
+		filter_evidence = (
+			f'chinese_url_active={chinese_url_active},'
+			f"url_filters=text_gen:{hf_filters['text_generation']},"
+			f"pytorch:{hf_filters['pytorch']},chinese:{hf_filters['chinese']},"
+			f"sort_downloads:{hf_filters['sort_downloads']}"
+		)
+		final_evidence.append(filter_evidence)
+		criteria_checks.extend(
+			[
+				{
+					'criterion': 'Chinese filter active via URL language=zh/zho or chip',
+					'met': hf_filters['chinese'],
+					'evidence': filter_evidence,
+				},
+				{
+					'criterion': 'Text Generation + PyTorch + Chinese filters active',
+					'met': filters_met,
+					'evidence': filter_evidence,
+				},
+				{
+					'criterion': 'sorted by Most Downloads',
+					'met': hf_filters['sort_downloads'],
+					'evidence': filter_evidence,
+				},
+				{
+					'criterion': 'base model visibility adjudicated',
+					'met': bool(visible_value or (not_visible and verified_scope)),
+					'field_visibility': field_visibility,
+					'evidence': 'visible value or verified not visible with model card/readme checks',
+				},
+			]
+		)
+		if all(check['met'] for check in criteria_checks):
+			adjudicated = 'success'
+			reason = 'base model criterion satisfied (visible or verified_not_visible)'
+		else:
+			adjudicated = 'partial_success' if summary.is_done else 'failure'
+			reason = 'workflow done but base-model rubric not fully satisfied'
+	elif task.id == 'github_clean_issue_audit':
+		has_issue = bool(re.search(r'#\d+', text))
+		has_comment = _github_first_comment_evidence_captured(text)
+		has_oldest = _contains_any(text, ('oldest', '最老'))
+		criteria_checks.extend(
+			[
+				{'criterion': 'oldest open bug issue identified', 'met': has_issue and has_oldest, 'evidence': 'issue id + oldest marker'},
+				{'criterion': 'first comment evidence captured', 'met': has_comment, 'evidence': 'comment snippet in final answer'},
+			]
+		)
+		if all(check['met'] for check in criteria_checks):
+			adjudicated = 'success'
+			reason = 'content criteria satisfied despite recoverable format/tool errors'
+		elif has_issue:
+			adjudicated = 'partial_success'
+			reason = 'identified candidate issue but evidence incomplete'
+	else:
+		adjudicated = 'success' if summary.is_done and text else 'failure'
+		criteria_checks.append({'criterion': 'non-empty final result', 'met': bool(text), 'evidence': 'generic fallback'})
+
+	if trajectory_comparable != 'low' and cross_site_fallback:
+		trajectory_comparable = 'partial'
+	if trajectory_comparable != 'low' and expected_domain and not _domain_matches(final_domain, expected_domain):
+		trajectory_comparable = 'low'
+
+	if adjudicated == 'failure' and _contains_any(f'{text} {" ".join(summary.errors)}', _ENV_BLOCKED_KEYWORDS):
+		adjudicated = 'environment_blocked'
+		reason = 'environment blocker detected from errors/evidence'
+
+	strict_success = adjudicated == 'success' and all(bool(item.get('met')) for item in criteria_checks)
+	return summary.model_copy(
+		update={
+			'agent_declared_success': summary.success,
+			'adjudicated_outcome_label': adjudicated,
+			'strict_success': strict_success,
+			'criteria_checks': criteria_checks,
+			'final_evidence': final_evidence,
+			'adjudication_reason': reason,
+			'final_domain': final_domain,
+			'primary_site_flow': primary_site_flow,
+			'cross_site_fallback': cross_site_fallback,
+			'trajectory_comparable': trajectory_comparable,
+		}
+	)
+
+
+def adjudicate_agent_summary(task: TaskCard, summary: AgentRunSummary) -> AgentRunSummary:
+	"""Public wrapper so audit tooling can re-adjudicate historical runs consistently."""
+
+	return _adjudicate_agent_summary(task, summary)
+
+
 def summarize_history(
 	history: Any,
 	task_id: str,
@@ -486,6 +953,25 @@ def summarize_history(
 	agent: Any | None = None,
 	navigator: NavigatorPlanProvider | None = None,
 	continuous_navigation: bool = False,
+	batch_id: str | None = None,
+	executor_temperature: float | None = None,
+	executor_use_vision: bool | str | None = None,
+	navigator_temperature: float | None = None,
+	max_steps: int | None = None,
+	max_failures: int | None = None,
+	llm_timeout: int | None = None,
+	step_timeout: int | None = None,
+	max_actions_per_step: int | None = None,
+	heartbeat_seconds: int | None = None,
+	headless: bool | None = None,
+	browser_profile_mode: str | None = None,
+	browser_viewport: dict[str, int] | None = None,
+	browser_locale: str | None = None,
+	browser_timezone: str | None = None,
+	task_card_hash: str | None = None,
+	git_commit_hash: str | None = None,
+	prompt_hash: str | None = None,
+	run_manifest: dict[str, Any] | None = None,
 ) -> AgentRunSummary:
 	errors = [error for error in history.errors() if error]
 	urls = [url for url in history.urls() if url]
@@ -497,6 +983,7 @@ def summarize_history(
 		scenario_id=scenario_id,
 		task_category=task_category,
 		experiment_id=experiment_id,
+		batch_id=batch_id,
 		executor_backend=executor_backend,
 		executor_model=executor_model,
 		navigator_backend=navigator_backend,
@@ -504,6 +991,24 @@ def summarize_history(
 		navigator_model=navigator_model,
 		navigator_plan_path=str(navigator_plan_path) if navigator_plan_path else None,
 		continuous_navigation=continuous_navigation,
+		executor_temperature=executor_temperature,
+		executor_use_vision=executor_use_vision,
+		navigator_temperature=navigator_temperature,
+		max_steps=max_steps,
+		max_failures=max_failures,
+		llm_timeout=llm_timeout,
+		step_timeout=step_timeout,
+		max_actions_per_step=max_actions_per_step,
+		heartbeat_seconds=heartbeat_seconds,
+		headless=headless,
+		browser_profile_mode=browser_profile_mode,
+		browser_viewport=browser_viewport,
+		browser_locale=browser_locale,
+		browser_timezone=browser_timezone,
+		task_card_hash=task_card_hash,
+		git_commit_hash=git_commit_hash,
+		prompt_hash=prompt_hash,
+		run_manifest=run_manifest,
 		started_at=started_at,
 		finished_at=finished_at,
 		success=history.is_successful(),
@@ -534,20 +1039,27 @@ async def run_agent_task(
 	task: TaskCard,
 	output_dir: Path,
 	scenario_id: str = 'normal',
-	max_steps: int = 30,
+	max_steps: int = 35,
 	headless: bool = False,
 	navigator: NavigatorPlanProvider | None = None,
 	navigator_config: NavigatorConfig | None = None,
 	executor_config: ExecutorConfig | None = None,
 	experiment_id: str | None = None,
-	llm_timeout: int = 180,
+	llm_timeout: int = 120,
 	max_actions_per_step: int | None = None,
-	step_timeout: int | None = None,
+	step_timeout: int | None = 150,
 	heartbeat_seconds: int = 30,
 	max_failures: int = 3,
 	continuous_navigation: bool = False,
+	navigator_replan_interval: int = 5,
+	replan_policy: str = 'scheduled',
+	adaptive_replan_settings: Any | None = None,
+	batch_id: str | None = None,
+	git_commit_hash: str | None = None,
+	run_manifest_extra: dict[str, Any] | None = None,
 	human: HumanRunRecord | None = None,
 	csv_dir: Path | None = None,
+	human_runs: list[HumanRunRecord] | None = None,
 ) -> AgentRunSummary:
 	"""Run the Browser Use Agent for one task.
 
@@ -557,13 +1069,13 @@ async def run_agent_task(
 
 	The executor LLM is built from `executor_config` (defaults to ChatBrowserUse / bu-latest).
 
-	`llm_timeout`: seconds per LLM call (default 180; Agent auto-default is often 75 for OpenAI-compatible models).
+	`llm_timeout`: seconds per LLM call (default 120; fixed for reproducible C/D batches).
 
 	`max_actions_per_step`: cap on actions emitted per Agent step. None → backend default
 	(`1` for OpenAI-compatible / Qwen to dodge malformed multi-action JSON; `3` for ChatBrowserUse).
 
-	`step_timeout`: per-step total timeout (seconds) including LLM + browser + DOM. None keeps
-	upstream default (180s). Lower it (e.g. 60) when diagnosing where a step hangs — the next
+	`step_timeout`: per-step total timeout (seconds) including LLM + browser + DOM. Default 150s.
+	Lower it (e.g. 60) when diagnosing where a step hangs — the next
 	`Step N timed out after Ns` message will fire faster, with surrounding debug logs.
 
 	`heartbeat_seconds`: emit an `[eval-runner]` heartbeat line every N seconds while the Agent
@@ -616,8 +1128,19 @@ async def run_agent_task(
 
 			initial_subgoal, _ = extract_navigator_step_focus(navigator_plan)
 
+	prompt_text = build_agent_task_prompt(task, scenario_id=scenario_id, navigator_plan=navigator_plan)
+	prompt_hash = _stable_sha256(prompt_text)
+	task_card_hash = _stable_sha256(task.model_dump(mode='json'))
+	resolved_git_commit = git_commit_hash or _resolve_git_commit_hash()
+	resolved_browser_profile_mode = 'ephemeral_incognito'
+	resolved_browser_viewport = dict(DEFAULT_FROZEN_VIEWPORT)
+	resolved_browser_locale: str | None = None
+	resolved_browser_timezone: str | None = None
+
 	browser = Browser(
 		headless=headless,
+		user_data_dir=None,
+		viewport=resolved_browser_viewport,
 		downloads_path=str(downloads_dir),
 		traces_dir=str(traces_dir),
 	)
@@ -627,8 +1150,44 @@ async def run_agent_task(
 	resolved_max_actions = (
 		max_actions_per_step if max_actions_per_step is not None else default_max_actions_per_step_for_executor(ex_cfg)
 	)
+	resolved_step_timeout = step_timeout
+	run_manifest: dict[str, Any] = {
+		'batch_id': batch_id,
+		'task_id': task.id,
+		'scenario_id': scenario_id,
+		'experiment_id': experiment_id,
+		'task_card_hash': task_card_hash,
+		'git_commit_hash': resolved_git_commit,
+		'executor_model': ex_cfg.model,
+		'executor_temperature': ex_cfg.temperature,
+		'executor_use_vision': use_vision,
+		'navigator_enabled': bool(nav_cfg.enabled),
+		'navigator_model': nav_cfg.model if nav_cfg.enabled else None,
+		'navigator_temperature': nav_cfg.temperature if nav_cfg.enabled else None,
+		'continuous_navigation': continuous_navigation,
+		'navigator_replan_interval': navigator_replan_interval,
+		'replan_policy': replan_policy,
+		'adaptive_replan_settings': adaptive_replan_settings.model_dump(mode='json')
+		if adaptive_replan_settings is not None and hasattr(adaptive_replan_settings, 'model_dump')
+		else adaptive_replan_settings,
+		'max_steps': max_steps,
+		'max_failures': max_failures,
+		'llm_timeout': llm_timeout,
+		'step_timeout': resolved_step_timeout,
+		'max_actions_per_step': resolved_max_actions,
+		'headless': headless,
+		'heartbeat_seconds': heartbeat_seconds,
+		'browser_profile_mode': resolved_browser_profile_mode,
+		'browser_viewport': resolved_browser_viewport,
+		'browser_locale': resolved_browser_locale,
+		'browser_timezone': resolved_browser_timezone,
+		'prompt_hash': prompt_hash,
+		'started_at_utc': started_at,
+	}
+	if run_manifest_extra:
+		run_manifest.update(run_manifest_extra)
 	agent_kwargs: dict[str, Any] = dict(
-		task=build_agent_task_prompt(task, scenario_id=scenario_id, navigator_plan=navigator_plan),
+		task=prompt_text,
 		llm=llm,
 		browser=browser,
 		save_conversation_path=conversation_path,
@@ -637,11 +1196,26 @@ async def run_agent_task(
 		llm_timeout=llm_timeout,
 		max_actions_per_step=resolved_max_actions,
 	)
-	if step_timeout is not None:
-		agent_kwargs['step_timeout'] = step_timeout
+	if resolved_step_timeout is not None:
+		agent_kwargs['step_timeout'] = resolved_step_timeout
 	if continuous_navigation:
 		agent_kwargs['continuous_navigation'] = True
 		agent_kwargs['navigator_llm'] = build_navigator_chat_model(nav_cfg)
+		agent_kwargs['replan_policy'] = replan_policy
+		if replan_policy == 'scheduled':
+			agent_kwargs['navigator_replan_interval'] = navigator_replan_interval
+		else:
+			agent_kwargs['navigator_replan_on_stall'] = False
+		if replan_policy == 'event_triggered' and adaptive_replan_settings is not None:
+			from .adaptive_replan import AdaptiveReplanController
+
+			controller = AdaptiveReplanController(
+				task_id=task.id,
+				initial_plan=navigator_plan,
+				settings=adaptive_replan_settings,
+			)
+			agent_kwargs['adaptive_replan_controller'] = controller
+			agent_kwargs['initial_navigator_plan'] = navigator_plan
 	if initial_subgoal:
 		agent_kwargs['navigator_executor_subgoal'] = initial_subgoal
 
@@ -649,11 +1223,12 @@ async def run_agent_task(
 		agent = Agent(**agent_kwargs)
 		heartbeat_task: asyncio.Task[None] | None = None
 		if heartbeat_seconds and heartbeat_seconds > 0:
-			heartbeat_task = asyncio.create_task(
-				_emit_heartbeat(agent, task.id, scenario_id, experiment_id, heartbeat_seconds)
-			)
+			heartbeat_task = asyncio.create_task(_emit_heartbeat(agent, task.id, scenario_id, experiment_id, heartbeat_seconds))
 		try:
-			history = await agent.run(max_steps=max_steps)
+			run_kwargs: dict[str, Any] = {'max_steps': max_steps}
+			if task.id == 'huggingface_model_constrained_selection':
+				run_kwargs['on_step_start'] = _inject_huggingface_filter_subgoal
+			history = await agent.run(**run_kwargs)
 		finally:
 			if heartbeat_task is not None:
 				heartbeat_task.cancel()
@@ -681,7 +1256,38 @@ async def run_agent_task(
 			agent=agent,
 			navigator=navigator,
 			continuous_navigation=continuous_navigation,
+			batch_id=batch_id,
+			executor_temperature=ex_cfg.temperature,
+			executor_use_vision=use_vision,
+			navigator_temperature=(nav_cfg.temperature if nav_cfg.enabled else None),
+			max_steps=max_steps,
+			max_failures=max_failures,
+			llm_timeout=llm_timeout,
+			step_timeout=resolved_step_timeout,
+			max_actions_per_step=resolved_max_actions,
+			heartbeat_seconds=heartbeat_seconds,
+			headless=headless,
+			browser_profile_mode=resolved_browser_profile_mode,
+			browser_viewport=resolved_browser_viewport,
+			browser_locale=resolved_browser_locale,
+			browser_timezone=resolved_browser_timezone,
+			task_card_hash=task_card_hash,
+			git_commit_hash=resolved_git_commit,
+			prompt_hash=prompt_hash,
+			run_manifest=run_manifest,
 		)
+		summary = _adjudicate_agent_summary(task, summary)
+		ctrl = getattr(agent, 'adaptive_replan_controller', None)
+		if ctrl is not None:
+			metrics = ctrl.finalize_metrics()
+			summary = summary.model_copy(
+				update={
+					'replan_policy': replan_policy,
+					'adaptive_replan_metrics': metrics.model_dump(mode='json'),
+				}
+			)
+		elif replan_policy != 'scheduled':
+			summary = summary.model_copy(update={'replan_policy': replan_policy})
 		if csv_dir is not None and experiment_id:
 			csv_path = append_agent_run_csv_row(
 				csv_dir,
@@ -689,6 +1295,7 @@ async def run_agent_task(
 				task=task,
 				summary=summary,
 				human=human,
+				human_runs=human_runs,
 			)
 			logger.info('Appended run metrics to %s', csv_path)
 		return summary
@@ -751,8 +1358,20 @@ def compare_runs(task: TaskCard, human: HumanRunRecord | None, agent: AgentRunSu
 	return ComparisonRecord(
 		task_id=task.id,
 		scenario_id=(human.scenario_id if human else agent.scenario_id if agent else 'normal'),
+		task_card_hash=(agent.task_card_hash if agent else human.task_card_hash if human else None),
 		task_category=task.category,
 		experiment_id=agent.experiment_id if agent else None,
+		human_reference_count=0,
+		strict_success=bool(agent.strict_success) if agent else False,
+		adjudicated_outcome_label=(agent.adjudicated_outcome_label if agent else 'failure'),
+		trajectory_comparable=(agent.trajectory_comparable if agent else None),
+		comparison_status='no_human_reference',
+		comparison_exclusion_reason='comparison not computed in legacy compare_runs path',
+		raw_lcs=None,
+		canonical_lcs=None,
+		navigation_lcs=None,
+		final_domain=(agent.final_domain if agent else None),
+		primary_site_flow=(agent.primary_site_flow if agent else None),
 		navigator_enabled=agent.navigator_enabled if agent else None,
 		navigator_model=agent.navigator_model if agent else None,
 		human_status=human.success_status if human else None,
@@ -865,9 +1484,7 @@ def _resource_analysis_hints(snapshots: list[AgentRunResourceSnapshot]) -> list[
 		lo = min(with_cost, key=lambda s: s.total_cost or 0.0)
 		hi = max(with_cost, key=lambda s: s.total_cost or 0.0)
 		if lo.total_cost == hi.total_cost:
-			hints.append(
-				f'All runs with cost data share total_cost={lo.total_cost}; trajectories or pricing may be identical.'
-			)
+			hints.append(f'All runs with cost data share total_cost={lo.total_cost}; trajectories or pricing may be identical.')
 		else:
 			hints.append(
 				f'Lowest total_cost: experiment_id={lo.experiment_id!r} total_cost={lo.total_cost} '
@@ -947,8 +1564,7 @@ def format_academic_efficiency_frontier_analysis(report: ExperimentResourceRepor
 		ev_d = _stat_mean(row_d.execution_velocity)
 		lines.append(f'── {group.task_id} / {group.scenario_id} ({group.task_category or "?"}) ──')
 		lines.append(
-			f'  runs: C={row_c.run_count} success={row_c.success_true} | '
-			f'D={row_d.run_count} success={row_d.success_true}'
+			f'  runs: C={row_c.run_count} success={row_c.success_true} | D={row_d.run_count} success={row_d.success_true}'
 		)
 
 		def fmt(v: float | None) -> str:
@@ -1048,7 +1664,8 @@ def compare_all(
 	skip_resource_report: bool = False,
 ) -> list[ComparisonRecord]:
 	tasks = load_json_model_list(task_cards_path, TaskCard)
-	human_runs = index_by_task_and_scenario(load_json_model_list(human_runs_path, HumanRunRecord))
+	human_runs_list = load_json_model_list(human_runs_path, HumanRunRecord)
+	human_runs = index_by_task_and_scenario(human_runs_list)
 	if csv_dir is not None:
 		agent_runs = load_agent_summaries_from_csv_dir(csv_dir)
 	elif agent_runs_path is not None:
@@ -1064,7 +1681,21 @@ def compare_all(
 			matching_agents = [agent for agent in agent_runs if agent.task_id == task.id and agent.scenario_id == scenario_id]
 			if matching_agents:
 				for agent in matching_agents:
-					comparisons.append(compare_runs(task, human, agent))
+					adjudicated_agent = adjudicate_agent_summary(task, agent)
+					base = compare_runs(task, human, adjudicated_agent)
+					ref_cmp = compare_agent_to_human_references(adjudicated_agent, human_runs_list)
+					comparisons.append(
+						base.model_copy(
+							update={
+								'human_reference_count': ref_cmp.human_reference_count,
+								'comparison_status': ref_cmp.comparison_status,
+								'comparison_exclusion_reason': ref_cmp.comparison_exclusion_reason,
+								'raw_lcs': ref_cmp.raw_lcs_mean,
+								'canonical_lcs': ref_cmp.canonical_lcs_mean,
+								'navigation_lcs': ref_cmp.navigation_lcs_mean,
+							}
+						)
+					)
 			elif human:
 				comparisons.append(compare_runs(task, human, None))
 
@@ -1370,4 +2001,3 @@ def export_agent_runs_to_csv(agent_runs_path: Path, output_csv: Path) -> Path:
 			)
 
 	return output_csv
-

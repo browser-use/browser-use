@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass
 from typing import Literal
 
+import httpx
+
 from browser_use import ChatBrowserUse, ChatGoogle
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.openai.chat import ChatOpenAI
@@ -76,9 +78,7 @@ def build_executor_llm(config: ExecutorConfig) -> BaseChatModel:
 	if config.backend == 'google':
 		api_key = os.getenv(config.api_key_env)
 		if not api_key:
-			raise ValueError(
-				f'{config.api_key_env} is not set; required for Google Gemini executor ({config.model}).'
-			)
+			raise ValueError(f'{config.api_key_env} is not set; required for Google Gemini executor ({config.model}).')
 		return ChatGoogle(
 			model=config.model,
 			api_key=api_key,
@@ -87,13 +87,9 @@ def build_executor_llm(config: ExecutorConfig) -> BaseChatModel:
 
 	api_key = os.getenv(config.api_key_env)
 	if not api_key:
-		raise ValueError(
-			f'{config.api_key_env} is not set; required for OpenAI-compatible executor ({config.model}).'
-		)
+		raise ValueError(f'{config.api_key_env} is not set; required for OpenAI-compatible executor ({config.model}).')
 	# Volcengine Ark (豆包) rejects OpenAI `response_format.type=json_schema`; use prompt-stuffed schema only.
-	ark_compat = infer_volcengine_ark_executor_model(config.model) or (
-		'volces.com' in (config.base_url or '').lower()
-	)
+	ark_compat = infer_volcengine_ark_executor_model(config.model) or ('volces.com' in (config.base_url or '').lower())
 	if ark_compat:
 		return ChatOpenAI(
 			model=config.model,
@@ -102,6 +98,7 @@ def build_executor_llm(config: ExecutorConfig) -> BaseChatModel:
 			temperature=0.0,
 			dont_force_structured_output=True,
 			add_schema_to_system_prompt=True,
+			http_client=httpx.AsyncClient(trust_env=False),
 		)
 	return ChatOpenAI(
 		model=config.model,

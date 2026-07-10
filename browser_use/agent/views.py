@@ -81,8 +81,9 @@ class AgentSettings(BaseModel):
 
 	# Periodic navigator (second LLM / same LLM) — injects guidance without changing executor tools
 	continuous_navigation: bool = False
-	navigator_replan_interval: int = 5  # call navigator every N steps after the first; 0 = no periodic (still first + stall)
-	navigator_replan_on_stall: bool = True  # also call navigator when consecutive failures reach planning_replan_on_stall
+	replan_policy: Literal['scheduled', 'event_triggered'] = 'scheduled'
+	navigator_replan_interval: int = 5  # scheduled policy only; ignored when replan_policy=event_triggered
+	navigator_replan_on_stall: bool = True  # scheduled policy only
 	navigator_context_max_chars: int = 6000  # caps task + history + DOM snippet passed to navigator
 
 	page_extraction_llm: BaseChatModel | None = None

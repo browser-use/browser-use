@@ -4,9 +4,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SuccessStatus = Literal['success', 'partial', 'failed', 'blocked']
+HumanRunStatus = Literal['not_started', 'completed', 'blocked', 'aborted']
+HumanOutcomeLabel = Literal['success', 'partial_success', 'failure']
+TrajectoryComparable = Literal['high', 'partial', 'low']
+AdjudicatedOutcomeLabel = Literal['success', 'partial_success', 'failure', 'environment_blocked']
+FieldVisibility = Literal['visible', 'verified_not_visible']
+RouteRelation = Literal[
+	'direct_match',
+	'same_route',
+	'equivalent_route',
+	'alternative_route',
+	'off_target_flow',
+	'invalid_route',
+]
 TaskCategory = Literal[
 	'read_only_query',
 	'form_workflow',
@@ -47,6 +60,10 @@ class TaskCard(BaseModel):
 	forbidden_actions: list[str] = Field(default_factory=list)
 	failure_modes: list[FailureMode] = Field(default_factory=list)
 	agent_recovery_rules: list[str] = Field(default_factory=list)
+	expected_primary_domain: str | None = None
+	primary_site_flow: str | None = None
+	required_fields: list[str] = Field(default_factory=list)
+	frozen_task_parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class HumanRunRecord(BaseModel):
@@ -57,14 +74,37 @@ class HumanRunRecord(BaseModel):
 	task_id: str
 	scenario_id: str = 'normal'
 	operator: str = 'human'
+	task_card_hash: str | None = None
 	success_status: SuccessStatus = 'blocked'
+	run_status: HumanRunStatus = 'completed'
+	outcome_label: HumanOutcomeLabel | None = None
+	reference_eligible: bool = False
 	duration_seconds: float | None = None
 	steps: list[str] = Field(default_factory=list)
 	stuck_points: list[str] = Field(default_factory=list)
 	recovery_actions: list[str] = Field(default_factory=list)
 	final_evidence: list[str] = Field(default_factory=list)
+	final_answer: dict[str, Any] | None = None
+	criteria_checks: list[dict[str, Any]] = Field(default_factory=list)
+	domains_visited: list[str] = Field(default_factory=list)
+	final_domain: str | None = None
+	primary_site_flow: str | None = None
+	cross_site_fallback: bool = False
+	trajectory_comparable: TrajectoryComparable | None = None
+	route_relation: RouteRelation | None = None
+	milestone_outcomes: list[dict[str, Any]] = Field(default_factory=list)
+	step_annotations: list[dict[str, Any]] = Field(default_factory=list)
+	human_observation_notes: str | None = None
+	posthoc_agent_analysis: str | None = None
 	intervention_count: int = 0
 	notes: str = ''
+
+	@field_validator('trajectory_comparable', mode='before')
+	@classmethod
+	def _coerce_legacy_trajectory_comparable(cls, value: object) -> object:
+		if value == 'full':
+			return 'high'
+		return value
 
 
 class AgentRunSummary(BaseModel):
@@ -79,6 +119,7 @@ class AgentRunSummary(BaseModel):
 		description='`TaskCard.category` at run time; use for grouping and cross-class comparison.',
 	)
 	experiment_id: str | None = None
+	batch_id: str | None = None
 	executor_backend: str | None = None
 	executor_model: str | None = None
 	navigator_backend: str | None = None  # 'deepseek' | 'openai_compatible' when navigator_enabled
@@ -86,10 +127,37 @@ class AgentRunSummary(BaseModel):
 	navigator_model: str | None = None
 	navigator_plan_path: str | None = None
 	continuous_navigation: bool = False  # whether --continuous-navigation periodic re-plan was on
+	executor_temperature: float | None = None
+	executor_use_vision: bool | str | None = None
+	navigator_temperature: float | None = None
+	max_steps: int | None = None
+	max_failures: int | None = None
+	llm_timeout: int | None = None
+	step_timeout: int | None = None
+	max_actions_per_step: int | None = None
+	heartbeat_seconds: int | None = None
+	headless: bool | None = None
+	browser_profile_mode: str | None = None
+	browser_viewport: dict[str, int] | None = None
+	browser_locale: str | None = None
+	browser_timezone: str | None = None
+	task_card_hash: str | None = None
+	git_commit_hash: str | None = None
+	prompt_hash: str | None = None
+	run_manifest: dict[str, Any] | None = Field(
+		default=None,
+		description='Frozen resolved runtime config recorded for reproducibility.',
+	)
 	started_at: str
 	finished_at: str
 	success: bool | None
+	agent_declared_success: bool | None = None
 	is_done: bool
+	adjudicated_outcome_label: AdjudicatedOutcomeLabel = 'failure'
+	strict_success: bool = False
+	criteria_checks: list[dict[str, Any]] = Field(default_factory=list)
+	final_evidence: list[str] = Field(default_factory=list)
+	adjudication_reason: str = ''
 	duration_seconds: float
 	number_of_steps: int
 	action_names: list[str] = Field(default_factory=list)
@@ -99,6 +167,13 @@ class AgentRunSummary(BaseModel):
 	final_result: str | None = None
 	history_path: str
 	conversation_path: str
+	trajectory_comparable: TrajectoryComparable | None = Field(
+		default=None,
+		description='Whether the Agent route is suitable for LCS comparison against human references.',
+	)
+	cross_site_fallback: bool = False
+	final_domain: str | None = None
+	primary_site_flow: str | None = None
 
 	usage_summary: dict[str, Any] | None = Field(
 		default=None,
@@ -122,6 +197,14 @@ class AgentRunSummary(BaseModel):
 	navigator_initial_plan_usage: dict[str, Any] | None = Field(
 		default=None,
 		description='Navigator `create_plan()` first LLM call (not in Agent TokenCost): raw `ChatInvokeUsage` dump.',
+	)
+	replan_policy: str | None = Field(
+		default=None,
+		description='Navigator replan policy: scheduled (fixed interval) or event_triggered (R-A adaptive).',
+	)
+	adaptive_replan_metrics: dict[str, Any] | None = Field(
+		default=None,
+		description='R-A adaptive replan audit trail: triggers, counts, recovery latency, progress events.',
 	)
 	navigator_overhead_ratio: float = Field(
 		default=0.0,
@@ -369,11 +452,23 @@ class ComparisonRecord(BaseModel):
 
 	task_id: str
 	scenario_id: str
+	task_card_hash: str | None = None
 	task_category: TaskCategory | None = Field(
 		default=None,
 		description='From `TaskCard.category` for filtering comparison reports by task class.',
 	)
 	experiment_id: str | None = None
+	human_reference_count: int = 0
+	strict_success: bool = False
+	adjudicated_outcome_label: AdjudicatedOutcomeLabel = 'failure'
+	trajectory_comparable: TrajectoryComparable | None = None
+	comparison_status: str = 'no_human_reference'
+	comparison_exclusion_reason: str | None = None
+	raw_lcs: float | None = None
+	canonical_lcs: float | None = None
+	navigation_lcs: float | None = None
+	final_domain: str | None = None
+	primary_site_flow: str | None = None
 	navigator_enabled: bool | None = None
 	navigator_model: str | None = None
 	human_status: SuccessStatus | None
@@ -408,4 +503,3 @@ def write_json(path: Path, payload: Any, overwrite: bool = True) -> None:
 	with path.open('w', encoding='utf-8') as file:
 		json.dump(payload, file, indent=2, ensure_ascii=False)
 		file.write('\n')
-

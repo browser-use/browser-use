@@ -106,4 +106,3 @@ def build_navigator(config: NavigatorConfig) -> NavigatorPlanProvider | None:
 	if not config.enabled:
 		return None
 	return LLMNavigator(config)
-

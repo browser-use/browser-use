@@ -1,0 +1,546 @@
+% =============================================================================
+%  PRICAI 2026 paper draft.
+%
+%  PRICAI proceedings are published in Springer LNAI/LNCS, so this draft uses the
+%  Springer LNCS document class. The class file is NOT redistributed here.
+%
+%  >>> BEFORE COMPILING <<<
+%  Download the official Springer LNCS authoring kit and place the following
+%  files next to this main.tex:
+%      - llncs.cls
+%      - splncs04.bst
+%  Source: https://www.springer.com/gp/computer-science/lncs/conference-proceedings-guidelines
+%  (Overleaf also ships a "Springer LNCS" template that bundles both files.)
+%
+%  If you do not have llncs.cls available and just want to preview the content,
+%  comment out the \documentclass line below and uncomment the article-based
+%  fallback block. The fallback is best-effort; the camera-ready MUST use llncs.
+% =============================================================================
+
+\documentclass{llncs}
+
+% ----------------------------------------------------------------------------
+% FALLBACK (uncomment this block AND comment out the \documentclass above if
+% llncs.cls is unavailable). Remove before submission.
+% ----------------------------------------------------------------------------
+% \documentclass[11pt]{article}
+% \usepackage[margin=1in]{geometry}
+% \newcommand{\keywords}[1]{\par\noindent\textbf{Keywords:} #1}
+% \usepackage{abstract}
+% ----------------------------------------------------------------------------
+
+% ---------------------------------------------------------------------------
+% This paper contains Chinese (CJK) strings (task queries, place names).
+% RECOMMENDED build engine: XeLaTeX or LuaLaTeX (handles UTF-8 CJK natively).
+% A pdfLaTeX fallback via CJKutf8 is provided, but XeLaTeX is preferred.
+% All CJK text is wrapped in \cn{...} so the engine switch is centralized.
+% ---------------------------------------------------------------------------
+\usepackage{iftex}
+\ifXeTeX
+  \usepackage{fontspec}
+  \usepackage{xeCJK}
+  % TODO: set any installed CJK font. SimSun ships with Windows; on Linux/Overleaf
+  % use e.g. "Noto Sans CJK SC". Comment out if your xeCJK auto-selects a font.
+  \setCJKmainfont{SimSun}
+  \newcommand{\cn}[1]{#1}
+\else\ifLuaTeX
+  \usepackage{fontspec}
+  \usepackage{luatexja-fontspec}
+  \newcommand{\cn}[1]{#1}
+\else
+  % pdfLaTeX fallback (requires the CJK package fonts, e.g. arphic/gbsn).
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{CJKutf8}
+  \newcommand{\cn}[1]{\begin{CJK}{UTF8}{gbsn}#1\end{CJK}}
+\fi\fi
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{url}
+\usepackage{xurl}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% Keep literal model names, log labels, paths, and API identifiers intact while
+% allowing TeX to wrap them at punctuation instead of protruding past the margin.
+\DeclareRobustCommand{\code}[1]{\allowbreak\nolinkurl{#1}\allowbreak}
+% Keep domain names intact in narrow table columns; unlike \code, \site never
+% breaks at dots or punctuation.
+\newcommand{\site}[1]{\mbox{\texttt{#1}}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+% Only assists ordinary prose in an exceptionally tight line; tables are fixed
+% structurally below and are not scaled or clipped.
+\setlength{\emergencystretch}{1.2em}
+
+% Robust figure placeholder: if figures/figN.pdf does not yet exist, draw a
+% labelled box instead so the document still compiles. Replace the PDFs to get
+% the real figures. (Remove this helper once all figures are generated.)
+\newcommand{\figplaceholder}[2]{%
+  \IfFileExists{#1}{\includegraphics[width=#2\linewidth]{#1}}{%
+    \fbox{\parbox[c][3.2cm][c]{#2\linewidth}{\centering\ttfamily\small
+      [PLACEHOLDER] #1\\ generate this figure (see caption + spec)}}%
+  }%
+}
+
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\bottomfraction}{0.70}
+\renewcommand{\textfraction}{0.15}
+\renewcommand{\floatpagefraction}{0.80}
+
+\begin{document}
+
+
+\title{How Often Should a Navigator Replan? An Evidence-Audited Cadence Study for a CDP Browser Agent}
+
+\author{}
+\institute{}
+
+
+
+\titlerunning{Navigator Replanning Frequency for Browser Agents}
+
+\maketitle
+
+\begin{abstract}
+Large language model (LLM) browser agents are often augmented with external
+planners, but it remains unclear how often such planners should intervene during
+execution. We study navigator invocation cadence in a text-only CDP browser
+agent with a fixed Doubao executor. Six configurations are evaluated: no
+navigator, one-shot planning, fixed-interval replanning every 1/3/5 steps, and
+event-triggered replanning. Across four live web tasks with 10 repetitions per
+configuration (240 runs), strict success is audited against frozen task-specific
+evidence rather than agent self-report. One-shot planning and event-triggered
+replanning both achieved 40/40 strict successes, whereas frequent
+fixed-interval replanning reduced success on selected tasks. In this four-task
+case study, event-triggered replanning had the lowest median duration on three
+tasks (R-5 was slightly faster on HuggingFace). Hospital lookup provides the
+clearest diagnostic case: one-shot and adaptive guidance substantially reduced
+stall burden relative to the executor-only baseline. Runs were executed one at a time on live websites; within each task, the six conditions were tested in randomized order rather than a fixed sequence. The results support practical cadence choices for planner--executor browser agents, with broader validation left to future work.
+\keywords{LLM browser agents \and adaptive replanning \and planner--executor \and web automation \and
+agent evaluation \and CDP.}
+\end{abstract}
+
+% =============================================================================
+\section{Introduction}
+
+LLM-driven browser agents repeatedly perceive a page, select an action, and
+continue until a task is complete. In deployed live-web settings, an external
+navigator or planner is often added to guide a fixed executor. However, it
+remains unclear how often this guidance should be refreshed during execution.
+A final \texttt{done} message can also conceal missing fields, incomplete
+evidence, or an incorrect recovery path, making it difficult to distinguish
+apparent completion from evidence-supported task success.
+
+We study a narrow intervention: a CDP-based browser-use agent with one fixed
+executor and an optional navigator. The navigator contributes either an opening
+plan, periodic tactical subgoals, or an event-triggered recovery subgoal; it never
+emits browser actions. This design holds the executor, task cards, runtime, and
+evidence audit fixed while varying only navigator invocation policy.
+
+\paragraph{Research question.} Holding the executor and runtime fixed, how do
+one-shot, fixed-interval, and event-triggered navigator policies change
+evidence-audited completion and execution behavior on live web tasks?
+
+\paragraph{Contributions.}
+An evidence-audited cadence sweep for a fixed CDP browser-agent
+executor: E (no navigator), I (one-shot plan), R-1/R-3/R-5
+(fixed-interval replanning), and R-A (event-triggered replanning), with
+240 runs in total.
+
+A strict-success protocol that verifies task-specific evidence rather
+than agent self-report, supplemented by compact diagnostic measures of
+execution progress.
+  
+Descriptive, deployment-specific evidence---interpreted as a four-task
+case study rather than a benchmark claim---that one-shot planning and
+event-triggered replanning both achieve 40/40 strict successes, whereas
+frequent fixed-interval replanning can reduce success on selected tasks.
+
+
+Because the navigator (DeepSeek) and executor (Doubao) use different model
+families, our estimates characterize a deployed system configuration rather
+than an isolated planning effect; a same-model navigator control is left to
+future work.
+
+\section{Related Work}
+
+Web agents and evaluation environments.
+Recent work has developed both benchmark environments and end-to-end systems for
+LLM-driven web interaction. WebArena~\cite{zhou2023webarena} provides
+self-hosted replicas of realistic websites for reproducible functional evaluation,
+whereas Mind2Web~\cite{deng2023mind2web} formulates generalist web-action
+prediction from demonstrations. WebVoyager~\cite{he2024webvoyager} evaluates
+end-to-end multimodal agents on live websites, thereby exposing the instability
+of production-web interaction. SeeAct~\cite{zheng2024seeact} emphasizes visual
+grounding for action selection, while Agent-E~\cite{emergence2024agente}
+combines hierarchical coordination, DOM distillation, and change observation for
+web navigation. More recently, Online-Mind2Web~\cite{xue2025illusion} challenged
+the over-optimistic results of earlier benchmarks by evaluating agents on
+136 real websites, revealing that simple baselines solve over half of standard
+benchmark tasks. WebDS~\cite{hsu2026webds} showed that agents achieving 80\%
+on WebVoyager drop to 15\% on realistic web-based data science tasks spanning
+29 websites. Odysseys~\cite{jang2026odysseys} introduced rubric-based evaluation
+and trajectory efficiency metrics for long-horizon web tasks, finding that the
+strongest frontier models achieve only 44.5\% success.
+Our study is complementary: it does not propose a new general
+agent architecture or benchmark, but holds one deployed CDP executor fixed and
+isolates the cadence of optional navigator intervention.
+
+Planning, execution, and self-correction.
+The broader agent literature has studied how reasoning can guide tool use and
+recovery. ReAct~\cite{yao2023react} interleaves reasoning and actions;
+Reflexion~\cite{shinn2023reflexion} uses verbal feedback for iterative
+self-improvement; and Plan-and-Solve~\cite{wang2023planandsolve} separates
+problem decomposition from downstream execution. Most closely related,
+Plan-and-Act~\cite{erdogan2025planandact} explicitly separates a planner from
+an executor for long-horizon web tasks and evaluates the benefit of stronger plan
+generation. These works motivate planner--executor decomposition, but they do
+not isolate how often a lightweight external navigator should be invoked while
+the executor, runtime, task cards, and scoring rule remain unchanged. We study
+that narrower operational question through one-shot, periodic, and
+stall/revisit-triggered policies.
+Aghzal et al.~\cite{aghzal2026webagentsfail} provide a complementary diagnosis:
+through a hierarchical planning lens, they identify low-level execution
+grounding---rather than high-level planning---as the dominant failure mode
+for LLM-based web agents. HiPER~\cite{peng2026hiper} proposes hierarchical
+plan--execute RL with two-timescale credit assignment, achieving 83.3\% on
+WebShop; the two-level architecture reinforces the planner--executor
+decomposition but optimizes invocation frequency through end-to-end training
+rather than hand-specified cadence.
+
+Practical web-automation systems and scalable simulation.
+Systems work also highlights deployment-oriented concerns. Steward~\cite{wang2024steward}
+studies natural-language web automation on live websites, including reactive
+planning/execution and runtime efficiency. Cybernaut~\cite{park2025cybernaut}
+targets reliable enterprise web automation through SOP generation, DOM element
+recognition, and execution-consistency assessment. WebWorld~\cite{yao2025webworld}
+addresses a complementary scaling problem by learning a web world model for
+synthetic trajectory generation and simulation. In contrast, our experiments use
+live public sites and a fixed browser-agent stack to characterize the behavioral
+trade-off introduced by navigator cadence rather than to scale training or
+construct a new automation architecture.
+CoDA~\cite{liu2026coda} addresses context explosion in long-horizon agent
+tasks by decoupling strategic planning from tactical execution with a single
+shared LLM backbone, while a hierarchical memory tree
+(HMT)~\cite{tan2026hmt} separates planner and actor roles for web agents and
+demonstrates cross-website generalization. Vardanyan~\cite{vardanyan2025building}
+provides a production perspective on browser agent architecture, arguing
+that design choices matter more than raw model capability and that safety
+requires programmatic constraints rather than prompt-level guardrails.
+
+Evidence-based agent evaluation.
+Reliable evaluation remains an open problem. AgentBench~\cite{liu2024agentbench}
+provides a multi-environment evaluation suite, and LLM-as-a-judge
+methods~\cite{zheng2023judging} offer a flexible alternative where deterministic
+checkers are unavailable. Our protocol instead uses frozen task-specific hard
+criteria, saved final evidence, and visited URLs where appropriate. This makes
+strict success intentionally stricter than an agent-declared \code{done} signal
+and supports diagnosing completion failures on live tasks without treating a
+single trajectory as uniquely correct.
+REAL~\cite{garg2025real} similarly combines deterministic website replicas
+with programmatic state verification, though its focus is benchmark
+construction rather than cadence ablation.
+
+
+% =============================================================================
+\section{Methodology}
+% =============================================================================
+
+\subsection{Agent Architecture and Interventions}
+
+Figure~\ref{fig:arch} situates the cadence study in a five-step workflow
+(study inputs $\rightarrow$ task suite $\rightarrow$ agent stack
+$\rightarrow$ conditions $\rightarrow$ execution/logging $\rightarrow$
+audit/analysis). This section specifies the \textbf{methodology through
+Step~4}: frozen inputs, the task suite, the navigator--executor stack, the six
+intervention policies, and the runtime execution environment. Evaluation
+protocol, metrics, and results are reported in
+Section~\ref{sec:results-discussion}.
+
+\begin{figure}[t]
+\centering
+\figplaceholder{figures/fig1.png}{0.94}
+\caption{End-to-end experimental workflow. Frozen task cards, runtime
+configuration, and evidence rubrics define a four-task live-web suite
+(Step~1). All conditions share a fixed executor LLM driving Chromium through
+CDP, while an optional navigator injects opening, periodic, or event-triggered
+\code{<current\_step\_focus>} guidance without browser actions (Step~2).
+Six navigator policies form the condition matrix (Step~3;
+$4\times6\times10=240$ runs). Each run is logged through an
+observe--act--log--check loop with milestone and revisit tracking (Step~4);
+Step~5 evaluation is described in Section~\ref{sec:evaluation-protocol}.}
+\label{fig:arch}
+\end{figure}
+
+\paragraph{Agent stack (Step~2).}
+The system uses \code{browser-use} to drive Chromium through CDP. At each
+step, the fixed executor receives the task, current DOM-derived page state, and
+recent action history, then selects one structured browser action. All runs use
+\code{doubao-seed-2-0-pro-260215} through Volcengine Ark, temperature 0.0,
+and \code{use\_vision=false}. The navigator is \code{deepseek-chat} at
+temperature 0.0 (billed under the provider's DeepSeek-V4-Flash tier). As shown
+in Figure~\ref{fig:arch}, the navigator injects an opening plan or
+\code{<current\_step\_focus>} subgoal into the executor prompt but never emits
+browser actions, so the executor action space and tool interface remain
+identical across conditions.
+
+\paragraph{Navigator interventions (Step~3).}
+We compare six policies in Figure~\ref{fig:arch}: \textbf{E} uses the executor
+alone; \textbf{I} injects one opening navigator plan; \textbf{R-$k$} refreshes a
+short tactical subgoal every $k\in\{1,3,5\}$ raw agent steps; and \textbf{R-A}
+re-queries the navigator only after a three-step cooldown when either no new
+milestone has occurred for at least three consecutive steps or a previously
+visited canonicalized URL is revisited. The navigator is instructed to produce a
+short plan and recovery guidance, never browser-action JSON.
+
+\subsection{Task Suite and Runtime Configuration}
+\label{sec:task-suite}
+
+Figure~\ref{fig:arch}, Step~1 fixes four live-web workflows summarized in
+Table~\ref{tab:tasks}. They span read-only
+retrieval, hierarchical issue navigation, and multi-constraint filtering on live,
+publicly browsable sites. Each card fixes its prompt, starting conditions,
+forbidden actions, recovery rules, expected primary domain, and hard success
+criteria used later in the evaluation protocol
+(Section~\ref{sec:evaluation-protocol}).
+
+\begin{table}[t]
+\centering
+\caption{Evaluation tasks and strict-success requirements. Full task cards will be released upon acceptance.}
+\label{tab:tasks}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.05}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{1.58cm}>{\raggedright\arraybackslash}p{1.28cm}>{\raggedright\arraybackslash}p{2.12cm}Y@{}}
+\toprule
+\textbf{Task} & \textbf{Type} & \textbf{Site} & \textbf{Hard Criterion} \\
+\midrule
+Shopping & Read-only query & \site{amazon.com} &
+At least three comparable goods options, each with price, seller, and source URL; no purchase. \\
+Hospital & Read-only query & \site{map.baidu.com} &
+Three distinct facilities, each with name, phone, address, and source URL; explicitly state missing fields. \\
+GitHub & Issue navigation & \site{github.com} &
+Apply the open-bug filter (\mbox{\texttt{label:bug}} and \mbox{\texttt{is:open}}), sort by oldest, open the earliest issue, and report its body and first comment. \\
+HuggingFace & Filtered selection & \site{huggingface.co} &
+Apply Text Generation, PyTorch, and Chinese filters; sort by downloads; open the top model; report the base model or verified-not-visible. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Figure~\ref{fig:arch}, Step~4 executes each run in headful ephemeral-incognito
+Chromium at $1280\times720$, one action per step, \code{max\_steps}=35, and
+\code{max\_failures}=3. The runtime logs action history, canonical URLs,
+milestones, and revisit events through an observe--act--log--check loop.
+Runs remained sequential within each task block, but condition order was
+randomized rather than following a fixed
+E$\rightarrow$I$\rightarrow$R-1$\rightarrow$R-3$\rightarrow$R-5$\rightarrow$R-A
+sequence.
+
+% =============================================================================
+\section{Results and Discussion}
+\label{sec:results-discussion}
+% =============================================================================
+
+\subsection{Evaluation Protocol and Metrics}
+\label{sec:evaluation-protocol}
+
+The run matrix in Figure~\ref{fig:arch}, Step~3 crosses six navigator policies
+with four tasks and ten repetitions, yielding 240 runs. We treat this matrix as a
+\emph{case study}: four live workflows chosen to span read-only retrieval,
+hierarchical navigation, and multi-constraint filtering, not as a representative
+web-agent benchmark.
+
+A run counts as strict success only when every hard criterion in
+Table~\ref{tab:tasks} is supported by its final answer, saved evidence, and,
+where necessary, visited URLs (Figure~\ref{fig:arch}, Step~5a). The
+deterministic checker was followed by a frozen criterion-level audit of saved
+evidence; agent self-report is not scored as success. For example, the hospital
+rubric requires all three fields for three distinct facilities; the GitHub rubric
+requires oldest-issue and first-comment evidence; and the HuggingFace rubric
+verifies the active filters, download sort, and base-model field. This protocol
+distinguishes strict success from an agent merely calling \mbox{\texttt{done}}.
+
+Figure~\ref{fig:arch}, Step~5b supplements strict success with descriptive
+trajectory analysis. Strict success is the headline outcome. For diagnostic
+interpretation, we report median steps, wall-clock duration, stall burden, and
+state revisit rate. Each task defines an ordered milestone list
+$M=(m_1,\ldots,m_K)$; a step counts as progress when it first satisfies the
+next unachieved checkpoint. Stall burden is the fraction of steps before
+\code{done} that do not produce a new milestone. State revisit rate is the
+fraction of steps whose canonicalized URL (domain and path, without query
+parameters) has already been seen. Both metrics are computed from saved
+\code{history.json} traces and are descriptive rather than normative scores.
+
+For Hospital lookup, the six checkpoints are: (M1) navigate to a map site;
+(M2) submit a hospital search; (M3) reach a results list; (M4) select a
+specific facility; (M5) observe a phone number on the page; and (M6) extract
+fields or call \code{done}. Each milestone is a deterministic predicate over
+the step's canonicalized URL, action type, and page text. High stall under E
+often reflects looping between M3--M4 listing pages that lack phone details
+before M5 is reached. For state revisit rate, URLs are canonicalized to
+lowercase domain plus path; query strings and fragments are stripped, so
+hash-only or parameter-only changes count as the same state. Milestone lists for
+the other three tasks will be released upon acceptance.
+
+\subsection{Strict Success Results}
+
+Figure~\ref{fig:strict} summarizes strict-success rates by task and
+configuration ($n{=}10$ per cell; Wilson 95\% CIs; $k/n$ annotated per bar).
+One-shot planning (I) and adaptive replanning (R-A) each achieved 40/40 strict
+successes across the four tasks. The benefits of repeated replanning were not
+monotonic: R-1 and R-3 each dropped to 8/10 on HuggingFace, R-1 matched the
+E baseline on GitHub (9/10), and R-3 fell to 7/10 on Hospital. Shopping was
+at ceiling in every condition and therefore provides little discrimination.
+Given $n{=}10$ per cell, intervals are descriptive rather than inferential.
+
+\begin{figure}[t]
+\centering
+\figplaceholder{figures/fig2.png}{0.94}
+\caption{Strict success rate by task and configuration. Bars show Wilson 95\%
+CIs; labels give $k/n$. Shopping is at ceiling in all conditions; Hospital and
+HuggingFace show the largest configuration spread. Full counts and run-level logs will be released upon acceptance.}
+\label{fig:strict}
+\end{figure}
+
+All 240 runs called \code{done}, yet 17 failed the strict rubric
+(E: 8; R-1: 3; R-3: 5; R-5: 1; I: 0; R-A: 0). This discrepancy confirms that
+self-report alone is insufficient for evaluating task completion; live-site
+variation further limits strong inferential claims.
+
+\subsection{Efficiency and Process Diagnostics}
+
+Table~\ref{tab:eff} asks whether navigator cadence changes execution cost once
+completion is scored separately by the strict-success protocol
+(Section~\ref{sec:evaluation-protocol}). We measured median steps, wall-clock
+duration, estimated USD cost, and total tokens for each task--condition cell
+($n{=}10$). The experiment holds the executor, browser runtime, and task cards
+fixed and varies only navigator policy, so differences in Table~\ref{tab:eff}
+isolate cadence effects on process efficiency rather than on task definition.
+The main finding is task-dependent: on Hospital, the recovery-heavy workflow
+where strict success varies most across cadence, one-shot planning and
+event-triggered replanning shorten trajectories relative to the executor-only
+baseline, whereas frequent fixed-interval replanning often adds wall-clock time
+without improving reliability; on Shopping, which is at ceiling for strict
+success, frequent replanning mainly increases token and duration overhead.
+
+\input{tables/efficiency_table.tex}
+
+Hospital provides the clearest process-level diagnostic
+(Fig.~\ref{fig:hospital}; Table~\ref{tab:hospital}). Strict success is
+non-monotonic in replan frequency---R-3 underperforms less frequent policies
+despite more navigator calls---while stall burden and revisit rate move in the
+opposite direction. Event-triggered replanning preserves perfect completion with
+the lowest stall and revisit in the table. One-shot planning also sharpens
+execution relative to the executor-only baseline, consistent with an opening
+plan that steers the executor away from listing pages lacking phone details.
+Together, these patterns suggest that on recovery-heavy workflows, opening
+guidance helps avoid unproductive loops, and event-triggered recovery can
+further reduce process burden without the disruption seen under fixed-interval
+replanning.
+
+\begin{figure}[t]
+\centering
+\figplaceholder{figures/fig_hospital_cadence.png}{0.88}
+\caption{Hospital lookup: strict success rate and median stall burden across
+navigator cadence. Success is non-monotonic in replan frequency (R-3 drops to
+7/10); R-A matches I on reliability while lowering stall burden further.
+Steps, duration, and revisit medians appear in Table~\ref{tab:hospital}.}
+\label{fig:hospital}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Hospital diagnostic metrics (medians). Stall and revisit are
+fractions; strict success is out of 10. Fig.~\ref{fig:hospital} visualizes
+strict success and stall across cadence; this table adds steps, duration, and
+revisit rate.}
+\label{tab:hospital}
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Cond.} & \textbf{Strict} & \textbf{Steps} & \textbf{Dur. (s)} & \textbf{Stall} & \textbf{Revisit} \\
+\midrule
+E   & 3/10  & 14 & 381 & 0.71 & 0.43 \\
+I   & 10/10 & 7  & 199 & 0.29 & 0.43 \\
+R-1 & 10/10 & 9  & 313 & 0.44 & 0.56 \\
+R-3 & 7/10  & 10 & 294 & 0.50 & 0.60 \\
+R-5 & 9/10  & 9  & 239 & 0.44 & 0.56 \\
+R-A & 10/10 & 5  & 145 & 0.17 & 0.33 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Discussion and Limitations}
+
+One-shot navigation is the most reliable result of this study. It substantially
+improves Hospital and GitHub strict success (Fig.~\ref{fig:strict}) while
+maintaining ceiling performance on the other two tasks. Thus, an opening
+plan can be useful when the executor must maintain field-completeness or
+filter/sort constraints over multiple page transitions.
+
+By contrast, fixed-interval replanning is not uniformly beneficial. Frequent
+intervention sometimes disrupts a working search flow: R-1 loses the one-shot
+gain on GitHub, while R-1 and R-3 both lose ground on HuggingFace
+(Fig.~\ref{fig:strict}). On Hospital, success is non-monotonic in replan
+frequency---R-3 falls below R-5 despite more frequent guidance
+(Fig.~\ref{fig:hospital}; Table~\ref{tab:hospital}). Longer intervals often
+recover the one-shot baseline, but the data do not support one globally
+optimal interval. R-A matches I's perfect strict-success record and, in this
+run set, often lowers median duration (Table~\ref{tab:eff}), with the
+strongest process-level advantage on Hospital (Fig.~\ref{fig:hospital};
+Table~\ref{tab:hospital}). Its role should therefore be interpreted as a
+promising recovery policy rather than a demonstrated universal optimum.
+
+Several limitations bound this interpretation. Although the condition order was
+randomized within task blocks, runs remained sequential on live websites, so
+content drift, latency, or rate-limiting may still contribute to run-to-run
+variation; $n=10$ per cell also limits strong inference. The study evaluates one
+text-only deployment with a Doubao executor and a DeepSeek navigator, so it
+estimates a system-level intervention rather than a model-independent causal
+effect of planning. The four workflows are read-only or filter-based and exclude
+authenticated, write, and visually grounded interaction. Finally, R-A uses one
+hand-specified stall/revisit trigger without threshold-sensitivity analysis. The
+results are therefore descriptive evidence for this deployment setting, not a
+broad benchmark claim.
+
+% =============================================================================
+\section{Conclusion}
+% =============================================================================
+
+Holding a CDP browser agent's executor fixed, this case-study cadence sweep
+shows that navigator guidance is neither uniformly helpful nor uniformly harmful.
+One-shot planning and event-triggered replanning each achieved 40/40
+evidence-audited strict successes in this four-task snapshot, while frequent
+fixed-interval replanning reduced success on selected tasks. The Hospital workflow illustrates the clearest benefit
+(Fig.~\ref{fig:hospital}; Table~\ref{tab:hospital}): one-shot guidance improved
+completion and reduced the median execution burden, and event-triggered
+guidance further reduced median steps, duration, stall burden, and revisit rate
+in this run set. Future work should introduce same-model
+navigator controls, include visual and authenticated workflows, increase the
+number and diversity of tasks, and test trigger thresholds more systematically.
+
+\paragraph{Data and code availability.}
+All frozen task cards, run logs, audit labels, analysis scripts, and
+figure-generation code needed to reproduce this study are available at
+\url{https://github.com/zhangyouhao215-droid/pricai2026-navigator-cadence}.
+The repository bundles the \code{daily\_task\_eval} experiment package,
+reproduction scripts, and the data files used to regenerate
+Tables~\ref{tab:eff}--\ref{tab:hospital} and Figures~\ref{fig:strict}--\ref{fig:hospital}.
+
+\begin{credits}
+\subsubsection{\discintname} The authors declare no competing interests
+relevant to this work.
+\end{credits}
+
+\bibliographystyle{splncs04}
+\bibliography{references}
+
+\end{document}

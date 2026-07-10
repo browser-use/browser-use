@@ -7,6 +7,7 @@ from browser_use.cli_navigator import resolve_navigator_llm_for_agent
 def test_agent_settings_continuous_navigation_defaults():
 	s = AgentSettings()
 	assert s.continuous_navigation is False
+	assert s.replan_policy == 'scheduled'
 	assert s.navigator_replan_interval == 5
 	assert s.navigator_replan_on_stall is True
 	assert s.navigator_context_max_chars == 6000
