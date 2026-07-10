@@ -4102,11 +4102,18 @@ def _resolve_tools(
 	output_model_schema: type[BaseModel] | None,
 	use_vision: bool | Literal['auto'],
 	display_files_in_done_text: bool,
+	context: Any | None = None,
 ) -> Any:
 	resolved_tools = tools if tools is not None else controller
 	if resolved_tools is None:
 		exclude_actions = ['screenshot'] if use_vision is False else []
-		resolved_tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+		resolved_tools = Tools(
+			exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text, context=context
+		)
+	elif context is not None and hasattr(resolved_tools, 'context') and hasattr(resolved_tools, 'registry'):
+		resolved_tools.context = context
+		if hasattr(resolved_tools.registry, 'context'):
+			resolved_tools.registry.context = context
 	if output_model_schema is not None and hasattr(resolved_tools, 'use_structured_output_action'):
 		resolved_tools.use_structured_output_action(output_model_schema)
 	return resolved_tools
@@ -4235,6 +4242,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser: BrowserSession | None = None,
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,
+		context: Context | None = None,
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,
 		skill_service: Any | None = None,
@@ -4324,6 +4332,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.task_id = self.id
 		self.llm = llm
 		self.judge_llm = judge_llm
+		self.context = context
 		self.browser_session, self._browser_profile = _default_browser_session(
 			self.id,
 			browser_profile,
@@ -4343,6 +4352,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			output_model_schema,
 			use_vision,
 			display_files_in_done_text,
+			context,
 		)
 		if skills and skill_ids:
 			raise ValueError('Cannot specify both "skills" and "skill_ids" parameters. Use "skills" for the cleaner API.')

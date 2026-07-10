@@ -142,6 +142,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser: Browser | None = None,  # Alias for browser_session
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,  # Alias for tools
+		context: Context | None = None,
 		# Skills integration
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
@@ -307,6 +308,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize available file paths as direct attribute
 		self.available_file_paths = available_file_paths
+		self.context = context
 
 		# Set up tools first (needed to detect output_model_schema)
 		if tools is not None:
@@ -316,7 +318,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			# Exclude screenshot tool when use_vision is not auto
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
-			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+			self.tools = Tools(
+				exclude_actions=exclude_actions,
+				display_files_in_done_text=display_files_in_done_text,
+				context=context,
+			)
+
+		if context is not None:
+			self.tools.context = context
+			self.tools.registry.context = context
 
 		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
 		if use_vision != 'auto':
@@ -2777,6 +2787,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.available_file_paths,
 					extraction_schema=self.extraction_schema,
+					context=self.context,
 				)
 
 				if result.error:

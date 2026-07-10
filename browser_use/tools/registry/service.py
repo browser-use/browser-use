@@ -33,9 +33,10 @@ logger = logging.getLogger(__name__)
 class Registry(Generic[Context]):
 	"""Service for registering and managing actions"""
 
-	def __init__(self, exclude_actions: list[str] | None = None):
+	def __init__(self, exclude_actions: list[str] | None = None, context: Context | None = None):
 		self.registry = ActionRegistry()
 		self.telemetry = ProductTelemetry()
+		self.context = context
 		# Create a new list to avoid mutable default argument issues
 		self.exclude_actions = list(exclude_actions) if exclude_actions is not None else []
 
@@ -338,6 +339,7 @@ class Registry(Generic[Context]):
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		extraction_schema: dict | None = None,
+		context: Context | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -366,6 +368,7 @@ class Registry(Generic[Context]):
 
 			# Build special context dict
 			special_context = {
+				'context': self.context if context is None else context,
 				'browser_session': browser_session,
 				'page_extraction_llm': page_extraction_llm,
 				'available_file_paths': available_file_paths,
