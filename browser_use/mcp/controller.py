@@ -62,22 +62,26 @@ class MCPToolWrapper:
 		async with stdio_client(server_params) as (read, write):
 			async with ClientSession(read, write) as session:
 				self.session = session
+				previous_tools = self._tools
+				try:
+					# Initialize the connection
+					await session.initialize()
 
-				# Initialize the connection
-				await session.initialize()
+					# Discover available tools
+					tools_response = await session.list_tools()
+					self._tools = {tool.name: tool for tool in tools_response.tools}
 
-				# Discover available tools
-				tools_response = await session.list_tools()
-				self._tools = {tool.name: tool for tool in tools_response.tools}
+					logger.info(f'📦 Discovered {len(self._tools)} MCP tools: {list(self._tools.keys())}')
 
-				logger.info(f'📦 Discovered {len(self._tools)} MCP tools: {list(self._tools.keys())}')
+					self._register_discovered_tools()
 
-				# Register all discovered tools as actions
-				for tool_name, tool in self._tools.items():
-					self._register_tool_as_action(tool_name, tool)
-
-				# Keep session alive while tools are being used
-				await self._keep_session_alive()
+					# Keep session alive while tools are being used
+					await self._keep_session_alive()
+				except Exception:
+					self._tools = previous_tools
+					raise
+				finally:
+					self.session = None
 
 	async def _keep_session_alive(self):
 		"""Keep the MCP session alive."""
@@ -88,6 +92,30 @@ class MCPToolWrapper:
 		except asyncio.CancelledError:
 			pass
 
+	def _register_discovered_tools(self) -> None:
+		"""Register the discovered MCP tools as one atomic batch."""
+		pending_tools = [
+			(tool_name, tool) for tool_name, tool in self._tools.items() if tool_name not in self._registered_actions
+		]
+		collisions = sorted(tool_name for tool_name, _ in pending_tools if tool_name in self.registry.registry.actions)
+		if collisions:
+			collision_names = ', '.join(collisions)
+			raise ValueError(
+				f'Action names already registered: {collision_names}. '
+				'Use an MCP tool prefix or filter to avoid overriding existing actions.'
+			)
+
+		registered_now: list[str] = []
+		try:
+			for tool_name, tool in pending_tools:
+				self._register_tool_as_action(tool_name, tool)
+				registered_now.append(tool_name)
+		except Exception:
+			for tool_name in registered_now:
+				self.registry.registry.actions.pop(tool_name, None)
+				self._registered_actions.discard(tool_name)
+			raise
+
 	def _register_tool_as_action(self, tool_name: str, tool: Tool):
 		"""Register an MCP tool as a browser-use action.
 
@@ -97,6 +125,11 @@ class MCPToolWrapper:
 		"""
 		if tool_name in self._registered_actions:
 			return  # Already registered
+		if tool_name in self.registry.registry.actions:
+			raise ValueError(
+				f"Action name '{tool_name}' is already registered. "
+				'Use an MCP tool prefix or filter to avoid overriding existing actions.'
+			)
 
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
