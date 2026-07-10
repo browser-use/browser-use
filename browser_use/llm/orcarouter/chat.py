@@ -66,8 +66,6 @@ class ChatOrcaRouter(BaseChatModel):
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
 			'_strict_response_validation': self._strict_response_validation,
-			'top_p': self.top_p,
-			'seed': self.seed,
 		}
 
 		# Create client_params dict with non-None values
@@ -151,7 +149,7 @@ class ChatOrcaRouter(BaseChatModel):
 					top_p=self.top_p,
 					seed=self.seed,
 					extra_headers=extra_headers,
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				usage = self._get_usage(response)
@@ -182,7 +180,7 @@ class ChatOrcaRouter(BaseChatModel):
 						type='json_schema',
 					),
 					extra_headers=extra_headers,
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				if response.choices[0].message.content is None:
