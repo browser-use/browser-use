@@ -191,63 +191,33 @@ class SkillService:
 		if skill is None:
 			raise ValueError(f'Skill {skill_id} not found in cache. Available skills: {list(self._skills.keys())}')
 
-		# Extract cookie parameters from the skill
+		# Normalize params to a plain dict once so cookie injection + validation share one path.
+		params_dict: dict[str, Any] = parameters.model_dump() if isinstance(parameters, BaseModel) else dict(parameters)
+
+		# Inject cookies and enforce required-cookie presence.
 		cookie_params = [p for p in skill.parameters if p.type == 'cookie']
-
-		# Build a dict of cookies from the provided cookie list
-		cookie_dict: dict[str, str] = {cookie['name']: cookie['value'] for cookie in cookies}
-
-		# Check for missing required cookies and fill cookie values
 		if cookie_params:
+			cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
 			for cookie_param in cookie_params:
 				is_required = cookie_param.required if cookie_param.required is not None else True
-
-				if is_required and cookie_param.name not in cookie_dict:
-					# Required cookie is missing - raise exception with description
-					raise MissingCookieException(
-						cookie_name=cookie_param.name, cookie_description=cookie_param.description or 'No description provided'
-					)
-
-			# Fill in cookie values into parameters
-			# Convert parameters to dict first if it's a BaseModel
-			if isinstance(parameters, BaseModel):
-				params_dict = parameters.model_dump()
-			else:
-				params_dict = dict(parameters)
-
-			# Add cookie values to parameters
-			for cookie_param in cookie_params:
 				if cookie_param.name in cookie_dict:
 					params_dict[cookie_param.name] = cookie_dict[cookie_param.name]
+				elif is_required:
+					raise MissingCookieException(
+						cookie_name=cookie_param.name,
+						cookie_description=cookie_param.description or 'No description provided',
+					)
 
-			# Replace parameters with the updated dict
-			parameters = params_dict
-
-		# Get the skill's pydantic model for parameter validation
+		# Validate against the skill's pydantic model.
 		ParameterModel = skill.parameters_pydantic(exclude_cookies=False)
-
-		# Validate and convert parameters to dict
-		validated_params_dict: dict[str, Any]
-
 		try:
-			if isinstance(parameters, BaseModel):
-				# Already a pydantic model - validate it matches the skill's schema
-				# by converting to dict and re-validating with the skill's model
-				params_dict = parameters.model_dump()
-				validated_model = ParameterModel(**params_dict)
-				validated_params_dict = validated_model.model_dump()
-			else:
-				# Dict provided - validate with the skill's pydantic model
-				validated_model = ParameterModel(**parameters)
-				validated_params_dict = validated_model.model_dump()
-
+			validated_params_dict = ParameterModel(**params_dict).model_dump()
 		except ValidationError as e:
-			# Pydantic validation failed
-			error_msg = f'Parameter validation failed for skill {skill.title}:\n'
+			error_lines = [f'Parameter validation failed for skill {skill.title}:']
 			for error in e.errors():
 				field = '.'.join(str(x) for x in error['loc'])
-				error_msg += f'  - {field}: {error["msg"]}\n'
-			raise ValueError(error_msg) from e
+				error_lines.append(f'  - {field}: {error["msg"]}')
+			raise ValueError('\n'.join(error_lines) + '\n') from e
 		except Exception as e:
 			raise ValueError(f'Failed to validate parameters for skill {skill.title}: {type(e).__name__}: {e}') from e
 
@@ -279,7 +249,9 @@ class SkillService:
 	async def close(self) -> None:
 		"""Close the SDK client and cleanup resources"""
 		if self._client is not None:
-			# AsyncBrowserUse client cleanup if needed
-			# The SDK doesn't currently have a close method, but we set to None for cleanup
+			try:
+				await self._client.close()
+			except Exception as e:
+				logger.debug(f'Error closing SDK client: {type(e).__name__}: {e}')
 			self._client = None
 		self._initialized = False
