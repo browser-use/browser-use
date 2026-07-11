@@ -22,6 +22,22 @@ class _FakeCdpClient:
 	async def send_raw(self, method: str, params: dict[str, Any] | None = None, session_id: str | None = None) -> dict[str, Any]:
 		call = {'method': method, 'params': params or {}, 'session_id': session_id}
 		self.calls.append(call)
+		if method == 'Runtime.evaluate' and '.innerText.strip()' in call['params'].get('expression', ''):
+			description = 'TypeError: el.innerText.strip is not a function\n    at <anonymous>:2:18'
+			return {
+				'result': {'type': 'object', 'subtype': 'error', 'className': 'TypeError', 'description': description},
+				'exceptionDetails': {
+					'text': 'Uncaught',
+					'lineNumber': 2,
+					'columnNumber': 17,
+					'exception': {'className': 'TypeError', 'description': description},
+					'stackTrace': {
+						'callFrames': [
+							{'functionName': '', 'url': 'https://example.com/app.js', 'lineNumber': 2, 'columnNumber': 17}
+						]
+					},
+				},
+			}
 		if method == 'Runtime.evaluate' and call['params'].get('expression') == '1 + 1':
 			return {'result': {'value': 2}}
 		if method == 'Runtime.evaluate' and call['params'].get('expression') == '() => [1, 2, 3]':
@@ -120,6 +136,39 @@ async def test_in_process_executor_js_helper_returns_value():
 		'params': {'expression': '1 + 1', 'awaitPromise': True, 'returnByValue': True, 'timeout': 15000.0},
 		'session_id': 'page-session',
 	}
+
+
+@pytest.mark.asyncio
+async def test_evaluate_and_python_js_share_multiline_transport_and_detailed_errors():
+	browser_session = _FakeBrowserSession()
+	executor = InProcessPythonExecutor(browser_session=browser_session)  # type: ignore[arg-type]
+	tools = Tools()
+	ActionModel = tools.registry.create_action_model(include_actions=['evaluate'])
+	multiline_javascript = """() => {
+	const links = [...document.querySelectorAll('a')];
+	return links.map(a => ({text: a.innerText, href: a.href, quote: `say "hello"`}));
+}"""
+
+	action = ActionModel.model_validate({'evaluate': {'code': multiline_javascript}})
+	evaluate_result = await tools.act(action=action, browser_session=browser_session)  # type: ignore[arg-type]
+
+	assert evaluate_result.error is None
+	assert browser_session.cdp_client.calls[-1]['params']['expression'] == multiline_javascript
+
+	failing_javascript = """() => {
+	const el = document.body;
+	return el.innerText.strip();
+}"""
+	python_result = await executor.run(f'await js({failing_javascript!r})')
+	assert 'TypeError at line 3, column 18: el.innerText.strip is not a function' in (python_result.error or '')
+	assert 'RuntimeError: Uncaught' not in (python_result.error or '')
+
+	failing_action = ActionModel.model_validate({'evaluate': {'code': failing_javascript}})
+	evaluate_error = await tools.act(action=failing_action, browser_session=browser_session)  # type: ignore[arg-type]
+	assert evaluate_error.error == 'TypeError: el.innerText.strip is not a function'
+	assert evaluate_error.extracted_content is not None
+	assert 'line 3, column 18' in evaluate_error.extracted_content
+	assert 'https://example.com/app.js' in evaluate_error.extracted_content
 
 
 @pytest.mark.asyncio
@@ -416,11 +465,14 @@ def test_code_mode_guidance_lives_in_system_prompt():
 	assert '<code_mode>' not in plain
 	assert '<code_mode>' in code
 	assert '`evaluate`' in plain
-	assert '`evaluate`' not in code
+	assert '`evaluate`' in code
 	assert '`run_python`' in code
+	assert 'Use evaluate for page-local JavaScript' in code
+	assert 'Never import or use Playwright' in code
+	assert 'raw triple-quoted string' in code
 	assert 'await cdp("Domain.method"' in code
 	assert 'Code runs inside the agent worker process' in code
-	assert 'Keep each cell bounded' in code
+	assert 'Prefer one complete bounded extraction' in code
 	assert 'You must ALWAYS respond with a valid JSON' in plain
 	assert 'You must ALWAYS respond with a valid JSON' not in code
 	assert 'calling the provided `browser_use_step` function exactly once' in code
@@ -436,7 +488,7 @@ def test_agent_code_mode_does_not_mutate_shared_tools(mock_llm):
 
 	assert code_agent.tools is not shared_tools
 	assert 'run_python' in code_agent.tools.registry.registry.actions
-	assert 'evaluate' not in code_agent.tools.registry.registry.actions
+	assert 'evaluate' in code_agent.tools.registry.registry.actions
 	assert 'run_python' not in shared_tools.registry.registry.actions
 	assert 'evaluate' in shared_tools.registry.registry.actions
 	assert code_agent.tools.display_files_in_done_text is False
@@ -472,6 +524,7 @@ async def test_agent_code_mode_requests_one_native_output_tool(mock_llm):
 	assert kwargs['tools'][0].name == 'browser_use_step'
 	assert kwargs['tools'][0].parameters['required'] == ['step']
 	assert 'run_python' in str(kwargs['tools'][0].parameters)
+	assert 'evaluate' in str(kwargs['tools'][0].parameters)
 
 
 @pytest.mark.asyncio

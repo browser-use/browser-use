@@ -26,6 +26,16 @@ open("nested/\u2603.json", "w").write(json.dumps(rows, ensure_ascii=False))
 print("```json\\n</tool_call>\\n", len(rows))
 '''
 
+HOSTILE_JAVASCRIPT = """() => {
+  const pattern = /\\w+\\/path/g;
+  return [...document.querySelectorAll('a')].map(a => ({
+    text: a.innerText,
+    href: a.href,
+    quote: `say "hello" and don't break`,
+    pattern: pattern.source
+  }));
+}"""
+
 
 def _tool() -> ToolDefinition:
 	return ToolDefinition(
@@ -158,7 +168,7 @@ async def test_anthropic_thinking_uses_auto_but_keeps_native_tool_channel():
 
 @pytest.mark.asyncio
 async def test_gemini_native_tool_preserves_code_and_thought_signature():
-	function_call = SimpleNamespace(id='call_1', name='browser_use_step', args={'code': HOSTILE_CODE})
+	function_call = SimpleNamespace(id='call_1', name='browser_use_step', args={'code': HOSTILE_JAVASCRIPT})
 	part = SimpleNamespace(function_call=function_call, text=None, thought=False, thought_signature=b'signature')
 	response = SimpleNamespace(
 		text=None,
@@ -179,7 +189,7 @@ async def test_gemini_native_tool_preserves_code_and_thought_signature():
 
 	result = await llm.ainvoke([UserMessage(content='act')], tools=[_tool()], tool_choice='required')
 
-	assert json.loads(result.tool_calls[0].function.arguments)['code'] == HOSTILE_CODE
+	assert json.loads(result.tool_calls[0].function.arguments)['code'] == HOSTILE_JAVASCRIPT
 	assert result.tool_calls[0].thought_signature == b'signature'
 	request_call = client.aio.models.generate_content.await_args
 	assert request_call is not None

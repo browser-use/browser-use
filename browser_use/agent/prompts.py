@@ -37,27 +37,35 @@ Do not emit assistant prose, Markdown, raw JSON, XML, `<invoke>`, or `<parameter
 		'Remaining actions after them are skipped automatically. Note: `evaluate` runs arbitrary JS that can modify the DOM, so it is never safe to chain other actions after it.'
 	)
 	_PAGE_CHANGING_ACTIONS_WITH_CODE = (
-		'- **Page-changing / sequence-ending (always last):** `navigate`, `search`, `go_back`, `switch`, `run_python` — these change the page or end the action sequence. '
-		'Remaining actions after them are skipped automatically. Note: `run_python` has raw CDP access and can inspect or mutate the page, so it is never safe to chain other actions after it.'
+		'- **Page-changing / sequence-ending (always last):** `navigate`, `search`, `go_back`, `switch`, `evaluate`, `run_python` — these change the page or end the action sequence. '
+		'Remaining actions after them are skipped automatically. Note: `evaluate` and `run_python` can inspect or mutate the page, so it is never safe to chain other actions after them.'
 	)
 	_SHADOW_DOM_WITH_EVALUATE = '**Shadow DOM:** Elements inside shadow DOM that have `[index]` markers are directly clickable with `click(index)`. Do NOT use `evaluate` to click them.'
 	_SHADOW_DOM_WITH_CODE = (
 		'**Shadow DOM:** Elements inside shadow DOM that have `[index]` markers are directly clickable with `click(index)`. '
-		'Use raw CDP or JavaScript only for shadow DOM elements that are NOT indexed.'
+		'Use evaluate or raw CDP only for shadow DOM elements that are NOT indexed.'
 	)
-	_CODE_MODE_PROMPT = """<code_mode>
-run_python is available when raw CDP is needed.
-Use it when normal browser actions are insufficient or when one bounded script is clearer. Keep each cell bounded and easy to diagnose; inspect first when necessary, then act using what you learned.
-Inside code, use await cdp("Domain.method", params, session=None, request_timeout=30), await wait_for_event("Domain.event", timeout=30, session=None), await js("...", timeout=15), await tabs(), and await targets(). js accepts either a JavaScript expression or a zero-argument function such as () => [...]. wait_for_event returns the event params dict directly. Page/Runtime/DOM/Input/Network default to the focused tab; Browser/Target/SystemInfo default to root CDP. Use session="root", session="any", or a tab/target/session id for explicit event routing.
+	_CODE_MODE_PROMPT = '''<code_mode>
+Choose the narrowest action that can complete the work:
+1. Use normal browser actions for navigation, clicks, typing, scrolling, and indexed elements.
+2. Use evaluate for page-local JavaScript: DOM queries, window/localStorage access, page-local fetch, bulk extraction, or unusual page interaction. Multiline JavaScript is transported directly; do not wrap page-only JavaScript in run_python.
+3. Use run_python only when the workflow needs raw CDP, CDP events, multiple targets/sessions, workspace files, host-side HTTP, subprocesses, or substantial Python processing.
+Never import or use Playwright. The browser is already controlled through browser actions, evaluate, and the injected CDP helpers.
+Prefer one complete bounded extraction over repeated exploratory code cells. If browser_state, find, or query already provides the information, do not run code merely to inspect it again.
+Inside run_python, use await cdp("Domain.method", params, session=None, request_timeout=30), await wait_for_event("Domain.event", timeout=30, session=None), await tabs(), and await targets(). Page/Runtime/DOM/Input/Network default to the focused tab; Browser/Target/SystemInfo default to root CDP. Use session="root", session="any", or a tab/target/session id for explicit routing.
+Only when a larger Python workflow must consume page JavaScript, use await js(...). One-line JavaScript may use await js("document.title"). Multiline JavaScript must use a raw triple-quoted string, for example:
+results = await js(r"""
+() => [...document.querySelectorAll('a')].map(a => ({text: a.innerText, href: a.href}))
+""")
 Return compact output with print() or a final expression. Save large data to files and print the path plus a short summary.
 Code runs inside the agent worker process with a fresh namespace for each cell. Relative paths passed to open() resolve inside the persistent workspace; with pathlib, use WORKSPACE_DIR / "file". Files and browser state persist but Python variables do not.
 Cells already run in an async event loop and support top-level await. Use await directly; never call asyncio.run(), run_until_complete(), or create another event loop. Defining async def does not execute it: call it with top-level await, or write the workflow directly at top level.
 Always set explicit timeouts on Python network and subprocess operations. Do not create background tasks, stop the event loop, change process-wide signal handlers, or mutate process globals. Avoid evaluating or returning entire framework internals, global objects, or other unbounded JavaScript structures; select only the fields needed.
 Never print a large dataset or read a large artifact through read_file. Validate/filter it in Python, save it, and print only compact counts, sizes, samples, and the relative path. Use list_files, search_files, or bounded read_file when a later step needs to inspect it.
 Before finishing bulk extraction, check semantic anomalies as well as record counts: duplicates, labels or headings mistaken for values, truncated fields, missing required fields, and inconsistent samples. Repair them rather than reporting only completeness statistics.
-run_python ends the action sequence. After page-changing CDP, wait for the next browser_state before using element indexes.
+evaluate and run_python end the action sequence. After page-changing code, wait for the next browser_state before using element indexes.
 Do not add prose outside the required structured action response.
-</code_mode>"""
+</code_mode>'''
 
 	def __init__(
 		self,

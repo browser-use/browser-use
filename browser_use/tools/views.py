@@ -140,9 +140,12 @@ class SendKeysAction(BaseModel):
 class RunPythonAction(BaseModel):
 	code: str = Field(
 		description=(
-			'Python code to execute with direct CDP browser control. Use await cdp("Domain.method", params, request_timeout=30) '
+			'Python code for raw CDP, CDP events, multiple targets/sessions, workspace files, host-side HTTP, subprocesses, '
+			'or substantial Python processing. Use the evaluate action instead for page-local JavaScript and DOM extraction. '
+			'Never import or use Playwright. Use await cdp("Domain.method", params, request_timeout=30) '
 			'for raw Chrome DevTools Protocol calls and await wait_for_event("Domain.event") for events; '
-			'use await js("...", timeout=15), await tabs(), or await targets() for common inspection. '
+			'use await tabs() or await targets() for target inspection. If a larger Python workflow must consume multiline '
+			'JavaScript, pass it to await js(...) as a raw triple-quoted string. '
 			'Top-level await is supported; never call asyncio.run() or run_until_complete(). '
 			'Relative open() paths use the persistent workspace; with pathlib, use WORKSPACE_DIR / "file". '
 			'Code runs inside the agent worker process, so do not stop the event loop or mutate process globals. '

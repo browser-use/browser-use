@@ -4,7 +4,7 @@ Status: implemented and validated on `codex/raw-cdp-code-mode`.
 
 ## Product Goal
 
-Keep Browser Use's compact indexed actions as the preferred path while enabling one escalation action by default with the capabilities that matter most from Browser Harness:
+Keep Browser Use's compact indexed actions as the preferred path while enabling two explicit escalation levels by default with the capabilities that matter most from Browser Harness:
 
 - provider-native transport for quote-heavy Python and JavaScript;
 - trusted Python inside the disposable agent worker;
@@ -12,7 +12,7 @@ Keep Browser Use's compact indexed actions as the preferred path while enabling 
 - a normal persistent working directory;
 - hard output and file-reading boundaries.
 
-This is deliberately not a Browser Harness reimplementation. Mature Browser Use click, type, upload, navigation, and DOM-index actions remain the preferred path. `run_python` is the primitive escape hatch for browser internals, bulk work, and unusual interactions.
+This is deliberately not a Browser Harness reimplementation. Mature Browser Use click, type, upload, navigation, and DOM-index actions remain the preferred path. `evaluate` is the direct page-JavaScript path; `run_python` is the primitive escape hatch for browser internals, bulk work, host processing, and unusual interactions.
 
 ## Final Architecture
 
@@ -24,9 +24,10 @@ Supervisor / terminal
        -> existing AgentOutput Pydantic validation
        -> existing Browser Use action loop
             |-- ordinary indexed action
-            `-- run_python (sequence-ending)
+            |-- evaluate (sequence-ending page JavaScript)
+            `-- run_python (sequence-ending trusted Python)
                   -> fresh in-process Python namespace
-                  -> direct BrowserSession CDP client
+                  -> shared direct BrowserSession CDP bridge
                         -> arbitrary CDP command
                         -> raw CDP event wait
                         -> tabs / targets
@@ -104,11 +105,11 @@ Routing rules:
 
 `wait_for_event` returns the raw event params dict. Its event multiplexer preserves BrowserSession's existing single-slot `cdp_use` handler and restores it after success, timeout, or cell cancellation.
 
-`js` accepts either a JavaScript expression or a zero-argument function. If Chrome returns a function object, the runtime invokes it with `Runtime.callFunctionOn` when possible and uses a function-literal evaluation fallback when `returnByValue` omits the object ID.
+`evaluate` and Python's `js` helper use the same direct-CDP evaluator. It transports the exact JavaScript source without quote repair, accepts either an expression or a zero-argument function, invokes returned functions when needed, and preserves Chrome's exception type, message, line, column, source excerpt, stack, URL, and CDP session. A generic `Uncaught` label never replaces a more useful remote exception description.
 
-`run_python` always ends the current action sequence. The next step captures fresh browser state, so indexed elements are not reused after in-cell navigation.
+Both `evaluate` and `run_python` always end the current action sequence. The next step captures fresh browser state, so indexed elements are not reused after code-driven navigation.
 
-The legacy `evaluate` action is hidden only for the code-enabled agent-local Tools registry.
+The existing `evaluate` action remains available in code mode under its main-branch name. It is the preferred code action for DOM, `window`, local storage, and page-context `fetch` work. `run_python` is reserved for arbitrary CDP, events, explicit sessions or targets, files, host HTTP/subprocess work, or substantial Python-side processing.
 
 ## 4. Workspace And Context Boundaries
 
@@ -138,7 +139,10 @@ All library file actions resolve paths under the workspace and reject traversal 
 The short code-mode guide lives only in the system prompt. It tells the model:
 
 - use ordinary Browser Use actions first;
-- use raw code when the indexed action space is insufficient;
+- use `evaluate` for page-local JavaScript when the indexed action space is insufficient;
+- use `run_python` only for raw CDP/events/sessions, host or file operations, or substantial processing;
+- never import or use Playwright;
+- prefer one complete bounded extraction over exploratory code cells;
 - use top-level `await`, never `asyncio.run()`;
 - remember that each cell gets a fresh namespace;
 - use relative `open()` or `WORKSPACE_DIR` with `pathlib`;
@@ -160,6 +164,8 @@ Deterministic tests cover:
 - exact Agent use of one native `browser_use_step` tool;
 - one-field native schema wrapping for agent steps and judge results;
 - raw root and target CDP routing;
+- shared `evaluate`/`js` JavaScript transport, including multiline hostile quoting;
+- structured JavaScript errors that prefer Chrome's actionable description over `Uncaught`;
 - JavaScript expression and zero-argument function execution;
 - raw event waiting without clobbering BrowserSession handlers;
 - event-handler restoration after cooperative cell timeout;
@@ -182,7 +188,7 @@ Each provider completed the same end-to-end probe: native wrapped step calls, `B
 
 Randomized hard dataset runs additionally exercised bulk extraction and recovery on FCC, YC, Georges River, Talkmobile, and Knight Frank tasks. Those runs validated the native transport and raw-CDP surface; the final in-process runtime is covered separately by deterministic and local-browser tests.
 
-Final verification passes all pre-commit hooks, Pyright with zero errors, and a 177-test compatibility selection covering native transport, in-process raw CDP execution, a complete no-output Agent cell, loop detection, tools, filesystem behavior, and LLM context boundaries.
+Final verification passes all pre-commit hooks, Pyright with zero errors, and a 191-test compatibility selection covering native transport, in-process raw CDP execution, a complete no-output Agent cell, loop detection, tools, filesystem behavior, and LLM context boundaries. A real Chromium probe also verifies hostile multiline JavaScript, detailed runtime errors through both entry points, forced JavaScript termination, and successful post-timeout recovery.
 
 ## Deferred Follow-ups
 

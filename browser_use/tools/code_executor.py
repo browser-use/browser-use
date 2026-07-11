@@ -32,6 +32,283 @@ class CodeExecutionResult(BaseModel):
 	duration_seconds: float = 0.0
 
 
+class JavaScriptErrorDetails(BaseModel):
+	"""Structured JavaScript failure returned by Chrome Runtime.evaluate."""
+
+	exception_type: str = 'JavaScriptError'
+	message: str
+	line: int | None = None
+	column: int | None = None
+	source_excerpt: str | None = None
+	stack: str | None = None
+	url: str | None = None
+	session_id: str | None = None
+
+	def format_for_model(self) -> str:
+		"""Render a compact diagnostic without discarding Chrome's useful details."""
+		location = ''
+		if self.line is not None:
+			location = f' at line {self.line}'
+			if self.column is not None:
+				location += f', column {self.column}'
+		parts = [f'{self.exception_type}{location}: {self.message}']
+		if self.url:
+			parts.append(f'Script URL: {self.url}')
+		if self.source_excerpt:
+			parts.append(f'Source:\n{self.source_excerpt}')
+		if self.stack:
+			parts.append(f'Stack:\n{self.stack}')
+		if self.session_id:
+			parts.append(f'CDP session: {self.session_id}')
+		return '\n'.join(parts)
+
+
+class JavaScriptEvaluationError(RuntimeError):
+	"""Exception carrying structured JavaScript error details."""
+
+	def __init__(self, details: JavaScriptErrorDetails) -> None:
+		self.details = details
+		super().__init__(details.format_for_model())
+
+
+def _javascript_source_excerpt(expression: str, zero_based_line: int | None) -> str | None:
+	"""Return a bounded source window around a zero-based CDP line number."""
+	lines = expression.splitlines()
+	if not lines:
+		return None
+	if zero_based_line is None:
+		snippet = expression.strip().replace('\n', '\\n')
+		return snippet[:500] + ('...' if len(snippet) > 500 else '')
+	line_index = max(0, min(zero_based_line, len(lines) - 1))
+	start = max(0, line_index - 1)
+	end = min(len(lines), line_index + 2)
+	return '\n'.join(f'{">" if index == line_index else " "} {index + 1}: {lines[index]}' for index in range(start, end))
+
+
+def _decode_unserializable_javascript_value(value: str) -> Any:
+	if value == 'NaN':
+		return float('nan')
+	if value == 'Infinity':
+		return float('inf')
+	if value == '-Infinity':
+		return float('-inf')
+	if value == '-0':
+		return -0.0
+	if value.endswith('n'):
+		return int(value[:-1])
+	return value
+
+
+class DirectCdpBridge:
+	"""Direct BrowserSession CDP routing shared by evaluate and Python code mode."""
+
+	_ROOT_CDP_DOMAINS = {'Browser', 'Target', 'SystemInfo'}
+
+	def __init__(self, browser_session: BrowserSession) -> None:
+		self.browser_session = browser_session
+
+	async def send(
+		self,
+		method: Any,
+		params: Any = None,
+		session: Any = None,
+		request_timeout: float = 30.0,
+	) -> dict[str, Any]:
+		"""Send an arbitrary raw CDP command with root/target/session resolution."""
+		if not isinstance(method, str) or '.' not in method:
+			raise ValueError('CDP method must be a string like "Page.navigate" or "Runtime.evaluate".')
+		if params is None:
+			params = {}
+		if not isinstance(params, dict):
+			raise TypeError('CDP params must be a dict or None.')
+		session_id = await self.resolve_session_id(method, session)
+		return await self._send_resolved(method, params, session_id, request_timeout)
+
+	async def _send_resolved(
+		self,
+		method: str,
+		params: dict[str, Any],
+		session_id: str | None,
+		request_timeout: float,
+	) -> dict[str, Any]:
+		request_timeout = max(0.1, float(request_timeout))
+		started_at = time.monotonic()
+		logger.debug(f'🐍 Direct CDP request started: {method}')
+		try:
+			async with asyncio.timeout(request_timeout):
+				return await self.browser_session.cdp_client.send_raw(
+					method=method,
+					params=params,
+					session_id=session_id,
+				)
+		except TimeoutError as exc:
+			raise TimeoutError(f'{method} did not return within {request_timeout:g}s.') from exc
+		finally:
+			duration = time.monotonic() - started_at
+			if duration >= 5:
+				logger.info(f'🐍 Direct CDP request {method} returned after {duration:.1f}s')
+			else:
+				logger.debug(f'🐍 Direct CDP request completed: {method} ({duration:.3f}s)')
+
+	async def resolve_session_id(self, method: str, session: Any) -> str | None:
+		"""Resolve root, raw session, target, or short tab identifiers."""
+		if session is False or session == 'root':
+			return None
+		if hasattr(session, 'session_id'):
+			return str(session.session_id)
+		if session is None:
+			if method.split('.', 1)[0] in self._ROOT_CDP_DOMAINS:
+				return None
+			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=False)
+			return str(cdp_session.session_id)
+
+		session_key = str(session)
+		session_manager = self.browser_session.session_manager
+		if session_manager is not None:
+			cdp_session = session_manager.get_session(session_key)
+			if cdp_session is not None:
+				return str(cdp_session.session_id)
+			for session_id, cdp_session in session_manager.get_all_sessions().items():
+				if str(session_id).endswith(session_key):
+					return str(cdp_session.session_id)
+			for target_id in session_manager.get_all_target_ids():
+				if str(target_id) == session_key or str(target_id).endswith(session_key):
+					cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+					return str(cdp_session.session_id)
+
+		try:
+			target_id = await self.browser_session.get_target_id_from_tab_id(session_key)
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+			return str(cdp_session.session_id)
+		except Exception as exc:
+			raise ValueError(f'Could not resolve CDP session or target for {session_key!r}.') from exc
+
+	async def evaluate_javascript(
+		self,
+		expression: str,
+		await_promise: bool = True,
+		return_by_value: bool = True,
+		session: Any = None,
+		timeout: float = 15.0,
+	) -> Any:
+		"""Evaluate page JavaScript with function invocation and actionable errors."""
+		timeout = max(0.1, float(timeout))
+		session_id = await self.resolve_session_id('Runtime.evaluate', session)
+		try:
+			result = await self._evaluate_once(expression, await_promise, return_by_value, session_id, timeout)
+		except JavaScriptEvaluationError as exc:
+			if 'Illegal return statement' not in exc.details.message:
+				raise
+			wrapped = f'(function(){{{expression}}})()'
+			result = await self._evaluate_once(wrapped, await_promise, return_by_value, session_id, timeout)
+
+		remote_object = result.get('result', {})
+		if return_by_value and remote_object.get('type') == 'function':
+			object_id = remote_object.get('objectId')
+			if object_id:
+				result = await self._send_resolved(
+					'Runtime.callFunctionOn',
+					{
+						'objectId': object_id,
+						'functionDeclaration': 'function() { return this(); }',
+						'awaitPromise': await_promise,
+						'returnByValue': True,
+						'timeout': timeout * 1000,
+					},
+					session_id,
+					timeout + 5,
+				)
+			else:
+				result = await self._evaluate_once(
+					f'Promise.resolve((({expression}))()).then(value => value)',
+					await_promise,
+					True,
+					session_id,
+					timeout,
+				)
+			self._raise_for_javascript_error(result, expression, session_id)
+			remote_object = result.get('result', {})
+
+		if not return_by_value:
+			return remote_object
+		if 'value' in remote_object:
+			return remote_object['value']
+		if 'unserializableValue' in remote_object:
+			return _decode_unserializable_javascript_value(str(remote_object['unserializableValue']))
+		return None
+
+	async def _evaluate_once(
+		self,
+		expression: str,
+		await_promise: bool,
+		return_by_value: bool,
+		session_id: str | None,
+		timeout: float,
+	) -> dict[str, Any]:
+		result = await self._send_resolved(
+			'Runtime.evaluate',
+			{
+				'expression': expression,
+				'awaitPromise': await_promise,
+				'returnByValue': return_by_value,
+				'timeout': timeout * 1000,
+			},
+			session_id,
+			timeout + 5,
+		)
+		self._raise_for_javascript_error(result, expression, session_id)
+		return result
+
+	@staticmethod
+	def _raise_for_javascript_error(result: dict[str, Any], expression: str, session_id: str | None) -> None:
+		remote_object_value = result.get('result')
+		remote_object: dict[str, Any] = remote_object_value if isinstance(remote_object_value, dict) else {}
+		details_value = result.get('exceptionDetails')
+		details: dict[str, Any] = details_value if isinstance(details_value, dict) else {}
+		if not details and remote_object.get('subtype') != 'error' and not remote_object.get('wasThrown'):
+			return
+
+		exception_value = details.get('exception')
+		exception: dict[str, Any] = exception_value if isinstance(exception_value, dict) else {}
+		description = remote_object.get('description') or exception.get('description')
+		if not description and 'value' in exception:
+			description = str(exception['value'])
+		description = description or exception.get('className') or details.get('text') or 'JavaScript evaluation failed'
+		description_lines = str(description).splitlines()
+		message = description_lines[0] if description_lines else 'JavaScript evaluation failed'
+		exception_type = (
+			remote_object.get('className')
+			or exception.get('className')
+			or (message.split(':', 1)[0] if ':' in message else 'JavaScriptError')
+		)
+		type_prefix = f'{exception_type}:'
+		if message.startswith(type_prefix):
+			message = message[len(type_prefix) :].strip()
+
+		stack_lines = description_lines[1:]
+		stack_trace = details.get('stackTrace') or {}
+		for frame in stack_trace.get('callFrames') or []:
+			function_name = frame.get('functionName') or '<anonymous>'
+			frame_url = frame.get('url') or '<anonymous>'
+			line = int(frame.get('lineNumber', 0)) + 1
+			column = int(frame.get('columnNumber', 0)) + 1
+			stack_lines.append(f'at {function_name} ({frame_url}:{line}:{column})')
+
+		zero_based_line = details.get('lineNumber')
+		zero_based_column = details.get('columnNumber')
+		error = JavaScriptErrorDetails(
+			exception_type=str(exception_type),
+			message=message,
+			line=int(zero_based_line) + 1 if zero_based_line is not None else None,
+			column=int(zero_based_column) + 1 if zero_based_column is not None else None,
+			source_excerpt=_javascript_source_excerpt(expression, int(zero_based_line) if zero_based_line is not None else None),
+			stack='\n'.join(dict.fromkeys(stack_lines)) or None,
+			url=details.get('url') or None,
+			session_id=session_id,
+		)
+		raise JavaScriptEvaluationError(error)
+
+
 class _BoundedOutput:
 	"""Retain a bounded head and tail without accumulating unlimited output."""
 
@@ -85,8 +362,6 @@ def _format_value(value: Any) -> str:
 class InProcessPythonExecutor:
 	"""Execute trusted Python directly beside BrowserSession and its CDP client."""
 
-	_ROOT_CDP_DOMAINS = {'Browser', 'Target', 'SystemInfo'}
-
 	def __init__(
 		self,
 		browser_session: BrowserSession,
@@ -106,6 +381,7 @@ class InProcessPythonExecutor:
 			else Path(tempfile.mkdtemp(prefix='browser-use-code-workspace-'))
 		)
 		self.workspace_dir.mkdir(parents=True, exist_ok=True)
+		self.direct_cdp = DirectCdpBridge(browser_session)
 		self._lock = asyncio.Lock()
 		self._event_lock = asyncio.Lock()
 		self._event_waiters: dict[str, list[tuple[asyncio.Future[dict[str, Any]], str | None, bool]]] = {}
@@ -191,7 +467,7 @@ class InProcessPythonExecutor:
 			session: Any = None,
 			request_timeout: float = 30.0,
 		) -> dict[str, Any]:
-			return await self._send_cdp(method, params, session, request_timeout)
+			return await self.direct_cdp.send(method, params, session, request_timeout)
 
 		async def js(
 			expression: str,
@@ -200,7 +476,7 @@ class InProcessPythonExecutor:
 			session: Any = None,
 			timeout: float = 15.0,
 		) -> Any:
-			return await self._evaluate_javascript(
+			return await self.direct_cdp.evaluate_javascript(
 				expression=expression,
 				await_promise=await_promise,
 				return_by_value=return_by_value,
@@ -257,130 +533,6 @@ class InProcessPythonExecutor:
 			'WORKSPACE_DIR': self.workspace_dir,
 		}
 
-	async def _evaluate_javascript(
-		self,
-		expression: str,
-		await_promise: bool,
-		return_by_value: bool,
-		session: Any,
-		timeout: float,
-	) -> Any:
-		timeout = max(0.1, float(timeout))
-		result = await self._send_cdp(
-			'Runtime.evaluate',
-			{
-				'expression': expression,
-				'awaitPromise': await_promise,
-				'returnByValue': return_by_value,
-				'timeout': timeout * 1000,
-			},
-			session,
-			timeout + 5,
-		)
-		if result.get('exceptionDetails'):
-			details = result['exceptionDetails']
-			raise RuntimeError(details.get('text') or details.get('exception', {}).get('description') or 'JavaScript failed')
-		remote_object = result.get('result', {})
-		if return_by_value and remote_object.get('type') == 'function':
-			object_id = remote_object.get('objectId')
-			if object_id:
-				result = await self._send_cdp(
-					'Runtime.callFunctionOn',
-					{
-						'objectId': object_id,
-						'functionDeclaration': 'function() { return this(); }',
-						'awaitPromise': await_promise,
-						'returnByValue': True,
-						'timeout': timeout * 1000,
-					},
-					session,
-					timeout + 5,
-				)
-			else:
-				result = await self._send_cdp(
-					'Runtime.evaluate',
-					{
-						'expression': f'Promise.resolve((({expression}))()).then(value => value)',
-						'awaitPromise': await_promise,
-						'returnByValue': True,
-						'timeout': timeout * 1000,
-					},
-					session,
-					timeout + 5,
-				)
-			if result.get('exceptionDetails'):
-				details = result['exceptionDetails']
-				raise RuntimeError(
-					details.get('text') or details.get('exception', {}).get('description') or 'JavaScript function failed'
-				)
-			remote_object = result.get('result', {})
-		return remote_object.get('value') if return_by_value else remote_object
-
-	async def _send_cdp(
-		self,
-		method: Any,
-		params: Any,
-		session: Any,
-		request_timeout: float,
-	) -> dict[str, Any]:
-		if not isinstance(method, str) or '.' not in method:
-			raise ValueError('CDP method must be a string like "Page.navigate" or "Runtime.evaluate".')
-		if params is None:
-			params = {}
-		if not isinstance(params, dict):
-			raise TypeError('CDP params must be a dict or None.')
-		session_id = await self._resolve_session_id(method, session)
-		request_timeout = max(0.1, float(request_timeout))
-		started_at = time.monotonic()
-		logger.debug(f'🐍 Direct CDP request started: {method}')
-		try:
-			async with asyncio.timeout(request_timeout):
-				return await self.browser_session.cdp_client.send_raw(
-					method=method,
-					params=params,
-					session_id=session_id,
-				)
-		except TimeoutError as exc:
-			raise TimeoutError(f'{method} did not return within {request_timeout:g}s.') from exc
-		finally:
-			duration = time.monotonic() - started_at
-			if duration >= 5:
-				logger.info(f'🐍 Direct CDP request {method} returned after {duration:.1f}s')
-			else:
-				logger.debug(f'🐍 Direct CDP request completed: {method} ({duration:.3f}s)')
-
-	async def _resolve_session_id(self, method: str, session: Any) -> str | None:
-		if session is False or session == 'root':
-			return None
-		if hasattr(session, 'session_id'):
-			return str(session.session_id)
-		if session is None:
-			if method.split('.', 1)[0] in self._ROOT_CDP_DOMAINS:
-				return None
-			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=False)
-			return str(cdp_session.session_id)
-
-		session_key = str(session)
-		session_manager = self.browser_session.session_manager
-		if session_manager is not None:
-			cdp_session = session_manager.get_session(session_key)
-			if cdp_session is not None:
-				return str(cdp_session.session_id)
-			for session_id, cdp_session in session_manager.get_all_sessions().items():
-				if str(session_id).endswith(session_key):
-					return str(cdp_session.session_id)
-			for target_id in session_manager.get_all_target_ids():
-				if str(target_id) == session_key or str(target_id).endswith(session_key):
-					cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
-					return str(cdp_session.session_id)
-
-		try:
-			target_id = await self.browser_session.get_target_id_from_tab_id(session_key)
-			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
-			return str(cdp_session.session_id)
-		except Exception as exc:
-			raise ValueError(f'Could not resolve CDP session or target for {session_key!r}.') from exc
-
 	async def _get_tabs(self) -> list[dict[str, Any]]:
 		return [tab.model_dump(mode='json') for tab in await self.browser_session.get_tabs()]
 
@@ -415,7 +567,7 @@ class InProcessPythonExecutor:
 			raise ValueError('CDP event timeout must be greater than 0 and at most 120 seconds.')
 
 		match_any_session = session == 'any'
-		expected_session = None if match_any_session else await self._resolve_session_id(method, session)
+		expected_session = None if match_any_session else await self.direct_cdp.resolve_session_id(method, session)
 		future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
 		waiter = (future, expected_session, match_any_session)
 
