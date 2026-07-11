@@ -5,7 +5,8 @@ events, ensuring the session pool always reflects the current browser state.
 """
 
 import asyncio
-from typing import TYPE_CHECKING
+from collections import deque
+from typing import TYPE_CHECKING, Any
 
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
 
@@ -44,6 +45,12 @@ class SessionManager:
 
 		# Reverse mapping: session -> target it belongs to
 		self._session_to_target: dict[SessionID, TargetID] = {}
+
+		# Page lifecycle events per target, fed by ONE global Page.lifecycleEvent handler
+		# registered in start_monitoring(). cdp-use's event registry is single-slot per
+		# CDP method, so per-session handler registrations would replace each other and
+		# leave every tab but the most recently attached one without lifecycle events.
+		self._lifecycle_events: dict[TargetID, deque[dict[str, Any]]] = {}
 
 		self._lock = asyncio.Lock()
 		self._recovery_lock = asyncio.Lock()
@@ -102,14 +109,40 @@ class SessionManager:
 				suppress_exceptions=True,
 			)
 
+		def on_lifecycle_event(event, session_id: SessionID | None = None):
+			# ONE global handler for all targets: route by session_id -> target_id.
+			# Registering per-session closures instead would clobber each other in
+			# cdp-use's single-slot registry (one handler per CDP method).
+			if not session_id:
+				return
+			target_id = self.get_target_id_from_session_id(session_id)
+			if not target_id:
+				return
+			self.get_lifecycle_events(target_id).append(
+				{
+					'name': event.get('name', 'unknown'),
+					'loaderId': event.get('loaderId'),
+					'timestamp': asyncio.get_event_loop().time(),
+				}
+			)
+
 		cdp_client.register.Target.attachedToTarget(on_attached)
 		cdp_client.register.Target.detachedFromTarget(on_detached)
 		cdp_client.register.Target.targetInfoChanged(on_target_info_changed)
+		cdp_client.register.Page.lifecycleEvent(on_lifecycle_event)
 
 		self.logger.debug('[SessionManager] Event monitoring started')
 
 		# Discover and initialize ALL existing targets
 		await self._initialize_existing_targets()
+
+	def get_lifecycle_events(self, target_id: TargetID) -> 'deque[dict[str, Any]]':
+		"""Get (creating if needed) the lifecycle event buffer for a target."""
+		events = self._lifecycle_events.get(target_id)
+		if events is None:
+			events = deque(maxlen=50)
+			self._lifecycle_events[target_id] = events
+		return events
 
 	def _get_session_for_target(self, target_id: TargetID) -> 'CDPSession | None':
 		"""Internal: Get ANY valid session for a target (picks first available).
@@ -558,6 +591,7 @@ class SessionManager:
 
 					# Clean up tracking
 					del self._target_sessions[target_id]
+					self._lifecycle_events.pop(target_id, None)
 			else:
 				# Target not tracked - already removed or never attached
 				self.logger.debug(
@@ -864,39 +898,12 @@ class SessionManager:
 			# Enable network monitoring for networkIdle detection
 			await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
 
-			# Initialize lifecycle event storage for this session (thread-safe)
-			from collections import deque
-
-			cdp_session._lifecycle_events = deque(maxlen=50)  # Keep last 50 events
-			cdp_session._lifecycle_lock = asyncio.Lock()
-
-			# Register ONE handler per session that stores events
-			def on_lifecycle_event(event, session_id=None):
-				event_name = event.get('name', 'unknown')
-				event_loader_id = event.get('loaderId', 'none')
-
-				# Find which target this session belongs to
-				target_id_from_event = None
-				if session_id:
-					target_id_from_event = self.get_target_id_from_session_id(session_id)
-
-				# Check if this event is for our target
-				if target_id_from_event == cdp_session.target_id:
-					# Store event for navigations to consume
-					event_data = {
-						'name': event_name,
-						'loaderId': event_loader_id,
-						'timestamp': asyncio.get_event_loop().time(),
-					}
-					# Append is atomic in CPython
-					try:
-						cdp_session._lifecycle_events.append(event_data)
-					except Exception as e:
-						# Only log errors, not every event
-						self.logger.error(f'[SessionManager] Failed to store lifecycle event: {e}')
-
-			# Register the handler ONCE (this is the only place we register)
-			cdp_session.cdp_client.register.Page.lifecycleEvent(on_lifecycle_event)
+			# Event storage and the Page.lifecycleEvent handler live in SessionManager
+			# (one global handler registered in start_monitoring, routed by session_id):
+			# cdp-use's registry is single-slot per method, so a per-session registration
+			# here would replace the previous tab's handler and freeze its event buffer.
+			# Expose the shared per-target buffer on the session for readiness checks.
+			cdp_session._lifecycle_events = self.get_lifecycle_events(cdp_session.target_id)
 
 		except Exception as e:
 			# Don't fail - target might be short-lived or already detached

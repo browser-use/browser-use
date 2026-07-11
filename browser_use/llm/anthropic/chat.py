@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
@@ -387,6 +387,15 @@ class ChatAnthropic(BaseChatModel):
 
 				usage = self._get_usage(response)
 
+				if response.stop_reason == 'max_tokens':
+					raise ModelOutputTruncatedError(
+						message=(
+							f'Model output was truncated at max_tokens={self.max_tokens}; the structured'
+							' output is incomplete. Increase max_tokens or request shorter output.'
+						),
+						model=self.name,
+					)
+
 				# Extract the tool use block
 				for content_block in response.content:
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
@@ -438,5 +447,7 @@ class ChatAnthropic(BaseChatModel):
 			raise ModelRateLimitError(message=e.message, model=self.name) from e
 		except APIStatusError as e:
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
+		except ModelProviderError:
+			raise  # don't re-wrap with the generic 502
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e

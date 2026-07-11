@@ -14,7 +14,7 @@ from google.genai.types import MediaModality
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
@@ -192,6 +192,24 @@ class ChatGoogle(BaseChatModel):
 		if hasattr(response, 'candidates') and response.candidates:
 			return str(response.candidates[0].finish_reason) if hasattr(response.candidates[0], 'finish_reason') else None
 		return None
+
+	def _raise_if_output_truncated(self, response: types.GenerateContentResponse) -> None:
+		"""Raise ModelOutputTruncatedError when the response hit an output-token limit."""
+		stop_reason = self._get_stop_reason(response)
+		if stop_reason and 'MAX_TOKENS' in stop_reason:
+			cap = (
+				f'max_output_tokens={self.max_output_tokens}'
+				if self.max_output_tokens is not None
+				else "the model's output token limit"
+			)
+			raise ModelOutputTruncatedError(
+				message=(
+					f'Model output was truncated at {cap};'
+					' the structured output is incomplete. Increase max_output_tokens or request'
+					' shorter output.'
+				),
+				model=self.name,
+			)
 
 	def _get_usage(self, response: types.GenerateContentResponse) -> ChatInvokeUsage | None:
 		usage: ChatInvokeUsage | None = None
@@ -374,6 +392,7 @@ class ChatGoogle(BaseChatModel):
 						self.logger.debug(f'✅ Got structured response in {elapsed:.2f}s')
 
 						usage = self._get_usage(response)
+						self._raise_if_output_truncated(response)
 
 						# Handle case where response.parsed might be None
 						if response.parsed is None:
@@ -458,6 +477,7 @@ class ChatGoogle(BaseChatModel):
 						self.logger.debug(f'✅ Got fallback response in {elapsed:.2f}s')
 
 						usage = self._get_usage(response)
+						self._raise_if_output_truncated(response)
 
 						# Try to extract JSON from the text response
 						if response.text:
