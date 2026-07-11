@@ -50,7 +50,7 @@ async def test_plan_generation_from_plan_update(browser_session, mock_llm):
 	agent = _make_agent(browser_session, mock_llm)
 	output = _make_agent_output(plan_update=['Navigate to page', 'Search for item', 'Extract price'])
 
-	agent._update_plan_from_model_output(output)
+	agent._pipeline._post_phase._update_plan_from_model_output(output)
 
 	assert agent.state.plan is not None
 	assert len(agent.state.plan) == 3
@@ -77,7 +77,7 @@ async def test_plan_step_advancement(browser_session, mock_llm):
 	agent.state.current_plan_item_index = 0
 
 	output = _make_agent_output(current_plan_item=2)
-	agent._update_plan_from_model_output(output)
+	agent._pipeline._post_phase._update_plan_from_model_output(output)
 
 	assert agent.state.plan[0].status == 'done'
 	assert agent.state.plan[1].status == 'done'
@@ -100,7 +100,7 @@ async def test_replanning_replaces_old_plan(browser_session, mock_llm):
 	agent.state.plan_generation_step = 1
 
 	output = _make_agent_output(plan_update=['New step A', 'New step B', 'New step C'])
-	agent._update_plan_from_model_output(output)
+	agent._pipeline._post_phase._update_plan_from_model_output(output)
 
 	assert len(agent.state.plan) == 3
 	assert agent.state.plan[0].text == 'New step A'
@@ -122,7 +122,7 @@ async def test_render_plan_description(browser_session, mock_llm):
 		PlanItem(text='Skipped step', status='skipped'),
 	]
 
-	result = agent._render_plan_description()
+	result = agent._pipeline._context_prep._render_plan_description()
 	assert result is not None
 	lines = result.split('\n')
 	assert lines[0] == '[x] 0: Navigate to search page'
@@ -140,11 +140,11 @@ async def test_planning_disabled_returns_none(browser_session, mock_llm):
 	agent = _make_agent(browser_session, mock_llm, enable_planning=False)
 	agent.state.plan = [PlanItem(text='Should not render')]
 
-	assert agent._render_plan_description() is None
+	assert agent._pipeline._context_prep._render_plan_description() is None
 
 	# Also verify update is a no-op
 	output = _make_agent_output(plan_update=['New plan'])
-	agent._update_plan_from_model_output(output)
+	agent._pipeline._post_phase._update_plan_from_model_output(output)
 	# Plan should remain unchanged (the method returns early)
 	assert agent.state.plan[0].text == 'Should not render'
 
@@ -161,7 +161,7 @@ async def test_replan_nudge_injected_at_threshold(browser_session, mock_llm):
 
 	# Track context messages
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_replan_nudge()
+	agent._pipeline._context_prep._inject_replan_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 
 	assert after_count == initial_count + 1
@@ -180,7 +180,7 @@ async def test_no_replan_nudge_below_threshold(browser_session, mock_llm):
 	agent.state.consecutive_failures = 2
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_replan_nudge()
+	agent._pipeline._context_prep._inject_replan_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 
 	assert after_count == initial_count
@@ -235,7 +235,7 @@ async def test_out_of_bounds_plan_step_clamped(browser_session, mock_llm):
 
 	# Way out of bounds high
 	output = _make_agent_output(current_plan_item=999)
-	agent._update_plan_from_model_output(output)
+	agent._pipeline._post_phase._update_plan_from_model_output(output)
 	assert agent.state.current_plan_item_index == 1  # clamped to last valid index
 	assert agent.state.plan[0].status == 'done'
 	assert agent.state.plan[1].status == 'current'
@@ -247,7 +247,7 @@ async def test_out_of_bounds_plan_step_clamped(browser_session, mock_llm):
 	]
 	agent.state.current_plan_item_index = 1
 	output2 = _make_agent_output(current_plan_item=-5)
-	agent._update_plan_from_model_output(output2)
+	agent._pipeline._post_phase._update_plan_from_model_output(output2)
 	assert agent.state.current_plan_item_index == 0  # clamped to 0
 	assert agent.state.plan[0].status == 'current'
 
@@ -260,7 +260,7 @@ async def test_out_of_bounds_plan_step_clamped(browser_session, mock_llm):
 async def test_no_plan_render_returns_none(browser_session, mock_llm):
 	agent = _make_agent(browser_session, mock_llm)
 	assert agent.state.plan is None
-	assert agent._render_plan_description() is None
+	assert agent._pipeline._context_prep._render_plan_description() is None
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +274,7 @@ async def test_replan_nudge_disabled_when_zero(browser_session, mock_llm):
 	agent.state.consecutive_failures = 100  # high but doesn't matter
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_replan_nudge()
+	agent._pipeline._context_prep._inject_replan_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 	assert after_count == initial_count
 
@@ -289,7 +289,7 @@ async def test_no_replan_nudge_without_plan(browser_session, mock_llm):
 	agent.state.consecutive_failures = 5  # above threshold
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_replan_nudge()
+	agent._pipeline._context_prep._inject_replan_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 	assert after_count == initial_count
 
@@ -305,7 +305,7 @@ async def test_exploration_nudge_fires_after_limit(browser_session, mock_llm):
 	agent.state.n_steps = 3  # at the limit
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_exploration_nudge()
+	agent._pipeline._context_prep._inject_exploration_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 
 	assert after_count == initial_count + 1
@@ -324,7 +324,7 @@ async def test_no_exploration_nudge_when_plan_exists(browser_session, mock_llm):
 	agent.state.n_steps = 10  # well above limit
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_exploration_nudge()
+	agent._pipeline._context_prep._inject_exploration_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 	assert after_count == initial_count
 
@@ -340,7 +340,7 @@ async def test_no_exploration_nudge_below_limit(browser_session, mock_llm):
 	agent.state.n_steps = 4  # below the limit
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_exploration_nudge()
+	agent._pipeline._context_prep._inject_exploration_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 	assert after_count == initial_count
 
@@ -356,7 +356,7 @@ async def test_exploration_nudge_disabled_when_zero(browser_session, mock_llm):
 	agent.state.n_steps = 100  # high but doesn't matter
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_exploration_nudge()
+	agent._pipeline._context_prep._inject_exploration_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 	assert after_count == initial_count
 
@@ -372,7 +372,7 @@ async def test_exploration_nudge_disabled_when_planning_off(browser_session, moc
 	agent.state.n_steps = 10  # above limit
 
 	initial_count = len(agent._message_manager.state.history.context_messages)
-	agent._inject_exploration_nudge()
+	agent._pipeline._context_prep._inject_exploration_nudge()
 	after_count = len(agent._message_manager.state.history.context_messages)
 	assert after_count == initial_count
 
