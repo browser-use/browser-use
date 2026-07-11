@@ -47,6 +47,55 @@ async def test_navigation_detects_readiness_without_burning_timeout(httpserver, 
 	)
 
 
+async def test_har_recording_does_not_clobber_navigation_readiness(httpserver, tmp_path):
+	"""HAR recording must consume lifecycle events without replacing SessionManager's readiness handler."""
+	session = BrowserSession(
+		browser_profile=BrowserProfile(
+			headless=True,
+			user_data_dir=None,
+			keep_alive=True,
+			record_har_path=tmp_path / 'session.har',
+		)
+	)
+	await session.start()
+	har_watchdog = None
+	try:
+		httpserver.expect_request('/fast-har').respond_with_data(SIMPLE_HTML, content_type='text/html')
+
+		start = time.monotonic()
+		await session.navigate_to(httpserver.url_for('/fast-har'))
+		elapsed = time.monotonic() - start
+
+		har_watchdog = getattr(session, '_har_recording_watchdog', None)
+		assert har_watchdog is not None
+		target_id = session.agent_focus_target_id
+		assert target_id is not None
+		lifecycle_event = next(
+			event
+			for event in reversed(session.session_manager.get_lifecycle_events(target_id))
+			if event.get('frameId') and event.get('name') in {'DOMContentLoaded', 'load'}
+		)
+		frame_id = lifecycle_event['frameId']
+		har_watchdog._top_level_pages[frame_id] = {
+			'url': httpserver.url_for('/fast-har'),
+			'title': 'fast page',
+			'startedDateTime': None,
+			'monotonic_start': 10.0,
+			'onContentLoad': -1,
+			'onLoad': -1,
+		}
+		session.session_manager._notify_lifecycle_event_listeners({**lifecycle_event, 'timestamp': 10.125})
+		timing_key = 'onContentLoad' if lifecycle_event['name'] == 'DOMContentLoaded' else 'onLoad'
+		assert har_watchdog._top_level_pages[frame_id][timing_key] == 125
+	finally:
+		await session.kill()
+
+	assert elapsed < FAST_NAVIGATION_BOUND_S, (
+		f'HAR-enabled navigation took {elapsed:.2f}s — HAR clobbered lifecycle readiness monitoring'
+	)
+	assert har_watchdog._lifecycle_listener_registered is False
+
+
 async def test_first_tab_navigation_still_works_after_second_tab_opens(httpserver, browser_session: BrowserSession):
 	"""Opening a new tab must not disable lifecycle monitoring on existing tabs.
 
