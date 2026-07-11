@@ -150,6 +150,8 @@ class HarRecordingWatchdog(BaseWatchdog):
 	def __init__(self, *args, **kwargs) -> None:
 		super().__init__(*args, **kwargs)
 		self._enabled: bool = False
+		self._lifecycle_listener_registered: bool = False
+		self._lifecycle_event_listener = self._on_lifecycle_event
 		self._entries: dict[str, _HarEntryBuilder] = {}
 		self._top_level_pages: dict[
 			str, dict
@@ -188,25 +190,37 @@ class HarRecordingWatchdog(BaseWatchdog):
 			cdp.Network.dataReceived(self._on_data_received)
 			cdp.Network.loadingFinished(self._on_loading_finished)
 			cdp.Network.loadingFailed(self._on_loading_failed)
-			cdp.Page.lifecycleEvent(self._on_lifecycle_event)
+			self.browser_session.session_manager.add_lifecycle_event_listener(self._lifecycle_event_listener)
+			self._lifecycle_listener_registered = True
 			cdp.Page.frameNavigated(self._on_frame_navigated)
 
 			self._enabled = True
 			self.logger.info(f'📊 Starting HAR recording to {self._har_path}')
 		except Exception as e:
+			self._remove_lifecycle_event_listener()
 			self.logger.warning(f'Failed to enable HAR recording: {e}')
 			self._enabled = False
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
 		if not self._enabled:
+			self._remove_lifecycle_event_listener()
 			return
 		try:
 			await self._write_har()
 			self.logger.info(f'📊 HAR file saved: {self._har_path}')
 		except Exception as e:
 			self.logger.warning(f'Failed to write HAR: {e}')
+		finally:
+			self._remove_lifecycle_event_listener()
 
 	# =============== CDP Event Handlers (sync) ==================
+	def _remove_lifecycle_event_listener(self) -> None:
+		if not self._lifecycle_listener_registered:
+			return
+		if self.browser_session.session_manager is not None:
+			self.browser_session.session_manager.remove_lifecycle_event_listener(self._lifecycle_event_listener)
+		self._lifecycle_listener_registered = False
+
 	def _on_request_will_be_sent(self, params: RequestWillBeSentEvent, session_id: str | None) -> None:
 		try:
 			req = params.get('request', {}) if hasattr(params, 'get') else getattr(params, 'request', {})
