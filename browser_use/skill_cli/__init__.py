@@ -11,7 +11,12 @@ Usage:
     browser-use close
 """
 
+from typing import TYPE_CHECKING
+
 __all__ = ['main']
+
+if TYPE_CHECKING:
+	from browser_use.skill_cli.main import main as main
 
 
 def __getattr__(name: str):
