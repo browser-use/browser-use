@@ -131,8 +131,18 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _get_cache_creation_tokens(self, response: Message) -> tuple[int | None, int | None]:
+		cache_creation = getattr(response.usage, 'cache_creation', None)
+		if cache_creation is None:
+			return None, None
+		return (
+			getattr(cache_creation, 'ephemeral_5m_input_tokens', None),
+			getattr(cache_creation, 'ephemeral_1h_input_tokens', None),
+		)
+
 	def _get_usage(self, response: Message) -> ChatInvokeUsage | None:
 		"""Extract usage information from the response."""
+		cache_creation_5m_tokens, cache_creation_1h_tokens = self._get_cache_creation_tokens(response)
 		usage = ChatInvokeUsage(
 			prompt_tokens=response.usage.input_tokens
 			+ (
@@ -142,6 +152,8 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 			total_tokens=response.usage.input_tokens + response.usage.output_tokens,
 			prompt_cached_tokens=response.usage.cache_read_input_tokens,
 			prompt_cache_creation_tokens=response.usage.cache_creation_input_tokens,
+			prompt_cache_creation_5m_tokens=cache_creation_5m_tokens,
+			prompt_cache_creation_1h_tokens=cache_creation_1h_tokens,
 			prompt_image_tokens=None,
 		)
 		return usage
@@ -222,14 +234,28 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 						try:
 							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
 						except Exception as e:
-							# If validation fails, try to parse it as JSON first
-							if isinstance(content_block.input, str):
-								data = json.loads(content_block.input)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(data),
-									usage=usage,
-								)
-							raise e
+							# If validation fails, try to fix common model output issues
+							_input = content_block.input
+							if isinstance(_input, str):
+								_input = json.loads(_input)
+							elif isinstance(_input, dict):
+								# Model sometimes double-serializes fields
+								for key, value in _input.items():
+									if isinstance(value, str) and value.startswith(('[', '{')):
+										try:
+											_input[key] = json.loads(value)
+										except json.JSONDecodeError:
+											cleaned = value.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+											try:
+												_input[key] = json.loads(cleaned)
+											except json.JSONDecodeError:
+												pass
+							else:
+								raise
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(_input),
+								usage=usage,
+							)
 
 				# If no tool use block found, raise an error
 				raise ValueError('Expected tool use in response but none found')

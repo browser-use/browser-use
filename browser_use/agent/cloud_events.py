@@ -8,7 +8,7 @@ from bubus import BaseEvent
 from pydantic import Field, field_validator
 from uuid_extensions import uuid7str
 
-MAX_STRING_LENGTH = 100000  # 100K chars ~ 25k tokens should be enough
+MAX_STRING_LENGTH = 500000  # 100K chars ~ 25k tokens should be enough
 MAX_URL_LENGTH = 100000
 MAX_TASK_LENGTH = 100000
 MAX_COMMENT_LENGTH = 2000
@@ -38,6 +38,8 @@ class UpdateAgentTaskEvent(BaseEvent):
 			raise ValueError('Agent must have _task_start_time attribute')
 
 		done_output = agent.history.final_result() if agent.history else None
+		if done_output and len(done_output) > MAX_STRING_LENGTH:
+			done_output = done_output[:MAX_STRING_LENGTH]
 		return cls(
 			id=str(agent.task_id),
 			user_id='',  # To be filled by cloud handler

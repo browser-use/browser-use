@@ -6,6 +6,24 @@ class ClickableElementDetector:
 	def is_interactive(node: EnhancedDOMTreeNode) -> bool:
 		"""Check if this node is clickable/interactive using enhanced scoring."""
 
+		def has_form_control_descendant(element: EnhancedDOMTreeNode, max_depth: int = 2) -> bool:
+			"""Detect nested form controls within limited depth (handles label/span wrappers)."""
+			if max_depth <= 0:
+				return False
+
+			for child in element.children_and_shadow_roots:
+				if child.node_type != NodeType.ELEMENT_NODE:
+					continue
+
+				tag_name = child.tag_name
+				if tag_name in {'input', 'select', 'textarea'}:
+					return True
+
+				if has_form_control_descendant(child, max_depth=max_depth - 1):
+					return True
+
+			return False
+
 		# Skip non-element nodes
 		if node.node_type != NodeType.ELEMENT_NODE:
 			return False
@@ -17,6 +35,11 @@ class ClickableElementDetector:
 		# remove html and body nodes
 		if node.tag_name in {'html', 'body'}:
 			return False
+
+		# Check for JavaScript click event listeners detected via CDP (without DOM mutation)
+		# this handles vue.js @click, react onClick, angular (click), etc.
+		if node.has_js_click_listener:
+			return True
 
 		# IFRAME elements should be interactive if they're large enough to potentially need scrolling
 		# Small iframes (< 100px width or height) are unlikely to have scrollable content
@@ -31,6 +54,23 @@ class ClickableElementDetector:
 		# RELAXED SIZE CHECK: Allow all elements including size 0 (they might be interactive overlays, etc.)
 		# Note: Size 0 elements can still be interactive (e.g., invisible clickable overlays)
 		# Visibility is determined separately by CSS styles, not just bounding box size
+
+		# Specialized handling for labels used as component wrappers (e.g., Ant Design radio/checkbox)
+		if node.tag_name == 'label':
+			# Skip labels that proxy via "for" to avoid double-activating external inputs
+			if node.attributes and node.attributes.get('for'):
+				return False
+
+			# Detect labels that wrap form controls up to two levels deep (label > span > input)
+			if has_form_control_descendant(node, max_depth=2):
+				return True
+			# Fall through to pointer/role/attribute heuristics for other label cases
+
+		# Span wrappers for UI components (detect clear interactive signals only)
+		if node.tag_name == 'span':
+			if has_form_control_descendant(node, max_depth=2):
+				return True
+			# Allow other heuristics (aria roles, event handlers, pointer) to decide
 
 		# SEARCH ELEMENT DETECTION: Check for search-related classes and attributes
 		if node.attributes:
@@ -154,6 +194,9 @@ class ClickableElementDetector:
 					'spinbutton',
 					'search',
 					'searchbox',
+					'row',
+					'cell',
+					'gridcell',
 				}
 				if node.attributes['role'] in interactive_roles:
 					return True
@@ -175,6 +218,9 @@ class ClickableElementDetector:
 				'listbox',
 				'search',
 				'searchbox',
+				'row',
+				'cell',
+				'gridcell',
 			}
 			if node.ax_node.role in interactive_ax_roles:
 				return True

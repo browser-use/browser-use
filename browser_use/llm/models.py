@@ -8,7 +8,7 @@ Usage:
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
     model = llm.google_gemini_2_5_pro
-    model = llm.bu_latest
+    model = llm.bu_latest  # or bu_1_0, bu_2_0
 """
 
 import os
@@ -71,6 +71,11 @@ mistral_small: 'BaseChatModel'
 codestral: 'BaseChatModel'
 pixtral_large: 'BaseChatModel'
 
+anthropic_claude_sonnet_4_0: 'BaseChatModel'
+anthropic_claude_fable_5: 'BaseChatModel'
+anthropic_claude_3_5_sonnet_latest: 'BaseChatModel'
+anthropic_claude_3_5_haiku_latest: 'BaseChatModel'
+
 cerebras_llama3_1_8b: 'BaseChatModel'
 cerebras_llama3_3_70b: 'BaseChatModel'
 cerebras_gpt_oss_120b: 'BaseChatModel'
@@ -83,6 +88,7 @@ cerebras_qwen_3_coder_480b: 'BaseChatModel'
 
 bu_latest: 'BaseChatModel'
 bu_1_0: 'BaseChatModel'
+bu_2_0: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -176,6 +182,13 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('GOOGLE_API_KEY')
 		return ChatGoogle(model=model, api_key=api_key)
 
+	# Anthropic Models
+	elif provider == 'anthropic':
+		from browser_use.llm.anthropic.chat import ChatAnthropic
+
+		api_key = os.getenv('ANTHROPIC_API_KEY')
+		return ChatAnthropic(model=model, api_key=api_key)
+
 	# Mistral Models
 	elif provider == 'mistral':
 		api_key = os.getenv('MISTRAL_API_KEY')
@@ -210,8 +223,7 @@ def get_llm_by_name(model_name: str):
 		return ChatBrowserUse(model=model, api_key=api_key)
 
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
-
+		available_providers = ['openai', 'azure', 'google', 'anthropic', 'mistral', 'oci', 'cerebras', 'bu']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -292,6 +304,11 @@ __all__ += [
 	'google_gemini_2_5_pro',
 	'google_gemini_2_5_flash',
 	'google_gemini_2_5_flash_lite',
+	# Anthropic instances - created on demand
+	'anthropic_claude_sonnet_4_0',
+	'anthropic_claude_fable_5',
+	'anthropic_claude_3_5_sonnet_latest',
+	'anthropic_claude_3_5_haiku_latest',
 	# Mistral instances - created on demand
 	'mistral_large',
 	'mistral_medium',
@@ -311,6 +328,7 @@ __all__ += [
 	# Browser Use instances - created on demand
 	'bu_latest',
 	'bu_1_0',
+	'bu_2_0',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required

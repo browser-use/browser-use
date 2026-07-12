@@ -59,6 +59,13 @@ class CreateBrowserRequest(BaseModel):
 		title='Cloud Timeout',
 	)
 
+	enable_recording: bool = Field(
+		default=False,
+		alias='enableRecording',
+		description='Enable session recording for playback in the cloud dashboard.',
+		title='Enable Recording',
+	)
+
 
 CloudBrowserParams = CreateBrowserRequest  # alias for easier readability
 

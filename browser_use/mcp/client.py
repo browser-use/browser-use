@@ -329,6 +329,7 @@ class MCPClient:
 					return ActionResult(
 						extracted_content=extracted_content,
 						long_term_memory=f"Used MCP tool '{tool.name}' from {self.server_name}",
+						include_extracted_content_only_once=True,
 					)
 
 				except Exception as e:
@@ -372,6 +373,7 @@ class MCPClient:
 					return ActionResult(
 						extracted_content=extracted_content,
 						long_term_memory=f"Used MCP tool '{tool.name}' from {self.server_name}",
+						include_extracted_content_only_once=True,
 					)
 
 				except Exception as e:

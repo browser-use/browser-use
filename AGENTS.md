@@ -36,7 +36,7 @@ uv sync
 To get started with Browser Use you need to install the package and create an `.env` file with your API key.
 
 <Note icon="key" color="#FFC107" iconType="regular">
-  `ChatBrowserUse` offers the [fastest and most cost-effective models](https://browser-use.com/posts/speed-matters/), completing tasks 3-5x faster. Get started with \$10 of [free LLM credits](https://cloud.browser-use.com/new-api-key).
+  `ChatBrowserUse` offers the [fastest and most cost-effective models](https://browser-use.com/posts/speed-matters/), completing tasks 3-5x faster. Get your API key at [cloud.browser-use.com](https://cloud.browser-use.com/new-api-key).
 </Note>
 
 ## 1. Installing Browser-Use
@@ -61,7 +61,7 @@ uvx browser-use install
 Create a `.env` file and add your API key.
 
 <Callout icon="key" iconType="regular">
-  We recommend using ChatBrowserUse which is optimized for browser automation tasks (highest accuracy + fastest speed + lowest token cost). Don't have one? We give you **\$10** to try it out [here](https://cloud.browser-use.com/new-api-key).
+  We recommend using ChatBrowserUse which is optimized for browser automation tasks (highest accuracy + fastest speed + lowest token cost). Get your API key [here](https://cloud.browser-use.com/new-api-key).
 </Callout>
 
 ```bash .env theme={null}
@@ -76,7 +76,7 @@ Then add your API key to the file.
   ```bash Browser Use theme={null}
   # add your key to .env file
   BROWSER_USE_API_KEY=
-  # Get 10$ of free credits at https://cloud.browser-use.com/new-api-key
+  # Get your API key at https://cloud.browser-use.com/new-api-key
   ```
 
   ```bash Google theme={null}
@@ -126,7 +126,7 @@ See [Supported Models](https://docs.browser-use.com/supported-models#supported-m
   load_dotenv()
 
   async def main():
-      llm = ChatGoogle(model="gemini-flash-latest")
+      llm = ChatGoogle(model="gemini-3-flash-preview")
       task = "Find the number 1 post on Show HN"
       agent = Agent(task=task, llm=llm)
       await agent.run()
@@ -256,7 +256,7 @@ Your cloud browser is already logged in!
 
 ***
 
-For more sandbox parameters and events, see [Sandbox Quickstart](https://docs.browser-use.com/customize/sandbox/quickstart).
+For more sandbox parameters and events, see [Sandbox Quickstart](https://docs.browser-use.com/legacy/sandbox/quickstart).
 
 # Agent Basics
 ```python  theme={null}
@@ -538,7 +538,7 @@ async def main():
 > Complete reference for all browser configuration options
 
 <Note>
-  The `Browser` instance also provides all [Actor](https://docs.browser-use.com/customize/actor/all-parameters) methods for direct browser control (page management, element interactions, etc.).
+  The `Browser` instance also provides all [Actor](https://docs.browser-use.com/legacy/actor/all-parameters) methods for direct browser control (page management, element interactions, etc.).
 </Note>
 
 ## Core Settings
@@ -776,14 +776,14 @@ Tools are the functions that the agent has to interact with the world.
 ## Quick Example
 
 ```python  theme={null}
-from browser_use import Tools, ActionResult, Browser
+from browser_use import Tools, ActionResult, BrowserSession
 
 tools = Tools()
 
 @tools.action('Ask human for help with a question')
-def ask_human(question: str, browser: Browser) -> ActionResult:
+async def ask_human(question: str, browser_session: BrowserSession) -> ActionResult:
     answer = input(f'{question} > ')
-    return f'The human responded with: {answer}'
+    return ActionResult(extracted_content=f'The human responded with: {answer}')
 
 agent = Agent(
     task='Ask human for help',
@@ -792,8 +792,13 @@ agent = Agent(
 )
 ```
 
+<Warning>
+**Important**: The parameter must be named exactly `browser_session` with type `BrowserSession` (not `browser: Browser`). 
+The agent injects parameters by name matching, so using the wrong name will cause your tool to fail silently.
+</Warning>
+
 <Note>
-  Use `browser` parameter in tools for deterministic [Actor](https://docs.browser-use.com/customize/actor/basics) actions.
+  Use `browser_session` parameter in tools for deterministic [Actor](https://docs.browser-use.com/legacy/actor/basics) actions.
 </Note>
 
 
@@ -821,9 +826,9 @@ from browser_use import Tools, Agent, ActionResult
 tools = Tools()
 
 @tools.action(description='Ask human for help with a question')
-def ask_human(question: str) -> ActionResult:
+async def ask_human(question: str) -> ActionResult:
     answer = input(f'{question} > ')
-    return f'The human responded with: {answer}'
+    return ActionResult(extracted_content=f'The human responded with: {answer}')
 ```
 
 ```python  theme={null}
@@ -834,6 +839,11 @@ agent = Agent(task='...', llm=llm, tools=tools)
 * `allowed_domains` - List of domains where tool can run (e.g. `['*.example.com']`), defaults to all domains
 
 The Agent fills your function parameters based on their names, type hints, & defaults.
+
+<Warning>
+**Common Pitfall**: Parameter names must match exactly! Use `browser_session: BrowserSession` (not `browser: Browser`). 
+The agent injects special parameters by **name matching**, so using incorrect names will cause your tool to fail silently.
+</Warning>
 
 
 # Tools: Available Tools

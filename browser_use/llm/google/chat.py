@@ -1,4 +1,5 @@
 import asyncio
+import importlib.metadata
 import json
 import logging
 import random
@@ -13,7 +14,7 @@ from google.genai.types import MediaModality
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.schema import SchemaOptimizer
@@ -33,7 +34,9 @@ VerifiedGeminiModels = Literal[
 	'gemini-flash-lite-latest',
 	'gemini-2.5-pro',
 	'gemini-3-pro-preview',
+	'gemini-3.1-pro-preview',
 	'gemini-3-flash-preview',
+	'gemini-3.1-flash-lite',
 	'gemma-3-27b-it',
 	'gemma-3-4b',
 	'gemma-3-12b',
@@ -85,10 +88,13 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
-	temperature: float | None = 0.5
+	temperature: float | None = None
 	top_p: float | None = None
 	seed: int | None = None
-	thinking_budget: int | None = None  # for gemini-2.5 flash and flash-lite models, default will be set to 0
+	thinking_budget: int | None = None  # for Gemini 2.5: -1 for dynamic (default), 0 disables, or token count
+	thinking_level: Literal['minimal', 'low', 'medium', 'high'] | None = (
+		None  # for Gemini 3: Pro supports low/high, Flash supports all levels
+	)
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
@@ -119,6 +125,33 @@ class ChatGoogle(BaseChatModel):
 		"""Get logger for this chat instance"""
 		return logging.getLogger(f'browser_use.llm.google.{self.model}')
 
+	def _get_http_options(self) -> dict[str, Any]:
+		"""Get http options with the default headers set."""
+		try:
+			bu_version = importlib.metadata.version('browser-use')
+		except importlib.metadata.PackageNotFoundError:
+			bu_version = 'unknown'
+
+		header_value = f'browser-use/{bu_version}'
+
+		http_opts: dict[str, Any] = {}
+
+		if self.http_options is not None:
+			if isinstance(self.http_options, types.HttpOptions):
+				http_opts = self.http_options.model_dump(exclude_unset=True)
+			elif isinstance(self.http_options, dict):
+				http_opts = dict(self.http_options)
+
+		headers: dict[str, str] = {}
+		existing_headers = http_opts.get('headers')
+		if isinstance(existing_headers, dict):
+			headers = {str(k): str(v) for k, v in existing_headers.items()}
+
+		headers['x-goog-api-client'] = header_value
+		http_opts['headers'] = headers
+
+		return http_opts
+
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
 		# Define base client params
@@ -128,7 +161,7 @@ class ChatGoogle(BaseChatModel):
 			'credentials': self.credentials,
 			'project': self.project,
 			'location': self.location,
-			'http_options': self.http_options,
+			'http_options': self._get_http_options(),
 		}
 
 		# Create client_params dict with non-None values
@@ -159,6 +192,24 @@ class ChatGoogle(BaseChatModel):
 		if hasattr(response, 'candidates') and response.candidates:
 			return str(response.candidates[0].finish_reason) if hasattr(response.candidates[0], 'finish_reason') else None
 		return None
+
+	def _raise_if_output_truncated(self, response: types.GenerateContentResponse) -> None:
+		"""Raise ModelOutputTruncatedError when the response hit an output-token limit."""
+		stop_reason = self._get_stop_reason(response)
+		if stop_reason and 'MAX_TOKENS' in stop_reason:
+			cap = (
+				f'max_output_tokens={self.max_output_tokens}'
+				if self.max_output_tokens is not None
+				else "the model's output token limit"
+			)
+			raise ModelOutputTruncatedError(
+				message=(
+					f'Model output was truncated at {cap};'
+					' the structured output is incomplete. Increase max_output_tokens or request'
+					' shorter output.'
+				),
+				model=self.name,
+			)
 
 	def _get_usage(self, response: types.GenerateContentResponse) -> ChatInvokeUsage | None:
 		usage: ChatInvokeUsage | None = None
@@ -219,6 +270,8 @@ class ChatGoogle(BaseChatModel):
 		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
+		else:
+			config['temperature'] = 1.0 if 'gemini-3' in self.model else 0.5
 
 		# Add system instruction if present
 		if system_instruction:
@@ -230,13 +283,58 @@ class ChatGoogle(BaseChatModel):
 		if self.seed is not None:
 			config['seed'] = self.seed
 
-		# set default for flash, flash-lite, gemini-flash-lite-latest, and gemini-flash-latest models
-		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
-			self.thinking_budget = 0
+		# Configure thinking based on model version
+		# Gemini 3 Pro: uses thinking_level only
+		# Gemini 3 Flash: supports both, defaults to thinking_budget=-1
+		# Gemini 2.5: uses thinking_budget only
+		is_gemini_3_pro = 'gemini-3-pro' in self.model or 'gemini-3.1-pro' in self.model
+		is_gemini_3_flash = 'gemini-3-flash' in self.model or 'gemini-3.1-flash' in self.model
 
-		if self.thinking_budget is not None:
-			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
-			config['thinking_config'] = thinking_config_dict
+		if is_gemini_3_pro:
+			# Validate: thinking_budget should not be set for Gemini 3 Pro
+			if self.thinking_budget is not None:
+				self.logger.warning(
+					f'thinking_budget={self.thinking_budget} is deprecated for Gemini 3 Pro and may cause '
+					f'suboptimal performance. Use thinking_level instead.'
+				)
+
+			# Validate: minimal/medium only supported on Flash, not Pro
+			if self.thinking_level in ('minimal', 'medium'):
+				self.logger.warning(
+					f'thinking_level="{self.thinking_level}" is not supported for Gemini 3 Pro. '
+					f'Only "low" and "high" are valid. Falling back to "low".'
+				)
+				self.thinking_level = 'low'
+
+			# Default to 'low' for Gemini 3 Pro
+			if self.thinking_level is None:
+				self.thinking_level = 'low'
+
+			# Map to ThinkingLevel enum (SDK accepts string values)
+			level = types.ThinkingLevel(self.thinking_level.upper())
+			config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+		elif is_gemini_3_flash:
+			# Gemini 3 Flash supports both thinking_level and thinking_budget
+			# If user set thinking_level, use that; otherwise default to thinking_budget=-1
+			if self.thinking_level is not None:
+				level = types.ThinkingLevel(self.thinking_level.upper())
+				config['thinking_config'] = types.ThinkingConfigDict(thinking_level=level)
+			else:
+				if self.thinking_budget is None:
+					self.thinking_budget = -1
+				config['thinking_config'] = types.ThinkingConfigDict(thinking_budget=self.thinking_budget)
+		else:
+			# Gemini 2.5 and earlier: use thinking_budget only
+			if self.thinking_level is not None:
+				self.logger.warning(
+					f'thinking_level="{self.thinking_level}" is not supported for this model. '
+					f'Use thinking_budget instead (0 to disable, -1 for dynamic, or token count).'
+				)
+			# Default to -1 for dynamic/auto on 2.5 models
+			if self.thinking_budget is None and ('gemini-2.5' in self.model or 'gemini-flash' in self.model):
+				self.thinking_budget = -1
+			if self.thinking_budget is not None:
+				config['thinking_config'] = types.ThinkingConfigDict(thinking_budget=self.thinking_budget)
 
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
@@ -294,6 +392,7 @@ class ChatGoogle(BaseChatModel):
 						self.logger.debug(f'✅ Got structured response in {elapsed:.2f}s')
 
 						usage = self._get_usage(response)
+						self._raise_if_output_truncated(response)
 
 						# Handle case where response.parsed might be None
 						if response.parsed is None:
@@ -378,6 +477,7 @@ class ChatGoogle(BaseChatModel):
 						self.logger.debug(f'✅ Got fallback response in {elapsed:.2f}s')
 
 						usage = self._get_usage(response)
+						self._raise_if_output_truncated(response)
 
 						# Try to extract JSON from the text response
 						if response.text:

@@ -27,7 +27,7 @@ Round your result to the nearest 1000 hours and do not use any comma separators 
 
 
 async def main():
-	llm = ChatBrowserUse()
+	llm = ChatBrowserUse(model='bu-2-0')
 	agent = Agent(
 		task=task,
 		llm=llm,

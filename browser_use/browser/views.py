@@ -188,12 +188,12 @@ class BrowserError(Exception):
 		super().__init__(message)
 
 	def __str__(self) -> str:
+		parts = [self.message]
 		if self.details:
-			return f'{self.message} ({self.details}) during: {self.while_handling_event}'
-		elif self.while_handling_event:
-			return f'{self.message} (while handling: {self.while_handling_event})'
-		else:
-			return self.message
+			parts.append(f'({self.details})')
+		if self.while_handling_event:
+			parts.append(f'during: {self.while_handling_event}')
+		return ' '.join(parts)
 
 
 class URLNotAllowedError(BrowserError):

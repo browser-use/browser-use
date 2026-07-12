@@ -19,7 +19,7 @@ from browser_use import Agent, ChatBrowserUse
 
 
 async def main():
-	llm = ChatBrowserUse()
+	llm = ChatBrowserUse(model='bu-2-0')
 	task = "Search Google for 'what is browser automation' and tell me the top 3 results"
 	agent = Agent(task=task, llm=llm)
 	await agent.run()

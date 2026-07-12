@@ -49,7 +49,7 @@ try:
 	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
 		logger.debug('Lmnr is available for observability')
 	_LMNR_AVAILABLE = True
-except ImportError:
+except (ImportError, TypeError):
 	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
 		logger.debug('Lmnr is not available for observability')
 	_LMNR_AVAILABLE = False

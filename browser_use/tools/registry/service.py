@@ -12,6 +12,7 @@ import pyotp
 from pydantic import BaseModel, Field, RootModel, create_model
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.views import BrowserError
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.observability import observe_debug
@@ -68,6 +69,7 @@ class Registry(Generic[Context]):
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
 			'file_system': FileSystem,
+			'extraction_schema': None,  # dict | None, skip type validation
 		}
 
 	def _normalize_action_function_signature(
@@ -292,6 +294,7 @@ class Registry(Generic[Context]):
 		param_model: type[BaseModel] | None = None,
 		domains: list[str] | None = None,
 		allowed_domains: list[str] | None = None,
+		terminates_sequence: bool = False,
 	):
 		"""Decorator for registering actions"""
 		# Handle aliases: domains and allowed_domains are the same parameter
@@ -314,6 +317,7 @@ class Registry(Generic[Context]):
 				function=normalized_func,
 				param_model=actual_param_model,
 				domains=final_domains,
+				terminates_sequence=terminates_sequence,
 			)
 			self.registry.actions[func.__name__] = action
 
@@ -333,6 +337,7 @@ class Registry(Generic[Context]):
 		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
+		extraction_schema: dict | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -366,6 +371,7 @@ class Registry(Generic[Context]):
 				'available_file_paths': available_file_paths,
 				'has_sensitive_data': action_name == 'input' and bool(sensitive_data),
 				'file_system': file_system,
+				'extraction_schema': extraction_schema,
 			}
 
 			# Only pass sensitive_data to actions that explicitly need it (input)
@@ -390,6 +396,15 @@ class Registry(Generic[Context]):
 			except Exception as e:
 				raise
 
+		except BrowserError as e:
+			# BrowserError can carry structured short/long-term memory for the LLM
+			# (e.g. available dropdown options) — let Tools.act format it instead of
+			# flattening it into a generic RuntimeError string. Only errors with
+			# long_term_memory bypass: handle_browser_error re-raises without it,
+			# which would escape Tools.act instead of returning an ActionResult.
+			if e.long_term_memory is not None:
+				raise
+			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 		except ValueError as e:
 			# Preserve ValueError messages from validation
 			if 'requires browser_session but none provided' in str(e) or 'requires page_extraction_llm but none provided' in str(
@@ -451,12 +466,12 @@ class Registry(Generic[Context]):
 
 		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
 			if isinstance(value, str):
+				# 1. Handle tagged secrets: <secret>label</secret>
 				matches = secret_pattern.findall(value)
-				# check if the placeholder key, like x_password is in the output parameters of the LLM and replace it with the sensitive data
 				for placeholder in matches:
 					if placeholder in applicable_secrets:
-						# generate a totp code if secret is a 2fa secret
-						if 'bu_2fa_code' in placeholder:
+						# generate a totp code if secret is suffixed with bu_2fa_code
+						if placeholder.endswith('bu_2fa_code'):
 							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
 							replacement_value = totp.now()
 						else:
@@ -467,7 +482,17 @@ class Registry(Generic[Context]):
 					else:
 						# Keep track of missing placeholders
 						all_missing_placeholders.add(placeholder)
-						# Don't replace the tag, keep it as is
+
+				# 2. Handle literal secrets: "user_name" (no tags)
+				# This handles cases where the LLM forgets to use tags but uses the exact placeholder name
+				if value in applicable_secrets:
+					placeholder_name = value
+					if placeholder_name.endswith('bu_2fa_code'):
+						totp = pyotp.TOTP(applicable_secrets[placeholder_name], digits=6)
+						value = totp.now()
+					else:
+						value = applicable_secrets[placeholder_name]
+					replaced_placeholders.add(placeholder_name)
 
 				return value
 			elif isinstance(value, dict):

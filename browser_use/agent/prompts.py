@@ -2,6 +2,7 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional
 
+from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT
 from browser_use.dom.views import NodeType, SimplifiedNode
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 from browser_use.observability import observe_debug
@@ -11,6 +12,17 @@ if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
 	from browser_use.browser.views import BrowserStateSummary
 	from browser_use.filesystem.file_system import FileSystem
+
+
+def _is_anthropic_4_5_model(model_name: str | None) -> bool:
+	"""Check if the model is Claude Opus 4.5 or Haiku 4.5 (requires 4096+ token prompts for caching)."""
+	if not model_name:
+		return False
+	model_lower = model_name.lower()
+	# Check for Opus 4.5 or Haiku 4.5 variants
+	is_opus_4_5 = 'opus' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	is_haiku_4_5 = 'haiku' in model_lower and ('4.5' in model_lower or '4-5' in model_lower)
+	return is_opus_4_5 or is_haiku_4_5
 
 
 class SystemPrompt:
@@ -23,12 +35,16 @@ class SystemPrompt:
 		flash_mode: bool = False,
 		is_anthropic: bool = False,
 		is_browser_use_model: bool = False,
+		model_name: str | None = None,
 	):
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
 		self.is_anthropic = is_anthropic
 		self.is_browser_use_model = is_browser_use_model
+		self.model_name = model_name
+		# Check if this is an Anthropic 4.5 model that needs longer prompts for caching
+		self.is_anthropic_4_5 = _is_anthropic_4_5_model(model_name)
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
@@ -53,6 +69,9 @@ class SystemPrompt:
 					template_filename = 'system_prompt_browser_use.md'
 				else:
 					template_filename = 'system_prompt_browser_use_no_thinking.md'
+			# Anthropic 4.5 models (Opus 4.5, Haiku 4.5) need 4096+ token prompts for caching
+			elif self.is_anthropic_4_5 and self.flash_mode:
+				template_filename = 'system_prompt_anthropic_flash.md'
 			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
@@ -105,6 +124,7 @@ class AgentMessagePrompt:
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
+		plan_description: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -123,6 +143,7 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
+		self.plan_description: str | None = plan_description
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
@@ -137,6 +158,7 @@ class AgentMessagePrompt:
 			'images': 0,
 			'interactive_elements': 0,
 			'total_elements': 0,
+			'text_chars': 0,
 		}
 
 		if not self.browser_state.dom_state or not self.browser_state.dom_state._root:
@@ -183,6 +205,9 @@ class AgentMessagePrompt:
 					else:
 						stats['shadow_open'] += 1
 
+			elif original.node_type == NodeType.TEXT_NODE:
+				stats['text_chars'] += len(original.node_value.strip())
+
 			elif original.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 				# Shadow DOM fragment - these are the actual shadow roots
 				# But don't double-count since we count them at the host level above
@@ -200,12 +225,15 @@ class AgentMessagePrompt:
 		# Extract page statistics first
 		page_stats = self._extract_page_statistics()
 
-		# Format statistics for LLM
+		# Format statistics
 		stats_text = '<page_stats>'
 		if page_stats['total_elements'] < 10:
 			stats_text += 'Page appears empty (SPA not loaded?) - '
+		# Skeleton screen: many elements but almost no text = loading placeholders
+		elif page_stats['total_elements'] > 20 and page_stats['text_chars'] < page_stats['total_elements'] * 5:
+			stats_text += 'Page appears to show skeleton/placeholder content (still loading?) - '
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
-		stats_text += f'{page_stats["iframes"]} iframes, {page_stats["scroll_containers"]} scroll containers'
+		stats_text += f'{page_stats["iframes"]} iframes'
 		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
 			stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
 		if page_stats['images'] > 0:
@@ -232,21 +260,13 @@ class AgentMessagePrompt:
 			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
 			has_content_above = pages_above > 0
 			has_content_below = pages_below > 0
-			total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
-			current_page_position = pi.scroll_y / max(pi.page_height - pi.viewport_height, 1)
 			page_info_text = '<page_info>'
-			page_info_text += f'{pages_above:.1f} pages above, '
-			page_info_text += f'{pages_below:.1f} pages below, '
-			page_info_text += f'{total_pages:.1f} total pages'
+			page_info_text += f'{pages_above:.1f} pages above, {pages_below:.1f} pages below'
+			if pages_below > 0.2:
+				page_info_text += ' — scroll down to reveal more content'
 			page_info_text += '</page_info>\n'
-			# , at {current_page_position:.0%} of page
 		if elements_text != '':
-			if has_content_above:
-				if self.browser_state.page_info:
-					pi = self.browser_state.page_info
-					pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
-					elements_text = f'... {pages_above:.1f} pages above ...\n{elements_text}'
-			else:
+			if not has_content_above:
 				elements_text = f'[Start of page]\n{elements_text}'
 			if not has_content_below:
 				elements_text = f'{elements_text}\n[End of page]'
@@ -303,22 +323,11 @@ Available tabs:
 		return browser_state
 
 	def _get_agent_state_description(self) -> str:
-		if self.step_info:
-			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
-		else:
-			step_info_description = ''
-
-		time_str = datetime.now().strftime('%Y-%m-%d')
-		step_info_description += f'Today:{time_str}'
-
 		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
 		if not len(_todo_contents):
 			_todo_contents = '[empty todo.md, fill it when applicable]'
 
 		agent_state = f"""
-<user_request>
-{self.task}
-</user_request>
 <file_system>
 {self.file_system.describe() if self.file_system else 'No file system available'}
 </file_system>
@@ -326,14 +335,30 @@ Available tabs:
 {_todo_contents}
 </todo_contents>
 """
+		if self.plan_description:
+			agent_state += f'<plan>\n{self.plan_description}\n</plan>\n'
+
 		if self.sensitive_data:
 			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
 
-		agent_state += f'<step_info>{step_info_description}</step_info>\n'
 		if self.available_file_paths:
 			available_file_paths_text = '\n'.join(self.available_file_paths)
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
 		return agent_state
+
+	def _get_user_request_description(self) -> str:
+		return f'<user_request>\n{self.task}\n</user_request>\n\n'
+
+	def _get_step_meta_description(self) -> str:
+		# Per-step varying metadata (step counter, wall-clock date). Kept out of <agent_state> so it
+		# lives at the tail of the user message — anything before this block can in principle be
+		# treated as the cacheable prefix.
+		if self.step_info:
+			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
+		else:
+			step_info_description = ''
+		step_info_description += f'Today:{datetime.now().strftime("%Y-%m-%d")}'
+		return f'<step_info>{step_info_description}</step_info>\n'
 
 	def _resize_screenshot(self, screenshot_b64: str) -> str:
 		"""Resize screenshot to llm_screenshot_size if configured."""
@@ -366,18 +391,14 @@ Available tabs:
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
 		"""Get complete state as a single cached message"""
-		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
-		if (
-			is_new_tab_page(self.browser_state.url)
-			and self.step_info is not None
-			and self.step_info.step_number == 0
-			and len(self.browser_state.tabs) == 1
-		):
+		# New-tab pages only carry placeholder screenshots, even later in a multi-tab session.
+		if is_new_tab_page(self.browser_state.url):
 			use_vision = False
 
 		# Build complete state description
 		state_description = (
-			'<agent_history>\n'
+			self._get_user_request_description()
+			+ '<agent_history>\n'
 			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
 			+ '\n</agent_history>\n\n'
 		)
@@ -397,13 +418,18 @@ Available tabs:
 		if self.unavailable_skills_info:
 			state_description += '\n' + self.unavailable_skills_info + '\n'
 
+		# Per-step varying metadata (step counter, date) lives at the tail of the message so that
+		# everything above can in principle be treated as a cacheable prefix.
+		state_description += self._get_step_meta_description()
+
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)
 
 		# Check if we have images to include (from read_file action)
 		has_images = bool(self.read_state_images)
+		screenshots = [screenshot for screenshot in self.screenshots if screenshot != PLACEHOLDER_4PX_SCREENSHOT]
 
-		if (use_vision is True and self.screenshots) or has_images:
+		if (use_vision is True and screenshots) or has_images:
 			# Start with text description
 			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
 
@@ -411,8 +437,8 @@ Available tabs:
 			content_parts.extend(self.sample_images)
 
 			# Add screenshots with labels
-			for i, screenshot in enumerate(self.screenshots):
-				if i == len(self.screenshots) - 1:
+			for i, screenshot in enumerate(screenshots):
+				if i == len(screenshots) - 1:
 					label = 'Current screenshot:'
 				else:
 					# Use simple, accurate labeling since we don't have actual step timing info

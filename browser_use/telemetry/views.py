@@ -33,7 +33,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	version: str
 	source: str
 	cdp_url: str | None
-	agent_type: str | None  # 'code' for CodeAgent, None for regular Agent
+	agent_type: str | None
 	# step details
 	action_errors: Sequence[str | None]
 	action_history: Sequence[list[dict] | None]
@@ -86,18 +86,3 @@ class MCPServerTelemetryEvent(BaseTelemetryEvent):
 	parent_process_cmdline: str | None = None
 
 	name: str = 'mcp_server_event'
-
-
-@dataclass
-class CLITelemetryEvent(BaseTelemetryEvent):
-	"""Telemetry event for CLI usage"""
-
-	version: str
-	action: str  # 'start', 'message_sent', 'task_completed', 'error'
-	mode: str  # 'interactive', 'oneshot', 'mcp_server'
-	model: str | None = None
-	model_provider: str | None = None
-	duration_seconds: float | None = None
-	error_message: str | None = None
-
-	name: str = 'cli_event'

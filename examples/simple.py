@@ -12,6 +12,6 @@ load_dotenv()
 
 agent = Agent(
 	task='Find the number of stars of the following repos: browser-use, playwright, stagehand, react, nextjs',
-	llm=ChatBrowserUse(),
+	llm=ChatBrowserUse(model='bu-2-0'),
 )
 agent.run_sync()

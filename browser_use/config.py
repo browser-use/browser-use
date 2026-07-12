@@ -76,6 +76,13 @@ class OldConfig:
 			raise AssertionError('BROWSER_USE_CLOUD_UI_URL must be a valid URL if set')
 		return url
 
+	@property
+	def BROWSER_USE_MODEL_PRICING_URL(self) -> str:
+		url = os.getenv('BROWSER_USE_MODEL_PRICING_URL', '')
+		if url and '://' not in url:
+			raise AssertionError('BROWSER_USE_MODEL_PRICING_URL must be a valid URL if set')
+		return url
+
 	# Path configuration
 	@property
 	def XDG_CACHE_HOME(self) -> Path:
@@ -195,6 +202,7 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_CLOUD_SYNC: bool | None = Field(default=None)
 	BROWSER_USE_CLOUD_API_URL: str = Field(default='https://api.browser-use.com')
 	BROWSER_USE_CLOUD_UI_URL: str = Field(default='')
+	BROWSER_USE_MODEL_PRICING_URL: str = Field(default='')
 
 	# Path configuration
 	XDG_CACHE_HOME: str = Field(default='~/.cache')

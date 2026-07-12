@@ -36,9 +36,20 @@ class RectUnionPure:
 	"""
 	Maintains a *disjoint* set of rectangles.
 	No external dependencies - fine for a few thousand rectangles.
+
+	A safety cap (_MAX_RECTS) prevents exponential explosion on pages with
+	many overlapping translucent layers. Once the cap is hit, contains()
+	conservatively returns False (i.e. nothing is hidden), preserving
+	correctness at the cost of less aggressive paint-order filtering.
 	"""
 
 	__slots__ = ('_rects',)
+
+	# Safety cap: with complex overlapping layers, each add() can fragment
+	# existing rects into up to 4 pieces each. On heavy pages (20k+ elements)
+	# this can cause exponential growth. 5000 is generous enough for normal
+	# pages but prevents runaway memory/CPU.
+	_MAX_RECTS = 5000
 
 	def __init__(self):
 		self._rects: list[Rect] = []
@@ -101,6 +112,10 @@ class RectUnionPure:
 		Insert r unless it is already covered.
 		Returns True if the union grew.
 		"""
+		# Safety cap: stop accepting new rects to prevent exponential explosion
+		if len(self._rects) >= self._MAX_RECTS:
+			return False
+
 		if self.contains(r):
 			return False
 
