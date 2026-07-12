@@ -226,6 +226,7 @@ class MCPClient:
 			await self.connect()
 
 		registry = tools.registry
+		registered_count = 0
 
 		for tool_name, tool in self._tools.items():
 			# Skip if not in filter
@@ -235,15 +236,19 @@ class MCPClient:
 			# Apply prefix if specified
 			action_name = f'{prefix}{tool_name}' if prefix else tool_name
 
-			# Skip if already registered
-			if action_name in self._registered_actions:
+			# Skip if this target registry already has an action with this name.
+			# Dedup must be per-registry, not client-global: keying off a
+			# client-wide `_registered_actions` set meant registering the same
+			# client to a second Tools instance silently registered nothing.
+			if action_name in registry.registry.actions:
 				continue
 
 			# Register the tool as an action
 			self._register_tool_as_action(registry, action_name, tool)
 			self._registered_actions.add(action_name)
+			registered_count += 1
 
-		logger.info(f"✅ Registered {len(self._registered_actions)} MCP tools from '{self.server_name}' as browser-use actions")
+		logger.info(f"✅ Registered {registered_count} MCP tools from '{self.server_name}' as browser-use actions")
 
 	def _register_tool_as_action(self, registry: Registry, action_name: str, tool: Any) -> None:
 		"""Register a single MCP tool as a browser-use action.
@@ -468,9 +473,13 @@ class MCPClient:
 			'null': type(None),
 		}
 
-		# Handle enums (they're still strings)
+		# Handle enums: use the enum's declared JSON Schema type rather than
+		# assuming string. Integer/number enums (e.g. {"type": "integer",
+		# "enum": [1, 2, 3]}) are valid, and forcing them to `str` makes the
+		# parameter un-callable (the model rejects an int, and the LLM is told
+		# to send a string). Fall back to `str` only when no type is declared.
 		if 'enum' in schema:
-			return str
+			return type_mapping.get(json_type, str)
 
 		# Handle objects with nested properties
 		if json_type == 'object':
