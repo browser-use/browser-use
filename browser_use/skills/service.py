@@ -8,6 +8,7 @@ from browser_use_sdk import AsyncBrowserUse, ExecuteSkillResponse, SkillListResp
 from cdp_use.cdp.network import Cookie
 from pydantic import BaseModel, ValidationError
 
+from browser_use.skills.fitness import MassFunction, SelectionMode, SkillFitnessTracker
 from browser_use.skills.views import (
 	MissingCookieException,
 	Skill,
@@ -35,6 +36,7 @@ class SkillService:
 		self._skills: dict[str, Skill] = {}
 		self._client: AsyncBrowserUse | None = None
 		self._initialized = False
+		self._fitness_tracker = SkillFitnessTracker()
 
 	async def async_init(self) -> None:
 		"""Async initialization to fetch all skills at once
@@ -233,11 +235,17 @@ class SkillService:
 			else:
 				logger.error(f'Skill {skill.title} execution failed: {result.error}')
 
+			self._fitness_tracker.record(
+				skill_id=skill_id,
+				success=bool(result.success),
+				latency_ms=result.latency_ms,
+				error=result.error,
+			)
 			return result
 
 		except Exception as e:
 			logger.error(f'Error executing skill {skill_id}: {type(e).__name__}: {e}')
-			# Return error response
+			self._fitness_tracker.record(skill_id=skill_id, success=False, error=f'{type(e).__name__}: {e}')
 			return ExecuteSkillResponse(
 				success=False,
 				result=None,
@@ -245,6 +253,19 @@ class SkillService:
 				stderr=None,
 				latencyMs=None,
 			)
+
+	def fitness(self, skill_id: str) -> MassFunction | None:
+		"""Return the accumulated DS mass function for a skill, or None if unseen."""
+		return self._fitness_tracker.fitness(skill_id)
+
+	def ranked_by_fitness(self, mode: SelectionMode = 'belief') -> list[tuple[str, float]]:
+		"""Skill IDs sorted best-first under the chosen selection mode.
+
+		belief       — conservative (max lower bound)
+		plausibility — exploratory (max upper bound)
+		expected     — pignistic Bayesian collapse
+		"""
+		return self._fitness_tracker.ranked(mode)
 
 	async def close(self) -> None:
 		"""Close the SDK client and cleanup resources"""
