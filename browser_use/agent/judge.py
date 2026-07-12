@@ -110,8 +110,8 @@ The ground truth takes ABSOLUTE precedence over all other evaluation criteria. I
 **PRIMARY EVALUATION CRITERIA (in order of importance):**
 1. **Task Satisfaction (Most Important)**: Did the agent accomplish what the user asked for? Break down the task into the key criteria and evaluate if the agent all of them. Focus on user intent and final outcome.
 2. **Output Quality**: Is the final result in the correct format and complete? Does it match exactly what was requested?
-3. **Tool Effectiveness**: Did the browser interactions work as expected? Were tools used appropriately? How many % of the tools failed? 
-4. **Agent Reasoning**: Quality of decision-making, planning, and problem-solving throughout the trajectory. 
+3. **Tool Effectiveness**: Did the browser interactions work as expected? Were tools used appropriately? How many % of the tools failed?
+4. **Agent Reasoning**: Quality of decision-making, planning, and problem-solving throughout the trajectory.
 5. **Browser Handling**: Navigation stability, error recovery, and technical execution. If the browser crashes, does not load or a captcha blocks the task, the score must be very low.
 
 **VERDICT GUIDELINES:**
@@ -133,7 +133,7 @@ The ground truth takes ABSOLUTE precedence over all other evaluation criteria. I
 - If the agent is unable to complete the task because no login information was provided and it is truly needed to complete the task: false
 
 **FAILURE CONDITIONS (automatically set verdict to false):**
-- Blocked by captcha or missing authentication 
+- Blocked by captcha or missing authentication
 - Output format completely wrong or missing
 - Infinite loops or severe technical failures
 - Critical user requirements ignored
@@ -171,7 +171,7 @@ Set `reached_captcha` to true if:
 - **screenshot is not entire content** - The agent has the entire DOM content, but the screenshot is only part of the content. If the agent extracts information from the page, but you do not see it in the screenshot, you can assume this information is there.
 - **Penalize poor tool usage** - Wrong tools, inefficient approaches, ignoring available information.
 - **current date/time is {current_date}** - content with recent dates is real, not fabricated.
-- **IMPORTANT**: be very picky about the user's request - Have very high standard for the agent completing the task exactly to the user's request. 
+- **IMPORTANT**: be very picky about the user's request - Have very high standard for the agent completing the task exactly to the user's request.
 - **IMPORTANT**: be initially doubtful of the agent's self reported success, be sure to verify that its methods are valid and fulfill the user's desires to a tee.
 
 </evaluation_framework>

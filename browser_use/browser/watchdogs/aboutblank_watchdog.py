@@ -146,7 +146,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 						return; // Already running, don't add another
 					}}
 					window.__dvdAnimationRunning = true;
-					
+
 					// Ensure document.body exists before proceeding
 					if (!document.body) {{
 						// Try again after DOM is ready
@@ -156,7 +156,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 						}}
 						return;
 					}}
-					
+
 					const animated_title = `Starting agent ${{browser_session_label}}...`;
 					if (document.title === animated_title) {{
 						return;      // already run on this tab, dont run again

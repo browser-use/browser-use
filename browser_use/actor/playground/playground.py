@@ -56,12 +56,12 @@ async def main():
 			// Find all article links on the page
 			const links = Array.from(document.querySelectorAll('a[href*="/wiki/"]:not([href*=":"])'))
 				.filter(link => !link.href.includes('Main_Page') && !link.href.includes('Special:'));
-			
+
 			return {
 				total: links.length,
 				sample: links.slice(0, 3).map(link => ({
 					href: link.href,
-					text: link.textContent.trim() 
+					text: link.textContent.trim()
 				}))
 			};
 		}"""

@@ -2810,7 +2810,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				const role = element.getAttribute('role');
 				const ariaControls = element.getAttribute('aria-controls');
 				const ariaExpanded = element.getAttribute('aria-expanded');
-				
+
 				if (role === 'combobox' && ariaControls) {
 					return {
 						isCombobox: true,
@@ -3069,18 +3069,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 			expand_script = """
 			function() {
 				const element = this;
-				
+
 				// Dispatch focus event properly
 				const focusEvent = new FocusEvent('focus', { bubbles: true, cancelable: true });
 				element.dispatchEvent(focusEvent);
-				
+
 				// Also call native focus
 				element.focus();
-				
+
 				// Dispatch focusin event (bubbles, unlike focus)
 				const focusInEvent = new FocusEvent('focusin', { bubbles: true, cancelable: true });
 				element.dispatchEvent(focusInEvent);
-				
+
 				// For some comboboxes, a click is needed
 				const clickEvent = new MouseEvent('click', {
 					bubbles: true,
@@ -3088,7 +3088,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					view: window
 				});
 				element.dispatchEvent(clickEvent);
-				
+
 				// Some comboboxes respond to mousedown
 				const mousedownEvent = new MouseEvent('mousedown', {
 					bubbles: true,
@@ -3096,7 +3096,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					view: window
 				});
 				element.dispatchEvent(mousedownEvent);
-				
+
 				return {
 					success: true,
 					ariaExpanded: element.getAttribute('aria-expanded')
@@ -3117,21 +3117,21 @@ class DefaultActionWatchdog(BaseWatchdog):
 		extract_options_script = """
 		function(ariaControlsId) {
 			const combobox = this;
-			
+
 			// Find the listbox element referenced by aria-controls
 			const listbox = document.getElementById(ariaControlsId);
-			
+
 			if (!listbox) {
 				return {
 					error: `Could not find listbox element with id "${ariaControlsId}" referenced by aria-controls`,
 					ariaControlsId: ariaControlsId
 				};
 			}
-			
+
 			// Find all option elements in the listbox
 			const optionElements = listbox.querySelectorAll('[role="option"]');
 			const options = [];
-			
+
 			optionElements.forEach((item, idx) => {
 				const text = item.textContent ? item.textContent.trim() : '';
 				if (text) {
@@ -3143,7 +3143,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					});
 				}
 			});
-			
+
 			// If no options with role="option", try other common patterns
 			if (options.length === 0) {
 				// Try li elements inside
@@ -3160,7 +3160,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					}
 				});
 			}
-			
+
 			return {
 				type: 'aria-combobox',
 				options: options,
