@@ -1,9 +1,12 @@
 import base64
 import json
+from pathlib import Path
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
+from examples.integrations.minimax import image_generation
 from examples.integrations.minimax.image_generation import (
 	GenerateImageParams,
 	MiniMaxImageGenerationError,
@@ -65,6 +68,25 @@ async def test_generate_image_bytes_uses_official_request_shape() -> None:
 		)
 
 	assert result == image
+
+
+async def test_generate_image_returns_saved_file_as_attachment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+	image = b'test-image'
+	generate = AsyncMock(return_value=image)
+	monkeypatch.setattr(image_generation, 'generate_image_bytes', generate)
+	monkeypatch.setattr(image_generation, '__file__', str(tmp_path / 'image_generation.py'))
+	monkeypatch.setenv('MINIMAX_API_KEY', 'test-key')
+	monkeypatch.delenv('MINIMAX_IMAGE_BASE_URL', raising=False)
+
+	result = await image_generation.generate_image(params=GenerateImageParams(prompt='A precise test image'))
+
+	generate.assert_awaited_once()
+	assert result.attachments is not None
+	assert len(result.attachments) == 1
+	output_path = Path(result.attachments[0])
+	assert output_path.parent == tmp_path / 'output'
+	assert output_path.read_bytes() == image
+	assert result.extracted_content == f'Generated image saved to {output_path}'
 
 
 async def test_generate_image_bytes_surfaces_api_errors() -> None:

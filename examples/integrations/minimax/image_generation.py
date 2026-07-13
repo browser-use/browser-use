@@ -120,7 +120,7 @@ async def generate_image(params: GenerateImageParams) -> ActionResult:
 		return ActionResult(error=f'Image generation failed: {exc}')
 
 	message = f'Generated image saved to {output_path}'
-	return ActionResult(extracted_content=message, long_term_memory=message)
+	return ActionResult(extracted_content=message, long_term_memory=message, attachments=[str(output_path)])
 
 
 async def main() -> None:
