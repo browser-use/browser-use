@@ -75,9 +75,38 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	sensitive_values_sorted = sorted(
+		((key, secret) for key, secret in sensitive_values.items() if secret),
+		key=lambda item: len(item[1]),
+		reverse=True,
+	)
+	if not sensitive_values_sorted:
+		return value
+
+	matches: list[tuple[int, int, str]] = []
+	occupied: list[tuple[int, int]] = []
+
+	for key, secret in sensitive_values_sorted:
+		for match in re.finditer(re.escape(secret), value):
+			start, end = match.span()
+			overlaps_existing = any(start < o_end and o_start < end for o_start, o_end in occupied)
+			if not overlaps_existing:
+				matches.append((start, end, key))
+				occupied.append((start, end))
+
+	if not matches:
+		return value
+
+	matches.sort(key=lambda item: item[0])
+	parts = []
+	last_index = 0
+	for start, end, key in matches:
+		parts.append(value[last_index:start])
+		parts.append(f'<secret>{key}</secret>')
+		last_index = end
+	parts.append(value[last_index:])
+
+	return ''.join(parts)
 
 
 def _get_openai_bad_request_error() -> type | None:
