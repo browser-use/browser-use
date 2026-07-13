@@ -88,9 +88,23 @@ docker run -d -p 3000:3000 -p 4318:4318 openlit/openlit
 
 ## Telemetry
 
-Browser Use collects anonymous usage data via PostHog.
+Browser Use collects usage data via PostHog to help us understand how the library is used, fix bugs faster, and prioritize features. Data is associated with an anonymous device ID (not tied to user accounts or IPs).
 
-### Opt Out
+**Note:** Telemetry is **enabled by default**. If you're running the agent against internal tools, authenticated dashboards, or with sensitive context in prompts, disable it.
+
+### What is Collected
+
+The telemetry event includes:
+- **Task prompt** — the full task provided to the agent
+- **URLs visited** — every URL navigated to
+- **Action history** — all actions taken, including text typed into pages
+- **Final result** — data extracted from the page
+- **Performance metrics** — token counts, duration, success status
+- **Configuration** — model used, library version, agent type
+
+**For the complete list of all fields, see [Telemetry in AGENTS.md](../../AGENTS.md#what-is-collected).**
+
+### Opting Out
 
 ```bash
 ANONYMIZED_TELEMETRY=false
