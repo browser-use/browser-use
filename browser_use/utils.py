@@ -75,9 +75,30 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	sensitive_values_sorted = sorted(
+		((key, secret) for key, secret in sensitive_values.items() if secret),
+		key=lambda item: len(item[1]),
+		reverse=True,
+	)
+	if not sensitive_values_sorted:
+		return value
+
+	pattern_parts = []
+	group_name_map: dict[str, str] = {}
+	for index, (key, secret) in enumerate(sensitive_values_sorted):
+		group_name = f's{index}'  # placeholder for regex group names
+		pattern_parts.append(f'(?P<{group_name}>{re.escape(secret)})')
+		group_name_map[group_name] = key
+
+	pattern = re.compile('|'.join(pattern_parts))
+
+	def replace_match(match: re.Match[str]) -> str:
+		group_name = match.lastgroup
+		if not group_name:
+			return match.group(0)
+		return f'<secret>{group_name_map[group_name]}</secret>'
+
+	return pattern.sub(replace_match, value)
 
 
 def _get_openai_bad_request_error() -> type | None:
