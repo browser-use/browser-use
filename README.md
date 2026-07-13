@@ -45,24 +45,26 @@ Browser Use lets an AI agent use a web browser the same way you do — it opens 
 
 ### 📋 Fill Forms
 #### Task: "Fill in this job application with my resume and information."
+
 ![Job Application Demo](https://github.com/user-attachments/assets/57865ee6-6004-49d5-b2c2-6dff39ec2ba9)
+
 [Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/apply_to_job.py)
 
 
-### 🍎 Shop for Groceries
-#### Task: "Put this list of items into my instacart."
+### 🍎 Extract data
+#### Task: "Extract structured data about my followers and export it as a CSV."
 
-https://github.com/user-attachments/assets/a6813fa7-4a7c-40a6-b4aa-382bf88b1850
+https://github.com/user-attachments/assets/93714c75-98f4-4cfc-add1-69c38b5138b5
 
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/buy_groceries.py)
+[Browser Use Cloud Docs ↗](https://docs.browser-use.com/cloud/quickstart)
 
 
-### 💻 Be Your Personal Assistant
-#### Task: "Help me find parts for a custom PC."
+### 💻 QA Automation
+#### Task: "QA test my local website and report any bugs, usability issues, and visual inconsistencies."
 
-https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
+<img width="1920" height="1080" alt="qa-demo-small" src="https://github.com/user-attachments/assets/bf590697-df9c-4e79-b646-d6f52bfea976" />
 
-[Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/pcpartpicker.py)
+[Browser Use CLI ↗](https://docs.browser-use.com/open-source/browser-use-cli)
 
 
 <br/>
