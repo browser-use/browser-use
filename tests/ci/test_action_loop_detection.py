@@ -2,9 +2,12 @@
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import (
+	ActionEvidence,
 	ActionLoopDetector,
+	ActionResult,
 	PageFingerprint,
 	compute_action_hash,
+	page_fingerprint_delta,
 )
 from browser_use.llm.messages import UserMessage
 from tests.ci.conftest import create_mock_llm
@@ -334,6 +337,53 @@ def test_page_fingerprint_different_element_count_not_equal():
 	fp1 = PageFingerprint.from_browser_state('https://example.com', 'hello world', 50)
 	fp2 = PageFingerprint.from_browser_state('https://example.com', 'hello world', 51)
 	assert fp1 != fp2
+
+
+def test_page_fingerprint_delta_reports_changed_fields():
+	"""Page fingerprint deltas report the specific fields that changed."""
+	before = PageFingerprint.from_browser_state('https://example.com/start', 'hello world', 50)
+	after = PageFingerprint.from_browser_state('https://example.com/done', 'goodbye world', 51)
+
+	assert page_fingerprint_delta(before, after) == ['url', 'element_count', 'text']
+
+
+def test_action_evidence_from_page_fingerprints_marks_changed():
+	"""ActionEvidence captures before/after fingerprints and changed fields."""
+	before = PageFingerprint.from_browser_state('https://example.com/start', 'hello world', 50)
+	after = PageFingerprint.from_browser_state('https://example.com/done', 'hello world', 50)
+
+	evidence = ActionEvidence.from_page_fingerprints(before, after)
+
+	assert evidence.changed is True
+	assert evidence.changes == ['url']
+	assert evidence.before == before
+	assert evidence.after == after
+
+
+def test_action_evidence_from_page_fingerprints_marks_unchanged():
+	"""ActionEvidence marks unchanged pages when fingerprints match."""
+	before = PageFingerprint.from_browser_state('https://example.com', 'hello world', 50)
+	after = PageFingerprint.from_browser_state('https://example.com', 'hello world', 50)
+
+	evidence = ActionEvidence.from_page_fingerprints(before, after)
+
+	assert evidence.changed is False
+	assert evidence.changes == []
+
+
+def test_action_result_serializes_action_evidence():
+	"""ActionResult accepts structured evidence without affecting existing metadata."""
+	before = PageFingerprint.from_browser_state('https://example.com', 'before', 10)
+	after = PageFingerprint.from_browser_state('https://example.com', 'after', 10)
+	evidence = ActionEvidence.from_page_fingerprints(before, after)
+
+	result = ActionResult(metadata={'click_x': 1}, evidence=evidence)
+	data = result.model_dump()
+
+	assert data['metadata'] == {'click_x': 1}
+	assert data['evidence']['changed'] is True
+	assert data['evidence']['changes'] == ['text']
+	assert data['evidence']['before']['url'] == 'https://example.com'
 
 
 # ─── Agent integration tests ─────────────────────────────────────────────────

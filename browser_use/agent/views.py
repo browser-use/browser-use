@@ -92,6 +92,9 @@ class AgentSettings(BaseModel):
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
 
 
+PageDeltaField = Literal['url', 'element_count', 'text']
+
+
 class PageFingerprint(BaseModel):
 	"""Lightweight fingerprint of the browser page state."""
 
@@ -105,6 +108,32 @@ class PageFingerprint(BaseModel):
 	def from_browser_state(url: str, dom_text: str, element_count: int) -> PageFingerprint:
 		text_hash = hashlib.sha256(dom_text.encode('utf-8', errors='replace')).hexdigest()[:16]
 		return PageFingerprint(url=url, element_count=element_count, text_hash=text_hash)
+
+
+def page_fingerprint_delta(before: PageFingerprint, after: PageFingerprint) -> list[PageDeltaField]:
+	"""Return the browser page fields that changed between two fingerprints."""
+	changes: list[PageDeltaField] = []
+	if before.url != after.url:
+		changes.append('url')
+	if before.element_count != after.element_count:
+		changes.append('element_count')
+	if before.text_hash != after.text_hash:
+		changes.append('text')
+	return changes
+
+
+class ActionEvidence(BaseModel):
+	"""Structured evidence about whether an action changed the observed page state."""
+
+	changed: bool
+	changes: list[PageDeltaField] = Field(default_factory=list)
+	before: PageFingerprint | None = None
+	after: PageFingerprint | None = None
+
+	@staticmethod
+	def from_page_fingerprints(before: PageFingerprint, after: PageFingerprint) -> ActionEvidence:
+		changes = page_fingerprint_delta(before, after)
+		return ActionEvidence(changed=bool(changes), changes=changes, before=before, after=after)
 
 
 def _normalize_action_for_hash(action_name: str, params: dict[str, Any]) -> str:
@@ -333,6 +362,9 @@ class ActionResult(BaseModel):
 
 	# Metadata for observability (e.g., click coordinates)
 	metadata: dict | None = None
+
+	# Structured evidence about observed state changes caused by the action
+	evidence: ActionEvidence | None = None
 
 	# Deprecated
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
