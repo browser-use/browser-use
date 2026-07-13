@@ -83,22 +83,30 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	if not sensitive_values_sorted:
 		return value
 
-	pattern_parts = []
-	group_name_map: dict[str, str] = {}
-	for index, (key, secret) in enumerate(sensitive_values_sorted):
-		group_name = f's{index}'  # placeholder for regex group names
-		pattern_parts.append(f'(?P<{group_name}>{re.escape(secret)})')
-		group_name_map[group_name] = key
+	matches: list[tuple[int, int, str]] = []
+	occupied: list[tuple[int, int]] = []
 
-	pattern = re.compile('|'.join(pattern_parts))
+	for key, secret in sensitive_values_sorted:
+		for match in re.finditer(re.escape(secret), value):
+			start, end = match.span()
+			overlaps_existing = any(start < o_end and o_start < end for o_start, o_end in occupied)
+			if not overlaps_existing:
+				matches.append((start, end, key))
+				occupied.append((start, end))
 
-	def replace_match(match: re.Match[str]) -> str:
-		group_name = match.lastgroup
-		if not group_name:
-			return match.group(0)
-		return f'<secret>{group_name_map[group_name]}</secret>'
+	if not matches:
+		return value
 
-	return pattern.sub(replace_match, value)
+	matches.sort(key=lambda item: item[0])
+	parts = []
+	last_index = 0
+	for start, end, key in matches:
+		parts.append(value[last_index:start])
+		parts.append(f'<secret>{key}</secret>')
+		last_index = end
+	parts.append(value[last_index:])
+
+	return ''.join(parts)
 
 
 def _get_openai_bad_request_error() -> type | None:
