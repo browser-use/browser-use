@@ -1,7 +1,7 @@
 from browser_use.utils import redact_sensitive_string
 
 
-def test_redact_sensitive_string_preserves_empty_string_value():
+def test_redact_sensitive_string_prefers_longer_match_over_substring():
 	value = 'leaked supersecret token'
 	sensitive_values = {
 		'password': 'supersecret',
@@ -9,6 +9,13 @@ def test_redact_sensitive_string_preserves_empty_string_value():
 	}
 
 	assert redact_sensitive_string(value, sensitive_values) == 'leaked <secret>password</secret> token'
+
+
+def test_redact_sensitive_string_ignores_empty_secret_values():
+	value = 'safe value'
+	sensitive_values = {'empty': ''}
+
+	assert redact_sensitive_string(value, sensitive_values) == value
 
 
 def test_redact_sensitive_string_preserves_shorter_matches():

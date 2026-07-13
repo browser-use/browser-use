@@ -84,15 +84,16 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 		return value
 
 	matches: list[tuple[int, int, str]] = []
-	occupied: list[tuple[int, int]] = []
+	# A byte per input character keeps overlap checks bounded by the candidate
+	# match rather than by every previously found match.
+	occupied = bytearray(len(value))
 
 	for key, secret in sensitive_values_sorted:
 		for match in re.finditer(re.escape(secret), value):
 			start, end = match.span()
-			overlaps_existing = any(start < o_end and o_start < end for o_start, o_end in occupied)
-			if not overlaps_existing:
+			if not any(occupied[start:end]):
 				matches.append((start, end, key))
-				occupied.append((start, end))
+				occupied[start:end] = b'\x01' * (end - start)
 
 	if not matches:
 		return value
