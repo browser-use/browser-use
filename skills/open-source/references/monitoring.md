@@ -102,7 +102,7 @@ The telemetry event includes:
 - **Performance metrics** — token counts, duration, success status
 - **Configuration** — model used, library version, agent type
 
-**For the complete list of all fields, see [Telemetry in AGENTS.md](../../AGENTS.md#what-is-collected).**
+**For the complete list of all fields, see [Telemetry in AGENTS.md](../../../AGENTS.md#what-is-collected).**
 
 ### Opt Out
 

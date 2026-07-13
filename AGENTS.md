@@ -975,7 +975,7 @@ os.environ["ANONYMIZED_TELEMETRY"] = "false"
 
 ## What is Collected
 
-Browser Use sends the following data to PostHog when telemetry is enabled. The data is associated with an anonymous device ID (hash of MAC address + hostname) and is **not tied to a user account or IP address**.
+Browser Use sends the following data to PostHog when telemetry is enabled. The data is associated with an anonymous device ID and is **not tied to a user account or IP address**.
 
 If you're running the agent against internal tools, authenticated dashboards, or with sensitive context in prompts, disable telemetry with `ANONYMIZED_TELEMETRY=false`.
 
@@ -1029,9 +1029,10 @@ If you're running the agent against internal tools, authenticated dashboards, or
 
 ### Key Privacy Notes
 
-- **Device ID**: Each unique device gets an anonymous identifier (hash of MAC address + hostname) for deduplication. This ID is stored locally and can be customized via the `BROWSER_USE_DEVICE_ID` environment variable.
-- **No account linking**: Telemetry is not tied to user accounts, email addresses, or IP addresses.
+- **Device ID**: Each unique device gets an anonymous identifier (a random UUID stored locally in a file) for deduplication. If file persistence fails, a hardware fingerprint (hash of MAC address + hostname) is used as a fallback. This ID can be customized via the `BROWSER_USE_DEVICE_ID` environment variable.
+- **No account linking**: Telemetry is not tied to user accounts or email addresses. IP addresses are collected by PostHog for approximate geolocation purposes only and are not used for user identification or account linking.
 - **Default-on**: Telemetry is enabled by default. Always review what's collected before running the agent in sensitive environments.
+- **Automatic exception capture**: Beyond the fields listed above, unhandled Python exceptions are automatically captured and sent to PostHog when telemetry is enabled. These exception events are separate from `AgentTelemetryEvent` data and may include stack traces or error context.
 - **Sensitive data**: If any of the "⚠️ Yes" or "⚠️ Possible" fields contain sensitive information relevant to your use case, disable telemetry.
 
 
