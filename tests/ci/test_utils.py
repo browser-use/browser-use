@@ -20,3 +20,13 @@ def test_redact_sensitive_string_preserves_shorter_matches():
 
 	# `sec` shouldn't corrupt already-redacted `<secret>outer</secret>` fragments
 	assert redact_sensitive_string(value, sensitive_values) == 'open nested <secret>outer</secret> <secret>outer</secret> code'
+
+
+def test_redact_sensitive_string_prefers_longer_overlapping_secret():
+	value = 'abcde'
+	sensitive_values = {
+		'short': 'abc',
+		'long': 'bcde',
+	}
+
+	assert redact_sensitive_string(value, sensitive_values) == 'a<secret>long</secret>'
