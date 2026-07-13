@@ -975,6 +975,7 @@ os.environ["ANONYMIZED_TELEMETRY"] = "false"
 
 ## What is Collected
 
+
 Browser Use sends the following data to PostHog when telemetry is enabled. The data is associated with an anonymous device ID (hash of MAC address + hostname) and is **not tied to a user account or IP address**.
 
 If you're running the agent against internal tools, authenticated dashboards, or with sensitive context in prompts, disable telemetry with `ANONYMIZED_TELEMETRY=false`.
