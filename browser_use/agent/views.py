@@ -130,6 +130,12 @@ class ActionEvidence(BaseModel):
 	before: PageFingerprint | None = None
 	after: PageFingerprint | None = None
 
+	@model_validator(mode='after')
+	def validate_changed_matches_changes(self) -> ActionEvidence:
+		if self.changed != bool(self.changes):
+			raise ValueError('changed must match whether changes contains any page deltas')
+		return self
+
 	@staticmethod
 	def from_page_fingerprints(before: PageFingerprint, after: PageFingerprint) -> ActionEvidence:
 		changes = page_fingerprint_delta(before, after)

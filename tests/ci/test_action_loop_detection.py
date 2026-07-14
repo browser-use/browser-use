@@ -1,5 +1,7 @@
 """Tests for action loop detection — behavioral cycle breaking (PR #4)."""
 
+import pytest
+
 from browser_use.agent.service import Agent
 from browser_use.agent.views import (
 	ActionEvidence,
@@ -369,6 +371,15 @@ def test_action_evidence_from_page_fingerprints_marks_unchanged():
 
 	assert evidence.changed is False
 	assert evidence.changes == []
+
+
+def test_action_evidence_rejects_inconsistent_change_state():
+	"""ActionEvidence cannot carry contradictory change state."""
+	with pytest.raises(ValueError, match='changed must match whether changes contains any page deltas'):
+		ActionEvidence(changed=False, changes=['url'])
+
+	with pytest.raises(ValueError, match='changed must match whether changes contains any page deltas'):
+		ActionEvidence(changed=True, changes=[])
 
 
 def test_action_result_serializes_action_evidence():
