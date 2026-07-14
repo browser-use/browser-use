@@ -4,8 +4,9 @@ import asyncio
 import inspect
 import logging
 import time
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 if TYPE_CHECKING:
 	from browser_use.agent.service import Agent
@@ -24,7 +25,7 @@ from browser_use.agent.views import (
 )
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.llm.messages import BaseMessage, UserMessage
-from browser_use.observability import observe, observe_debug
+from browser_use.observability import observe_debug
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,38 @@ def _prepare_demo_message(message: str, limit: int = 600) -> str:
 # ═══════════════════════════════════════════════════════════════════
 
 
-class ContextPreparer:
+class BaseContextPreparer(ABC):
+	"""Interface for phase 1: context preparation.
+
+	Override :meth: to inject custom browser state, messages,
+	nudges, or other context into the LLM call.
+	"""
+
+	@abstractmethod
+	async def prepare(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
+		"""Gather browser state, build messages, inject nudges."""
+		...
+
+	def _render_plan_description(self) -> str | None:
+		"""Render the current plan as a text description for injection into agent context."""
+		return None
+
+	def _inject_replan_nudge(self) -> None:
+		"""Inject a replan nudge when stall detection threshold is met."""
+		pass
+
+	def _inject_exploration_nudge(self) -> None:
+		"""Nudge the agent to create a plan (or call done) after exploring without one."""
+		pass
+
+	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
+		pass
+
+	async def _check_stop_or_pause(self) -> None:
+		"""Check if the agent should stop or pause, and handle accordingly."""
+		pass
+
+class ContextPreparer(BaseContextPreparer):
 	"""Prepares browser state, messages, and nudges for the LLM call."""
 
 	def __init__(self, agent: Agent, pipeline: StepPipeline) -> None:
@@ -122,16 +154,7 @@ class ContextPreparer:
 		self._agent.logger.debug(f'Evaluating page with {interactive_count} interactive elements on: {url_short}')
 
 	async def _check_stop_or_pause(self) -> None:
-		if self._agent.register_should_stop_callback:
-			if await self._agent.register_should_stop_callback():
-				self._agent.logger.info('External callback requested stop')
-				self._agent.state.stopped = True
-				raise InterruptedError
-		if self._agent.register_external_agent_status_raise_error_callback:
-			if await self._agent.register_external_agent_status_raise_error_callback():
-				raise InterruptedError
-		if self._agent.state.stopped:
-			raise InterruptedError
+		await self._pipeline.check_stop_or_pause()
 		if self._agent.state.paused:
 			raise InterruptedError
 
@@ -248,7 +271,31 @@ class ContextPreparer:
 # ═══════════════════════════════════════════════════════════════════
 
 
-class ActionPhase:
+class BaseActionPhase(ABC):
+	"""Interface for phase 2: LLM call + action execution.
+
+	Override :meth: to customise how the agent calls the LLM
+	and executes the returned actions.
+	"""
+
+	@abstractmethod
+	async def execute(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Get model output then execute actions."""
+		...
+
+	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Execute LLM interaction with retry logic and handle callbacks."""
+		pass
+
+	async def _handle_post_llm_processing(
+		self,
+		browser_state_summary: BrowserStateSummary,
+		input_messages: list[BaseMessage],
+	) -> None:
+		"""Handle callbacks and conversation saving after LLM interaction."""
+		pass
+
+class ActionPhase(BaseActionPhase):
 	"""Phase 2: Gets model output and executes actions."""
 
 	def __init__(self, agent: Agent, pipeline: StepPipeline) -> None:
@@ -275,9 +322,9 @@ class ActionPhase:
 			raise TimeoutError(f'LLM call timed out after {self._agent.settings.llm_timeout} seconds. Keep your output short.')
 
 		self._agent.state.last_model_output = model_output
-		await self._pipeline._check_stop_or_pause()
+		await self._pipeline.check_stop_or_pause()
 		await self._handle_post_llm_processing(browser_state_summary, input_messages)
-		await self._pipeline._check_stop_or_pause()
+		await self._pipeline.check_stop_or_pause()
 
 	async def _execute_actions(self) -> None:
 		if self._agent.state.last_model_output is None:
@@ -309,7 +356,24 @@ class ActionPhase:
 # ═══════════════════════════════════════════════════════════════════
 
 
-class PostProcessor:
+class BasePostProcessor(ABC):
+	"""Interface for phase 3: post-processing.
+
+	Override :meth: to customise plan updates, loop detection,
+	and result logging after each step.
+	"""
+
+	@abstractmethod
+	async def execute(self) -> None:
+		"""Post-action processing."""
+		...
+
+	def _update_plan_from_model_output(self, model_output: AgentOutput) -> None:
+		"""Update the plan state from model output fields (current_plan_item, plan_update)."""
+		pass
+
+
+class PostProcessor(BasePostProcessor):
 	"""Phase 3: Handles plan updates, loop detection, and result logging."""
 
 	def __init__(self, agent: Agent, pipeline: StepPipeline) -> None:
@@ -387,7 +451,100 @@ class PostProcessor:
 # ═══════════════════════════════════════════════════════════════════
 
 
-class StepPipeline:
+def _is_connection_like_error(error: Exception) -> bool:
+	"""Check if an exception indicates a browser/connection failure."""
+	s = str(error).lower()
+	return isinstance(error, ConnectionError) or any(
+		x in s
+		for x in [
+			'websocket connection closed',
+			'connection closed',
+			'browser has been closed',
+			'browser closed',
+			'no browser',
+		]
+	)
+
+
+class BaseStepPipeline(ABC):
+	"""Interface for the full step pipeline.
+
+	Override execute() to replace the entire step orchestration,
+	or pass custom phase implementations to StepPipeline.
+
+	Subclasses may also override execute_step_with_hooks() and
+	demo_mode_log() for finer-grained customisation.
+	"""
+
+	@abstractmethod
+	async def execute(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Execute one step of the task."""
+		...
+
+	async def execute_step_with_hooks(
+		self,
+		step_info: AgentStepInfo | None,
+		*,
+		on_step_start: Callable[[Agent], Awaitable[None]] | None = None,
+		on_step_end: Callable[[Agent], Awaitable[None]] | None = None,
+		timeout: float | None = None,
+	) -> bool:
+		"""Execute one step with timeout and lifecycle hooks.
+
+		Default implementation: delegates to execute().
+		Override to add hook/timeout logic.
+		"""
+		await self.execute(step_info)
+		return False
+
+	def is_connection_like_error(self, error: Exception) -> bool:
+		"""Check if an exception indicates a browser/connection failure."""
+		return _is_connection_like_error(error)
+
+	def save_file_system_state(self) -> None:
+		"""Persist the current file system state so it can be restored later.
+
+		Default implementation: no-op.
+		"""
+		pass
+
+	async def demo_mode_log(self, message: str, level: str = 'info', metadata: dict | None = None) -> None:
+		"""Log a message to the demo mode overlay.
+
+		Default implementation: no-op.
+		"""
+		pass
+
+	async def check_stop_or_pause(self) -> None:
+		"""Check if the agent should stop or pause, raising InterruptedError if so."""
+		pass
+
+	async def broadcast_model_state(self, parsed: AgentOutput) -> None:
+		pass
+
+	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
+		pass
+
+	async def _make_history_item(self, model_output, browser_state_summary, result, metadata=None, state_message=None):
+		pass
+
+	@property
+	def context_preparer(self) -> BaseContextPreparer:
+		"""Return the context preparation phase."""
+		raise NotImplementedError
+
+	@property
+	def action_phase(self) -> BaseActionPhase:
+		"""Return the action phase."""
+		raise NotImplementedError
+
+	@property
+	def post_processor(self) -> BasePostProcessor:
+		"""Return the post-processing phase."""
+		raise NotImplementedError
+
+
+class StepPipeline(BaseStepPipeline):
 	"""Orchestrates a single step of the agent execution loop.
 
 	Phases:
@@ -397,17 +554,97 @@ class StepPipeline:
 	  3. Post-processing (PostProcessor)
 	"""
 
-	def __init__(self, agent: Agent) -> None:
+	def __init__(
+		self,
+		agent: Agent,
+		*,
+		context_preparer: BaseContextPreparer | None = None,
+		action_phase: BaseActionPhase | None = None,
+		post_processor: BasePostProcessor | None = None,
+	) -> None:
 		self._agent = agent
 		self._step_start_time: float = 0.0
 		self._step_end_time: float = 0.0
-		self._context_prep = ContextPreparer(agent, self)
-		self._action_phase = ActionPhase(agent, self)
-		self._post_phase = PostProcessor(agent, self)
+		self._context_prep = context_preparer or ContextPreparer(agent, self)
+		self._action_phase = action_phase or ActionPhase(agent, self)
+		self._post_phase = post_processor or PostProcessor(agent, self)
+
+	@property
+	def context_preparer(self) -> BaseContextPreparer:
+		"""Public accessor for the context preparation phase."""
+		return self._context_prep
+
+	@property
+	def action_phase(self) -> BaseActionPhase:
+		"""Public accessor for the action phase."""
+		return self._action_phase
+
+	@property
+	def post_processor(self) -> BasePostProcessor:
+		"""Public accessor for the post-processing phase."""
+		return self._post_phase
+
+	# ── Hooked execution (timeout + hooks) ──────────────────────────
+
+	async def execute_step_with_hooks(
+		self,
+		step_info: AgentStepInfo | None,
+		*,
+		on_step_start: Callable[[Agent], Awaitable[None]] | None = None,
+		on_step_end: Callable[[Agent], Awaitable[None]] | None = None,
+		timeout: float | None = None,
+	) -> bool:
+		"""Execute one step with timeout and lifecycle hooks.
+
+		Args:
+			step_info: Step number and max steps info.
+			on_step_start: Called before the step begins.
+			on_step_end: Called after the step completes.
+			timeout: Per-step timeout. Falls back to agent's step_timeout setting.
+
+		Returns:
+			True if the agent's history indicates the task is done.
+		"""
+		if on_step_start is not None:
+			await on_step_start(self._agent)
+
+		if step_info:
+			step_num = step_info.step_number + 1
+			max_steps = step_info.max_steps
+		else:
+			step_num = 0
+			max_steps = 0
+
+		await self._demo_mode_log(
+			f'Starting step {step_num}/{max_steps}',
+			'info',
+			{'step': step_num, 'total_steps': max_steps},
+		)
+		self._agent.logger.debug(f'\U0001f6b6 Starting step {step_num}/{max_steps}...')
+
+		try:
+			await asyncio.wait_for(
+				self.execute(step_info),
+				timeout=timeout or self._agent.settings.step_timeout,
+			)
+			self._agent.logger.debug(f'\u2705 Completed step {step_num}/{max_steps}')
+		except TimeoutError:
+			error_msg = f'Step {step_num} timed out after {timeout or self._agent.settings.step_timeout} seconds'
+			self._agent.logger.error(f'\u23f0 {error_msg}')
+			await self._demo_mode_log(error_msg, 'error', {'step': step_num})
+			self._agent.state.consecutive_failures += 1
+			self._agent.state.last_result = [ActionResult(error=error_msg)]
+			# Ensure step counter advances on timeout — _finalize() may have
+			# been skipped or returned early due to the cancellation.
+			if self._agent.state.n_steps == step_num:
+				self._agent.state.n_steps += 1
+
+		if on_step_end is not None:
+			await on_step_end(self._agent)
+
+		return self._agent.history.is_done()
 
 	# ── Main entry point ──────────────────────────────────────────
-
-	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def execute(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task."""
@@ -451,8 +688,8 @@ class StepPipeline:
 
 	# ── Shared helpers called by sub-modules ──────────────────────
 
-	async def _check_stop_or_pause(self) -> None:
-		"""Check stop/pause (usable by ActionPhase without circular import)."""
+	async def check_stop_or_pause(self) -> None:
+		"""Check if the agent should stop or pause, raising InterruptedError if so."""
 		if self._agent.register_should_stop_callback and await self._agent.register_should_stop_callback():
 			self._agent.logger.info('External callback requested stop')
 			self._agent.state.stopped = True
@@ -502,7 +739,7 @@ class StepPipeline:
 			self._agent.logger.warning(f'{msg}')
 			return
 
-		if self._is_connection_like_error(error):
+		if self.is_connection_like_error(error):
 			if self._agent.browser_session.is_reconnecting:
 				try:
 					await asyncio.wait_for(
@@ -532,18 +769,9 @@ class StepPipeline:
 		await self._demo_mode_log(f'Step error: {error_msg}', 'error', {'step': self._agent.state.n_steps})
 		self._agent.state.last_result = [ActionResult(error=error_msg)]
 
-	def _is_connection_like_error(self, error: Exception) -> bool:
-		s = str(error).lower()
-		return isinstance(error, ConnectionError) or any(
-			x in s
-			for x in [
-				'websocket connection closed',
-				'connection closed',
-				'browser has been closed',
-				'browser closed',
-				'no browser',
-			]
-		)
+	def is_connection_like_error(self, error: Exception) -> bool:
+		"""Check if an exception indicates a browser/connection failure."""
+		return _is_connection_like_error(error)
 
 	def _is_browser_closed_error(self, error: Exception) -> bool:
 		if self._agent.browser_session.is_reconnecting:
@@ -591,7 +819,7 @@ class StepPipeline:
 		summary = self._log_step_completion_summary(self._step_start_time, self._agent.state.last_result)
 		if summary:
 			await self._demo_mode_log(summary, 'info', {'step': self._agent.state.n_steps})
-		self._save_file_system_state()
+		self.save_file_system_state()
 
 		if browser_state_summary and self._agent.state.last_model_output:
 			actions_data = [
@@ -631,7 +859,7 @@ class StepPipeline:
 			)
 		)
 
-	def _save_file_system_state(self) -> None:
+	def save_file_system_state(self) -> None:
 		self._agent.state.file_system_state = self._agent.file_system.get_state() if self._agent.file_system else None
 
 	def _log_step_completion_summary(self, step_start_time: float, result: list[ActionResult]) -> str | None:
@@ -642,7 +870,8 @@ class StepPipeline:
 		failure = len(result) - success
 		parts = [f'\u2705 {success}'] if success else []
 		parts.append(f'\u274c {failure}') if failure else None
-		msg = f'\U0001f4cd Step {self._agent.state.n_steps}: Ran {len(result)} action{"s" if len(result) != 1 else ""} in {duration:.2f}s: {" | ".join(parts) if parts else "\u2705 0"}'
+		check = '\u2705'  # checkmark
+		msg = f'\U0001f4cd Step {self._agent.state.n_steps}: Ran {len(result)} action{"s" if len(result) != 1 else ""} in {duration:.2f}s: {" | ".join(parts) if parts else f"{check} 0"}'
 		self._agent.logger.debug(msg)
 		return msg
 
@@ -656,7 +885,11 @@ class StepPipeline:
 		except Exception as exc:
 			self._agent.logger.debug(f'[DemoMode] Failed to send overlay log: {exc}')
 
-	async def _broadcast_model_state(self, parsed: AgentOutput) -> None:
+	async def demo_mode_log(self, message: str, level: str = 'info', metadata: dict | None = None) -> None:
+		"""Public API for logging demo mode messages during step execution."""
+		await self._demo_mode_log(message, level, metadata)
+
+	async def broadcast_model_state(self, parsed: AgentOutput) -> None:
 		if not self._agent._demo_mode_enabled:
 			return
 		state = parsed.current_state

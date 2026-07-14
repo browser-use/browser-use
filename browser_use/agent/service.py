@@ -22,7 +22,6 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
-
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
@@ -42,7 +41,13 @@ from browser_use.agent.judge import construct_judge_messages
 from browser_use.agent.message_manager.service import (
 	MessageManager,
 )
-from browser_use.agent.pipeline import StepPipeline
+from browser_use.agent.pipeline import (
+	BaseActionPhase,
+	BaseContextPreparer,
+	BasePostProcessor,
+	BaseStepPipeline,
+	StepPipeline,
+)
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
@@ -53,11 +58,15 @@ from browser_use.agent.views import (
 	AgentState,
 	AgentStepInfo,
 	AgentStructuredOutput,
+	BehaviorSettings,
 	BrowserStateHistory,
 	DetectedVariable,
 	JudgementResult,
 	MessageCompactionSettings,
+	OutputSettings,
+	PlanningSettings,
 	StepMetadata,
+	VisionSettings,
 )
 from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
@@ -207,6 +216,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
+		# Grouped settings (alternative to individual params)
+		vision_settings: VisionSettings | None = None,
+		behavior_settings: BehaviorSettings | None = None,
+		planning_settings: PlanningSettings | None = None,
+		output_settings: OutputSettings | None = None,
+		# Custom pipeline / phase overrides (for extensibility)
+		pipeline: BaseStepPipeline | None = None,
+		context_preparer: BaseContextPreparer | None = None,
+		action_phase: BaseActionPhase | None = None,
+		post_processor: BasePostProcessor | None = None,
 		**kwargs,
 	):
 		# Validate llm_screenshot_size
@@ -385,35 +404,47 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if isinstance(message_compaction, bool):
 			message_compaction = MessageCompactionSettings(enabled=message_compaction)
 
+		# Merge sub-settings into final AgentSettings.
+		# Sub-settings provide defaults; individual params override.
+		_vision = vision_settings or VisionSettings()
+		_behavior = behavior_settings or BehaviorSettings()
+		_planning = planning_settings or PlanningSettings()
+		_output = output_settings or OutputSettings()
+
 		self.settings = AgentSettings(
-			use_vision=use_vision,
-			vision_detail_level=vision_detail_level,
-			save_conversation_path=save_conversation_path,
-			save_conversation_path_encoding=save_conversation_path_encoding,
-			max_failures=max_failures,
-			override_system_message=override_system_message,
-			extend_system_message=extend_system_message,
-			generate_gif=generate_gif,
-			include_attributes=include_attributes,
+			# --- Vision ---
+			use_vision=use_vision if use_vision is not None else _vision.use_vision,
+			vision_detail_level=vision_detail_level if vision_detail_level != 'auto' else _vision.vision_detail_level,
+			page_extraction_llm=page_extraction_llm or _vision.page_extraction_llm,
+			include_attributes=include_attributes or _vision.include_attributes,
+			include_tool_call_examples=include_tool_call_examples or _vision.include_tool_call_examples,
+			# --- Behavior ---
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
 			flash_mode=flash_mode,
-			max_history_items=max_history_items,
-			page_extraction_llm=page_extraction_llm,
-			calculate_cost=calculate_cost,
-			include_tool_call_examples=include_tool_call_examples,
-			llm_timeout=llm_timeout,
-			step_timeout=step_timeout,
+			max_failures=max_failures,
 			final_response_after_failure=final_response_after_failure,
+			max_history_items=max_history_items,
+			message_compaction=message_compaction,
 			use_judge=use_judge,
 			ground_truth=ground_truth,
-			enable_planning=enable_planning,
+			llm_timeout=llm_timeout,
+			step_timeout=step_timeout,
+			# --- Planning ---
+			enable_planning=enable_planning if enable_planning is not None else _planning.enable_planning,
 			planning_replan_on_stall=planning_replan_on_stall,
 			planning_exploration_limit=planning_exploration_limit,
 			loop_detection_window=loop_detection_window,
 			loop_detection_enabled=loop_detection_enabled,
-			message_compaction=message_compaction,
 			max_clickable_elements_length=max_clickable_elements_length,
+			# --- Output ---
+			save_conversation_path=save_conversation_path or _output.save_conversation_path,
+			save_conversation_path_encoding=save_conversation_path_encoding or _output.save_conversation_path_encoding,
+			generate_gif=generate_gif if generate_gif is not False else _output.generate_gif,
+			calculate_cost=calculate_cost if calculate_cost is not False else _output.calculate_cost,
+			# --- System messages ---
+			override_system_message=override_system_message,
+			extend_system_message=extend_system_message,
 		)
 
 		# Token cost service
@@ -526,7 +557,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		# Step pipeline for orchestrating step execution
-		self._pipeline = StepPipeline(self)
+		self._pipeline = pipeline or StepPipeline(
+			self,
+			context_preparer=context_preparer,
+			action_phase=action_phase,
+			post_processor=post_processor,
+		)
 		if self.sensitive_data:
 			# Check if sensitive_data has domain-specific credentials
 			has_domain_specific_credentials = any(isinstance(v, dict) for v in self.sensitive_data.values())
@@ -703,7 +739,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	def save_file_system_state(self) -> None:
 		"""Save current file system state to agent state."""
-		self._pipeline._save_file_system_state()
+		self._pipeline.save_file_system_state()
 
 	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
 		"""Get the version from pyproject.toml and determine the source of the browser-use package"""
@@ -966,6 +1002,67 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task."""
 		return await self._pipeline.execute(step_info)
+
+	# ── Backward-compatible wrappers for methods moved to pipeline ──────────────
+	# These thin delegation wrappers ensure the private API surface is preserved
+	# so that existing code (including tests and the beta agent) can still call
+	# agent._update_plan_from_model_output(), etc. without modification.
+
+	def _update_plan_from_model_output(self, model_output: AgentOutput) -> None:
+		"""Update the plan state from model output fields (current_plan_item, plan_update)."""
+		self._pipeline.post_processor._update_plan_from_model_output(model_output)
+
+	def _render_plan_description(self) -> str | None:
+		"""Render the current plan as a text description for injection into agent context."""
+		return self._pipeline.context_preparer._render_plan_description()
+
+	def _inject_replan_nudge(self) -> None:
+		"""Inject a replan nudge when stall detection threshold is met."""
+		self._pipeline.context_preparer._inject_replan_nudge()
+
+	def _inject_exploration_nudge(self) -> None:
+		"""Nudge the agent to create a plan (or call done) after exploring without one."""
+		self._pipeline.context_preparer._inject_exploration_nudge()
+
+	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
+		self._pipeline.context_preparer._log_step_context(browser_state_summary)
+
+	async def _check_stop_or_pause(self) -> None:
+		"""Check if the agent should stop or pause, and handle accordingly."""
+		await self._pipeline.context_preparer._check_stop_or_pause()
+
+	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Execute LLM interaction with retry logic and handle callbacks."""
+		await self._pipeline.action_phase._get_next_action(browser_state_summary)
+
+	async def _handle_post_llm_processing(
+		self,
+		browser_state_summary: BrowserStateSummary,
+		input_messages: list[BaseMessage],
+	) -> None:
+		"""Handle callbacks and conversation saving after LLM interaction."""
+		await self._pipeline.action_phase._handle_post_llm_processing(browser_state_summary, input_messages)
+
+	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
+		"""Finalize the step with history, logging, and events."""
+		await self._pipeline._finalize(browser_state_summary)
+
+	async def _make_history_item(
+		self,
+		model_output: AgentOutput | None,
+		browser_state_summary: BrowserStateSummary,
+		result: list[ActionResult],
+		metadata: StepMetadata | None = None,
+		state_message: str | None = None,
+	) -> None:
+		"""Create and store history item."""
+		await self._pipeline._make_history_item(model_output, browser_state_summary, result, metadata, state_message)
+
+	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
+		"""Prepare the context for the step: browser state, action models, page actions."""
+		return await self._pipeline.context_preparer.prepare(step_info)
+
+	# ── End of backward-compatible wrappers ────────────────────────────────────
 
 	@observe(ignore_input=True, ignore_output=False)
 	async def _judge_trace(self) -> JudgementResult | None:
@@ -1267,7 +1364,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
 				log_response(parsed, self.tools.registry.registry, self.logger)
-				await self._pipeline._broadcast_model_state(parsed)
+				await self._pipeline.broadcast_model_state(parsed)
 
 			self._log_next_action_summary(parsed)
 			return parsed
@@ -1681,7 +1778,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if on_step_start is not None:
 			await on_step_start(self)
 
-		await self._pipeline._demo_mode_log(
+		await self._pipeline.demo_mode_log(
 			f'Starting step {step + 1}/{max_steps}',
 			'info',
 			{'step': step + 1, 'total_steps': max_steps},
@@ -1699,7 +1796,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Handle step timeout gracefully
 			error_msg = f'Step {step + 1} timed out after {self.settings.step_timeout} seconds'
 			self.logger.error(f'⏰ {error_msg}')
-			await self._pipeline._demo_mode_log(error_msg, 'error', {'step': step + 1})
+			await self._pipeline.demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1
 			self.state.last_result = [ActionResult(error=error_msg)]
 			# Ensure step counter advances on timeout — _finalize() may have
@@ -1791,8 +1888,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Start browser session and attach watchdogs
 			await self.browser_session.start()
 			if self._demo_mode_enabled:
-				await self._pipeline._demo_mode_log(f'Started task: {self.task}', 'info', {'tag': 'task'})
-				await self._pipeline._demo_mode_log(
+				await self._pipeline.demo_mode_log(f'Started task: {self.task}', 'info', {'tag': 'task'})
+				await self._pipeline.demo_mode_log(
 					'Demo mode active - follow the side panel for live thoughts and actions.',
 					'info',
 					{'tag': 'status'},
@@ -1856,7 +1953,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# Agent has marked the task as done
 					if self._demo_mode_enabled and self.history.history:
 						final_result_text = self.history.final_result() or 'Task completed'
-						await self._pipeline._demo_mode_log(f'Final Result: {final_result_text}', 'success', {'tag': 'task'})
+						await self._pipeline.demo_mode_log(f'Final Result: {final_result_text}', 'success', {'tag': 'task'})
 
 					should_delay_close = True
 					break
@@ -1906,7 +2003,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if should_delay_close and self._demo_mode_enabled and agent_run_error is None:
 				await asyncio.sleep(30)
 			if agent_run_error:
-				await self._pipeline._demo_mode_log(f'Agent stopped: {agent_run_error}', 'error', {'tag': 'run'})
+				await self._pipeline.demo_mode_log(f'Agent stopped: {agent_run_error}', 'error', {'tag': 'run'})
 			# Log token usage summary
 			await self.token_cost_service.log_usage_summary()
 
@@ -1999,7 +2096,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 
 			try:
-				await self._pipeline._check_stop_or_pause()
+				await self._pipeline.check_stop_or_pause()
 
 				# Log action before execution
 				await self._log_action(action, action_name, i + 1, total_actions)
@@ -2019,7 +2116,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 
 				if result.error:
-					await self._pipeline._demo_mode_log(
+					await self._pipeline.demo_mode_log(
 						f'Action "{action_name}" failed: {result.error}',
 						'error',
 						{'action': action_name, 'step': self.state.n_steps},
@@ -2027,7 +2124,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				elif result.is_done:
 					completion_text = result.long_term_memory or result.extracted_content or 'Task marked as done.'
 					level = 'success' if result.success is not False else 'warning'
-					await self._pipeline._demo_mode_log(
+					await self._pipeline.demo_mode_log(
 						completion_text,
 						level,
 						{'action': action_name, 'step': self.state.n_steps},
@@ -2061,11 +2158,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if isinstance(e, InterruptedError):
 					raise
 				# Re-raise browser/connection errors so _handle_step_error can handle reconnect/shutdown
-				if self._pipeline._is_connection_like_error(e):
+				if self._pipeline.is_connection_like_error(e):
 					raise
 				# Handle any exceptions during action execution
 				self.logger.error(f'❌ Executing action {i + 1} failed -> {type(e).__name__}: {e}')
-				await self._pipeline._demo_mode_log(
+				await self._pipeline.demo_mode_log(
 					f'Action "{action_name}" raised {type(e).__name__}: {e}',
 					'error',
 					{'action': action_name, 'step': self.state.n_steps},
@@ -2123,7 +2220,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			panel_message = plain_header
 			if plain_param_parts:
 				panel_message = f'{panel_message} {", ".join(plain_param_parts)}'
-			await self._pipeline._demo_mode_log(panel_message.strip(), 'action', {'action': action_name, 'step': self.state.n_steps})
+			await self._pipeline.demo_mode_log(
+				panel_message.strip(), 'action', {'action': action_name, 'step': self.state.n_steps}
+			)
 
 	async def log_completion(self) -> None:
 		"""Log the completion of the task"""
@@ -2131,7 +2230,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# self._task_duration = self._task_end_time - self._task_start_time TODO: this is not working when using take_step
 		if self.history.is_successful():
 			self.logger.info('✅ Task completed successfully')
-			await self._pipeline._demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
+			await self._pipeline.demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
 
 	async def _generate_rerun_summary(
 		self, original_task: str, results: list[ActionResult], summary_llm: BaseChatModel | None = None

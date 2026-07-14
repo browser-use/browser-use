@@ -56,40 +56,96 @@ class MessageCompactionSettings(BaseModel):
 		return self
 
 
-class AgentSettings(BaseModel):
-	"""Configuration options for the Agent"""
+class VisionSettings(BaseModel):
+	"""Vision & page extraction settings."""
 
 	use_vision: bool | Literal['auto'] = True
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
+	page_extraction_llm: BaseChatModel | None = None
+	llm_screenshot_size: tuple[int, int] | None = None
+	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
+	include_tool_call_examples: bool = False
+
+
+class BehaviorSettings(BaseModel):
+	"""Action execution & step behavior settings."""
+
+	max_actions_per_step: int = 5
+	max_failures: int = 5
+	final_response_after_failure: bool = True
+	use_thinking: bool = True
+	flash_mode: bool = False
+	use_judge: bool = True
+	ground_truth: str | None = None
+	max_history_items: int | None = None
+	message_compaction: MessageCompactionSettings | None = None
+
+
+class PlanningSettings(BaseModel):
+	"""Task planning & loop detection settings."""
+
+	enable_planning: bool = True
+	planning_replan_on_stall: int = 3
+	planning_exploration_limit: int = 5
+	loop_detection_window: int = 20
+	loop_detection_enabled: bool = True
+	max_clickable_elements_length: int = 40000
+
+
+class OutputSettings(BaseModel):
+	"""Output, file, and conversation saving settings."""
+
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
-	max_failures: int = 5
 	generate_gif: bool | str = False
-	override_system_message: str | None = None
-	extend_system_message: str | None = None
+	calculate_cost: bool = False
+
+
+class AgentSettings(BaseModel):
+	"""Configuration options for the Agent
+
+	Settings are grouped into sub-categories for convenience.
+	Use the sub-setting classes (VisionSettings, BehaviorSettings, etc.)
+	or pass individual params directly to Agent.
+	"""
+
+	# --- Vision ---
+	use_vision: bool | Literal['auto'] = True
+	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
+	page_extraction_llm: BaseChatModel | None = None
 	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
+	include_tool_call_examples: bool = False
+
+	# --- Behavior ---
 	max_actions_per_step: int = 5
+	max_failures: int = 5
+	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	use_judge: bool = True
 	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
 	message_compaction: MessageCompactionSettings | None = None
+	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
+	step_timeout: int = 180  # Timeout in seconds for each step
+
+	# --- Planning & Loop detection ---
 	enable_planning: bool = True
 	planning_replan_on_stall: int = 3  # consecutive failures before replan nudge; 0 = disabled
 	planning_exploration_limit: int = 5  # steps without a plan before nudge; 0 = disabled
-
-	page_extraction_llm: BaseChatModel | None = None
-	calculate_cost: bool = False
-	include_tool_call_examples: bool = False
-	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
-	step_timeout: int = 180  # Timeout in seconds for each step
-	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
-
-	# Loop detection settings
 	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
 	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
 	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
+
+	# --- Output ---
+	save_conversation_path: str | Path | None = None
+	save_conversation_path_encoding: str | None = 'utf-8'
+	generate_gif: bool | str = False
+	calculate_cost: bool = False
+
+	# --- System messages ---
+	override_system_message: str | None = None
+	extend_system_message: str | None = None
 
 
 class PageFingerprint(BaseModel):

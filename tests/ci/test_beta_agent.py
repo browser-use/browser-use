@@ -219,8 +219,14 @@ def test_beta_agent_action_model_helper_type_hints_match_browser_use():
 
 
 def test_beta_agent_browser_state_helper_type_hints_match_browser_use():
-	# These methods moved to pipeline.py (StepPipeline / ContextPreparer / ActionPhase / PostProcessor)
-	pass
+	from browser_use.agent.service import _PythonAgent as BrowserUseAgent
+	from browser_use.beta import Agent as BetaAgent
+
+	for method_name in ('_finalize', '_get_next_action', '_log_step_context', '_make_history_item', '_prepare_context'):
+		browser_use_hints = get_type_hints(getattr(BrowserUseAgent, method_name))
+		beta_hints = get_type_hints(getattr(BetaAgent, method_name))
+
+		assert beta_hints == browser_use_hints
 
 
 def test_beta_agent_llm_message_helper_type_hints_match_browser_use():
@@ -229,6 +235,7 @@ def test_beta_agent_llm_message_helper_type_hints_match_browser_use():
 
 	for method_name in (
 		'_get_model_output_with_retry',
+		'_handle_post_llm_processing',
 		'_process_messsages_and_replace_long_urls_shorter_ones',
 		'get_model_output',
 	):
