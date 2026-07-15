@@ -163,21 +163,28 @@ class SchemaOptimizer:
 		ensure_additional_properties_false(optimized_schema)
 		SchemaOptimizer._make_strict_compatible(optimized_schema)
 
-		# Final pass to remove minItems/min_items and default values if requested
+		# Final pass to remove minItems/min_items and default values if requested.
+		# Keys inside a `properties` map are user field names, not schema keywords:
+		# popping them leaves the names in `required` while additionalProperties is
+		# false, so the schema cannot be satisfied (#5829).
 		if remove_min_items or remove_defaults:
 
 			def remove_forbidden_fields(obj: Any) -> None:
 				"""Recursively remove minItems/min_items and default values"""
 				if isinstance(obj, dict):
-					# Remove forbidden keys
 					if remove_min_items:
 						obj.pop('minItems', None)
 						obj.pop('min_items', None)
 					if remove_defaults:
 						obj.pop('default', None)
-					# Recursively process all values
-					for value in obj.values():
-						if isinstance(value, (dict, list)):
+					for key, value in obj.items():
+						# The properties mapping is name -> schema. Do not walk it as a
+						# schema object, or field names that match metadata keys are deleted.
+						if key == 'properties' and isinstance(value, dict):
+							for prop_schema in value.values():
+								if isinstance(prop_schema, (dict, list)):
+									remove_forbidden_fields(prop_schema)
+						elif isinstance(value, (dict, list)):
 							remove_forbidden_fields(value)
 				elif isinstance(obj, list):
 					for item in obj:
