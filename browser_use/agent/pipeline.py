@@ -222,7 +222,7 @@ class ContextPreparer(BaseContextPreparer):
 		nudge = self._agent.state.loop_detector.get_nudge_message()
 		if nudge:
 			self._agent.logger.info(
-				f'\U0001f501 Loop nudge injected (repetition={self._agent.state.loop_detector.max_repetition_count}, '
+				f'\U0001f501 Loop detection nudge injected (repetition={self._agent.state.loop_detector.max_repetition_count}, '
 				f'stagnation={self._agent.state.loop_detector.consecutive_stagnant_pages})'
 			)
 			self._agent.message_manager._add_context_message(UserMessage(content=nudge))
@@ -561,8 +561,29 @@ class BaseStepPipeline(ABC):
 
 	@property
 	def action_executor(self) -> ActionExecutor:
-		"""Return the action executor instance."""
-		raise NotImplementedError
+		"""Return the action executor instance.
+
+		Default implementation wraps execute_step_with_hooks()
+		so custom pipelines that override execute() still work.
+		"""
+		class _DefaultExecutor:
+			"""Minimal adapter: routes execute_step through execute_step_with_hooks()."""
+			def __init__(self, pipeline: 'BaseStepPipeline') -> None:
+				self._pipeline = pipeline
+
+			async def execute_step(
+				self,
+				step: int,
+				max_steps: int,
+				step_info: AgentStepInfo | None,
+				on_step_start: Callable[..., Awaitable[None]] | None = None,
+				on_step_end: Callable[..., Awaitable[None]] | None = None,
+			) -> bool:
+				return await self._pipeline.execute_step_with_hooks(
+					step_info, on_step_start=on_step_start, on_step_end=on_step_end
+				)
+
+		return _DefaultExecutor(self)  # type: ignore[return-value]
 
 
 class StepPipeline(BaseStepPipeline):
