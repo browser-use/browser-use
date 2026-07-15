@@ -23,6 +23,7 @@ from browser_use.agent.views import (
 	PlanItem,
 	StepMetadata,
 )
+from browser_use.agent.action_executor import ActionExecutor
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.observability import observe_debug
@@ -329,7 +330,7 @@ class ActionPhase(BaseActionPhase):
 	async def _execute_actions(self) -> None:
 		if self._agent.state.last_model_output is None:
 			raise ValueError('No model output to execute actions from')
-		self._agent.state.last_result = await self._agent.multi_act(self._agent.state.last_model_output.action)
+		self._agent.state.last_result = await self._pipeline.action_executor.multi_act(self._agent.state.last_model_output.action)
 
 	async def _handle_post_llm_processing(
 		self, browser_state_summary: BrowserStateSummary, input_messages: list[BaseMessage]
@@ -543,6 +544,11 @@ class BaseStepPipeline(ABC):
 		"""Return the post-processing phase."""
 		raise NotImplementedError
 
+	@property
+	def action_executor(self) -> ActionExecutor:
+		"""Return the action executor instance."""
+		raise NotImplementedError
+
 
 class StepPipeline(BaseStepPipeline):
 	"""Orchestrates a single step of the agent execution loop.
@@ -561,6 +567,7 @@ class StepPipeline(BaseStepPipeline):
 		context_preparer: BaseContextPreparer | None = None,
 		action_phase: BaseActionPhase | None = None,
 		post_processor: BasePostProcessor | None = None,
+		action_executor: ActionExecutor | None = None,
 	) -> None:
 		self._agent = agent
 		self._step_start_time: float = 0.0
@@ -568,6 +575,7 @@ class StepPipeline(BaseStepPipeline):
 		self._context_prep = context_preparer or ContextPreparer(agent, self)
 		self._action_phase = action_phase or ActionPhase(agent, self)
 		self._post_phase = post_processor or PostProcessor(agent, self)
+		self._action_executor = action_executor or ActionExecutor(agent, self)
 
 	@property
 	def context_preparer(self) -> BaseContextPreparer:
@@ -583,6 +591,11 @@ class StepPipeline(BaseStepPipeline):
 	def post_processor(self) -> BasePostProcessor:
 		"""Public accessor for the post-processing phase."""
 		return self._post_phase
+
+	@property
+	def action_executor(self) -> ActionExecutor:
+		"""Public accessor for the action executor."""
+		return self._action_executor
 
 	# ── Hooked execution (timeout + hooks) ──────────────────────────
 
