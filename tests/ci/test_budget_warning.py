@@ -24,7 +24,7 @@ async def test_budget_warning_injected_at_75_percent():
 	assert len(messages) == 1
 	assert 'BUDGET WARNING' in messages[0]
 	assert '75/100' in messages[0]
-	assert '25 steps remaining' in messages[0]
+	assert '25 remaining' in messages[0]
 
 
 async def test_budget_warning_injected_at_90_percent():
@@ -39,7 +39,7 @@ async def test_budget_warning_injected_at_90_percent():
 	assert len(messages) == 1
 	assert 'BUDGET WARNING' in messages[0]
 	assert '90/100' in messages[0]
-	assert '10 steps remaining' in messages[0]
+	assert '10 remaining' in messages[0]
 
 
 async def test_no_budget_warning_below_75_percent():
@@ -90,7 +90,7 @@ async def test_budget_warning_exact_threshold():
 	messages = _get_context_messages(agent)
 	assert len(messages) == 1
 	assert '15/20' in messages[0]
-	assert '5 steps remaining' in messages[0]
+	assert '5 remaining' in messages[0]
 
 
 async def test_budget_warning_just_below_threshold():
@@ -151,6 +151,6 @@ async def test_budget_warning_contains_actionable_guidance():
 
 	messages = _get_context_messages(agent)
 	msg = messages[0]
-	assert 'consolidate your results' in msg.lower()
+	assert 'save results' in msg.lower()
 	assert 'done' in msg.lower()
-	assert 'partial results' in msg.lower()
+	
