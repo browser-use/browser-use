@@ -206,8 +206,8 @@ class ContextPreparer(BaseContextPreparer):
 			msg = (
 				'PLANNING NUDGE: You have taken '
 				f'{self._agent.state.n_steps} steps without creating a plan. '
-				'If the task is complex, output a `plan_update` now. '
-				'If done, call `done` instead.'
+				'If the task is complex, output a `plan_update` with clear todo items now. '
+				'If the task is already done or nearly done, call `done` instead.'
 			)
 			self._agent.logger.info(
 				f'\U0001f4cb Exploration nudge injected after {self._agent.state.n_steps} steps without a plan'
@@ -247,8 +247,12 @@ class ContextPreparer(BaseContextPreparer):
 			remaining = step_info.max_steps - steps_used
 			pct = int(budget_ratio * 100)
 			msg = (
-				f'BUDGET WARNING: {steps_used}/{step_info.max_steps} steps ({pct}%). {remaining} steps remaining. '
-				f'Prioritize: consolidate your results, save partial results, call done with what you have.'
+                f'BUDGET WARNING: You have used {steps_used}/{step_info.max_steps} steps '
+				f'({pct}%). {remaining} steps remaining. '
+				f'If the task cannot be completed in the remaining steps, prioritize: '
+				f'(1) consolidate your results (save to files if the file system is in use), '
+				f'(2) call done with what you have. '
+				f'Partial results are far more valuable than exhausting all steps with nothing saved.'
 			)
 			self._agent.logger.info(f'Step budget warning: {steps_used}/{step_info.max_steps} ({pct}%)')
 			self._agent.message_manager._add_context_message(UserMessage(content=msg))
