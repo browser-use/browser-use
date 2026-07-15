@@ -255,6 +255,41 @@ Skill reference:               https://github.com/browser-use/browser-use/blob/m
 Health check:                  browser-use --doctor"""
 
 
+_QUICKSTART = """Welcome to the Browser Use CLI. Allow your coding agent to reliably control a web browser.
+
+The CLI allows your agent to control the browser via Python, and it manages the browser in the background.
+
+  browser-use <<'PY'
+  new_tab("https://news.ycombinator.com")
+  print(page_info())
+  PY
+
+Core helpers: new_tab(url), goto_url(url), page_info(),
+  capture_screenshot(), click_at_xy(x, y), js(code), cdp(method, ...),
+  wait_for_load()
+
+Recommended: install the skill so your coding agent remembers this:
+
+  browser-use skill install
+
+You can also paste this into your agent to get started:
+
+  Install or upgrade browser-use to the latest stable version with uv using
+  Python 3.12, register the skill from `browser-use skill`, and connect it to
+  my browser. Follow https://github.com/browser-use/browser-use if setup or
+  connection fails.
+
+More:
+  browser-use --doctor     check install, daemon, and browser health
+  browser-use --help       full command list
+  docs: https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md"""
+
+_EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Python piped on stdin:
+  browser-use <<'PY'
+  print(page_info())
+  PY"""
+
+
 def _command_name(args: list[str]) -> str:
 	if '--mcp' in args:
 		return 'mcp'
@@ -291,6 +326,16 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 	if legacy is not None:
 		print(_legacy_migration_message(legacy), file=sys.stderr)
 		return 2, f'legacy:{legacy}'
+
+	if not args:
+		if sys.stdin.isatty():
+			print(_QUICKSTART)
+			return 0, 'quickstart'
+		code = sys.stdin.read()
+		if not code.strip():
+			print(_EMPTY_STDIN_MESSAGE, file=sys.stderr)
+			return 1, 'run'
+		sys.stdin = StringIO(code)
 
 	return _run_browser_harness(), args[0] if args else 'run'
 
