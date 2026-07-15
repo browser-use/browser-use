@@ -157,12 +157,11 @@ class ContextPreparer(BaseContextPreparer):
 		return browser_state_summary
 
 	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
-		"""Log step context information"""
 		url = browser_state_summary.url if browser_state_summary else ''
 		url_short = url[:50] + '...' if len(url) > 50 else url
 		interactive_count = len(browser_state_summary.dom_state.selector_map) if browser_state_summary else 0
 		self._agent.logger.info('\n')
-		self._agent.logger.info(f'📍 Step {self._agent.state.n_steps}:')
+		self._agent.logger.info(f'\U0001f4cd Step {self._agent.state.n_steps}:')
 		self._agent.logger.debug(f'Evaluating page with {interactive_count} interactive elements on: {url_short}')
 
 	async def _check_stop_or_pause(self) -> None:
@@ -178,19 +177,13 @@ class ContextPreparer(BaseContextPreparer):
 		await self._agent.message_manager.maybe_compact_messages(llm=compaction_llm, settings=settings, step_info=step_info)
 
 	def _render_plan_description(self) -> str | None:
-		"""Render the current plan as a text description for injection into agent context."""
 		if not self._agent.settings.enable_planning or self._agent.state.plan is None:
 			return None
-
 		markers = {'done': '[x]', 'current': '[>]', 'pending': '[ ]', 'skipped': '[-]'}
-		lines = []
-		for i, step in enumerate(self._agent.state.plan):
-			marker = markers.get(step.status, '[ ]')
-			lines.append(f'{marker} {i}: {step.text}')
+		lines = [f'{markers.get(s.status, "[ ]")} {i}: {s.text}' for i, s in enumerate(self._agent.state.plan)]
 		return '\n'.join(lines)
 
 	def _inject_replan_nudge(self) -> None:
-		"""Inject a replan nudge when stall detection threshold is met."""
 		if not self._agent.settings.enable_planning or self._agent.state.plan is None:
 			return
 		if self._agent.settings.planning_replan_on_stall <= 0:
@@ -199,16 +192,14 @@ class ContextPreparer(BaseContextPreparer):
 			msg = (
 				'REPLAN SUGGESTED: You have failed '
 				f'{self._agent.state.consecutive_failures} consecutive times. '
-				'Your current plan may need revision. '
-				'Output a new `plan_update` with revised steps to recover.'
+				'Your current plan may need revision. Output a new `plan_update` with revised steps to recover.'
 			)
 			self._agent.logger.info(
-				f'📋 Replan nudge injected after {self._agent.state.consecutive_failures} consecutive failures'
+				f'\U0001f4cb Replan nudge injected after {self._agent.state.consecutive_failures} consecutive failures'
 			)
-			self._agent._message_manager._add_context_message(UserMessage(content=msg))
+			self._agent.message_manager._add_context_message(UserMessage(content=msg))
 
 	def _inject_exploration_nudge(self) -> None:
-		"""Nudge the agent to create a plan (or call done) after exploring without one."""
 		if not self._agent.settings.enable_planning or self._agent.state.plan is not None:
 			return
 		if self._agent.settings.planning_exploration_limit <= 0:
@@ -220,20 +211,21 @@ class ContextPreparer(BaseContextPreparer):
 				'If the task is complex, output a `plan_update` with clear todo items now. '
 				'If the task is already done or nearly done, call `done` instead.'
 			)
-			self._agent.logger.info(f'📋 Exploration nudge injected after {self._agent.state.n_steps} steps without a plan')
-			self._agent._message_manager._add_context_message(UserMessage(content=msg))
+			self._agent.logger.info(
+				f'\U0001f4cb Exploration nudge injected after {self._agent.state.n_steps} steps without a plan'
+			)
+			self._agent.message_manager._add_context_message(UserMessage(content=msg))
 
 	def _inject_loop_detection_nudge(self) -> None:
-		"""Inject an escalating nudge when behavioral loops are detected."""
 		if not self._agent.settings.loop_detection_enabled:
 			return
 		nudge = self._agent.state.loop_detector.get_nudge_message()
 		if nudge:
 			self._agent.logger.info(
-				f'🔁 Loop detection nudge injected (repetition={self._agent.state.loop_detector.max_repetition_count}, '
+				f'\U0001f501 Loop nudge injected (repetition={self._agent.state.loop_detector.max_repetition_count}, '
 				f'stagnation={self._agent.state.loop_detector.consecutive_stagnant_pages})'
 			)
-			self._agent._message_manager._add_context_message(UserMessage(content=nudge))
+			self._agent.message_manager._add_context_message(UserMessage(content=nudge))
 
 	def _update_loop_detector_page_state(self, browser_state_summary: BrowserStateSummary) -> None:
 		if not self._agent.settings.loop_detection_enabled:
@@ -394,38 +386,7 @@ class BasePostProcessor(ABC):
 
 	def _update_plan_from_model_output(self, model_output: AgentOutput) -> None:
 		"""Update the plan state from model output fields (current_plan_item, plan_update)."""
-		if not self._agent.settings.enable_planning:
-			return
-
-		# If model provided a new plan via plan_update, replace the current plan
-		if model_output.plan_update is not None:
-			self._agent.state.plan = [PlanItem(text=step_text) for step_text in model_output.plan_update]
-			self._agent.state.current_plan_item_index = 0
-			self._agent.state.plan_generation_step = self._agent.state.n_steps
-			if self._agent.state.plan:
-				self._agent.state.plan[0].status = 'current'
-			self._agent.logger.info(
-				f'📋 Plan {"updated" if self._agent.state.plan_generation_step else "created"} with {len(self._agent.state.plan)} steps'
-			)
-			return
-
-		# If model provided a step index update, advance the plan
-		if model_output.current_plan_item is not None and self._agent.state.plan is not None:
-			new_idx = model_output.current_plan_item
-			# Clamp to valid range
-			new_idx = max(0, min(new_idx, len(self._agent.state.plan) - 1))
-			old_idx = self._agent.state.current_plan_item_index
-
-			# Mark steps between old and new as done
-			for i in range(old_idx, new_idx):
-				if i < len(self._agent.state.plan) and self._agent.state.plan[i].status in ('current', 'pending'):
-					self._agent.state.plan[i].status = 'done'
-
-			# Mark the new step as current
-			if new_idx < len(self._agent.state.plan):
-				self._agent.state.plan[new_idx].status = 'current'
-
-			self._agent.state.current_plan_item_index = new_idx
+		pass
 
 
 class PostProcessor(BasePostProcessor):
