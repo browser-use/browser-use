@@ -1066,9 +1066,57 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Prepare the context for the step: browser state, action models, page actions."""
 		return await self._pipeline.context_preparer.prepare(step_info)
 
-	async def load_and_rerun(self, history: list[dict] | AgentHistoryList) -> list[ActionResult]:
-		"""Backward-compatible alias for rerun_history."""
-		return await self.rerun_history(history)
+	async def load_and_rerun(
+		self,
+		history_file: str | Path | None = None,
+		variables: dict[str, str] | None = None,
+		**kwargs,
+	) -> list[ActionResult]:
+		if not history_file:
+			history_file = 'AgentHistory.json'
+		from browser_use.agent.views import AgentHistoryList
+		history = AgentHistoryList.model_validate_json(Path(history_file).read_text())
+		return await self.rerun_history(history, **kwargs)
+
+	async def _generate_rerun_summary(
+		self, original_task: str, results: list[ActionResult], summary_llm: BaseChatModel | None = None
+	) -> ActionResult:
+		"""Generate AI summary of rerun completion (delegates to action executor)."""
+		return await self._pipeline.action_executor._generate_rerun_summary(original_task, results, summary_llm)
+
+	def _is_redundant_retry_step(
+		self, history_item: AgentHistory, previous_item: AgentHistory | None, previous_succeeded: bool
+	) -> bool:
+		"""Check if current history item is a redundant retry (delegates to action executor)."""
+		return self._pipeline.action_executor._is_redundant_retry_step(history_item, previous_item, previous_succeeded)
+
+	def _count_expected_elements_from_history(self, history_item: AgentHistory) -> int:
+		"""Count expected elements from a history item (delegates to action executor)."""
+		return self._pipeline.action_executor._count_expected_elements_from_history(history_item)
+
+	async def _wait_for_minimum_elements(
+		self, min_elements: int, timeout: float = 30.0, poll_interval: float = 1.0
+	) -> BrowserStateSummary | None:
+		"""Wait for minimum elements before element matching (delegates to action executor)."""
+		return await self._pipeline.action_executor._wait_for_minimum_elements(min_elements, timeout, poll_interval)
+
+	async def _execute_ai_step(
+		self,
+		query: str,
+		include_screenshot: bool = False,
+		extract_links: bool = False,
+		ai_step_llm: BaseChatModel | None = None,
+	) -> ActionResult:
+		"""Execute an AI step during rerun (delegates to action executor)."""
+		return await self._pipeline.action_executor._execute_ai_step(query, include_screenshot, extract_links, ai_step_llm)
+
+	def _is_menu_opener_step(self, history_item: AgentHistory | None) -> bool:
+		"""Check if a history item is a menu opener step (delegates to action executor)."""
+		return self._pipeline.action_executor._is_menu_opener_step(history_item)
+
+	def _is_menu_item_element(self, elem: DOMInteractedElement | None) -> bool:
+		"""Check if an element is a menu item (delegates to action executor)."""
+		return self._pipeline.action_executor._is_menu_item_element(elem)
 
 	# ── End of backward-compatible wrappers ────────────────────────────────────
 
