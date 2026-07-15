@@ -73,6 +73,14 @@ class BaseContextPreparer(ABC):
 		"""Check if the agent should stop or pause, and handle accordingly."""
 		pass
 
+	async def _inject_budget_warning(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Inject budget warning if nearing limit."""
+		pass
+
+	def _inject_loop_detection_nudge(self) -> None:
+		"""Inject loop detection nudge when repeated actions detected."""
+		pass
+
 class ContextPreparer(BaseContextPreparer):
 	"""Prepares browser state, messages, and nudges for the LLM call."""
 

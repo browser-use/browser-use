@@ -1122,6 +1122,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Inject budget warning if nearing limit (delegates to context preparer)."""
 		await self._pipeline.context_preparer._inject_budget_warning(step_info)
 
+	def _inject_loop_detection_nudge(self) -> None:
+		"""Inject loop detection nudge when repeated actions detected (delegates to context preparer)."""
+		self._pipeline.context_preparer._inject_loop_detection_nudge()
+
 	# ── End of backward-compatible wrappers ────────────────────────────────────
 
 	@observe(ignore_input=True, ignore_output=False)
