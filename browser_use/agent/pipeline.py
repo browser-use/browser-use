@@ -247,8 +247,8 @@ class ContextPreparer(BaseContextPreparer):
 			remaining = step_info.max_steps - steps_used
 			pct = int(budget_ratio * 100)
 			msg = (
-				f'BUDGET WARNING: {steps_used}/{step_info.max_steps} steps ({pct}%). {remaining} remaining. '
-				f'Prioritize: save results, call done with what you have.'
+				f'BUDGET WARNING: {steps_used}/{step_info.max_steps} steps ({pct}%). {remaining} steps remaining. '
+				f'Prioritize: consolidate your results, save partial results, call done with what you have.'
 			)
 			self._agent.logger.info(f'Step budget warning: {steps_used}/{step_info.max_steps} ({pct}%)')
 			self._agent.message_manager._add_context_message(UserMessage(content=msg))
