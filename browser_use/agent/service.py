@@ -1058,9 +1058,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Create and store history item."""
 		await self._pipeline._make_history_item(model_output, browser_state_summary, result, metadata, state_message)
 
+	async def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
+		"""Log an action during step execution (delegates to action executor)."""
+		await self._pipeline.action_executor._log_action(action, action_name, action_num, total_actions)
+
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions."""
 		return await self._pipeline.context_preparer.prepare(step_info)
+
+	async def load_and_rerun(self, history: list[dict] | AgentHistoryList) -> list[ActionResult]:
+		"""Backward-compatible alias for rerun_history."""
+		return await self.rerun_history(history)
 
 	# ── End of backward-compatible wrappers ────────────────────────────────────
 
