@@ -1118,6 +1118,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Check if an element is a menu item (delegates to action executor)."""
 		return self._pipeline.action_executor._is_menu_item_element(elem)
 
+	async def _inject_budget_warning(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Inject budget warning if nearing limit (delegates to context preparer)."""
+		await self._pipeline.context_preparer._inject_budget_warning(step_info)
+
 	# ── End of backward-compatible wrappers ────────────────────────────────────
 
 	@observe(ignore_input=True, ignore_output=False)
