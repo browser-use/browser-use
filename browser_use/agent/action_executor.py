@@ -200,25 +200,42 @@ class ActionExecutor:
 		return results
 
 	async def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
-		"""Log an action with its parameters."""
+		"""Log the action before execution with colored formatting"""
+		# Color definitions
+		blue = '\033[34m'  # Action name
+		magenta = '\033[35m'  # Parameter names
+		reset = '\033[0m'
+
+		# Format action number and name
+		if total_actions > 1:
+			action_header = f'▶️  [{action_num}/{total_actions}] {blue}{action_name}{reset}:'
+			plain_header = f'▶️  [{action_num}/{total_actions}] {action_name}:'
+		else:
+			action_header = f'▶️   {blue}{action_name}{reset}:'
+			plain_header = f'▶️  {action_name}:'
+
+		# Get action parameters
 		action_data = action.model_dump(exclude_unset=True)
-		reset = '\x1b[0m'
-		cyan = '\x1b[36m'
-		magenta = '\x1b[35m'
-		action_header = f'Step {self._agent.state.n_steps} | Action {action_num}/{total_actions} | {action_name}'
+		params = action_data.get(action_name, {})
 
-		param_parts: list[str] = []
-		plain_param_parts: list[str] = []
-		for param_name, value in action_data.get(action_name, {}).items():
-			if isinstance(value, str) and len(value) > 150:
-				display_value = value[:150] + '...'
-			elif isinstance(value, list) and len(str(value)) > 200:
-				display_value = str(value)[:200] + '...'
-			else:
-				display_value = value
-			param_parts.append(f'{magenta}{param_name}{reset}: {display_value}')
-			plain_param_parts.append(f'{param_name}: {display_value}')
+		# Build parameter parts with colored formatting
+		param_parts = []
+		plain_param_parts = []
 
+		if params and isinstance(params, dict):
+			for param_name, value in params.items():
+				# Truncate long values for readability
+				if isinstance(value, str) and len(value) > 150:
+					display_value = value[:150] + '...'
+				elif isinstance(value, list) and len(str(value)) > 200:
+					display_value = str(value)[:200] + '...'
+				else:
+					display_value = value
+
+				param_parts.append(f'{magenta}{param_name}{reset}: {display_value}')
+				plain_param_parts.append(f'{param_name}: {display_value}')
+
+		# Join all parts
 		if param_parts:
 			params_string = ', '.join(param_parts)
 			self._agent.logger.info(f'  {action_header} {params_string}')
@@ -226,7 +243,6 @@ class ActionExecutor:
 			self._agent.logger.info(f'  {action_header}')
 
 		if self._agent._demo_mode_enabled:
-			plain_header = f'Step {self._agent.state.n_steps} | Action {action_num}/{total_actions} | {action_name}'
 			panel_message = plain_header
 			if plain_param_parts:
 				panel_message = f'{panel_message} {", ".join(plain_param_parts)}'
@@ -235,12 +251,12 @@ class ActionExecutor:
 			)
 
 	async def log_completion(self) -> None:
-		"""Log task completion."""
+		"""Log the completion of the task"""
+		# self._agent._task_end_time = time.time()
+		# self._agent._task_duration = self._agent._task_end_time - self._agent._task_start_time TODO: this is not working when using take_step
 		if self._agent.history.is_successful():
-			self._agent.logger.info('\u2705 Task completed successfully')
-			await self._pipeline.demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
-
-	# ── Rerun ───────────────────────────────────────────────────────────
+			self._agent.logger.info('✅ Task completed successfully')
+			await self._agent._demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
 
 	async def _execute_ai_step(
 		self,
