@@ -5,12 +5,14 @@ import inspect
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
 	from browser_use.agent.service import Agent
 
+from browser_use.agent.action_executor import ActionExecutor
 from browser_use.agent.cloud_events import CreateAgentStepEvent
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.agent.views import (
@@ -23,7 +25,6 @@ from browser_use.agent.views import (
 	PlanItem,
 	StepMetadata,
 )
-from browser_use.agent.action_executor import ActionExecutor
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.observability import observe_debug
@@ -80,6 +81,7 @@ class BaseContextPreparer(ABC):
 	def _inject_loop_detection_nudge(self) -> None:
 		"""Inject loop detection nudge when repeated actions detected."""
 		pass
+
 
 class ContextPreparer(BaseContextPreparer):
 	"""Prepares browser state, messages, and nudges for the LLM call."""
@@ -247,7 +249,7 @@ class ContextPreparer(BaseContextPreparer):
 			remaining = step_info.max_steps - steps_used
 			pct = int(budget_ratio * 100)
 			msg = (
-                f'BUDGET WARNING: You have used {steps_used}/{step_info.max_steps} steps '
+				f'BUDGET WARNING: You have used {steps_used}/{step_info.max_steps} steps '
 				f'({pct}%). {remaining} steps remaining. '
 				f'If the task cannot be completed in the remaining steps, prioritize: '
 				f'(1) consolidate your results (save to files if the file system is in use), '
@@ -307,6 +309,7 @@ class BaseActionPhase(ABC):
 	) -> None:
 		"""Handle callbacks and conversation saving after LLM interaction."""
 		pass
+
 
 class ActionPhase(BaseActionPhase):
 	"""Phase 2: Gets model output and executes actions."""

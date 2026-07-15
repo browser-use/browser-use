@@ -10,7 +10,8 @@ import base64
 import inspect
 import logging
 import time
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
 	from browser_use.agent.pipeline import StepPipeline
@@ -108,9 +109,7 @@ class ActionExecutor:
 				self._agent.browser_session._cached_browser_state_summary is not None
 				and self._agent.browser_session._cached_browser_state_summary.dom_state is not None
 			):
-				cached_selector_map = dict(
-					self._agent.browser_session._cached_browser_state_summary.dom_state.selector_map
-				)
+				cached_selector_map = dict(self._agent.browser_session._cached_browser_state_summary.dom_state.selector_map)
 			else:
 				cached_selector_map = {}
 		except Exception as e:
@@ -128,9 +127,7 @@ class ActionExecutor:
 					break
 
 			if i > 0:
-				self._agent.logger.debug(
-					f'Waiting {self._agent.browser_profile.wait_between_actions} seconds between actions'
-				)
+				self._agent.logger.debug(f'Waiting {self._agent.browser_profile.wait_between_actions} seconds between actions')
 				await asyncio.sleep(self._agent.browser_profile.wait_between_actions)
 
 			try:
@@ -160,7 +157,9 @@ class ActionExecutor:
 					completion_text = result.long_term_memory or result.extracted_content or 'Task marked as done.'
 					level = 'success' if result.success is not False else 'warning'
 					await self._pipeline.demo_mode_log(
-						completion_text, level, {'action': action_name, 'step': self._agent.state.n_steps},
+						completion_text,
+						level,
+						{'action': action_name, 'step': self._agent.state.n_steps},
 					)
 
 				results.append(result)
@@ -231,7 +230,9 @@ class ActionExecutor:
 			panel_message = plain_header
 			if plain_param_parts:
 				panel_message = f'{panel_message} {", ".join(plain_param_parts)}'
-			await self._pipeline.demo_mode_log(panel_message.strip(), 'action', {'action': action_name, 'step': self._agent.state.n_steps})
+			await self._pipeline.demo_mode_log(
+				panel_message.strip(), 'action', {'action': action_name, 'step': self._agent.state.n_steps}
+			)
 
 	async def log_completion(self) -> None:
 		"""Log task completion."""
@@ -271,8 +272,8 @@ class ActionExecutor:
 
 		# Extract clean markdown
 		try:
-			
 			from browser_use.dom.markdown_extractor import extract_clean_markdown
+
 			content, content_stats = await extract_clean_markdown(
 				browser_session=self._agent.browser_session, extract_links=extract_links
 			)
@@ -306,7 +307,6 @@ class ActionExecutor:
 		query = sanitize_surrogates(query)
 
 		# Get prompts from prompts.py
-		from browser_use.agent.prompts import get_ai_step_system_prompt, get_ai_step_user_prompt, get_rerun_summary_message
 		system_prompt = get_ai_step_system_prompt()
 		prompt_text = get_ai_step_user_prompt(query, stats_summary, content)
 
@@ -346,7 +346,6 @@ class ActionExecutor:
 			self._agent.logger.warning(f'Failed to execute AI step: {e.__class__.__name__}: {e}')
 			self._agent.logger.debug('Full error traceback:', exc_info=True)
 			return ActionResult(error=f'AI step failed: {e}')
-
 
 	async def _execute_history_step(
 		self,
@@ -479,7 +478,6 @@ class ActionExecutor:
 
 		return results
 
-
 	async def _wait_for_minimum_elements(
 		self,
 		min_elements: int,
@@ -509,7 +507,9 @@ class ActionExecutor:
 			if state and state.dom_state.selector_map:
 				current_count = len(state.dom_state.selector_map)
 				if current_count >= min_elements:
-					self._agent.logger.debug(f'✅ Page has {current_count} elements (needed {min_elements}), proceeding with action')
+					self._agent.logger.debug(
+						f'✅ Page has {current_count} elements (needed {min_elements}), proceeding with action'
+					)
 					return state
 				if current_count != last_count:
 					self._agent.logger.debug(
@@ -522,7 +522,6 @@ class ActionExecutor:
 		# Return last state even if we didn't reach min_elements
 		self._agent.logger.warning(f'⚠️ Timeout waiting for {min_elements} elements, proceeding with {last_count} elements')
 		return await self._agent.browser_session.get_browser_state_summary(include_screenshot=False)
-
 
 	def _count_expected_elements_from_history(self, history_item: AgentHistory) -> int:
 		"""Estimate the minimum number of elements expected based on history.
@@ -545,7 +544,6 @@ class ActionExecutor:
 		# Cap at 50 to avoid waiting forever for very high indices
 		# max_index >= 0 means we found at least one action with an index
 		return min(max_index + 1, 50) if max_index >= 0 else 0
-
 
 	async def _update_action_indices(
 		self,
@@ -698,7 +696,6 @@ class ActionExecutor:
 
 		return action
 
-
 	def _format_element_for_error(self, elem: DOMInteractedElement | None) -> str:
 		"""Format element info for error messages during history rerun."""
 		if elem is None:
@@ -723,7 +720,6 @@ class ActionExecutor:
 			parts.append(f'xpath="{xpath_short}"')
 
 		return ' '.join(parts)
-
 
 	def _is_redundant_retry_step(
 		self,
@@ -796,7 +792,6 @@ class ActionExecutor:
 
 		return True
 
-
 	def _is_menu_opener_step(self, history_item: AgentHistory | None) -> bool:
 		"""
 		Detect if a step opens a dropdown/menu.
@@ -832,8 +827,7 @@ class ActionExecutor:
 
 		return False
 
-
-	def _is_menu_item_element(self, elem: 'DOMInteractedElement | None') -> bool:
+	def _is_menu_item_element(self, elem: DOMInteractedElement | None) -> bool:
 		"""
 		Detect if an element is a menu item that appears inside a dropdown/menu.
 
@@ -870,11 +864,10 @@ class ActionExecutor:
 
 		return False
 
-
 	async def _reexecute_menu_opener(
 		self,
 		opener_item: AgentHistory,
-		ai_step_llm: 'BaseChatModel | None' = None,
+		ai_step_llm: BaseChatModel | None = None,
 	) -> bool:
 		"""
 		Re-execute a menu opener step to re-open a closed dropdown.
@@ -902,7 +895,9 @@ class ActionExecutor:
 			results.append(summary)
 
 	async def _generate_rerun_summary(
-		self, original_task: str, results: list[ActionResult],
+		self,
+		original_task: str,
+		results: list[ActionResult],
 		summary_llm: BaseChatModel | None = None,
 	) -> ActionResult:
 		"""Generate AI summary of rerun completion."""
@@ -917,7 +912,8 @@ class ActionExecutor:
 		error_count = sum(1 for r in results if r.error)
 		success_count = len(results) - error_count
 
-		from browser_use.agent.prompts import get_rerun_summary_prompt, get_rerun_summary_message
+		from browser_use.agent.prompts import get_rerun_summary_message, get_rerun_summary_prompt
+
 		prompt = get_rerun_summary_prompt(
 			original_task=original_task,
 			total_steps=len(results),
@@ -958,7 +954,6 @@ class ActionExecutor:
 				extracted_content=f'Rerun completed: {success_count}/{len(results)} steps succeeded',
 				long_term_memory=f'Rerun completed: {success_count} steps succeeded, {error_count} errors',
 			)
-
 
 	async def rerun_history(
 		self,
@@ -1059,7 +1054,9 @@ class ActionExecutor:
 				# This handles cases where original run needed to click same element multiple times
 				# due to slow page response, but during replay the first click already worked
 				if self._is_redundant_retry_step(history_item, previous_item, previous_step_succeeded):
-					self._agent.logger.info(f'{step_name}: Skipping redundant retry (previous step already succeeded with same element)')
+					self._agent.logger.info(
+						f'{step_name}: Skipping redundant retry (previous step already succeeded with same element)'
+					)
 					results.append(
 						ActionResult(
 							extracted_content='Skipped - redundant retry of previous step',
@@ -1140,4 +1137,3 @@ class ActionExecutor:
 		finally:
 			# Always close resources, even on failure
 			await self._agent.close()
-

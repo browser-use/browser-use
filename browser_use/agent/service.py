@@ -72,7 +72,7 @@ from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
-from browser_use.dom.views import DOMInteractedElement, MatchLevel
+from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.telemetry.service import ProductTelemetry
@@ -1075,6 +1075,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not history_file:
 			history_file = 'AgentHistory.json'
 		from browser_use.agent.views import AgentHistoryList
+
 		history = AgentHistoryList.model_validate_json(Path(history_file).read_text())
 		return await self.rerun_history(history, **kwargs)
 
@@ -1824,6 +1825,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return unique_urls[0]
 
 		return None
+
 	async def run(
 		self,
 		max_steps: int = 500,
@@ -1945,7 +1947,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					break
 
 				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
-				is_done = await self._pipeline.action_executor.execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
+				is_done = await self._pipeline.action_executor.execute_step(
+					current_step, max_steps, step_info, on_step_start, on_step_end
+				)
 
 				if is_done:
 					# Agent has marked the task as done
