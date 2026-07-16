@@ -66,8 +66,12 @@ async def test_tool_calling_model_without_tool_calls_raises():
 	llm = ChatGroq(model=TOOL_CALLING_MODEL, api_key=TEST_API_KEY)
 	response = _completion(TOOL_CALLING_MODEL, content=None, tool_arguments=None)
 
-	with pytest.raises(ModelProviderError, match='No tool calls in response'):
+	with pytest.raises(ModelProviderError, match='No tool calls in response') as exc_info:
 		await _ainvoke(llm, response)
+
+	# the status code we set must survive `ainvoke`'s outer error handling rather than being
+	# re-wrapped with the default provider status
+	assert exc_info.value.status_code == 500
 
 
 async def test_json_schema_model_parses_content():

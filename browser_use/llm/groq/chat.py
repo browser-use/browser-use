@@ -145,6 +145,10 @@ class ChatGroq(BaseChatModel):
 
 		except APIError as e:
 			raise ModelProviderError(message=e.message, model=self.name) from e
+		except ModelProviderError:
+			# errors we raised ourselves (e.g. from structured-output parsing) already carry the right
+			# status code and message, so let them through instead of re-wrapping with the default status
+			raise
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
 
