@@ -170,23 +170,45 @@ class ChatGroq(BaseChatModel):
 
 		if self.model in ToolCallingModels:
 			response = await self._invoke_with_tool_calling(groq_messages, output_format, schema)
+			parsed_response = self._parse_tool_call_output(response, output_format)
 		else:
 			response = await self._invoke_with_json_schema(groq_messages, output_format, schema)
 
-		if not response.choices[0].message.content:
-			raise ModelProviderError(
-				message='No content in response',
-				status_code=500,
-				model=self.name,
-			)
+			if not response.choices[0].message.content:
+				raise ModelProviderError(
+					message='No content in response',
+					status_code=500,
+					model=self.name,
+				)
 
-		parsed_response = output_format.model_validate_json(response.choices[0].message.content)
+			parsed_response = output_format.model_validate_json(response.choices[0].message.content)
+
 		usage = self._get_usage(response)
 
 		return ChatInvokeCompletion(
 			completion=parsed_response,
 			usage=usage,
 		)
+
+	def _parse_tool_call_output(self, response: ChatCompletion, output_format: type[T]) -> T:
+		"""Extract the structured payload returned by the tool-calling path.
+
+		`_invoke_with_tool_calling` sends tool_choice='required', so the model returns the payload as
+		tool-call arguments and leaves `message.content` empty.
+		"""
+		message = response.choices[0].message
+
+		if not message.tool_calls:
+			raise ModelProviderError(
+				message='No tool calls in response',
+				status_code=500,
+				model=self.name,
+			)
+
+		arguments = message.tool_calls[0].function.arguments
+		if isinstance(arguments, str):
+			return output_format.model_validate_json(arguments)
+		return output_format.model_validate(arguments)
 
 	async def _invoke_with_tool_calling(self, groq_messages, output_format: type[T], schema) -> ChatCompletion:
 		"""Handle structured output using tool calling."""
