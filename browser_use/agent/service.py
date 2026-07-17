@@ -58,15 +58,11 @@ from browser_use.agent.views import (
 	AgentState,
 	AgentStepInfo,
 	AgentStructuredOutput,
-	BehaviorSettings,
 	BrowserStateHistory,
 	DetectedVariable,
 	JudgementResult,
 	MessageCompactionSettings,
-	OutputSettings,
-	PlanningSettings,
 	StepMetadata,
-	VisionSettings,
 )
 from browser_use.browser.events import _get_timeout
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
@@ -216,11 +212,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_clickable_elements_length: int = 40000,
 		_url_shortening_limit: int = 25,
 		enable_signal_handler: bool = True,
-		# Grouped settings (alternative to individual params)
-		vision_settings: VisionSettings | None = None,
-		behavior_settings: BehaviorSettings | None = None,
-		planning_settings: PlanningSettings | None = None,
-		output_settings: OutputSettings | None = None,
 		# Custom pipeline / phase overrides (for extensibility)
 		pipeline: BaseStepPipeline | None = None,
 		context_preparer: BaseContextPreparer | None = None,
@@ -404,20 +395,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if isinstance(message_compaction, bool):
 			message_compaction = MessageCompactionSettings(enabled=message_compaction)
 
-		# Merge sub-settings into final AgentSettings.
-		# Sub-settings provide defaults; individual params override.
-		_vision = vision_settings or VisionSettings()
-		_behavior = behavior_settings or BehaviorSettings()
-		_planning = planning_settings or PlanningSettings()
-		_output = output_settings or OutputSettings()
-
 		self.settings = AgentSettings(
 			# --- Vision ---
-			use_vision=use_vision if use_vision is not None else _vision.use_vision,
-			vision_detail_level=vision_detail_level if vision_detail_level != 'auto' else _vision.vision_detail_level,
-			page_extraction_llm=page_extraction_llm or _vision.page_extraction_llm,
-			include_attributes=include_attributes or _vision.include_attributes,
-			include_tool_call_examples=include_tool_call_examples or _vision.include_tool_call_examples,
+			use_vision=use_vision,
+			vision_detail_level=vision_detail_level,
+			page_extraction_llm=page_extraction_llm,
+			include_attributes=include_attributes,
+			include_tool_call_examples=include_tool_call_examples,
 			# --- Behavior ---
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
@@ -431,17 +415,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
 			# --- Planning ---
-			enable_planning=enable_planning if enable_planning is not None else _planning.enable_planning,
+			enable_planning=enable_planning,
 			planning_replan_on_stall=planning_replan_on_stall,
 			planning_exploration_limit=planning_exploration_limit,
 			loop_detection_window=loop_detection_window,
 			loop_detection_enabled=loop_detection_enabled,
 			max_clickable_elements_length=max_clickable_elements_length,
 			# --- Output ---
-			save_conversation_path=save_conversation_path or _output.save_conversation_path,
-			save_conversation_path_encoding=save_conversation_path_encoding or _output.save_conversation_path_encoding,
-			generate_gif=generate_gif if generate_gif is not False else _output.generate_gif,
-			calculate_cost=calculate_cost if calculate_cost is not False else _output.calculate_cost,
+			save_conversation_path=save_conversation_path,
+			save_conversation_path_encoding=save_conversation_path_encoding,
+			generate_gif=generate_gif,
+			calculate_cost=calculate_cost,
 			# --- System messages ---
 			override_system_message=override_system_message,
 			extend_system_message=extend_system_message,
@@ -1001,7 +985,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task."""
-		return await self._pipeline.execute(step_info)
+		await self._pipeline.execute_step_with_hooks(step_info)
 
 	# ── Backward-compatible wrappers for methods moved to pipeline ──────────────
 	# These thin delegation wrappers ensure the private API surface is preserved

@@ -119,23 +119,23 @@ class AgentSettings(BaseModel):
 	# --- Behavior ---
 	max_actions_per_step: int = 5
 	max_failures: int = 5
-	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
+	final_response_after_failure: bool = True
 	use_thinking: bool = True
-	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
+	flash_mode: bool = False
 	use_judge: bool = True
-	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
+	ground_truth: str | None = None
 	max_history_items: int | None = None
 	message_compaction: MessageCompactionSettings | None = None
-	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
-	step_timeout: int = 180  # Timeout in seconds for each step
+	llm_timeout: int = 60
+	step_timeout: int = 180
 
 	# --- Planning & Loop detection ---
 	enable_planning: bool = True
-	planning_replan_on_stall: int = 3  # consecutive failures before replan nudge; 0 = disabled
-	planning_exploration_limit: int = 5  # steps without a plan before nudge; 0 = disabled
-	loop_detection_window: int = 20  # Rolling window size for action similarity tracking
-	loop_detection_enabled: bool = True  # Whether to enable loop detection nudges
-	max_clickable_elements_length: int = 40000  # Max characters for clickable elements in prompt
+	planning_replan_on_stall: int = 3
+	planning_exploration_limit: int = 5
+	loop_detection_window: int = 20
+	loop_detection_enabled: bool = True
+	max_clickable_elements_length: int = 40000
 
 	# --- Output ---
 	save_conversation_path: str | Path | None = None

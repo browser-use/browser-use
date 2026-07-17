@@ -62,7 +62,7 @@ class ActionExecutor:
 
 		try:
 			await asyncio.wait_for(
-				self._pipeline.execute(step_info),
+				self._pipeline.execute_step_with_hooks(step_info),
 				timeout=self._agent.settings.step_timeout,
 			)
 			self._agent.logger.debug(f'\u2705 Completed step {step + 1}/{max_steps}')
