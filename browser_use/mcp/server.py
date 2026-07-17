@@ -277,6 +277,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_get_state',
 					description='Get the current state of the page including all interactive elements',
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 					inputSchema={
 						'type': 'object',
 						'properties': {
@@ -307,6 +308,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_get_html',
 					description='Get the raw HTML of the current page or a specific element by CSS selector',
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 					inputSchema={
 						'type': 'object',
 						'properties': {
@@ -320,6 +322,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_screenshot',
 					description='Take a screenshot of the current page. Returns viewport metadata as text and the screenshot as an image.',
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 					inputSchema={
 						'type': 'object',
 						'properties': {
@@ -353,7 +356,10 @@ class BrowserUseServer:
 				),
 				# Tab management
 				types.Tool(
-					name='browser_list_tabs', description='List all open tabs', inputSchema={'type': 'object', 'properties': {}}
+					name='browser_list_tabs',
+					description='List all open tabs',
+					annotations=types.ToolAnnotations(readOnlyHint=True),
+					inputSchema={'type': 'object', 'properties': {}},
 				),
 				types.Tool(
 					name='browser_switch_tab',
@@ -423,6 +429,7 @@ class BrowserUseServer:
 				types.Tool(
 					name='browser_list_sessions',
 					description='List all active browser sessions with their details and last activity time',
+					annotations=types.ToolAnnotations(readOnlyHint=True),
 					inputSchema={'type': 'object', 'properties': {}},
 				),
 				types.Tool(

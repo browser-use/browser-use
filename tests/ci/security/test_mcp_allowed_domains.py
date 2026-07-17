@@ -13,6 +13,7 @@ preserved when the client omits the argument.
 from typing import Any
 
 import pytest
+from mcp import types
 
 from browser_use.mcp.server import BrowserUseServer
 
@@ -39,6 +40,24 @@ async def test_dispatch_passes_none_when_allowed_domains_omitted(server: Browser
 		f'got {captured["allowed_domains"]!r} which would disable SecurityWatchdog '
 		f'when passed as BrowserProfile(allowed_domains=...).'
 	)
+
+
+async def test_read_only_tools_advertise_mcp_annotations(server: BrowserUseServer) -> None:
+	"""Read-only tools can run without an approval prompt in compatible MCP clients."""
+	await server.server.request_handlers[types.ListToolsRequest](None)
+
+	read_only_tool_names = {
+		'browser_get_state',
+		'browser_get_html',
+		'browser_screenshot',
+		'browser_list_tabs',
+		'browser_list_sessions',
+	}
+
+	for tool_name in read_only_tool_names:
+		tool = server.server._tool_cache[tool_name]
+		assert tool.annotations is not None
+		assert tool.annotations.readOnlyHint is True
 
 
 async def test_dispatch_forwards_explicit_list(server: BrowserUseServer) -> None:
