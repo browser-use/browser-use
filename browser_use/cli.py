@@ -57,8 +57,10 @@ def _capture_via_harness(
 		pass
 
 
-def _run_mcp_server() -> None:
+def _run_mcp_stdio_server(module_name: str) -> None:
+	"""Silence all logging"""
 	import asyncio
+	import importlib
 	import logging
 	import os
 
@@ -66,9 +68,16 @@ def _run_mcp_server() -> None:
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 	logging.disable(logging.CRITICAL)
 
-	from browser_use.mcp.server import main as mcp_main
+	main = importlib.import_module(module_name).main
+	asyncio.run(main())
 
-	asyncio.run(mcp_main())
+
+def _run_mcp_server() -> None:
+	_run_mcp_stdio_server('browser_use.mcp.server')
+
+
+def _run_cli_mcp_server() -> None:
+	_run_mcp_stdio_server('browser_use.mcp.cli_mcp')
 
 
 def _run_install_command(argv: list[str]) -> int:
@@ -229,23 +238,10 @@ def _legacy_command(args: list[str]) -> str | None:
 	return None
 
 
-def _legacy_migration_message(command: str) -> str:
-	hint = _LEGACY_HINTS[command]
-	if hint.startswith('#'):
-		replacement = f'  {hint.lstrip("# ")}\n\nExample:\n  browser-use <<\'PY\'\n  new_tab("https://example.com")\n  print(page_info())\n  PY'
-	else:
-		replacement = f"  browser-use <<'PY'\n  {hint}\n  PY"
-	return f"""The browser-use CLI changed in 3.0, and '{command}' was removed.
-
-The old preset subcommands are gone. To use the CLI, you write raw Python and 
-pipe it on stdin, and it runs in a persistent browser session. Browser management
-(daemon startup, Chrome/CDP attach, tabs, waiting) is handled for you.
-
-Replacement for '{command}':
-{replacement}
-
-Core helpers: new_tab(url), goto_url(url), page_info(), capture_screenshot(),
-  click_at_xy(x, y), js(code), cdp(method, ...), wait_for_load()
+_CLI3_GUIDE = """Core helpers: new_tab(url), goto_url(url), page_info(), capture_screenshot(),
+  click_at_xy(x, y), type_text(text), fill_input(selector, text), press_key(key),
+  scroll(x, y), js(code), cdp(method, ...), wait_for_load(), wait_for_element(selector),
+  list_tabs(), switch_tab(target), close_tab(target)
 
 Read the full interface now:   browser-use skill show
 Install the CLI 3.0 skill (upgrades the CLI and replaces any pre-existing browser-use skill):
@@ -255,7 +251,93 @@ Skill reference:               https://github.com/browser-use/browser-use/blob/m
 Health check:                  browser-use --doctor"""
 
 
+def _legacy_migration_message(command: str) -> str:
+	hint = _LEGACY_HINTS[command]
+	if hint.startswith('#'):
+		replacement = f'  {hint.lstrip("# ")}\n\nExample:\n  browser-use <<\'PY\'\n  new_tab("https://example.com")\n  print(page_info())\n  PY'
+	else:
+		replacement = f"  browser-use <<'PY'\n  {hint}\n  PY"
+	return f"""The browser-use CLI changed in 3.0, and '{command}' was removed.
+
+The old preset subcommands are gone. To use the CLI, you write raw Python and
+pipe it on stdin, and it runs in a persistent browser session. Browser management
+(daemon startup, Chrome/CDP attach, tabs, waiting) is handled for you.
+
+Replacement for '{command}':
+{replacement}
+
+{_CLI3_GUIDE}"""
+
+
+def _unknown_helper_message(name: str) -> str:
+	return f"""'{name}' is not defined in the browser-use CLI.
+
+Example:
+  browser-use <<'PY'
+  new_tab("https://example.com")
+  print(page_info())
+  PY
+
+{_CLI3_GUIDE}"""
+
+
+def _unknown_exec_name(exc: NameError) -> str | None:
+	import re
+
+	name = getattr(exc, 'name', None)
+	if name:
+		return name
+	m = re.search(r"'([A-Za-z_][A-Za-z0-9_]*)'", str(exc))
+	return m.group(1) if m else None
+
+
+def _raised_from_piped_code(exc: BaseException) -> bool:
+	tb = exc.__traceback__
+	last = None
+	while tb is not None:
+		last = tb
+		tb = tb.tb_next
+	return last is not None and last.tb_frame.f_code.co_filename == '<string>'
+
+
+_QUICKSTART = """Welcome to the Browser Use CLI. Allow your coding agent to reliably control a web browser.
+
+The CLI allows your agent to control the browser via Python, and it manages the browser in the background.
+
+  browser-use <<'PY'
+  new_tab("https://news.ycombinator.com")
+  print(page_info())
+  PY
+
+Core helpers: new_tab(url), goto_url(url), page_info(),
+  capture_screenshot(), click_at_xy(x, y), js(code), cdp(method, ...),
+  wait_for_load()
+
+Recommended: install the skill so your coding agent remembers this:
+
+  browser-use skill install
+
+You can also paste this into your agent to get started:
+
+  Install or upgrade browser-use to the latest stable version with uv using
+  Python 3.12, register the skill from `browser-use skill`, and connect it to
+  my browser. Follow https://github.com/browser-use/browser-use if setup or
+  connection fails.
+
+More:
+  browser-use --doctor     check install, daemon, and browser health
+  browser-use --help       full command list
+  docs: https://github.com/browser-use/browser-use/blob/main/browser_use/skills/browser-use/SKILL.md"""
+
+_EMPTY_STDIN_MESSAGE = """browser-use received empty stdin. This CLI executes Python piped on stdin:
+  browser-use <<'PY'
+  print(page_info())
+  PY"""
+
+
 def _command_name(args: list[str]) -> str:
+	if '--cli-mcp' in args:
+		return 'cli-mcp'
 	if '--mcp' in args:
 		return 'mcp'
 	if args and args[0] == 'install':
@@ -273,6 +355,9 @@ def _command_name(args: list[str]) -> str:
 
 
 def _dispatch(args: list[str]) -> tuple[int | None, str]:
+	if '--cli-mcp' in args:
+		_run_cli_mcp_server()
+		return 0, 'cli-mcp'
 	if '--mcp' in args:
 		_run_mcp_server()
 		return 0, 'mcp'
@@ -292,7 +377,27 @@ def _dispatch(args: list[str]) -> tuple[int | None, str]:
 		print(_legacy_migration_message(legacy), file=sys.stderr)
 		return 2, f'legacy:{legacy}'
 
-	return _run_browser_harness(), args[0] if args else 'run'
+	if not args:
+		if sys.stdin.isatty():
+			print(_QUICKSTART)
+			return 0, 'quickstart'
+		code = sys.stdin.read()
+		if not code.strip():
+			print(_EMPTY_STDIN_MESSAGE, file=sys.stderr)
+			return 1, 'run'
+		sys.stdin = StringIO(code)
+
+	try:
+		return _run_browser_harness(), args[0] if args else 'run'
+	except NameError as exc:
+		name = _unknown_exec_name(exc)
+		if name is None or not _raised_from_piped_code(exc):
+			raise
+		import traceback
+
+		traceback.print_exc()
+		print(_unknown_helper_message(name), file=sys.stderr)
+		return 2, args[0] if args else 'run'
 
 
 class _StderrTail:
