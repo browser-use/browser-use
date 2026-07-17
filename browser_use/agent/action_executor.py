@@ -888,12 +888,6 @@ class ActionExecutor:
 			self._agent.logger.warning(f'Failed to re-open dropdown: {e}')
 			return False
 
-	async def _close_browser_if_needed(self, results: list[ActionResult]) -> None:
-		"""Add a summary and close the browser after rerun completion."""
-		if results:
-			summary = await self._generate_rerun_summary(self._agent.task, results)
-			results.append(summary)
-
 	async def _generate_rerun_summary(
 		self,
 		original_task: str,
