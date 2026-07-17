@@ -566,9 +566,11 @@ class BaseStepPipeline(ABC):
 		Default implementation wraps execute_step_with_hooks()
 		so custom pipelines that override execute() still work.
 		"""
+
 		class _DefaultExecutor:
 			"""Minimal adapter: routes execute_step through execute_step_with_hooks()."""
-			def __init__(self, pipeline: 'BaseStepPipeline') -> None:
+
+			def __init__(self, pipeline: BaseStepPipeline) -> None:
 				self._pipeline = pipeline
 
 			async def execute_step(
