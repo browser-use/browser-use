@@ -101,3 +101,46 @@ class TestPreprocessMarkdownContent:
 		assert not filtered.startswith('\n')
 		assert not filtered.endswith(' ')
 		assert not filtered.endswith('\n')
+
+
+class TestPreservesLinksAndEncoding:
+	"""Regression tests: markdown links and percent-encoded URLs must survive filtering."""
+
+	def test_preserves_long_markdown_link_lines(self):
+		"""A long markdown link line (>100 chars) must not be dropped by the JSON heuristic."""
+		link = '[Read the full quarterly earnings report for fiscal year 2025](https://example.com/investor-relations/reports/q4-2025-earnings-full.pdf)'
+		assert len(link) > 100
+		content = f'Header\n{link}\nFooter'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert link in filtered
+
+	def test_preserves_long_image_link_lines(self):
+		"""A long clickable-image line (starts with [![) must not be dropped."""
+		line = '[![Product photo of the deluxe widget](https://cdn.example.com/images/products/deluxe-widget-hero.jpg)](https://example.com/products/deluxe-widget)'
+		assert len(line) > 100
+		content = f'Intro\n{line}\nOutro'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert line in filtered
+
+	def test_removes_long_json_array_lines(self):
+		"""A valid JSON array blob >100 chars should still be dropped."""
+		json_array = '[' + ', '.join(f'{{"id": {i}, "name": "item-{i}"}}' for i in range(10)) + ']'
+		assert len(json_array) > 100
+		content = f'Header\n{json_array}\nFooter'
+		filtered, _ = _preprocess_markdown_content(content)
+
+		assert json_array not in filtered
+		assert 'Header' in filtered
+
+	def test_preserves_percent_encoded_urls(self):
+		"""Percent-encodings in URLs must survive HTML -> markdown conversion."""
+		from browser_use.dom.markdown_extractor import convert_html_to_markdown
+
+		html = '<p>See <a href="https://example.com/my%20file%2Fv2?q=a%26b">the doc</a> here</p>'
+		content, _, _ = convert_html_to_markdown(html)
+
+		assert '%20' in content
+		assert '%2F' in content
+		assert '%26' in content

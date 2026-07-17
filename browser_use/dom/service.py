@@ -269,11 +269,16 @@ class DomService:
 		except (ValueError, TypeError):
 			pass
 
-		# Start with the element's local bounds (in its own frame's coordinate system)
-		current_bounds = node.snapshot_node.bounds
-
-		if not current_bounds:
+		if not node.snapshot_node.bounds:
 			return False  # If there are no bounds, the element is not visible
+
+		# work on a copy: snapshot bounds are shared, in-place mutation corrupts other consumers
+		current_bounds = DOMRect(
+			x=node.snapshot_node.bounds.x,
+			y=node.snapshot_node.bounds.y,
+			width=node.snapshot_node.bounds.width,
+			height=node.snapshot_node.bounds.height,
+		)
 
 		# If threshold is None, skip all viewport-based filtering (only check CSS visibility)
 		if viewport_threshold is None:
@@ -283,6 +288,9 @@ class DomService:
 		Reverse iterate through the html frames (that can be either iframe or document -> if it's a document frame compare if the current bounds interest with it (taking scroll into account) otherwise move the current bounds by the iframe offset)
 		"""
 		for frame in reversed(html_frames):
+			# skip self: a frame node appears in its own frame chain and must not offset itself
+			if frame is node:
+				continue
 			if (
 				frame.node_type == NodeType.ELEMENT_NODE
 				and (frame.node_name.upper() == 'IFRAME' or frame.node_name.upper() == 'FRAME')

@@ -86,23 +86,3 @@ class MCPServerTelemetryEvent(BaseTelemetryEvent):
 	parent_process_cmdline: str | None = None
 
 	name: str = 'mcp_server_event'
-
-
-@dataclass
-class CLITelemetryEvent(BaseTelemetryEvent):
-	"""Telemetry event for CLI usage"""
-
-	version: str
-	action: str  # 'completed', 'error'
-	mode: str  # 'browser_harness', 'install', 'init', 'skill', 'mcp_server'
-	command: str | None = None
-	task: str | None = None
-	task_length: int | None = None
-	agent_client: str | None = None
-	model: str | None = None
-	model_provider: str | None = None
-	duration_seconds: float | None = None
-	exit_code: int | None = None
-	error_message: str | None = None
-
-	name: str = 'cli_event'

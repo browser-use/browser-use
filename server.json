@@ -1,0 +1,29 @@
+{
+	"$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+	"name": "com.browser-use/browser-use",
+	"description": "Control a real Chrome browser to complete any task: fill forms, extract data, book flights.",
+	"repository": {
+		"url": "https://github.com/browser-use/browser-use",
+		"source": "github"
+	},
+	"websiteUrl": "https://browser-use.com",
+	"version": "0.13.5",
+	"packages": [
+		{
+			"registryType": "pypi",
+			"registryBaseUrl": "https://pypi.org",
+			"identifier": "browser-use",
+			"version": "0.13.5",
+			"runtimeHint": "uvx",
+			"packageArguments": [
+				{
+					"type": "positional",
+					"value": "--cli-mcp"
+				}
+			],
+			"transport": {
+				"type": "stdio"
+			}
+		}
+	]
+}
