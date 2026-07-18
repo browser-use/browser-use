@@ -100,6 +100,10 @@ from browser_use.tools.service import Tools
 logger = logging.getLogger(__name__)
 
 
+class MCPToolExecutionError(Exception):
+	"""A recoverable tool execution failure that should be visible to the MCP client."""
+
+
 def _ensure_all_loggers_use_stderr():
 	"""Ensure ALL loggers only output to stderr, not stdout."""
 	# Get the stderr handler
@@ -456,32 +460,48 @@ class BrowserUseServer:
 			"""List available prompts (none for browser-use)."""
 			return []
 
-		@self.server.call_tool()
-		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
-			"""Handle tool execution."""
-			start_time = time.time()
-			error_msg = None
-			try:
-				result = await self._execute_tool(name, arguments or {})
-				if isinstance(result, list):
-					return result
-				return [types.TextContent(type='text', text=result)]
-			except Exception as e:
-				error_msg = str(e)
-				logger.error(f'Tool execution failed: {e}', exc_info=True)
-				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
-			finally:
-				# Capture telemetry for tool calls
-				duration = time.time() - start_time
-				self._telemetry.capture(
-					MCPServerTelemetryEvent(
-						version=get_browser_use_version(),
-						action='tool_call',
-						tool_name=name,
-						duration_seconds=duration,
-						error_message=error_msg,
-					)
+			@self.server.call_tool()
+			async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
+				"""Handle tool execution."""
+				return await self._handle_call_tool(name, arguments)
+
+	async def _handle_call_tool(self, name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
+		"""Execute a tool and preserve MCP tool-result success semantics."""
+		start_time = time.time()
+		error_msg = None
+		try:
+			result = await self._execute_tool(name, arguments or {})
+			content: list[types.ContentBlock] = []
+			if isinstance(result, list):
+				content.extend(result)
+			else:
+				content.append(types.TextContent(type='text', text=result))
+			return types.CallToolResult(content=content, isError=False)
+		except MCPToolExecutionError as e:
+			error_msg = str(e)
+			return types.CallToolResult(
+				content=[types.TextContent(type='text', text=error_msg)],
+				isError=True,
+			)
+		except Exception as e:
+			error_msg = str(e)
+			logger.error(f'Tool execution failed: {e}', exc_info=True)
+			return types.CallToolResult(
+				content=[types.TextContent(type='text', text=f'Error: {error_msg}')],
+				isError=True,
+			)
+		finally:
+			# Capture telemetry for tool calls
+			duration = time.time() - start_time
+			self._telemetry.capture(
+				MCPServerTelemetryEvent(
+					version=get_browser_use_version(),
+					action='tool_call',
+					tool_name=name,
+					duration_seconds=duration,
+					error_message=error_msg,
 				)
+			)
 
 	async def _execute_tool(
 		self, tool_name: str, arguments: dict[str, Any]
@@ -566,7 +586,7 @@ class BrowserUseServer:
 			elif tool_name == 'browser_close_tab':
 				return await self._close_tab(arguments['tab_id'])
 
-		return f'Unknown tool: {tool_name}'
+		raise MCPToolExecutionError(f'Unknown tool: {tool_name}')
 
 	async def _init_browser_session(self, allowed_domains: list[str] | None = None, **kwargs):
 		"""Initialize browser session using config"""
@@ -666,7 +686,7 @@ class BrowserUseServer:
 		else:
 			api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
 			if not api_key:
-				return 'Error: OPENAI_API_KEY not set in config or environment'
+				raise MCPToolExecutionError('Error: OPENAI_API_KEY not set in config or environment')
 
 			# Use explicit model from tool call, otherwise fall back to configured default
 			llm_model = model or llm_config.get('model', 'gpt-4o')
@@ -733,7 +753,7 @@ class BrowserUseServer:
 
 		except Exception as e:
 			logger.error(f'Agent task failed: {e}', exc_info=True)
-			return f'Agent task failed: {str(e)}'
+			raise MCPToolExecutionError(f'Agent task failed: {str(e)}') from e
 		finally:
 			# Clean up
 			await agent.close()
@@ -741,7 +761,7 @@ class BrowserUseServer:
 	async def _navigate(self, url: str, new_tab: bool = False) -> str:
 		"""Navigate to a URL."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		# Update session activity
 		self._update_session_activity(self.browser_session.id)
@@ -766,7 +786,7 @@ class BrowserUseServer:
 	) -> str:
 		"""Click an element by index or at viewport coordinates."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		# Update session activity
 		self._update_session_activity(self.browser_session.id)
@@ -783,12 +803,12 @@ class BrowserUseServer:
 
 		# Index-based clicking
 		if index is None:
-			return 'Error: Provide either index or both coordinate_x and coordinate_y'
+			raise MCPToolExecutionError('Error: Provide either index or both coordinate_x and coordinate_y')
 
 		# Get the element
 		element = await self.browser_session.get_dom_element_by_index(index)
 		if not element:
-			return f'Element with index {index} not found'
+			raise MCPToolExecutionError(f'Element with index {index} not found')
 
 		if new_tab:
 			# For links, extract href and open in new tab
@@ -830,11 +850,11 @@ class BrowserUseServer:
 	async def _type_text(self, index: int, text: str) -> str:
 		"""Type text into an element."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		element = await self.browser_session.get_dom_element_by_index(index)
 		if not element:
-			return f'Element with index {index} not found'
+			raise MCPToolExecutionError(f'Element with index {index} not found')
 
 		from browser_use.browser.events import TypeTextEvent
 
@@ -876,7 +896,7 @@ class BrowserUseServer:
 	async def _get_browser_state(self, include_screenshot: bool = False) -> tuple[str, str | None]:
 		"""Get current browser state. Returns (state_json, screenshot_b64 | None)."""
 		if not self.browser_session:
-			return 'Error: No browser session active', None
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		state = await self.browser_session.get_browser_state_summary()
 
@@ -932,13 +952,13 @@ class BrowserUseServer:
 	async def _get_html(self, selector: str | None = None) -> str:
 		"""Get raw HTML of the page or a specific element."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		self._update_session_activity(self.browser_session.id)
 
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=False)
 		if not cdp_session:
-			return 'Error: No active CDP session'
+			raise MCPToolExecutionError('Error: No active CDP session')
 
 		if selector:
 			js = (
@@ -953,13 +973,15 @@ class BrowserUseServer:
 		)
 		html = result.get('result', {}).get('value')
 		if html is None:
-			return f'No element found for selector: {selector}' if selector else 'Error: Could not get page HTML'
+			if selector:
+				raise MCPToolExecutionError(f'No element found for selector: {selector}')
+			raise MCPToolExecutionError('Error: Could not get page HTML')
 		return html
 
 	async def _screenshot(self, full_page: bool = False) -> tuple[str, str | None]:
 		"""Take a screenshot. Returns (metadata_json, screenshot_b64 | None)."""
 		if not self.browser_session:
-			return 'Error: No browser session active', None
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		import base64
 
@@ -983,16 +1005,16 @@ class BrowserUseServer:
 	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
 		"""Extract content from current page."""
 		if not self.llm:
-			return 'Error: LLM not initialized (set OPENAI_API_KEY)'
+			raise MCPToolExecutionError('Error: LLM not initialized (set OPENAI_API_KEY)')
 
 		if not self.file_system:
-			return 'Error: FileSystem not initialized'
+			raise MCPToolExecutionError('Error: FileSystem not initialized')
 
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		if not self.tools:
-			return 'Error: Tools not initialized'
+			raise MCPToolExecutionError('Error: Tools not initialized')
 
 		state = await self.browser_session.get_browser_state_summary()
 
@@ -1025,7 +1047,7 @@ class BrowserUseServer:
 	async def _scroll(self, direction: str = 'down') -> str:
 		"""Scroll the page."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		from browser_use.browser.events import ScrollEvent
 
@@ -1042,7 +1064,7 @@ class BrowserUseServer:
 	async def _go_back(self) -> str:
 		"""Go back in browser history."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		from browser_use.browser.events import GoBackEvent
 
@@ -1065,7 +1087,7 @@ class BrowserUseServer:
 	async def _list_tabs(self) -> str:
 		"""List all open tabs."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		tabs_info = await self.browser_session.get_tabs()
 		tabs = []
@@ -1076,7 +1098,7 @@ class BrowserUseServer:
 	async def _switch_tab(self, tab_id: str) -> str:
 		"""Switch to a different tab."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		from browser_use.browser.events import SwitchTabEvent
 
@@ -1089,7 +1111,7 @@ class BrowserUseServer:
 	async def _close_tab(self, tab_id: str) -> str:
 		"""Close a specific tab."""
 		if not self.browser_session:
-			return 'Error: No browser session active'
+			raise MCPToolExecutionError('Error: No browser session active')
 
 		from browser_use.browser.events import CloseTabEvent
 
@@ -1143,7 +1165,7 @@ class BrowserUseServer:
 	async def _close_session(self, session_id: str) -> str:
 		"""Close a specific browser session."""
 		if session_id not in self.active_sessions:
-			return f'Session {session_id} not found'
+			raise MCPToolExecutionError(f'Session {session_id} not found')
 
 		session_data = self.active_sessions[session_id]
 		session = session_data['session']
@@ -1165,7 +1187,7 @@ class BrowserUseServer:
 
 			return f'Successfully closed session {session_id}'
 		except Exception as e:
-			return f'Error closing session {session_id}: {str(e)}'
+			raise MCPToolExecutionError(f'Error closing session {session_id}: {str(e)}') from e
 
 	async def _close_all_sessions(self) -> str:
 		"""Close all active browser sessions."""
@@ -1191,7 +1213,7 @@ class BrowserUseServer:
 
 		result = f'Closed {closed_count} sessions'
 		if errors:
-			result += f'. Errors: {"; ".join(errors)}'
+			raise MCPToolExecutionError(f'{result}. Errors: {"; ".join(errors)}')
 
 		return result
 
