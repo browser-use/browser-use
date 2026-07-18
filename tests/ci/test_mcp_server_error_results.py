@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from mcp.types import CallToolRequest
 
 from browser_use.mcp.server import BrowserUseServer
 
@@ -8,6 +9,10 @@ from browser_use.mcp.server import BrowserUseServer
 @pytest.fixture
 def server() -> BrowserUseServer:
 	return BrowserUseServer()
+
+
+def test_call_tool_handler_is_registered(server: BrowserUseServer) -> None:
+	assert CallToolRequest in server.server.request_handlers
 
 
 async def test_successful_tool_result_sets_is_error_false(server: BrowserUseServer) -> None:

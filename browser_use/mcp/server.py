@@ -460,10 +460,10 @@ class BrowserUseServer:
 			"""List available prompts (none for browser-use)."""
 			return []
 
-			@self.server.call_tool()
-			async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
-				"""Handle tool execution."""
-				return await self._handle_call_tool(name, arguments)
+		@self.server.call_tool()
+		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
+			"""Handle tool execution."""
+			return await self._handle_call_tool(name, arguments)
 
 	async def _handle_call_tool(self, name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
 		"""Execute a tool and preserve MCP tool-result success semantics."""
