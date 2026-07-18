@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for browser-use-wmywxg on 2026-07-17T21:01:53Z
+# fly.toml app configuration file generated for browser-use-s3zaza on 2026-07-18T06:15:00Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'browser-use-wmywxg'
+app = 'browser-use-s3zaza'
 primary_region = 'ams'
 
 [build]
