@@ -74,9 +74,38 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
+
+	Already-redacted regions are protected so a secret whose value happens to contain the
+	substring "secret" (part of the placeholder token) cannot be re-matched inside an existing
+	placeholder and corrupt it (cascade leak, see issue #5248).
+	"""
+	PLACEHOLDER_OPEN = '<secret>'
+	PLACEHOLDER_CLOSE = '</secret>'
+
+	# Sort secrets by length (desc) so the longest match wins and we never
+	# partially redact a longer secret with a shorter one.
 	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
+		if not secret:
+			continue
+		result: list[str] = []
+		start = 0
+		while True:
+			idx = value.find(secret, start)
+			if idx == -1:
+				result.append(value[start:])
+				break
+			# Preserve any already-redacted span that ends after this match so we
+			# never recurse into a placeholder's own text.
+			close_after = value.find(PLACEHOLDER_CLOSE, start)
+			if close_after != -1 and idx < close_after:
+				result.append(value[start : close_after + len(PLACEHOLDER_CLOSE)])
+				start = close_after + len(PLACEHOLDER_CLOSE)
+				continue
+			result.append(value[start:idx])
+			result.append(f'{PLACEHOLDER_OPEN}{key}{PLACEHOLDER_CLOSE}')
+			start = idx + len(secret)
+		value = ''.join(result)
 	return value
 
 

@@ -588,3 +588,49 @@ def test_password_field_without_type_attribute():
 	attrs_str = DOMTreeSerializer._build_attributes_string(node, list(DEFAULT_INCLUDE_ATTRIBUTES), '')
 
 	assert value in attrs_str, 'Input without type attribute should preserve its value'
+
+
+# ─── Tests for redact_sensitive_string cascade leak (issue #5248) ──────────────
+
+
+def test_redact_sensitive_string_no_cascade_on_placeholder_substring():
+	"""A secret whose value contains the placeholder substring 'secret' must not re-redact an existing tag."""
+	from browser_use.utils import redact_sensitive_string
+
+	sensitive = {
+		'api_key': 'secret-token-abc',
+		'db_pass': 'secret',
+	}
+	value = 'key=secret-token-abc pass=secret'
+
+	result = redact_sensitive_string(value, sensitive)
+
+	# Each secret masked exactly once, well-formed tags, no nested corruption.
+	assert result.count('<secret>') == 2
+	assert result.count('</secret>') == 2
+	assert '<secret>api_key</secret>' in result
+	assert '<secret>db_pass</secret>' in result
+	assert 'sec<secret>' not in result, 'placeholder was corrupted by cascade re-redaction'
+
+
+def test_redact_sensitive_string_idempotent_on_already_redacted():
+	"""Re-running on already-redacted text must not duplicate or corrupt placeholders."""
+	from browser_use.utils import redact_sensitive_string
+
+	sensitive = {'token': 'abc123'}
+	once = redact_sensitive_string('tok=abc123', sensitive)
+	twice = redact_sensitive_string(once, sensitive)
+
+	assert twice == once
+	assert twice.count('<secret>token</secret>') == 1
+
+
+def test_redact_sensitive_string_empty_secret_is_skipped():
+	"""An empty secret value must be skipped (would otherwise match everything)."""
+	from browser_use.utils import redact_sensitive_string
+
+	sensitive = {'a': 'x', 'b': ''}
+	result = redact_sensitive_string('value x and more x', sensitive)
+
+	assert result.count('<secret>a</secret>') == 2
+	assert '<secret>b</secret>' not in result
