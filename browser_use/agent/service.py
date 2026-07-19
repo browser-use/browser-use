@@ -2069,5 +2069,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Verify and setup LLM (delegates to LLMService)."""
 		return self._llm_service.verify_and_setup_llm()
 
+	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[BaseMessage]) -> dict[str, str]:
+		"""Replace long URLs with shorter ones (delegates to LLMService)."""
+		return self._llm_service._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+
 
 _PythonAgent = Agent
