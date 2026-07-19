@@ -2073,5 +2073,32 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Replace long URLs with shorter ones (delegates to LLMService)."""
 		return self._llm_service._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
+	@staticmethod
+	def _recursive_process_all_strings_inside_pydantic_model(model: BaseModel, url_replacements: dict[str, str]) -> None:
+		"""Recursively process all strings inside a Pydantic model (delegates to LLMService)."""
+		LLMService._recursive_process_all_strings_inside_pydantic_model(model, url_replacements)
+
+	def _try_switch_to_fallback_llm(self, error) -> bool:
+		"""Attempt to switch to a fallback LLM (delegates to LLMService)."""
+		return self._llm_service._try_switch_to_fallback_llm(error)
+
+	@property
+	def _using_fallback_llm(self) -> bool:
+		"""Check if using fallback LLM (delegates to LLMService)."""
+		return self._llm_service._using_fallback_llm
+
+	def _log_next_action_summary(self, parsed: AgentOutput) -> None:
+		"""Log next action summary (delegates to LLMService)."""
+		self._llm_service._log_next_action_summary(parsed)
+
+	@staticmethod
+	def _remove_think_tags(text: str) -> str:
+		"""Remove think tags from text (delegates to LLMService)."""
+		return LLMService._remove_think_tags(text)
+
+	def _replace_urls_in_text(self, text: str) -> tuple[str, dict[str, str]]:
+		"""Replace URLs in text (delegates to LLMService)."""
+		return self._llm_service._replace_urls_in_text(text)
+
 
 _PythonAgent = Agent
