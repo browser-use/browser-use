@@ -34,7 +34,7 @@ dependencies = [
     "groq==1.0.0",
     "ollama==0.6.1",
     "google-api-python-client==2.188.0",
-    "google-auth==2.48.0",
+    "google-auth>=2.48.1,<2.56",
     "google-auth-oauthlib==1.2.4",
     "mcp==1.26.0",
     "pypdf==6.10.2",
