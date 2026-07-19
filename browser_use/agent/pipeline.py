@@ -332,7 +332,7 @@ class ActionPhase(BaseActionPhase):
 
 		try:
 			model_output = await asyncio.wait_for(
-				self._agent._get_model_output_with_retry(input_messages), timeout=self._agent.settings.llm_timeout
+				self._agent._llm_service.get_model_output_with_retry(input_messages), timeout=self._agent.settings.llm_timeout
 			)
 		except TimeoutError:
 			raise TimeoutError(f'LLM call timed out after {self._agent.settings.llm_timeout} seconds. Keep your output short.')
