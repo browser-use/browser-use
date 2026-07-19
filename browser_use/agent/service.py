@@ -2087,10 +2087,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Get the original LLM (delegates to LLMService)."""
 		return self._llm_service._original_llm
 
+	@_original_llm.setter
+	def _original_llm(self, value: BaseChatModel | None) -> None:
+		self._llm_service._original_llm = value
+
 	@property
 	def _fallback_llm(self) -> BaseChatModel | None:
 		"""Get the fallback LLM (delegates to LLMService)."""
 		return self._llm_service._fallback_llm
+
+	@_fallback_llm.setter
+	def _fallback_llm(self, value: BaseChatModel | None) -> None:
+		self._llm_service._fallback_llm = value
 
 	@property
 	def _using_fallback_llm(self) -> bool:
