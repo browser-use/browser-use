@@ -22,7 +22,7 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
-from browser_use.agent.llm_service import LLMService, log_response
+from browser_use.agent.llm_service import LLMService, log_response  # noqa: F401, log_response
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam
 from browser_use.tokens.service import TokenCost

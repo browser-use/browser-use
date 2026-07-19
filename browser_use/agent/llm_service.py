@@ -34,33 +34,33 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 
 	# Only log thinking if it's present
 	if response.current_state.thinking:
-		logger.debug(f'💭 {response.current_state.thinking}')
+		logger.debug(f'💡 Thinking:\n{response.current_state.thinking}')
 
-	# Only log evaluation if it's present
-	if response.current_state.evaluation_previous_goal:
-		logger.debug(f'🧐 Evaluating: {response.current_state.evaluation_previous_goal}')
+	# Only log evaluation if it's not empty
+	eval_goal = response.current_state.evaluation_previous_goal
+	if eval_goal:
+		if 'success' in eval_goal.lower():
+			emoji = '👍'
+			# Green color for success
+			logger.info(f'  \033[32m{emoji} Eval: {eval_goal}\033[0m')
+		elif 'failure' in eval_goal.lower():
+			emoji = '⚠️'
+			# Red color for failure
+			logger.info(f'  \033[31m{emoji} Eval: {eval_goal}\033[0m')
+		else:
+			emoji = '❔'
+			# No color for unknown/neutral
+			logger.info(f'  {emoji} Eval: {eval_goal}')
 
-	# Only log next goal if it's present
+	# Always log memory if present
 	if response.current_state.memory:
-		logger.debug(f'🎯 New goal: {response.current_state.memory}')
+		logger.info(f'  🧠 Memory: {response.current_state.memory}')
 
-	# Log the actions
-	for i, action in enumerate(response.action):
-		action_data = action.model_dump(exclude_unset=True)
-		action_name = next(iter(action_data.keys())) if action_data else 'unknown'
-		action_params = action_data.get(action_name, {}) if action_data else {}
-
-		# Format parameters for compact display
-		param_str = ''
-		if isinstance(action_params, dict) and action_params:
-			parts = []
-			for k, v in action_params.items():
-				if isinstance(v, str) and len(v) > 50:
-					v = v[:50] + '...'
-				parts.append(f'{k}={v}')
-			param_str = ' ' + ' '.join(parts)
-
-		logger.debug(f'🛠️  [{i + 1}] {action_name}{param_str}')
+	# Only log next goal if it's not empty
+	next_goal = response.current_state.next_goal
+	if next_goal:
+		# Blue color for next goal
+		logger.info(f'  \033[34m🎯 Next goal: {next_goal}\033[0m')
 
 
 class LLMService:
