@@ -336,36 +336,22 @@ class LLMService:
 	@staticmethod
 	def _recursive_process_all_strings_inside_pydantic_model(model: BaseModel, url_replacements: dict[str, str]) -> None:
 		"""Recursively process all strings inside a Pydantic model, replacing shortened URLs with originals in place."""
+		from browser_use.agent.service import Agent as _Agent
+
 		for field_name, field_value in model.__dict__.items():
 			if isinstance(field_value, str):
 				# Replace shortened URLs with original URLs in string
-				for shortened, original in url_replacements.items():
-					if shortened in field_value:
-						field_value = field_value.replace(shortened, original)
-				model.__dict__[field_name] = field_value  # type: ignore[index]
+				processed_string = _Agent._replace_shortened_urls_in_string(field_value, url_replacements)
+				setattr(model, field_name, processed_string)
 			elif isinstance(field_value, BaseModel):
 				# Recursively process nested Pydantic models
 				LLMService._recursive_process_all_strings_inside_pydantic_model(field_value, url_replacements)
 			elif isinstance(field_value, dict):
-				for key, value in field_value.items():
-					if isinstance(value, str):
-						for shortened, original in url_replacements.items():
-							if shortened in value:
-								field_value[key] = value.replace(shortened, original)
-					elif isinstance(value, BaseModel):
-						LLMService._recursive_process_all_strings_inside_pydantic_model(value, url_replacements)
+				# Process dictionary values in place
+				_Agent._recursive_process_dict(field_value, url_replacements)
 			elif isinstance(field_value, (list, tuple)):
-				for item in field_value:
-					if isinstance(item, str):
-						for shortened, original in url_replacements.items():
-							if shortened in item:
-								model.__dict__[field_name] = [  # type: ignore[index]
-									item.replace(shortened, original) if isinstance(x, str) else x for x in field_value
-								]
-					elif isinstance(item, BaseModel):
-						LLMService._recursive_process_all_strings_inside_pydantic_model(item, url_replacements)
-
-	# ── Logging ─────────────────────────────────────────────────────
+				processed_value = _Agent._recursive_process_list_or_tuple(field_value, url_replacements)
+				setattr(model, field_name, processed_value)
 
 	def _log_next_action_summary(self, parsed: AgentOutput) -> None:
 		"""Log a comprehensive summary of the next action(s)"""
@@ -398,7 +384,3 @@ class LLMService:
 
 			param_str = f'({", ".join(param_summary)})' if param_summary else ''
 			action_details.append(f'{action_name}{param_str}')
-
-		# Log in compact format
-		action_str = ' │ '.join(action_details)
-		self._agent.logger.debug(f'📋 Next actions: {action_str}')

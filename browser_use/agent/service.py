@@ -2083,6 +2083,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		return self._llm_service._try_switch_to_fallback_llm(error)
 
 	@property
+	def _original_llm(self) -> BaseChatModel | None:
+		"""Get the original LLM (delegates to LLMService)."""
+		return self._llm_service._original_llm
+
+	@property
+	def _fallback_llm(self) -> BaseChatModel | None:
+		"""Get the fallback LLM (delegates to LLMService)."""
+		return self._llm_service._fallback_llm
+
+	@property
 	def _using_fallback_llm(self) -> bool:
 		"""Check if using fallback LLM (delegates to LLMService)."""
 		return self._llm_service._using_fallback_llm
