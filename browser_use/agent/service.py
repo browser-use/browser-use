@@ -1148,7 +1148,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.info(judge_log)
 
 	@staticmethod
-	@staticmethod
 	def _recursive_process_dict(dictionary: dict, url_replacements: dict[str, str]) -> None:
 		"""Helper method to process dictionaries."""
 		for k, v in dictionary.items():
