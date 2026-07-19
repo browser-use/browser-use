@@ -69,3 +69,45 @@ def test_x_goog_api_client_header_with_dict_http_options():
 	assert http_opts.get('timeout') == 45
 	assert http_opts.get('headers', {}).get('another-header') == 'another-value'
 	assert http_opts.get('headers', {}).get('x-goog-api-client', '').startswith('browser-use/')
+
+
+def test_serializer_decodes_data_url_image():
+	"""Test that base64 data URL images are decoded into inline bytes."""
+	import base64
+
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, UserMessage
+
+	raw_bytes = b'fake-png-bytes'
+	data_url = 'data:image/png;base64,' + base64.b64encode(raw_bytes).decode()
+	message = UserMessage(
+		content=[
+			ContentPartTextParam(text='What is in this image?'),
+			ContentPartImageParam(image_url=ImageURL(url=data_url, media_type='image/png')),
+		]
+	)
+
+	contents, _ = GoogleMessageSerializer.serialize_messages([message])
+	parts = contents[0].parts
+
+	assert parts[0].text == 'What is in this image?'
+	assert parts[1].inline_data is not None
+	assert parts[1].inline_data.data == raw_bytes
+	assert parts[1].inline_data.mime_type == 'image/png'
+
+
+def test_serializer_passes_through_remote_image_url():
+	"""Test that a plain https image URL is passed through instead of being base64-decoded."""
+	from browser_use.llm.google.serializer import GoogleMessageSerializer
+	from browser_use.llm.messages import ContentPartImageParam, ImageURL, UserMessage
+
+	url = 'https://example.com/images/photo.png'
+	message = UserMessage(content=[ContentPartImageParam(image_url=ImageURL(url=url, media_type='image/png'))])
+
+	# Used to raise ValueError because the serializer assumed every image URL is a data: URL
+	contents, _ = GoogleMessageSerializer.serialize_messages([message])
+	part = contents[0].parts[0]
+
+	assert part.file_data is not None
+	assert part.file_data.file_uri == url
+	assert part.file_data.mime_type == 'image/png'
