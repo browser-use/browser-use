@@ -10,6 +10,7 @@ Register your own actions via the ``@action`` decorator:
 
     tools = CustomToolset()
 
+
     @tools.action('Say hello')
     async def greet(name: str, browser_session) -> ActionResult:
         return ActionResult(extracted_content=f'Hello, {name}!')

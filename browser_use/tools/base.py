@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 try:
 	from lmnr import Laminar  # type: ignore
@@ -107,9 +107,9 @@ class BaseToolset(Generic[Context]):
 	async def act(
 		self,
 		action: ActionModel,
-		browser_session: Optional[Any] = None,
-		page_extraction_llm: Optional[Any] = None,
-		file_system: Optional[Any] = None,
+		browser_session: Any | None = None,
+		page_extraction_llm: Any | None = None,
+		file_system: Any | None = None,
 		available_file_paths: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		extraction_schema: dict | None = None,
@@ -128,6 +128,7 @@ class BaseToolset(Generic[Context]):
 					)
 				else:
 					from contextlib import nullcontext
+
 					span_context = nullcontext()
 
 				with span_context:

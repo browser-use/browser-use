@@ -403,7 +403,6 @@ def _is_autocomplete_field(node: EnhancedDOMTreeNode) -> bool:
 	return False
 
 
-
 class BrowserToolset(BaseToolset[Context]):
 	def __init__(
 		self,
