@@ -494,7 +494,13 @@ class BrowserUseServer:
 			try:
 				result = await self._execute_tool(name, arguments or {})
 				if isinstance(result, list):
-					return types.CallToolResult(content=result, isError=False)
+					# Check if any TextContent in the list indicates a semantic failure
+					# (e.g. browser_get_state / browser_screenshot returning error text)
+					has_error = any(
+						isinstance(item, types.TextContent) and _is_error_result(item.text)
+						for item in result
+					)
+					return types.CallToolResult(content=result, isError=has_error)
 				# Check if the result string indicates a semantic failure
 				# (e.g. 'Error: ...', 'Element with index N not found')
 				if isinstance(result, str) and _is_error_result(result):
@@ -751,8 +757,12 @@ class BrowserUseServer:
 
 			# Format results
 			results = []
-			results.append(f'Task completed in {len(history.history)} steps')
-			results.append(f'Success: {history.is_successful()}')
+			if history.is_successful():
+				results.append(f'Task completed in {len(history.history)} steps')
+				results.append('Success: True')
+			else:
+				results.append(f'Agent task failed: Task not completed successfully after {len(history.history)} steps')
+				results.append('Success: False')
 
 			# Get final result if available
 			final_result = history.final_result()
