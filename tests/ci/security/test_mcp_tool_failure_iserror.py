@@ -48,6 +48,8 @@ async def test_unknown_tool_is_reported_as_error(server: BrowserUseServer) -> No
 
 	# _execute_tool returns the semantic error string...
 	assert result == 'Unknown tool: does_not_exist'
+	# Narrow the union (str | list[Content]) before passing to the str-typed helper.
+	assert isinstance(result, str)
 	# ...and _is_error_response classifies it as a failure.
 	assert _is_error_response(result)
 
@@ -60,10 +62,14 @@ async def test_semantic_failure_produces_iserror_result(server: BrowserUseServer
 	"""
 	# Simulate the handler's error-path by reconstructing the result it would build.
 	tool_result = await server._execute_tool('does_not_exist', {})
+	# Narrow to str before passing to str-typed helpers / TextContent(text=...).
+	assert isinstance(tool_result, str)
 	assert _is_error_response(tool_result)
 	wrapped = types.CallToolResult(
 		content=[types.TextContent(type='text', text=tool_result)],
 		isError=True,
 	)
 	assert wrapped.isError is True
-	assert wrapped.content[0].text == 'Unknown tool: does_not_exist'
+	first_content = wrapped.content[0]
+	assert isinstance(first_content, types.TextContent)
+	assert first_content.text == 'Unknown tool: does_not_exist'
