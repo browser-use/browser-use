@@ -20,8 +20,10 @@ from pydantic import BaseModel
 
 from browser_use.agent.views import ActionResult
 from browser_use.browser.views import BrowserError
+from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.registry.views import ActionModel
+from browser_use.utils import time_execution_sync
 
 Context = TypeVar('Context')
 
@@ -36,7 +38,8 @@ def _coerce_valid_action_timeout(value: float | None, default_timeout: float | N
 	"""Normalize action_timeout to a finite positive value.
 
 	If value is None, falls back to default_timeout or the hardcoded fallback.
-	Rejects nan/inf/<=0 with a warning.
+	Rejects nan/inf/<=0 with a warning.  The fallback itself is also validated
+	so that invalid :class:`BaseToolset` subclass config cannot bypass the guard.
 	"""
 	if value is not None:
 		if math.isfinite(value) and value > 0:
@@ -46,7 +49,18 @@ def _coerce_valid_action_timeout(value: float | None, default_timeout: float | N
 			value,
 			default_timeout or _ACTION_TIMEOUT_FALLBACK_S,
 		)
-	return default_timeout or _ACTION_TIMEOUT_FALLBACK_S
+
+	# Validate the fallback too — a BaseToolset subclass could pass nan/inf/<=0
+	fallback = default_timeout if default_timeout is not None else _ACTION_TIMEOUT_FALLBACK_S
+	if math.isfinite(fallback) and fallback > 0:
+		return float(fallback)
+
+	logger.warning(
+		'default_timeout=%r is not a finite positive number; using hardcoded fallback %.0fs',
+		fallback,
+		_ACTION_TIMEOUT_FALLBACK_S,
+	)
+	return _ACTION_TIMEOUT_FALLBACK_S
 
 
 def handle_browser_error(e: BrowserError) -> ActionResult:
@@ -104,6 +118,8 @@ class BaseToolset(Generic[Context]):
 
 	# ── Execution ─────────────────────────────────────────────────
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='act')
+	@time_execution_sync('--act')
 	async def act(
 		self,
 		action: ActionModel,

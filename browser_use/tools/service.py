@@ -106,7 +106,10 @@ class Tools(BaseToolset[Context]):
 
 		# Mirror state
 		self.display_files_in_done_text = self.browser.display_files_in_done_text
-		self._output_model = self.browser._output_model
+
+	def get_output_model(self) -> type[BaseModel] | None:
+		"""Delegate to the live BrowserToolset so use_structured_output_action is reflected."""
+		return self.browser.get_output_model()
 
 	def __getattr__(self, name: str):
 		"""Enable direct action calls through the internal BrowserToolset."""
