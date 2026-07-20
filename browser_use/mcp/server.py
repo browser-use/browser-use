@@ -184,6 +184,30 @@ def get_parent_process_cmdline() -> str | None:
 		return None
 
 
+def _is_error_result(text: str) -> bool:
+	"""Check if a tool result string indicates a semantic failure.
+
+	Tool methods in this server return error strings (e.g. 'Error: ...',
+	'Element with index N not found') instead of raising exceptions.
+	The MCP specification requires these to be reported with isError=true
+	so that conforming clients can distinguish failures from successes.
+	See: https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling
+	"""
+	if text.startswith('Error:') or text.startswith('Error '):
+		return True
+	if text.startswith('Unknown tool:'):
+		return True
+	if text.startswith('Agent task failed:'):
+		return True
+	if text.startswith('Element with index') and 'not found' in text:
+		return True
+	if text.startswith('No element found for selector:'):
+		return True
+	if 'not found' in text and text.startswith('Session'):
+		return True
+	return False
+
+
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
@@ -457,19 +481,38 @@ class BrowserUseServer:
 			return []
 
 		@self.server.call_tool()
-		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
-			"""Handle tool execution."""
+		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent] | types.CallToolResult:
+			"""Handle tool execution.
+
+			Returns a CallToolResult with isError=True for failures (exceptions
+			and semantic action failures) so that MCP clients can distinguish
+			them from successful executions per the MCP specification:
+			https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling
+			"""
 			start_time = time.time()
 			error_msg = None
 			try:
 				result = await self._execute_tool(name, arguments or {})
 				if isinstance(result, list):
-					return result
-				return [types.TextContent(type='text', text=result)]
+					return types.CallToolResult(content=result, isError=False)
+				# Check if the result string indicates a semantic failure
+				# (e.g. 'Error: ...', 'Element with index N not found')
+				if isinstance(result, str) and _is_error_result(result):
+					return types.CallToolResult(
+						content=[types.TextContent(type='text', text=result)],
+						isError=True,
+					)
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=result)],
+					isError=False,
+				)
 			except Exception as e:
 				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
-				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=f'Error: {str(e)}')],
+					isError=True,
+				)
 			finally:
 				# Capture telemetry for tool calls
 				duration = time.time() - start_time
