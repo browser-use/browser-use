@@ -59,6 +59,7 @@ class MessageCompactionSettings(BaseModel):
 class VisionSettings(BaseModel):
 	"""Vision & page extraction settings."""
 
+	model_config = ConfigDict(extra='forbid')
 	use_vision: bool | Literal['auto'] = True
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
 	page_extraction_llm: BaseChatModel | None = None
@@ -70,6 +71,7 @@ class VisionSettings(BaseModel):
 class BehaviorSettings(BaseModel):
 	"""Action execution & step behavior settings."""
 
+	model_config = ConfigDict(extra='forbid')
 	max_actions_per_step: int = 5
 	max_failures: int = 5
 	final_response_after_failure: bool = True
@@ -84,6 +86,7 @@ class BehaviorSettings(BaseModel):
 class PlanningSettings(BaseModel):
 	"""Task planning & loop detection settings."""
 
+	model_config = ConfigDict(extra='forbid')
 	enable_planning: bool = True
 	planning_replan_on_stall: int = 3
 	planning_exploration_limit: int = 5
@@ -95,6 +98,7 @@ class PlanningSettings(BaseModel):
 class OutputSettings(BaseModel):
 	"""Output, file, and conversation saving settings."""
 
+	model_config = ConfigDict(extra='forbid')
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
 	generate_gif: bool | str = False
