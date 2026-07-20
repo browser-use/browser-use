@@ -74,10 +74,36 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	"""Replace sensitive values with placeholders in a single atomic pass.
+
+	Uses re.sub with a compiled alternation pattern sorted longest-first so that
+	(a) longer secrets shadow shorter prefixes, and (b) a single regex pass
+	prevents cascade corruption where a shorter secret matches text inside a
+	placeholder tag produced by an earlier iteration.
+
+	Example of the cascade bug this fixes (issue #5135):
+	  secrets = {'password': 'supersecret', 'type': 'secret'}
+	  input:  'leaked supersecret token'
+	  before: 'leaked <secret>password</secre<secret>type</secret>>' (corrupted)
+	  after:  'leaked <secret>password</secret>'  (correct)
+	"""
+	if not sensitive_values:
+		return value
+
+	# Sort longest-first so shorter secrets don't shadow longer ones
+	sorted_items = sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True)
+
+	# Filter out empty secrets to avoid matching the empty string everywhere
+	sorted_items = [(k, v) for k, v in sorted_items if v]
+	if not sorted_items:
+		return value
+
+	# Build a lookup and a single alternation pattern.
+	# re.sub with this pattern is a single left-to-right pass: once a position
+	# is consumed by a match it will not be revisited, making cascade impossible.
+	lookup = {v: f'<secret>{k}</secret>' for k, v in sorted_items}
+	pattern = re.compile('|'.join(re.escape(v) for _, v in sorted_items))
+	return pattern.sub(lambda m: lookup[m.group(0)], value)
 
 
 def _get_openai_bad_request_error() -> type | None:
