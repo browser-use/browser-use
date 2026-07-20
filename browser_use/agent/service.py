@@ -73,6 +73,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
+from browser_use.tools.base import BaseToolset
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import (
@@ -102,8 +103,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
 		browser: Browser | None = None,  # Alias for browser_session
-		tools: Tools[Context] | None = None,
-		controller: Tools[Context] | None = None,  # Alias for tools
+		tools: BaseToolset[Context] | None = None,
+		controller: BaseToolset[Context] | None = None,  # Alias for tools
 		# Skills integration
 		skill_ids: list[str | Literal['*']] | None = None,
 		skills: list[str | Literal['*']] | None = None,  # Alias for skill_ids
@@ -296,7 +297,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			for pattern in ['claude-sonnet-4', 'claude-opus-4', 'claude-fable-5', 'gemini-3-pro', 'browser-use/']
 		)
 		if supports_coordinate_clicking:
-			self.tools.set_coordinate_clicking(True)
+			self.tools.browser.set_coordinate_clicking(True)  # type: ignore[attr-defined]
 
 		# Handle skills vs skill_ids parameter (skills takes precedence)
 		if skills and skill_ids:
@@ -327,7 +328,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			output_model_schema = cast(type[AgentStructuredOutput], tools_output_model)
 		self.output_model_schema = output_model_schema
 		if self.output_model_schema is not None:
-			self.tools.use_structured_output_action(self.output_model_schema)
+			self.tools.browser.use_structured_output_action(self.output_model_schema)  # type: ignore[attr-defined]
 
 		# Extraction schema: explicit param takes priority, otherwise auto-bridge from output_model_schema
 		self.extraction_schema = extraction_schema
