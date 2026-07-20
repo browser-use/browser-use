@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.browser_use.chat import ChatBrowserUse
 	from browser_use.llm.cerebras.chat import ChatCerebras
 	from browser_use.llm.deepseek.chat import ChatDeepSeek
+	from browser_use.llm.edenai.chat import ChatEdenAI
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.mistral.chat import ChatMistral
@@ -86,6 +87,7 @@ _LAZY_IMPORTS = {
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
 	'ChatCerebras': ('browser_use.llm.cerebras.chat', 'ChatCerebras'),
 	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
+	'ChatEdenAI': ('browser_use.llm.edenai.chat', 'ChatEdenAI'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
 	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
@@ -146,6 +148,7 @@ __all__ = [
 	'ChatOpenAI',
 	'ChatBrowserUse',
 	'ChatDeepSeek',
+	'ChatEdenAI',
 	'ChatGoogle',
 	'ChatAnthropic',
 	'ChatAnthropicBedrock',
