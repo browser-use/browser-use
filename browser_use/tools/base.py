@@ -23,7 +23,7 @@ from browser_use.browser.views import BrowserError
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.registry.views import ActionModel
-from browser_use.utils import time_execution_sync
+from browser_use.utils import time_execution_async
 
 Context = TypeVar('Context')
 
@@ -119,7 +119,7 @@ class BaseToolset(Generic[Context]):
 	# ── Execution ─────────────────────────────────────────────────
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='act')
-	@time_execution_sync('--act')
+	@time_execution_async('--act')
 	async def act(
 		self,
 		action: ActionModel,
