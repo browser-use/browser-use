@@ -1022,9 +1022,11 @@ class DOMInteractedElement:
 
 	@classmethod
 	def load_from_enhanced_dom_tree(cls, enhanced_dom_tree: EnhancedDOMTreeNode) -> 'DOMInteractedElement':
-		# Extract accessibility name if available
+		# Extract accessibility name if available.
+		# Use `is not None` so an explicitly empty name (e.g. aria-label="") is preserved
+		# as "" rather than collapsed to None, keeping "absent" and "empty" distinguishable.
 		ax_name = None
-		if enhanced_dom_tree.ax_node and enhanced_dom_tree.ax_node.name:
+		if enhanced_dom_tree.ax_node and enhanced_dom_tree.ax_node.name is not None:
 			ax_name = enhanced_dom_tree.ax_node.name
 
 		return cls(
