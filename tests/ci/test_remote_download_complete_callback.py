@@ -69,9 +69,7 @@ def _make_watchdog(tmp_path) -> tuple[DownloadsWatchdog, _ProgressCapture]:
 	# mechanism here, so stub dispatch() to a no-op.
 	event_bus = SimpleNamespace(dispatch=lambda *a, **k: None)
 
-	wd = DownloadsWatchdog.model_construct(
-		browser_session=browser_session, event_bus=event_bus
-	)
+	wd = DownloadsWatchdog.model_construct(browser_session=browser_session, event_bus=event_bus)
 	return wd, progress_capture
 
 
