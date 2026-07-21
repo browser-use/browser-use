@@ -39,6 +39,49 @@ async def test_startup_creates_exactly_one_session_per_page_target():
 		await session.kill()
 
 
+async def test_slow_attach_handler_does_not_trigger_fallback_double_attach(monkeypatch):
+	"""An in-flight attach handler counts as coverage for the startup fallback.
+
+	on_attached only spawns the handler task; the session reaches the pool after
+	several awaits. If that takes longer than the auto-attach grace window, the
+	fallback in _initialize_existing_targets sees no session for the target — it
+	must recognize the attach is in flight rather than explicitly attach a second
+	session.
+	"""
+	from browser_use.browser.session_manager import SessionManager
+
+	original_handler = SessionManager._handle_target_attached
+
+	async def delayed_handler(self, event):
+		await asyncio.sleep(1.3)  # outlast the 1s auto-attach grace window
+		await original_handler(self, event)
+
+	monkeypatch.setattr(SessionManager, '_handle_target_attached', delayed_handler)
+
+	session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=True))
+	await session.start()
+	try:
+		session_manager = session.session_manager
+		assert session_manager is not None
+
+		# A wrongly-triggered fallback attach would fire a second attachedToTarget
+		# whose (equally delayed) handler registers AFTER start() returns — settle
+		# past the delay so the assertion can see it.
+		await asyncio.sleep(2.0)
+
+		page_targets = session_manager.get_all_page_targets()
+		assert page_targets, 'expected at least the initial tab as a page target'
+
+		for target in page_targets:
+			session_ids = session_manager._target_sessions.get(target.target_id, set())
+			assert len(session_ids) == 1, (
+				f'target {target.target_id[:8]}... has {len(session_ids)} CDP sessions, expected exactly 1 — '
+				f'the fallback must not explicitly attach a target whose attach handler is still running'
+			)
+	finally:
+		await session.kill()
+
+
 async def test_new_tab_after_startup_gets_exactly_one_session(httpserver):
 	"""Targets created AFTER startup must still be attached (once) via root autoAttach."""
 	httpserver.expect_request('/a').respond_with_data(SIMPLE_HTML, content_type='text/html')

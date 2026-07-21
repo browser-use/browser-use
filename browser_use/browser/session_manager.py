@@ -52,6 +52,13 @@ class SessionManager:
 		# leave every tab but the most recently attached one without lifecycle events.
 		self._lifecycle_events: dict[TargetID, deque[dict[str, Any]]] = {}
 
+		# Targets whose attachedToTarget event has been received but whose handler
+		# task has not finished registering the session in the pool yet. Written
+		# synchronously in the event callback so _initialize_existing_targets' fallback
+		# can distinguish "attach in flight" from "auto-attach never delivered this
+		# target" — explicitly attaching in the former case would double the sessions.
+		self._attaching_targets: set[TargetID] = set()
+
 		self._lock = asyncio.Lock()
 		self._recovery_lock = asyncio.Lock()
 
@@ -85,12 +92,19 @@ class SessionManager:
 			# - Create CDPSession
 			# - Enable monitoring (for pages/tabs)
 			# - Add to pool
-			create_task_with_error_handling(
+			# Mark the attach in flight BEFORE yielding to the event loop: the handler
+			# task may not reach its pool update within the startup grace window, and
+			# the fallback in _initialize_existing_targets must not mistake an
+			# in-flight attach for a target auto-attach never delivered.
+			target_id = event['targetInfo']['targetId']
+			self._attaching_targets.add(target_id)
+			task = create_task_with_error_handling(
 				self._handle_target_attached(event),
 				name='handle_target_attached',
 				logger_instance=self.logger,
 				suppress_exceptions=True,
 			)
+			task.add_done_callback(lambda _task, target_id=target_id: self._attaching_targets.discard(target_id))
 
 		def on_detached(event: DetachedFromTargetEvent, session_id: SessionID | None = None):
 			create_task_with_error_handling(
@@ -866,8 +880,10 @@ class SessionManager:
 		# Fallback: explicitly attach targets the auto-attach cascade did not deliver
 		for target_id in missing:
 			# Re-check right before attaching: the auto-attach event may have landed
-			# during the loop, and attaching again would double the sessions.
-			if self._get_session_for_target(target_id):
+			# during the loop, or its handler may still be mid-flight — in either
+			# case attaching again would double the sessions. In-flight attaches are
+			# picked up by the ready-wait below once their handler completes.
+			if target_id in self._attaching_targets or self._get_session_for_target(target_id):
 				continue
 			try:
 				await cdp_client.send.Target.attachToTarget(params={'targetId': target_id, 'flatten': True})
