@@ -701,16 +701,31 @@ def _is_newer_browser_use_version(latest_version: str, current_version: str) -> 
 
 
 def _browser_use_version_key(version: str) -> tuple[tuple[int, ...], int, int, int] | None:
-	"""Small PEP 440-ish fallback for browser-use versions when packaging is unavailable."""
-	match = re.match(r'^v?(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?(?:\.post(\d+))?', version.strip().lower())
+	"""Small PEP 440-ish fallback for browser-use versions when packaging is unavailable.
+
+	Supports pre-release segments ``a``/``b``/``rc``, ``.devN`` development releases and
+	``.postN`` post-releases so they sort in the same order as ``packaging.version.Version``:
+	``1.0.dev1`` < ``1.0a1`` < ``1.0b1`` < ``1.0rc1`` < ``1.0`` < ``1.0.post1``.
+	"""
+	match = re.match(
+		r'^v?(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?(?:\.(dev|post)(\d+))?',
+		version.strip().lower(),
+	)
 	if not match:
 		return None
 
 	release = tuple(int(part) for part in match.group(1).split('.'))
 	phase = match.group(2)
 	phase_number = int(match.group(3) or 0)
-	post_number = int(match.group(4) or 0)
+	# dev (-1) sorts before every pre-release/final; a/b/rc take 0/1/2; a plain final is 3.
 	phase_rank = {'a': 0, 'b': 1, 'rc': 2}.get(phase, 3)
+	post_number = 0
+	if match.group(4) == 'dev':
+		# A .devN segment marks a pre-release that ranks below any a/b/rc/final of the same release.
+		phase_rank = -1
+		phase_number = int(match.group(5) or 0)
+	elif match.group(4) == 'post':
+		post_number = int(match.group(5) or 0)
 
 	return release, phase_rank, phase_number, post_number
 
