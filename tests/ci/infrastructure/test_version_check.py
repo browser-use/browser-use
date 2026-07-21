@@ -28,4 +28,7 @@ def test_post_release_is_newer_than_final():
 
 
 def test_version_key_dev_ranks_below_alpha():
-	assert _browser_use_version_key('1.0.0.dev1') < _browser_use_version_key('1.0.0a1')
+	dev_key = _browser_use_version_key('1.0.0.dev1')
+	alpha_key = _browser_use_version_key('1.0.0a1')
+	assert dev_key is not None and alpha_key is not None
+	assert dev_key < alpha_key
