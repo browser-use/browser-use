@@ -1024,7 +1024,7 @@ class DOMInteractedElement:
 	def load_from_enhanced_dom_tree(cls, enhanced_dom_tree: EnhancedDOMTreeNode) -> 'DOMInteractedElement':
 		# Extract accessibility name if available
 		ax_name = None
-		if enhanced_dom_tree.ax_node and enhanced_dom_tree.ax_node.name:
+		if enhanced_dom_tree.ax_node is not None and enhanced_dom_tree.ax_node.name is not None:
 			ax_name = enhanced_dom_tree.ax_node.name
 
 		return cls(

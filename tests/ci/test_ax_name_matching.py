@@ -556,3 +556,38 @@ def test_is_menu_item_element_returns_false_for_regular_element():
 	)
 
 	assert agent._is_menu_item_element(regular_element) is False
+
+
+def test_load_from_enhanced_dom_tree_preserves_empty_ax_name() -> None:
+	"""load_from_enhanced_dom_tree must preserve an explicitly empty ``ax_name`` as str.
+
+	Regression: an implicit truthiness check on ``ax_node.name`` converts ``""``
+	to ``None``, conflating "no attribute" with "attribute set to empty string".
+	"""
+	from browser_use.dom.views import EnhancedDOMTreeNode, EnhancedAXNode
+
+	tree = EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='BUTTON',
+		node_value='',
+		attributes={},
+		is_scrollable=None,
+		is_visible=True,
+		absolute_position=None,
+		target_id='',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=None,
+		ax_node=EnhancedAXNode(ax_node_id='', ignored=False, role=None, name='', description=None, properties=None, child_ids=None),
+		snapshot_node=None,
+	)
+
+	result = DOMInteractedElement.load_from_enhanced_dom_tree(tree)
+
+	assert result.ax_name == '', f'expected empty string, got {result.ax_name!r}'
