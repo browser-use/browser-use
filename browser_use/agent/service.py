@@ -2798,6 +2798,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						{'action': action_name, 'step': self.state.n_steps},
 					)
 
+				# Retry-loop watchdog: the same action with the same params and the same outcome
+				# repeated many times in a row is a stuck loop, not progress. Surface that to
+				# the model so it stops burning steps on a dead control.
+				if action_name not in ('done', 'scroll'):
+					repeat_sig = (
+						action_name,
+						json.dumps(action_data, sort_keys=True, default=str),
+						(result.error or result.extracted_content or '').strip()[:200],
+					)
+					tracker = getattr(self, '_action_repeat_tracker', None)
+					if tracker is None:
+						tracker = self._action_repeat_tracker = {'sig': None, 'count': 0}
+					if repeat_sig == tracker['sig']:
+						tracker['count'] += 1
+					else:
+						tracker['sig'] = repeat_sig
+						tracker['count'] = 1
+					if tracker['count'] >= 3:
+						note = (
+							f'You have executed this exact {action_name} action {tracker["count"]} times in a row '
+							'with the same outcome. Stop repeating it: verify the current page state, try a '
+							'different approach, or record this step as failed and move on.'
+						)
+						if result.error:
+							result.error = f'{result.error}\n{note}'
+						else:
+							result.long_term_memory = (
+								f'{(result.long_term_memory or result.extracted_content or "").strip()}\n{note}'.strip()
+							)
+
 				results.append(result)
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
