@@ -1,9 +1,15 @@
 """Test Google model button click."""
 
 import pytest
+from pydantic import BaseModel
 
 from browser_use.llm.google.chat import ChatGoogle
 from tests.ci.models.model_test_helper import run_model_button_click_test
+
+
+class StructuredReply(BaseModel):
+	memory: str
+	action: str
 
 
 async def test_google_gemini_3_flash_preview(httpserver):
@@ -127,3 +133,38 @@ async def test_chat_google_temperature_fallback():
 		mock_models.generate_content.assert_called_once()
 		args, kwargs = mock_models.generate_content.call_args
 		assert kwargs['config']['temperature'] == 1.0
+
+
+async def test_chat_google_returns_native_thought_summary_with_structured_output():
+	"""Google thought parts should be available separately from parsed structured output."""
+	from types import SimpleNamespace
+	from unittest.mock import AsyncMock, MagicMock, patch
+
+	from browser_use.llm.messages import UserMessage
+
+	mock_client = MagicMock()
+	mock_client.aio.models = AsyncMock()
+	mock_response = MagicMock()
+	mock_response.parsed = StructuredReply(memory='Keep the verified date.', action='Search the primary source.')
+	mock_response.usage_metadata = None
+	mock_response.candidates = [
+		SimpleNamespace(
+			content=SimpleNamespace(
+				parts=[
+					SimpleNamespace(thought=True, text='The dates conflict, so the primary source is decisive.'),
+					SimpleNamespace(thought=False, text='{"memory":"Keep the verified date."}'),
+				]
+			)
+		)
+	]
+	mock_client.aio.models.generate_content.return_value = mock_response
+
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-3.5-flash-lite', api_key='fake', thinking_level='high')
+		response = await chat.ainvoke([UserMessage(content='Resolve the conflicting dates.')], StructuredReply)
+
+	assert response.completion == StructuredReply(memory='Keep the verified date.', action='Search the primary source.')
+	assert response.thinking == 'The dates conflict, so the primary source is decisive.'
+	config = mock_client.aio.models.generate_content.call_args.kwargs['config']
+	assert config['thinking_config']['thinking_level'].value == 'HIGH'
+	assert config['thinking_config']['include_thoughts'] is True
