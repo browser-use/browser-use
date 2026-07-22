@@ -180,8 +180,28 @@ class DOMWatchdog(BaseWatchdog):
 		}
 	}
 
+	// Recently completed fetch/XHR responses (status via PerformanceResourceTiming.responseStatus).
+	// Lets the agent see that a submit actually reached the server (e.g. login POST returned 200)
+	// even when the UI is stuck on a spinner.
+	const recentResponses = [];
+	for (const entry of resources) {
+		if (entry.responseEnd > 0 && (entry.initiatorType === 'xmlhttprequest' || entry.initiatorType === 'fetch')) {
+			const status = entry.responseStatus || 0;
+			if (status === 0) continue;
+			const isAd = adDomains.some(domain => entry.name.includes(domain));
+			if (isAd || entry.name.startsWith('data:')) continue;
+			recentResponses.push({
+				url: entry.name.length > 200 ? entry.name.slice(0, 200) : entry.name,
+				status: status,
+				age_ms: Math.round(now - entry.responseEnd)
+			});
+		}
+	}
+	recentResponses.sort((a, b) => a.age_ms - b.age_ms);
+
 	return {
 		pending_requests: pending,
+		recent_responses: recentResponses.slice(0, 8),
 		document_loading: docLoading,
 		document_ready_state: document.readyState,
 		debug: {
@@ -201,6 +221,7 @@ class DOMWatchdog(BaseWatchdog):
 			if result.get('result', {}).get('type') == 'object':
 				data = result['result'].get('value', {})
 				pending = data.get('pending_requests', [])
+				self._recent_responses = data.get('recent_responses', [])
 				doc_state = data.get('document_ready_state', 'unknown')
 				doc_loading = data.get('document_loading', False)
 				debug_info = data.get('debug', {})
@@ -487,6 +508,7 @@ class DOMWatchdog(BaseWatchdog):
 				is_pdf_viewer=is_pdf_viewer,
 				recent_events=self._get_recent_events_str() if event.include_recent_events else None,
 				pending_network_requests=pending_requests,
+				recent_network_responses=getattr(self, '_recent_responses', []),
 				pagination_buttons=pagination_buttons_data,
 				closed_popup_messages=self.browser_session._closed_popup_messages.copy(),
 			)

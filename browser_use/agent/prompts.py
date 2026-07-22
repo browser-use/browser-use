@@ -305,6 +305,18 @@ class AgentMessagePrompt:
 		if self.include_recent_events and self.browser_state.recent_events:
 			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
 
+		# Surface recently completed fetch/XHR responses so the model can tell whether a
+		# submit actually reached the server (e.g. a login POST that returned 200 while
+		# the UI still shows a spinner).
+		network_responses_text = ''
+		recent_responses = getattr(self.browser_state, 'recent_network_responses', None)
+		if recent_responses:
+			lines = []
+			for r in recent_responses:
+				age_s = (r.get('age_ms') or 0) / 1000
+				lines.append(f'  - {r.get("url", "")} -> HTTP {r.get("status")} ({age_s:.1f}s ago)')
+			network_responses_text = 'Recent server responses (newest first):\n' + '\n'.join(lines) + '\n'
+
 		# Add closed popup messages if any
 		closed_popups_text = ''
 		if self.browser_state.closed_popup_messages:
@@ -317,7 +329,7 @@ class AgentMessagePrompt:
 Available tabs:
 {tabs_text}
 {page_info_text}
-{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
+{recent_events_text}{network_responses_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
 {elements_text}
 """
 		return browser_state
