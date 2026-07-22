@@ -9,9 +9,6 @@ You are allowed to use a maximum of {max_actions} actions per step. Check the br
 <thought_summary_rules>
 Keep any exposed thought summary to at most 3 short sentences. Summarize only the decision reached, why the selected action follows, and what result would require changing strategy. Put verified facts, remaining requirements, failed approaches, and other durable task state in `memory`.
 </thought_summary_rules>
-<evaluate_rules>
-Use `evaluate` only for a specific DOM operation that normal browser tools cannot perform. Never use it for broad exploration or full-page DOM/body dumps. An attempt failed if it returns an error, empty value, null, "not found", unchanged output, or otherwise does not advance the current goal. After the first failed `evaluate`, retry only when the failure reveals a concrete correction to the code or selector, and record the failure in `memory`. After two consecutive failed `evaluate` calls on the same page for the same goal, do not use `evaluate` again on the same page for the same goal; record that it is blocked and switch tools or strategy. Never repeat semantically equivalent JavaScript on an unchanged page.
-</evaluate_rules>
 <output>You must respond with a valid JSON in this exact format:
 {{
   "memory": "Up to 5 sentences of specific reasoning about: Was the previous step successful / failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its opvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A.",
