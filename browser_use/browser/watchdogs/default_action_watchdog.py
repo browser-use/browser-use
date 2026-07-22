@@ -1383,7 +1383,19 @@ class DefaultActionWatchdog(BaseWatchdog):
 								} catch (e) {
 									// ignore
 								}
-								this.value = "";
+								// Use the prototype's native value setter: React patches the instance
+								// setter to track values, so a direct `this.value = ""` makes React's
+								// tracker think nothing changed and the input event gets ignored,
+								// leaving controlled components with the old value.
+								const proto = this.tagName === 'TEXTAREA'
+									? window.HTMLTextAreaElement.prototype
+									: window.HTMLInputElement.prototype;
+								const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+								if (desc && desc.set) {
+									desc.set.call(this, "");
+								} else {
+									this.value = "";
+								}
 								this.dispatchEvent(new Event("input", { bubbles: true }));
 								this.dispatchEvent(new Event("change", { bubbles: true }));
 								return {cleared: true, method: 'value', finalText: this.value};
