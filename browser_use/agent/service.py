@@ -525,6 +525,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			sample_images=self.sample_images,
 			llm_screenshot_size=llm_screenshot_size,
 			max_clickable_elements_length=self.settings.max_clickable_elements_length,
+			use_incremental_message_history=bool(getattr(self.llm, 'preserve_thought_signatures', False)),
 		)
 
 		if self.sensitive_data:

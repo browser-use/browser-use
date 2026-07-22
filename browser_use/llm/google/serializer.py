@@ -1,6 +1,6 @@
 import base64
 
-from google.genai.types import Content, ContentListUnion, Part
+from google.genai.types import Content, Part
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -14,9 +14,7 @@ class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
 
 	@staticmethod
-	def serialize_messages(
-		messages: list[BaseMessage], include_system_in_user: bool = False
-	) -> tuple[ContentListUnion, str | None]:
+	def serialize_messages(messages: list[BaseMessage], include_system_in_user: bool = False) -> tuple[list[Content], str | None]:
 		"""
 		Convert a list of BaseMessages to Google format, extracting system message.
 
@@ -36,7 +34,7 @@ class GoogleMessageSerializer:
 
 		messages = [m.model_copy(deep=True) for m in messages]
 
-		formatted_messages: ContentListUnion = []
+		formatted_messages: list[Content] = []
 		system_message: str | None = None
 		system_parts: list[str] = []
 
@@ -118,6 +116,6 @@ class GoogleMessageSerializer:
 			if message_parts:
 				final_message = Content(role=role, parts=message_parts)
 				# for some reason, the type checker is not able to infer the type of formatted_messages
-				formatted_messages.append(final_message)  # type: ignore
+				formatted_messages.append(final_message)
 
 		return formatted_messages, system_message

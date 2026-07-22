@@ -127,3 +127,95 @@ async def test_chat_google_temperature_fallback():
 		mock_models.generate_content.assert_called_once()
 		args, kwargs = mock_models.generate_content.call_args
 		assert kwargs['config']['temperature'] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_chat_google_preserves_thought_signature_turn_history_per_session():
+	"""Exact user/assistant turns are preserved only within their agent session."""
+	from unittest.mock import AsyncMock, MagicMock, patch
+
+	from google.genai import types
+
+	from browser_use.llm.messages import UserMessage
+
+	def signed_response(text: str, signature: bytes) -> types.GenerateContentResponse:
+		return types.GenerateContentResponse(
+			candidates=[
+				types.Candidate(
+					content=types.Content(
+						role='model',
+						parts=[types.Part(text=text, thought_signature=signature)],
+					)
+				)
+			]
+		)
+
+	mock_client = MagicMock()
+	mock_client.aio.models.generate_content = AsyncMock(
+		side_effect=[
+			signed_response('first', b'first-signature'),
+			signed_response('second', b'second-signature'),
+			signed_response('other', b'other-signature'),
+		]
+	)
+
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(
+			model='gemini-3.5-flash-lite',
+			api_key='fake',
+			thinking_level='high',
+			preserve_thought_signatures=True,
+		)
+		await chat.ainvoke([UserMessage(content='step one')], session_id='agent-a')
+		await chat.ainvoke([UserMessage(content='step two')], session_id='agent-a')
+		await chat.ainvoke([UserMessage(content='other agent')], session_id='agent-b')
+
+	calls = mock_client.aio.models.generate_content.call_args_list
+	assert len(calls[0].kwargs['contents']) == 1
+	assert calls[0].kwargs['config']['thinking_config']['thinking_level'] == types.ThinkingLevel.HIGH
+
+	second_contents = calls[1].kwargs['contents']
+	assert [content.role for content in second_contents] == ['user', 'model', 'user']
+	assert second_contents[0].parts[0].text == 'step one'
+	assert second_contents[1].parts[0].text == 'first'
+	assert second_contents[1].parts[0].thought_signature == b'first-signature'
+	assert second_contents[2].parts[0].text == 'step two'
+
+	# A shared ChatGoogle instance must not leak another agent's history.
+	assert len(calls[2].kwargs['contents']) == 1
+	assert calls[2].kwargs['contents'][0].parts[0].text == 'other agent'
+
+	assert [content.role for content in chat._thought_signature_histories['agent-a']] == [
+		'user',
+		'model',
+		'user',
+		'model',
+	]
+	agent_a_last_parts = chat._thought_signature_histories['agent-a'][3].parts
+	agent_b_last_parts = chat._thought_signature_histories['agent-b'][1].parts
+	assert agent_a_last_parts is not None
+	assert agent_b_last_parts is not None
+	assert agent_a_last_parts[0].text == 'second'
+	assert agent_b_last_parts[0].text == 'other'
+
+
+def test_chat_google_does_not_store_thought_signatures_when_disabled():
+	"""The existing stateless behavior remains the default."""
+	from google.genai import types
+
+	chat = ChatGoogle(model='gemini-3-flash-preview', api_key='fake')
+	response = types.GenerateContentResponse(
+		candidates=[
+			types.Candidate(
+				content=types.Content(
+					role='model',
+					parts=[types.Part(text='answer', thought_signature=b'opaque')],
+				)
+			)
+		]
+	)
+
+	user_contents = [types.Content(role='user', parts=[types.Part.from_text(text='question')])]
+	chat._commit_thought_signature_turn(response, user_contents, 'agent-a')
+
+	assert chat._thought_signature_histories == {}

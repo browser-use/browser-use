@@ -15,11 +15,14 @@ calls. Keeping it at the very end means everything above it can in principle be 
 moving it back into `<agent_state>` would silently shrink the cacheable prefix.
 """
 
+from browser_use.agent.message_manager.service import MessageManager
+from browser_use.agent.message_manager.views import HistoryItem
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import AgentStepInfo
 from browser_use.browser.views import BrowserStateSummary, PageInfo, TabInfo
 from browser_use.dom.views import SerializedDOMState
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.messages import SystemMessage
 
 
 def _make_prompt(tmp_path, step_number: int = 3) -> AgentMessagePrompt:
@@ -81,6 +84,45 @@ def test_agent_history_end_marker_is_present_once(tmp_path):
 	assert content.count('</agent_history>') == 1, (
 		'super important: LLM gateway cache splitting expects exactly one </agent_history> marker'
 	)
+
+
+def test_user_request_can_be_omitted_from_incremental_turn(tmp_path):
+	prompt = _make_prompt(tmp_path)
+	prompt.task = None
+	content = prompt.get_user_message(use_vision=False).content
+	assert isinstance(content, str)
+
+	assert '<user_request>' not in content
+	assert '<agent_history>' in content
+	assert '<browser_state>' in content
+
+
+def test_incremental_message_history_sends_only_latest_history_item(tmp_path):
+	prompt = _make_prompt(tmp_path)
+	assert prompt.file_system is not None
+	manager = MessageManager(
+		task='Original task',
+		system_message=SystemMessage(content='System'),
+		file_system=prompt.file_system,
+		use_incremental_message_history=True,
+	)
+	manager.state.agent_history_items = [
+		HistoryItem(step_number=0, memory='old memory'),
+		HistoryItem(step_number=1, memory='latest memory', action_results='latest result'),
+	]
+	manager.create_state_messages(
+		browser_state_summary=prompt.browser_state,
+		step_info=AgentStepInfo(step_number=2, max_steps=50),
+		use_vision=False,
+		skip_state_update=True,
+	)
+	state_message = manager.get_messages()[1]
+	assert isinstance(state_message.content, str)
+
+	assert '<user_request>' not in state_message.content
+	assert 'latest memory' in state_message.content
+	assert 'latest result' in state_message.content
+	assert 'old memory' not in state_message.content
 
 
 def test_prefix_up_to_step_info_is_stable_across_steps(tmp_path):

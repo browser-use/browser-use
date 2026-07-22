@@ -120,6 +120,7 @@ class MessageManager:
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		max_clickable_elements_length: int = 40000,
+		use_incremental_message_history: bool = False,
 	):
 		self.task = task
 		self.state = state
@@ -134,6 +135,7 @@ class MessageManager:
 		self.sample_images = sample_images
 		self.llm_screenshot_size = llm_screenshot_size
 		self.max_clickable_elements_length = max_clickable_elements_length
+		self.use_incremental_message_history = use_incremental_message_history
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -476,12 +478,21 @@ class MessageManager:
 
 		# Create single state message with all content
 		assert browser_state_summary
+		agent_history_description = self.agent_history_description
+		task = self.task
+		if self.use_incremental_message_history:
+			# Prior turns already exist as real user/model messages in the provider
+			# transcript. Send only the newest result/memory and current browser state.
+			agent_history_description = self.state.agent_history_items[-1].to_string() if self.state.agent_history_items else ''
+			if step_info is not None and step_info.step_number > 0:
+				task = None
+
 		state_message = AgentMessagePrompt(
 			browser_state_summary=browser_state_summary,
 			file_system=self.file_system,
-			agent_history_description=self.agent_history_description,
+			agent_history_description=agent_history_description,
 			read_state_description=self.state.read_state_description,
-			task=self.task,
+			task=task,
 			include_attributes=self.include_attributes,
 			step_info=step_info,
 			page_filtered_actions=page_filtered_actions,

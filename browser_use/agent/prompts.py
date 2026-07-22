@@ -347,6 +347,8 @@ Available tabs:
 		return agent_state
 
 	def _get_user_request_description(self) -> str:
+		if not self.task:
+			return ''
 		return f'<user_request>\n{self.task}\n</user_request>\n\n'
 
 	def _get_step_meta_description(self) -> str:

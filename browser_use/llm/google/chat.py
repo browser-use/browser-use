@@ -99,6 +99,15 @@ class ChatGoogle(BaseChatModel):
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
+	preserve_thought_signatures: bool = False
+	"""Preserve Gemini user/assistant turns with their opaque thought signatures.
+
+	This is intentionally opt-in. Browser Use normally rebuilds a compact prompt for
+	each agent step, which discards Gemini assistant messages and thought signatures.
+	When enabled, each successful user/assistant pair is retained for the same agent
+	session. Signed model Content stays exactly where Gemini returned it, preserving
+	the provider's encrypted reasoning state without exposing the reasoning.
+	"""
 	max_retries: int = 5  # Number of retries for retryable errors
 	retryable_status_codes: list[int] = field(default_factory=lambda: [429, 500, 502, 503, 504])  # Status codes to retry on
 	retry_base_delay: float = 1.0  # Base delay in seconds for exponential backoff
@@ -114,6 +123,7 @@ class ChatGoogle(BaseChatModel):
 
 	# Internal client cache to prevent connection issues
 	_client: genai.Client | None = None
+	_thought_signature_histories: dict[str, list[types.Content]] = field(default_factory=dict, init=False, repr=False)
 
 	# Static
 	@property
@@ -235,6 +245,43 @@ class ChatGoogle(BaseChatModel):
 
 		return usage
 
+	def _build_thought_signature_history(self, contents: list[types.Content], session_id: str | None) -> list[types.Content]:
+		"""Build an alternating prior-history + current-user request."""
+		if not self.preserve_thought_signatures or not session_id:
+			return contents
+
+		prior_history = self._thought_signature_histories.get(session_id, [])
+		return [
+			*(content.model_copy(deep=True) for content in prior_history),
+			*(content.model_copy(deep=True) for content in contents),
+		]
+
+	def _commit_thought_signature_turn(
+		self,
+		response: types.GenerateContentResponse,
+		user_contents: list[types.Content],
+		session_id: str | None,
+	) -> None:
+		"""Commit the exact user turn and signed assistant response after validation."""
+		if not self.preserve_thought_signatures or not session_id:
+			return
+
+		content = response.candidates[0].content if response.candidates else None
+		if content is None:
+			return
+
+		history = self._thought_signature_histories.pop(session_id, [])
+		history.extend(user_content.model_copy(deep=True) for user_content in user_contents)
+		# Google requires the signature to remain inside its original Part. Keep the
+		# complete assistant Content intact instead of recreating it from response.text.
+		history.append(content.model_copy(deep=True))
+		self._thought_signature_histories[session_id] = history
+
+		# Bound stale state if a long-lived ChatGoogle instance is shared across agents.
+		if len(self._thought_signature_histories) > 1024:
+			oldest_session_id = next(iter(self._thought_signature_histories))
+			self._thought_signature_histories.pop(oldest_session_id, None)
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -258,9 +305,12 @@ class ChatGoogle(BaseChatModel):
 		"""
 
 		# Serialize messages to Google format with the include_system_in_user flag
-		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
+		new_contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
 		)
+		session_id_value = kwargs.get('session_id')
+		session_id = str(session_id_value) if session_id_value is not None else None
+		contents = self._build_thought_signature_history(new_contents, session_id)
 
 		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
@@ -288,8 +338,9 @@ class ChatGoogle(BaseChatModel):
 		# Gemini 3 Pro: uses thinking_level only
 		# Gemini 3 Flash: supports both, defaults to thinking_budget=-1
 		# Gemini 2.5: uses thinking_budget only
-		is_gemini_3_pro = 'gemini-3-pro' in self.model or 'gemini-3.1-pro' in self.model
-		is_gemini_3_flash = 'gemini-3-flash' in self.model or 'gemini-3.1-flash' in self.model
+		is_gemini_3_model = 'gemini-3' in self.model
+		is_gemini_3_pro = is_gemini_3_model and 'pro' in self.model
+		is_gemini_3_flash = is_gemini_3_model and 'flash' in self.model
 
 		if is_gemini_3_pro:
 			# Validate: thinking_budget should not be set for Gemini 3 Pro
@@ -365,6 +416,7 @@ class ChatGoogle(BaseChatModel):
 
 					usage = self._get_usage(response)
 
+					self._commit_thought_signature_turn(response, new_contents, session_id)
 					return ChatInvokeCompletion(
 						completion=text,
 						usage=usage,
@@ -385,7 +437,7 @@ class ChatGoogle(BaseChatModel):
 
 						response = await self.get_client().aio.models.generate_content(
 							model=self.model,
-							contents=contents,
+							contents=contents,  # type: ignore[arg-type]
 							config=config,
 						)
 
@@ -412,8 +464,10 @@ class ChatGoogle(BaseChatModel):
 
 									# Parse the JSON text and validate with the Pydantic model
 									parsed_data = json.loads(text)
+									completion = output_format.model_validate(parsed_data)
+									self._commit_thought_signature_turn(response, new_contents, session_id)
 									return ChatInvokeCompletion(
-										completion=output_format.model_validate(parsed_data),
+										completion=completion,
 										usage=usage,
 										stop_reason=self._get_stop_reason(response),
 									)
@@ -435,6 +489,7 @@ class ChatGoogle(BaseChatModel):
 
 						# Ensure we return the correct type
 						if isinstance(response.parsed, output_format):
+							self._commit_thought_signature_turn(response, new_contents, session_id)
 							return ChatInvokeCompletion(
 								completion=response.parsed,
 								usage=usage,
@@ -442,8 +497,10 @@ class ChatGoogle(BaseChatModel):
 							)
 						else:
 							# If it's not the expected type, try to validate it
+							completion = output_format.model_validate(response.parsed)
+							self._commit_thought_signature_turn(response, new_contents, session_id)
 							return ChatInvokeCompletion(
-								completion=output_format.model_validate(response.parsed),
+								completion=completion,
 								usage=usage,
 								stop_reason=self._get_stop_reason(response),
 							)
@@ -459,9 +516,10 @@ class ChatGoogle(BaseChatModel):
 							modified_messages[-1].content += json_instruction
 
 						# Re-serialize with modified messages
-						fallback_contents, fallback_system = GoogleMessageSerializer.serialize_messages(
+						fallback_new_contents, fallback_system = GoogleMessageSerializer.serialize_messages(
 							modified_messages, include_system_in_user=self.include_system_in_user
 						)
+						fallback_contents = self._build_thought_signature_history(fallback_new_contents, session_id)
 
 						# Update config with fallback system instruction if present
 						fallback_config = config.copy()
@@ -494,8 +552,10 @@ class ChatGoogle(BaseChatModel):
 
 								# Parse and validate
 								parsed_data = json.loads(text)
+								completion = output_format.model_validate(parsed_data)
+								self._commit_thought_signature_turn(response, fallback_new_contents, session_id)
 								return ChatInvokeCompletion(
-									completion=output_format.model_validate(parsed_data),
+									completion=completion,
 									usage=usage,
 									stop_reason=self._get_stop_reason(response),
 								)
