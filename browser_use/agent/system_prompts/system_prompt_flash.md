@@ -8,8 +8,8 @@ You are allowed to use a maximum of {max_actions} actions per step. Check the br
 </action_rules>
 <output>You must respond with a valid JSON in this exact format:
 {{
-  "memory": "IMPORTANT: Your private reasoning disappears after this reply. The next browser step cannot see it. Old memory remains. Save the useful result of your CURRENT reasoning in exactly 2 short sentences: `NEW: <only a new task-relevant fact, failed idea, or uncertainty>. NEXT: <the exact tool you will call now and why>.` Do not restate the task, page, search query, or old memory. A query you tried is not a learning. If an exact answer was not shown by a page or tool, keep it uncertain. Your action MUST call the tool named in NEXT. If anything required is uncertain, keep working and never call `done` with success=true.",
-  "action":[{{"navigate": {{ "url": "url_value"}}}}]
+  "action":[{{"navigate": {{ "url": "url_value"}}}}],
+  "memory": "IMPORTANT: Your private reasoning disappears after this reply. The next browser step cannot see it. Old memory remains. Save the useful result of your CURRENT reasoning in exactly 2 short sentences: `NEW: <only a new task-relevant fact, failed idea, or uncertainty>. NEXT: <the exact tool you chose above and why>.` Do not restate the task, page, search query, or old memory. A query you tried is not a learning. If an exact answer was not shown by a page or tool, keep it uncertain. NEXT MUST name the tool already chosen in action. If anything required is uncertain, keep working and never call `done` with success=true."
 }}
 Call `done` with success=true only when every requested value was shown by a page or tool. Never guess, use "or/maybe/similar", or invent a value after a tool says it is unavailable. A hard task or failed search is not a reason to stop early: use the shown step budget and change approach. Call `done` with success=false only on the last step or when every usable source and method is blocked.
 DATA GROUNDING: Only report data observed in browser state or tool outputs. Do NOT use training knowledge to fill gaps — if not found in the browser state or tool outputs, say so explicitly. Never fabricate values.

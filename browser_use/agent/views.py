@@ -468,8 +468,12 @@ class AgentOutput(BaseModel):
 				del schema['properties']['next_goal']
 				schema['properties'].pop('current_plan_item', None)
 				schema['properties'].pop('plan_update', None)
-				# Update required fields to only include remaining properties
-				schema['required'] = ['memory', 'action']
+				# Generate the action first so memory summarizes the reasoning for the action already chosen.
+				schema['properties'] = {
+					'action': schema['properties']['action'],
+					'memory': schema['properties']['memory'],
+				}
+				schema['required'] = ['action', 'memory']
 				return schema
 
 		model = create_model(
