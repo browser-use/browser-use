@@ -525,6 +525,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			sample_images=self.sample_images,
 			llm_screenshot_size=llm_screenshot_size,
 			max_clickable_elements_length=self.settings.max_clickable_elements_length,
+			include_native_thought_summaries=self.settings.flash_mode,
 		)
 
 		if self.sensitive_data:
@@ -1947,9 +1948,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
 			if self.settings.flash_mode and response.thinking and response.thinking.strip():
-				thought_summary = response.thinking.strip()
-				durable_memory = (parsed.memory or '').strip()
-				parsed.memory = f'<thought_summary>\n{thought_summary}\n</thought_summary>\n<memory>\n{durable_memory}\n</memory>'
+				# Keep provider-native thought summaries separate from durable agent memory.
+				# The message manager exposes a short rolling window in the volatile suffix
+				# of the next state prompt instead of retaining every summary in history.
+				parsed.thinking = response.thinking.strip()
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:

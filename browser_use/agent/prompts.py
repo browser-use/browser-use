@@ -125,6 +125,7 @@ class AgentMessagePrompt:
 		llm_screenshot_size: tuple[int, int] | None = None,
 		unavailable_skills_info: str | None = None,
 		plan_description: str | None = None,
+		recent_thought_summaries: list[str] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -144,6 +145,7 @@ class AgentMessagePrompt:
 		self.read_state_images = read_state_images or []
 		self.unavailable_skills_info: str | None = unavailable_skills_info
 		self.plan_description: str | None = plan_description
+		self.recent_thought_summaries = recent_thought_summaries or []
 		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
@@ -417,6 +419,19 @@ Available tabs:
 		# Add unavailable skills information if any
 		if self.unavailable_skills_info:
 			state_description += '\n' + self.unavailable_skills_info + '\n'
+
+		# Provider-native thought summaries are deliberately placed after browser/read
+		# state, which already changes every step. Rotating this transient window cannot
+		# shorten the stable prompt prefix, and it never enters durable agent history.
+		if any(summary.strip() for summary in self.recent_thought_summaries):
+			state_description += '<recent_thought_summaries>\n'
+			window_size = len(self.recent_thought_summaries)
+			for index, summary in enumerate(self.recent_thought_summaries):
+				if not summary.strip():
+					continue
+				steps_ago = window_size - index
+				state_description += f'<thought_summary steps_ago="{steps_ago}">\n{summary}\n</thought_summary>\n'
+			state_description += '</recent_thought_summaries>\n'
 
 		# Per-step varying metadata (step counter, date) lives at the tail of the message so that
 		# everything above can in principle be treated as a cacheable prefix.

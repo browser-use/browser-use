@@ -120,6 +120,7 @@ class MessageManager:
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
 		max_clickable_elements_length: int = 40000,
+		include_native_thought_summaries: bool = False,
 	):
 		self.task = task
 		self.state = state
@@ -134,6 +135,7 @@ class MessageManager:
 		self.sample_images = sample_images
 		self.llm_screenshot_size = llm_screenshot_size
 		self.max_clickable_elements_length = max_clickable_elements_length
+		self.include_native_thought_summaries = include_native_thought_summaries
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -376,6 +378,16 @@ class MessageManager:
 					history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
 					self.state.agent_history_items.append(history_item)
 		else:
+			# Age native thought summaries as a two-decision window. Empty placeholders
+			# prevent an older summary from lingering indefinitely when a response has
+			# no provider-native summary.
+			if self.include_native_thought_summaries:
+				thought_summary = (model_output.current_state.thinking or '').strip()
+				self.state.recent_thought_summaries = [
+					*self.state.recent_thought_summaries,
+					thought_summary,
+				][-2:]
+
 			history_item = HistoryItem(
 				step_number=step_number,
 				evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
@@ -496,6 +508,9 @@ class MessageManager:
 			llm_screenshot_size=self.llm_screenshot_size,
 			unavailable_skills_info=unavailable_skills_info,
 			plan_description=plan_description,
+			recent_thought_summaries=(
+				self.state.recent_thought_summaries if self.include_native_thought_summaries else None
+			),
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history
