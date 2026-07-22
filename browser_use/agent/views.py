@@ -460,7 +460,7 @@ class AgentOutput(BaseModel):
 
 		class AgentOutputFlashMode(AgentOutput):
 			thought_summary: str = Field(
-				...,
+				default='',
 				description=(
 					'Concise summary of useful task-relevant conclusions from the private reasoning that produced this '
 					'action and are not already in memory. Preserve new information, failed approaches, unresolved '
