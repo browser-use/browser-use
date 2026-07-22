@@ -1947,7 +1947,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
 			if self.settings.flash_mode and response.thinking and response.thinking.strip():
-				thought_summary = response.thinking.strip()
+				# Cap the carried summary: long summaries bloat every later prompt
+				# without adding decision value.
+				thought_summary = response.thinking.strip()[:400]
 				durable_memory = (parsed.memory or '').strip()
 				parsed.memory = f'<thought_summary>\n{thought_summary}\n</thought_summary>\n<memory>\n{durable_memory}\n</memory>'
 
