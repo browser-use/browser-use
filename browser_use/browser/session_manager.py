@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from cdp_use.cdp.target import AttachedToTargetEvent, DetachedFromTargetEvent, SessionID, TargetID
 
+from browser_use.browser.events import TabCreatedEvent
 from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
@@ -436,6 +437,11 @@ class SessionManager:
 
 		from browser_use.browser.session import Target
 
+		# Chrome sends an empty string (not a missing key) for the URL of freshly created
+		# targets such as window.open() popups, so `.get('url', 'about:blank')` never falls
+		# back for them - normalize that here instead.
+		target_url = target_info.get('url') or 'about:blank'
+
 		async with self._lock:
 			# Track this session for the target
 			if target_id not in self._target_sessions:
@@ -450,7 +456,7 @@ class SessionManager:
 				target = Target(
 					target_id=target_id,
 					target_type=target_type,
-					url=target_info.get('url', 'about:blank'),
+					url=target_url,
 					title=target_info.get('title', 'Unknown title'),
 				)
 				self._targets[target_id] = target
@@ -458,8 +464,9 @@ class SessionManager:
 			else:
 				# Update existing target info
 				existing_target = self._targets[target_id]
-				existing_target.url = target_info.get('url', existing_target.url)
+				existing_target.url = target_info.get('url') or existing_target.url or 'about:blank'
 				existing_target.title = target_info.get('title', existing_target.title)
+				target_url = existing_target.url
 
 		# Create CDPSession (communication channel)
 		from browser_use.browser.session import CDPSession
@@ -498,6 +505,12 @@ class SessionManager:
 		# Enable lifecycle events and network monitoring for page targets
 		if target_type in ('page', 'tab'):
 			await self._enable_page_monitoring(cdp_session)
+
+			# Targets attached here include ones Chrome creates on its own (window.open(),
+			# target="_blank" links, etc.), not just tabs browser-use opens itself. Without
+			# this, watchdogs that initialize on TabCreatedEvent (popups, about:blank,
+			# security, DOM) never learn the tab exists, so it appears frozen on about:blank.
+			self.browser_session.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url=target_url))
 
 		# Resume execution if waiting for debugger
 		if waiting_for_debugger:
