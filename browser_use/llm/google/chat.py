@@ -382,6 +382,27 @@ class ChatGoogle(BaseChatModel):
 						config=config,
 					)
 
+					# Gemini with include_thoughts sometimes returns thought parts and an
+					# empty text part with finish_reason MALFORMED_RESPONSE (a known
+					# failure mode when thought text is fed back without signatures).
+					# Retrying immediately at the provider is cheap (prompt fully cached)
+					# and avoids burning a whole agent step on a no-action response.
+					for _malformed_attempt in range(2):
+						if (response.text or '').strip():
+							break
+						reason = self._get_stop_reason(response) or ''
+						if 'MALFORMED' not in reason.upper():
+							break
+						self.logger.warning(
+							f'Empty completion with {reason}; immediate provider retry '
+							f'({_malformed_attempt + 1}/2)'
+						)
+						response = await self.get_client().aio.models.generate_content(
+							model=self.model,
+							contents=contents,  # type: ignore
+							config=config,
+						)
+
 					elapsed = time.time() - start_time
 					self.logger.debug(f'✅ Got text response in {elapsed:.2f}s')
 
