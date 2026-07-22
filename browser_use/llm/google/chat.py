@@ -95,6 +95,12 @@ class ChatGoogle(BaseChatModel):
 	thinking_level: Literal['minimal', 'low', 'medium', 'high'] | None = (
 		None  # for Gemini 3: Pro supports low/high, Flash supports all levels
 	)
+	# Multi-turn reasoning continuity: replay a rolling window of prior model
+	# turns (verbatim, including provider reasoning state) so iterative-loop
+	# callers keep chain-of-thought context across otherwise independent calls.
+	multi_turn_reasoning: bool = True
+	reasoning_window: int = 4
+	_reasoning_ctx: dict = field(default_factory=dict)
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
@@ -187,6 +193,39 @@ class ChatGoogle(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+
+	def _with_reasoning_context(self, contents: list[Any]) -> list[Any]:
+		"""Replay the last N model turns (verbatim) ahead of the new user turn.
+
+		Iterative agent loops rebuild a fresh single-turn request each step, which
+		discards the provider-side reasoning state attached to earlier responses.
+		Replaying the prior model turns in conversation order restores it the way
+		multi-turn conversations are expected to work. Minimal user separators
+		keep role alternation valid.
+		"""
+		if not self.multi_turn_reasoning or not contents:
+			return contents
+		window = self._reasoning_ctx.get('turns') or []
+		if not window:
+			return contents
+		replay: list[Any] = []
+		for turn in window:
+			replay.append(types.Content(role='user', parts=[types.Part.from_text(text=' ')]))
+			replay.append(turn)
+		return [*replay, *contents]
+
+	def _remember_reasoning_turn(self, response: types.GenerateContentResponse) -> None:
+		if not self.multi_turn_reasoning:
+			return
+		if not response.candidates or response.candidates[0].content is None:
+			return
+		content = response.candidates[0].content
+		if not content.parts:
+			return
+		window = self._reasoning_ctx.setdefault('turns', [])
+		window.append(content)
+		del window[: max(0, len(window) - self.reasoning_window)]
+
 	def _get_stop_reason(self, response: types.GenerateContentResponse) -> str | None:
 		"""Extract stop_reason from Google response."""
 		if hasattr(response, 'candidates') and response.candidates:
@@ -212,6 +251,7 @@ class ChatGoogle(BaseChatModel):
 			)
 
 	def _get_usage(self, response: types.GenerateContentResponse) -> ChatInvokeUsage | None:
+		self._remember_reasoning_turn(response)  # every successful response passes through here
 		usage: ChatInvokeUsage | None = None
 
 		if response.usage_metadata is not None:
@@ -261,6 +301,7 @@ class ChatGoogle(BaseChatModel):
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
 		)
+		contents = self._with_reasoning_context(contents)
 
 		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
