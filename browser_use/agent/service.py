@@ -1949,7 +1949,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if self.settings.flash_mode and response.thinking and response.thinking.strip():
 				thought_summary = response.thinking.strip()
 				durable_memory = (parsed.memory or '').strip()
-				parsed.memory = f'<thought_summary>\n{thought_summary}\n</thought_summary>\n<memory>\n{durable_memory}\n</memory>'
+				# Tag-less merge: prior thinking becomes a plain memory prefix, so history
+				# never shows the model an addressable 'thought summary' artifact.
+				parsed.memory = f'[thinking last step] {thought_summary}\n{durable_memory}'
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
