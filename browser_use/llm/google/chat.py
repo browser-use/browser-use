@@ -97,6 +97,9 @@ class ChatGoogle(BaseChatModel):
 	)
 	include_thoughts: bool = True
 	retain_thought_signatures: bool = True
+	# Shared mutable holder so dataclasses.replace() clones (used by cached-call
+	# paths) see and update the same retained thought context as the original.
+	_retained_thought_ctx: dict = field(default_factory=dict)
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
@@ -208,7 +211,7 @@ class ChatGoogle(BaseChatModel):
 		"""
 		if not self.retain_thought_signatures:
 			return contents
-		previous = getattr(self, '_last_model_content', None)
+		previous = self._retained_thought_ctx.get('content')
 		if previous is None or not contents:
 			return contents
 		anchor = types.Content(role='user', parts=[types.Part.from_text(text=' ')])
@@ -223,7 +226,7 @@ class ChatGoogle(BaseChatModel):
 		content = response.candidates[0].content
 		if not content.parts:
 			return
-		self._last_model_content = content
+		self._retained_thought_ctx['content'] = content
 
 	def _get_thought_summary(self, response: types.GenerateContentResponse) -> str | None:
 		"""Extract readable thought-summary parts without retaining opaque thought signatures."""
