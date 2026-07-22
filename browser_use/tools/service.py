@@ -1823,11 +1823,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
 
-			cdp_session = await browser_session.get_or_create_cdp_session()
+			code_context = f'JavaScript requested:\n{code}'
 
 			try:
+				cdp_session = await browser_session.get_or_create_cdp_session()
+
 				# Validate and potentially fix JavaScript code before execution
 				validated_code = self._validate_and_fix_javascript(code)
+				if validated_code == code:
+					code_context = f'JavaScript executed:\n{code}'
+				else:
+					code_context = f'JavaScript requested:\n{code}\n\nJavaScript executed after validation:\n{validated_code}'
 
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -1849,7 +1855,10 @@ Validated Code (after quote fixing):
 """
 
 					logger.debug(enhanced_msg)
-					return ActionResult(error=enhanced_msg)
+					return ActionResult(
+						error=enhanced_msg,
+						long_term_memory=f'{code_context}\n\nResult:\n{error_msg}',
+					)
 
 				# Get the result data
 				result_data = result.get('result', {})
@@ -1858,7 +1867,7 @@ Validated Code (after quote fixing):
 				if result_data.get('wasThrown'):
 					msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
 					logger.debug(msg)
-					return ActionResult(error=msg)
+					return ActionResult(error=msg, long_term_memory=f'{code_context}\n\nResult:\n{msg}')
 
 				# Get the actual value
 				value = result_data.get('value')
@@ -1902,17 +1911,20 @@ Validated Code (after quote fixing):
 				# Don't log the code - it's already visible in the user's cell
 				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
 
-				# Memory handling: keep full result in extracted_content for current step,
-				# but use truncated version in long_term_memory if too large
+				# Preserve the code/result relationship so future steps remember what was attempted.
+				# Large results remain one-shot to avoid permanently bloating every subsequent prompt.
 				MAX_MEMORY_LENGTH = 10000
+				memory_result = result_text if result_text else '[empty string]'
 				if len(result_text) < MAX_MEMORY_LENGTH:
-					memory = result_text
+					memory = f'{code_context}\n\nResult:\n{memory_result}'
 					include_extracted_content_only_once = False
 				else:
-					memory = f'JavaScript executed successfully, result length: {len(result_text)} characters.'
+					memory = (
+						f'{code_context}\n\nResult:\nJavaScript returned {len(result_text)} characters. '
+						'The full result was provided in read state for the next step.'
+					)
 					include_extracted_content_only_once = True
 
-				# Return only the result, not the code (code is already in user's cell)
 				return ActionResult(
 					extracted_content=result_text,
 					long_term_memory=memory,
@@ -1924,7 +1936,10 @@ Validated Code (after quote fixing):
 				# CDP communication or other system errors
 				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.debug(f'JavaScript code that failed: {code[:200]}...')
-				return ActionResult(error=error_msg)
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'{code_context}\n\nResult:\n{error_msg}',
+				)
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
 		"""Validate and fix common JavaScript issues before execution"""
