@@ -462,9 +462,9 @@ class AgentOutput(BaseModel):
 			thought_summary: str = Field(
 				...,
 				description=(
-					'Short summary of useful task-relevant conclusions from the private reasoning that produced this '
-					'action. Include only new information, what failed, and why the next action follows; do not reproduce '
-					'the full reasoning.'
+					'Concise summary of useful task-relevant conclusions from the private reasoning that produced this '
+					'action. Preserve new information, failed approaches, unresolved uncertainty, important constraints, '
+					'and why the next action follows, without reproducing the full reasoning.'
 				),
 			)
 
