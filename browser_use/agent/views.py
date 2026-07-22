@@ -463,8 +463,9 @@ class AgentOutput(BaseModel):
 				...,
 				description=(
 					'Concise summary of useful task-relevant conclusions from the private reasoning that produced this '
-					'action. Preserve new information, failed approaches, unresolved uncertainty, important constraints, '
-					'and why the next action follows, without reproducing the full reasoning.'
+					'action and are not already in memory. Preserve new information, failed approaches, unresolved '
+					'uncertainty, important constraints, and why the next action follows, without reproducing the full '
+					'reasoning. Never exceed 80 words.'
 				),
 			)
 
