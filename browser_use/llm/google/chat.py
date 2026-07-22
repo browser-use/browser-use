@@ -96,6 +96,7 @@ class ChatGoogle(BaseChatModel):
 		None  # for Gemini 3: Pro supports low/high, Flash supports all levels
 	)
 	include_thoughts: bool = True
+	retain_thought_signatures: bool = True
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
@@ -194,6 +195,36 @@ class ChatGoogle(BaseChatModel):
 			return str(response.candidates[0].finish_reason) if hasattr(response.candidates[0], 'finish_reason') else None
 		return None
 
+	def _with_retained_thought_context(self, contents: list[Any]) -> list[Any]:
+		"""Prepend the previous model turn (with thought signatures) for reasoning continuity.
+
+		The agent loop rebuilds a single-turn request every step, so Gemini's chain of
+		thought resets each call. When ``retain_thought_signatures`` is on, we keep the
+		last response's full model Content (thought parts + signatures included) and
+		replay it before the new user turn, so the model resumes its own reasoning
+		instead of re-deriving it. Gemini requires signatures to arrive inside a model
+		turn of an ongoing conversation; the single-space user turn anchors the
+		alternation the same way the gateway's cached-content live prompt does.
+		"""
+		if not self.retain_thought_signatures:
+			return contents
+		previous = getattr(self, '_last_model_content', None)
+		if previous is None or not contents:
+			return contents
+		anchor = types.Content(role='user', parts=[types.Part.from_text(text=' ')])
+		return [anchor, previous, *contents]
+
+	def _remember_thought_context(self, response: types.GenerateContentResponse) -> None:
+		"""Retain the model turn (incl. thought signatures) for the next request."""
+		if not self.retain_thought_signatures:
+			return
+		if not response.candidates or response.candidates[0].content is None:
+			return
+		content = response.candidates[0].content
+		if not content.parts:
+			return
+		self._last_model_content = content
+
 	def _get_thought_summary(self, response: types.GenerateContentResponse) -> str | None:
 		"""Extract readable thought-summary parts without retaining opaque thought signatures."""
 		if not response.candidates:
@@ -274,6 +305,7 @@ class ChatGoogle(BaseChatModel):
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
 		)
+		contents = self._with_retained_thought_context(contents)
 
 		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
@@ -382,6 +414,7 @@ class ChatGoogle(BaseChatModel):
 						config=config,
 					)
 
+					self._remember_thought_context(response)
 					elapsed = time.time() - start_time
 					self.logger.debug(f'✅ Got text response in {elapsed:.2f}s')
 
@@ -417,6 +450,7 @@ class ChatGoogle(BaseChatModel):
 							config=config,
 						)
 
+						self._remember_thought_context(response)
 						elapsed = time.time() - start_time
 						self.logger.debug(f'✅ Got structured response in {elapsed:.2f}s')
 
@@ -505,6 +539,7 @@ class ChatGoogle(BaseChatModel):
 							config=fallback_config,
 						)
 
+						self._remember_thought_context(response)
 						elapsed = time.time() - start_time
 						self.logger.debug(f'✅ Got fallback response in {elapsed:.2f}s')
 
