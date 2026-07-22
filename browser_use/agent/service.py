@@ -1946,6 +1946,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)
 			parsed: AgentOutput = response.completion  # type: ignore[assignment]
+			if self.settings.flash_mode:
+				thought_summary = str(getattr(parsed, 'thought_summary', '') or '').strip()
+				durable_memory = (parsed.memory or '').strip()
+				parsed.memory = (
+					f'[THOUGHT SUMMARY]\n{thought_summary}\n\n'
+					f'[MEMORY]\n{durable_memory}'
+				)
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:

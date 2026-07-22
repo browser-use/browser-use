@@ -456,9 +456,18 @@ class AgentOutput(BaseModel):
 
 	@staticmethod
 	def type_with_custom_actions_flash_mode(custom_actions: type[ActionModel]) -> type[AgentOutput]:
-		"""Extend actions with custom actions for flash mode - memory and action fields only"""
+		"""Extend actions with custom actions for flash mode."""
 
 		class AgentOutputFlashMode(AgentOutput):
+			thought_summary: str = Field(
+				...,
+				description=(
+					'Short summary of useful task-relevant conclusions from the private reasoning that produced this '
+					'action. Include only new information, what failed, and why the next action follows; do not reproduce '
+					'the full reasoning.'
+				),
+			)
+
 			@classmethod
 			def model_json_schema(cls, **kwargs):
 				schema = super().model_json_schema(**kwargs)
@@ -468,8 +477,13 @@ class AgentOutput(BaseModel):
 				del schema['properties']['next_goal']
 				schema['properties'].pop('current_plan_item', None)
 				schema['properties'].pop('plan_update', None)
-				# Update required fields to only include remaining properties
-				schema['required'] = ['memory', 'action']
+				# Put the reasoning summary immediately before the existing memory and action fields.
+				schema['properties'] = {
+					'thought_summary': schema['properties']['thought_summary'],
+					'memory': schema['properties']['memory'],
+					'action': schema['properties']['action'],
+				}
+				schema['required'] = ['thought_summary', 'memory', 'action']
 				return schema
 
 		model = create_model(

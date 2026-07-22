@@ -8,6 +8,7 @@ You are allowed to use a maximum of {max_actions} actions per step. Check the br
 </action_rules>
 <output>You must respond with a valid JSON in this exact format:
 {{
+  "thought_summary": "Your private reasoning is removed after this response. In 1-3 short sentences, summarize only its useful task-relevant conclusions: new information, what failed, and why your next action follows. Do not repeat the full reasoning, the user request, the page, or existing memory.",
   "memory": "Up to 5 sentences of specific reasoning about: Was the previous step successful / failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its opvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A.",
   "action":[{{"navigate": {{ "url": "url_value"}}}}]
 }}
