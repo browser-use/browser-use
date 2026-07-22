@@ -1,5 +1,7 @@
 """Test Google model button click."""
 
+import pytest
+
 from browser_use.llm.google.chat import ChatGoogle
 from tests.ci.models.model_test_helper import run_model_button_click_test
 
@@ -69,3 +71,59 @@ def test_x_goog_api_client_header_with_dict_http_options():
 	assert http_opts.get('timeout') == 45
 	assert http_opts.get('headers', {}).get('another-header') == 'another-value'
 	assert http_opts.get('headers', {}).get('x-goog-api-client', '').startswith('browser-use/')
+
+
+@pytest.mark.asyncio
+async def test_chat_google_temperature_fallback():
+	"""Test that ChatGoogle sets temperature config conditionally based on model."""
+	from unittest.mock import AsyncMock, MagicMock, patch
+
+	from browser_use.llm.messages import UserMessage
+
+	# Mock get_client to return a mock client with a mock generate_content method
+	mock_client = MagicMock()
+	mock_aio = MagicMock()
+	mock_models = AsyncMock()
+	mock_client.aio = mock_aio
+	mock_aio.models = mock_models
+
+	# Create mock response
+	mock_response = MagicMock()
+	mock_response.text = 'Mocked Response'
+	mock_response.usage = None
+	mock_response.candidates = []
+	mock_models.generate_content.return_value = mock_response
+
+	# 1. Non-Gemini 3 model (e.g. gemini-2.5-flash) with no temperature gets 0.5
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-2.5-flash', api_key='fake')
+		await chat.ainvoke([UserMessage(content='Hello')])
+
+		# Verify generate_content was called with config containing temperature=0.5
+		mock_models.generate_content.assert_called_once()
+		args, kwargs = mock_models.generate_content.call_args
+		assert kwargs['config']['temperature'] == 0.5
+
+	mock_models.generate_content.reset_mock()
+
+	# 2. Gemini 3 model (e.g. gemini-3-flash-preview) with no temperature leaves it unset
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-3-flash-preview', api_key='fake')
+		await chat.ainvoke([UserMessage(content='Hello')])
+
+		# Verify generate_content was called with config omitting temperature
+		mock_models.generate_content.assert_called_once()
+		args, kwargs = mock_models.generate_content.call_args
+		assert 'temperature' not in kwargs['config']
+
+	mock_models.generate_content.reset_mock()
+
+	# 3. Model with explicitly set temperature preserves it
+	with patch.object(ChatGoogle, 'get_client', return_value=mock_client):
+		chat = ChatGoogle(model='gemini-3-flash-preview', api_key='fake', temperature=1.0)
+		await chat.ainvoke([UserMessage(content='Hello')])
+
+		# Verify generate_content was called with config containing temperature=1.0
+		mock_models.generate_content.assert_called_once()
+		args, kwargs = mock_models.generate_content.call_args
+		assert kwargs['config']['temperature'] == 1.0
