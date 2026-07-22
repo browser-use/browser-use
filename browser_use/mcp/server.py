@@ -457,19 +457,26 @@ class BrowserUseServer:
 			return []
 
 		@self.server.call_tool()
-		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
+		async def handle_call_tool(
+			name: str, arguments: dict[str, Any] | None
+		) -> types.CallToolResult | list[types.TextContent | types.ImageContent]:
 			"""Handle tool execution."""
 			start_time = time.time()
 			error_msg = None
 			try:
 				result = await self._execute_tool(name, arguments or {})
+				if isinstance(result, types.CallToolResult):
+					return result
 				if isinstance(result, list):
 					return result
 				return [types.TextContent(type='text', text=result)]
 			except Exception as e:
 				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
-				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=f'Error: {str(e)}')],
+					isError=True,
+				)
 			finally:
 				# Capture telemetry for tool calls
 				duration = time.time() - start_time
