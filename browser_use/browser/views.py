@@ -106,7 +106,6 @@ class BrowserStateSummary:
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
 	pending_network_requests: list[NetworkRequest] = field(default_factory=list)  # Currently loading network requests
-	recent_network_responses: list[dict] = field(default_factory=list)  # Recently completed fetch/XHR responses (url, status, age_ms)
 	pagination_buttons: list[PaginationButton] = field(default_factory=list)  # Detected pagination buttons
 	closed_popup_messages: list[str] = field(default_factory=list)  # Messages from auto-closed JavaScript dialogs
 
