@@ -96,10 +96,18 @@ class ChatGoogle(BaseChatModel):
 		None  # for Gemini 3: Pro supports low/high, Flash supports all levels
 	)
 	# Multi-turn reasoning continuity: replay a rolling window of prior model
-	# turns (verbatim, including provider reasoning state) so iterative-loop
-	# callers keep chain-of-thought context across otherwise independent calls.
+	# turns so iterative-loop callers keep provider reasoning state across
+	# otherwise independent calls. Only non-empty plain-text completions are
+	# recorded (structured-output and fallback responses never are), and a
+	# caller can exclude a single call entirely with ainvoke(...,
+	# reasoning_context=False). With reasoning_replay_stub enabled (default)
+	# the replayed turns keep thought parts and reasoning signatures but
+	# replace the visible response text with a short stub — the caller's own
+	# state message already describes those turns, so repeating stale text
+	# only duplicates and can contradict it.
 	multi_turn_reasoning: bool = True
 	reasoning_window: int = 4
+	reasoning_replay_stub: bool = True
 	_reasoning_ctx: dict = field(default_factory=dict)
 	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
@@ -195,7 +203,7 @@ class ChatGoogle(BaseChatModel):
 
 
 	def _with_reasoning_context(self, contents: list[Any]) -> list[Any]:
-		"""Replay the last N model turns (verbatim) ahead of the new user turn.
+		"""Replay the last N model turns ahead of the new user turn.
 
 		Iterative agent loops rebuild a fresh single-turn request each step, which
 		discards the provider-side reasoning state attached to earlier responses.
@@ -211,14 +219,47 @@ class ChatGoogle(BaseChatModel):
 		replay: list[Any] = []
 		for turn in window:
 			replay.append(types.Content(role='user', parts=[types.Part.from_text(text=' ')]))
-			replay.append(turn)
+			replay.append(self._replay_turn(turn))
 		return [*replay, *contents]
 
+	def _replay_turn(self, turn: types.Content) -> types.Content:
+		"""Shape one remembered model turn for replay.
+
+		With reasoning_replay_stub enabled, keep the parts that carry reasoning
+		state (thought parts, and the signatures on signed parts) but replace the
+		visible response text with a short stub. The caller's live state message
+		already summarizes past turns, so replaying their full text duplicates —
+		and once the page has moved on, contradicts — that state.
+		"""
+		if not self.reasoning_replay_stub:
+			return turn
+		stub = '[prior response elided; see task state]'
+		parts: list[types.Part] = []
+		for part in turn.parts or []:
+			if getattr(part, 'thought', None) or getattr(part, 'function_call', None) is not None:
+				parts.append(part)
+			elif getattr(part, 'thought_signature', None) is not None:
+				parts.append(types.Part(text=stub, thought_signature=part.thought_signature))
+			# unsigned visible parts carry no reasoning state: drop them
+		if not parts:
+			parts = [types.Part.from_text(text=stub)]
+		return types.Content(role=turn.role, parts=parts)
+
 	def _remember_reasoning_turn(self, response: types.GenerateContentResponse) -> None:
+		"""Record one completed model turn for later replay.
+
+		Called only from the plain-text response path, after the completion has
+		been verified non-empty — structured-output, fallback, truncated, and
+		empty responses are never recorded, so retries and auxiliary calls made
+		through the same instance cannot pollute the replay window.
+		"""
 		if not self.multi_turn_reasoning:
 			return
 		if not response.candidates or response.candidates[0].content is None:
 			return
+		stop_reason = self._get_stop_reason(response)
+		if stop_reason and 'MAX_TOKENS' in stop_reason:
+			return  # truncated mid-thought: replaying a cut-off turn misleads later steps
 		content = response.candidates[0].content
 		if not content.parts:
 			return
@@ -251,7 +292,6 @@ class ChatGoogle(BaseChatModel):
 			)
 
 	def _get_usage(self, response: types.GenerateContentResponse) -> ChatInvokeUsage | None:
-		self._remember_reasoning_turn(response)  # every successful response passes through here
 		usage: ChatInvokeUsage | None = None
 
 		if response.usage_metadata is not None:
@@ -292,16 +332,22 @@ class ChatGoogle(BaseChatModel):
 		Args:
 			messages: List of chat messages
 			output_format: Optional Pydantic model class for structured output
+			reasoning_context: Set False (kwarg) to exclude this call from
+				multi-turn reasoning continuity — no prior turns are replayed
+				into it and its response is not recorded. Use for auxiliary
+				calls (extraction, judging) sharing an agent's chat instance.
 
 		Returns:
 			Either a string response or an instance of output_format
 		"""
+		reasoning_context: bool = bool(kwargs.get('reasoning_context', True))
 
 		# Serialize messages to Google format with the include_system_in_user flag
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
 		)
-		contents = self._with_reasoning_context(contents)
+		if reasoning_context:
+			contents = self._with_reasoning_context(contents)
 
 		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
@@ -403,6 +449,11 @@ class ChatGoogle(BaseChatModel):
 					text = response.text or ''
 					if not text:
 						self.logger.warning('⚠️ Empty text response received')
+					elif reasoning_context:
+						# Record only verified non-empty plain-text completions;
+						# empty, truncated, structured, and fallback responses
+						# must never enter the replay window.
+						self._remember_reasoning_turn(response)
 
 					usage = self._get_usage(response)
 
