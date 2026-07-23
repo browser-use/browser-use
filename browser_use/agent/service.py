@@ -362,10 +362,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.output_model_schema is not None:
 			self.tools.use_structured_output_action(self.output_model_schema)
 
-		# Extraction schema: explicit param takes priority, otherwise auto-bridge from output_model_schema
+		# Per-page extract uses a schema only when the caller explicitly asks for one.
+		# It must NOT inherit output_model_schema: that describes the final task result
+		# (e.g. {summary, step_results}), which is the wrong shape for a single-page
+		# extraction and, on the browser-use gateway, routes extract into the agent
+		# action protocol and breaks it.
 		self.extraction_schema = extraction_schema
-		if self.extraction_schema is None and self.output_model_schema is not None:
-			self.extraction_schema = self.output_model_schema.model_json_schema()
 
 		# Core components - task enhancement now has access to output_model_schema from tools
 		self.task = self._enhance_task_with_schema(task, output_model_schema)

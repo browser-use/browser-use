@@ -4365,9 +4365,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			from browser_use.skills import SkillService
 
 			self.skill_service = SkillService(skill_ids=skill_ids)
+		# Per-page extract uses a schema only when explicitly requested; it must not
+		# inherit output_model_schema (the final-result shape), which is wrong for a
+		# single-page extraction and breaks extract on the browser-use gateway.
 		self.extraction_schema = extraction_schema
-		if self.extraction_schema is None and output_model_schema is not None:
-			self.extraction_schema = output_model_schema.model_json_schema()
 		self._fallback_llm = fallback_llm
 		self._using_fallback_llm = False
 		self._original_llm = llm
