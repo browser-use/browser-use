@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from browser_use.agent.message_manager.service import MessageManager
+from browser_use.agent.message_manager.views import MessageManagerState
 from browser_use.agent.views import AgentOutput, AgentStepInfo, MessageCompactionSettings
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import SerializedDOMState
@@ -14,6 +15,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage
 from browser_use.llm.views import ChatInvokeCompletion
 from browser_use.tools.service import Tools
+from browser_use.utils import sanitize_surrogates
 
 
 @pytest.mark.parametrize(
@@ -116,6 +118,7 @@ async def test_evaluate_javascript_survives_model_history_and_compaction(tmp_pat
 		task='Inspect the page',
 		system_message=SystemMessage(content='Test system message'),
 		file_system=FileSystem(tmp_path),
+		state=MessageManagerState(),
 	)
 	browser_state = BrowserStateSummary(
 		url='https://example.com',
@@ -172,3 +175,86 @@ async def test_evaluate_javascript_survives_model_history_and_compaction(tmp_pat
 		skip_state_update=True,
 	)
 	assert code in message_manager.get_messages()[-1].text
+
+
+async def test_evaluate_sanitizes_surrogates_only_in_model_history_copy(tmp_path: Path):
+	code = '(() => "before\ud800after")()'
+	safe_code = sanitize_surrogates(code)
+	runtime_evaluate = AsyncMock(return_value={'result': {'value': 'found'}})
+	cdp_session = SimpleNamespace(
+		cdp_client=SimpleNamespace(send=SimpleNamespace(Runtime=SimpleNamespace(evaluate=runtime_evaluate))),
+		session_id='test-session',
+	)
+	browser_session = SimpleNamespace(
+		cdp_client=cdp_session.cdp_client,
+		get_or_create_cdp_session=AsyncMock(return_value=cdp_session),
+	)
+	action_result = await Tools().evaluate(code=code, browser_session=browser_session)
+
+	runtime_evaluate.assert_awaited_once_with(
+		params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
+		session_id='test-session',
+	)
+	assert action_result.long_term_memory is not None
+	assert safe_code in action_result.long_term_memory
+	assert '\ud800' not in action_result.long_term_memory
+	action_result.long_term_memory.encode('utf-8')
+
+	message_manager = MessageManager(
+		task='Inspect the page',
+		system_message=SystemMessage(content='Test system message'),
+		file_system=FileSystem(tmp_path),
+		state=MessageManagerState(),
+	)
+	browser_state = BrowserStateSummary(
+		url='https://example.com',
+		title='Example',
+		tabs=[],
+		dom_state=SerializedDOMState(_root=None, selector_map={}),
+	)
+	message_manager.create_state_messages(
+		browser_state_summary=browser_state,
+		model_output=AgentOutput(
+			evaluation_previous_goal='Need to inspect page data',
+			memory='Running a JavaScript query',
+			next_goal='Use the query result',
+			action=[],
+		),
+		result=[action_result],
+		step_info=AgentStepInfo(step_number=1, max_steps=10),
+		use_vision=False,
+	)
+
+	state_text = message_manager.get_messages()[-1].text
+	assert safe_code in state_text
+	assert '\ud800' not in state_text
+	state_text.encode('utf-8')
+
+	class RecordingCompactionLLM:
+		model = 'test-compaction-model'
+
+		def __init__(self):
+			self.input_text = ''
+
+		async def ainvoke(self, messages, output_format=None, **kwargs):
+			self.input_text = messages[-1].text
+			return ChatInvokeCompletion(completion=f'Prior JavaScript: {safe_code}', usage=None)
+
+	compaction_llm = RecordingCompactionLLM()
+	compacted = await message_manager.maybe_compact_messages(
+		llm=cast(BaseChatModel, compaction_llm),
+		settings=MessageCompactionSettings(
+			compact_every_n_steps=1,
+			trigger_char_count=1,
+			keep_last_items=0,
+		),
+		step_info=AgentStepInfo(step_number=2, max_steps=10),
+	)
+
+	assert compacted is True
+	assert safe_code in compaction_llm.input_text
+	assert '\ud800' not in compaction_llm.input_text
+	compaction_llm.input_text.encode('utf-8')
+	assert safe_code in message_manager.agent_history_description
+	assert '\ud800' not in message_manager.agent_history_description
+	message_manager.agent_history_description.encode('utf-8')
