@@ -274,6 +274,52 @@ class TestUrlAllowlistSecurity:
 		assert watchdog._is_url_allowed('https://example.com@evil.test/steal') is False
 		assert watchdog._is_url_allowed('http://example.com/login') is False
 
+	def test_full_url_patterns_preserve_path_prefixes(self):
+		"""Full URL patterns retain trailing-slash and path-prefix matching."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(
+			allowed_domains=['https://example.com/safe'],
+			headless=True,
+			user_data_dir=None,
+		)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('https://example.com/safe') is True
+		assert watchdog._is_url_allowed('https://example.com/safe/nested') is True
+		assert watchdog._is_url_allowed('https://example.com/unsafe') is False
+		assert watchdog._is_url_allowed('https://example.com.evil.test/safe') is False
+
+		trailing_slash_profile = BrowserProfile(
+			allowed_domains=['https://example.com/'],
+			headless=True,
+			user_data_dir=None,
+		)
+		trailing_slash_watchdog = SecurityWatchdog(
+			browser_session=BrowserSession(browser_profile=trailing_slash_profile),
+			event_bus=EventBus(),
+		)
+
+		assert trailing_slash_watchdog._is_url_allowed('https://example.com/path') is True
+
+		explicit_port_profile = BrowserProfile(
+			allowed_domains=['https://example.com:8443/'],
+			headless=True,
+			user_data_dir=None,
+		)
+		explicit_port_watchdog = SecurityWatchdog(
+			browser_session=BrowserSession(browser_profile=explicit_port_profile),
+			event_bus=EventBus(),
+		)
+
+		assert explicit_port_watchdog._is_url_allowed('https://example.com:8443/path') is True
+		assert explicit_port_watchdog._is_url_allowed('https://example.com/path') is False
+		assert explicit_port_watchdog._is_url_allowed('https://example.com:9443/path') is False
+
 	def test_is_root_domain_helper(self):
 		"""Test the _is_root_domain helper method logic."""
 		from bubus import EventBus
@@ -364,7 +410,11 @@ class TestUrlProhibitlistSecurity:
 
 		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 
-		browser_profile = BrowserProfile(prohibited_domains=['https://wiki.org', 'brave://*'], headless=True, user_data_dir=None)
+		browser_profile = BrowserProfile(
+			prohibited_domains=['https://wiki.org', 'https://evil.test/', 'https://secure.test/private', 'brave://*'],
+			headless=True,
+			user_data_dir=None,
+		)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 		event_bus = EventBus()
 		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
@@ -374,7 +424,12 @@ class TestUrlProhibitlistSecurity:
 		assert watchdog._is_url_allowed('https://wiki.org') is False
 		assert watchdog._is_url_allowed('https://wiki.org/path') is False
 		assert watchdog._is_url_allowed('https://wiki.org.evil.test/path') is True
-		assert watchdog._is_url_allowed('https://wiki.org@evil.test/path') is True
+		assert watchdog._is_url_allowed('https://wiki.org@outside.test/path') is True
+
+		# Trailing slashes and path prefixes remain meaningful
+		assert watchdog._is_url_allowed('https://evil.test/download') is False
+		assert watchdog._is_url_allowed('https://secure.test/private/report') is False
+		assert watchdog._is_url_allowed('https://secure.test/public/report') is True
 
 		# Internal URL prefix blocking
 		assert watchdog._is_url_allowed('brave://anything/') is False
