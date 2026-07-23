@@ -3607,7 +3607,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Level 4: ax_name (accessible name) match - robust for dynamic SPAs with menus
 		# This uses the accessible name from the accessibility tree which is stable
 		# even when DOM structure changes (e.g., dynamically generated menu items)
-		if highlight_index is None and historical_element.ax_name:
+		if highlight_index is None and historical_element.ax_name is not None:
 			hist_name = historical_element.node_name.lower()
 			hist_ax_name = historical_element.ax_name
 			for idx, elem in selector_map.items():
@@ -3623,7 +3623,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				same_type_ax_names = [
 					(idx, elem.ax_node.name if elem.ax_node else None)
 					for idx, elem in selector_map.items()
-					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
+					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name is not None
 				]
 				self.logger.debug(
 					f'AX_NAME match failed for <{hist_name.upper()}> ax_name="{hist_ax_name}". '
