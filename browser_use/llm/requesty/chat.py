@@ -1,5 +1,6 @@
+import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TypeVar, overload
 
 import httpx
@@ -39,7 +40,7 @@ class ChatRequesty(BaseChatModel):
 	seed: int | None = None
 
 	# Client initialization parameters
-	api_key: str | None = None
+	api_key: str | None = field(default=None, repr=False)  # hidden from repr to avoid leaking the credential
 	http_referer: str | None = None  # Requesty analytics header for tracking
 	x_title: str | None = None  # Requesty analytics header for tracking
 	base_url: str | httpx.URL = 'https://router.requesty.ai/v1'
@@ -58,17 +59,26 @@ class ChatRequesty(BaseChatModel):
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
+		# Resolve the API key from the Requesty-specific env var so we never
+		# silently fall through to OPENAI_API_KEY (which the AsyncOpenAI client
+		# would otherwise pick up and send to Requesty's base URL).
+		api_key = self.api_key or os.getenv('REQUESTY_API_KEY')
+		if not api_key:
+			raise ModelProviderError(
+				message='Missing Requesty API key. Set REQUESTY_API_KEY or pass api_key.',
+				status_code=401,
+				model=self.name,
+			)
+
 		# Define base client params
 		base_params = {
-			'api_key': self.api_key,
+			'api_key': api_key,
 			'base_url': self.base_url,
 			'timeout': self.timeout,
 			'max_retries': self.max_retries,
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
 			'_strict_response_validation': self._strict_response_validation,
-			'top_p': self.top_p,
-			'seed': self.seed,
 		}
 
 		# Create client_params dict with non-None values
@@ -154,7 +164,7 @@ class ChatRequesty(BaseChatModel):
 					top_p=self.top_p,
 					seed=self.seed,
 					extra_headers=extra_headers,
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				usage = self._get_usage(response)
@@ -185,7 +195,7 @@ class ChatRequesty(BaseChatModel):
 						type='json_schema',
 					),
 					extra_headers=extra_headers,
-					**(self.extra_body or {}),
+					extra_body=self.extra_body,
 				)
 
 				if response.choices[0].message.content is None:
@@ -211,6 +221,11 @@ class ChatRequesty(BaseChatModel):
 
 		except APIStatusError as e:
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
+
+		except ModelProviderError:
+			# Re-raise errors we intentionally raised (e.g. structured-output parsing
+			# failures) so their deliberate status_code is preserved.
+			raise
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
