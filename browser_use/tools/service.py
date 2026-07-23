@@ -1743,7 +1743,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			'Write content to a file. By default this OVERWRITES the entire file - use append=true to add to an existing file, or use replace_file for targeted edits within a file. '
 			'FILENAME RULES: Use only letters, numbers, underscores, hyphens, dots, parentheses. Spaces are auto-converted to hyphens. '
 			'SUPPORTED EXTENSIONS: .txt, .md, .json, .jsonl, .csv, .html, .xml, .pdf, .docx. '
-			'CANNOT write binary/image files (.png, .jpg, .mp4, etc.) - do not attempt to save screenshots as files. '
+			'For small images (.png, .gif, .jpg, .webp) — e.g. a tiny file to upload — set content to the '
+			'base64 of a valid image (a 1x1 PNG is ~92 base64 chars); the bytes are decoded and written for you. '
+			'CANNOT write other binary files (.mp4, .zip, etc.) and do not attempt to save screenshots as files. '
 			'For PDF files, write content in markdown format and it will be auto-converted to PDF.'
 		)
 		async def write_file(

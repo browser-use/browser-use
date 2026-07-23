@@ -13,13 +13,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 UNSUPPORTED_BINARY_EXTENSIONS = {
-	'png',
-	'jpg',
-	'jpeg',
-	'gif',
 	'bmp',
 	'svg',
-	'webp',
 	'ico',
 	'mp3',
 	'mp4',
@@ -342,6 +337,73 @@ class XmlFile(BaseFile):
 		return 'xml'
 
 
+class Base64BinaryFile(BaseFile):
+	"""Small binary file the agent authors as base64 text.
+
+	``content`` holds the base64 string; the decoded bytes are written to disk so the
+	file is a real, uploadable image. ``read()`` returns a short stub instead of the
+	base64 so it never bloats or confuses the agent prompt (describe() calls read()
+	every step). Intended for tiny fixtures (e.g. a 1x1 PNG) for upload-validation
+	flows, not for arbitrary large binaries.
+	"""
+
+	def _decoded(self) -> bytes:
+		# Strip all whitespace (the write_file action appends a trailing newline) then
+		# decode strictly so non-base64 text is rejected rather than silently corrupted.
+		return base64.b64decode(''.join(self.content.split()), validate=True)
+
+	def sync_to_disk_sync(self, path: Path) -> None:
+		(path / self.full_name).write_bytes(self._decoded())
+
+	async def sync_to_disk(self, path: Path) -> None:
+		with ThreadPoolExecutor() as executor:
+			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
+
+	def read(self) -> str:
+		try:
+			n = len(self._decoded())
+		except Exception:
+			return '[binary file: content is not valid base64]'
+		return f'[binary {self.extension} file, {n} bytes]'
+
+	@property
+	def get_size(self) -> int:
+		try:
+			return len(self._decoded())
+		except Exception:
+			return 0
+
+
+class PngFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'png'
+
+
+class GifFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'gif'
+
+
+class JpgFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'jpg'
+
+
+class JpegFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'jpeg'
+
+
+class WebpFile(Base64BinaryFile):
+	@property
+	def extension(self) -> str:
+		return 'webp'
+
+
 class FileSystemState(BaseModel):
 	"""Serializable state of the file system"""
 
@@ -375,6 +437,11 @@ class FileSystem:
 			'docx': DocxFile,
 			'html': HtmlFile,
 			'xml': XmlFile,
+			'png': PngFile,
+			'gif': GifFile,
+			'jpg': JpgFile,
+			'jpeg': JpegFile,
+			'webp': WebpFile,
 		}
 
 		self.files = {}
@@ -524,7 +591,7 @@ class FileSystem:
 					return result
 
 				# Text-based extensions: derive from _file_types, excluding those with special readers
-				_special_extensions = {'docx', 'pdf', 'jpg', 'jpeg', 'png'}
+				_special_extensions = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'}
 				text_extensions = [ext for ext in self._file_types if ext not in _special_extensions]
 
 				if extension in text_extensions:
@@ -659,7 +726,7 @@ class FileSystem:
 					)
 					return result
 
-				elif extension in ['jpg', 'jpeg', 'png']:
+				elif extension in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
 					import anyio
 
 					# Read image file and convert to base64
@@ -926,6 +993,11 @@ class FileSystem:
 				'DocxFile': DocxFile,
 				'HtmlFile': HtmlFile,
 				'XmlFile': XmlFile,
+				'PngFile': PngFile,
+				'GifFile': GifFile,
+				'JpgFile': JpgFile,
+				'JpegFile': JpegFile,
+				'WebpFile': WebpFile,
 			}
 
 			file_class = file_type_map.get(file_type)
