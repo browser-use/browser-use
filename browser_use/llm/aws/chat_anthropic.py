@@ -183,13 +183,17 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 
 				usage = self._get_usage(response)
 
-				# Extract text from the first content block
-				first_content = response.content[0]
-				if isinstance(first_content, TextBlock):
-					response_text = first_content.text
+				# Extract text from the first content block. Bedrock can return an
+				# empty content list for certain stop-reason edge cases.
+				if response.content:
+					first_content = response.content[0]
+					if isinstance(first_content, TextBlock):
+						response_text = first_content.text
+					else:
+						# If it's not a text block, convert to string
+						response_text = str(first_content)
 				else:
-					# If it's not a text block, convert to string
-					response_text = str(first_content)
+					response_text = ''
 
 				return ChatInvokeCompletion(
 					completion=response_text,
