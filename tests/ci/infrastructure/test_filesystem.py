@@ -293,8 +293,16 @@ class TestFileSystem:
 		assert fs._is_valid_filename('.json') is False  # no name
 		assert fs._is_valid_filename('.jsonl') is False  # no name
 		assert fs._is_valid_filename('.csv') is False  # no name
-		assert fs._is_valid_filename('screenshot.png') is False  # binary extension
-		assert fs._is_valid_filename('image.jpg') is False  # binary extension
+		# Small image extensions are now supported (base64 content -> real bytes, for upload flows)
+		assert fs._is_valid_filename('screenshot.png') is True
+		assert fs._is_valid_filename('image.jpg') is True
+		assert fs._is_valid_filename('pic.gif') is True
+		assert fs._is_valid_filename('photo.webp') is True
+
+		# Other binary types remain unsupported
+		assert fs._is_valid_filename('clip.mp4') is False  # binary extension
+		assert fs._is_valid_filename('archive.zip') is False  # binary extension
+		assert fs._is_valid_filename('icon.svg') is False  # binary extension
 
 	def test_filename_parsing(self, temp_filesystem):
 		"""Test filename parsing into name and extension."""
@@ -1001,16 +1009,28 @@ class TestFilenameSanitization:
 			fs.nuke()
 
 	async def test_write_file_binary_extension_error(self):
-		"""Test that writing to binary extensions gives a clear error."""
+		"""Unsupported binary extensions give a clear error; small images accept base64."""
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			fs = FileSystem(base_dir=tmp_dir, create_default_files=False)
 
-			result = await fs.write_file('screenshot.png', 'content')
+			# Non-image binaries are still rejected outright
+			result = await fs.write_file('clip.mp4', 'content')
 			assert 'binary/image' in result.lower() or 'Cannot write' in result
-			assert 'screenshot.png' not in fs.list_files()
+			assert 'clip.mp4' not in fs.list_files()
 
-			result = await fs.write_file('photo.jpg', 'content')
+			result = await fs.write_file('archive.zip', 'content')
 			assert 'binary/image' in result.lower() or 'Cannot write' in result
+
+			# Small images are supported: non-base64 content is rejected (no corrupt file),
+			# valid base64 is written as real bytes.
+			result = await fs.write_file('screenshot.png', 'not base64!!!')
+			assert 'Error' in result
+			assert not (fs.get_dir() / 'screenshot.png').exists()
+
+			png_1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
+			result = await fs.write_file('logo.png', png_1x1)
+			assert 'successfully' in result
+			assert (fs.get_dir() / 'logo.png').read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
 
 			fs.nuke()
 
@@ -1131,8 +1151,8 @@ class TestFilenameSanitization:
 			result = await fs.read_file('noextension')
 			assert 'no extension' in result.lower()
 
-			# Binary extension - specific error
-			result = await fs.write_file('image.png', 'data')
+			# Unsupported binary extension - specific error
+			result = await fs.write_file('clip.mp4', 'data')
 			assert 'binary' in result.lower() or 'Cannot write' in result
 
 			fs.nuke()
