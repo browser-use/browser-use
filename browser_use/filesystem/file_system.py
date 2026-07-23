@@ -347,10 +347,46 @@ class Base64BinaryFile(BaseFile):
 	flows, not for arbitrary large binaries.
 	"""
 
+	# Leading magic bytes that identify a real file of this type. Keyed by extension so
+	# base64 that decodes but isn't actually an image (e.g. 'aGVsbG8=' -> b'hello') is
+	# rejected instead of written as a corrupt upload.
+	_MAGIC: dict[str, tuple[bytes, ...]] = {
+		'png': (b'\x89PNG\r\n\x1a\n',),
+		'gif': (b'GIF87a', b'GIF89a'),
+		'jpg': (b'\xff\xd8\xff',),
+		'jpeg': (b'\xff\xd8\xff',),
+		'webp': (b'RIFF',),  # RIFF container; 'WEBP' tag checked below
+	}
+
 	def _decoded(self) -> bytes:
 		# Strip all whitespace (the write_file action appends a trailing newline) then
 		# decode strictly so non-base64 text is rejected rather than silently corrupted.
 		return base64.b64decode(''.join(self.content.split()), validate=True)
+
+	def _validate(self, content: str) -> None:
+		"""Decode and confirm the bytes actually are an image of this extension. Raises FileSystemError."""
+		try:
+			data = base64.b64decode(''.join(content.split()), validate=True)
+		except Exception as e:
+			raise FileSystemError(
+				f"Error: content for '{self.full_name}' is not valid base64. "
+				f'For images, provide the base64 of a valid {self.extension} file. ({e})'
+			)
+		magic = self._MAGIC.get(self.extension, ())
+		if magic and not any(data.startswith(m) for m in magic):
+			raise FileSystemError(
+				f"Error: content for '{self.full_name}' is valid base64 but not a {self.extension} image "
+				f'(wrong magic bytes). Provide the base64 of a real {self.extension} file.'
+			)
+		if self.extension == 'webp' and not (data[:4] == b'RIFF' and data[8:12] == b'WEBP'):
+			raise FileSystemError(f"Error: content for '{self.full_name}' is not a valid WEBP file.")
+
+	def write_file_content(self, content: str) -> None:
+		self._validate(content)
+		self.update_content(content)
+
+	def append_file_content(self, content: str) -> None:
+		raise FileSystemError(f"Error: cannot append to binary file '{self.full_name}'. Overwrite it instead.")
 
 	def sync_to_disk_sync(self, path: Path) -> None:
 		(path / self.full_name).write_bytes(self._decoded())
@@ -801,15 +837,16 @@ class FileSystem:
 			if not file_class:
 				raise ValueError(f"Error: Invalid file extension '{extension}' for file '{full_filename}'.")
 
-			# Create or get existing file using full filename as key
-			if full_filename in self.files:
-				file_obj = self.files[full_filename]
-			else:
-				file_obj = file_class(name=name_without_ext)
-				self.files[full_filename] = file_obj  # Use full filename as key
+			# Create or get existing file using full filename as key. A NEW file is only
+			# registered after a successful write, so a failed write (e.g. invalid base64
+			# for an image) leaves no ghost entry in self.files / state.
+			is_new = full_filename not in self.files
+			file_obj = self.files[full_filename] if not is_new else file_class(name=name_without_ext)
 
 			# Use file-specific write method
 			await file_obj.write(content, self.data_dir)
+			if is_new:
+				self.files[full_filename] = file_obj
 			sanitize_note = f" (auto-corrected from '{original_filename}')" if was_sanitized else ''
 			return f'Data written to file {full_filename} successfully.{sanitize_note}'
 		except FileSystemError as e:
