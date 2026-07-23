@@ -228,10 +228,18 @@ class AgentMessagePrompt:
 		# Format statistics
 		stats_text = '<page_stats>'
 		if page_stats['total_elements'] < 10:
-			stats_text += 'Page appears empty (SPA not loaded?) - '
-		# Skeleton screen: many elements but almost no text = loading placeholders
-		elif page_stats['total_elements'] > 20 and page_stats['text_chars'] < page_stats['total_elements'] * 5:
-			stats_text += 'Page appears to show skeleton/placeholder content (still loading?) - '
+			stats_text += 'Page appears empty - consider waiting - '
+		# Skeleton screen: low text density only means "loading" while requests are actually in flight
+		elif (
+			self.browser_state.pending_network_requests
+			and page_stats['total_elements'] > 20
+			and page_stats['text_chars'] < page_stats['total_elements'] * 5
+		):
+			pending_count = len(self.browser_state.pending_network_requests)
+			stats_text += (
+				f'{pending_count} network request(s) in flight and little text rendered - '
+				f'page may still be loading, consider waiting - '
+			)
 		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
 		stats_text += f'{page_stats["iframes"]} iframes'
 		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
