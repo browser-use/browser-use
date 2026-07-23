@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from browser_use.filesystem.file_system import FileSystem
+from browser_use.filesystem.file_system import Base64BinaryFile, FileSystem
 
 
 class TestImageFiles:
@@ -307,7 +307,7 @@ class TestBinaryFileCreation:
 		original_bytes = (fs.get_dir() / 'logo.png').read_bytes()
 		fs2 = FileSystem.from_state(fs.get_state())
 		restored = fs2.get_file('logo.png')
-		assert restored is not None
+		assert isinstance(restored, Base64BinaryFile)
 		# Content integrity, not just existence: decoded bytes must round-trip and be a real PNG
 		assert restored._decoded() == original_bytes
 		assert restored._decoded()[:8] == b'\x89PNG\r\n\x1a\n'
