@@ -11,6 +11,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import match_url_with_domain_pattern
 
 if TYPE_CHECKING:
 	pass
@@ -282,9 +283,10 @@ class SecurityWatchdog(BaseWatchdog):
 		else:
 			# Exact match
 			if '://' in pattern:
-				# Full URL pattern
-				if url.startswith(pattern):
-					return True
+				# Match parsed scheme and hostname instead of a raw string prefix.
+				# Raw prefix matching allows URLs such as
+				# https://example.com.evil.test to bypass https://example.com.
+				return match_url_with_domain_pattern(url, pattern)
 			else:
 				# Domain-only pattern (case-insensitive comparison)
 				if host.lower() == pattern.lower():

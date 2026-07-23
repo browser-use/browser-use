@@ -254,6 +254,26 @@ class TestUrlAllowlistSecurity:
 		assert watchdog._is_url_allowed('https://www.example.com') is False
 		assert watchdog._is_url_allowed('http://www.test.org') is False
 
+	def test_full_url_patterns_enforce_hostname_boundaries(self):
+		"""Full URL patterns must not match attacker-controlled hostname prefixes."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(
+			allowed_domains=['https://example.com'],
+			headless=True,
+			user_data_dir=None,
+		)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('https://example.com/login') is True
+		assert watchdog._is_url_allowed('https://example.com.evil.test/steal') is False
+		assert watchdog._is_url_allowed('https://example.com@evil.test/steal') is False
+		assert watchdog._is_url_allowed('http://example.com/login') is False
+
 	def test_is_root_domain_helper(self):
 		"""Test the _is_root_domain helper method logic."""
 		from bubus import EventBus
@@ -353,6 +373,8 @@ class TestUrlProhibitlistSecurity:
 		assert watchdog._is_url_allowed('http://wiki.org') is True
 		assert watchdog._is_url_allowed('https://wiki.org') is False
 		assert watchdog._is_url_allowed('https://wiki.org/path') is False
+		assert watchdog._is_url_allowed('https://wiki.org.evil.test/path') is True
+		assert watchdog._is_url_allowed('https://wiki.org@evil.test/path') is True
 
 		# Internal URL prefix blocking
 		assert watchdog._is_url_allowed('brave://anything/') is False
