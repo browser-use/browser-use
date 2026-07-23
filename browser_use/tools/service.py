@@ -1829,7 +1829,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Keep the original submitted code (never a transformed variant) so later steps
 			# can understand what produced the result or error.
 			MAX_CODE_MEMORY_LENGTH = 2000
-			code_for_memory = code[:MAX_CODE_MEMORY_LENGTH]
+			# CDP still receives code exactly as submitted. Sanitize only the history copy
+			# so an unpaired surrogate cannot poison model-visible state or persistence.
+			code_for_memory = sanitize_surrogates(code[:MAX_CODE_MEMORY_LENGTH])
 			if len(code) > MAX_CODE_MEMORY_LENGTH:
 				code_for_memory += f'\n... [JavaScript truncated; original length: {len(code)} characters]'
 			submitted_code_memory = f'Submitted JavaScript:\n{code_for_memory}'
