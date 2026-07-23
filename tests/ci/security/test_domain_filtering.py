@@ -335,8 +335,10 @@ class TestUrlProhibitlistSecurity:
 		# Allow other domains
 		assert watchdog._is_url_allowed('https://notexample.com') is True
 
-		# Wildcard with domain-only should not apply to non-http(s)
-		assert watchdog._is_url_allowed('chrome://abc.example.com') is True
+		# Wildcard domain-only patterns now also block non-http(s) by default
+		# (chrome:// URLs have hostname 'abc.example.com' but the scheme
+		# is not http(s), so they're still blocked as a dangerous scheme)
+		assert watchdog._is_url_allowed('chrome://abc.example.com') is False
 
 	def test_full_url_prohibited_patterns(self):
 		"""Full URL patterns block only matching scheme/host/prefix."""
@@ -356,7 +358,8 @@ class TestUrlProhibitlistSecurity:
 
 		# Internal URL prefix blocking
 		assert watchdog._is_url_allowed('brave://anything/') is False
-		assert watchdog._is_url_allowed('chrome://settings') is True
+		# chrome:// is blocked by default unless explicitly in a prohibited pattern
+		assert watchdog._is_url_allowed('chrome://settings') is False
 
 	def test_internal_urls_allowed_even_when_prohibited(self):
 		"""Internal new-tab/blank URLs are always allowed regardless of prohibited list."""
