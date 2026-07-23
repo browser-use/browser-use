@@ -409,6 +409,8 @@ class SignalHandler:
 			if self.exit_on_second_int:
 				self._handle_second_ctrl_c()
 
+		# Keep direct callers consistent with coordinator-driven interrupts.
+		setattr(self.loop, 'ctrl_c_pressed', True)
 		self._pause_for_sigint()
 		print('----------------------------------------------------------------------', file=stderr)
 
@@ -469,16 +471,6 @@ class SignalHandler:
 		# Set flag to indicate we're waiting for input
 		setattr(self.loop, 'waiting_for_input', True)
 
-		# Temporarily restore default signal handling for SIGINT
-		# This ensures KeyboardInterrupt will be raised during input()
-		original_handler = signal.getsignal(signal.SIGINT)
-		try:
-			signal.signal(signal.SIGINT, signal.default_int_handler)
-		except ValueError:
-			# we are running in a thread other than the main thread
-			# or signal handlers are not supported for some other reason
-			pass
-
 		green = '\x1b[32;1m'
 		red = '\x1b[31m'
 		blink = '\033[33;5m'
@@ -501,12 +493,7 @@ class SignalHandler:
 			# Use the shared method to handle second Ctrl+C
 			self._handle_second_ctrl_c()
 		finally:
-			try:
-				# Restore our signal handler
-				signal.signal(signal.SIGINT, original_handler)
-				setattr(self.loop, 'waiting_for_input', False)
-			except Exception:
-				pass
+			setattr(self.loop, 'waiting_for_input', False)
 
 	def reset(self) -> None:
 		"""Reset state after resuming."""

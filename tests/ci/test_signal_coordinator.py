@@ -8,8 +8,8 @@ from browser_use import utils
 @pytest.mark.asyncio
 async def test_parallel_signal_handlers_share_one_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
 	loop = utils.asyncio.get_running_loop()
-	loop.ctrl_c_pressed = False
-	loop.waiting_for_input = False
+	setattr(loop, 'ctrl_c_pressed', False)
+	setattr(loop, 'waiting_for_input', False)
 	utils._signal_coordinators.pop(loop, None)
 
 	install = Mock(return_value=True)
@@ -43,5 +43,5 @@ async def test_parallel_signal_handlers_share_one_coordinator(monkeypatch: pytes
 	finally:
 		first.unregister()
 		second.unregister()
-		loop.ctrl_c_pressed = False
-		loop.waiting_for_input = False
+		setattr(loop, 'ctrl_c_pressed', False)
+		setattr(loop, 'waiting_for_input', False)
