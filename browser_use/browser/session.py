@@ -692,6 +692,10 @@ class BrowserSession(BaseModel):
 		self._reconnect_event = asyncio.Event()
 		self._reconnect_event.set()
 
+		self._register_core_event_handlers()
+
+	def _register_core_event_handlers(self) -> None:
+		"""Register BrowserSession handlers on the current event bus."""
 		# Check if handlers are already registered to prevent duplicates
 		from browser_use.browser.watchdog_base import BaseWatchdog
 
@@ -714,6 +718,11 @@ class BrowserSession(BaseModel):
 		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
 		BaseWatchdog.attach_handler_to_session(self, CloseTabEvent, self.on_CloseTabEvent)
+
+	def _replace_event_bus(self) -> None:
+		"""Replace the stopped event bus and register the handlers needed by start()."""
+		self.event_bus = ResilientEventBus()
+		self._register_core_event_handlers()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_session_start')
 	async def start(self) -> None:
@@ -740,8 +749,8 @@ class BrowserSession(BaseModel):
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
 		await self.reset()
-		# Create fresh event bus
-		self.event_bus = ResilientEventBus()
+		# Create a fresh, usable event bus
+		self._replace_event_bus()
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -765,8 +774,8 @@ class BrowserSession(BaseModel):
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
 		await self.reset()
-		# Create fresh event bus
-		self.event_bus = ResilientEventBus()
+		# Create a fresh, usable event bus
+		self._replace_event_bus()
 
 	async def close(self) -> None:
 		"""Alias for stop()."""
