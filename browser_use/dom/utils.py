@@ -71,6 +71,10 @@ def generate_css_selector_for_element(enhanced_node) -> str | None:
 		# Media attributes
 		'alt',
 		'title',
+		'data-tooltip',
+		'data-original-title',
+		'data-bs-title',
+		'data-title',
 		'src',
 		# Custom stable attributes (add any application-specific ones)
 		'href',
