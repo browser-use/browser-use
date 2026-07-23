@@ -252,7 +252,7 @@ class SecurityWatchdog(BaseWatchdog):
 		"""Match a scheme-qualified URL pattern without losing path-prefix semantics.
 
 		The scheme and hostname are compared as parsed URL components so lookalike
-		hosts cannot match. An explicit pattern port must also match.Non-root
+		hosts cannot match. An explicit pattern port must also match. Non-root
 		paths, queries, and fragments retain the historical prefix behavior.
 		"""
 		try:
