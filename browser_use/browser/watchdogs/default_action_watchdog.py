@@ -3293,8 +3293,19 @@ class DefaultActionWatchdog(BaseWatchdog):
 									// This simulates the user focusing on the dropdown before changing it
 									element.focus();
 
-									// Then set the value using multiple methods for maximum compatibility
-									element.value = expectedValue;
+									// Set the value via the native prototype setter. React patches the
+									// instance 'value' setter on <select> to track changes; a direct
+									// element.value assignment updates React's tracker so the change
+									// event below gets deduped, onChange never fires, and React reverts
+									// the selection on its next render.
+									const nativeDesc = Object.getOwnPropertyDescriptor(
+										window.HTMLSelectElement.prototype, 'value'
+									);
+									if (nativeDesc && nativeDesc.set) {
+										nativeDesc.set.call(element, expectedValue);
+									} else {
+										element.value = expectedValue;
+									}
 									option.selected = true;
 									element.selectedIndex = option.index;
 
@@ -3640,6 +3651,30 @@ class DefaultActionWatchdog(BaseWatchdog):
 				if selection_result.get('success'):
 					msg = selection_result.get('message', f'Selected option: {target_text}')
 					self.logger.debug(f'{msg}')
+
+					# Async post-check: frameworks revert on their next render, after the
+					# synchronous in-page check has already passed (the blind spot of #2867's fix).
+					expected_value = selection_result.get('value')
+					if expected_value is not None:
+						await asyncio.sleep(0.1)
+						try:
+							postcheck = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+								params={
+									'functionDeclaration': 'function() { return this.value; }',
+									'objectId': object_id,
+									'returnByValue': True,
+								},
+								session_id=cdp_session.session_id,
+							)
+							final_value = postcheck.get('result', {}).get('value')
+						except Exception as e:
+							self.logger.debug(f'Dropdown post-check failed (non-critical): {e}')
+							final_value = None
+						if final_value is not None and final_value != expected_value:
+							raise BrowserError(
+								f'Dropdown selection was reverted by the page framework '
+								f'(expected "{expected_value}", field now "{final_value}"). Try clicking the dropdown instead.'
+							)
 
 					# Return the result as a dict
 					return {
