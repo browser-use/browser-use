@@ -1825,6 +1825,15 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
+			# Action parameters are not otherwise retained in the model-visible step history.
+			# Keep the original submitted code (never a transformed variant) so later steps
+			# can understand what produced the result or error.
+			MAX_CODE_MEMORY_LENGTH = 2000
+			code_for_memory = code[:MAX_CODE_MEMORY_LENGTH]
+			if len(code) > MAX_CODE_MEMORY_LENGTH:
+				code_for_memory += f'\n... [JavaScript truncated; original length: {len(code)} characters]'
+			submitted_code_memory = f'Submitted JavaScript:\n{code_for_memory}'
+
 			try:
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -1846,7 +1855,10 @@ Submitted Code:
 """
 
 					logger.debug(enhanced_msg)
-					return ActionResult(error=enhanced_msg)
+					return ActionResult(
+						error=enhanced_msg,
+						long_term_memory=f'{submitted_code_memory}\nExecution failed: {error_msg}',
+					)
 
 				# Get the result data
 				result_data = result.get('result', {})
@@ -1855,7 +1867,10 @@ Submitted Code:
 				if result_data.get('wasThrown'):
 					msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
 					logger.debug(msg)
-					return ActionResult(error=msg)
+					return ActionResult(
+						error=msg,
+						long_term_memory=f'{submitted_code_memory}\nExecution failed (wasThrown=true).',
+					)
 
 				# Get the actual value
 				value = result_data.get('value')
@@ -1903,13 +1918,17 @@ Submitted Code:
 				# but use truncated version in long_term_memory if too large
 				MAX_MEMORY_LENGTH = 10000
 				if len(result_text) < MAX_MEMORY_LENGTH:
-					memory = result_text
+					memory = f'{submitted_code_memory}\nResult:\n{result_text}'
 					include_extracted_content_only_once = False
 				else:
-					memory = f'JavaScript executed successfully, result length: {len(result_text)} characters.'
+					memory = (
+						f'{submitted_code_memory}\n'
+						f'JavaScript executed successfully, result length: {len(result_text)} characters.'
+					)
 					include_extracted_content_only_once = True
 
-				# Return only the result, not the code (code is already in user's cell)
+				# Keep the current-step content focused on the result; submitted code
+				# remains available to later steps through long_term_memory.
 				return ActionResult(
 					extracted_content=result_text,
 					long_term_memory=memory,
@@ -1921,7 +1940,10 @@ Submitted Code:
 				# CDP communication or other system errors
 				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.debug(f'JavaScript code that failed: {code[:200]}...')
-				return ActionResult(error=error_msg)
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'{submitted_code_memory}\nExecution failed: {error_msg}',
+				)
 
 	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
 		if output_model is not None:
