@@ -7,6 +7,8 @@ import pytest
 
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
+from browser_use.browser.watchdogs import dom_watchdog
+from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
 from browser_use.dom.service import _MAX_JS_CLICK_LISTENER_ELEMENTS, DomService
 
 
@@ -86,5 +88,26 @@ async def test_ax_tree_failure_preserves_structural_dom(httpserver, browser_sess
 
 	state = await browser_session.get_browser_state_summary(include_screenshot=False)
 
+	assert state.dom_state is not None
+	assert any(node.attributes.get('id') == 'continue' for node in state.dom_state.selector_map.values())
+
+
+async def test_screenshot_timeout_preserves_structural_dom(httpserver, browser_session: BrowserSession, monkeypatch):
+	"""A stalled state screenshot must not consume the outer event's recovery budget."""
+	httpserver.expect_request('/screenshot-unavailable').respond_with_data(
+		'<html><body><button id="continue">Continue</button></body></html>',
+		content_type='text/html',
+	)
+
+	async def hang_screenshot(_watchdog: DOMWatchdog):
+		await asyncio.Future()
+
+	monkeypatch.setattr(DOMWatchdog, '_capture_clean_screenshot', hang_screenshot)
+	monkeypatch.setattr(dom_watchdog, '_BROWSER_STATE_PARALLEL_TASK_BUDGET_SECONDS', 0.1)
+	await browser_session.navigate_to(httpserver.url_for('/screenshot-unavailable'))
+
+	state = await browser_session.get_browser_state_summary(include_screenshot=True)
+
+	assert state.screenshot is None
 	assert state.dom_state is not None
 	assert any(node.attributes.get('id') == 'continue' for node in state.dom_state.selector_map.values())
