@@ -620,7 +620,10 @@ class DomService:
 				for task in pending2:
 					task.cancel()
 
-		# Extract results, tracking which ones failed
+		# Extract results, tracking which required requests failed. The AX tree
+		# enriches DOM nodes with accessibility names and roles, but the snapshot
+		# and DOM tree still contain a usable page structure without it. Do not
+		# discard that structure when accessibility collection stalls or fails.
 		results = {}
 		failed = []
 		for key, task in tasks.items():
@@ -629,10 +632,16 @@ class DomService:
 					results[key] = task.result()
 				except Exception as e:
 					self.logger.warning(f'CDP request {key} failed with exception: {e}')
-					failed.append(key)
+					if key == 'ax_tree':
+						results[key] = {'nodes': []}
+					else:
+						failed.append(key)
 			else:
 				self.logger.warning(f'CDP request {key} timed out')
-				failed.append(key)
+				if key == 'ax_tree':
+					results[key] = {'nodes': []}
+				else:
+					failed.append(key)
 
 		# If any required tasks failed, raise an exception
 		if failed:

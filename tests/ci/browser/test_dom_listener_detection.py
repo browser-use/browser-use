@@ -1,12 +1,13 @@
 """Regression tests for bounded JavaScript click-listener detection."""
 
+import asyncio
 from collections import Counter
 
 import pytest
 
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
-from browser_use.dom.service import _MAX_JS_CLICK_LISTENER_ELEMENTS
+from browser_use.dom.service import DomService, _MAX_JS_CLICK_LISTENER_ELEMENTS
 
 
 @pytest.fixture
@@ -68,3 +69,22 @@ async def test_listener_detection_preserves_small_pages_and_skips_cdp_fanout(htt
 
 	assert overflow_state.dom_state is not None
 	assert cdp_calls['DOM.describeNode'] == 0
+
+
+async def test_ax_tree_failure_preserves_structural_dom(httpserver, browser_session: BrowserSession, monkeypatch):
+	"""An unavailable accessibility tree must not erase the usable structural DOM."""
+	httpserver.expect_request('/ax-unavailable').respond_with_data(
+		'<html><body><button id="continue">Continue</button></body></html>',
+		content_type='text/html',
+	)
+
+	async def fail_ax_tree(_service: DomService, _target_id):
+		raise asyncio.CancelledError
+
+	monkeypatch.setattr(DomService, '_get_ax_tree_for_all_frames', fail_ax_tree)
+	await browser_session.navigate_to(httpserver.url_for('/ax-unavailable'))
+
+	state = await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	assert state.dom_state is not None
+	assert any(node.attributes.get('id') == 'continue' for node in state.dom_state.selector_map.values())
