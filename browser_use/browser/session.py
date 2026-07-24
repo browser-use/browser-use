@@ -1037,7 +1037,7 @@ class BrowserSession(BaseModel):
 			)
 			timeout = 3.0 if same_domain else 8.0
 
-		nav_start_time = asyncio.get_event_loop().time()
+		nav_start_time = asyncio.get_running_loop().time()
 
 		# Wrap Page.navigate() with timeout — heavy sites can block here for 10s+
 		# Use nav_timeout parameter if provided, otherwise default to 20.0
@@ -1052,14 +1052,14 @@ class BrowserSession(BaseModel):
 				timeout=nav_timeout,
 			)
 		except TimeoutError:
-			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			duration_ms = (asyncio.get_running_loop().time() - nav_start_time) * 1000
 			raise RuntimeError(f'Page.navigate() timed out after {nav_timeout}s ({duration_ms:.0f}ms) for {url}')
 
 		if nav_result.get('errorText'):
 			raise RuntimeError(f'Navigation failed: {nav_result["errorText"]}')
 
 		if wait_until == 'commit':
-			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			duration_ms = (asyncio.get_running_loop().time() - nav_start_time) * 1000
 			self.logger.debug(f'✅ Page ready for {url} (commit, {duration_ms:.0f}ms)')
 			return None
 
@@ -1070,10 +1070,10 @@ class BrowserSession(BaseModel):
 		# load/DOMContentLoaded lifecycle events for it — waiting would only burn
 		# the timeout against stale events from the previous document load.
 		if not navigation_id:
-			duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+			duration_ms = (asyncio.get_running_loop().time() - nav_start_time) * 1000
 			self.logger.debug(f'✅ Page ready for {url} (same-document navigation, {duration_ms:.0f}ms)')
 			return None
-		start_time = asyncio.get_event_loop().time()
+		start_time = asyncio.get_running_loop().time()
 		seen_events = []
 
 		# Per-target buffer owned by SessionManager — NOT a per-session attribute, whose
@@ -1088,7 +1088,7 @@ class BrowserSession(BaseModel):
 			acceptable_events.add('DOMContentLoaded')
 
 		poll_interval = 0.05
-		while (asyncio.get_event_loop().time() - start_time) < timeout:
+		while (asyncio.get_running_loop().time() - start_time) < timeout:
 			try:
 				for event_data in list(lifecycle_events):
 					event_name = event_data.get('name')
@@ -1109,7 +1109,7 @@ class BrowserSession(BaseModel):
 						continue
 
 					if event_name in acceptable_events:
-						duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+						duration_ms = (asyncio.get_running_loop().time() - nav_start_time) * 1000
 						self.logger.debug(f'✅ Page ready for {url} ({event_name}, {duration_ms:.0f}ms)')
 						return None
 
@@ -1118,7 +1118,7 @@ class BrowserSession(BaseModel):
 
 			await asyncio.sleep(poll_interval)
 
-		duration_ms = (asyncio.get_event_loop().time() - nav_start_time) * 1000
+		duration_ms = (asyncio.get_running_loop().time() - nav_start_time) * 1000
 		if not seen_events:
 			self.logger.error(
 				f'❌ No lifecycle events received for {url} after {duration_ms:.0f}ms! '
