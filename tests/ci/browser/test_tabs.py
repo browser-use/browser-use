@@ -19,13 +19,19 @@ Usage:
 
 import asyncio
 import time
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
+from cdp_use import CDPClient
+from cdp_use.cdp.target import AttachedToTargetEvent, TargetInfo
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserSession
+from browser_use.browser.events import TabCreatedEvent
 from browser_use.browser.profile import BrowserProfile
+from browser_use.browser.session_manager import SessionManager
 from tests.ci.conftest import create_mock_llm
 
 
@@ -669,3 +675,104 @@ class TestMultiTabOperations:
 			assert 'Successfully' in final_result, 'Agent should report success'
 		except TimeoutError:
 			pytest.fail('Test timed out after 2 minutes - agent hung during multiple tab operations')
+
+
+def _target_attached_event(*, session_id: str, target_id: str, target_type: str, url: str, title: str) -> AttachedToTargetEvent:
+	"""Build a minimal CDP Target.attachedToTarget event as Chrome would send it."""
+	target_info = cast(
+		TargetInfo,
+		{
+			'targetId': target_id,
+			'type': target_type,
+			'url': url,
+			'title': title,
+			'attached': True,
+			'canAccessOpener': False,
+		},
+	)
+	return cast(
+		AttachedToTargetEvent,
+		{'sessionId': session_id, 'targetInfo': target_info, 'waitingForDebugger': False},
+	)
+
+
+def _build_session_manager() -> tuple[SessionManager, list, list]:
+	"""Build a SessionManager with a stubbed CDP client and event bus for unit testing
+	_handle_target_attached() without a real browser connection."""
+	cdp_client_root = CDPClient('ws://unused')
+	cast(Any, cdp_client_root).send = SimpleNamespace(Target=SimpleNamespace(setAutoAttach=_noop_async))
+
+	dispatched_events: list = []
+	monitored_sessions: list = []
+
+	browser_session = SimpleNamespace(
+		_cdp_client_root=cdp_client_root,
+		browser_profile=SimpleNamespace(proxy=None),
+		event_bus=SimpleNamespace(dispatch=dispatched_events.append),
+		logger=SimpleNamespace(debug=lambda *a, **k: None, warning=lambda *a, **k: None),
+	)
+	manager = SessionManager(cast(BrowserSession, browser_session))
+
+	async def record_page_monitoring(cdp_session):
+		monitored_sessions.append(cdp_session)
+
+	manager._enable_page_monitoring = record_page_monitoring  # type: ignore[method-assign]
+	return manager, dispatched_events, monitored_sessions
+
+
+async def _noop_async(*args, **kwargs) -> None:
+	pass
+
+
+class TestWindowOpenTabCreatedEvent:
+	"""Regression tests for #4208: window.open() popups must dispatch TabCreatedEvent.
+
+	Chrome attaches window.open()/target="_blank" popups to browser-use via
+	Target.attachedToTarget just like any other target, but SessionManager only
+	enabled page monitoring for them - it never told the rest of the system a new
+	tab existed. Without TabCreatedEvent, PopupsWatchdog/AboutBlankWatchdog/
+	SecurityWatchdog/DOMWatchdog never initialize for the popup, so it appears
+	stuck on about:blank and the opener page looks frozen.
+	"""
+
+	async def test_page_target_attach_dispatches_tab_created_event(self):
+		manager, dispatched_events, monitored_sessions = _build_session_manager()
+
+		await manager._handle_target_attached(
+			_target_attached_event(
+				session_id='session-window-open',
+				target_id='target-window-open',
+				target_type='page',
+				url='',  # Chrome sends an empty string, not a missing url, for fresh popups
+				title='',
+			)
+		)
+
+		assert len(monitored_sessions) == 1, 'popup should still get page monitoring enabled'
+		assert len(dispatched_events) == 1, 'popup attach must dispatch exactly one event'
+
+		event = dispatched_events[0]
+		assert isinstance(event, TabCreatedEvent)
+		assert event.target_id == 'target-window-open'
+		assert event.url == 'about:blank', 'empty CDP url must be normalized, not left blank'
+
+		target = manager.get_target('target-window-open')
+		assert target is not None
+		assert target.url == 'about:blank'
+
+	async def test_non_page_target_attach_does_not_dispatch_tab_created_event(self):
+		"""Workers/iframes attach through the same code path but are not tabs."""
+		manager, dispatched_events, monitored_sessions = _build_session_manager()
+
+		await manager._handle_target_attached(
+			_target_attached_event(
+				session_id='session-worker',
+				target_id='target-worker',
+				target_type='worker',
+				url='https://example.com/worker.js',
+				title='',
+			)
+		)
+
+		assert monitored_sessions == []
+		assert dispatched_events == []
