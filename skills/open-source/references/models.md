@@ -149,7 +149,7 @@ Supports profiles, IAM roles, SSO via standard AWS credential chain. Install wit
 ```python
 from browser_use import Agent, ChatDeepSeek
 
-llm = ChatDeepSeek(model="deepseek-chat")
+llm = ChatDeepSeek(model="deepseek-v4-flash")
 ```
 
 **Env:** `DEEPSEEK_API_KEY` | [Available models](https://api-docs.deepseek.com/quick_start/pricing)
