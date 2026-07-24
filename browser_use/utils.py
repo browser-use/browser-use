@@ -12,6 +12,7 @@ from pathlib import Path
 from sys import stderr
 from typing import Any, ParamSpec, TypeVar
 from urllib.parse import urlparse
+from weakref import WeakKeyDictionary
 
 import httpx
 from dotenv import load_dotenv
@@ -109,6 +110,123 @@ def _get_groq_bad_request_error() -> type | None:
 # Global flag to prevent duplicate exit messages
 _exiting = False
 
+
+class _SignalCoordinator:
+	"""Own process signal registration and fan signals out to handlers on one event loop."""
+
+	def __init__(self, loop: asyncio.AbstractEventLoop, is_windows: bool) -> None:
+		self.loop = loop
+		self.is_windows = is_windows
+		self.subscribers: list[SignalHandler] = []
+		self.original_sigint_handler: Any = None
+		self.original_sigterm_handler: Any = None
+		self.installed = False
+
+	def install(self) -> bool:
+		"""Install the process handlers once for this event loop."""
+		try:
+			self.original_sigint_handler = signal.getsignal(signal.SIGINT)
+			if self.is_windows:
+				signal.signal(signal.SIGINT, self._windows_sigint_handler)
+			else:
+				self.original_sigterm_handler = signal.getsignal(signal.SIGTERM)
+				self.loop.add_signal_handler(signal.SIGINT, self.handle_sigint)
+				try:
+					self.loop.add_signal_handler(signal.SIGTERM, self.handle_sigterm)
+				except Exception:
+					self.loop.remove_signal_handler(signal.SIGINT)
+					signal.signal(signal.SIGINT, self.original_sigint_handler)
+					raise
+		except Exception:
+			# Signal handlers are unavailable outside the main thread and in some
+			# embedded event loops (for example, notebooks).
+			return False
+
+		self.installed = True
+		return True
+
+	def teardown(self) -> None:
+		"""Restore process handlers after the final subscriber leaves."""
+		if not self.installed:
+			return
+
+		try:
+			if self.is_windows:
+				signal.signal(signal.SIGINT, self.original_sigint_handler)
+			else:
+				self.loop.remove_signal_handler(signal.SIGINT)
+				self.loop.remove_signal_handler(signal.SIGTERM)
+				signal.signal(signal.SIGINT, self.original_sigint_handler)
+				signal.signal(signal.SIGTERM, self.original_sigterm_handler)
+		except Exception as e:
+			logger.warning(f'Error while unregistering signal handlers: {e}')
+		finally:
+			self.installed = False
+
+	def subscribe(self, subscriber: 'SignalHandler') -> None:
+		"""Add a handler without duplicating an existing subscription."""
+		if subscriber not in self.subscribers:
+			self.subscribers.append(subscriber)
+
+	def unsubscribe(self, subscriber: 'SignalHandler') -> None:
+		"""Remove a handler while preserving registration for remaining subscribers."""
+		if subscriber in self.subscribers:
+			self.subscribers.remove(subscriber)
+
+	def _run_exit_callbacks(self) -> None:
+		"""Run every active subscriber's exit callback once."""
+		for subscriber in list(self.subscribers):
+			if subscriber.custom_exit_callback:
+				try:
+					subscriber.custom_exit_callback()
+				except Exception as e:
+					logger.error(f'Error in exit callback: {e}')
+
+	def _windows_sigint_handler(self, _signal_number: int, _frame: Any) -> None:
+		"""Immediately notify all subscribers and exit on Windows."""
+		print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
+		self._run_exit_callbacks()
+		os._exit(0)
+
+	def handle_sigint(self) -> None:
+		"""Interpret one SIGINT and broadcast its pause or exit action once."""
+		global _exiting
+
+		if _exiting:
+			os._exit(0)
+
+		if getattr(self.loop, 'ctrl_c_pressed', False):
+			if getattr(self.loop, 'waiting_for_input', False):
+				return
+			if any(subscriber.exit_on_second_int for subscriber in self.subscribers):
+				self._run_exit_callbacks()
+				self._exit_after_second_ctrl_c()
+			return
+
+		setattr(self.loop, 'ctrl_c_pressed', True)
+		for subscriber in list(self.subscribers):
+			subscriber._pause_for_sigint()
+		print('----------------------------------------------------------------------', file=stderr)
+
+	def _exit_after_second_ctrl_c(self) -> None:
+		"""Exit once after the coordinator has notified all subscribers."""
+		global _exiting
+		_exiting = True
+		SignalHandler._print_terminal_reset()
+		os._exit(0)
+
+	def handle_sigterm(self) -> None:
+		"""Notify every subscriber and exit the process once."""
+		global _exiting
+		if not _exiting:
+			_exiting = True
+			print('\n\n🛑 SIGTERM received. Exiting immediately...\n\n', file=stderr)
+			self._run_exit_callbacks()
+		os._exit(0)
+
+
+_signal_coordinators: WeakKeyDictionary[asyncio.AbstractEventLoop, _SignalCoordinator] = WeakKeyDictionary()
+
 # Define generic type variables for return type and parameters
 R = TypeVar('R')
 T = TypeVar('T')
@@ -168,11 +286,14 @@ class SignalHandler:
 		# Store original signal handlers to restore them later if needed
 		self.original_sigint_handler = None
 		self.original_sigterm_handler = None
+		self._coordinator: _SignalCoordinator | None = None
 
 	def _initialize_loop_state(self) -> None:
 		"""Initialize loop state attributes used for signal handling."""
-		setattr(self.loop, 'ctrl_c_pressed', False)
-		setattr(self.loop, 'waiting_for_input', False)
+		if not hasattr(self.loop, 'ctrl_c_pressed'):
+			setattr(self.loop, 'ctrl_c_pressed', False)
+		if not hasattr(self.loop, 'waiting_for_input'):
+			setattr(self.loop, 'waiting_for_input', False)
 
 	def register(self) -> None:
 		"""Register signal handlers for SIGINT and SIGTERM.
@@ -182,28 +303,20 @@ class SignalHandler:
 		if self.disabled:
 			return
 
-		try:
-			if self.is_windows:
-				# On Windows, use simple signal handling with immediate exit on Ctrl+C
-				def windows_handler(sig, frame):
-					print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
-					# Run the custom exit callback if provided
-					if self.custom_exit_callback:
-						self.custom_exit_callback()
-					os._exit(0)
+		if self._coordinator is not None:
+			return
 
-				self.original_sigint_handler = signal.signal(signal.SIGINT, windows_handler)
-			else:
-				# On Unix-like systems, use asyncio's signal handling for smoother experience
-				self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
-				self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+		coordinator = _signal_coordinators.get(self.loop)
+		if coordinator is None:
+			coordinator = _SignalCoordinator(self.loop, self.is_windows)
+			if not coordinator.install():
+				return
+			_signal_coordinators[self.loop] = coordinator
 
-		except Exception:
-			# there are situations where signal handlers are not supported, e.g.
-			# - when running in a thread other than the main thread
-			# - some operating systems
-			# - inside jupyter notebooks
-			pass
+		coordinator.subscribe(self)
+		self._coordinator = coordinator
+		self.original_sigint_handler = coordinator.original_sigint_handler
+		self.original_sigterm_handler = coordinator.original_sigterm_handler
 
 	def unregister(self) -> None:
 		"""Unregister signal handlers and restore original handlers if possible.
@@ -213,46 +326,21 @@ class SignalHandler:
 		if self.disabled:
 			return
 
-		try:
-			if self.is_windows:
-				# On Windows, just restore the original SIGINT handler
-				if self.original_sigint_handler:
-					signal.signal(signal.SIGINT, self.original_sigint_handler)
-			else:
-				# On Unix-like systems, use asyncio's signal handler removal
-				self.loop.remove_signal_handler(signal.SIGINT)
-				self.loop.remove_signal_handler(signal.SIGTERM)
+		coordinator = self._coordinator
+		if coordinator is None:
+			return
 
-				# Restore original handlers if available
-				if self.original_sigint_handler:
-					signal.signal(signal.SIGINT, self.original_sigint_handler)
-				if self.original_sigterm_handler:
-					signal.signal(signal.SIGTERM, self.original_sigterm_handler)
-		except Exception as e:
-			logger.warning(f'Error while unregistering signal handlers: {e}')
+		coordinator.unsubscribe(self)
+		self._coordinator = None
+		if not coordinator.subscribers:
+			coordinator.teardown()
+			if _signal_coordinators.get(self.loop) is coordinator:
+				del _signal_coordinators[self.loop]
 
-	def _handle_second_ctrl_c(self) -> None:
-		"""
-		Handle a second Ctrl+C press by performing cleanup and exiting.
-		This is shared logic used by both sigint_handler and wait_for_resume.
-		"""
-		global _exiting
-
-		if not _exiting:
-			_exiting = True
-
-			# Call custom exit callback if provided
-			if self.custom_exit_callback:
-				try:
-					self.custom_exit_callback()
-				except Exception as e:
-					logger.error(f'Error in exit callback: {e}')
-
-		# Force immediate exit - more reliable than sys.exit()
+	@staticmethod
+	def _print_terminal_reset() -> None:
+		"""Print the terminal cleanup sequence used before a forced exit."""
 		print('\n\n🛑  Got second Ctrl+C. Exiting immediately...\n', file=stderr)
-
-		# Reset terminal to a clean state by sending multiple escape sequences
-		# Order matters for terminal resets - we try different approaches
 
 		# Reset terminal modes for both stdout and stderr
 		print('\033[?25h', end='', flush=True, file=stderr)  # Show cursor
@@ -278,6 +366,25 @@ class SignalHandler:
 		# we still dont know what causes the broken input, if you know how to fix it, please let us know
 		print('(tip: press [Enter] once to fix escape codes appearing after chrome exit)', file=stderr)
 
+	def _handle_second_ctrl_c(self) -> None:
+		"""
+		Handle a second Ctrl+C press by performing cleanup and exiting.
+		This is shared logic used by both sigint_handler and wait_for_resume.
+		"""
+		global _exiting
+
+		if not _exiting:
+			_exiting = True
+
+			# Call custom exit callback if provided
+			if self.custom_exit_callback:
+				try:
+					self.custom_exit_callback()
+				except Exception as e:
+					logger.error(f'Error in exit callback: {e}')
+
+		self._print_terminal_reset()
+
 		os._exit(0)
 
 	def sigint_handler(self) -> None:
@@ -302,21 +409,19 @@ class SignalHandler:
 			if self.exit_on_second_int:
 				self._handle_second_ctrl_c()
 
-		# Mark that Ctrl+C was pressed
+		# Keep direct callers consistent with coordinator-driven interrupts.
 		setattr(self.loop, 'ctrl_c_pressed', True)
+		self._pause_for_sigint()
+		print('----------------------------------------------------------------------', file=stderr)
 
-		# Cancel current tasks that should be interruptible - this is crucial for immediate pausing
+	def _pause_for_sigint(self) -> None:
+		"""Cancel interruptible work and notify this agent of a first Ctrl+C."""
 		self._cancel_interruptible_tasks()
-
-		# Call pause callback if provided - this sets the paused flag
 		if self.pause_callback:
 			try:
 				self.pause_callback()
 			except Exception as e:
 				logger.error(f'Error in pause callback: {e}')
-
-		# Log pause message after pause_callback is called (not before)
-		print('----------------------------------------------------------------------', file=stderr)
 
 	def sigterm_handler(self) -> None:
 		"""
@@ -366,16 +471,6 @@ class SignalHandler:
 		# Set flag to indicate we're waiting for input
 		setattr(self.loop, 'waiting_for_input', True)
 
-		# Temporarily restore default signal handling for SIGINT
-		# This ensures KeyboardInterrupt will be raised during input()
-		original_handler = signal.getsignal(signal.SIGINT)
-		try:
-			signal.signal(signal.SIGINT, signal.default_int_handler)
-		except ValueError:
-			# we are running in a thread other than the main thread
-			# or signal handlers are not supported for some other reason
-			pass
-
 		green = '\x1b[32;1m'
 		red = '\x1b[31m'
 		blink = '\033[33;5m'
@@ -398,12 +493,7 @@ class SignalHandler:
 			# Use the shared method to handle second Ctrl+C
 			self._handle_second_ctrl_c()
 		finally:
-			try:
-				# Restore our signal handler
-				signal.signal(signal.SIGINT, original_handler)
-				setattr(self.loop, 'waiting_for_input', False)
-			except Exception:
-				pass
+			setattr(self.loop, 'waiting_for_input', False)
 
 	def reset(self) -> None:
 		"""Reset state after resuming."""
