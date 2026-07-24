@@ -1825,13 +1825,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
-			try:
-				# Validate and potentially fix JavaScript code before execution
-				validated_code = self._validate_and_fix_javascript(code)
+			# Action parameters are not otherwise retained in the model-visible step history.
+			# Keep the original submitted code (never a transformed variant) so later steps
+			# can understand what produced the result or error.
+			MAX_CODE_MEMORY_LENGTH = 2000
+			# CDP still receives code exactly as submitted. Sanitize only the history copy
+			# so an unpaired surrogate cannot poison model-visible state or persistence.
+			code_for_memory = sanitize_surrogates(code[:MAX_CODE_MEMORY_LENGTH])
+			if len(code) > MAX_CODE_MEMORY_LENGTH:
+				code_for_memory += f'\n... [JavaScript truncated; original length: {len(code)} characters]'
+			submitted_code_memory = f'Submitted JavaScript:\n{code_for_memory}'
 
+			try:
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
+					params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
 					session_id=cdp_session.session_id,
 				)
 
@@ -1844,12 +1852,15 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					enhanced_msg = f"""JavaScript Execution Failed:
 {error_msg}
 
-Validated Code (after quote fixing):
-{validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
+Submitted Code:
+{code[:500]}{'...' if len(code) > 500 else ''}
 """
 
 					logger.debug(enhanced_msg)
-					return ActionResult(error=enhanced_msg)
+					return ActionResult(
+						error=enhanced_msg,
+						long_term_memory=f'{submitted_code_memory}\nExecution failed: {error_msg}',
+					)
 
 				# Get the result data
 				result_data = result.get('result', {})
@@ -1858,7 +1869,10 @@ Validated Code (after quote fixing):
 				if result_data.get('wasThrown'):
 					msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
 					logger.debug(msg)
-					return ActionResult(error=msg)
+					return ActionResult(
+						error=msg,
+						long_term_memory=f'{submitted_code_memory}\nExecution failed (wasThrown=true).',
+					)
 
 				# Get the actual value
 				value = result_data.get('value')
@@ -1906,13 +1920,17 @@ Validated Code (after quote fixing):
 				# but use truncated version in long_term_memory if too large
 				MAX_MEMORY_LENGTH = 10000
 				if len(result_text) < MAX_MEMORY_LENGTH:
-					memory = result_text
+					memory = f'{submitted_code_memory}\nResult:\n{result_text}'
 					include_extracted_content_only_once = False
 				else:
-					memory = f'JavaScript executed successfully, result length: {len(result_text)} characters.'
+					memory = (
+						f'{submitted_code_memory}\n'
+						f'JavaScript executed successfully, result length: {len(result_text)} characters.'
+					)
 					include_extracted_content_only_once = True
 
-				# Return only the result, not the code (code is already in user's cell)
+				# Keep the current-step content focused on the result; submitted code
+				# remains available to later steps through long_term_memory.
 				return ActionResult(
 					extracted_content=result_text,
 					long_term_memory=memory,
@@ -1924,72 +1942,10 @@ Validated Code (after quote fixing):
 				# CDP communication or other system errors
 				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.debug(f'JavaScript code that failed: {code[:200]}...')
-				return ActionResult(error=error_msg)
-
-	def _validate_and_fix_javascript(self, code: str) -> str:
-		"""Validate and fix common JavaScript issues before execution"""
-
-		import re
-
-		# Pattern 1: Fix double-escaped quotes (\\\" → \")
-		fixed_code = re.sub(r'\\"', '"', code)
-
-		# Pattern 2: Fix over-escaped regex patterns (\\\\d → \\d)
-		# Common issue: regex gets double-escaped during parsing
-		fixed_code = re.sub(r'\\\\([dDsSwWbBnrtfv])', r'\\\1', fixed_code)
-		fixed_code = re.sub(r'\\\\([.*+?^${}()|[\]])', r'\\\1', fixed_code)
-
-		# Pattern 3: Fix XPath expressions with mixed quotes
-		xpath_pattern = r'document\.evaluate\s*\(\s*"([^"]*)"\s*,'
-
-		def fix_xpath_quotes(match):
-			xpath_with_quotes = match.group(1)
-			return f'document.evaluate(`{xpath_with_quotes}`,'
-
-		fixed_code = re.sub(xpath_pattern, fix_xpath_quotes, fixed_code)
-
-		# Pattern 4: Fix querySelector/querySelectorAll with mixed quotes
-		selector_pattern = r'(querySelector(?:All)?)\s*\(\s*"([^"]*)"\s*\)'
-
-		def fix_selector_quotes(match):
-			method_name = match.group(1)
-			selector_with_quotes = match.group(2)
-			return f'{method_name}(`{selector_with_quotes}`)'
-
-		fixed_code = re.sub(selector_pattern, fix_selector_quotes, fixed_code)
-
-		# Pattern 5: Fix closest() calls with mixed quotes
-		closest_pattern = r'\.closest\s*\(\s*"([^"]*)"\s*\)'
-
-		def fix_closest_quotes(match):
-			selector_with_quotes = match.group(1)
-			return f'.closest(`{selector_with_quotes}`)'
-
-		fixed_code = re.sub(closest_pattern, fix_closest_quotes, fixed_code)
-
-		# Pattern 6: Fix .matches() calls with mixed quotes (similar to closest)
-		matches_pattern = r'\.matches\s*\(\s*"([^"]*)"\s*\)'
-
-		def fix_matches_quotes(match):
-			selector_with_quotes = match.group(1)
-			return f'.matches(`{selector_with_quotes}`)'
-
-		fixed_code = re.sub(matches_pattern, fix_matches_quotes, fixed_code)
-
-		# Note: Removed getAttribute fix - attribute names rarely have mixed quotes
-		# getAttribute typically uses simple names like "data-value", not complex selectors
-
-		# Log changes made
-		changes_made = []
-		if r'\"' in code and r'\"' not in fixed_code:
-			changes_made.append('fixed escaped quotes')
-		if '`' in fixed_code and '`' not in code:
-			changes_made.append('converted mixed quotes to template literals')
-
-		if changes_made:
-			logger.debug(f'JavaScript fixes applied: {", ".join(changes_made)}')
-
-		return fixed_code
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'{submitted_code_memory}\nExecution failed: {error_msg}',
+				)
 
 	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
 		if output_model is not None:
