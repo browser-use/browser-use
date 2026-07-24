@@ -133,3 +133,6 @@ async def test_state_timeout_returns_cached_dom_without_screenshot(httpserver, b
 	assert recovered_state.screenshot is None
 	assert recovered_state.dom_state is initial_state.dom_state
 	assert recovered_state.browser_errors[-1] == 'Browser state refresh timed out; this is the last known page state.'
+
+	with pytest.raises(TimeoutError):
+		await browser_session.get_browser_state_summary(include_screenshot=True)

@@ -562,6 +562,7 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_cached_selector_indices: dict[tuple[str, int], int] = PrivateAttr(default_factory=dict)
+	_consecutive_state_refresh_timeouts: int = PrivateAttr(default=0)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
 
@@ -662,6 +663,7 @@ class BrowserSession(BaseModel):
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._cached_selector_indices.clear()
+		self._consecutive_state_refresh_timeouts = 0
 		self._downloaded_files.clear()
 
 		self.agent_focus_target_id = None
@@ -1234,6 +1236,7 @@ class BrowserSession(BaseModel):
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._cached_selector_indices.clear()
+		self._consecutive_state_refresh_timeouts = 0
 		self.logger.debug('🔄 Cached browser state cleared')
 
 		# Update agent focus if a specific target_id is provided (only for page/tab targets)
@@ -1625,6 +1628,10 @@ class BrowserSession(BaseModel):
 		try:
 			result = await event.event_result(raise_if_none=True, raise_if_any=True)
 		except TimeoutError:
+			self._consecutive_state_refresh_timeouts += 1
+			if self._consecutive_state_refresh_timeouts > 1:
+				raise
+
 			cached_state = self._cached_browser_state_summary
 			if cached_state is None or cached_state.dom_state is None:
 				raise
@@ -1639,6 +1646,7 @@ class BrowserSession(BaseModel):
 				],
 			)
 
+		self._consecutive_state_refresh_timeouts = 0
 		assert result is not None and result.dom_state is not None
 		return result
 
