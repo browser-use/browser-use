@@ -74,10 +74,38 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
+
+	A single left-to-right scan is used and each character is consumed at most once, so a secret
+	whose value contains the substring "secret" (part of the ``<secret>`` placeholder token) can
+	never be re-matched inside an already-inserted placeholder and corrupt it (cascade leak,
+	see issue #5248).
+	"""
+	# Drop empty secrets (they would match everything) and sort by length (desc) so the
+	# longest secret wins at any given position.
+	secrets = sorted(
+		((key, secret) for key, secret in sensitive_values.items() if secret),
+		key=lambda item: len(item[1]),
+		reverse=True,
+	)
+	if not secrets:
+		return value
+
+	result: list[str] = []
+	i = 0
+	n = len(value)
+	while i < n:
+		matched = False
+		for key, secret in secrets:
+			if value.startswith(secret, i):
+				result.append(f'<secret>{key}</secret>')
+				i += len(secret)
+				matched = True
+				break
+		if not matched:
+			result.append(value[i])
+			i += 1
+	return ''.join(result)
 
 
 def _get_openai_bad_request_error() -> type | None:
