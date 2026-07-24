@@ -567,3 +567,71 @@ class TestDomainListOptimization:
 		# Should work correctly
 		assert watchdog._is_url_allowed('https://blocked0.com') is False
 		assert watchdog._is_url_allowed('https://example.com') is True
+
+	def test_set_path_prohibited_domains_are_case_insensitive(self):
+		"""A prohibited-domain set with mixed-case entries must still block the lowercase host.
+
+		Regression: hosts come from ``urlparse().hostname`` (always lowercase), but set entries
+		were compared verbatim, so ``{'Facebook.com'}`` failed to block ``facebook.com`` -- a
+		silent prohibited-domain bypass.
+		"""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains={'Facebook.com'}, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert isinstance(browser_session.browser_profile.prohibited_domains, set)
+		# Must block regardless of the case used when configuring the rule.
+		assert watchdog._is_url_allowed('https://facebook.com') is False
+		assert watchdog._is_url_allowed('https://www.facebook.com') is False
+		# Unrelated host stays allowed.
+		assert watchdog._is_url_allowed('https://example.com') is True
+
+	def test_set_path_allowed_domains_are_case_insensitive(self):
+		"""An allowlist set with mixed-case entries must still allow the lowercase host."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains={'Example.com'}, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert isinstance(browser_session.browser_profile.allowed_domains, set)
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://www.example.com') is True
+		assert watchdog._is_url_allowed('https://other.com') is False
+
+	def test_glob_pattern_is_case_insensitive(self):
+		"""A ``*.Domain.com`` glob with uppercase letters must still match lowercase hosts."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['*.Example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('https://sub.example.com') is True
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://example.org') is False
+
+	def test_generic_host_glob_is_case_insensitive(self):
+		"""A non-``*.``-prefixed host glob with uppercase letters must still match the host."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['web*.Example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('https://web1.example.com') is True
+		assert watchdog._is_url_allowed('https://api.example.com') is False

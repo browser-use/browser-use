@@ -262,8 +262,10 @@ class SecurityWatchdog(BaseWatchdog):
 
 			# Check if pattern matches the host
 			if pattern.startswith('*.'):
-				# Pattern like *.example.com should match subdomains and main domain
-				domain_part = pattern[2:]  # Remove *.
+				# Pattern like *.example.com should match subdomains and main domain.
+				# Lowercase the pattern's domain part: host is already lowercase
+				# (urlparse hostname), so an uppercase pattern would otherwise never match.
+				domain_part = pattern[2:].lower()  # Remove *.
 				if host == domain_part or host.endswith('.' + domain_part):
 					# Only match http/https URLs for domain-only patterns
 					if scheme in ['http', 'https']:
@@ -273,11 +275,14 @@ class SecurityWatchdog(BaseWatchdog):
 				if fnmatch.fnmatch(url, pattern):
 					return True
 			else:
-				# Use fnmatch for other glob patterns
-				if fnmatch.fnmatch(
-					full_url_pattern if '://' in pattern else host,
-					pattern,
-				):
+				# Use fnmatch for other glob patterns. Host-only patterns match
+				# case-insensitively (domains are case-insensitive and host is already
+				# lowercase); full-URL patterns keep their case because URL paths are
+				# case-sensitive.
+				if '://' in pattern:
+					if fnmatch.fnmatch(full_url_pattern, pattern):
+						return True
+				elif fnmatch.fnmatch(host, pattern.lower()):
 					return True
 		else:
 			# Exact match
