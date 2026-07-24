@@ -43,6 +43,20 @@ class TestChunkMarkdownBasic:
 		# Last chunk ends at content length
 		assert chunks[-1].char_offset_end == len(content)
 
+	def test_last_chunk_offset_equals_len_for_trailing_newline(self):
+		"""Content ending in a newline must report char_offset_end == len(content).
+
+		Regression: the parser adds +1 per line for the newline it split on, so a
+		trailing \\n overshot the final offset by one. That offset feeds next_start_char
+		for pagination, and chunk_markdown_by_structure returns [] for start_from_char
+		>= len(content), so newline-terminated markdown silently broke continuation.
+		"""
+		for content in ['# Header\n\nParagraph one.\n\n# Header 2\n\nParagraph two.\n', 'Hello\n', 'Hello\n\nWorld\n']:
+			chunks = chunk_markdown_by_structure(content, max_chunk_chars=20)
+			assert chunks[-1].char_offset_end == len(content), (
+				f'Expected last chunk to end at {len(content)}, got {chunks[-1].char_offset_end} for content {content!r}'
+			)
+
 
 class TestChunkMarkdownHeaders:
 	"""Header boundary splitting."""
