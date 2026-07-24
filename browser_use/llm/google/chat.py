@@ -623,7 +623,7 @@ class ChatGoogle(BaseChatModel):
 					# Only strip 'title' when it's a JSON Schema metadata field (not inside 'properties')
 					# 'title' as a metadata field appears at schema level, not as a property name
 					is_metadata_title = key == 'title' and parent_key != 'properties'
-					if key not in ['additionalProperties', 'default'] and not is_metadata_title:
+					if key not in ['additionalProperties', 'default', 'minLength', 'maxLength'] and not is_metadata_title:
 						cleaned_value = clean_schema(value, parent_key=key)
 						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
 						if (
