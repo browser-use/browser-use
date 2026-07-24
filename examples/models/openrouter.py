@@ -1,7 +1,6 @@
-"""
-Simple try of the agent.
+"""Simple OpenRouter example.
 
-@dev You need to add OPENAI_API_KEY to your environment variables.
+@dev You need to add OPENROUTER_API_KEY to your environment variables.
 """
 
 import asyncio
@@ -9,15 +8,13 @@ import os
 
 from dotenv import load_dotenv
 
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatOpenRouter
 
 load_dotenv()
 
-# All the models are type safe from OpenAI in case you need a list of supported models
-llm = ChatOpenAI(
+llm = ChatOpenRouter(
 	# model='x-ai/grok-4',
 	model='deepcogito/cogito-v2.1-671b',
-	base_url='https://openrouter.ai/api/v1',
 	api_key=os.getenv('OPENROUTER_API_KEY'),
 )
 agent = Agent(
