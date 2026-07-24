@@ -20,6 +20,7 @@ PY
 ```
 
 - Invoke as `browser-use`. Use heredocs for multi-line commands.
+- Heredoc commands run trusted local Python in the Browser Use harness process. This is not a sandbox: code can access your local files, environment variables, and pre-imported browser helpers, so only run code you would trust in a normal terminal.
 - Helpers are pre-imported. `run.py` calls `ensure_daemon()` before `exec`.
 - First navigation is `new_tab(url)`, not `goto_url(url)`.
 - The normal local flow attaches to the running Chrome/Chromium CDP endpoint. No browser ids or local profile selection.
