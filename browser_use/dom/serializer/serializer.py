@@ -919,6 +919,52 @@ class DOMTreeSerializer:
 		return False
 
 	@staticmethod
+	def _get_child_image_context(node: SimplifiedNode) -> str:
+		"""Extract compact context from image descendants of an interactive element."""
+
+		image_context: list[str] = []
+
+		def normalize_src(src: str) -> str:
+			clean_src = src.strip()
+			if clean_src.lower().startswith('data:'):
+				return ''
+			path_without_query = clean_src.split('?', 1)[0].split('#', 1)[0].rstrip('/')
+			return path_without_query.rsplit('/', 1)[-1] or clean_src
+
+		def collect(current: SimplifiedNode) -> None:
+			if len(image_context) >= 3:
+				return
+
+			original_node = current.original_node
+			if original_node.node_type == NodeType.ELEMENT_NODE and original_node.tag_name == 'img':
+				attributes = original_node.attributes or {}
+				parts = []
+
+				for attr_name, output_name in (
+					('alt', 'image_alt'),
+					('title', 'image_title'),
+					('aria-label', 'image_label'),
+				):
+					attr_value = attributes.get(attr_name, '').strip()
+					if attr_value:
+						parts.append(f'{output_name}={cap_text_length(attr_value, 100)}')
+
+				src = normalize_src(attributes.get('src', ''))
+				if src:
+					parts.append(f'image_src={cap_text_length(src, 100)}')
+
+				if parts:
+					image_context.append(' '.join(parts))
+
+			for child in current.children:
+				collect(child)
+
+		for child in node.children:
+			collect(child)
+
+		return ' '.join(image_context)
+
+	@staticmethod
 	def serialize_tree(node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0) -> str:
 		"""Serialize the optimized tree to string format."""
 		if not node:
@@ -989,6 +1035,13 @@ class DOMTreeSerializer:
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(
 					node.original_node, include_attributes, text_content
 				)
+				if node.is_interactive:
+					image_context = DOMTreeSerializer._get_child_image_context(node)
+					if image_context:
+						if attributes_html_str:
+							attributes_html_str += f' {image_context}'
+						else:
+							attributes_html_str = image_context
 
 				# Add compound component information to attributes if present
 				if node.original_node._compound_children:
