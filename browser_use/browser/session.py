@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from dataclasses import replace
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
@@ -1617,8 +1618,27 @@ class BrowserSession(BaseModel):
 			),
 		)
 
-		# The handler returns the BrowserStateSummary directly
-		result = await event.event_result(raise_if_none=True, raise_if_any=True)
+		# The handler returns the BrowserStateSummary directly. If the remote
+		# browser stops answering long enough for the whole state event to time
+		# out, preserve agent recovery by returning the last known DOM instead of
+		# skipping the model call repeatedly. Never reuse a stale screenshot.
+		try:
+			result = await event.event_result(raise_if_none=True, raise_if_any=True)
+		except TimeoutError:
+			cached_state = self._cached_browser_state_summary
+			if cached_state is None or cached_state.dom_state is None:
+				raise
+
+			self.logger.warning('Browser state refresh timed out; returning the last known DOM without a screenshot')
+			return replace(
+				cached_state,
+				screenshot=None,
+				browser_errors=[
+					*cached_state.browser_errors,
+					'Browser state refresh timed out; this is the last known page state.',
+				],
+			)
+
 		assert result is not None and result.dom_state is not None
 		return result
 
