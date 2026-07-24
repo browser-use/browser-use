@@ -567,3 +567,50 @@ class TestDomainListOptimization:
 		# Should work correctly
 		assert watchdog._is_url_allowed('https://blocked0.com') is False
 		assert watchdog._is_url_allowed('https://example.com') is True
+
+
+class TestTrailingDotHostNormalization:
+	"""A trailing DNS-root dot ("evil.com.") resolves to the same origin as
+	"evil.com" in every browser, so it must not bypass domain filtering."""
+
+	def test_trailing_dot_does_not_bypass_prohibited_list(self):
+		"""Slow path (list): a trailing dot must not bypass a prohibited entry."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['evil.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+		assert watchdog._is_url_allowed('https://evil.com/') is False
+		assert watchdog._is_url_allowed('https://evil.com./') is False
+		assert watchdog._is_url_allowed('https://evil.com.../') is False
+
+	def test_trailing_dot_does_not_bypass_prohibited_set(self):
+		"""Fast path (set): a trailing dot must not bypass a prohibited entry."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains={'evil.com', 'other.com'}, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+		assert isinstance(browser_session.browser_profile.prohibited_domains, set)
+		assert watchdog._is_url_allowed('https://evil.com/') is False
+		assert watchdog._is_url_allowed('https://evil.com./') is False
+
+	def test_trailing_dot_still_matches_allowed_domains(self):
+		"""A trailing dot must not false-negative an allowed domain."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=EventBus())
+
+		assert watchdog._is_url_allowed('https://example.com/') is True
+		assert watchdog._is_url_allowed('https://example.com./') is True
+		assert watchdog._is_url_allowed('https://evil.com./') is False
