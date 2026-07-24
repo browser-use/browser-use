@@ -8,6 +8,39 @@ from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam
 from browser_use.observability import observe_debug
 from browser_use.utils import is_new_tab_page, sanitize_surrogates
 
+# Structural tags used to delimit prompt sections. Page content (DOM text)
+# must not contain these tags verbatim, or a malicious page can break out of
+# the <browser_state> wrapper and inject text that appears as system-level
+# instructions to the model. neutralize_structural_delimiters() rewrites them.
+_STRUCTURAL_TAGS = (
+	'agent_history',
+	'agent_state',
+	'browser_state',
+	'read_state',
+	'page_specific_actions',
+	'page_stats',
+	'page_info',
+)
+
+
+def neutralize_structural_delimiters(text: str) -> str:
+	"""Replace structural XML tags in untrusted text so they can't break out of
+	the prompt's structural sections.
+
+	A malicious page can include literal ``</browser_state>`` in its visible
+	text content. Without neutralization, that tag prematurely closes the
+	``<browser_state>`` wrapper in the model's prompt, and text after it
+	appears outside any structural section — looking like system instructions.
+	This rewrites ``</tag>`` to ``<\\/tag>`` and ``<tag>`` to ``< tag >``
+	for all known structural tags.
+	"""
+	for tag in _STRUCTURAL_TAGS:
+		text = text.replace(f'</{tag}>', f'<\\/{tag}>')
+		text = text.replace(f'<{tag}>', f'< {tag} >')
+		text = text.replace(f'<{tag} ', f'< {tag}  ')
+	return text
+
+
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
 	from browser_use.browser.views import BrowserStateSummary
@@ -250,6 +283,10 @@ class AgentMessagePrompt:
 		stats_text += '</page_stats>\n'
 
 		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
+		# Neutralize structural tags in page content to prevent delimiter
+		# injection: a malicious page can include literal </browser_state> in
+		# its text, which would break out of the prompt's structural wrapper.
+		elements_text = neutralize_structural_delimiters(elements_text)
 
 		if len(elements_text) > self.max_clickable_elements_length:
 			elements_text = elements_text[: self.max_clickable_elements_length]
