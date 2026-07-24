@@ -184,6 +184,24 @@ For pricing and other LLM providers, see our [supported models documentation](ht
 </details>
 
 <details>
+<summary><b>Can I use TrustedRouter?</b></summary>
+
+Yes. TrustedRouter exposes an OpenAI-compatible API, so you can use it through `ChatOpenAI` with a custom `base_url`. This is useful for privacy-sensitive browser tasks because TrustedRouter uses open-source, verifiable attested routing and does not log prompts or outputs by default.
+
+```python
+import os
+from browser_use import Agent, ChatOpenAI
+
+llm = ChatOpenAI(
+    model='trustedrouter/zdr',
+    api_key=os.environ['TRUSTEDROUTER_API_KEY'],
+    base_url='https://api.trustedrouter.com/v1',
+)
+agent = Agent(task='...', llm=llm)
+```
+</details>
+
+<details>
 <summary><b>Can I use Claude / GPT / Gemini through ChatBrowserUse?</b></summary>
 
 Yes. `ChatBrowserUse` accepts provider-prefixed model ids, so a single `BROWSER_USE_API_KEY` reaches all of them — no separate OpenAI/Anthropic/Google keys required:
