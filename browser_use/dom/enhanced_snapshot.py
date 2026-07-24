@@ -142,10 +142,10 @@ def build_snapshot_lookup(
 						client_rect_data = client_rects_data[layout_idx]
 						if client_rect_data and len(client_rect_data) >= 4:
 							client_rects = DOMRect(
-								x=client_rect_data[0],
-								y=client_rect_data[1],
-								width=client_rect_data[2],
-								height=client_rect_data[3],
+								x=client_rect_data[0] / device_pixel_ratio,
+								y=client_rect_data[1] / device_pixel_ratio,
+								width=client_rect_data[2] / device_pixel_ratio,
+								height=client_rect_data[3] / device_pixel_ratio,
 							)
 
 					# Extract scroll rects if available
@@ -154,10 +154,10 @@ def build_snapshot_lookup(
 						scroll_rect_data = scroll_rects_data[layout_idx]
 						if scroll_rect_data and len(scroll_rect_data) >= 4:
 							scroll_rects = DOMRect(
-								x=scroll_rect_data[0],
-								y=scroll_rect_data[1],
-								width=scroll_rect_data[2],
-								height=scroll_rect_data[3],
+								x=scroll_rect_data[0] / device_pixel_ratio,
+								y=scroll_rect_data[1] / device_pixel_ratio,
+								width=scroll_rect_data[2] / device_pixel_ratio,
+								height=scroll_rect_data[3] / device_pixel_ratio,
 							)
 
 					# Extract stacking contexts if available
