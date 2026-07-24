@@ -20,6 +20,7 @@ load_dotenv()
 
 # Pre-compiled regex for URL detection - used in URL shortening
 URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', re.IGNORECASE)
+SECRET_PLACEHOLDER_PATTERN = re.compile(r'<secret>.*?</secret>', re.DOTALL)
 
 
 logger = logging.getLogger(__name__)
@@ -73,11 +74,52 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 	return sensitive_values
 
 
+def _span_overlaps_ranges(start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
+	"""Return True when a span intersects any range in the provided list."""
+	return any(start < range_end and range_start < end for range_start, range_end in ranges)
+
+
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	"""Replace sensitive values with placeholders selected from the original text.
+
+	Matches are prioritized by longest secret first, then by the order provided in
+	sensitive_values. The output is built once, so generated placeholder tags are
+	never scanned again by later replacements.
+	"""
+	protected_spans = [(match.start(), match.end()) for match in SECRET_PLACEHOLDER_PATTERN.finditer(value)]
+	candidates: list[tuple[int, int, int, int, str]] = []
+
+	for order, (key, secret) in enumerate(sensitive_values.items()):
+		if not secret:
+			continue
+
+		start = value.find(secret)
+		while start != -1:
+			end = start + len(secret)
+			if not _span_overlaps_ranges(start, end, protected_spans):
+				candidates.append((-len(secret), order, start, end, key))
+			start = value.find(secret, start + 1)
+
+	selected_spans: list[tuple[int, int, str]] = []
+	selected_ranges: list[tuple[int, int]] = []
+	for _, _, start, end, key in sorted(candidates):
+		if _span_overlaps_ranges(start, end, selected_ranges):
+			continue
+		selected_spans.append((start, end, key))
+		selected_ranges.append((start, end))
+
+	if not selected_spans:
+		return value
+
+	redacted_parts: list[str] = []
+	last_end = 0
+	for start, end, key in sorted(selected_spans):
+		redacted_parts.append(value[last_end:start])
+		redacted_parts.append(f'<secret>{key}</secret>')
+		last_end = end
+	redacted_parts.append(value[last_end:])
+
+	return ''.join(redacted_parts)
 
 
 def _get_openai_bad_request_error() -> type | None:
