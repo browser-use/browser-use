@@ -6,6 +6,7 @@ import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 from openai.types.chat import ChatCompletionContentPartTextParam
 from openai.types.chat.chat_completion import ChatCompletion
+from openai.types.responses import Response
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
@@ -14,11 +15,29 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.openai.responses_serializer import ResponsesAPIMessageSerializer
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+# Models that only support the Responses API. ChatOpenAI's `use_responses_api='auto'`
+# routes these through `/v1/responses`; everything else stays on Chat Completions.
+# This is the canonical list; ChatAzureOpenAI re-exports it so both providers stay
+# in sync. Add new Codex / computer-use models here.
+RESPONSES_API_ONLY_MODELS: list[str] = [
+	'gpt-5.3-codex',
+	'gpt-5.3-codex-spark',
+	'gpt-5.2-codex',
+	'gpt-5.1-codex',
+	'gpt-5.1-codex-mini',
+	'gpt-5.1-codex-max',
+	'gpt-5-codex',
+	'codex-mini-latest',
+	'computer-use-preview',
+]
 
 
 @dataclass
@@ -76,6 +95,12 @@ class ChatOpenAI(BaseChatModel):
 		]
 	)
 
+	# Responses API support. True/False = explicit; 'auto' = enable only for
+	# RESPONSES_API_ONLY_MODELS (Codex / computer-use-preview). Reasoning models
+	# (gpt-5, o-series) still default to Chat Completions for backwards compat;
+	# pass `use_responses_api=True` to opt them in.
+	use_responses_api: bool | str = 'auto'
+
 	# Static
 	@property
 	def provider(self) -> str:
@@ -120,6 +145,36 @@ class ChatOpenAI(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _should_use_responses_api(self) -> bool:
+		"""Determine if the Responses API should be used based on model and settings."""
+		if isinstance(self.use_responses_api, bool):
+			return self.use_responses_api
+
+		# Auto-detect: use Responses API for models that require it
+		model_lower = str(self.model).lower()
+		for responses_only_model in RESPONSES_API_ONLY_MODELS:
+			if responses_only_model.lower() in model_lower:
+				return True
+		return False
+
+	def _get_usage_from_responses(self, response: Response) -> ChatInvokeUsage | None:
+		"""Extract usage information from a Responses API response."""
+		if response.usage is None:
+			return None
+
+		cached_tokens = None
+		if response.usage.input_tokens_details is not None:
+			cached_tokens = getattr(response.usage.input_tokens_details, 'cached_tokens', None)
+
+		return ChatInvokeUsage(
+			prompt_tokens=response.usage.input_tokens,
+			prompt_cached_tokens=cached_tokens,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+			completion_tokens=response.usage.output_tokens,
+			total_tokens=response.usage.total_tokens,
+		)
+
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		if response.usage is not None:
 			# Note: completion_tokens already includes reasoning_tokens per OpenAI API docs.
@@ -141,6 +196,109 @@ class ChatOpenAI(BaseChatModel):
 
 		return usage
 
+	async def _ainvoke_responses_api(
+		self, messages: list[BaseMessage], output_format: type[T] | None = None, **kwargs: Any
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
+		"""
+		Invoke the model using the Responses API (`/v1/responses`).
+
+		Used for models that require it (e.g. ``gpt-5-codex``, ``computer-use-preview``)
+		or whenever ``use_responses_api`` is explicitly set to ``True``. The Responses
+		API routes reasoning content to typed output items separately from the
+		structured payload, which avoids the trailing-character JSON failures that
+		Chat Completions sometimes produces for reasoning models.
+		"""
+		input_messages = ResponsesAPIMessageSerializer.serialize_messages(messages)
+
+		try:
+			model_params: dict[str, Any] = {
+				'model': self.model,
+				'input': input_messages,
+			}
+
+			if self.temperature is not None:
+				model_params['temperature'] = self.temperature
+
+			if self.max_completion_tokens is not None:
+				model_params['max_output_tokens'] = self.max_completion_tokens
+
+			if self.top_p is not None:
+				model_params['top_p'] = self.top_p
+
+			if self.service_tier is not None:
+				model_params['service_tier'] = self.service_tier
+
+			# Reasoning models use the `reasoning` parameter rather than `reasoning_effort`,
+			# and don't accept `temperature` on Responses.
+			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
+				model_params['reasoning'] = {'effort': self.reasoning_effort}
+				model_params.pop('temperature', None)
+
+			if output_format is None:
+				response = await self.get_client().responses.create(**model_params)
+				return ChatInvokeCompletion(
+					completion=response.output_text or '',
+					usage=self._get_usage_from_responses(response),
+					stop_reason=response.status if response.status else None,
+				)
+
+			json_schema = SchemaOptimizer.create_optimized_json_schema(
+				output_format,
+				remove_min_items=self.remove_min_items_from_schema,
+				remove_defaults=self.remove_defaults_from_schema,
+			)
+
+			if not self.dont_force_structured_output:
+				model_params['text'] = {
+					'format': {
+						'type': 'json_schema',
+						'name': 'agent_output',
+						'strict': True,
+						'schema': json_schema,
+					}
+				}
+
+			# Add JSON schema to system prompt if requested
+			if self.add_schema_to_system_prompt and input_messages and input_messages[0].get('role') == 'system':
+				schema_text = f'\n<json_schema>\n{json_schema}\n</json_schema>'
+				content = input_messages[0].get('content', '')
+				if isinstance(content, str):
+					input_messages[0]['content'] = content + schema_text
+				elif isinstance(content, list):
+					input_messages[0]['content'] = list(content) + [{'type': 'input_text', 'text': schema_text}]
+				model_params['input'] = input_messages
+
+			response = await self.get_client().responses.create(**model_params)
+
+			if not response.output_text:
+				raise ModelProviderError(
+					message='Failed to parse structured output from model response',
+					status_code=500,
+					model=self.name,
+				)
+
+			parsed = output_format.model_validate_json(response.output_text)
+			return ChatInvokeCompletion(
+				completion=parsed,
+				usage=self._get_usage_from_responses(response),
+				stop_reason=response.status if response.status else None,
+			)
+
+		except ModelProviderError:
+			raise
+
+		except RateLimitError as e:
+			raise ModelRateLimitError(message=e.message, model=self.name) from e
+
+		except APIConnectionError as e:
+			raise ModelProviderError(message=str(e), model=self.name) from e
+
+		except APIStatusError as e:
+			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
+
+		except Exception as e:
+			raise ModelProviderError(message=str(e), model=self.name) from e
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, **kwargs: Any
@@ -155,6 +313,9 @@ class ChatOpenAI(BaseChatModel):
 		"""
 		Invoke the model with the given messages.
 
+		Routes to either the Responses API or the Chat Completions API based on
+		the model and ``use_responses_api`` setting.
+
 		Args:
 			messages: List of chat messages
 			output_format: Optional Pydantic model class for structured output
@@ -162,6 +323,8 @@ class ChatOpenAI(BaseChatModel):
 		Returns:
 			Either a string response or an instance of output_format
 		"""
+		if self._should_use_responses_api():
+			return await self._ainvoke_responses_api(messages, output_format, **kwargs)
 
 		openai_messages = OpenAIMessageSerializer.serialize_messages(messages)
 
