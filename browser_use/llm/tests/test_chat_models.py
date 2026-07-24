@@ -3,7 +3,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from browser_use.llm import ChatAnthropic, ChatGoogle, ChatGroq, ChatOpenAI, ChatOpenRouter
+from browser_use.llm import ChatAnthropic, ChatEdenAI, ChatGoogle, ChatGroq, ChatOpenAI, ChatOpenRouter
 from browser_use.llm.messages import ContentPartTextParam
 
 # Optional OCI import
@@ -86,6 +86,37 @@ class TestChatModels:
 			pytest.skip('OPENAI_API_KEY not set')
 
 		chat = ChatOpenAI(model='gpt-4o-mini', temperature=0)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
+
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+
+	# Eden AI Tests
+	@pytest.mark.asyncio
+	async def test_edenai_ainvoke_normal(self):
+		"""Test normal text response from Eden AI"""
+		# Skip if no API key
+		if not os.getenv('EDENAI_API_KEY'):
+			pytest.skip('EDENAI_API_KEY not set')
+
+		chat = ChatEdenAI(model='openai/gpt-4o-mini', temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+
+		completion = response.completion
+
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
+
+	@pytest.mark.asyncio
+	async def test_edenai_ainvoke_structured(self):
+		"""Test structured output from Eden AI"""
+		# Skip if no API key
+		if not os.getenv('EDENAI_API_KEY'):
+			pytest.skip('EDENAI_API_KEY not set')
+
+		chat = ChatEdenAI(model='openai/gpt-4o-mini', temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 		completion = response.completion
 
