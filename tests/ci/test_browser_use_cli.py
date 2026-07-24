@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,6 +38,69 @@ def test_normalize_captured_cli_output_handles_string_system_exit(capsys):
 	captured = capsys.readouterr()
 	assert captured.out == ''
 	assert captured.err == 'browser-use failed\n'
+
+
+def test_page_info_with_tab_context_infers_current_tab():
+	from browser_use.cli import _page_info_with_tab_context
+
+	tabs = [
+		{'target_id': 'tab-1', 'url': 'https://example.com/old', 'title': 'Old tab'},
+		{'target_id': 'tab-2', 'url': 'https://example.com/new', 'title': 'New tab'},
+	]
+
+	page_info = _page_info_with_tab_context(
+		{'url': 'https://example.com/new', 'title': 'New tab', 'w': 1280, 'h': 720},
+		tabs=tabs,
+		current_tab=None,
+	)
+
+	assert page_info['tab_count'] == 2
+	assert page_info['tabs'] == tabs
+	assert page_info['current_tab'] == tabs[1]
+
+
+def test_patch_browser_harness_page_info_adds_tabs_and_is_idempotent():
+	import browser_use.cli as browser_use_cli
+
+	tabs = [
+		{'target_id': 'tab-1', 'url': 'https://example.com/old', 'title': 'Old tab'},
+		{'target_id': 'tab-2', 'url': 'https://example.com/new', 'title': 'New tab'},
+	]
+	run = SimpleNamespace(
+		page_info=lambda: {'url': 'https://example.com/new', 'title': 'New tab'},
+		list_tabs=lambda: tabs,
+		current_tab=lambda: tabs[1],
+	)
+
+	browser_use_cli._patch_browser_harness_page_info(run)
+	patched_page_info = run.page_info
+	browser_use_cli._patch_browser_harness_page_info(run)
+
+	assert run.page_info is patched_page_info
+	assert run.page_info() == {
+		'url': 'https://example.com/new',
+		'title': 'New tab',
+		'tabs': tabs,
+		'tab_count': 2,
+		'current_tab': tabs[1],
+	}
+
+
+def test_patch_browser_harness_page_info_preserves_state_when_tab_queries_fail():
+	import browser_use.cli as browser_use_cli
+
+	def fail():
+		raise RuntimeError('browser disconnected')
+
+	run = SimpleNamespace(
+		page_info=lambda: {'url': 'https://example.com', 'title': 'Example'},
+		list_tabs=fail,
+		current_tab=fail,
+	)
+
+	browser_use_cli._patch_browser_harness_page_info(run)
+
+	assert run.page_info() == {'url': 'https://example.com', 'title': 'Example'}
 
 
 def test_browser_use_tui_is_deprecated_alias(monkeypatch, capsys):
