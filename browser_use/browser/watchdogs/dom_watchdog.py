@@ -551,6 +551,8 @@ class DOMWatchdog(BaseWatchdog):
 					paint_order_filtering=self.browser_session.browser_profile.paint_order_filtering,
 					max_iframes=self.browser_session.browser_profile.max_iframes,
 					max_iframe_depth=self.browser_session.browser_profile.max_iframe_depth,
+					dom_build_timeout=self.browser_session.browser_profile.dom_build_timeout,
+					dom_build_retry_timeout=self.browser_session.browser_profile.dom_build_retry_timeout,
 				)
 
 			# Get serialized DOM tree using the service

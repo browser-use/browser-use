@@ -52,6 +52,8 @@ class DomService:
 		max_iframes: int = 100,
 		max_iframe_depth: int = 5,
 		viewport_threshold: int | None = 1000,
+		dom_build_timeout: float = 10.0,
+		dom_build_retry_timeout: float = 2.0,
 	):
 		self.browser_session = browser_session
 		self.logger = logger or browser_session.logger
@@ -60,6 +62,8 @@ class DomService:
 		self.max_iframes = max_iframes
 		self.max_iframe_depth = max_iframe_depth
 		self.viewport_threshold = viewport_threshold
+		self.dom_build_timeout = dom_build_timeout
+		self.dom_build_retry_timeout = dom_build_retry_timeout
 
 	async def __aenter__(self):
 		return self
@@ -572,7 +576,7 @@ class DomService:
 		}
 
 		# Wait for all tasks with timeout
-		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
+		done, pending = await asyncio.wait(tasks.values(), timeout=self.dom_build_timeout)
 
 		# Retry any failed or timed out tasks
 		if pending:
@@ -597,7 +601,9 @@ class DomService:
 					tasks[key] = retry_map[task]()
 
 			# Wait again with shorter timeout
-			done2, pending2 = await asyncio.wait([t for t in tasks.values() if not t.done()], timeout=2.0)
+			done2, pending2 = await asyncio.wait(
+				[t for t in tasks.values() if not t.done()], timeout=self.dom_build_retry_timeout
+			)
 
 			if pending2:
 				for task in pending2:
