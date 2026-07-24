@@ -1770,7 +1770,7 @@ def _structured_result_text(
 		except (ValidationError, ValueError):
 			continue
 		return candidate
-	return result
+	return None
 
 
 def _failure_from_events(events: list[dict[str, Any]]) -> str | None:
@@ -3997,8 +3997,12 @@ def _history_from_events(
 	process_error: str | None,
 ) -> AgentHistoryList[AgentStructuredOutput]:
 	events = _events_after_terminal_rollbacks(_events_after_terminal_compaction(events))
-	final_result = _structured_result_text(_result_from_events(events), output_model_schema)
+	raw_result = _result_from_events(events)
+	final_result = _structured_result_text(raw_result, output_model_schema)
 	failure = process_error or _failure_from_events(events)
+	if final_result is None and raw_result is not None and output_model_schema is not None and failure is None:
+		schema_name = getattr(output_model_schema, '__name__', 'output_model_schema')
+		failure = f'Rust terminal final result did not match output schema {schema_name}.'
 	if final_result is None and failure is not None:
 		final_result = _structured_result_text(_last_streamed_assistant_text_from_events(events), output_model_schema)
 	if final_result is None and failure is None:
