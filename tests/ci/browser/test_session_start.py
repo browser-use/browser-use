@@ -58,6 +58,22 @@ class TestBrowserSessionStart:
 		await browser_session.start()
 		assert browser_session._cdp_client_root is not None
 
+	@pytest.mark.parametrize('shutdown_method', ['stop', 'kill'])
+	async def test_start_after_shutdown(self, browser_session: BrowserSession, shutdown_method: str):
+		"""A stopped or killed session can create a new browser connection."""
+		from browser_use.browser.events import BrowserStartEvent
+
+		await browser_session.start()
+		previous_event_bus = browser_session.event_bus
+
+		await getattr(browser_session, shutdown_method)()
+
+		assert browser_session.event_bus is not previous_event_bus
+		assert browser_session.event_bus.handlers.get(BrowserStartEvent.__name__)
+
+		await browser_session.start()
+		assert browser_session._cdp_client_root is not None
+
 	# @pytest.mark.skip(reason="Race condition - DOMWatchdog tries to inject scripts into tab that's being closed")
 	# async def test_page_lifecycle_management(self, browser_session: BrowserSession):
 	# 	"""Test session handles page lifecycle correctly."""
