@@ -65,6 +65,25 @@ class TestSanitizeDownloadFilename:
 		assert DownloadsWatchdog._sanitize_download_filename('résumé.pdf') == 'résumé.pdf'
 		assert DownloadsWatchdog._sanitize_download_filename('文档.pdf') == '文档.pdf'
 
+	def test_windows_reserved_device_names_prefixed(self) -> None:
+		# On Windows, CON/NUL/COM1/... alias devices even with an extension (CON.pdf opens the
+		# console), so prefix '_' to keep a valid filename instead of silently losing the download.
+		assert DownloadsWatchdog._sanitize_download_filename('CON.pdf') == '_CON.pdf'
+		assert DownloadsWatchdog._sanitize_download_filename('nul') == '_nul'
+		assert DownloadsWatchdog._sanitize_download_filename('COM1.txt') == '_COM1.txt'
+		assert DownloadsWatchdog._sanitize_download_filename('LPT9.tar.gz') == '_LPT9.tar.gz'
+		assert DownloadsWatchdog._sanitize_download_filename('AUX') == '_AUX'
+		# Trailing-space/dot variants also alias the device on Windows.
+		assert DownloadsWatchdog._sanitize_download_filename('con ') == '_con '
+		# Windows maps Latin-1 superscript ¹²³ to COM1-3 / LPT1-3 device names.
+		assert DownloadsWatchdog._sanitize_download_filename('COM¹.txt') == '_COM¹.txt'
+		assert DownloadsWatchdog._sanitize_download_filename('LPT³') == '_LPT³'
+
+	def test_reserved_name_lookalikes_preserved(self) -> None:
+		# Names that merely contain a reserved token must not be rewritten.
+		for ok in ('console.log', 'connection.json', 'com10.txt', 'lpt0.bin', 'report-CON.pdf', '.con', 'COM⁴.txt'):
+			assert DownloadsWatchdog._sanitize_download_filename(ok) == ok, f'{ok!r} should be preserved'
+
 
 class TestIsPathContained:
 	def test_file_inside_dir_returns_true(self, tmp_path: Path) -> None:
