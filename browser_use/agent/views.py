@@ -597,6 +597,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	history: list[AgentHistory]
 	usage: UsageSummary | None = None
+	recordings: list[str] = Field(default_factory=list)
 
 	_output_model_schema: type[AgentStructuredOutput] | None = None
 
@@ -668,9 +669,12 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def model_dump(self, **kwargs) -> dict[str, Any]:
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
-		return {
+		data: dict[str, Any] = {
 			'history': [h.model_dump(**kwargs) for h in self.history],
 		}
+		if self.recordings:
+			data['recordings'] = self.recordings.copy()
+		return data
 
 	@classmethod
 	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
@@ -782,6 +786,14 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 				return [h.state.screenshot_path if h.state.screenshot_path is not None else None for h in self.history[-n_last:]]
 			else:
 				return [h.state.screenshot_path for h in self.history[-n_last:] if h.state.screenshot_path is not None]
+
+	def recorded_video_paths(self) -> list[str]:
+		"""Get all video recording paths captured for this history."""
+		return self.recordings.copy()
+
+	def video_paths(self) -> list[str]:
+		"""Alias for recorded_video_paths()."""
+		return self.recorded_video_paths()
 
 	def screenshots(self, n_last: int | None = None, return_none_if_not_screenshot: bool = True) -> list[str | None]:
 		"""Get all screenshots from history as base64 strings"""
