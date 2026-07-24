@@ -246,6 +246,26 @@ class TestBrowserSessionEventSystem:
 		assert browser_session.event_bus.name.startswith('EventBus_')
 		# Event bus name format may vary, just check it exists
 
+	@pytest.mark.parametrize('reset_method', ['stop', 'kill'])
+	async def test_session_handlers_registered_after_event_bus_reset(self, browser_session: BrowserSession, reset_method: str):
+		"""Session handlers must be restored when stop() or kill() replaces the event bus."""
+		initial_bus = browser_session.event_bus
+		initial_handlers = {
+			event_name: [getattr(handler, '__name__', str(handler)) for handler in handlers]
+			for event_name, handlers in initial_bus.handlers.items()
+		}
+		assert initial_handlers
+		assert 'BrowserStartEvent' in initial_handlers
+		assert 'BrowserStopEvent' in initial_handlers
+
+		await getattr(browser_session, reset_method)()
+
+		assert browser_session.event_bus is not initial_bus
+		assert {
+			event_name: [getattr(handler, '__name__', str(handler)) for handler in handlers]
+			for event_name, handlers in browser_session.event_bus.handlers.items()
+		} == initial_handlers
+
 	async def test_event_handlers_registration(self, browser_session: BrowserSession):
 		"""Test that event handlers are properly registered."""
 		# Attach all watchdogs to register their handlers
