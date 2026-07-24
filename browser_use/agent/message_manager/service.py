@@ -8,6 +8,7 @@ from browser_use.agent.message_manager.views import (
 )
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import (
+	ActionOutcome,
 	ActionResult,
 	AgentOutput,
 	AgentStepInfo,
@@ -341,6 +342,9 @@ class MessageManager:
 					error_text = action_result.error[:100] + '......' + action_result.error[-100:]
 				else:
 					error_text = action_result.error
+				# Prefix with outcome category for non-system errors so the agent understands the type
+				if action_result.outcome != ActionOutcome.SUCCESS:
+					error_text = f'[{action_result.outcome.value}] {error_text}'
 				action_results += f'{error_text}\n'
 				logger.debug(f'Added error to action_results: {error_text}')
 
