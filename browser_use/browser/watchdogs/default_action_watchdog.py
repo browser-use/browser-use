@@ -2114,9 +2114,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 					// Input event - primary event for React controlled components
 					{ type: 'input', bubbles: true, cancelable: true },
 					// Change event - important for form validation and Vue v-model
-					{ type: 'change', bubbles: true, cancelable: true },
-					// Blur event - triggers validation in many frameworks
-					{ type: 'blur', bubbles: true, cancelable: true }
+					{ type: 'change', bubbles: true, cancelable: true }
+					// NOTE: blur is handled separately below via a real element.blur()
+					// (see issue #5054) — a dispatched Event('blur') does not move focus.
 				];
 
 				let success = true;
@@ -2174,6 +2174,30 @@ class DefaultActionWatchdog(BaseWatchdog):
 						setTimeout(() => element.dispatchEvent(vueEvent), 0);
 					} catch (e) {
 						console.warn('Vue reactivity trigger failed:', e);
+					}
+				}
+
+				// Commit the typed value by actually moving focus out of the field (issue #5054).
+				// A dispatched Event('blur') runs blur listeners but does NOT move focus, and is
+				// invisible to React's onBlur (React 17+ delegates onBlur to the native focusout
+				// event), so UIs that only commit/validate on real focus loss never see the value —
+				// the agent types, clicks Save, and the value is dropped. element.blur() fires the
+				// native blur + focusout and updates document.activeElement, which every major
+				// framework commits on.
+				// Skip autocomplete/combobox/contenteditable fields: removing focus there closes the
+				// suggestion dropdown before the agent can click an option (mirrors the
+				// autocomplete handling in input()).
+				const role = (element.getAttribute('role') || '').toLowerCase();
+				const ariaAutocomplete = (element.getAttribute('aria-autocomplete') || '').toLowerCase();
+				const isAutocompleteLike =
+					role === 'combobox' ||
+					(ariaAutocomplete !== '' && ariaAutocomplete !== 'none') ||
+					element.isContentEditable === true;
+				if (!isAutocompleteLike && typeof element.blur === 'function') {
+					try {
+						element.blur();
+					} catch (e) {
+						console.warn('element.blur() failed:', e);
 					}
 				}
 
