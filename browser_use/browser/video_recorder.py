@@ -5,7 +5,7 @@ import io
 import logging
 import math
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from browser_use.browser.profile import ViewportSize
 
@@ -20,6 +20,7 @@ except ImportError:
 	IMAGEIO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+MAX_FRAME_GAP_SECONDS = 60.0
 
 
 def _get_padded_size(size: ViewportSize, macro_block_size: int = 16) -> ViewportSize:
@@ -53,6 +54,8 @@ class VideoRecorderService:
 		self._writer: Optional['Format.Writer'] = None
 		self._is_active = False
 		self.padded_size = _get_padded_size(self.size)
+		self._last_frame_array: Any | None = None
+		self._last_frame_timestamp: float | None = None
 
 	def start(self) -> None:
 		"""
@@ -84,41 +87,75 @@ class VideoRecorderService:
 			logger.error(f'Failed to initialize video writer: {e}')
 			self._is_active = False
 
-	def add_frame(self, frame_data_b64: str) -> None:
+	def _decode_frame(self, frame_data_b64: str) -> Any:
 		"""
 		Decodes a base64-encoded PNG frame, resizes it, pads it to be codec-compatible,
-		and appends it to the video.
+		and returns it as a numpy array.
 
 		Args:
 		    frame_data_b64: A base64-encoded string of the PNG frame data.
+		"""
+		frame_bytes = base64.b64decode(frame_data_b64)
+
+		# Use PIL to handle image processing in memory - much faster than spawning ffmpeg subprocess per frame
+		with Image.open(io.BytesIO(frame_bytes)) as img:
+			# 1. Resize if needed to target viewport size
+			if img.size != (self.size['width'], self.size['height']):
+				# Use BICUBIC as it's faster than LANCZOS and good enough for screen recordings
+				img = img.resize((self.size['width'], self.size['height']), Image.Resampling.BICUBIC)
+
+			# 2. Handle Padding (Macro block alignment for codecs)
+			# Check if padding is actually needed
+			if self.padded_size['width'] != self.size['width'] or self.padded_size['height'] != self.size['height']:
+				new_img = Image.new('RGB', (self.padded_size['width'], self.padded_size['height']), (0, 0, 0))
+				# Center the image
+				x_offset = (self.padded_size['width'] - self.size['width']) // 2
+				y_offset = (self.padded_size['height'] - self.size['height']) // 2
+				new_img.paste(img, (x_offset, y_offset))
+				img = new_img
+
+			# 3. Convert to numpy array for imageio
+			return np.array(img)
+
+	def _repeat_count_for_timestamp(self, timestamp: float | None) -> int:
+		if timestamp is None or self._last_frame_timestamp is None or self.framerate <= 0:
+			return 0
+
+		elapsed = timestamp - self._last_frame_timestamp
+		if elapsed <= 0:
+			return 0
+
+		if elapsed > MAX_FRAME_GAP_SECONDS:
+			logger.debug(
+				'Capping video frame gap from %.2fs to %.2fs to avoid excessive duplicate frames',
+				elapsed,
+				MAX_FRAME_GAP_SECONDS,
+			)
+			elapsed = MAX_FRAME_GAP_SECONDS
+
+		return max(0, int(elapsed * self.framerate) - 1)
+
+	def add_frame(self, frame_data_b64: str, timestamp: float | None = None) -> None:
+		"""
+		Decodes and appends a screencast frame.
+
+		When CDP provides timestamps, duplicate the previous frame to preserve
+		real elapsed time between sparse screencast frames.
 		"""
 		if not self._is_active or not self._writer:
 			return
 
 		try:
-			frame_bytes = base64.b64decode(frame_data_b64)
+			frame_array = self._decode_frame(frame_data_b64)
 
-			# Use PIL to handle image processing in memory - much faster than spawning ffmpeg subprocess per frame
-			with Image.open(io.BytesIO(frame_bytes)) as img:
-				# 1. Resize if needed to target viewport size
-				if img.size != (self.size['width'], self.size['height']):
-					# Use BICUBIC as it's faster than LANCZOS and good enough for screen recordings
-					img = img.resize((self.size['width'], self.size['height']), Image.Resampling.BICUBIC)
+			repeat_count = self._repeat_count_for_timestamp(timestamp)
+			if repeat_count and self._last_frame_array is not None:
+				for _ in range(repeat_count):
+					self._writer.append_data(self._last_frame_array)
 
-				# 2. Handle Padding (Macro block alignment for codecs)
-				# Check if padding is actually needed
-				if self.padded_size['width'] != self.size['width'] or self.padded_size['height'] != self.size['height']:
-					new_img = Image.new('RGB', (self.padded_size['width'], self.padded_size['height']), (0, 0, 0))
-					# Center the image
-					x_offset = (self.padded_size['width'] - self.size['width']) // 2
-					y_offset = (self.padded_size['height'] - self.size['height']) // 2
-					new_img.paste(img, (x_offset, y_offset))
-					img = new_img
-
-				# 3. Convert to numpy array for imageio
-				img_array = np.array(img)
-
-			self._writer.append_data(img_array)
+			self._writer.append_data(frame_array)
+			self._last_frame_array = frame_array
+			self._last_frame_timestamp = timestamp
 		except Exception as e:
 			logger.warning(f'Could not process and add video frame: {e}')
 
@@ -139,3 +176,5 @@ class VideoRecorderService:
 		finally:
 			self._is_active = False
 			self._writer = None
+			self._last_frame_array = None
+			self._last_frame_timestamp = None
