@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 import psutil
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,27 @@ def is_running_in_docker() -> bool:
 	return False
 
 
+_TRUTHY_ENV_VALUES = frozenset({'true', '1', 'yes', 'y', 'on', 't'})
+
+
+def _env_bool(name: str, default: bool) -> bool:
+	"""Parse a boolean environment variable.
+
+	An unset or empty/whitespace-only value falls back to ``default`` — an empty
+	env var (e.g. a bare ``ANONYMIZED_TELEMETRY=`` in a ``.env`` file) is treated as
+	"not set", matching pydantic-settings/dotenv conventions. Any other value is
+	truthy only if it is one of the common affirmative spellings.
+
+	This replaces the previous ``os.getenv(...).lower()[:1] in 'ty1'`` check, under
+	which an empty string evaluated to ``True`` (``'' in 'ty1'`` is ``True``) and any
+	value starting with t/y/1 (e.g. ``'yesterday'``) counted as truthy.
+	"""
+	raw = os.getenv(name)
+	if raw is None or not raw.strip():
+		return default
+	return raw.strip().lower() in _TRUTHY_ENV_VALUES
+
+
 class OldConfig:
 	"""Original lazy-loading configuration class for environment variables."""
 
@@ -56,11 +77,11 @@ class OldConfig:
 
 	@property
 	def ANONYMIZED_TELEMETRY(self) -> bool:
-		return os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[:1] in 'ty1'
+		return _env_bool('ANONYMIZED_TELEMETRY', True)
 
 	@property
 	def BROWSER_USE_CLOUD_SYNC(self) -> bool:
-		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
+		return _env_bool('BROWSER_USE_CLOUD_SYNC', self.ANONYMIZED_TELEMETRY)
 
 	@property
 	def BROWSER_USE_CLOUD_API_URL(self) -> str:
@@ -164,7 +185,7 @@ class OldConfig:
 
 	@property
 	def SKIP_LLM_API_KEY_VERIFICATION(self) -> bool:
-		return os.getenv('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[:1] in 'ty1'
+		return _env_bool('SKIP_LLM_API_KEY_VERIFICATION', False)
 
 	@property
 	def DEFAULT_LLM(self) -> str:
@@ -173,15 +194,15 @@ class OldConfig:
 	# Runtime hints
 	@property
 	def IN_DOCKER(self) -> bool:
-		return os.getenv('IN_DOCKER', 'false').lower()[:1] in 'ty1' or is_running_in_docker()
+		return _env_bool('IN_DOCKER', False) or is_running_in_docker()
 
 	@property
 	def IS_IN_EVALS(self) -> bool:
-		return os.getenv('IS_IN_EVALS', 'false').lower()[:1] in 'ty1'
+		return _env_bool('IS_IN_EVALS', False)
 
 	@property
 	def BROWSER_USE_VERSION_CHECK(self) -> bool:
-		return os.getenv('BROWSER_USE_VERSION_CHECK', 'true').lower()[:1] in 'ty1'
+		return _env_bool('BROWSER_USE_VERSION_CHECK', True)
 
 	@property
 	def WIN_FONT_DIR(self) -> str:
@@ -192,6 +213,20 @@ class FlatEnvConfig(BaseSettings):
 	"""All environment variables in a flat namespace."""
 
 	model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', case_sensitive=True, extra='allow')
+
+	@model_validator(mode='before')
+	@classmethod
+	def _treat_empty_env_as_unset(cls, data: Any) -> Any:
+		"""Drop empty-string env values so field defaults apply.
+
+		pydantic rejects ``''`` for ``bool`` fields, so a bare ``ANONYMIZED_TELEMETRY=``
+		(or any empty boolean var) in the environment would otherwise raise a
+		ValidationError and make ``import browser_use`` fail outright. Treating empty
+		as "unset" also keeps this consistent with OldConfig's ``_env_bool`` handling.
+		"""
+		if isinstance(data, dict):
+			return {k: v for k, v in data.items() if not (isinstance(v, str) and not v.strip())}
+		return data
 
 	# Logging and telemetry
 	BROWSER_USE_LOGGING_LEVEL: str = Field(default='info')
