@@ -184,6 +184,32 @@ def get_parent_process_cmdline() -> str | None:
 		return None
 
 
+# Sentinel prefixes/strings that ``_execute_tool`` helpers return to indicate a
+# tool-level failure (rather than raising). These are surfaced to the MCP client
+# as ``isError=True`` results so clients can distinguish them from successes.
+_ERROR_SENTINELS = (
+	'Error:',
+	'Element with index ',
+	'Unknown tool',
+	'No browser session active',
+	'No browser session to close',
+	'No active CDP session',
+	'Agent task failed',
+	'Error closing session',
+	'OPENAI_API_KEY not set',
+	'LLM not initialized',
+	'FileSystem not initialized',
+	'Tools not initialized',
+)
+
+
+def _is_error_response(text: str) -> bool:
+	"""Return True when ``text`` is a semantic failure returned by a tool helper."""
+	if not isinstance(text, str):
+		return False
+	return any(text.startswith(sentinel) for sentinel in _ERROR_SENTINELS)
+
+
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
@@ -457,19 +483,38 @@ class BrowserUseServer:
 			return []
 
 		@self.server.call_tool()
-		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent | types.ImageContent]:
-			"""Handle tool execution."""
+		async def handle_call_tool(
+			name: str, arguments: dict[str, Any] | None
+		) -> list[types.TextContent | types.ImageContent] | types.CallToolResult:
+			"""Handle tool execution.
+
+			Tool failures are reported to the client as CallToolResult with
+			``isError=True`` so MCP clients can distinguish them from successful
+			calls. This covers both raised exceptions and the semantic error
+			strings that the ``_execute_tool`` helpers return (e.g.
+			"Element with index N not found", "Unknown tool", "Error: ...").
+			"""
 			start_time = time.time()
 			error_msg = None
 			try:
 				result = await self._execute_tool(name, arguments or {})
 				if isinstance(result, list):
 					return result
+				# Strings that represent a failure are surfaced as errors.
+				if _is_error_response(result):
+					error_msg = result
+					return types.CallToolResult(
+						content=[types.TextContent(type='text', text=result)],
+						isError=True,
+					)
 				return [types.TextContent(type='text', text=result)]
 			except Exception as e:
 				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
-				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
+				return types.CallToolResult(
+					content=[types.TextContent(type='text', text=f'Error: {str(e)}')],
+					isError=True,
+				)
 			finally:
 				# Capture telemetry for tool calls
 				duration = time.time() - start_time
