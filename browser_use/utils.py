@@ -46,6 +46,7 @@ def sanitize_url_candidate(url: str) -> str:
 	# "https://example.com/search.\\n2. Next step". Those are task text,
 	# not part of the URL.
 	candidate = re.split(r'\\[nrt]', candidate, maxsplit=1)[0]
+	candidate = candidate.strip('\'"`<>')
 	return re.sub(r'[.,;:!?()\[\]]+$', '', candidate)
 
 
