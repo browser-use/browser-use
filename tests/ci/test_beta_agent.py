@@ -3485,7 +3485,7 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	)
 	deepseek_agent = Agent(
 		task='DeepSeek credentials.',
-		llm=LLM('deepseek', 'deepseek-chat', api_key='llm-deepseek-key', base_url='https://ignored.example'),
+		llm=LLM('deepseek', 'deepseek-v4-flash', api_key='llm-deepseek-key', base_url='https://ignored.example'),
 	)
 	browser_use_agent = Agent(
 		task='Browser Use credentials.',
@@ -3529,7 +3529,7 @@ def test_beta_agent_bridges_llm_credentials_to_terminal_env(monkeypatch):
 	}
 	assert deepseek_agent._sdk_run_params(max_steps=3, task=deepseek_agent.task)['llm'] | {'timeout': None} == {
 		'provider': 'deepseek',
-		'model': 'deepseek-chat',
+		'model': 'deepseek-v4-flash',
 		'timeout': None,
 	}
 	assert browser_use_agent._sdk_run_params(max_steps=3, task=browser_use_agent.task)['llm'] | {'timeout': None} == {
@@ -3558,7 +3558,7 @@ def test_beta_agent_requests_openai_compatible_usage_for_cost_calculation(monkey
 	)._run_env()
 	deepseek_env = Agent(
 		task='Track DeepSeek usage.',
-		llm=LLM('deepseek', 'deepseek-chat'),
+		llm=LLM('deepseek', 'deepseek-v4-flash'),
 		calculate_cost=True,
 	)._run_env()
 	default_env = Agent(
@@ -4535,7 +4535,7 @@ def test_beta_agent_llm_timeout_defaults_match_browser_use_model_families():
 		async def ainvoke(self, messages, output_format=None, **kwargs):
 			return type('Result', (), {'usage': None})()
 
-	for model in ['gpt-test', 'gemini-2.5-pro', 'groq-llama', 'o3-mini', 'claude-sonnet', 'deepseek-chat']:
+	for model in ['gpt-test', 'gemini-2.5-pro', 'groq-llama', 'o3-mini', 'claude-sonnet', 'deepseek-v4-flash']:
 		browser_use_agent = BrowserUseAgent(task='Inspect timeout.', llm=LLM(model), directly_open_url=False)
 		beta_agent = BetaAgent(task='Inspect timeout.', llm=LLM(model), directly_open_url=False)
 
@@ -4558,7 +4558,7 @@ def test_beta_agent_forces_vision_for_all_model_families():
 		async def ainvoke(self, messages, output_format=None, **kwargs):
 			return type('Result', (), {'usage': None})()
 
-	for model in ['deepseek-chat', 'grok-3', 'grok-code']:
+	for model in ['deepseek-v4-flash', 'grok-3', 'grok-code']:
 		beta_agent = BetaAgent(task='Inspect vision.', llm=LLM(model), directly_open_url=False, use_vision=False)
 
 		assert beta_agent.settings.use_vision is True
@@ -4596,7 +4596,7 @@ def test_beta_agent_does_not_warn_when_forcing_vision(monkeypatch):
 		def error(self, message, *args, **kwargs):
 			pass
 
-	for model in ['deepseek-chat', 'grok-2']:
+	for model in ['deepseek-v4-flash', 'grok-2']:
 		beta_logger = RecordingLogger()
 		monkeypatch.setattr(BetaAgent, 'logger', property(lambda self, logger=beta_logger: logger))
 

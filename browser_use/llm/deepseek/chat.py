@@ -29,13 +29,23 @@ T = TypeVar('T', bound=BaseModel)
 class ChatDeepSeek(BaseChatModel):
 	"""DeepSeek /chat/completions wrapper (OpenAI-compatible)."""
 
-	model: str = 'deepseek-chat'
+	model: str = 'deepseek-v4-flash'
 
 	# Generation parameters
 	max_tokens: int | None = None
 	temperature: float | None = None
 	top_p: float | None = None
 	seed: int | None = None
+
+	# Thinking / reasoning controls (DeepSeek V4 family + `deepseek-reasoner`).
+	# `thinking` maps directly onto DeepSeek's request field, e.g. {'type': 'disabled'}
+	# or {'type': 'enabled'}. Leave as None to use the sensible per-model default
+	# (see `_resolved_thinking`): V4 models default to non-thinking for reliable
+	# structured output, the `deepseek-reasoner` alias stays thinking.
+	thinking: dict[str, Any] | None = None
+	reasoning_effort: str | None = None
+	# Escape hatch for any additional request-body params not modelled above.
+	extra_body: dict[str, Any] | None = None
 
 	# Connection parameters
 	api_key: str | None = None
@@ -46,6 +56,71 @@ class ChatDeepSeek(BaseChatModel):
 	@property
 	def provider(self) -> str:
 		return 'deepseek'
+
+	def _resolved_thinking(self) -> dict[str, Any] | None:
+		"""The `thinking` value to actually send (None = omit and keep server default).
+
+		DeepSeek deprecated `deepseek-chat` (non-thinking v4-flash) and `deepseek-reasoner`
+		(thinking v4-flash). Raw `deepseek-v4-*` server-defaults to thinking, but thinking
+		rejects forced `tool_choice`, so we explicitly pin V4 to non-thinking unless the
+		caller opts in — this mirrors the old `deepseek-chat` default and keeps structured
+		output reliable. The `reasoner` alias stays thinking (its whole point).
+		"""
+		if self.thinking is not None:
+			return self.thinking
+		model = self.name.lower()
+		if 'reasoner' in model:
+			return None
+		if 'deepseek-v4' in model:
+			return {'type': 'disabled'}
+		return None
+
+	def _thinking_enabled(self) -> bool:
+		"""Whether thinking is active for this call.
+
+		Thinking Mode rejects forced/named `tool_choice`, so this decides whether we may
+		force a named tool (non-thinking) or must fall back to `tool_choice='auto'` (thinking).
+		"""
+		resolved = self._resolved_thinking()
+		if resolved is not None:
+			return resolved.get('type') != 'disabled'
+		# resolved is None only for the reasoner alias (thinking) or unknown legacy models.
+		return 'reasoner' in self.name.lower()
+
+	def _build_extra_body(self) -> dict[str, Any] | None:
+		"""Merge caller-provided extra_body with the modelled thinking/reasoning knobs."""
+		extra_body: dict[str, Any] = dict(self.extra_body or {})
+		resolved_thinking = self._resolved_thinking()
+		if resolved_thinking is not None:
+			extra_body['thinking'] = resolved_thinking
+		if self.reasoning_effort is not None:
+			extra_body['reasoning_effort'] = self.reasoning_effort
+		return extra_body or None
+
+	@staticmethod
+	def _json_candidates_from_text(text: str) -> list[str]:
+		"""Best-effort extraction of JSON payloads from free-form assistant content.
+
+		Used when Thinking Mode returns the structured answer as message content (auto
+		tool_choice) instead of a tool call.
+		"""
+		candidates: list[str] = []
+		stripped = text.strip()
+		if stripped:
+			candidates.append(stripped)
+
+		if stripped.startswith('```') and stripped.endswith('```'):
+			lines = stripped.splitlines()
+			if len(lines) >= 3:
+				candidates.append('\n'.join(lines[1:-1]).strip())
+
+		for start_char, end_char in (('{', '}'), ('[', ']')):
+			start = stripped.find(start_char)
+			end = stripped.rfind(end_char)
+			if start != -1 and end > start:
+				candidates.append(stripped[start : end + 1])
+
+		return list(dict.fromkeys(candidate for candidate in candidates if candidate))
 
 	def _client(self) -> AsyncOpenAI:
 		return AsyncOpenAI(
@@ -107,6 +182,10 @@ class ChatDeepSeek(BaseChatModel):
 		if self.seed is not None:
 			common['seed'] = self.seed
 
+		extra_body = self._build_extra_body()
+		if extra_body is not None:
+			common['extra_body'] = extra_body
+
 		# Beta conversation prefix continuation (see official documentation)
 		if self.base_url and str(self.base_url).endswith('/beta'):
 			# The last assistant message must have prefix
@@ -123,8 +202,10 @@ class ChatDeepSeek(BaseChatModel):
 					messages=ds_messages,  # type: ignore
 					**common,
 				)
+				msg = resp.choices[0].message
 				return ChatInvokeCompletion(
-					completion=resp.choices[0].message.content or '',
+					completion=msg.content or '',
+					thinking=getattr(msg, 'reasoning_content', None),
 					usage=None,
 				)
 			except RateLimitError as e:
@@ -138,7 +219,7 @@ class ChatDeepSeek(BaseChatModel):
 		if tools or (output_format is not None and hasattr(output_format, 'model_json_schema')):
 			try:
 				call_tools = tools
-				tool_choice = None
+				tool_choice: Any = None
 				if output_format is not None and hasattr(output_format, 'model_json_schema'):
 					tool_name = output_format.__name__
 					schema = SchemaOptimizer.create_optimized_json_schema(output_format)
@@ -153,7 +234,13 @@ class ChatDeepSeek(BaseChatModel):
 							},
 						}
 					]
-					tool_choice = {'type': 'function', 'function': {'name': tool_name}}
+					# Thinking Mode rejects forced/named tool_choice (HTTP 400). Only force a
+					# named tool when thinking is off; otherwise let the model choose (auto)
+					# and recover the structured payload from the tool call or message content.
+					if self._thinking_enabled():
+						tool_choice = 'auto'
+					else:
+						tool_choice = {'type': 'function', 'function': {'name': tool_name}}
 				resp = await client.chat.completions.create(  # type: ignore
 					model=self.model,
 					messages=ds_messages,  # type: ignore
@@ -162,25 +249,32 @@ class ChatDeepSeek(BaseChatModel):
 					**common,
 				)
 				msg = resp.choices[0].message
-				if not msg.tool_calls:
-					raise ValueError('Expected tool_calls in response but got none')
-				raw_args = msg.tool_calls[0].function.arguments
-				if isinstance(raw_args, str):
-					parsed = json.loads(raw_args)
-				else:
-					parsed = raw_args
-				# --------- Fix: only use model_validate when output_format is not None ----------
-				if output_format is not None:
-					return ChatInvokeCompletion(
-						completion=output_format.model_validate(parsed),
-						usage=None,
-					)
-				else:
-					# If no output_format, return dict directly
-					return ChatInvokeCompletion(
-						completion=parsed,
-						usage=None,
-					)
+				thinking = getattr(msg, 'reasoning_content', None)
+
+				if msg.tool_calls:
+					raw_args = msg.tool_calls[0].function.arguments
+					parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+					if output_format is not None:
+						return ChatInvokeCompletion(
+							completion=output_format.model_validate(parsed),
+							thinking=thinking,
+							usage=None,
+						)
+					return ChatInvokeCompletion(completion=parsed, thinking=thinking, usage=None)
+
+				# No tool call: with auto tool_choice the model may return the JSON in content.
+				if output_format is not None and msg.content:
+					for candidate in self._json_candidates_from_text(msg.content):
+						try:
+							completion = output_format.model_validate_json(candidate)
+						except Exception:
+							try:
+								completion = output_format.model_validate(json.loads(candidate))
+							except Exception:
+								continue
+						return ChatInvokeCompletion(completion=completion, thinking=thinking, usage=None)
+
+				raise ValueError('Expected tool_calls in response but got none')
 			except RateLimitError as e:
 				raise ModelRateLimitError(str(e), model=self.name) from e
 			except (APIError, APIConnectionError, APITimeoutError, APIStatusError) as e:
