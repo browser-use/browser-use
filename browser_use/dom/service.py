@@ -31,6 +31,10 @@ if TYPE_CHECKING:
 
 # Note: iframe limits are now configurable via BrowserProfile.max_iframes and BrowserProfile.max_iframe_depth
 
+_MAX_JS_CLICK_LISTENER_ELEMENTS = 100
+_DESCRIBE_NODE_BATCH_SIZE = 20
+_JS_CLICK_LISTENER_OVERFLOW = '__browser_use_too_many_click_listeners__'
+
 
 class DomService:
 	"""
@@ -443,10 +447,10 @@ class DomService:
 			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 		iframe_scroll_ms = (time.time() - start_iframe_scroll) * 1000
 
-		# Detect elements with JavaScript click event listeners (without mutating DOM)
-		# On heavy pages (>10k elements) the querySelectorAll('*') + getEventListeners()
-		# loop plus per-element DOM.describeNode CDP calls can take 10s+.
-		# The JS expression below bails out early if the page is too heavy.
+		# Detect elements with JavaScript click event listeners (without mutating DOM).
+		# Bounding only the total DOM size is insufficient: framework-heavy pages can attach
+		# hundreds of listeners to fewer than 10k elements. Resolving every listener with an
+		# unbounded gather floods remote CDP connections and can make the whole session appear stale.
 		# Elements are still detected via the accessibility tree and ClickableElementDetector.
 		start_js_listener_detection = time.time()
 		js_click_listener_backend_ids: set[int] = set()
@@ -476,6 +480,9 @@ class DomService:
 								// Check for click-related event listeners
 								if (listeners.click || listeners.mousedown || listeners.mouseup || listeners.pointerdown || listeners.pointerup) {
 									elementsWithListeners.push(el);
+									if (elementsWithListeners.length > %d) {
+										return %r;
+									}
 								}
 							} catch (e) {
 								// Ignore errors for individual elements (e.g., cross-origin)
@@ -484,12 +491,18 @@ class DomService:
 
 						return elementsWithListeners;
 					})()
-					""",
+					"""
+					% (_MAX_JS_CLICK_LISTENER_ELEMENTS, _JS_CLICK_LISTENER_OVERFLOW),
 					'includeCommandLineAPI': True,  # enables getEventListeners()
 					'returnByValue': False,  # Return object references, not values
 				},
 				session_id=cdp_session.session_id,
 			)
+
+			if js_listener_result.get('result', {}).get('value') == _JS_CLICK_LISTENER_OVERFLOW:
+				self.logger.debug(
+					f'Skipping JS listener resolution: more than {_MAX_JS_CLICK_LISTENER_ELEMENTS} elements have click listeners'
+				)
 
 			result_object_id = js_listener_result.get('result', {}).get('objectId')
 			if result_object_id:
@@ -514,7 +527,6 @@ class DomService:
 							if object_id and isinstance(object_id, str):
 								element_object_ids.append(object_id)
 
-				# Batch resolve backend node IDs (run in parallel)
 				async def get_backend_node_id(object_id: str) -> int | None:
 					try:
 						node_info = await cdp_session.cdp_client.send.DOM.describeNode(
@@ -525,8 +537,13 @@ class DomService:
 					except Exception:
 						return None
 
-				# Resolve all element object IDs to backend node IDs in parallel
-				backend_ids = await asyncio.gather(*[get_backend_node_id(oid) for oid in element_object_ids])
+				# Keep concurrency bounded. Each describeNode call can trigger target/session
+				# bookkeeping, so even a few dozen simultaneous calls can starve screenshots
+				# and the other CDP requests needed to build browser state.
+				backend_ids: list[int | None] = []
+				for batch_start in range(0, len(element_object_ids), _DESCRIBE_NODE_BATCH_SIZE):
+					batch = element_object_ids[batch_start : batch_start + _DESCRIBE_NODE_BATCH_SIZE]
+					backend_ids.extend(await asyncio.gather(*[get_backend_node_id(object_id) for object_id in batch]))
 				js_click_listener_backend_ids = {bid for bid in backend_ids if bid is not None}
 
 				# Release the array object to avoid memory leaks

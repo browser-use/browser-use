@@ -1,0 +1,70 @@
+"""Regression tests for bounded JavaScript click-listener detection."""
+
+from collections import Counter
+
+import pytest
+
+from browser_use.browser.profile import BrowserProfile
+from browser_use.browser.session import BrowserSession
+from browser_use.dom.service import _MAX_JS_CLICK_LISTENER_ELEMENTS
+
+
+@pytest.fixture
+async def browser_session():
+	session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=True))
+	await session.start()
+	yield session
+	await session.kill()
+
+
+async def test_listener_detection_preserves_small_pages_and_skips_cdp_fanout(httpserver, browser_session: BrowserSession):
+	"""Direct listeners remain indexed normally, but listener-heavy pages do not flood CDP."""
+	small_listener_count = 3
+	overflow_listener_count = _MAX_JS_CLICK_LISTENER_ELEMENTS + 1
+
+	def listener_page(element_count: int) -> str:
+		elements = ''.join(f'<div id="custom-{index}">item {index}</div>' for index in range(element_count))
+		return f"""
+		<html>
+			<body>
+				{elements}
+				<script>
+					for (const element of document.querySelectorAll('[id^="custom-"]')) {{
+						element.addEventListener('click', () => undefined);
+					}}
+				</script>
+			</body>
+		</html>
+		"""
+
+	httpserver.expect_request('/few-listeners').respond_with_data(listener_page(small_listener_count), content_type='text/html')
+	httpserver.expect_request('/many-listeners').respond_with_data(
+		listener_page(overflow_listener_count), content_type='text/html'
+	)
+
+	await browser_session.navigate_to(httpserver.url_for('/few-listeners'))
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	cdp_calls: Counter[str] = Counter()
+	original_send_raw = cdp_session.cdp_client.send_raw
+
+	async def counted_send_raw(method, params=None, session_id=None):
+		cdp_calls[method] += 1
+		return await original_send_raw(method=method, params=params, session_id=session_id)
+
+	cdp_session.cdp_client.send_raw = counted_send_raw
+
+	small_state = await browser_session.get_browser_state_summary(include_screenshot=False)
+	small_ids = {
+		node.attributes.get('id')
+		for node in small_state.dom_state.selector_map.values()
+		if node.attributes.get('id', '').startswith('custom-')
+	}
+	assert small_ids == {f'custom-{index}' for index in range(small_listener_count)}
+	assert cdp_calls['DOM.describeNode'] == small_listener_count
+
+	await browser_session.navigate_to(httpserver.url_for('/many-listeners'))
+	cdp_calls.clear()
+	overflow_state = await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	assert overflow_state.dom_state is not None
+	assert cdp_calls['DOM.describeNode'] == 0
