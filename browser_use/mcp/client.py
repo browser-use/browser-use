@@ -226,7 +226,7 @@ class MCPClient:
 			await self.connect()
 
 		registry = tools.registry
-
+		pending_tools: list[tuple[str, types.Tool]] = []
 		for tool_name, tool in self._tools.items():
 			# Skip if not in filter
 			if tool_filter and tool_name not in tool_filter:
@@ -238,10 +238,27 @@ class MCPClient:
 			# Skip if already registered
 			if action_name in self._registered_actions:
 				continue
+			pending_tools.append((action_name, tool))
 
-			# Register the tool as an action
-			self._register_tool_as_action(registry, action_name, tool)
-			self._registered_actions.add(action_name)
+		collisions = sorted(action_name for action_name, _ in pending_tools if action_name in registry.registry.actions)
+		if collisions:
+			collision_names = ', '.join(collisions)
+			raise ValueError(
+				f'Action names already registered: {collision_names}. '
+				'Use an MCP tool prefix or filter to avoid overriding existing actions.'
+			)
+
+		registered_now: list[str] = []
+		try:
+			for action_name, tool in pending_tools:
+				self._register_tool_as_action(registry, action_name, tool)
+				self._registered_actions.add(action_name)
+				registered_now.append(action_name)
+		except Exception:
+			for action_name in registered_now:
+				registry.registry.actions.pop(action_name, None)
+				self._registered_actions.discard(action_name)
+			raise
 
 		logger.info(f"✅ Registered {len(self._registered_actions)} MCP tools from '{self.server_name}' as browser-use actions")
 
@@ -253,6 +270,12 @@ class MCPClient:
 			action_name: Name for the registered action
 			tool: MCP Tool object with schema information
 		"""
+		if action_name in registry.registry.actions:
+			raise ValueError(
+				f"Action name '{action_name}' is already registered. "
+				'Use an MCP tool prefix or filter to avoid overriding existing actions.'
+			)
+
 		# Parse tool parameters to create Pydantic model
 		param_fields = {}
 
