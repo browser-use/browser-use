@@ -1826,7 +1826,7 @@ class BrowserSession(BaseModel):
 
 				headers.setdefault('User-Agent', f'browser-use/{get_browser_use_version()}')
 				version_info = await client.get(url, headers=headers)
-				self.logger.debug(f'Raw version info: {str(version_info)}')
+				self.logger.debug(f'Raw version info: {version_info.text}')
 				self.browser_profile.cdp_url = version_info.json()['webSocketDebuggerUrl']
 
 		assert self.cdp_url is not None, 'CDP URL is None.'
