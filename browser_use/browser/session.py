@@ -1849,24 +1849,18 @@ class BrowserSession(BaseModel):
 			assert self._cdp_client_root is not None
 			await self._cdp_client_root.start()
 
-			# Initialize event-driven session manager FIRST (before enabling autoAttach)
-			# SessionManager will:
+			# Initialize event-driven session manager
+			# SessionManager.start_monitoring() will:
 			# 1. Register attach/detach event handlers
-			# 2. Discover and attach to all existing targets
+			# 2. Enable root autoAttach (attaches existing targets AND future ones —
+			#    it owns the single attach path, so no second setAutoAttach here or
+			#    every pre-existing target would get a duplicate CDP session)
 			# 3. Initialize sessions and enable lifecycle monitoring
-			# 4. Enable autoAttach for future targets
 			from browser_use.browser.session_manager import SessionManager
 
 			self.session_manager = SessionManager(self)
 			await self.session_manager.start_monitoring()
-			self.logger.debug('Event-driven session manager started')
-
-			# Enable auto-attach so Chrome automatically notifies us when NEW targets attach/detach
-			# This is the foundation of event-driven session management
-			await self._cdp_client_root.send.Target.setAutoAttach(
-				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-			)
-			self.logger.debug('CDP client connected with auto-attach enabled')
+			self.logger.debug('Event-driven session manager started with auto-attach enabled')
 
 			# Get browser targets from SessionManager (source of truth)
 			# SessionManager has already discovered all targets via start_monitoring()
@@ -2146,18 +2140,14 @@ class BrowserSession(BaseModel):
 		)
 		await self._cdp_client_root.start()
 
-		# 4. Re-initialize SessionManager
+		# 4. Re-initialize SessionManager (start_monitoring re-enables root autoAttach;
+		#    a second setAutoAttach here would re-attach existing targets and duplicate sessions)
 		from browser_use.browser.session_manager import SessionManager
 
 		self.session_manager = SessionManager(self)
 		await self.session_manager.start_monitoring()
 
-		# 5. Re-enable autoAttach
-		await self._cdp_client_root.send.Target.setAutoAttach(
-			params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
-		)
-
-		# 6. Re-discover page targets and restore focus
+		# 5. Re-discover page targets and restore focus
 		page_targets = self.session_manager.get_all_page_targets()
 
 		# Prefer the old focus target if it still exists
@@ -2182,10 +2172,10 @@ class BrowserSession(BaseModel):
 				await self.get_or_create_cdp_session(target_id, focus=True)
 				self.logger.debug(f'🔄 Created new blank page during reconnect: {target_id[:8]}...')
 
-		# 7. Re-enable proxy auth if configured
+		# 6. Re-enable proxy auth if configured
 		await self._setup_proxy_auth()
 
-		# 8. Attach the WS drop detection callback to the new client
+		# 7. Attach the WS drop detection callback to the new client
 		self._attach_ws_drop_callback()
 
 	async def _auto_reconnect(self, max_attempts: int = 3) -> None:
