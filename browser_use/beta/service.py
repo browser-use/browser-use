@@ -5316,6 +5316,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			process_error = None
 		if used_notification_events and events_result is not None:
 			process_error = None
+		if events_result is None and process_error is None:
+			llm_model = str(self.model) if self.model else 'unknown'
+			self.logger.warning(
+				'The agent completed without producing a result. The LLM (%s) did not return any response.',
+				llm_model,
+			)
+			if os.getenv('BROWSER_USE_API_KEY'):
+				self.logger.warning(
+					'BROWSER_USE_API_KEY is set. Check that the model name is correct and the API key is valid for model "%s".',
+					llm_model,
+				)
+			else:
+				self.logger.warning(
+					'BROWSER_USE_API_KEY is not set. Set it when using ChatBrowserUse or configure a different LLM provider.'
+				)
+			self.logger.warning('Check the Rust SDK logs above for errors, or enable debug logging for more details.')
 		self.last_events = events
 		self.last_child_events = child_events
 		self.last_usage_events = usage_events
