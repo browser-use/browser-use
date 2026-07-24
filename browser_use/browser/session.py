@@ -1424,22 +1424,34 @@ class BrowserSession(BaseModel):
 		"""Clear all cookies."""
 		await self.cdp_client.send.Network.clearBrowserCookies()
 
-	async def export_storage_state(self, output_path: str | Path | None = None) -> dict[str, Any]:
+	async def export_storage_state(
+		self, output_path: str | Path | None = None, *, include_storage: bool = False
+	) -> dict[str, Any]:
 		"""Export all browser cookies and storage to storage_state format.
 
 		Extracts decrypted cookies via CDP, bypassing keychain encryption.
+		By default only cookies are exported. Set include_storage=True to also
+		export localStorage/sessionStorage for origins currently present in the
+		page frame tree. Browser storage may contain sensitive tokens.
 
 		Args:
 			output_path: Optional path to save storage_state.json. If None, returns dict only.
+			include_storage: If True, include localStorage/sessionStorage origins.
 
 		Returns:
-			Storage state dict with cookies in Playwright format.
+			Storage state dict in Playwright format.
 
 		"""
 		from pathlib import Path
 
-		# Get all cookies using Storage.getCookies (returns decrypted cookies from all domains)
-		cookies = await self._cdp_get_cookies()
+		if include_storage:
+			raw_storage_state = await self._cdp_get_storage_state()
+			cookies = raw_storage_state.get('cookies', [])
+			origins = raw_storage_state.get('origins', [])
+		else:
+			# Get all cookies using Storage.getCookies (returns decrypted cookies from all domains)
+			cookies = await self._cdp_get_cookies()
+			origins = []
 
 		# Convert CDP cookie format to Playwright storage_state format
 		storage_state = {
@@ -1456,7 +1468,7 @@ class BrowserSession(BaseModel):
 				}
 				for c in cookies
 			],
-			'origins': [],  # Could add localStorage/sessionStorage extraction if needed
+			'origins': origins,
 		}
 
 		if output_path:
@@ -1465,7 +1477,8 @@ class BrowserSession(BaseModel):
 			output_file = Path(output_path).expanduser().resolve()
 			output_file.parent.mkdir(parents=True, exist_ok=True)
 			output_file.write_text(json.dumps(storage_state, indent=2, ensure_ascii=False), encoding='utf-8')
-			self.logger.info(f'💾 Exported {len(cookies)} cookies to {output_file}')
+			origins_message = f' and {len(origins)} origins' if include_storage else ''
+			self.logger.info(f'💾 Exported {len(cookies)} cookies{origins_message} to {output_file}')
 
 		return storage_state
 
