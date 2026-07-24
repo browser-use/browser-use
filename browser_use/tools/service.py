@@ -35,6 +35,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
+from browser_use.tools.policy import ActionPolicy
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
@@ -444,8 +445,9 @@ class Tools(Generic[Context]):
 		exclude_actions: list[str] | None = None,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
+		action_policy: ActionPolicy | None = None,
 	):
-		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [])
+		self.registry = Registry[Context](exclude_actions if exclude_actions is not None else [], action_policy=action_policy)
 		self.display_files_in_done_text = display_files_in_done_text
 		self._output_model: type[BaseModel] | None = output_model
 		self._coordinate_clicking_enabled: bool = False
