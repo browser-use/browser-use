@@ -295,6 +295,8 @@ class Registry(Generic[Context]):
 		domains: list[str] | None = None,
 		allowed_domains: list[str] | None = None,
 		terminates_sequence: bool = False,
+		risk_tags: tuple[str, ...] | list[str] | None = None,
+		requires_human_review: bool = False,
 	):
 		"""Decorator for registering actions"""
 		# Handle aliases: domains and allowed_domains are the same parameter
@@ -302,6 +304,7 @@ class Registry(Generic[Context]):
 			raise ValueError("Cannot specify both 'domains' and 'allowed_domains' - they are aliases for the same parameter")
 
 		final_domains = allowed_domains if allowed_domains is not None else domains
+		final_risk_tags = tuple(risk_tags or ())
 
 		def decorator(func: Callable):
 			# Skip registration if action is in exclude_actions
@@ -318,6 +321,8 @@ class Registry(Generic[Context]):
 				param_model=actual_param_model,
 				domains=final_domains,
 				terminates_sequence=terminates_sequence,
+				risk_tags=final_risk_tags,
+				requires_human_review=requires_human_review,
 			)
 			self.registry.actions[func.__name__] = action
 
