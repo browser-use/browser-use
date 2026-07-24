@@ -16,6 +16,7 @@ from browser_use.llm.exceptions import ModelOutputTruncatedError, ModelProviderE
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
+from browser_use.llm.utils import clean_and_extract_json
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
@@ -214,9 +215,12 @@ class ChatOpenAI(BaseChatModel):
 						model=self.name,
 					)
 
+				raw_content = choice.message.content or ''
+				cleaned_content, thinking = clean_and_extract_json(raw_content)
 				usage = self._get_usage(response)
 				return ChatInvokeCompletion(
-					completion=choice.message.content or '',
+					completion=cleaned_content,
+					thinking=thinking,
 					usage=usage,
 					stop_reason=choice.finish_reason,
 				)
@@ -296,12 +300,15 @@ class ChatOpenAI(BaseChatModel):
 						model=self.name,
 					)
 
+				raw_content = choice.message.content or ''
+				cleaned_content, thinking = clean_and_extract_json(raw_content)
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(choice.message.content)
+				parsed = output_format.model_validate_json(cleaned_content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
+					thinking=thinking,
 					usage=usage,
 					stop_reason=choice.finish_reason,
 				)
