@@ -14,7 +14,14 @@ from unittest.mock import AsyncMock
 from browser_use.agent.service import Agent
 from browser_use.agent.views import ActionResult, AgentHistory, AgentHistoryList, RerunSummaryAction, StepMetadata
 from browser_use.browser.views import BrowserStateHistory
-from browser_use.dom.views import DOMInteractedElement, DOMRect, MatchLevel, NodeType
+from browser_use.dom.views import (
+	DOMInteractedElement,
+	DOMRect,
+	EnhancedAXNode,
+	EnhancedDOMTreeNode,
+	MatchLevel,
+	NodeType,
+)
 from tests.ci.conftest import create_mock_llm
 
 
@@ -556,3 +563,41 @@ def test_is_menu_item_element_returns_false_for_regular_element():
 	)
 
 	assert agent._is_menu_item_element(regular_element) is False
+
+
+def test_load_from_enhanced_dom_tree_preserves_empty_ax_name():
+	"""Test that an explicit empty accessibility name is preserved as empty string."""
+	ax_node = EnhancedAXNode(
+		ax_node_id='ax-1',
+		ignored=False,
+		role='generic',
+		name='',
+		description=None,
+		properties=None,
+		child_ids=None,
+	)
+	enhanced_tree = EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='DIV',
+		node_value='',
+		attributes={},
+		is_scrollable=None,
+		is_visible=None,
+		absolute_position=None,
+		target_id='test-target',
+		frame_id=None,
+		session_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=None,
+		ax_node=ax_node,
+		snapshot_node=None,
+	)
+
+	interacted = DOMInteractedElement.load_from_enhanced_dom_tree(enhanced_tree)
+
+	assert interacted.ax_name == ''
