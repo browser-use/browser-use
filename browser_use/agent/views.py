@@ -826,9 +826,9 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 		for h in self.history:
 			if h.model_output:
-				# Guard against None interacted_element before zipping
-				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
-				for action, interacted_element in zip(h.model_output.action, interacted_elements):
+				interacted_elements = h.state.interacted_element or []
+				for i, action in enumerate(h.model_output.action):
+					interacted_element = interacted_elements[i] if i < len(interacted_elements) else None
 					output = action.model_dump(exclude_none=True, mode='json')
 					output['interacted_element'] = interacted_element
 					outputs.append(output)
@@ -841,10 +841,10 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		for h in self.history:
 			step_actions = []
 			if h.model_output:
-				# Guard against None interacted_element before zipping
-				interacted_elements = h.state.interacted_element or [None] * len(h.model_output.action)
-				# Zip actions with interacted elements and results
-				for action, interacted_element, result in zip(h.model_output.action, interacted_elements, h.result):
+				interacted_elements = h.state.interacted_element or []
+				for i, action in enumerate(h.model_output.action):
+					interacted_element = interacted_elements[i] if i < len(interacted_elements) else None
+					result = h.result[i] if i < len(h.result) else None
 					action_output = action.model_dump(exclude_none=True, mode='json')
 					action_output['interacted_element'] = interacted_element
 					# Only keep long_term_memory from result
