@@ -179,9 +179,7 @@ async def test_plain_text_thinking_response_is_exposed(httpserver):
 	from browser_use.llm.deepseek.chat import ChatDeepSeek
 
 	requests: list[dict] = []
-	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_handler(
-		_record_text_with_reasoning(requests)
-	)
+	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_handler(_record_text_with_reasoning(requests))
 
 	llm = ChatDeepSeek(
 		model='deepseek-v4-flash',
