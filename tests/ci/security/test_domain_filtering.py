@@ -26,6 +26,44 @@ class TestUrlAllowlistSecurity:
 		# Make sure legitimate auth credentials still work
 		assert watchdog._is_url_allowed('https://user:password@example.com') is True
 
+	def test_full_url_pattern_requires_exact_host(self):
+		"""A full-URL allowed_domains pattern (e.g. 'https://example.com') must match the
+		pattern's exact host. A bare url.startswith(pattern) let prefix-collision and
+		userinfo hosts bypass the domain-containment guarantee."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['https://example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Legitimate matches on the exact host (any path) still pass
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://example.com/') is True
+		assert watchdog._is_url_allowed('https://example.com/path?q=1') is True
+
+		# Bypass vectors that a bare startswith() wrongly allowed must be blocked
+		assert watchdog._is_url_allowed('https://example.com.evil.com/') is False  # subdomain suffix
+		assert watchdog._is_url_allowed('https://example.com@evil.com/') is False  # userinfo host spoof
+		assert watchdog._is_url_allowed('https://example.computer.com/') is False  # prefix collision
+
+		# Scheme still has to match (http pattern prefix not satisfied by https origin, vice versa)
+		assert watchdog._is_url_allowed('http://example.com') is False
+
+		# The same helper backs prohibited_domains: the exact host stays blocked, while a
+		# prefix-collision / userinfo host is a *different* host and must not be matched
+		# (old startswith over-blocked these legitimate hosts).
+		browser_profile = BrowserProfile(prohibited_domains=['https://example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+		assert watchdog._is_url_allowed('https://example.com') is False  # exact host stays blocked
+		assert watchdog._is_url_allowed('https://example.com/path') is False
+		assert watchdog._is_url_allowed('https://example.com.evil.com/') is True  # different host, not prohibited
+		assert watchdog._is_url_allowed('https://example.computer.com/') is True  # different host, not prohibited
+
 	def test_glob_pattern_matching(self):
 		"""Test that glob patterns in allowed_domains work correctly."""
 		from bubus import EventBus
