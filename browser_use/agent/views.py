@@ -700,7 +700,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 
 	def last_action(self) -> None | dict:
 		"""Last action in history"""
-		if self.history and self.history[-1].model_output:
+		if self.history and self.history[-1].model_output and self.history[-1].model_output.action:
 			return self.history[-1].model_output.action[-1].model_dump(exclude_none=True, mode='json')
 		return None
 
