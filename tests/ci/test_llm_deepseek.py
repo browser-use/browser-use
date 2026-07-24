@@ -82,6 +82,34 @@ def _record_toolcall(requests: list[dict]):
 	return handler
 
 
+def _record_text_with_reasoning(requests: list[dict]):
+	"""Handler that returns a plain-text completion with DeepSeek reasoning."""
+
+	def handler(request: Request) -> Response:
+		requests.append(json.loads(request.get_data()))
+		body = {
+			'id': 'chatcmpl-test',
+			'object': 'chat.completion',
+			'created': 0,
+			'model': 'deepseek-test',
+			'choices': [
+				{
+					'index': 0,
+					'message': {
+						'role': 'assistant',
+						'content': 'final answer',
+						'reasoning_content': 'let me think...',
+					},
+					'finish_reason': 'stop',
+				}
+			],
+			'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2},
+		}
+		return Response(json.dumps(body), content_type='application/json')
+
+	return handler
+
+
 async def test_v4_default_is_non_thinking_and_forces_named_tool(httpserver):
 	"""deepseek-v4-flash defaults to non-thinking (drop-in for deprecated deepseek-chat):
 	must pin thinking=disabled and force a named tool so structured output is reliable."""
@@ -144,6 +172,28 @@ async def test_v4_thinking_enabled_downgrades_named_tool(httpserver):
 	assert sent['tool_choice'] == 'auto'
 	assert sent['thinking'] == {'type': 'enabled'}
 	assert sent['reasoning_effort'] == 'high'
+
+
+async def test_plain_text_thinking_response_is_exposed(httpserver):
+	"""Plain-text completions must surface DeepSeek's reasoning_content too."""
+	from browser_use.llm.deepseek.chat import ChatDeepSeek
+
+	requests: list[dict] = []
+	httpserver.expect_request('/v1/chat/completions', method='POST').respond_with_handler(
+		_record_text_with_reasoning(requests)
+	)
+
+	llm = ChatDeepSeek(
+		model='deepseek-v4-flash',
+		api_key='test-key',
+		base_url=httpserver.url_for('/v1'),
+		thinking={'type': 'enabled'},
+	)
+	result = await llm.ainvoke([UserMessage(content='hi')])
+
+	assert requests[0]['thinking'] == {'type': 'enabled'}
+	assert result.completion == 'final answer'
+	assert result.thinking == 'let me think...'
 
 
 async def test_thinking_disabled_forces_named_tool(httpserver):

@@ -202,8 +202,10 @@ class ChatDeepSeek(BaseChatModel):
 					messages=ds_messages,  # type: ignore
 					**common,
 				)
+				msg = resp.choices[0].message
 				return ChatInvokeCompletion(
-					completion=resp.choices[0].message.content or '',
+					completion=msg.content or '',
+					thinking=getattr(msg, 'reasoning_content', None),
 					usage=None,
 				)
 			except RateLimitError as e:
