@@ -12,7 +12,7 @@ def test_redact_sensitive_string_cascade():
 	}
 	input_str = 'My password is supersecret'
 	expected_correct = 'My password is <secret>password</secret>'
-	
+
 	actual = redact_sensitive_string(input_str, sensitive_values)
 	assert actual == expected_correct
 
@@ -28,7 +28,7 @@ def test_redact_sensitive_string_duplicate_keys():
 	}
 	input_str = 'Login with admin'
 	expected = 'Login with <secret>api_key, password</secret>'
-	
+
 	actual = redact_sensitive_string(input_str, sensitive_values)
 	assert actual == expected
 
@@ -44,7 +44,7 @@ def test_redact_sensitive_string_substrings():
 	}
 	input_str = 'Match abcdef and abc'
 	expected = 'Match <secret>long</secret> and <secret>short</secret>'
-	
+
 	actual = redact_sensitive_string(input_str, sensitive_values)
 	assert actual == expected
 
@@ -59,6 +59,37 @@ def test_redact_sensitive_string_falsy_values():
 	}
 	input_str = 'Input is safe'
 	expected = 'Input is <secret>valid_pwd</secret>'
-	
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_secret_inside_tag():
+	"""
+	Verify that if a raw secret is wrapped in a pre-existing <secret> tag,
+	the raw secret value inside the tag is correctly replaced with the placeholder.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+	}
+	input_str = '<secret>supersecret</secret> and some raw supersecret'
+	expected = '<secret>password</secret> and some raw <secret>password</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
+def test_redact_sensitive_string_multiline_tag():
+	"""
+	Verify that pre-existing tags containing newlines are correctly matched
+	and skipped, rather than causing cascade re-redactions inside tag boundaries.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+		'key': 'secret',
+	}
+	input_str = '<secret>first_line\nsecond_line</secret> and supersecret'
+	expected = '<secret>first_line\nsecond_line</secret> and <secret>password</secret>'
+
 	actual = redact_sensitive_string(input_str, sensitive_values)
 	assert actual == expected
