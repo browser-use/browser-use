@@ -132,6 +132,22 @@ def test_redact_sensitive_string_secret_spanning_tags():
 	assert 'abc</secret>xyz<secret>def' not in actual
 
 
+def test_redact_sensitive_string_nested_pre_existing_tags():
+	"""
+	Verify that nested pre-existing <secret> tags are parsed using balanced
+	boundaries, not at the first closing tag. The outer tag's inner content
+	(including nested tags) should be redacted and re-wrapped correctly.
+	"""
+	sensitive_values = {
+		'password': 'supersecret',
+	}
+	input_str = '<secret>outer <secret>supersecret</secret> inner</secret>'
+	expected = '<secret>outer <secret>password</secret> inner</secret>'
+
+	actual = redact_sensitive_string(input_str, sensitive_values)
+	assert actual == expected
+
+
 def test_redact_sensitive_string_unsorted_input():
 	"""
 	Verify that when keys are supplied in non-alphabetical order and share a

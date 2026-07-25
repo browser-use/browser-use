@@ -125,12 +125,54 @@ def _get_redact_pattern_and_mapping(
 	return pattern, replacement_mapping, plain_mapping
 
 
+def _split_secret_tags(value: str) -> list[str]:
+	"""Split *value* around balanced ``<secret>...</secret>`` pairs.
+
+	Returns a list of alternating segments: plain text, tag inner content, plain
+	text, ... Unclosed or stray tags are left as plain text.
+	"""
+	open_tag = '<secret>'
+	close_tag = '</secret>'
+	open_len = len(open_tag)
+	close_len = len(close_tag)
+
+	positions: list[tuple[int, int]] = []
+	stack: list[int] = []
+	i = 0
+	n = len(value)
+
+	while i < n:
+		if value.startswith(open_tag, i):
+			stack.append(i)
+			i += open_len
+		elif value.startswith(close_tag, i):
+			if stack:
+				start = stack.pop()
+				if not stack:
+					positions.append((start, i + close_len))
+			i += close_len
+		else:
+			i += 1
+
+	parts = []
+	last = 0
+	for start, end in positions:
+		parts.append(value[last:start])
+		parts.append(value[start + open_len : end - close_len])
+		last = end
+	parts.append(value[last:])
+
+	return parts
+
+
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
 
 	Raw secrets are matched in a single pass via a cached literal-only regex, and
 	pre-existing ``<secret>...</secret>`` tags are split out beforehand so their
-	inner contents are redacted separately without re-scanning for tags.
+	inner contents are redacted separately without re-scanning for tags. Balanced
+	tag pairs are respected, so nested or overlapping tags are not broken at the
+	first closing marker.
 	"""
 	if not isinstance(value, str) or not value or not sensitive_values:
 		return value
@@ -141,15 +183,15 @@ def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str
 	if not pattern:
 		return value
 
-	# Split on existing tags: odd-indexed parts are tag contents (between the
-	# <secret> and </secret> markers), even-indexed parts are unredacted text.
-	parts = re.split(r'(<secret>[\s\S]*?</secret>)', value)
+	# Split on balanced existing tags: odd-indexed parts are tag contents, even
+	# parts are unredacted text.
+	parts = _split_secret_tags(value)
 	for i, part in enumerate(parts):
 		if i % 2 == 1:
 			# Existing tag: redact raw secrets inside it, longest-first.
-			inner = part[len('<secret>') : -len('</secret>')]
-			if not inner:
+			if not part:
 				continue
+			inner = part
 			for secret, keys_str in plain_mapping:
 				if secret in inner:
 					inner = inner.replace(secret, keys_str)
