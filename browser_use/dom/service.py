@@ -34,6 +34,12 @@ if TYPE_CHECKING:
 _MAX_JS_CLICK_LISTENER_ELEMENTS = 100
 _DESCRIBE_NODE_BATCH_SIZE = 20
 _JS_CLICK_LISTENER_OVERFLOW = '__browser_use_too_many_click_listeners__'
+_MIN_CROSS_ORIGIN_IFRAME_EDGE = 10
+
+
+def _is_cross_origin_iframe_size_eligible(width: float, height: float) -> bool:
+	"""Include cross-origin frames that are at least 10px in each dimension."""
+	return width >= _MIN_CROSS_ORIGIN_IFRAME_EDGE and height >= _MIN_CROSS_ORIGIN_IFRAME_EDGE
 
 
 class DomService:
@@ -701,6 +707,7 @@ class DomService:
 		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
 		initial_total_frame_offset: DOMRect | None = None,
 		iframe_depth: int = 0,
+		visited_cross_origin_targets: set[TargetID] | None = None,
 	) -> tuple[EnhancedDOMTreeNode, dict[str, float]]:
 		"""Get the DOM tree for a specific target.
 
@@ -710,10 +717,14 @@ class DomService:
 			initial_html_frames: List of HTML frame nodes encountered so far
 			initial_total_frame_offset: Accumulated coordinate offset
 			iframe_depth: Current depth of iframe nesting to prevent infinite recursion
+			visited_cross_origin_targets: Target IDs already included in this DOM capture
 
 		Returns:
 			Tuple of (enhanced_dom_tree_node, timing_info)
 		"""
+		if visited_cross_origin_targets is None:
+			visited_cross_origin_targets = {target_id}
+
 		timing_info: dict[str, float] = {}
 		timing_start_total = time.time()
 
@@ -958,7 +969,7 @@ class DomService:
 						f'Skipping iframe at depth {iframe_depth} to prevent infinite recursion (max depth: {self.max_iframe_depth})'
 					)
 				else:
-					# Check if iframe is visible and large enough (>= 50px in both dimensions)
+					# Ignore only frames smaller than 10px in either dimension.
 					should_process_iframe = False
 
 					# First check if the iframe element itself is visible
@@ -969,13 +980,13 @@ class DomService:
 							width = bounds.width
 							height = bounds.height
 
-							# Only process if iframe is at least 50px in both dimensions
-							if width >= 50 and height >= 50:
+							if _is_cross_origin_iframe_size_eligible(width, height):
 								should_process_iframe = True
 								self.logger.debug(f'Processing cross-origin iframe: visible=True, width={width}, height={height}')
 							else:
 								self.logger.debug(
-									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 50px)'
+									f'Skipping small cross-origin iframe: width={width}, height={height} '
+									f'(needs >= {_MIN_CROSS_ORIGIN_IFRAME_EDGE}px per edge)'
 								)
 						else:
 							self.logger.debug('Skipping cross-origin iframe: no bounds available')
@@ -1025,16 +1036,26 @@ class DomService:
 
 						# if target actually exists in one of the frames, just recursively build the dom tree for it
 						if iframe_document_target:
+							child_target_id = iframe_document_target['targetId']
+							traversed_child_count = len(visited_cross_origin_targets) - 1
+							if child_target_id in visited_cross_origin_targets or traversed_child_count >= self.max_iframes:
+								self.logger.debug(
+									f'Skipping duplicate or over-limit cross-origin iframe target {child_target_id}'
+								)
+								return dom_tree_node
+
+							visited_cross_origin_targets.add(child_target_id)
 							self.logger.debug(
 								f'Getting content document for iframe {node.get("frameId", None)} at depth {iframe_depth + 1}'
 							)
 							try:
 								content_document, _ = await self.get_dom_tree(
-									target_id=iframe_document_target['targetId'],
+									target_id=child_target_id,
 									all_frames=all_frames,
 									# Current config: if the cross origin iframe is AT ALL visible, include everything inside it
 									initial_total_frame_offset=total_frame_offset,
 									iframe_depth=iframe_depth + 1,
+									visited_cross_origin_targets=visited_cross_origin_targets,
 								)
 								dom_tree_node.content_document = content_document
 								dom_tree_node.content_document.parent_node = dom_tree_node

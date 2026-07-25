@@ -4,7 +4,6 @@ import asyncio
 import logging
 import re
 import time
-from dataclasses import replace
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, Union, cast, overload
@@ -55,7 +54,7 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
-from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, TargetInfo
+from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, SerializedDOMState, TargetInfo
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
 
@@ -562,7 +561,6 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_cached_selector_indices: dict[tuple[str, int], int] = PrivateAttr(default_factory=dict)
-	_consecutive_state_refresh_timeouts: int = PrivateAttr(default=0)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
 	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
 
@@ -663,7 +661,6 @@ class BrowserSession(BaseModel):
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._cached_selector_indices.clear()
-		self._consecutive_state_refresh_timeouts = 0
 		self._downloaded_files.clear()
 
 		self.agent_focus_target_id = None
@@ -1236,7 +1233,6 @@ class BrowserSession(BaseModel):
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self._cached_selector_indices.clear()
-		self._consecutive_state_refresh_timeouts = 0
 		self.logger.debug('🔄 Cached browser state cleared')
 
 		# Update agent focus if a specific target_id is provided (only for page/tab targets)
@@ -1621,32 +1617,56 @@ class BrowserSession(BaseModel):
 			),
 		)
 
-		# The handler returns the BrowserStateSummary directly. If the remote
-		# browser stops answering long enough for the whole state event to time
-		# out, preserve agent recovery by returning the last known DOM instead of
-		# skipping the model call repeatedly. Never reuse a stale screenshot.
+		# The handler returns the BrowserStateSummary directly. If the complete state
+		# request times out, return a non-actionable state so the model can recover
+		# without exposing selectors from an earlier page.
 		try:
 			result = await event.event_result(raise_if_none=True, raise_if_any=True)
 		except TimeoutError:
-			self._consecutive_state_refresh_timeouts += 1
-			if self._consecutive_state_refresh_timeouts > 1:
-				raise
+			state_error = (
+				'Browser state capture timed out. The current DOM and screenshot are unavailable, '
+				'so no element indices are safe to use. Recover with navigation, waiting, or another non-indexed action.'
+			)
+			empty_dom_state = SerializedDOMState(_root=None, selector_map={})
+
+			# Clear every action lookup path before calling the model.
+			self.update_cached_selector_map({})
+			if self._dom_watchdog is not None:
+				self._dom_watchdog.clear_cache()
 
 			cached_state = self._cached_browser_state_summary
-			if cached_state is None or cached_state.dom_state is None:
-				raise
-
-			self.logger.warning('Browser state refresh timed out; returning the last known DOM without a screenshot')
-			return replace(
-				cached_state,
-				screenshot=None,
-				browser_errors=[
-					*cached_state.browser_errors,
-					'Browser state refresh timed out; this is the last known page state.',
-				],
+			current_target = (
+				self.session_manager.get_target(self.agent_focus_target_id)
+				if self.session_manager is not None and self.agent_focus_target_id is not None
+				else None
 			)
+			url = (
+				current_target.url
+				if current_target and current_target.url
+				else cached_state.url
+				if cached_state
+				else 'about:blank'
+			)
+			title = (
+				current_target.title
+				if current_target and current_target.title
+				else cached_state.title
+				if cached_state
+				else 'Browser state unavailable'
+			)
+			tabs = [TabInfo(url=url, title=title, target_id=current_target.target_id)] if current_target else []
 
-		self._consecutive_state_refresh_timeouts = 0
+			result = BrowserStateSummary(
+				dom_state=empty_dom_state,
+				url=url,
+				title=title,
+				tabs=tabs,
+				screenshot=None,
+				browser_errors=[state_error],
+				state_error=state_error,
+			)
+			self._cached_browser_state_summary = result
+
 		assert result is not None and result.dom_state is not None
 		return result
 

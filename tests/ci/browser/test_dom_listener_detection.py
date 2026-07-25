@@ -5,6 +5,8 @@ from collections import Counter
 
 import pytest
 
+from browser_use.agent.service import Agent
+from browser_use.browser.events import BrowserStateRequestEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.browser.watchdogs import dom_watchdog
@@ -113,26 +115,111 @@ async def test_screenshot_timeout_preserves_structural_dom(httpserver, browser_s
 	assert any(node.attributes.get('id') == 'continue' for node in state.dom_state.selector_map.values())
 
 
-async def test_state_timeout_returns_cached_dom_without_screenshot(httpserver, browser_session: BrowserSession, monkeypatch):
-	"""A whole-state timeout should still let the model receive the last known DOM."""
+async def test_whole_state_timeout_returns_model_visible_non_actionable_state(
+	httpserver, browser_session: BrowserSession, monkeypatch
+):
+	"""A whole-state timeout must call the model without exposing earlier selectors."""
 	httpserver.expect_request('/cached-state').respond_with_data(
 		'<html><body><button id="continue">Continue</button></body></html>',
 		content_type='text/html',
 	)
 	await browser_session.navigate_to(httpserver.url_for('/cached-state'))
 	initial_state = await browser_session.get_browser_state_summary(include_screenshot=False)
+	assert initial_state.dom_state.selector_map
 
 	class TimedOutStateEvent:
 		async def event_result(self, **_kwargs):
 			raise TimeoutError
 
+	original_dispatch = browser_session.event_bus.dispatch
+	monkeypatch.setattr(
+		browser_session.event_bus,
+		'dispatch',
+		lambda event: TimedOutStateEvent() if isinstance(event, BrowserStateRequestEvent) else original_dispatch(event),
+	)
+
+	state = await browser_session.get_browser_state_summary(include_screenshot=True)
+
+	assert state.dom_state.selector_map == {}
+	assert await browser_session.get_selector_map() == {}
+	assert state.screenshot is None
+	assert state.state_error is not None
+	assert 'no element indices are safe to use' in state.state_error
+	assert browser_session._cached_browser_state_summary is state
+
+
+async def test_fresh_state_after_timeout_repopulates_selector_map(httpserver, browser_session: BrowserSession, monkeypatch):
+	"""A timeout must not prevent the next successful state capture from rebuilding selectors."""
+	httpserver.expect_request('/recover-state').respond_with_data(
+		'<html><body><button id="continue">Continue</button></body></html>',
+		content_type='text/html',
+	)
+	await browser_session.navigate_to(httpserver.url_for('/recover-state'))
+	initial_state = await browser_session.get_browser_state_summary(include_screenshot=False)
+	assert initial_state.dom_state.selector_map
+
+	async def hang_dom_build(_watchdog: DOMWatchdog, _previous_state=None):
+		await asyncio.Future()
+
+	with monkeypatch.context() as timeout_patch:
+		timeout_patch.setenv('TIMEOUT_BrowserStateRequestEvent', '0.1')
+		timeout_patch.setattr(DOMWatchdog, '_build_dom_tree_without_highlights', hang_dom_build)
+		timed_out_state = await browser_session.get_browser_state_summary(include_screenshot=False)
+
+	assert timed_out_state.dom_state.selector_map == {}
+	assert await browser_session.get_selector_map() == {}
+
+	recovered_state = await browser_session.get_browser_state_summary(include_screenshot=False)
+	recovered_nodes = recovered_state.dom_state.selector_map
+	continue_index = next(index for index, node in recovered_nodes.items() if node.attributes.get('id') == 'continue')
+
+	assert recovered_state.state_error is None
+	assert await browser_session.get_element_by_index(continue_index) is recovered_nodes[continue_index]
+
+
+async def test_initial_state_timeout_still_returns_model_visible_state(browser_session: BrowserSession, monkeypatch):
+	"""The first state timeout must not require an earlier cached state."""
+
+	class TimedOutStateEvent:
+		async def event_result(self, **_kwargs):
+			raise TimeoutError
+
+	assert browser_session._cached_browser_state_summary is None
 	monkeypatch.setattr(browser_session.event_bus, 'dispatch', lambda _event: TimedOutStateEvent())
 
-	recovered_state = await browser_session.get_browser_state_summary(include_screenshot=True)
+	state = await browser_session.get_browser_state_summary(include_screenshot=True)
 
-	assert recovered_state.screenshot is None
-	assert recovered_state.dom_state is initial_state.dom_state
-	assert recovered_state.browser_errors[-1] == 'Browser state refresh timed out; this is the last known page state.'
+	assert state.dom_state.selector_map == {}
+	assert state.screenshot is None
+	assert state.state_error is not None
+	assert state.url
 
-	with pytest.raises(TimeoutError):
-		await browser_session.get_browser_state_summary(include_screenshot=True)
+
+async def test_agent_still_calls_model_after_state_timeout(browser_session: BrowserSession, mock_llm, monkeypatch):
+	"""Returning the minimal state must let the normal model/action loop continue."""
+
+	class TimedOutStateEvent:
+		async def event_result(self, **_kwargs):
+			raise TimeoutError
+
+	original_dispatch = browser_session.event_bus.dispatch
+	monkeypatch.setattr(
+		browser_session.event_bus,
+		'dispatch',
+		lambda event: TimedOutStateEvent() if isinstance(event, BrowserStateRequestEvent) else original_dispatch(event),
+	)
+	model_call_count = 0
+	original_ainvoke = mock_llm.ainvoke
+
+	async def counted_ainvoke(*args, **kwargs):
+		nonlocal model_call_count
+		model_call_count += 1
+		return await original_ainvoke(*args, **kwargs)
+
+	monkeypatch.setattr(mock_llm, 'ainvoke', counted_ainvoke)
+	agent = Agent(task='Finish after inspecting the available state.', llm=mock_llm, browser_session=browser_session)
+
+	history = await agent.run(max_steps=1)
+
+	assert model_call_count >= 1
+	assert history.is_done() is True

@@ -298,6 +298,10 @@ class AgentMessagePrompt:
 
 		current_tab_text = f'Current tab: {current_target_id[-4:]}' if current_target_id is not None else ''
 
+		state_error_text = ''
+		if state_error := getattr(self.browser_state, 'state_error', None):
+			state_error_text = f'<browser_state_error>{state_error}</browser_state_error>\n'
+
 		# Check if current page is a PDF viewer and add appropriate message
 		pdf_message = ''
 		if self.browser_state.is_pdf_viewer:
@@ -325,7 +329,7 @@ class AgentMessagePrompt:
 Available tabs:
 {tabs_text}
 {page_info_text}
-{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
+{state_error_text}{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
 {elements_text}
 """
 		return browser_state
