@@ -7,7 +7,7 @@ import signal
 import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
-from functools import cache, wraps
+from functools import cache, lru_cache, wraps
 from pathlib import Path
 from sys import stderr
 from typing import Any, ParamSpec, TypeVar
@@ -73,11 +73,59 @@ def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]
 	return sensitive_values
 
 
+@lru_cache(maxsize=128)
+def _get_redact_pattern_and_mapping(
+	sensitive_values_tuple: tuple[tuple[str, str], ...],
+) -> tuple[re.Pattern[str] | None, dict[str, str]]:
+	"""Build and compile a single-pass regex pattern and a lookup map.
+
+	This function is cached to prevent re-compilation overhead across operations.
+	"""
+	secret_to_keys: dict[str, list[str]] = {}
+	for key, secret in sensitive_values_tuple:
+		key_str = str(key)
+		secret_str = str(secret)
+		if not secret_str:
+			continue
+		secret_to_keys.setdefault(secret_str, []).append(key_str)
+
+	if not secret_to_keys:
+		return None, {}
+
+	sorted_secrets = sorted(secret_to_keys.keys(), key=len, reverse=True)
+	escaped_secrets = [re.escape(s) for s in sorted_secrets]
+	pattern_str = r'(<secret>.*?</secret>)|(' + '|'.join(escaped_secrets) + ')'
+	pattern = re.compile(pattern_str)
+
+	replacement_mapping = {
+		secret: f'<secret>{", ".join(sorted(keys))}</secret>'
+		for secret, keys in secret_to_keys.items()
+	}
+
+	return pattern, replacement_mapping
+
+
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
-	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	for key, secret in sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True):
-		value = value.replace(secret, f'<secret>{key}</secret>')
-	return value
+	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks.
+
+	Uses a cached single-pass regex replacement to avoid cascade re-redaction.
+	"""
+	if not isinstance(value, str) or not value or not sensitive_values:
+		return value
+
+	sensitive_tuple = tuple(sorted((str(k), str(v)) for k, v in sensitive_values.items()))
+	pattern, mapping = _get_redact_pattern_and_mapping(sensitive_tuple)
+
+	if not pattern:
+		return value
+
+	def replace(match: re.Match[str]) -> str:
+		if match.group(1) is not None:
+			return match.group(1)
+		secret = match.group(2)
+		return mapping[secret]
+
+	return pattern.sub(replace, value)
 
 
 def _get_openai_bad_request_error() -> type | None:
