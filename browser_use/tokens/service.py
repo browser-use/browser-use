@@ -227,21 +227,26 @@ class TokenCost:
 		if data is None:
 			return None
 
-		uncached_prompt_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0)
 		pricing_multiplier = usage.pricing_multiplier or 1.0
 
+		# Calculate cache creation tokens and cost
 		cache_creation_5m_tokens = usage.prompt_cache_creation_5m_tokens
 		cache_creation_1h_tokens = usage.prompt_cache_creation_1h_tokens
 		if cache_creation_5m_tokens is not None or cache_creation_1h_tokens is not None:
+			cache_creation_total = (cache_creation_5m_tokens or 0) + (cache_creation_1h_tokens or 0)
 			prompt_cache_creation_cost = (cache_creation_5m_tokens or 0) * (data.cache_creation_input_token_cost or 0) + (
 				cache_creation_1h_tokens or 0
 			) * (data.cache_creation_1h_input_token_cost or data.cache_creation_input_token_cost or 0)
 		else:
+			cache_creation_total = usage.prompt_cache_creation_tokens or 0
 			prompt_cache_creation_cost = (
 				usage.prompt_cache_creation_tokens * data.cache_creation_input_token_cost
 				if data.cache_creation_input_token_cost and usage.prompt_cache_creation_tokens
 				else None
 			)
+
+		# Subtract both cached-read and cache-creation tokens to avoid double-counting
+		uncached_prompt_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0) - cache_creation_total
 
 		return TokenCostCalculated(
 			new_prompt_tokens=usage.prompt_tokens,
