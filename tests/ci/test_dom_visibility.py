@@ -6,7 +6,7 @@ node must not be transformed by its own bounds when it appears in its own
 frame chain (as built by _construct_enhanced_node).
 """
 
-from browser_use.dom.service import DomService
+from browser_use.dom.service import DomService, _is_cross_origin_iframe_size_eligible
 from browser_use.dom.views import DOMRect, EnhancedDOMTreeNode, EnhancedSnapshotNode, NodeType
 
 
@@ -101,3 +101,29 @@ class TestVisibilityDoesNotMutateBounds:
 		assert visible is True
 		assert iframe.snapshot_node is not None and iframe.snapshot_node.bounds is not None
 		assert iframe.snapshot_node.bounds.y == 1200
+
+
+class TestCrossOriginIframeSizeEligibility:
+	def test_accepts_wide_secure_card_field(self):
+		"""Hosted card fields are often only 40px tall but have enough area to be interactive."""
+		assert _is_cross_origin_iframe_size_eligible(width=250, height=40) is True
+
+	def test_accepts_compact_secure_cvv_field(self):
+		"""A compact CVV frame must not be dropped solely because both edges are below 50px."""
+		assert _is_cross_origin_iframe_size_eligible(width=90, height=40) is True
+
+	def test_rejects_tiny_tracking_frame(self):
+		"""Pixel-sized web beacons and one-pixel strips must stay excluded."""
+		assert _is_cross_origin_iframe_size_eligible(width=1, height=1) is False
+		assert _is_cross_origin_iframe_size_eligible(width=1, height=2500) is False
+
+	def test_accepts_exact_minimum_size(self):
+		assert _is_cross_origin_iframe_size_eligible(width=10, height=10) is True
+
+	def test_accepts_native_checkbox_sized_frame(self):
+		"""Chromium renders an unstyled native checkbox at roughly 13x13 CSS pixels."""
+		assert _is_cross_origin_iframe_size_eligible(width=13, height=13) is True
+
+	def test_rejects_frames_below_the_minimum_edge(self):
+		assert _is_cross_origin_iframe_size_eligible(width=9, height=100) is False
+		assert _is_cross_origin_iframe_size_eligible(width=100, height=9) is False

@@ -3550,6 +3550,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return action
 
 		selector_map = browser_state_summary.dom_state.selector_map
+		selector_items = list(selector_map.items())
+		if historical_element.frame_id:
+			same_frame_items = [
+				(index, element) for index, element in selector_items if element.frame_id == historical_element.frame_id
+			]
+			if same_frame_items:
+				selector_items = same_frame_items + [
+					(index, element) for index, element in selector_items if element.frame_id != historical_element.frame_id
+				]
 		highlight_index: int | None = None
 		match_level: MatchLevel | None = None
 
@@ -3563,7 +3572,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			hist_name = historical_element.node_name.lower()
 			matching_nodes = [
 				(idx, elem.node_name, elem.attributes.get('name') if elem.attributes else None)
-				for idx, elem in selector_map.items()
+				for idx, elem in selector_items
 				if elem.node_name.lower() == hist_name
 			]
 			self.logger.info(
@@ -3572,7 +3581,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 
 		# Level 1: EXACT hash match
-		for idx, elem in selector_map.items():
+		for idx, elem in selector_items:
 			if elem.element_hash == historical_element.element_hash:
 				highlight_index = idx
 				match_level = MatchLevel.EXACT
@@ -3584,7 +3593,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Level 2: STABLE hash match (dynamic classes filtered)
 		# Use stored stable_hash (computed at save time from EnhancedDOMTreeNode - single source of truth)
 		if highlight_index is None and historical_element.stable_hash is not None:
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				if elem.compute_stable_hash() == historical_element.stable_hash:
 					highlight_index = idx
 					match_level = MatchLevel.STABLE
@@ -3597,7 +3606,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Level 3: XPATH match
 		if highlight_index is None and historical_element.x_path:
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				if elem.xpath == historical_element.x_path:
 					highlight_index = idx
 					match_level = MatchLevel.XPATH
@@ -3612,7 +3621,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if highlight_index is None and historical_element.ax_name:
 			hist_name = historical_element.node_name.lower()
 			hist_ax_name = historical_element.ax_name
-			for idx, elem in selector_map.items():
+			for idx, elem in selector_items:
 				# Match by node type and accessible name
 				elem_ax_name = elem.ax_node.name if elem.ax_node else None
 				if elem.node_name.lower() == hist_name and elem_ax_name == hist_ax_name:
@@ -3624,7 +3633,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Log available ax_names for debugging
 				same_type_ax_names = [
 					(idx, elem.ax_node.name if elem.ax_node else None)
-					for idx, elem in selector_map.items()
+					for idx, elem in selector_items
 					if elem.node_name.lower() == hist_name and elem.ax_node and elem.ax_node.name
 				]
 				self.logger.debug(
@@ -3641,7 +3650,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Try matching by unique identifiers: name, id, or aria-label
 			for attr_key in ['name', 'id', 'aria-label']:
 				if attr_key in hist_attrs and hist_attrs[attr_key]:
-					for idx, elem in selector_map.items():
+					for idx, elem in selector_items:
 						if (
 							elem.node_name.lower() == hist_name
 							and elem.attributes
@@ -3659,7 +3668,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Log what was tried and what's available on the page for debugging
 				same_node_elements = [
 					(idx, elem.attributes.get('aria-label') or elem.attributes.get('id') or elem.attributes.get('name'))
-					for idx, elem in selector_map.items()
+					for idx, elem in selector_items
 					if elem.node_name.lower() == hist_name and elem.attributes
 				]
 				self.logger.info(
